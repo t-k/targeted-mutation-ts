@@ -1,4 +1,6 @@
-import Lean
+import Lean.Data.Json.Parser
+import Lean.Data.Json.Printer
+import Lean.Data.Json.FromToJson.Basic
 
 open Lean
 

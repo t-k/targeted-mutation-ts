@@ -1,0 +1,3 @@
+Input: String, Buffer, Uint8, DataView, ArrayBuffer
+Text: ASCII, Unicode, Invalid
+Syntax: L1, Fallback

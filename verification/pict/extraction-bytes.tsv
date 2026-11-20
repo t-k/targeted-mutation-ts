@@ -1,0 +1,16 @@
+Input	Text	Syntax
+Buffer	Unicode	L1
+ArrayBuffer	Invalid	L1
+DataView	Unicode	Fallback
+Uint8	Unicode	L1
+Uint8	ASCII	Fallback
+DataView	ASCII	L1
+Uint8	Invalid	Fallback
+ArrayBuffer	ASCII	Fallback
+ArrayBuffer	Unicode	Fallback
+String	Unicode	Fallback
+Buffer	ASCII	Fallback
+String	ASCII	L1
+DataView	Invalid	Fallback
+String	Invalid	L1
+Buffer	Invalid	L1

@@ -18,7 +18,11 @@
     "audit:extraction": "node scripts/audit-extraction.mjs",
     "build:lean": "node scripts/build-lean.mjs",
     "test:e2e": "node --test test/playwright.integration.mjs",
-    "evidence:m3": "node scripts/evidence-m3.mjs"
+    "evidence:m3": "node scripts/evidence-m3.mjs",
+    "bench:extraction": "node scripts/bench-extraction.mjs",
+    "bench:analysis": "node scripts/bench-analysis.mjs",
+    "pack:runtime": "npm run build:native && npm run build:lean && node scripts/pack-runtime.mjs",
+    "test:package": "node scripts/test-package.mjs"
   },
   "dependencies": {
     "@playwright/test": "1.65.1",
@@ -29,5 +33,14 @@
   "devDependencies": {
     "@stryker-mutator/core": "10.1.1",
     "@stryker-mutator/vitest-runner": "10.1.1"
-  }
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "build/tmt.node",
+    "build/tmt-decide",
+    "README.md",
+    "docs/",
+    "evidence/"
+  ]
 }

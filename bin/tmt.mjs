@@ -5,6 +5,10 @@ import { extract } from '../src/extract.mjs';
 import { parseArgs } from 'node:util';
 import { runPrototype } from '../src/prototype.mjs';
 
+const usage = 'Usage: tmt-ts extract FILE [--mode script|module] [--dialect ts|tsx]\n' +
+  '       tmt-ts analyze [PROJECT] [FILE...] [--lines FILE:FROM-TO] [--since REV] [--spec FILE] [--deterministic] [--audit] [--runner vitest|playwright] [--project NAME] [--config FILE]\n' +
+  '       tmt-ts prototype PROJECT FILE [--spec FILE]';
+
 try {
   const [command, ...args] = process.argv.slice(2);
   const { positionals, values } = parseArgs({
@@ -12,10 +16,12 @@ try {
       spec: { type: 'string' }, mode: { type: 'string' }, dialect: { type: 'string' },
       lines: { type: 'string', multiple: true }, since: { type: 'string' },
       deterministic: { type: 'boolean' }, audit: { type: 'boolean' },
-      runner: { type: 'string' }, project: { type: 'string', multiple: true }, config: { type: 'string' },
+      help: { type: 'boolean', short: 'h' }, runner: { type: 'string' }, project: { type: 'string', multiple: true }, config: { type: 'string' },
     },
   });
-  if (command === 'extract' && positionals.length === 1) {
+  if (!command || ['help', '--help', '-h'].includes(command) || values.help) {
+    console.log(usage);
+  } else if (command === 'extract' && positionals.length === 1) {
     const [file] = positionals;
     const result = extract(readFileSync(file), { file, mode: values.mode, dialect: values.dialect });
     console.log(JSON.stringify(result, null, 2));
@@ -29,9 +35,7 @@ try {
   } else if (command === 'prototype' && positionals.length === 2) {
     console.log(JSON.stringify(runPrototype(...positionals, values), null, 2));
   } else {
-    throw new Error('Usage: tmt-ts extract FILE [--mode script|module] [--dialect ts|tsx]\n' +
-      '       tmt-ts analyze [PROJECT] [FILE...] [--lines FILE:FROM-TO] [--since REV] [--spec FILE] [--deterministic] [--audit] [--runner vitest|playwright]\n' +
-      '       tmt-ts prototype PROJECT FILE [--spec FILE]');
+    throw new Error(usage);
   }
 } catch (error) {
   console.error(error.message);

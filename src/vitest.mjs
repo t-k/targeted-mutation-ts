@@ -2,11 +2,15 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const reporter = fileURLToPath(new URL('./vitest-reporter.mjs', import.meta.url));
-const dependencies = resolve(fileURLToPath(new URL('..', import.meta.url)), 'node_modules');
+const toolDependencies = [
+  { name: 'vitest', bin: 'vitest.mjs', command: 'vitest' },
+  { name: '@playwright/test', bin: 'cli.js', command: 'playwright' },
+  { name: 'typescript' },
+];
 const excluded = new Set(['.git', '.worktree', 'docs.local', 'node_modules', 'reports', '.stryker-tmp']);
 
 export function inside(root, path) {
@@ -28,7 +32,20 @@ export function withCopy(project, action) {
       filter: path => path === source || !relative(source, path).split(sep).some(part => excluded.has(part)),
     });
     const projectModules = resolve(source, 'node_modules');
-    symlinkSync(existsSync(projectModules) ? projectModules : dependencies, resolve(root, 'node_modules'), 'dir');
+    const installed = resolve(root, 'node_modules');
+    if (existsSync(projectModules)) {
+      symlinkSync(projectModules, installed, 'dir');
+    } else {
+      const binDir = resolve(installed, '.bin');
+      mkdirSync(binDir, { recursive: true });
+      for (const { name, bin, command } of toolDependencies) {
+        const dependency = dirname(fileURLToPath(import.meta.resolve(name + '/package.json')));
+        const link = resolve(installed, name);
+        mkdirSync(dirname(link), { recursive: true });
+        symlinkSync(dependency, link, 'dir');
+        if (bin) symlinkSync(resolve(dependency, bin), resolve(binDir, command), 'file');
+      }
+    }
     return action(root, temp);
   } finally {
     rmSync(temp, { recursive: true, force: true });

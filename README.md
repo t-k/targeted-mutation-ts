@@ -44,3 +44,12 @@ node bin/tmt.mjs analyze . src/button.tsx --runner playwright --project chromium
 ```
 
 The [Playwright guide](docs/analysis.md#playwright-projects) describes runner isolation, witness specifications, and Git scope.
+
+## Build a runtime package
+
+```sh
+npm ci
+npm run pack:runtime
+```
+
+The archive written to `build/` has the OS and CPU in its filename and npm metadata. It contains the native parser and Lean decision executable for the build machine's OS and architecture. The installed `tmt-ts` command runs them directly. Building another platform's package requires its C toolchain and pinned Lean toolchain. See [performance measurements](docs/performance.md) for the evaluated workloads.

@@ -88,3 +88,58 @@ test('legal identifier reads and ArrayBuffer inputs use the native parser', () =
   }
   assert.equal(extract('const eval = 2 < 3', fast).path, 'diagnostic');
 });
+
+test('native grammar recognizes web-standard hyphenated JSX attribute names', () => {
+  const source = 'export const button = (age: number) => <button aria-label="Continue" disabled={age < 18} />;';
+  const result = extract(source, { dialect: 'tsx', ...fast });
+  assert.equal(result.path, 'fast');
+  assert.deepEqual(result.candidates, extractYuku(source, { dialect: 'tsx' }).candidates);
+});
+
+const encodingRows = readFileSync(new URL('../verification/pict/extraction-bytes.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of encodingRows) {
+  test('encoding ' + row.replaceAll('\t', ' / '), () => {
+    const [kind, text, syntax] = row.split('\t');
+    const caption = text === 'ASCII' ? 'yes' : '🐈';
+    const prefix = syntax === 'Fallback' ? 'const other = 1;\n' : '';
+    const source = prefix + 'const view = <Tag text="' + caption + '" show={2 <= 3} />;';
+    const storage = Uint8Array.from([...Buffer.from(source), ...(text === 'Invalid' ? [255] : [])]);
+    const input = {
+      String: source + (text === 'Invalid' ? '\ud800' : ''),
+      Buffer: Buffer.from(storage),
+      Uint8: storage,
+      DataView: new DataView(storage.buffer),
+      ArrayBuffer: storage.buffer,
+    }[kind];
+    const result = extract(input, { dialect: 'tsx', ...fast });
+    const reference = extractYuku(input, { dialect: 'tsx' });
+    assert.deepEqual(result.candidates, reference.candidates);
+    assert.equal(result.path, text === 'Invalid' ? 'diagnostic' : syntax === 'L1' ? 'fast' : 'fallback');
+  });
+}
+
+test('native byte input is validated without decoding it to a JavaScript string', () => {
+  const decode = TextDecoder.prototype.decode;
+  TextDecoder.prototype.decode = () => { throw new Error('Unexpected UTF-16 conversion'); };
+  try {
+    const result = extract(Buffer.from('const x = 17 >= 18'), fast);
+    assert.equal(result.path, 'fast');
+    assert.equal(result.candidates[0].operator, '>=');
+  } finally {
+    TextDecoder.prototype.decode = decode;
+  }
+});
+
+test('candidate capacity grows once while preserving order and never leaks a partial failure', () => {
+  const options = { dialect: 'tsx', ...fast };
+  for (const count of [16, 17, 4096, 4097]) {
+    const source = 'const view = <Tag ' + Array.from({ length: count }, (_, index) =>
+      'a' + index + '={' + index + ' < ' + (index + 1) + '}').join(' ') + ' />;';
+    const result = extract(source, options);
+    assert.equal(result.path, count === 4097 ? 'fallback' : 'fast');
+    if (count === 4097) assert.equal(result.reason, 'candidate-limit');
+    assert.equal(result.candidates.length, count);
+    assert.deepEqual(result.candidates, extractYuku(source, options).candidates);
+  }
+});

@@ -48,7 +48,8 @@ export function selectScope(root, files, { lines = [], since } = {}) {
       if (tracked) {
         const patch = git(root, ['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--unified=0', revision, '--', file]);
         changed = [...patch.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)]
-          .map(([, first, length]) => [+first, +first + (length === undefined ? 1 : +length) - 1]);
+          .map(([, first, length]) => [+first, +first + (length === undefined ? 1 : +length) - 1])
+          .filter(([first, last]) => first <= last);
       }
     }
     return { file, selected: line =>

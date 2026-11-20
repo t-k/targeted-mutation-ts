@@ -1,0 +1,43 @@
+{
+  "node": "v24.14.0",
+  "os": "darwin 27.2.0 arm64",
+  "cpu": "Apple M5 Max",
+  "repetitions": 9,
+  "turnsPerRepetition": 7,
+  "temperature": "warm",
+  "reports": [
+    {
+      "workload": "repository",
+      "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+      "files": 482,
+      "bytes": 2207415,
+      "fastFiles": 0,
+      "baseline": {
+        "medianMs": 98.26951185714279,
+        "p25Ms": 96.61542271428569,
+        "p75Ms": 99.03277971428568
+      },
+      "optimized": {
+        "medianMs": 75.51016671428572,
+        "p25Ms": 74.09487500000003,
+        "p75Ms": 75.907619
+      }
+    },
+    {
+      "workload": "L1 TSX",
+      "files": 120,
+      "bytes": 262380,
+      "fastFiles": 120,
+      "baseline": {
+        "medianMs": 0.993636857142649,
+        "p25Ms": 0.988708285714113,
+        "p75Ms": 0.9970298571429989
+      },
+      "optimized": {
+        "medianMs": 0.7396368571428736,
+        "p25Ms": 0.7385951428571259,
+        "p75Ms": 0.7409582857141815
+      }
+    }
+  ]
+}

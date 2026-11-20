@@ -1,0 +1,41 @@
+{
+  "node": "v24.14.0",
+  "os": "darwin 27.2.0 arm64",
+  "cpu": "Apple M5 Max",
+  "repetitions": 5,
+  "startup": "new process per run, warmed filesystem caches",
+  "modes": [
+    {
+      "mode": "full-scope / source replay",
+      "evidence": "reexecuted",
+      "baselineTests": 2,
+      "medianMs": 798.9145000000008,
+      "minMs": 796.7657079999999,
+      "maxMs": 799.320667
+    },
+    {
+      "mode": "full-scope / Lean replay",
+      "evidence": "predicted",
+      "baselineTests": 2,
+      "medianMs": 818.2555409999986,
+      "minMs": 817.6450830000003,
+      "maxMs": 821.9705830000003
+    },
+    {
+      "mode": "line-scope / source replay",
+      "evidence": "reexecuted",
+      "baselineTests": 2,
+      "medianMs": 796.5335410000002,
+      "minMs": 794.790958,
+      "maxMs": 797.8353340000012
+    },
+    {
+      "mode": "line-scope / Lean replay",
+      "evidence": "predicted",
+      "baselineTests": 2,
+      "medianMs": 818.9474169999999,
+      "minMs": 816.3020409999999,
+      "maxMs": 819.619541
+    }
+  ]
+}

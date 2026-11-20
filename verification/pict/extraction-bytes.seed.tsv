@@ -1,0 +1,4 @@
+Input	Text	Syntax
+Buffer	Unicode	L1
+ArrayBuffer	Invalid	L1
+DataView	Unicode	Fallback

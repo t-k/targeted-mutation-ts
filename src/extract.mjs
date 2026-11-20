@@ -1,5 +1,7 @@
+import { isUtf8 } from 'node:buffer';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { types } from 'node:util';
 import { parse } from 'yuku-parser';
 
 const load = createRequire(import.meta.url);
@@ -52,11 +54,12 @@ export function extractYuku(input, options = {}) {
   const source = normalize(input);
   if (source === null) return invalidEncoding();
   const { program, tokens, diagnostics } = parse(source, optionsFor(options));
-  const bytes = byteOffsets(source);
+  const offsets = Buffer.byteLength(source) === source.length ? null : byteOffsets(source);
+  const bytes = index => offsets === null ? index : offsets[index];
   if (diagnostics.some(diagnostic => diagnostic.severity === 'error')) {
     return { path: 'diagnostic', candidates: [], diagnostics: diagnostics.map(diagnostic => ({
-      ...diagnostic, start: bytes[diagnostic.start], end: bytes[diagnostic.end],
-      labels: diagnostic.labels.map(label => ({ ...label, start: bytes[label.start], end: bytes[label.end] })),
+      ...diagnostic, start: bytes(diagnostic.start), end: bytes(diagnostic.end),
+      labels: diagnostic.labels.map(label => ({ ...label, start: bytes(label.start), end: bytes(label.end) })),
     })) };
   }
 
@@ -70,26 +73,26 @@ export function extractYuku(input, options = {}) {
       const end = tokens.end(token);
       if (tokens.text(token) !== node.operator || start < node.left.end || end > node.right.start) {
         return { path: 'diagnostic', candidates: [], diagnostics: [{
-          severity: 'error', message: 'Yuku could not locate a comparison operator', start: bytes[node.start], end: bytes[node.end],
+          severity: 'error', message: 'Yuku could not locate a comparison operator', start: bytes(node.start), end: bytes(node.end),
         }] };
       }
       candidates.push({
         rule, operator: node.operator, replacement: replacements.get(node.operator),
-        edit: [bytes[start], bytes[end]],
-        left: [bytes[node.left.start], bytes[node.left.end]], right: [bytes[node.right.start], bytes[node.right.end]],
+        edit: [bytes(start), bytes(end)],
+        left: [bytes(node.left.start), bytes(node.left.end)], right: [bytes(node.right.start), bytes(node.right.end)],
       });
     }
     if (options.logical && node.type === 'JSXAttribute' && node.name.name === 'disabled' &&
         node.value?.expression?.type === 'LogicalExpression' && node.value.expression.operator === '||') {
       const expression = node.value.expression;
       const operator = tokens.after(expression.left.end);
-      const operatorEdit = [bytes[tokens.start(operator)], bytes[tokens.end(operator)]];
+      const operatorEdit = [bytes(tokens.start(operator)), bytes(tokens.end(operator))];
       candidates.push({
         rule: 'jsx-disabled-drop-left/v1', operator: '||', operatorEdit,
         replacement: '(' + source.slice(expression.right.start, expression.right.end) + ')',
-        edit: [bytes[expression.start], bytes[expression.end]],
-        left: [bytes[expression.left.start], bytes[expression.left.end]],
-        right: [bytes[expression.right.start], bytes[expression.right.end]],
+        edit: [bytes(expression.start), bytes(expression.end)],
+        left: [bytes(expression.left.start), bytes(expression.left.end)],
+        right: [bytes(expression.right.start), bytes(expression.right.end)],
       });
     }
     for (const value of Object.values(node)) {
@@ -106,17 +109,29 @@ export function extractYuku(input, options = {}) {
 
 export function extract(input, options = {}) {
   if (!native && options.requireNative) throw new Error('Run npm run build:native to build the extractor');
-  const source = normalize(input);
-  if (source === null) return invalidEncoding();
   const { lang, sourceType } = optionsFor(options);
   let reason = 'native-unavailable';
   let metrics;
+  let fallbackInput = input;
   if (native) {
-    const [status, maxDepth, astNodes, candidateBytes, ...rows] = native.parse(
-      typeof input === 'string' ? Buffer.from(source)
-        : ArrayBuffer.isView(input) ? Buffer.from(input.buffer, input.byteOffset, input.byteLength) : Buffer.from(input),
-      lang === 'tsx', sourceType === 'module',
-    );
+    const inputString = typeof input === 'string';
+    let source;
+    if (inputString) {
+      if (!input.isWellFormed()) return invalidEncoding();
+      source = Buffer.from(input);
+    } else {
+      try {
+        const view = ArrayBuffer.isView(input);
+        if (!view && !types.isAnyArrayBuffer(input)) return invalidEncoding();
+        const buffer = view ? input.buffer : input;
+        source = Buffer.from(buffer, view ? input.byteOffset : 0, input.byteLength);
+        if (types.isSharedArrayBuffer(buffer)) fallbackInput = source = Buffer.from(source);
+        if (!isUtf8(source)) return invalidEncoding();
+      } catch {
+        return invalidEncoding();
+      }
+    }
+    const [status, maxDepth, astNodes, candidateBytes, ...rows] = native.parse(source, lang === 'tsx', sourceType === 'module');
     metrics = { maxDepth, astNodes, candidateBytes };
     if (status === 0) {
       return { path: 'fast', metrics, candidates: rows.map(([op, replacement, a, b, c, d, e, f]) => ({
@@ -125,6 +140,6 @@ export function extract(input, options = {}) {
     }
     reason = reasons[status];
   }
-  const result = extractYuku(source, options);
+  const result = extractYuku(fallbackInput, options);
   return { ...result, path: result.path === 'yuku' ? 'fallback' : 'diagnostic', reason, metrics };
 }

@@ -20,7 +20,7 @@ const args = [
   '-std=c11', '-O3', '-Wall', '-Wextra', '-Werror', '-Wno-parentheses', '-fPIC',
   ...(process.platform === 'darwin' ? ['-bundle', '-undefined', 'dynamic_lookup'] : ['-shared']),
   '-I', headers, '-I', 'native/generated', '-I', 'native/runtime',
-  'native/addon.c', 'native/parser.c', 'native/generated/TmtGrammar.c', 'native/generated/TmtScan.c',
+  'native/addon.c', 'native/parser.c', 'native/generated/TmtGrammar.c', 'native/generated/TmtScan.c', 'native/generated/TmtParser.c',
   '-o', output,
 ];
 const built = spawnSync(process.env.CC ?? 'cc', args, { cwd: root, stdio: 'inherit' });
