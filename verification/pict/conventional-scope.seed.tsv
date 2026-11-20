@@ -1,0 +1,5 @@
+Scope	Newline	Prefix
+Line	LF	ASCII
+Line	CRLF	Astral
+None	CRLF	ASCII
+All	LF	ASCII

@@ -1,0 +1,129 @@
+import { isUtf8 } from 'node:buffer';
+import { spawnSync } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { copyFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Instrumenter } from '@stryker-mutator/instrumenter';
+import { byteOffsets } from './extract.mjs';
+import { selectScope } from './scope.mjs';
+import { inside, withCopy } from './vitest.mjs';
+
+const logger = { debug() {}, info() {}, warn() {}, isDebugEnabled: () => false };
+const supervisor = fileURLToPath(new URL('./runner-process.mjs', import.meta.url));
+const session = fileURLToPath(new URL('./standard-session.mjs', import.meta.url));
+const setupSource = new URL('./standard-setup.mjs', import.meta.url);
+const runnerSource = new URL('./standard-runner.mjs', import.meta.url);
+
+function lineOffsets(text) {
+  const starts = [0];
+  for (const newline of text.matchAll(/\r\n|[\n\r\u2028\u2029]/g)) starts.push(newline.index + newline[0].length);
+  return starts;
+}
+
+function mutationRanges(starts, selected) {
+  const ranges = [];
+  for (let line = 0; line < starts.length; line++) {
+    if (!selected(line + 1)) continue;
+    const previous = ranges.at(-1);
+    if (previous?.end.line === line) previous.end.line++;
+    else ranges.push({ start: { line, column: 0 }, end: { line: line + 1, column: 0 } });
+  }
+  return ranges.length === 1 && ranges[0].start.line === 0 && ranges[0].end.line === starts.length ? true : ranges;
+}
+
+function readEvents(path) {
+  if (!existsSync(path)) return [];
+  const input = readFileSync(path, 'utf8');
+  return input.split('\n').slice(0, -1).filter(Boolean).map(line => JSON.parse(line));
+}
+
+export async function prepareConventional(subjects) {
+  const inputs = new Map();
+  const sources = [];
+  for (const { file, input, selected } of subjects) {
+    if (!isUtf8(input)) throw new Error(`Invalid UTF-8 in ${file}`);
+    const content = input.toString();
+    const starts = lineOffsets(content);
+    const mutate = mutationRanges(starts, selected);
+    if (Array.isArray(mutate) && mutate.length === 0) continue;
+    inputs.set(file, { input, starts, bytes: byteOffsets(content) });
+    sources.push({ name: file, content, mutate });
+  }
+
+  const instrumented = await new Instrumenter(logger).instrument(sources, {
+    excludedMutations: [], ignorers: [], plugins: null,
+  });
+  const mutants = instrumented.mutants.map(mutant => {
+    const { input, starts, bytes } = inputs.get(mutant.fileName);
+    const { start, end } = mutant.location;
+    const edit = [bytes[starts[start.line] + start.column], bytes[starts[end.line] + end.column]];
+    if (edit.some(offset => offset === undefined) || edit[0] > edit[1]) {
+      throw new Error(`Invalid mutation span in ${mutant.fileName}`);
+    }
+    return {
+      id: mutant.id, mutatorName: mutant.mutatorName,
+      location: { file: mutant.fileName, line: start.line + 1, column: start.column + 1, start: edit[0], end: edit[1] },
+      edit, original: input.subarray(...edit).toString(), replacement: mutant.replacement,
+      ...(mutant.status === 'Ignored' ? { status: 'ignored', statusReason: mutant.statusReason } : {}),
+    };
+  });
+  return { sources: instrumented.files.map(({ name, content }) => ({ file: name, output: content })), mutants };
+}
+
+export async function analyzeConventional(project, files, options) {
+  const root = realpathSync(project);
+  const targets = selectScope(root, files, options).map(subject => ({
+    ...subject, input: readFileSync(inside(root, subject.file)),
+  }));
+  const originals = new Map(targets.map(({ file, input }) => [file, input]));
+  const { sources, mutants } = await prepareConventional(targets);
+  const report = {
+    schemaVersion: 1, runner: 'vitest', mutators: 'standard',
+    extraction: [], mutants: [], diagnostics: [], evaluation: 'no_sites',
+    selection: { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] },
+  };
+  if (!mutants.length) return report;
+  const runnable = mutants.filter(mutant => mutant.status === undefined);
+  if (!runnable.length) return { ...report, evaluation: 'evaluated', mutants };
+
+  return withCopy(root, (workspace, temp) => {
+    for (const { file, output } of sources) {
+      const path = inside(workspace, file);
+      if (!readFileSync(path).equals(originals.get(file))) throw new Error(`Source changed during analysis: ${file}`);
+      writeFileSync(path, output);
+    }
+    const prefix = '.tmt-session-' + randomUUID();
+    const setup = resolve(workspace, prefix + '-setup.mjs');
+    const workerRunner = resolve(workspace, prefix + '-runner.mjs');
+    copyFileSync(setupSource, setup);
+    copyFileSync(runnerSource, workerRunner);
+    const manifest = resolve(temp, 'mutation-session.json');
+    const output = resolve(temp, 'mutation-session.jsonl');
+    writeFileSync(manifest, JSON.stringify({
+      workspace, setup, workerRunner, output, temporary: temp, mutants: runnable.map(({ id }) => ({ id })),
+      config: options.config === undefined ? undefined : inside(workspace, options.config),
+      files: [...new Set((options.test ?? []).map(file => inside(workspace, file)))],
+    }));
+    const limit = 75_000 + 60_000 * runnable.length;
+    const run = spawnSync(process.execPath, [supervisor, resolve(temp, 'mutation-session.pid'), String(limit), session, manifest], {
+      cwd: workspace, encoding: 'utf8', timeout: limit + 5_000, maxBuffer: 4 * 1024 * 1024,
+      env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test' },
+    });
+    const events = readEvents(output);
+    const error = events.findLast(event => event.error)?.error ?? run.error?.message ??
+      (run.stderr?.trim() || `Vitest session stopped (exit ${run.status ?? run.signal})`);
+    const baseline = events.find(event => event.baseline)?.baseline ?? { status: 'error', output: error };
+    if (baseline.status !== 'passed') return { ...report, evaluation: 'baseline_error', baseline };
+    const results = new Map(events.filter(event => event.id !== undefined).map(event => [event.id, event]));
+    const completed = run.status === 0 && events.at(-1)?.complete === true;
+    return {
+      ...report, baseline, evaluation: completed ? 'evaluated' : 'incomplete',
+      mutants: mutants.map(mutant => {
+        const result = results.get(mutant.id);
+        if (result) return { ...mutant, ...result, evidence: result.status === 'unreached' ? 'coverage' : 'reexecuted' };
+        return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Mutation session ended early' };
+      }),
+    };
+  }, { exclude: options['copy-exclude'] });
+}

@@ -28,6 +28,12 @@ The [recorded eligibility and shipping reports](../evidence/m2) show the standar
 
 Pass `--displace-thresholds` to try tightening strict comparisons by one integer step. For example, `measured.size > 0` becomes `measured.size > 1`, and `offset < source.length` becomes `offset < source.length - 1`. The rule requires complete safe-integer observations with a representable shifted bound and always runs the source rewrite. A surviving mutation can identify an observed result that changed or propose an operand pair to exercise. When the comparison is a directly callable exported unary arrow with an integer literal, an input gap includes a suggested assertion and `--audit` verifies it. Use an application-level test to confirm reachability and expected behavior for other comparisons.
 
+### Standard mutation profile
+
+`--mutators standard` enables the pinned StrykerJS instrumenter's default TypeScript and TSX mutation families, including source comments that disable mutation. The profile applies a line range to complete mutable syntax nodes. It runs a disabled-switch baseline and trials in a disposable project workspace with isolated Vitest workers. On Vitest 4.1, covered tests are selected by task ID. Import-time hits run the selected suite with the mutation active at module load. An unreached mutation uses baseline coverage evidence. A partial session reports any remaining trials as unevaluated and exits with an error.
+
+Use Node.js 24.11 or later for the standard profile's dependencies. This profile uses Vitest worker pools. The `focused` profile uses the native extractor, Lean replay decisions and threshold diagnostics, and supports Playwright.
+
 ## Playwright projects
 
 ```sh

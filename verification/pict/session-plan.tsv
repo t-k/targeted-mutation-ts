@@ -1,0 +1,13 @@
+Activation	Coverage	Result
+Static	Complete	Passed
+Runtime	Complete	Failed
+Runtime	Complete	Timeout
+Missing	Complete	Passed
+Runtime	Unknown	Passed
+Static	Unknown	Failed
+Missing	Unknown	Error
+Missing	Unknown	Timeout
+Static	Complete	Timeout
+Runtime	Complete	Error
+Static	Unknown	Error
+Missing	Unknown	Failed

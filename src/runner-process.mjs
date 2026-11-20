@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 
 const [pidReport, timeout, command, ...args] = process.argv.slice(2);
+const parent = process.ppid;
 const child = spawn(process.execPath, [command, ...args], { detached: process.platform !== 'win32', stdio: 'inherit' });
 let closed = false;
 let status;
@@ -21,6 +22,7 @@ function finish(code) {
   if (closed) return;
   closed = true;
   clearTimeout(deadline);
+  clearInterval(parentWatch);
   status = interrupted ? 124 : code;
   signalChild('SIGTERM');
   setTimeout(() => {
@@ -33,6 +35,11 @@ const deadline = setTimeout(() => {
   interrupted = true;
   finish(124);
 }, Number(timeout));
+const parentWatch = process.platform === 'win32' ? null : setInterval(() => {
+  if (process.ppid === parent) return;
+  interrupted = true;
+  finish(124);
+}, 200);
 for (const signal of ['SIGINT', 'SIGTERM']) {
   process.once(signal, () => {
     interrupted = true;

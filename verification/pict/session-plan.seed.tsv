@@ -1,0 +1,6 @@
+Activation	Coverage	Result
+Static	Complete	Passed
+Runtime	Complete	Failed
+Runtime	Complete	Timeout
+Missing	Complete	Passed
+Runtime	Unknown	Passed

@@ -1,8 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const reporter = fileURLToPath(new URL('./vitest-reporter.mjs', import.meta.url));
@@ -42,6 +42,32 @@ export function copyPathIsExcluded(source, path, exclusions) {
     exclusions.some(exclusion => path === exclusion || path.startsWith(exclusion + sep));
 }
 
+function linkInstalledModules(source, root, projectModules, installed) {
+  const entries = readdirSync(projectModules, { withFileTypes: true }).flatMap(entry =>
+    entry.isDirectory() && entry.name.startsWith('@')
+      ? readdirSync(resolve(projectModules, entry.name), { withFileTypes: true })
+        .map(child => ({ entry: child, name: join(entry.name, child.name) }))
+      : [{ entry, name: entry.name }]);
+  const modules = entries.map(({ entry, name }) => {
+    const original = resolve(projectModules, name);
+    const target = entry.isSymbolicLink() && existsSync(original) ? realpathSync(original) : null;
+    const within = target === null ? '..' : relative(source, target);
+    const local = within !== '..' && !within.startsWith('..' + sep) && !isAbsolute(within) &&
+      within.split(sep)[0] !== 'node_modules';
+    return { name, target: local ? resolve(root, within) : original, local };
+  });
+  if (!modules.some(module => module.local)) {
+    symlinkSync(projectModules, installed, 'dir');
+    return;
+  }
+  mkdirSync(installed);
+  for (const { name, target } of modules) {
+    const destination = resolve(installed, name);
+    mkdirSync(dirname(destination), { recursive: true });
+    symlinkSync(target, destination);
+  }
+}
+
 export function withCopy(project, action, { exclude = [] } = {}) {
   const source = realpathSync(project);
   const exclusions = resolveCopyExclusions(source, exclude);
@@ -55,7 +81,7 @@ export function withCopy(project, action, { exclude = [] } = {}) {
     const projectModules = resolve(source, 'node_modules');
     const installed = resolve(root, 'node_modules');
     if (existsSync(projectModules)) {
-      symlinkSync(projectModules, installed, 'dir');
+      linkInstalledModules(source, root, projectModules, installed);
     } else {
       const binDir = resolve(installed, '.bin');
       mkdirSync(binDir, { recursive: true });

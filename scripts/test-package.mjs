@@ -29,6 +29,9 @@ try {
   assert.equal(report.extraction[0].path, 'fast');
   assert.equal(report.mutants[0].evidence, 'predicted');
   assert.equal(report.mutants[0].audit.status, 'agreed');
+  const standard = JSON.parse(run(process.execPath, [entry, 'analyze', 'fixture', 'src/eligibility.ts', '--mutators', 'standard']));
+  assert.equal(standard.evaluation, 'evaluated');
+  assert.ok(standard.mutants.some(mutant => mutant.mutatorName === 'EqualityOperator' && mutant.status === 'survived'));
   const wrongArch = process.arch === 'arm64' ? 'x64' : 'arm64';
   const mismatch = mkdtempSync(join(cwd, 'mismatch-'));
   writeFileSync(join(mismatch, 'package.json'), JSON.stringify({
