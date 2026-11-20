@@ -14,8 +14,9 @@
     "evidence:m0": "node scripts/evidence-m0.mjs",
     "build:native": "node scripts/build-native.mjs",
     "verify:fstar": "sh scripts/verify-fstar.sh",
-    "pretest": "npm run build:native",
-    "audit:extraction": "node scripts/audit-extraction.mjs"
+    "pretest": "npm run build:native && npm run build:lean",
+    "audit:extraction": "node scripts/audit-extraction.mjs",
+    "build:lean": "node scripts/build-lean.mjs"
   },
   "dependencies": {
     "typescript": "5.9.3",

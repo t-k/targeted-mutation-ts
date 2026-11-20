@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+const reporter = fileURLToPath(new URL('./vitest-reporter.mjs', import.meta.url));
 const vitest = fileURLToPath(import.meta.resolve('vitest/package.json')).replace(/package\.json$/, 'vitest.mjs');
 const dependencies = resolve(fileURLToPath(new URL('..', import.meta.url)), 'node_modules');
 const excluded = new Set(['.git', '.worktree', 'docs.local', 'node_modules', 'reports', '.stryker-tmp']);
@@ -34,16 +35,20 @@ export function withCopy(project, action) {
   }
 }
 
-export function runVitest(root, temp, { trace, filters = [] } = {}) {
+export function runVitest(root, temp, { trace, filters = [], product = false, active } = {}) {
   const report = resolve(temp, 'vitest.json');
   rmSync(report, { force: true });
   const cache = resolve(temp, 'vite-cache');
   mkdirSync(cache, { recursive: true });
   const result = spawnSync(process.execPath, [
-    vitest, 'run', '--maxWorkers=1', '--no-file-parallelism', '--no-cache', '--reporter=json', '--outputFile', report, ...filters,
+    vitest, 'run', '--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism', '--no-cache',
+    ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]), ...filters,
   ], {
     cwd: root,
-    env: { ...process.env, CI: 'true', VITE_CACHE_DIR: cache, ...(trace ? { TMT_TRACE: trace } : {}) },
+    env: {
+      ...process.env, CI: 'true', VITE_CACHE_DIR: cache, TMT_WORKSPACE: root, TMT_REPORT: report,
+      TMT_TRACE: trace ?? '', TMT_ACTIVE_SITE: active ?? '',
+    },
     encoding: 'utf8',
     timeout: 60_000,
     maxBuffer: 4 * 1024 * 1024,
@@ -53,6 +58,15 @@ export function runVitest(root, temp, { trace, filters = [] } = {}) {
     return { status: 'error', output: result.error?.message ?? (result.stderr + result.stdout) };
   }
   const data = JSON.parse(readFileSync(report, 'utf8'));
+  if (product) {
+    const failed = data.tests.filter(test => test.status === 'failed');
+    const complete = data.reason === 'passed' || data.reason === 'failed';
+    const status = failed.some(test => test.timeout) ? 'timeout'
+      : !complete || data.errors.length ? 'error'
+        : result.status === 1 && failed.length ? 'failed'
+          : result.status === 0 && data.tests.some(test => test.status === 'passed') && !failed.length ? 'passed' : 'error';
+    return { status, tests: data.tests, errors: data.errors, output: result.stderr + result.stdout };
+  }
   const tests = data.testResults.flatMap(file => file.assertionResults.map(assertion => ({
     file: relative(root, file.name),
     name: assertion.fullName,

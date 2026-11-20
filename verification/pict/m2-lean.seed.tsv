@@ -1,0 +1,5 @@
+Identity	Complete	Effect	Deterministic
+Match	Yes	Equal	Yes
+Match	Yes	Different	Yes
+Match	Yes	Unsafe	Yes
+Match	Yes	Empty	Yes

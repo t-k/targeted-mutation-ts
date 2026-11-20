@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "runner": "vitest",
+  "extraction": [
+    {
+      "file": "src/eligibility.ts",
+      "path": "fast"
+    }
+  ],
+  "mutants": [
+    {
+      "site": "39c46cb87a4c4b7562f0bae26d1efe471bd627139d8424e033a431bdc0f4fc0d",
+      "location": {
+        "file": "src/eligibility.ts",
+        "line": 1,
+        "column": 46,
+        "start": 45,
+        "end": 47
+      },
+      "rule": "comparison-boundary/v1",
+      "operator": ">=",
+      "edit": [
+        45,
+        47
+      ],
+      "replacement": ">",
+      "equivalentOnSafeIntegers": [
+        ">= 19"
+      ],
+      "status": "survived",
+      "evidence": "predicted",
+      "audit": {
+        "status": "agreed",
+        "source": "survived",
+        "probe": "survived"
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "kind": "INPUT GAP",
+      "site": "39c46cb87a4c4b7562f0bae26d1efe471bd627139d8424e033a431bdc0f4fc0d",
+      "location": {
+        "file": "src/eligibility.ts",
+        "line": 1,
+        "column": 46,
+        "start": 45,
+        "end": 47
+      },
+      "witness": {
+        "input": 18,
+        "operands": [
+          18,
+          18
+        ],
+        "original": true,
+        "mutant": false,
+        "expectation": "specification"
+      },
+      "observedInputs": [
+        17,
+        20
+      ],
+      "suggestedTest": "expect(eligible(18)).toBe(true)",
+      "feasibleThresholds": [
+        18,
+        20
+      ],
+      "mutations": [
+        {
+          "rule": "comparison-boundary/v1",
+          "edit": [
+            45,
+            47
+          ],
+          "replacement": ">",
+          "evidence": "predicted"
+        }
+      ]
+    }
+  ],
+  "evaluation": "evaluated",
+  "baseline": {
+    "status": "passed",
+    "tests": 2
+  },
+  "instrumented": {
+    "status": "passed",
+    "stable": true
+  }
+}

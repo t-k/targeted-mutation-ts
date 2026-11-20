@@ -5,3 +5,4 @@ docs.local/
 .worktree/
 node_modules/
 build/
+.lake/

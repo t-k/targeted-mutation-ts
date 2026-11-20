@@ -1,0 +1,4 @@
+Identity: Match, Mismatch
+Complete: Yes, No
+Effect: Equal, Different, Unsafe, Empty
+Deterministic: Yes, No

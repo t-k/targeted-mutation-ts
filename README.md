@@ -27,3 +27,12 @@ npm run audit:extraction -- /path/to/vite /path/to/preact /path/to/typescript
 The native build uses the checked-in KaRaMeL C files and Node-API headers. Set `TMT_NODE_INCLUDE` if they are outside the standard paths. The F★ verification command uses F★ 2025.12.15 and the KaRaMeL executable shipped with F★ 2026.11.15. Set `FSTAR_EXE` and `KARAMEL_EXE` to their paths. It verifies the sources and checks regeneration against the checked-in C files.
 
 The [L1 grammar and trust boundary](docs/l1.md) define how candidates and fallback work. A [recorded differential run](evidence/m1/corpus.json) includes Vite, Preact, and a sparse checkout of the TypeScript compiler test corpus.
+
+## Analyze a Vitest project
+
+See the [analysis guide](docs/analysis.md) for project scope, Lean-backed replay, and source rewrite auditing.
+
+```sh
+npm run build:lean
+node bin/tmt.mjs analyze fixtures/eligibility src/eligibility.ts --spec spec.json --deterministic --audit
+```

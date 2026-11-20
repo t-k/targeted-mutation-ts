@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "runner": "vitest",
+  "extraction": [
+    {
+      "file": "src/shipping.ts",
+      "path": "fast"
+    }
+  ],
+  "mutants": [
+    {
+      "site": "b50ddf8436b92c60c035a97559065a6e9b5088b66cf9e2f69d1edc7cc1534b32",
+      "location": {
+        "file": "src/shipping.ts",
+        "line": 1,
+        "column": 47,
+        "start": 46,
+        "end": 48
+      },
+      "rule": "comparison-boundary/v1",
+      "operator": ">=",
+      "edit": [
+        46,
+        48
+      ],
+      "replacement": ">",
+      "status": "killed",
+      "evidence": "reexecuted",
+      "tests": [
+        {
+          "id": "-1808094984_1",
+          "project": "",
+          "file": "test/shipping.test.ts",
+          "name": "ships a 5,000 yen order free"
+        }
+      ],
+      "audit": {
+        "status": "agreed",
+        "source": "killed",
+        "probe": "killed"
+      }
+    },
+    {
+      "site": "b50ddf8436b92c60c035a97559065a6e9b5088b66cf9e2f69d1edc7cc1534b32",
+      "location": {
+        "file": "src/shipping.ts",
+        "line": 1,
+        "column": 47,
+        "start": 46,
+        "end": 48
+      },
+      "rule": "comparison-threshold/v1",
+      "operator": ">=",
+      "edit": [
+        49,
+        53
+      ],
+      "replacement": "4999",
+      "status": "survived",
+      "evidence": "reexecuted",
+      "audit": {
+        "status": "agreed",
+        "source": "survived",
+        "probe": null
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "kind": "INPUT GAP",
+      "site": "b50ddf8436b92c60c035a97559065a6e9b5088b66cf9e2f69d1edc7cc1534b32",
+      "location": {
+        "file": "src/shipping.ts",
+        "line": 1,
+        "column": 47,
+        "start": 46,
+        "end": 48
+      },
+      "witness": {
+        "input": 4999,
+        "operands": [
+          4999,
+          5000
+        ],
+        "original": false,
+        "mutant": true,
+        "expectation": "specification"
+      },
+      "observedInputs": [
+        4800,
+        5000
+      ],
+      "suggestedTest": "expect(shipsFree(4999)).toBe(false)",
+      "feasibleThresholds": [
+        4801,
+        5000
+      ],
+      "mutations": [
+        {
+          "rule": "comparison-threshold/v1",
+          "edit": [
+            49,
+            53
+          ],
+          "replacement": "4999",
+          "evidence": "reexecuted"
+        }
+      ]
+    }
+  ],
+  "evaluation": "evaluated",
+  "baseline": {
+    "status": "passed",
+    "tests": 2
+  },
+  "instrumented": {
+    "status": "passed",
+    "stable": true
+  }
+}

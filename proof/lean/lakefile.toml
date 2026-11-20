@@ -1,0 +1,7 @@
+name = "tmt-proof"
+version = "0.1.0"
+defaultTargets = ["tmt-decide"]
+
+[[lean_exe]]
+name = "tmt-decide"
+root = "Main"

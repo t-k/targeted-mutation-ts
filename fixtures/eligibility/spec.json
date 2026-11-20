@@ -1,0 +1,8 @@
+{
+  "eligible": {
+    "operator": ">=",
+    "threshold": 18,
+    "min": 0,
+    "rationale": "Eligibility starts on a person's 18th birthday."
+  }
+}
