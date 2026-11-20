@@ -11,7 +11,7 @@ const toolDependencies = [
   { name: '@playwright/test', bin: 'cli.js', command: 'playwright' },
   { name: 'typescript' },
 ];
-const excluded = new Set(['.git', '.worktree', 'docs.local', 'node_modules', 'reports', '.stryker-tmp']);
+const excluded = new Set(['.git', '.worktree', '.worktrees', 'docs.local', 'node_modules', 'reports', '.stryker-tmp']);
 
 export function inside(root, path) {
   const target = realpathSync(resolve(root, path));
@@ -22,14 +22,35 @@ export function inside(root, path) {
   return target;
 }
 
-export function withCopy(project, action) {
+export function resolveCopyExclusions(source, exclude = []) {
+  return exclude.map(path => {
+    const candidate = resolve(source, path);
+    const fromRoot = relative(source, candidate);
+    if (!fromRoot || isAbsolute(path) || isAbsolute(fromRoot) || fromRoot === '..' || fromRoot.startsWith('..' + sep)) {
+      throw new Error(`Copy exclusion must be inside the project: ${path}`);
+    }
+    if (fromRoot.split(sep)[0] === 'node_modules') throw new Error(`Copy exclusion cannot target node_modules: ${path}`);
+    if (!existsSync(candidate)) throw new Error(`Copy exclusion does not exist: ${path}`);
+    const parent = dirname(candidate);
+    if (realpathSync(parent) !== parent) throw new Error(`Copy exclusion must not traverse a symbolic link: ${path}`);
+    return candidate;
+  });
+}
+
+export function copyPathIsExcluded(source, path, exclusions) {
+  return relative(source, path).split(sep).some(part => excluded.has(part)) ||
+    exclusions.some(exclusion => path === exclusion || path.startsWith(exclusion + sep));
+}
+
+export function withCopy(project, action, { exclude = [] } = {}) {
   const source = realpathSync(project);
+  const exclusions = resolveCopyExclusions(source, exclude);
   const temp = realpathSync(mkdtempSync(resolve(tmpdir(), 'tmt-')));
   try {
     const root = resolve(temp, 'project');
     cpSync(source, root, {
       recursive: true,
-      filter: path => path === source || !relative(source, path).split(sep).some(part => excluded.has(part)),
+      filter: path => !copyPathIsExcluded(source, path, exclusions),
     });
     const projectModules = resolve(source, 'node_modules');
     const installed = resolve(root, 'node_modules');
@@ -52,16 +73,19 @@ export function withCopy(project, action) {
   }
 }
 
-export function runVitest(root, temp, { trace, filters = [], product = false, active } = {}) {
+export function runVitest(root, temp, { trace, config, testFiles = [], product = false, active } = {}) {
   const projectRequire = createRequire(resolve(root, 'package.json'));
   const vitest = projectRequire.resolve('vitest/package.json').replace(/package\.json$/, 'vitest.mjs');
+  const testsToRun = [...new Set(testFiles.map(file => inside(root, file)))];
+  const configuration = config === undefined ? [] : ['--config', inside(root, config)];
   const report = resolve(temp, 'vitest.json');
   rmSync(report, { force: true });
   const cache = resolve(temp, 'vite-cache');
   mkdirSync(cache, { recursive: true });
   const result = spawnSync(process.execPath, [
     vitest, 'run', '--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism', '--no-cache',
-    ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]), ...filters,
+    ...configuration, ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]),
+    ...testsToRun,
   ], {
     cwd: root,
     env: {
@@ -78,6 +102,16 @@ export function runVitest(root, temp, { trace, filters = [], product = false, ac
   }
   const data = JSON.parse(readFileSync(report, 'utf8'));
   if (product) {
+    if (testsToRun.length) {
+      const expected = new Set(testsToRun.map(file => relative(root, file)));
+      const actual = new Set(data.modules);
+      const missing = [...expected].filter(file => !actual.has(file));
+      const unexpected = [...actual].filter(file => !expected.has(file));
+      if (missing.length || unexpected.length) {
+        return { status: 'error', output: `Vitest test selection mismatch (missing: ${missing.join(', ') || 'none'}; unexpected: ${unexpected.join(', ') || 'none'})`,
+          errors: data.errors };
+      }
+    }
     const failed = data.tests.filter(test => test.status === 'failed');
     const complete = data.reason === 'passed' || data.reason === 'failed';
     const status = failed.some(test => test.timeout) ? 'timeout'

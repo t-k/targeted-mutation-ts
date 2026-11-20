@@ -1,14 +1,15 @@
 import { execFileSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
-import { inside } from './vitest.mjs';
+import { copyPathIsExcluded, inside, resolveCopyExclusions } from './vitest.mjs';
 
-function listSource(root, dir = root) {
+function listSource(root, exclusions, dir = root) {
   const result = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.name.startsWith('.') || ['node_modules', 'build', 'dist', 'coverage'].includes(entry.name)) continue;
     const path = resolve(dir, entry.name);
-    if (entry.isDirectory()) result.push(...listSource(root, path));
+    if (copyPathIsExcluded(root, path, exclusions)) continue;
+    if (entry.isDirectory()) result.push(...listSource(root, exclusions, path));
     if (entry.isFile() && /(?<!\.d|\.test|\.spec)\.tsx?$/.test(entry.name)) result.push(relative(root, path));
   }
   return result;
@@ -20,19 +21,28 @@ function git(root, args) {
   });
 }
 
-export function selectScope(root, files, { lines = [], since } = {}) {
+export function selectScope(root, files, { lines = [], since, 'copy-exclude': copyExclude } = {}) {
+  const exclusions = resolveCopyExclusions(root, copyExclude);
+  function sourceFile(file) {
+    const path = inside(root, file);
+    if (copyPathIsExcluded(root, resolve(root, file), exclusions) || copyPathIsExcluded(root, path, exclusions)) {
+      throw new Error(`Source is excluded from trial copies: ${file}`);
+    }
+    return relative(root, path);
+  }
+
   const ranges = new Map();
   for (const entry of lines) {
     const match = /^(.*):(\d+)-(\d+)$/.exec(entry);
     if (!match || !Number.isSafeInteger(+match[2]) || !Number.isSafeInteger(+match[3]) || +match[2] < 1 || +match[2] > +match[3]) {
       throw new Error('Expected --lines FILE:FROM-TO');
     }
-    const file = relative(root, inside(root, match[1]));
+    const file = sourceFile(match[1]);
     ranges.set(file, [...(ranges.get(file) ?? []), [+match[2], +match[3]]]);
   }
 
-  const selection = files.length ? files : lines.length ? [...ranges.keys()] : listSource(root);
-  const paths = [...new Set(selection.map(file => relative(root, inside(root, file))))].sort();
+  const selection = files.length ? files : lines.length ? [...ranges.keys()] : listSource(root, exclusions);
+  const paths = [...new Set(selection.map(sourceFile))].sort();
   let revision;
   if (since !== undefined) {
     try {

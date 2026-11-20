@@ -73,7 +73,7 @@ function traceFrom(path) {
   }
 }
 
-function makeAttempt(root, subjects, { tracing = false, activate, trial, runner = runVitest, witness } = {}) {
+function makeAttempt(root, subjects, runner, copyExclude, { tracing = false, activate, trial, witness } = {}) {
   return withCopy(root, (workspace, temp) => {
     const trace = tracing ? resolve(temp, 'trace.jsonl') : undefined;
     if (tracing) installProbe(workspace);
@@ -96,7 +96,7 @@ function makeAttempt(root, subjects, { tracing = false, activate, trial, runner 
     }
     const result = runner(workspace, temp, { trace, active: activate, product: true });
     return tracing ? { ...result, trace: traceFrom(trace) } : { ...result, witnessFile, witnessName: witness?.testName };
-  });
+  }, { exclude: copyExclude });
 }
 
 function matchObservations(site, trace, baseline) {
@@ -217,7 +217,7 @@ function diagnose(trial, result) {
   };
 }
 
-function verifyVitestWitness(root, subjects, baseline, trial, gap) {
+function verifyVitestWitness(root, attempt, baseline, trial, gap) {
   const testFile = baseline.tests.find(test => test.status === 'passed').file;
   try {
     inside(root, testFile);
@@ -238,8 +238,8 @@ import { ${functionName} as __tmtSubject_${key} } from ${JSON.stringify(modulePa
 __tmtIt_${key}(${JSON.stringify(testName)}, () => __tmtExpect_${key}(__tmtSubject_${key}(${input})).toBe(${original}));
 `,
   };
-  const originalRun = makeAttempt(root, subjects, { witness });
-  const changedRun = makeAttempt(root, subjects, { witness, trial });
+  const originalRun = attempt({ witness });
+  const changedRun = attempt({ witness, trial });
   return verifyWitnessRuns(baseline, originalRun, changedRun);
 }
 
@@ -276,7 +276,8 @@ function verifyWitnessRuns(baseline, original, changed) {
 
 function analyzePlaywright(root, subjects, report, options, specification) {
   const runner = (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root });
-  const baseline = makeAttempt(root, subjects, { runner });
+  const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], settings);
+  const baseline = attempt();
   report.baseline = playwrightSummary(baseline);
   if (baseline.status !== 'passed') {
     return { ...report, evaluation: 'baseline_error', baseline: { ...report.baseline, output: baseline.output } };
@@ -287,14 +288,14 @@ function analyzePlaywright(root, subjects, report, options, specification) {
   for (const subject of subjects) {
     for (const site of subject.sites) {
       const trial = { site, edit: site.edit, replacement: site.replacement };
-      const mutant = makeAttempt(root, subjects, { trial, runner });
+      const mutant = attempt({ trial });
       const result = {
         site: site.id, location: site.location, rule: site.rule, operator: site.operator, edit: site.edit,
         replacement: site.replacement, status: verdict(mutant, baseline), evidence: 'reexecuted', run: playwrightSummary(mutant),
       };
       if (result.status === 'killed') result.tests = mutant.tests.filter(test => test.status === 'failed').map(testcase);
       if (options.audit) {
-        const replay = makeAttempt(root, subjects, { trial, runner });
+        const replay = attempt({ trial });
         const replayed = verdict(replay, baseline);
         const agrees = ['killed', 'survived'].includes(replayed) && replayed === result.status;
         result.audit = { status: agrees ? 'agreed' : 'mismatch', source: replayed, run: playwrightSummary(replay) };
@@ -310,8 +311,8 @@ function analyzePlaywright(root, subjects, report, options, specification) {
           content: match.witness, name: 'tmt-witness-' + randomUUID() + '.spec.ts',
           directory: match.witnessDirectory ?? dirname(baseline.tests.find(test => test.status === 'passed').file),
         };
-        const original = makeAttempt(root, subjects, { runner, witness });
-        const changed = makeAttempt(root, subjects, { runner, witness, trial });
+        const original = attempt({ witness });
+        const changed = attempt({ witness, trial });
         report.diagnostics.push({
           kind: 'SURVIVED', site: site.id, location: site.location, requirement: match.requirement, suggestedTestFile: match.witness,
           verification: verifyWitnessRuns(baseline, original, changed),
@@ -326,22 +327,29 @@ export function analyze(project, files, options) {
   const root = realpathSync(project);
   const { subjects, extraction } = collect(root, files, options);
   const report = { schemaVersion: 1, runner: options.runner ?? 'vitest', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
+  if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
+    report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
+  }
   if (!subjects.length) return report;
 
   const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
   if (report.runner === 'playwright') return analyzePlaywright(root, subjects, report, options, specification);
-  const baseline = makeAttempt(root, subjects);
+  const runner = (workspace, temp, settings) => runVitest(workspace, temp, {
+    ...settings, config: options.config, testFiles: options.test,
+  });
+  const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], settings);
+  const baseline = attempt();
   if (baseline.status !== 'passed') {
-    return { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output } };
+    return { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors } };
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
 
-  const traced = makeAttempt(root, subjects, { tracing: true });
+  const traced = attempt({ tracing: true });
   const tracedStatus = verdict(traced, baseline);
   report.instrumented = { status: tracedStatus === 'survived' ? 'passed' : tracedStatus };
   let trace = tracedStatus === 'survived' ? traced.trace : null;
   if (trace && (options.deterministic || options.audit)) {
-    const replay = makeAttempt(root, subjects, { tracing: true });
+    const replay = attempt({ tracing: true });
     report.instrumented.stable = verdict(replay, baseline) === 'survived' && traceSignature(trace) === traceSignature(replay.trace);
     if (!report.instrumented.stable) trace = null;
   }
@@ -359,7 +367,7 @@ export function analyze(project, files, options) {
       status: predicted ? 'survived' : 'unevaluated', evidence: predicted ? 'predicted' : 'reexecuted',
     };
     if (!predicted || options.audit) {
-      const source = makeAttempt(root, subjects, { trial });
+      const source = attempt({ trial });
       const actual = verdict(source, baseline);
       if (!predicted) {
         result.status = actual;
@@ -368,7 +376,7 @@ export function analyze(project, files, options) {
 
       if (options.audit) {
         const probe = trial.rule === site.rule && tracedStatus === 'survived'
-          ? verdict(makeAttempt(root, subjects, { tracing: true, activate: site.id }), baseline) : null;
+          ? verdict(attempt({ tracing: true, activate: site.id }), baseline) : null;
         const agrees = ['killed', 'survived'].includes(actual) && result.status === actual &&
           (probe === null || probe === actual);
         result.audit = { status: agrees ? 'agreed' : 'mismatch', source: actual, probe };
@@ -384,7 +392,7 @@ export function analyze(project, files, options) {
     report.mutants.push(result);
     const gap = diagnose(trial, result);
     if (gap) {
-      if (options.audit && gap.suggestedTest) gap.verification = verifyVitestWitness(root, subjects, baseline, trial, gap);
+      if (options.audit && gap.suggestedTest) gap.verification = verifyVitestWitness(root, attempt, baseline, trial, gap);
       const duplicate = report.diagnostics.find(other => other.site === gap.site && other.kind === gap.kind &&
         (gap.kind === 'ASSERTION GAP' || gap.witness.operands.every((value, index) => value === other.witness.operands[index])));
       if (duplicate) {

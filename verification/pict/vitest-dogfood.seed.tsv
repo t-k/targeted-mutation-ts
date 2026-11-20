@@ -1,0 +1,4 @@
+Config	Tests	Assets
+Default	All	Keep
+Custom	One	Exclude
+Custom	Two	Keep

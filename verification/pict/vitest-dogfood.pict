@@ -1,0 +1,3 @@
+Config: Default, Custom
+Tests: All, One, Two
+Assets: Keep, Exclude
