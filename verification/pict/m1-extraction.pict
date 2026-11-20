@@ -1,0 +1,5 @@
+Dialect: TS, TSX
+Context: Value, Parenthesized, Arrow, Attribute
+Operator: LT, LE, GT, GE
+Trivia: Plain, CRLF
+IF [Context] = "Attribute" THEN [Dialect] = "TSX";

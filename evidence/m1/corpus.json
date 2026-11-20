@@ -1,0 +1,60 @@
+{
+  "runtime": "v24.14.0",
+  "system": "darwin 27.2.0 arm64",
+  "cpu": "Apple M5 Max",
+  "reference": "yuku-parser 0.19.0",
+  "reports": [
+    {
+      "project": "vite-corpus",
+      "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+      "files": 482,
+      "bytes": 2207415,
+      "tsxFiles": 14,
+      "fastFiles": 0,
+      "fastBytes": 0,
+      "candidates": 201,
+      "fastCandidates": 0,
+      "diagnostics": 1,
+      "fallbackReasons": {
+        "outside-l1": 482
+      },
+      "candidateBytes": 0,
+      "maxDepth": 0
+    },
+    {
+      "project": "preact-corpus",
+      "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+      "files": 22,
+      "bytes": 41760,
+      "tsxFiles": 19,
+      "fastFiles": 0,
+      "fastBytes": 0,
+      "candidates": 1,
+      "fastCandidates": 0,
+      "diagnostics": 0,
+      "fallbackReasons": {
+        "outside-l1": 22
+      },
+      "candidateBytes": 0,
+      "maxDepth": 0
+    },
+    {
+      "project": "typescript-corpus",
+      "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+      "files": 6479,
+      "bytes": 4318704,
+      "tsxFiles": 116,
+      "fastFiles": 20,
+      "fastBytes": 1451,
+      "candidates": 562,
+      "fastCandidates": 0,
+      "diagnostics": 952,
+      "fallbackReasons": {
+        "outside-l1": 6450,
+        "invalid-utf8": 9
+      },
+      "candidateBytes": 0,
+      "maxDepth": 0
+    }
+  ]
+}
