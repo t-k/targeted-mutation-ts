@@ -3,11 +3,12 @@ import { createRequire } from 'node:module';
 import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { snapshotVitestRun } from './vitest-reporter.mjs';
-import { coveredTests, assessTrial } from './standard-plan.mjs';
+import { coveredTests, agreesWithCoverage, assessTrial } from './standard-plan.mjs';
+import { checkReplay } from './lean-replay.mjs';
 import { inside } from './vitest.mjs';
 
 const input = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-const { workspace, config, files, mutants, setup, workerRunner, output, temporary } = input;
+const { workspace, config, files, mutants, focused, replay, setup, workerRunner, output, temporary } = input;
 const destination = resolve(temporary, 'coverage.jsonl');
 const record = event => appendFileSync(output, JSON.stringify(event) + '\n');
 let snapshot;
@@ -33,6 +34,15 @@ async function run(specs, state) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function numericTraces(records, candidates, tests) {
+  const accepted = {};
+  for (const { id } of candidates) {
+    const rows = records.flatMap(row => row.focused?.[id] ?? []);
+    if (rows.length && !rows.includes(false) && rows.every(([test]) => tests.has(test))) accepted[id] = rows;
+  }
+  return accepted;
 }
 
 function subjectKey(project, file) {
@@ -78,7 +88,8 @@ try {
   if (files.length && (files.some(file => !discovered.has(file)) || discovered.size !== files.length)) {
     throw new Error('Vitest test selection mismatch');
   }
-  const baseline = await run(specs, { phase: 'baseline' });
+  const baselineState = { phase: 'baseline', focusedIds: focused.map(({ id }) => id) };
+  const baseline = await run(specs, baselineState);
   const passed = baseline.snapshot.tests.filter(test => test.status === 'passed');
   const tests = new Map(passed.map(test => [test.id, test]));
   const coveredModules = new Set(baseline.records.flatMap(record => record.modules.map(([project, file]) =>
@@ -89,8 +100,42 @@ try {
       output: baseline.snapshot.tests.flatMap(test => test.failures).join('\n') } });
   } else {
     record({ baseline: { status: 'passed', tests: baseline.snapshot.tests.length } });
-    for (const mutant of mutants) {
+    const focusedTrace = numericTraces(baseline.records, focused, tests);
+    for (const { id } of focused) {
+      if (!focusedTrace[id]) record({ id, status: 'unsupported', statusReason: 'Missing or unsupported numeric observations' });
+    }
+    if (focused.length) record({ focusedTrace });
+    const requests = [];
+    const ids = [];
+    if (!passed.some(test => test.retry || test.repeats || test.concurrent)) {
+      for (const { id, candidate, original, replacement } of replay) {
+        const rows = focusedTrace[candidate];
+        const plan = coveredTests(id, baseline.records, tests);
+        if (!agreesWithCoverage(rows, plan)) continue;
+        requests.push({ candidate, traceCandidate: candidate, original, replacement, complete: true,
+          deterministic: true, observations: rows.map(([, lhs, rhs]) => [lhs, rhs]) });
+        ids.push(id);
+      }
+    }
+    const checked = checkReplay(requests);
+    let predicted = new Set(ids.filter((_, index) => checked?.[index] === true));
+    if (predicted.size) {
+      const confirmation = await run(specs, baselineState);
+      if (JSON.stringify(confirmation.snapshot) !== JSON.stringify(baseline.snapshot)) predicted.clear();
+      else {
+        const repeated = numericTraces(confirmation.records, focused, tests);
+        predicted = new Set(replay.filter(({ id, candidate }) => predicted.has(id) &&
+          agreesWithCoverage(repeated[candidate], coveredTests(id, confirmation.records, tests)) &&
+          JSON.stringify(repeated[candidate]) === JSON.stringify(focusedTrace[candidate])).map(({ id }) => id));
+      }
+    }
+    const qualified = focused.filter(({ id }) => focusedTrace[id]).map(mutant => ({ ...mutant, focused: true }));
+    for (const mutant of [...mutants, ...qualified]) {
       const { id } = mutant;
+      if (predicted.has(id)) {
+        record({ id, status: 'survived', evidence: 'predicted' });
+        continue;
+      }
       const plan = coveredTests(id, baseline.records, tests);
       if (!plan.hits) {
         record({ id, status: 'unreached' });
@@ -100,7 +145,8 @@ try {
       const hitLimit = plan.hits * 100;
       const trial = await run(selected, { id, phase: 'trial', active: id, hitLimit, staticActivation: plan.staticActivation });
       const expected = plan.staticActivation || !supportsIds ? tests : new Map([...plan.covered].map(id => [id, tests.get(id)]));
-      record({ id, ...assessTrial(trial, expected, hitLimit) });
+      record({ id, ...assessTrial(trial, expected, hitLimit),
+        ...(mutant.focused ? { coveringTests: [...expected.values()].map(({ id, project, file, name }) => ({ id, project, file, name })) } : {}) });
     }
     record({ complete: true });
   }

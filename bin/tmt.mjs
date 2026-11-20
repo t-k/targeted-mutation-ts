@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util';
 import { runPrototype } from '../src/prototype.mjs';
 
 const usage = 'Usage: tmt-ts extract FILE [--mode script|module] [--dialect ts|tsx]\n' +
-  '       tmt-ts analyze [PROJECT] [FILE...] [--lines FILE:FROM-TO] [--since REV] [--mutators focused|standard] [--spec FILE] [--deterministic] [--audit] [--displace-thresholds] [--runner vitest|playwright] [--project NAME] [--config FILE] [--test FILE] [--copy-exclude PATH]\n' +
+  '       tmt-ts analyze [PROJECT] [FILE...] [--lines FILE:FROM-TO] [--since REV] [--mutators focused|standard|all] [--spec FILE] [--deterministic] [--audit] [--displace-thresholds] [--runner vitest|playwright] [--project NAME] [--config FILE] [--test FILE] [--copy-exclude PATH]\n' +
   '       tmt-ts prototype PROJECT FILE [--spec FILE]';
 
 try {
@@ -34,11 +34,12 @@ try {
     if (values.runner && !['vitest', 'playwright'].includes(values.runner)) throw new Error('Expected --runner vitest|playwright');
     if (values.runner === 'playwright' && values.test?.length) throw new Error('--test selects Vitest files');
     if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
-    if (values.mutators && !['focused', 'standard'].includes(values.mutators)) throw new Error('Expected --mutators focused|standard');
+    if (values.mutators && !['focused', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|standard|all');
     let result;
-    if (values.mutators === 'standard') {
-      if (values.runner === 'playwright' || values.audit || values.spec || values.deterministic || values['displace-thresholds']) {
-        throw new Error('--mutators standard requires Vitest and excludes focused diagnostic options');
+    if (['standard', 'all'].includes(values.mutators)) {
+      if (values.runner === 'playwright' || values.audit || values.spec || values['displace-thresholds'] ||
+          values.mutators === 'standard' && values.deterministic) {
+        throw new Error(`--mutators ${values.mutators} requires Vitest and excludes focused diagnostic options`);
       }
       const { analyzeConventional } = await import('../src/conventional.mjs');
       result = await analyzeConventional(project, files, values);

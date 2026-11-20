@@ -1,0 +1,7 @@
+Operator	Activation	Domain
+Less	Baseline	Safe
+Greater	Baseline	Opaque
+Less	Focused	Safe
+Greater	Focused	Safe
+Less	Standard	Safe
+Greater	Baseline	Limit

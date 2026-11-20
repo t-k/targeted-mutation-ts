@@ -21,3 +21,15 @@ test('Lean only skips matching, complete, deterministic safe-integer observation
   const decisions = JSON.parse(result.stdout);
   assert.deepEqual(decisions, [...rows.map(row => row === 'Match\tYes\tEqual\tYes'), false, false]);
 });
+
+test('Lean accepts a true condition only for safe uniformly true observations', () => {
+  const candidate = { candidate: 'strict', traceCandidate: 'strict', complete: true, deterministic: true, original: '<', replacement: 'true' };
+  const requests = [
+    { ...candidate, observations: [[0, 1], [1, 2]] },
+    { ...candidate, observations: [[0, 1], [1, 1]] },
+    { ...candidate, observations: [[0, 1]], complete: false },
+  ];
+  const result = spawnSync('build/tmt-decide', [], { encoding: 'utf8', input: JSON.stringify(requests) });
+  assert.equal(result.status, 0, result.stderr);
+  assert.deepEqual(JSON.parse(result.stdout), [true, false, false]);
+});

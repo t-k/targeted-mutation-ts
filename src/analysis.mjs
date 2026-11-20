@@ -1,8 +1,6 @@
-import { spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { byteOffsets, extract } from './extract.mjs';
 import { thresholdSites } from './prototype.mjs';
 import { thresholdGap } from './threshold.mjs';
@@ -11,8 +9,8 @@ import { inside, runVitest, withCopy } from './vitest.mjs';
 import { instrument, installProbe, rewrite } from './probe.mjs';
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
+import { checkReplay } from './lean-replay.mjs';
 
-const proof = fileURLToPath(new URL('../build/tmt-decide', import.meta.url));
 const sha = source => createHash('sha256').update(source).digest('hex');
 const identity = test => JSON.stringify([test.project, test.file, test.id]);
 const testcase = ({ id, project, file, name }) => ({ id, project, file, name });
@@ -31,7 +29,7 @@ function lineAt(source, offset) {
   return { line: lines.length, column: lines.at(-1).length + 1 };
 }
 
-function collect(root, files, options) {
+export function collectComparisons(root, files, options) {
   const subjects = [];
   const extraction = [];
   for (const { file, selected } of selectScope(root, files, options)) {
@@ -165,7 +163,7 @@ function plan(subjects, trace, baseline, specification, displaceThresholds) {
 }
 
 function leanSkips(trials, baseline, deterministic) {
-  if (!deterministic || !existsSync(proof) || baseline.tests.some(test => test.retry || test.repeats || test.concurrent)) return new Set();
+  if (!deterministic || baseline.tests.some(test => test.retry || test.repeats || test.concurrent)) return new Set();
   const requests = [];
   const indices = [];
   for (const [index, trial] of trials.entries()) {
@@ -179,19 +177,10 @@ function leanSkips(trials, baseline, deterministic) {
       });
     }
   }
-  if (!requests.length) return new Set();
-  const decision = spawnSync(proof, [], {
-    encoding: 'utf8', input: JSON.stringify(requests), timeout: 15_000, maxBuffer: 4 * 1024 * 1024,
-  });
-  if (decision.status !== 0) return new Set();
-  try {
-    const accepted = JSON.parse(decision.stdout);
-    if (!Array.isArray(accepted) || accepted.length !== requests.length) return new Set();
-    const rejected = new Set(indices.filter((_, index) => accepted[index] !== true));
-    return new Set(indices.filter(index => !rejected.has(index)));
-  } catch {
-    return new Set();
-  }
+  const accepted = checkReplay(requests);
+  if (!accepted) return new Set();
+  const rejected = new Set(indices.filter((_, index) => accepted[index] !== true));
+  return new Set(indices.filter(index => !rejected.has(index)));
 }
 
 function diagnose(trial, result) {
@@ -345,7 +334,7 @@ function analyzePlaywright(root, subjects, report, options, specification) {
 
 export function analyze(project, files, options) {
   const root = realpathSync(project);
-  const { subjects, extraction } = collect(root, files, options);
+  const { subjects, extraction } = collectComparisons(root, files, options);
   const report = { schemaVersion: 1, runner: options.runner ?? 'vitest', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
   if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
     report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };

@@ -6,10 +6,10 @@ export default class StandardMutationRunner extends VitestTestRunner {
     super.onAfterRunFiles(files);
     const state = globalThis[Symbol.for('targeted-mutation-ts/session')];
     if (!state) return;
-    const { mutantCoverage, hitCount } = globalThis.__stryker__;
+    const { mutantCoverage, hitCount, focused } = globalThis.__stryker__;
     appendFileSync(state.destination, JSON.stringify({
       modules: files.map(file => [file.projectName ?? '', file.filepath]),
-      coverage: mutantCoverage, hits: hitCount,
+      coverage: mutantCoverage, hits: hitCount, focused,
     }) + '\n');
   }
 }

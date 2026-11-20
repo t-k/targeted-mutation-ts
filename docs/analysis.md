@@ -34,6 +34,12 @@ Pass `--displace-thresholds` to try tightening strict comparisons by one integer
 
 Use Node.js 24.11 or later for the standard profile's dependencies. This profile uses Vitest worker pools. The `focused` profile uses the native extractor, Lean replay decisions and threshold diagnostics, and supports Playwright.
 
+### Combined mutations and verified replay
+
+`--mutators all` also runs one-unit tightenings of strict safe-integer comparisons in ECMAScript modules. It adds focused switches at matching, enabled comparison spans inside the standard mutation scope. It reports missing or unsafe observations as unsupported and can include operand values in gap examples. Each supported tightening is executed in Vitest. Use the focused profile for source-rewrite auditing and generated assertions for exported unary thresholds.
+
+With `--mutators all --deterministic`, Lean can certify survival for a standard comparison variant when two disabled runs reproduce its covering test inventory and safe integer observations. The flag declares that input and execution order are deterministic and evaluating each compared operand has no observable side effects. This matters for substituting a constant condition, which omits operand evaluation. Choose the same profile without `--deterministic` to execute every reached variant and compare verdicts.
+
 ## Playwright projects
 
 ```sh

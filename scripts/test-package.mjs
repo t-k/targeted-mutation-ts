@@ -32,6 +32,13 @@ try {
   const standard = JSON.parse(run(process.execPath, [entry, 'analyze', 'fixture', 'src/eligibility.ts', '--mutators', 'standard']));
   assert.equal(standard.evaluation, 'evaluated');
   assert.ok(standard.mutants.some(mutant => mutant.mutatorName === 'EqualityOperator' && mutant.status === 'survived'));
+  writeFileSync(join(cwd, 'fixture/src/strict.ts'), 'export const positive = (count: number) => count > 0;');
+  writeFileSync(join(cwd, 'fixture/test/strict.test.ts'), "import { expect, it } from 'vitest'; import { positive } from '../src/strict'; it('checks two', () => expect(positive(2)).toBe(true));");
+  const combined = JSON.parse(run(process.execPath, [entry, 'analyze', 'fixture', 'src/strict.ts',
+    '--mutators', 'all', '--deterministic', '--test', 'test/strict.test.ts']));
+  assert.equal(combined.evaluation, 'evaluated');
+  assert.ok(combined.mutants.some(mutant => mutant.evidence === 'predicted'));
+  assert.ok(combined.mutants.some(mutant => mutant.rule === 'comparison-tighten/v1' && mutant.status === 'survived'));
   const wrongArch = process.arch === 'arm64' ? 'x64' : 'arm64';
   const mismatch = mkdtempSync(join(cwd, 'mismatch-'));
   writeFileSync(join(mismatch, 'package.json'), JSON.stringify({

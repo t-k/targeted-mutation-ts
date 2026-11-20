@@ -3,6 +3,7 @@ export function coveredTests(id, records, tests) {
   let hits = 0;
   let unknown = false;
   const covered = new Set();
+  const perTestHits = new Map();
   for (const { coverage } of records) {
     if (!coverage) continue;
     staticHits += coverage.static?.[id] ?? 0;
@@ -10,10 +11,19 @@ export function coveredTests(id, records, tests) {
       if (!mutations[id]) continue;
       hits += mutations[id];
       covered.add(testId);
+      perTestHits.set(testId, (perTestHits.get(testId) ?? 0) + mutations[id]);
       if (!tests.has(testId)) unknown = true;
     }
   }
-  return { hits: hits + staticHits, staticActivation: staticHits > 0 || unknown, covered };
+  return { hits: hits + staticHits, staticActivation: staticHits > 0 || unknown, covered, perTestHits };
+}
+
+export function agreesWithCoverage(rows, plan) {
+  if (!rows || plan.staticActivation || rows.length !== plan.hits) return false;
+  const rowCounts = new Map();
+  for (const [id] of rows) rowCounts.set(id, (rowCounts.get(id) ?? 0) + 1);
+  return rowCounts.size === plan.covered.size &&
+    [...rowCounts].every(([id, hits]) => plan.perTestHits.get(id) === hits);
 }
 
 export function assessTrial(trial, expectedTests, hitLimit) {

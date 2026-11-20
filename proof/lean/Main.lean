@@ -5,7 +5,7 @@ import Lean.Data.Json.FromToJson.Basic
 open Lean
 
 inductive Op where
-  | lt | le | gt | ge
+  | lt | le | gt | ge | constantTrue
 deriving DecidableEq, Repr
 
 def compareBy (op : Op) (lhs rhs : Int) : Bool :=
@@ -14,6 +14,7 @@ def compareBy (op : Op) (lhs rhs : Int) : Bool :=
   | .le => lhs ≤ rhs
   | .gt => lhs > rhs
   | .ge => lhs ≥ rhs
+  | .constantTrue => true
 
 structure Observation where
   site : Nat
@@ -108,6 +109,7 @@ def decodeOp (op : String) : Except String Op :=
   | "<=" => .ok .le
   | ">" => .ok .gt
   | ">=" => .ok .ge
+  | "true" => .ok .constantTrue
   | _ => .error "unknown operator"
 
 def decodeRequest (input : Json) : Except String Request := do

@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Instrumenter } from '@stryker-mutator/instrumenter';
 import { byteOffsets } from './extract.mjs';
+import { collectComparisons } from './analysis.mjs';
 import { selectScope } from './scope.mjs';
 import { inside, withCopy } from './vitest.mjs';
 
@@ -38,7 +39,7 @@ function readEvents(path) {
   return input.split('\n').slice(0, -1).filter(Boolean).map(line => JSON.parse(line));
 }
 
-export async function prepareConventional(subjects) {
+export async function prepareConventional(subjects, print) {
   const inputs = new Map();
   const sources = [];
   for (const { file, input, selected } of subjects) {
@@ -51,7 +52,8 @@ export async function prepareConventional(subjects) {
     sources.push({ name: file, content, mutate });
   }
 
-  const instrumented = await new Instrumenter(logger).instrument(sources, {
+  const printSource = print ? source => print(source, inputs.get(source.originFileName)) : undefined;
+  const instrumented = await new Instrumenter(logger, undefined, printSource).instrument(sources, {
     excludedMutations: [], ignorers: [], plugins: null,
   });
   const mutants = instrumented.mutants.map(mutant => {
@@ -73,19 +75,30 @@ export async function prepareConventional(subjects) {
 
 export async function analyzeConventional(project, files, options) {
   const root = realpathSync(project);
+  const combined = options.mutators === 'all';
+  const prefix = '.tmt-session-' + randomUUID();
+  const runtime = prefix + '-focus.mjs';
   const targets = selectScope(root, files, options).map(subject => ({
     ...subject, input: readFileSync(inside(root, subject.file)),
   }));
   const originals = new Map(targets.map(({ file, input }) => [file, input]));
-  const { sources, mutants } = await prepareConventional(targets);
+  const preparedFocused = [];
+  const comparison = combined ? collectComparisons(root, files, options) : null;
+  const byFile = new Map(comparison?.subjects.map(({ file, sites }) => [file, sites]));
+  const focus = combined ? await import('./focused-switch.mjs') : null;
+  const { sources, mutants } = await prepareConventional(targets, focus &&
+    ((source, { starts, bytes }) => focus.printWithFocusedSwitches(
+      source, starts, bytes, byFile.get(source.originFileName) ?? [], runtime, preparedFocused,
+    )));
   const report = {
-    schemaVersion: 1, runner: 'vitest', mutators: 'standard',
-    extraction: [], mutants: [], diagnostics: [], evaluation: 'no_sites',
+    schemaVersion: 1, runner: 'vitest', mutators: options.mutators,
+    extraction: comparison?.extraction ?? [], mutants: [], diagnostics: [], evaluation: 'no_sites',
     selection: { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] },
   };
-  if (!mutants.length) return report;
   const runnable = mutants.filter(mutant => mutant.status === undefined);
-  if (!runnable.length) return { ...report, evaluation: 'evaluated', mutants };
+  const focused = focus?.eligibleFocusedSites(runnable, preparedFocused) ?? [];
+  if (!mutants.length && !focused.length) return report;
+  if (!runnable.length && !focused.length) return { ...report, evaluation: 'evaluated', mutants };
 
   return withCopy(root, (workspace, temp) => {
     for (const { file, output } of sources) {
@@ -93,19 +106,21 @@ export async function analyzeConventional(project, files, options) {
       if (!readFileSync(path).equals(originals.get(file))) throw new Error(`Source changed during analysis: ${file}`);
       writeFileSync(path, output);
     }
-    const prefix = '.tmt-session-' + randomUUID();
     const setup = resolve(workspace, prefix + '-setup.mjs');
     const workerRunner = resolve(workspace, prefix + '-runner.mjs');
     copyFileSync(setupSource, setup);
     copyFileSync(runnerSource, workerRunner);
+    if (preparedFocused.length) copyFileSync(new URL('./focused-switch-runtime.mjs', import.meta.url), resolve(workspace, runtime));
     const manifest = resolve(temp, 'mutation-session.json');
     const output = resolve(temp, 'mutation-session.jsonl');
     writeFileSync(manifest, JSON.stringify({
       workspace, setup, workerRunner, output, temporary: temp, mutants: runnable.map(({ id }) => ({ id })),
+      focused: focused.map(({ id }) => ({ id })),
+      replay: options.deterministic ? focus.comparisonReplays(runnable, focused, originals) : [],
       config: options.config === undefined ? undefined : inside(workspace, options.config),
       files: [...new Set((options.test ?? []).map(file => inside(workspace, file)))],
     }));
-    const limit = 75_000 + 60_000 * runnable.length;
+    const limit = 75_000 + 60_000 * (runnable.length + focused.length);
     const run = spawnSync(process.execPath, [supervisor, resolve(temp, 'mutation-session.pid'), String(limit), session, manifest], {
       cwd: workspace, encoding: 'utf8', timeout: limit + 5_000, maxBuffer: 4 * 1024 * 1024,
       env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test' },
@@ -117,13 +132,16 @@ export async function analyzeConventional(project, files, options) {
     if (baseline.status !== 'passed') return { ...report, evaluation: 'baseline_error', baseline };
     const results = new Map(events.filter(event => event.id !== undefined).map(event => [event.id, event]));
     const completed = run.status === 0 && events.at(-1)?.complete === true;
+    const trace = events.find(event => event.focusedTrace)?.focusedTrace;
+    const targeted = focused.map(entry => focus.focusedResult(entry, trace, results, originals)).filter(Boolean);
     return {
       ...report, baseline, evaluation: completed ? 'evaluated' : 'incomplete',
-      mutants: mutants.map(mutant => {
+      mutants: [...mutants.map(mutant => {
         const result = results.get(mutant.id);
-        if (result) return { ...mutant, ...result, evidence: result.status === 'unreached' ? 'coverage' : 'reexecuted' };
+        if (result) return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
         return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Mutation session ended early' };
-      }),
+      }), ...targeted.map(entry => entry.mutant)],
+      diagnostics: targeted.flatMap(entry => entry.diagnosis ? [entry.diagnosis] : []),
     };
   }, { exclude: options['copy-exclude'] });
 }
