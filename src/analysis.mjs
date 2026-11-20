@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { byteOffsets, extract } from './extract.mjs';
 import { thresholdSites } from './prototype.mjs';
 import { thresholdGap } from './threshold.mjs';
+import { tightenComparison } from './displacement.mjs';
 import { inside, runVitest, withCopy } from './vitest.mjs';
 import { instrument, installProbe, rewrite } from './probe.mjs';
 import { runPlaywright } from './playwright.mjs';
@@ -120,28 +121,30 @@ function matchObservations(site, trace, baseline) {
   return { observed, rows, complete, tests, loaded };
 }
 
-function thresholdTrial(subject, site, observations, specification) {
-  if (site.operator !== '>=' || !observations.complete ||
+function callableThreshold(subject, site, observations, specification) {
+  if (!observations.complete ||
       !/^-?\s*\d+$/.test(subject.input.subarray(...site.right).toString())) return null;
   const source = subject.input.toString();
   const offsets = byteOffsets(source);
-  const meta = thresholdSites(source, subject.file).find(entry =>
+  const meta = thresholdSites(source, subject.file, site.operator).find(entry =>
     offsets[entry.from] === site.left[0] && offsets[entry.literalFrom] === site.right[0] && offsets[entry.literalTo] === site.right[1]);
-  if (!meta) return null;
+  if (!meta || observations.rows.some(row => row.operands[1] !== meta.threshold)) return null;
   const contract = Object.hasOwn(specification, meta.functionName) ? specification[meta.functionName] : null;
-  const specified = contract?.operator === '>=' && contract.threshold === meta.threshold &&
+  const specified = contract?.operator === site.operator && contract.threshold === meta.threshold &&
     typeof contract.rationale === 'string' && contract.rationale.trim().length > 0;
   const inputs = observations.rows.map(row => row.operands[0]);
-  const gap = thresholdGap(meta.threshold, inputs, specified ? contract.min : undefined, specified ? contract.max : undefined);
+  const gap = site.operator === '>='
+    ? thresholdGap(meta.threshold, inputs, specified ? contract.min : undefined, specified ? contract.max : undefined)
+    : null;
   return { meta, gap, specified, inputs, contract };
 }
 
-function plan(subjects, trace, baseline, specification, enableThresholds) {
+function plan(subjects, trace, baseline, specification, displaceThresholds) {
   const trials = [];
   for (const subject of subjects) {
     for (const site of subject.sites) {
       const observation = matchObservations(site, trace, baseline);
-      const threshold = enableThresholds ? thresholdTrial(subject, site, observation, specification) : null;
+      const threshold = site.operator === '>=' ? callableThreshold(subject, site, observation, specification) : null;
       const boundary = { site, edit: site.edit, replacement: site.replacement, rule: site.rule, observation, threshold };
       trials.push(boundary);
       if (threshold?.gap) {
@@ -152,6 +155,10 @@ function plan(subjects, trace, baseline, specification, enableThresholds) {
           trials.push({ site, edit: site.right, replacement: alternate, rule: 'comparison-threshold/v1', observation, threshold });
         }
       }
+      const tightened = tightenComparison(subject.input, site, observation, displaceThresholds);
+      if (tightened) trials.push({
+        ...tightened, threshold: callableThreshold(subject, site, observation, specification),
+      });
     }
   }
   return trials;
@@ -190,18 +197,31 @@ function leanSkips(trials, baseline, deterministic) {
 function diagnose(trial, result) {
   if (result.status !== 'survived' || !trial.observation.complete) return null;
   const { site, threshold, observation } = trial;
-  const differs = trial.rule === site.rule
-    ? ([lhs, rhs]) => compare(site.operator, lhs, rhs) !== compare(trial.replacement, lhs, rhs)
-    : ([lhs, rhs]) => compare(site.operator, lhs, rhs) !== (lhs >= Number(trial.replacement));
+  function values(lhs, rhs) {
+    const original = compare(site.operator, lhs, rhs);
+    const mutant = trial.adjustment !== undefined ? compare(site.operator, lhs, rhs + trial.adjustment)
+      : trial.rule === 'comparison-threshold/v1' ? lhs >= Number(trial.replacement)
+        : compare(trial.replacement, lhs, rhs);
+    return { original, mutant };
+  }
+  const differs = ([lhs, rhs]) => {
+    const { original, mutant } = values(lhs, rhs);
+    return original !== mutant;
+  };
   const tests = [...observation.observed].filter(([, operands]) => operands.some(differs))
     .map(([key]) => testcase(observation.tests.get(key)));
-  if (tests.length) return { kind: 'ASSERTION GAP', site: site.id, location: site.location, tests };
+  if (tests.length) {
+    const example = trial.adjustment !== undefined ? observation.rows.find(row => differs(row.operands)).operands : undefined;
+    return { kind: 'ASSERTION GAP', site: site.id, location: site.location, tests,
+      example: example && { operands: example, ...values(...example) } };
+  }
   const binary = observation.rows[0]?.operands;
   if (!binary) return null;
-  const gap = trial.rule !== site.rule ? threshold.gap : null;
-  const input = gap?.witness ?? binary[1];
-  const expected = gap?.expected ?? compare(site.operator, input, input);
-  const mutant = gap?.mutant ?? compare(trial.replacement, input, input);
+  const gap = trial.rule === 'comparison-threshold/v1' ? threshold.gap : null;
+  const input = gap?.witness ?? binary[1] + (trial.adjustment ?? 0);
+  const comparison = values(input, binary[1]);
+  const expected = gap?.expected ?? comparison.original;
+  const mutant = gap?.mutant ?? comparison.mutant;
   const constantThreshold = threshold && threshold.meta.threshold === binary[1];
   const specified = constantThreshold && threshold.specified &&
     input >= (threshold.contract.min ?? Number.MIN_SAFE_INTEGER) && input <= (threshold.contract.max ?? Number.MAX_SAFE_INTEGER);
@@ -354,7 +374,7 @@ export function analyze(project, files, options) {
     if (!report.instrumented.stable) trace = null;
   }
 
-  const trials = plan(subjects, trace, baseline, specification, true);
+  const trials = plan(subjects, trace, baseline, specification, options['displace-thresholds']);
   const skips = leanSkips(trials, baseline, !!options.deterministic);
   report.evaluation = 'evaluated';
 
@@ -393,7 +413,7 @@ export function analyze(project, files, options) {
     const gap = diagnose(trial, result);
     if (gap) {
       if (options.audit && gap.suggestedTest) gap.verification = verifyVitestWitness(root, attempt, baseline, trial, gap);
-      const duplicate = report.diagnostics.find(other => other.site === gap.site && other.kind === gap.kind &&
+      const duplicate = trial.adjustment === undefined && report.diagnostics.find(other => other.site === gap.site && other.kind === gap.kind &&
         (gap.kind === 'ASSERTION GAP' || gap.witness.operands.every((value, index) => value === other.witness.operands[index])));
       if (duplicate) {
         if (gap.tests) {

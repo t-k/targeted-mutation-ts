@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util';
 import { runPrototype } from '../src/prototype.mjs';
 
 const usage = 'Usage: tmt-ts extract FILE [--mode script|module] [--dialect ts|tsx]\n' +
-  '       tmt-ts analyze [PROJECT] [FILE...] [--lines FILE:FROM-TO] [--since REV] [--spec FILE] [--deterministic] [--audit] [--runner vitest|playwright] [--project NAME] [--config FILE] [--test FILE] [--copy-exclude PATH]\n' +
+  '       tmt-ts analyze [PROJECT] [FILE...] [--lines FILE:FROM-TO] [--since REV] [--spec FILE] [--deterministic] [--audit] [--displace-thresholds] [--runner vitest|playwright] [--project NAME] [--config FILE] [--test FILE] [--copy-exclude PATH]\n' +
   '       tmt-ts prototype PROJECT FILE [--spec FILE]';
 
 try {
@@ -16,6 +16,7 @@ try {
       spec: { type: 'string' }, mode: { type: 'string' }, dialect: { type: 'string' },
       lines: { type: 'string', multiple: true }, since: { type: 'string' },
       deterministic: { type: 'boolean' }, audit: { type: 'boolean' },
+      'displace-thresholds': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' }, runner: { type: 'string' }, project: { type: 'string', multiple: true }, config: { type: 'string' },
       test: { type: 'string', multiple: true }, 'copy-exclude': { type: 'string', multiple: true },
     },
@@ -31,6 +32,7 @@ try {
     const [project = '.', ...files] = positionals;
     if (values.runner && !['vitest', 'playwright'].includes(values.runner)) throw new Error('Expected --runner vitest|playwright');
     if (values.runner === 'playwright' && values.test?.length) throw new Error('--test selects Vitest files');
+    if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
     const result = analyze(project, files, values);
     console.log(JSON.stringify(result, null, 2));
     if (result.evaluation === 'baseline_error' || result.extraction.some(file => file.path === 'diagnostic')) process.exitCode = 1;

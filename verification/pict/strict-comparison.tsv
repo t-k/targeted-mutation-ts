@@ -1,0 +1,11 @@
+Operator	Observation	Rule
+Less	Away	Default
+Less	Away	Extended
+Greater	Boundary	Extended
+Inclusive	Boundary	Extended
+Greater	Away	Default
+Less	Boundary	Default
+Inclusive	Opaque	Default
+Less	Opaque	Extended
+Inclusive	Away	Extended
+Greater	Opaque	Extended

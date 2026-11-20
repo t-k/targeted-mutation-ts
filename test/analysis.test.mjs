@@ -138,3 +138,45 @@ test('generated witnesses run under a Vitest config with an explicit include fil
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('reexecutes a one-unit tightening and reports the missing assertion', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tmt-displacement-test-'));
+  try {
+    const source = 'export const keep = (count: number) => count > 0;\n';
+    writeFileSync(join(root, 'subject.ts'), source);
+    const suite = join(root, 'subject.test.ts');
+    const original = "import { expect, it } from 'vitest'; import { keep } from './subject'; it('checks two', () => expect(keep(2)).toBe(true)); it('exercises zero', () => { keep(0); }); it('exercises one', () => { keep(1); });";
+    writeFileSync(suite, original);
+    const result = analyze(root, 'subject.ts', '--displace-thresholds', '--deterministic');
+    const displaced = result.mutants.find(mutant => mutant.rule === 'comparison-tighten/v1');
+    assert.equal(displaced.replacement, '1');
+    assert.equal(displaced.status, 'survived');
+    assert.equal(displaced.evidence, 'reexecuted');
+    const gap = result.diagnostics.find(diagnostic => diagnostic.mutations[0].rule === displaced.rule);
+    assert.equal(gap.kind, 'ASSERTION GAP');
+    assert.deepEqual(gap.tests.map(test => test.name), ['exercises one']);
+    assert.deepEqual(gap.example, { operands: [1, 0], original: true, mutant: false });
+    const boundaryGap = result.diagnostics.find(diagnostic => diagnostic !== gap);
+    assert.deepEqual(boundaryGap.tests.map(test => test.name), ['exercises zero']);
+    writeFileSync(suite, original + " it('checks one', () => expect(keep(1)).toBe(true));");
+    const confirmed = analyze(root, 'subject.ts', '--displace-thresholds');
+    assert.equal(confirmed.mutants.find(mutant => mutant.rule === 'comparison-tighten/v1').status, 'killed');
+    assert.equal(readFileSync(join(root, 'subject.ts'), 'utf8'), source);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('audits a generated witness for a callable strict threshold', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tmt-strict-witness-'));
+  try {
+    writeFileSync(join(root, 'subject.ts'), 'export const keep = (count: number) => count < 4;');
+    writeFileSync(join(root, 'subject.test.ts'), "import { expect, it } from 'vitest'; import { keep } from './subject'; it('checks two', () => expect(keep(2)).toBe(true));");
+    const result = analyze(root, 'subject.ts', '--displace-thresholds', '--audit');
+    const gap = result.diagnostics.find(diagnostic => diagnostic.mutations[0].rule === 'comparison-tighten/v1');
+    assert.equal(gap.suggestedTest, 'expect(keep(3)).toBe(true)');
+    assert.deepEqual(gap.verification, { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
