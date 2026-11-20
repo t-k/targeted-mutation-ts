@@ -1,0 +1,8 @@
+{
+  "testRunner": "vitest",
+  "mutate": ["src/shipping.ts"],
+  "coverageAnalysis": "perTest",
+  "concurrency": 1,
+  "incremental": false,
+  "reporters": ["clear-text", "json"]
+}

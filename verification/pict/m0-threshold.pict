@@ -1,0 +1,4 @@
+Observation: Both, FalseOnly, TrueOnly, Empty, Invalid
+Threshold: Interior, Lower, Upper
+Domain: Signed, Nonnegative
+IF [Threshold] = "Lower" THEN [Observation] <> "Both" AND [Observation] <> "FalseOnly";

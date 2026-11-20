@@ -1,0 +1,40 @@
+{
+  "diagnostics": [
+    {
+      "kind": "INPUT GAP",
+      "location": {
+        "file": "src/shipping.ts",
+        "line": 1,
+        "column": 50,
+        "start": 49,
+        "end": 53
+      },
+      "mutation": {
+        "original": "yen >= 5000",
+        "source": "yen >= 4999"
+      },
+      "observedInputs": [
+        4800,
+        5000
+      ],
+      "feasibleThresholds": [
+        4801,
+        5000
+      ],
+      "witness": {
+        "input": 4999,
+        "original": false,
+        "mutant": true,
+        "expectation": "specification"
+      },
+      "suggestedTest": "expect(shipsFree(4999)).toBe(false)",
+      "verification": {
+        "baseline": "passed",
+        "instrumented": "passed",
+        "rewrite": "passed",
+        "baselineWithWitness": "passed",
+        "rewriteWithWitness": "failed"
+      }
+    }
+  ]
+}

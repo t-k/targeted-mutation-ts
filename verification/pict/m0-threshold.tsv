@@ -1,0 +1,14 @@
+Observation	Threshold	Domain
+Both	Interior	Nonnegative
+TrueOnly	Lower	Signed
+FalseOnly	Upper	Nonnegative
+FalseOnly	Interior	Signed
+TrueOnly	Upper	Signed
+TrueOnly	Interior	Nonnegative
+Invalid	Lower	Nonnegative
+Empty	Upper	Signed
+Both	Upper	Signed
+Invalid	Interior	Signed
+Empty	Lower	Nonnegative
+Empty	Interior	Nonnegative
+Invalid	Upper	Signed

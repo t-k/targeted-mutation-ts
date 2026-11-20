@@ -1,0 +1,8 @@
+{
+  "shipsFree": {
+    "operator": ">=",
+    "threshold": 5000,
+    "min": 0,
+    "rationale": "A nonnegative whole-yen order ships free when its tax-inclusive amount is at least 5,000 yen."
+  }
+}

@@ -1,0 +1,7 @@
+AGENTS.override.md
+CLAUDE.local.md
+
+docs.local/
+.worktree/
+node_modules/
+build/
