@@ -66,6 +66,10 @@
         18,
         20
       ],
+      "verification": {
+        "baselineWithWitness": "passed",
+        "rewriteWithWitness": "failed"
+      },
       "mutations": [
         {
           "rule": "comparison-boundary/v1",

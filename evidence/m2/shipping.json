@@ -95,6 +95,10 @@
         4801,
         5000
       ],
+      "verification": {
+        "baselineWithWitness": "passed",
+        "rewriteWithWitness": "failed"
+      },
       "mutations": [
         {
           "rule": "comparison-threshold/v1",

@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { dirname, relative, resolve } from 'node:path';
+import { createHash, randomUUID } from 'node:crypto';
+import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { byteOffsets, extract } from './extract.mjs';
 import { thresholdSites } from './prototype.mjs';
@@ -84,14 +84,18 @@ function makeAttempt(root, subjects, { tracing = false, activate, trial, runner 
       else if (trial?.site.location.file === subject.file) writeFileSync(file, rewrite(subject.input, trial.edit, trial.replacement));
     }
     let witnessFile;
-    if (witness) {
+    if (witness?.appendTo) {
+      const path = inside(workspace, witness.appendTo);
+      appendFileSync(path, witness.source);
+      witnessFile = relative(workspace, path);
+    } else if (witness) {
       const folder = inside(workspace, witness.directory);
       const path = resolve(folder, witness.name);
       writeFileSync(path, readFileSync(inside(workspace, witness.content)), { flag: 'wx' });
       witnessFile = relative(workspace, path);
     }
     const result = runner(workspace, temp, { trace, active: activate, product: true });
-    return tracing ? { ...result, trace: traceFrom(trace) } : { ...result, witnessFile };
+    return tracing ? { ...result, trace: traceFrom(trace) } : { ...result, witnessFile, witnessName: witness?.testName };
   });
 }
 
@@ -213,6 +217,32 @@ function diagnose(trial, result) {
   };
 }
 
+function verifyVitestWitness(root, subjects, baseline, trial, gap) {
+  const testFile = baseline.tests.find(test => test.status === 'passed').file;
+  try {
+    inside(root, testFile);
+  } catch {
+    return { baselineWithWitness: 'unconfirmed', rewriteWithWitness: 'unconfirmed' };
+  }
+  const target = relative(dirname(testFile), trial.site.location.file).split(sep).join('/');
+  const modulePath = target.startsWith('../') ? target : './' + target;
+  const key = trial.site.id.slice(0, 20);
+  const testName = 'TMT generated threshold witness ' + key;
+  const { functionName } = trial.threshold.meta;
+  const { input, original } = gap.witness;
+  const witness = {
+    appendTo: testFile, testName,
+    source: `
+import { expect as __tmtExpect_${key}, it as __tmtIt_${key} } from 'vitest';
+import { ${functionName} as __tmtSubject_${key} } from ${JSON.stringify(modulePath)};
+__tmtIt_${key}(${JSON.stringify(testName)}, () => __tmtExpect_${key}(__tmtSubject_${key}(${input})).toBe(${original}));
+`,
+  };
+  const originalRun = makeAttempt(root, subjects, { witness });
+  const changedRun = makeAttempt(root, subjects, { witness, trial });
+  return verifyWitnessRuns(baseline, originalRun, changedRun);
+}
+
 function traceSignature(trace) {
   return trace && trace.map(row => JSON.stringify(row)).join('\n');
 }
@@ -223,14 +253,15 @@ function playwrightSummary(run) {
 }
 
 function witnessCases(baseline, run) {
-  const witnesses = run.tests?.filter(test => test.file === run.witnessFile);
-  const original = run.tests?.filter(test => test.file !== run.witnessFile);
+  const isWitness = test => test.file === run.witnessFile && (!run.witnessName || test.name === run.witnessName);
+  const witnesses = run.tests?.filter(isWitness);
+  const original = run.tests?.filter(test => !isWitness(test));
   if (!witnesses?.length || original.some(test => !['passed', 'skipped'].includes(test.status)) ||
       verdict({ status: 'passed', tests: original }, baseline) !== 'survived') return [];
   return witnesses;
 }
 
-function playwrightWitnessVerification(baseline, original, changed) {
+function verifyWitnessRuns(baseline, original, changed) {
   const passed = witnessCases(baseline, original);
   const failed = witnessCases(baseline, changed);
   const baselineAccepted = original.status === 'passed' && passed.length > 0 && passed.every(test => test.status === 'passed');
@@ -276,14 +307,14 @@ function analyzePlaywright(root, subjects, report, options, specification) {
         (entry.line === undefined || entry.line === site.location.line));
       if (result.status === 'survived' && match?.witness && typeof match.requirement === 'string') {
         const witness = {
-          content: match.witness, name: 'tmt-witness-' + site.id.slice(0, 20) + '.spec.ts',
+          content: match.witness, name: 'tmt-witness-' + randomUUID() + '.spec.ts',
           directory: match.witnessDirectory ?? dirname(baseline.tests.find(test => test.status === 'passed').file),
         };
         const original = makeAttempt(root, subjects, { runner, witness });
         const changed = makeAttempt(root, subjects, { runner, witness, trial });
         report.diagnostics.push({
           kind: 'SURVIVED', site: site.id, location: site.location, requirement: match.requirement, suggestedTestFile: match.witness,
-          verification: playwrightWitnessVerification(baseline, original, changed),
+          verification: verifyWitnessRuns(baseline, original, changed),
         });
       }
     }
@@ -353,6 +384,7 @@ export function analyze(project, files, options) {
     report.mutants.push(result);
     const gap = diagnose(trial, result);
     if (gap) {
+      if (options.audit && gap.suggestedTest) gap.verification = verifyVitestWitness(root, subjects, baseline, trial, gap);
       const duplicate = report.diagnostics.find(other => other.site === gap.site && other.kind === gap.kind &&
         (gap.kind === 'ASSERTION GAP' || gap.witness.operands.every((value, index) => value === other.witness.operands[index])));
       if (duplicate) {

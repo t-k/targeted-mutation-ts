@@ -18,6 +18,7 @@ test('reports the 18-year boundary input gap once and audits the Lean replay', (
   assert.equal(gap.kind, 'INPUT GAP');
   assert.equal(gap.suggestedTest, 'expect(eligible(18)).toBe(true)');
   assert.equal(gap.witness.expectation, 'specification');
+  assert.deepEqual(gap.verification, { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' });
   assert.equal(result.mutants.length, 1);
   assert.equal(result.mutants[0].evidence, 'predicted');
   assert.equal(result.mutants[0].audit.status, 'agreed');
@@ -48,6 +49,7 @@ test('uses the product runner for the M0 threshold shift and filters on the oper
   const result = analyze('fixtures/shipping', 'src/shipping.ts', '--spec', 'spec.json', '--lines', 'src/shipping.ts:1-1', '--audit');
   assert.equal(result.diagnostics.length, 1);
   assert.equal(result.diagnostics[0].suggestedTest, 'expect(shipsFree(4999)).toBe(false)');
+  assert.deepEqual(result.diagnostics[0].verification, { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' });
   assert.deepEqual(result.mutants.map(result => result.status), ['killed', 'survived']);
   assert.equal(analyze('fixtures/shipping', 'src/shipping.ts', '--lines', 'src/shipping.ts:2-2').evaluation, 'no_sites');
 });
@@ -117,6 +119,21 @@ test('an unloaded instrumented module with no observations is kept out of surviv
     const [result] = analyze(root, 'subject.ts').mutants;
     assert.equal(result.status, 'unevaluated');
     assert.equal(result.sourceVerdict, 'survived');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('generated witnesses run under a Vitest config with an explicit include file', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tmt-custom-include-test-'));
+  try {
+    cpSync('fixtures/eligibility', root, { recursive: true });
+    const selected = 'test/eligibility.test.ts';
+    const before = readFileSync(join(root, selected), 'utf8');
+    writeFileSync(join(root, 'vitest.config.mjs'), `export default { test: { include: [${JSON.stringify(selected)}] } };`);
+    const [gap] = analyze(root, 'src/eligibility.ts', '--audit').diagnostics;
+    assert.deepEqual(gap.verification, { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' });
+    assert.equal(readFileSync(join(root, selected), 'utf8'), before);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
