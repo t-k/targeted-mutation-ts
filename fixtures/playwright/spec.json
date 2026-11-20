@@ -1,0 +1,18 @@
+{
+  "playwright": [
+    {
+      "file": "src/eligibility.tsx",
+      "rule": "comparison-boundary/v1",
+      "operator": "<",
+      "requirement": "Eligibility starts on the eighteenth birthday.",
+      "witness": "variants/age.ts"
+    },
+    {
+      "file": "src/save.tsx",
+      "rule": "jsx-disabled-drop-left/v1",
+      "operator": "||",
+      "requirement": "A valid form cannot be submitted again while its first request is pending.",
+      "witness": "variants/pending.ts"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "testRunner": "command",
+  "commandRunner": { "command": "npx --no-install playwright test --workers=1 --global-timeout=15000" },
+  "mutate": ["src/save.tsx"],
+  "coverageAnalysis": "off",
+  "concurrency": 1,
+  "timeoutMS": 12000,
+  "incremental": false,
+  "reporters": ["clear-text", "json"]
+}

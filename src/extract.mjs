@@ -79,6 +79,19 @@ export function extractYuku(input, options = {}) {
         left: [bytes[node.left.start], bytes[node.left.end]], right: [bytes[node.right.start], bytes[node.right.end]],
       });
     }
+    if (options.logical && node.type === 'JSXAttribute' && node.name.name === 'disabled' &&
+        node.value?.expression?.type === 'LogicalExpression' && node.value.expression.operator === '||') {
+      const expression = node.value.expression;
+      const operator = tokens.after(expression.left.end);
+      const operatorEdit = [bytes[tokens.start(operator)], bytes[tokens.end(operator)]];
+      candidates.push({
+        rule: 'jsx-disabled-drop-left/v1', operator: '||', operatorEdit,
+        replacement: '(' + source.slice(expression.right.start, expression.right.end) + ')',
+        edit: [bytes[expression.start], bytes[expression.end]],
+        left: [bytes[expression.left.start], bytes[expression.left.end]],
+        right: [bytes[expression.right.start], bytes[expression.right.end]],
+      });
+    }
     for (const value of Object.values(node)) {
       if (Array.isArray(value)) {
         for (const item of value) if (item && typeof item.type === 'string') pending.push(item);
@@ -87,7 +100,7 @@ export function extractYuku(input, options = {}) {
       }
     }
   }
-  candidates.sort((a, b) => a.edit[0] - b.edit[0]);
+  candidates.sort((a, b) => (a.operatorEdit ?? a.edit)[0] - (b.operatorEdit ?? b.edit)[0]);
   return { path: 'yuku', candidates };
 }
 

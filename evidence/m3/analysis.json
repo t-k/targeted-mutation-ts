@@ -1,0 +1,234 @@
+{
+  "schemaVersion": 1,
+  "runner": "playwright",
+  "extraction": [
+    {
+      "file": "src/eligibility.tsx",
+      "path": "fast"
+    },
+    {
+      "file": "src/save.tsx",
+      "path": "fallback",
+      "reason": "outside-l1"
+    }
+  ],
+  "mutants": [
+    {
+      "site": "0b034033c9e024cfbe79d8d3d991a77e1f0ea1611b1300fde9f126027e460fc5",
+      "location": {
+        "file": "src/eligibility.tsx",
+        "line": 1,
+        "column": 103,
+        "start": 102,
+        "end": 103
+      },
+      "rule": "comparison-boundary/v1",
+      "operator": "<",
+      "edit": [
+        102,
+        103
+      ],
+      "replacement": "<=",
+      "status": "survived",
+      "evidence": "reexecuted",
+      "run": {
+        "attempt": "545ce0e1-591e-4f07-aae3-7efb3eeb91b8",
+        "runnerPid": 55329,
+        "serverPid": 55330,
+        "status": "passed",
+        "tests": [
+          {
+            "id": "27c88724c5d7e5a2516e-1ab4bad638440a5e5751:0",
+            "project": "chromium",
+            "file": "e2e/boundary.spec.ts",
+            "name": "disables Continue at 17 and enables it at 20",
+            "browser": "chromium",
+            "worker": 0,
+            "status": "passed"
+          },
+          {
+            "id": "27c88724c5d7e5a2516e-319cd33155ec88af802e:0",
+            "project": "chromium",
+            "file": "e2e/boundary.spec.ts",
+            "name": "enables Save only for valid forms before submitting",
+            "browser": "chromium",
+            "worker": 0,
+            "status": "passed"
+          }
+        ]
+      },
+      "audit": {
+        "status": "agreed",
+        "source": "survived",
+        "run": {
+          "attempt": "07c09c08-d75b-49d9-b157-7d87558d90f7",
+          "runnerPid": 55339,
+          "serverPid": 55340,
+          "status": "passed",
+          "tests": [
+            {
+              "id": "27c88724c5d7e5a2516e-1ab4bad638440a5e5751:0",
+              "project": "chromium",
+              "file": "e2e/boundary.spec.ts",
+              "name": "disables Continue at 17 and enables it at 20",
+              "browser": "chromium",
+              "worker": 0,
+              "status": "passed"
+            },
+            {
+              "id": "27c88724c5d7e5a2516e-319cd33155ec88af802e:0",
+              "project": "chromium",
+              "file": "e2e/boundary.spec.ts",
+              "name": "enables Save only for valid forms before submitting",
+              "browser": "chromium",
+              "worker": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "site": "3e1a2ed911cd2e3c03d6361744637b7afff3839154e0fd6f2c339380c4245aa1",
+      "location": {
+        "file": "src/save.tsx",
+        "line": 2,
+        "column": 60,
+        "start": 122,
+        "end": 124
+      },
+      "rule": "jsx-disabled-drop-left/v1",
+      "operator": "||",
+      "edit": [
+        115,
+        131
+      ],
+      "replacement": "(!valid)",
+      "status": "survived",
+      "evidence": "reexecuted",
+      "run": {
+        "attempt": "848e699e-8fb1-4efb-b24f-fff386992de7",
+        "runnerPid": 55380,
+        "serverPid": 55381,
+        "status": "passed",
+        "tests": [
+          {
+            "id": "27c88724c5d7e5a2516e-1ab4bad638440a5e5751:0",
+            "project": "chromium",
+            "file": "e2e/boundary.spec.ts",
+            "name": "disables Continue at 17 and enables it at 20",
+            "browser": "chromium",
+            "worker": 0,
+            "status": "passed"
+          },
+          {
+            "id": "27c88724c5d7e5a2516e-319cd33155ec88af802e:0",
+            "project": "chromium",
+            "file": "e2e/boundary.spec.ts",
+            "name": "enables Save only for valid forms before submitting",
+            "browser": "chromium",
+            "worker": 0,
+            "status": "passed"
+          }
+        ]
+      },
+      "audit": {
+        "status": "agreed",
+        "source": "survived",
+        "run": {
+          "attempt": "53f44bfe-8f9b-4896-9c9c-e8077b01b10f",
+          "runnerPid": 55390,
+          "serverPid": 55391,
+          "status": "passed",
+          "tests": [
+            {
+              "id": "27c88724c5d7e5a2516e-1ab4bad638440a5e5751:0",
+              "project": "chromium",
+              "file": "e2e/boundary.spec.ts",
+              "name": "disables Continue at 17 and enables it at 20",
+              "browser": "chromium",
+              "worker": 0,
+              "status": "passed"
+            },
+            {
+              "id": "27c88724c5d7e5a2516e-319cd33155ec88af802e:0",
+              "project": "chromium",
+              "file": "e2e/boundary.spec.ts",
+              "name": "enables Save only for valid forms before submitting",
+              "browser": "chromium",
+              "worker": 0,
+              "status": "passed"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "diagnostics": [
+    {
+      "kind": "SURVIVED",
+      "site": "0b034033c9e024cfbe79d8d3d991a77e1f0ea1611b1300fde9f126027e460fc5",
+      "location": {
+        "file": "src/eligibility.tsx",
+        "line": 1,
+        "column": 103,
+        "start": 102,
+        "end": 103
+      },
+      "requirement": "Eligibility starts on the eighteenth birthday.",
+      "suggestedTestFile": "variants/age.ts",
+      "verification": {
+        "baselineWithWitness": "passed",
+        "rewriteWithWitness": "failed"
+      }
+    },
+    {
+      "kind": "SURVIVED",
+      "site": "3e1a2ed911cd2e3c03d6361744637b7afff3839154e0fd6f2c339380c4245aa1",
+      "location": {
+        "file": "src/save.tsx",
+        "line": 2,
+        "column": 60,
+        "start": 122,
+        "end": 124
+      },
+      "requirement": "A valid form cannot be submitted again while its first request is pending.",
+      "suggestedTestFile": "variants/pending.ts",
+      "verification": {
+        "baselineWithWitness": "passed",
+        "rewriteWithWitness": "failed"
+      }
+    }
+  ],
+  "evaluation": "evaluated",
+  "baseline": {
+    "attempt": "616fe934-2ef4-403f-981f-71dc1540f995",
+    "runnerPid": 54617,
+    "serverPid": 54802,
+    "status": "passed",
+    "tests": [
+      {
+        "id": "27c88724c5d7e5a2516e-1ab4bad638440a5e5751:0",
+        "project": "chromium",
+        "file": "e2e/boundary.spec.ts",
+        "name": "disables Continue at 17 and enables it at 20",
+        "browser": "chromium",
+        "worker": 0,
+        "status": "passed"
+      },
+      {
+        "id": "27c88724c5d7e5a2516e-319cd33155ec88af802e:0",
+        "project": "chromium",
+        "file": "e2e/boundary.spec.ts",
+        "name": "enables Save only for valid forms before submitting",
+        "browser": "chromium",
+        "worker": 0,
+        "status": "passed"
+      }
+    ]
+  },
+  "instrumented": {
+    "status": "unavailable",
+    "reason": "browser-observations-unavailable"
+  }
+}

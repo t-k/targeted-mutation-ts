@@ -36,3 +36,11 @@ See the [analysis guide](docs/analysis.md) for project scope, Lean-backed replay
 npm run build:lean
 node bin/tmt.mjs analyze fixtures/eligibility src/eligibility.ts --spec spec.json --deterministic --audit
 ```
+
+## Analyze a Playwright project
+
+```sh
+node bin/tmt.mjs analyze . src/button.tsx --runner playwright --project chromium --audit
+```
+
+The [Playwright guide](docs/analysis.md#playwright-projects) describes runner isolation, witness specifications, and Git scope.

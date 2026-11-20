@@ -1,11 +1,11 @@
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const reporter = fileURLToPath(new URL('./vitest-reporter.mjs', import.meta.url));
-const vitest = fileURLToPath(import.meta.resolve('vitest/package.json')).replace(/package\.json$/, 'vitest.mjs');
 const dependencies = resolve(fileURLToPath(new URL('..', import.meta.url)), 'node_modules');
 const excluded = new Set(['.git', '.worktree', 'docs.local', 'node_modules', 'reports', '.stryker-tmp']);
 
@@ -36,6 +36,8 @@ export function withCopy(project, action) {
 }
 
 export function runVitest(root, temp, { trace, filters = [], product = false, active } = {}) {
+  const projectRequire = createRequire(resolve(root, 'package.json'));
+  const vitest = projectRequire.resolve('vitest/package.json').replace(/package\.json$/, 'vitest.mjs');
   const report = resolve(temp, 'vitest.json');
   rmSync(report, { force: true });
   const cache = resolve(temp, 'vite-cache');

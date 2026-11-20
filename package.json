@@ -16,9 +16,12 @@
     "verify:fstar": "sh scripts/verify-fstar.sh",
     "pretest": "npm run build:native && npm run build:lean",
     "audit:extraction": "node scripts/audit-extraction.mjs",
-    "build:lean": "node scripts/build-lean.mjs"
+    "build:lean": "node scripts/build-lean.mjs",
+    "test:e2e": "node --test test/playwright.integration.mjs",
+    "evidence:m3": "node scripts/evidence-m3.mjs"
   },
   "dependencies": {
+    "@playwright/test": "1.65.1",
     "typescript": "5.9.3",
     "vitest": "4.0.18",
     "yuku-parser": "0.19.0"

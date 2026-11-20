@@ -12,6 +12,7 @@ try {
       spec: { type: 'string' }, mode: { type: 'string' }, dialect: { type: 'string' },
       lines: { type: 'string', multiple: true }, since: { type: 'string' },
       deterministic: { type: 'boolean' }, audit: { type: 'boolean' },
+      runner: { type: 'string' }, project: { type: 'string', multiple: true }, config: { type: 'string' },
     },
   });
   if (command === 'extract' && positionals.length === 1) {
@@ -21,6 +22,7 @@ try {
     if (result.path === 'diagnostic') process.exitCode = 1;
   } else if (command === 'analyze') {
     const [project = '.', ...files] = positionals;
+    if (values.runner && !['vitest', 'playwright'].includes(values.runner)) throw new Error('Expected --runner vitest|playwright');
     const result = analyze(project, files, values);
     console.log(JSON.stringify(result, null, 2));
     if (result.evaluation === 'baseline_error' || result.extraction.some(file => file.path === 'diagnostic')) process.exitCode = 1;
@@ -28,7 +30,7 @@ try {
     console.log(JSON.stringify(runPrototype(...positionals, values), null, 2));
   } else {
     throw new Error('Usage: tmt-ts extract FILE [--mode script|module] [--dialect ts|tsx]\n' +
-      '       tmt-ts analyze [PROJECT] [FILE...] [--lines FILE:FROM-TO] [--since REV] [--spec FILE] [--deterministic] [--audit]\n' +
+      '       tmt-ts analyze [PROJECT] [FILE...] [--lines FILE:FROM-TO] [--since REV] [--spec FILE] [--deterministic] [--audit] [--runner vitest|playwright]\n' +
       '       tmt-ts prototype PROJECT FILE [--spec FILE]');
   }
 } catch (error) {
