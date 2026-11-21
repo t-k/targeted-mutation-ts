@@ -1268,14 +1268,23 @@ TmtParser_regex_flags(TmtParser_tape input0, uint32_t at0, uint32_t seen0, uint3
   KRML_HOST_EXIT(255U);
 }
 
-TmtParser_cursor
+TmtParser_regex_result TmtParser_regex_result_at(uint32_t at, bool ok, uint64_t names)
+{
+  return
+    (
+      (TmtParser_regex_result){ .ending = { .at = at, .ok = ok, .newline = false }, .names = names }
+    );
+}
+
+TmtParser_regex_result
 TmtParser_regex_pattern(
   TmtParser_tape input0,
   uint32_t at0,
   uint32_t depth0,
   uint32_t fuel0,
   bool nested0,
-  bool can_repeat0
+  bool can_repeat0,
+  uint64_t names0
 )
 {
   TmtParser_tape input = input0;
@@ -1284,30 +1293,37 @@ TmtParser_regex_pattern(
   uint32_t fuel = fuel0;
   bool nested = nested0;
   bool can_repeat = can_repeat0;
+  uint64_t names = names0;
   while (true)
     if (fuel == 0U || at >= input.size)
-      return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
+      return TmtParser_regex_result_at(at, false, names);
     else
     {
       uint8_t byte = TmtParser_peek(input, at);
       uint32_t rest = TmtParser_minus(fuel, 1U);
       if (byte == 47U && !nested)
-        return TmtParser_regex_flags(input, TmtParser_next(at), 0U, 7U);
+      {
+        TmtParser_cursor ending = TmtParser_regex_flags(input, TmtParser_next(at), 0U, 7U);
+        return ((TmtParser_regex_result){ .ending = ending, .names = names });
+      }
       else if (byte == 41U && nested)
-        return ((TmtParser_cursor){ .at = TmtParser_next(at), .ok = true, .newline = false });
+        return TmtParser_regex_result_at(TmtParser_next(at), true, names);
       else if (byte == 40U)
       {
-        TmtParser_regex_unit group = TmtParser_regex_group(input, at, depth, rest);
-        if (!group.unit_ok)
-          return ((TmtParser_cursor){ .at = group.unit_end, .ok = false, .newline = false });
+        TmtParser_regex_group_result group = TmtParser_regex_group(input, at, depth, rest, names);
+        TmtParser_regex_result parsed1 = group.pattern;
+        if (!parsed1.ending.ok)
+          return parsed1;
         else
         {
-          uint32_t tmp0 = group.unit_end;
+          uint32_t tmp0 = parsed1.ending.at;
           uint32_t tmp1 = rest;
-          bool tmp = group.repeatable;
+          bool tmp2 = group.repeatable_group;
+          uint64_t tmp = parsed1.names;
           at = tmp0;
           fuel = tmp1;
-          can_repeat = tmp;
+          can_repeat = tmp2;
+          names = tmp;
         }
       }
       else if (byte == 91U)
@@ -1316,7 +1332,7 @@ TmtParser_regex_pattern(
         TmtParser_cursor
         class_ = TmtParser_regex_class(input, TmtParser_plus(at, negated ? 2U : 1U), rest);
         if (!class_.ok)
-          return class_;
+          return ((TmtParser_regex_result){ .ending = class_, .names = names });
         else
         {
           uint32_t tmp0 = class_.at;
@@ -1331,7 +1347,7 @@ TmtParser_regex_pattern(
       {
         TmtParser_regex_unit escaped = TmtParser_regex_escape(input, at, false);
         if (!escaped.unit_ok)
-          return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
+          return TmtParser_regex_result_at(at, false, names);
         else
         {
           uint32_t tmp0 = escaped.unit_end;
@@ -1354,7 +1370,7 @@ TmtParser_regex_pattern(
       else if (byte == 43U || byte == 42U || byte == 63U || byte == 123U)
       {
         if (!can_repeat)
-          return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
+          return TmtParser_regex_result_at(at, false, names);
         else
         {
           TmtParser_cursor quantifier;
@@ -1364,7 +1380,7 @@ TmtParser_regex_pattern(
             quantifier =
               ((TmtParser_cursor){ .at = TmtParser_next(at), .ok = true, .newline = false });
           if (!quantifier.ok)
-            return quantifier;
+            return ((TmtParser_regex_result){ .ending = quantifier, .names = names });
           else
           {
             bool lazy_ = TmtParser_same(input, quantifier.at, 63U);
@@ -1393,7 +1409,7 @@ TmtParser_regex_pattern(
         can_repeat = tmp;
       }
       else
-        return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
+        return TmtParser_regex_result_at(at, false, names);
     }
   KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
     __FILE__,
@@ -1402,58 +1418,88 @@ TmtParser_regex_pattern(
   KRML_HOST_EXIT(255U);
 }
 
-TmtParser_regex_unit
-TmtParser_regex_group(TmtParser_tape input, uint32_t at, uint32_t depth, uint32_t fuel)
+typedef struct __uint32_t_uint64_t_bool_s
+{
+  uint32_t fst;
+  uint64_t snd;
+  bool thd;
+}
+__uint32_t_uint64_t_bool;
+
+TmtParser_regex_group_result
+TmtParser_regex_group(
+  TmtParser_tape input,
+  uint32_t at,
+  uint32_t depth,
+  uint32_t fuel,
+  uint64_t names
+)
 {
   bool question = TmtParser_same(input, TmtParser_next(at), 63U);
   uint8_t marker = TmtParser_peek(input, TmtParser_plus(at, 2U));
-  uint32_t width;
+  uint32_t prefix = TmtParser_plus(at, 3U);
+  __uint32_t_uint64_t_bool scrut;
   if (!question)
-    width = 1U;
-  else if (marker == 58U || marker == 61U || marker == 33U)
-    width = 3U;
+    scrut = ((__uint32_t_uint64_t_bool){ .fst = TmtParser_next(at), .snd = names, .thd = true });
+  else if (marker == 58U)
+    scrut = ((__uint32_t_uint64_t_bool){ .fst = prefix, .snd = names, .thd = true });
+  else if (marker == 61U || marker == 33U)
+    scrut = ((__uint32_t_uint64_t_bool){ .fst = prefix, .snd = names, .thd = false });
   else if (marker == 60U)
   {
-    uint8_t direction = TmtParser_peek(input, TmtParser_plus(at, 3U));
-    width = direction == 61U || direction == 33U ? 4U : 0U;
+    uint8_t first = TmtParser_peek(input, prefix);
+    if (first == 61U || first == 33U)
+      scrut =
+        ((__uint32_t_uint64_t_bool){ .fst = TmtParser_next(prefix), .snd = names, .thd = false });
+    else if (!TmtGrammar_identifier_start(first))
+      scrut = ((__uint32_t_uint64_t_bool){ .fst = at, .snd = names, .thd = false });
+    else
+    {
+      uint32_t limit = TmtParser_scan_class(input, prefix, TmtGrammar_Identifier);
+      bool closed = TmtParser_same(input, limit, 62U);
+      uint8_t last = TmtParser_peek(input, TmtParser_minus(limit, 1U));
+      uint32_t edges = (uint32_t)first + (uint32_t)last;
+      uint32_t hash = edges + TmtParser_minus(limit, prefix);
+      uint64_t bit = 1ULL << hash % 64U;
+      if (closed && (names & bit) == 0ULL)
+        scrut =
+          (
+            (__uint32_t_uint64_t_bool){
+              .fst = TmtParser_next(limit),
+              .snd = names | bit,
+              .thd = true
+            }
+          );
+      else
+        scrut = ((__uint32_t_uint64_t_bool){ .fst = at, .snd = names, .thd = false });
+    }
   }
   else
-    width = 0U;
-  if (width == 0U || depth == 0U)
-    return
-      (
-        (TmtParser_regex_unit){
-          .unit_end = at,
-          .unit_ok = false,
-          .character = TmtParser_no_character,
-          .repeatable = false
-        }
-      );
+    scrut = ((__uint32_t_uint64_t_bool){ .fst = at, .snd = names, .thd = false });
+  uint32_t start = scrut.fst;
+  uint64_t names1 = scrut.snd;
+  bool repeatable_group = scrut.thd;
+  TmtParser_regex_result pattern;
+  if (start == at || depth == 0U)
+    pattern = TmtParser_regex_result_at(at, false, names1);
   else
-  {
-    TmtParser_cursor
-    group =
+    pattern =
       TmtParser_regex_pattern(input,
-        TmtParser_plus(at, width),
+        start,
         TmtParser_minus(depth, 1U),
         fuel,
         true,
-        false);
-    return
-      (
-        (TmtParser_regex_unit){
-          .unit_end = group.at,
-          .unit_ok = group.ok,
-          .character = TmtParser_no_character,
-          .repeatable = !question || marker == 58U
-        }
-      );
-  }
+        false,
+        names1);
+  return
+    ((TmtParser_regex_group_result){ .pattern = pattern, .repeatable_group = repeatable_group });
 }
 
 TmtParser_cursor TmtParser_regex_end(TmtParser_tape input, uint32_t at)
 {
-  return TmtParser_regex_pattern(input, at, 32U, input.size, false, false);
+  TmtParser_regex_result
+  parsed1 = TmtParser_regex_pattern(input, at, 32U, input.size, false, false, 0ULL);
+  return parsed1.ending;
 }
 
 TmtParser_binary_operator
@@ -3580,7 +3626,7 @@ TmtParser_parameter_prefix(
     typed = TmtParser_simple_annotation(input, tail);
   TmtParser_named_state uu____0 = { .state = TmtParser_skip(input, typed), .used = bound.used };
   return
-    ((TmtParser_parameter_list){ .names = uu____0, .non_simple = first == 123U || first == 91U });
+    ((TmtParser_parameter_list){ .names1 = uu____0, .non_simple = first == 123U || first == 91U });
 }
 
 TmtParser_parameter_list
@@ -3625,7 +3671,7 @@ TmtParser_rest_parameter(
   return
     (
       (TmtParser_parameter_list){
-        .names = { .state = end_, .used = rest.used },
+        .names1 = { .state = end_, .used = rest.used },
         .non_simple = true
       }
     );
@@ -3654,7 +3700,7 @@ TmtParser_parameters(
       return
         (
           (TmtParser_parameter_list){
-            .names = { .state = st, .used = used },
+            .names1 = { .state = st, .used = used },
             .non_simple = non_simple
           }
         );
@@ -3662,7 +3708,7 @@ TmtParser_parameters(
       return
         (
           (TmtParser_parameter_list){
-            .names = { .state = TmtParser_consume(input, st, 41U), .used = used },
+            .names1 = { .state = TmtParser_consume(input, st, 41U), .used = used },
             .non_simple = non_simple
           }
         );
@@ -3670,7 +3716,7 @@ TmtParser_parameters(
       return
         (
           (TmtParser_parameter_list){
-            .names = { .state = TmtParser_failed(st, 1U), .used = used },
+            .names1 = { .state = TmtParser_failed(st, 1U), .used = used },
             .non_simple = non_simple
           }
         );
@@ -3680,11 +3726,11 @@ TmtParser_parameters(
     {
       TmtParser_parameter_list prefix = TmtParser_parameter_prefix(input, st, floor, used);
       bool non_simple1 = non_simple || prefix.non_simple;
-      TmtParser_parser_state st1 = prefix.names.state;
+      TmtParser_parser_state st1 = prefix.names1.state;
       if (TmtParser_same(input, st1.offset, 44U))
       {
         TmtParser_parser_state tmp0 = TmtParser_consume(input, st1, 44U);
-        uint32_t tmp1 = prefix.names.used;
+        uint32_t tmp1 = prefix.names1.used;
         uint32_t tmp2 = TmtParser_minus(fuel, 1U);
         bool tmp = non_simple1;
         state = tmp0;
@@ -3694,11 +3740,11 @@ TmtParser_parameters(
       }
       else
       {
-        TmtParser_named_state uu____0 = prefix.names;
+        TmtParser_named_state uu____0 = prefix.names1;
         return
           (
             (TmtParser_parameter_list){
-              .names = { .state = TmtParser_consume(input, st1, 41U), .used = uu____0.used },
+              .names1 = { .state = TmtParser_consume(input, st1, 41U), .used = uu____0.used },
               .non_simple = non_simple1
             }
           );
@@ -3751,7 +3797,7 @@ TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state st
   uint32_t used = state.local_names;
   TmtParser_parameter_list
   missed =
-    { .names = { .state = TmtParser_failed(state, 1U), .used = used }, .non_simple = false };
+    { .names1 = { .state = TmtParser_failed(state, 1U), .used = used }, .non_simple = false };
   if (state.status != 0U)
     return missed;
   else
@@ -3767,19 +3813,19 @@ TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state st
           used,
           64U,
           false);
-      TmtParser_cursor after = TmtParser_trivia(input, params.names.state.offset);
-      TmtParser_parser_state st = TmtParser_from_cursor(params.names.state, after);
+      TmtParser_cursor after = TmtParser_trivia(input, params.names1.state.offset);
+      TmtParser_parser_state st = TmtParser_from_cursor(params.names1.state, after);
       bool colon = TmtParser_same(input, st.offset, 58U);
       TmtParser_parser_state result;
       if (colon && !after.newline)
         result = TmtParser_result_type(input, TmtParser_consume(input, st, 58U), 16U);
       else
-        result = params.names.state;
-      TmtParser_named_state uu____0 = params.names;
+        result = params.names1.state;
+      TmtParser_named_state uu____0 = params.names1;
       return
         (
           (TmtParser_parameter_list){
-            .names = { .state = TmtParser_arrow_token(input, result), .used = uu____0.used },
+            .names1 = { .state = TmtParser_arrow_token(input, result), .used = uu____0.used },
             .non_simple = params.non_simple
           }
         );
@@ -3805,7 +3851,7 @@ TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state st
         return
           (
             (TmtParser_parameter_list){
-              .names = {
+              .names1 = {
                 .state = {
                   .offset = body.offset, .count = uu____1.count, .depth = uu____1.depth,
                   .status = uu____1.status, .local_names = uu____1.local_names,
@@ -3898,7 +3944,7 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
             .super_context = state.super_context
           }
         ));
-    if (async_.names.state.status == 0U)
+    if (async_.names1.state.status == 0U)
       return async_;
     else
       return
@@ -5211,9 +5257,9 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
 {
   TmtParser_parser_state start = TmtParser_skip(input, current);
   TmtParser_parameter_list arrow = TmtParser_arrow_parameters(input, start);
-  if (arrow.names.state.status == 0U)
+  if (arrow.names1.state.status == 0U)
   {
-    TmtParser_parser_state uu____0 = arrow.names.state;
+    TmtParser_parser_state uu____0 = arrow.names1.state;
     TmtParser_parser_state
     body =
       TmtParser_skip(input,
@@ -5223,7 +5269,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             .count = uu____0.count,
             .depth = uu____0.depth,
             .status = uu____0.status,
-            .local_names = arrow.names.used,
+            .local_names = arrow.names1.used,
             .await_allowed = uu____0.await_allowed,
             .jsx_allowed = uu____0.jsx_allowed,
             .module_mode = uu____0.module_mode,
@@ -5260,7 +5306,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             true,
             TmtParser_NoJump,
             start.local_names,
-            arrow.names.used);
+            arrow.names1.used);
         result = TmtParser_empty_range(stop);
       }
       else
@@ -8009,7 +8055,7 @@ TmtParser_function_parameters(
       return
         (
           (TmtParser_parameter_list){
-            .names = { .state = st, .used = used },
+            .names1 = { .state = st, .used = used },
             .non_simple = non_simple
           }
         );
@@ -8017,7 +8063,7 @@ TmtParser_function_parameters(
       return
         (
           (TmtParser_parameter_list){
-            .names = { .state = TmtParser_consume(input, st, 41U), .used = used },
+            .names1 = { .state = TmtParser_consume(input, st, 41U), .used = used },
             .non_simple = non_simple
           }
         );
@@ -8025,7 +8071,7 @@ TmtParser_function_parameters(
       return
         (
           (TmtParser_parameter_list){
-            .names = { .state = TmtParser_failed(st, 1U), .used = used },
+            .names1 = { .state = TmtParser_failed(st, 1U), .used = used },
             .non_simple = non_simple
           }
         );
@@ -8071,7 +8117,7 @@ TmtParser_function_parameters(
           return
             (
               (TmtParser_parameter_list){
-                .names = { .state = TmtParser_consume(input, end_, 41U), .used = used },
+                .names1 = { .state = TmtParser_consume(input, end_, 41U), .used = used },
                 .non_simple = non_simple
               }
             );
@@ -8081,7 +8127,7 @@ TmtParser_function_parameters(
       else
       {
         TmtParser_parameter_list prefix = TmtParser_parameter_prefix(input, st, floor, used);
-        TmtParser_parser_state st1 = prefix.names.state;
+        TmtParser_parser_state st1 = prefix.names1.state;
         bool default_ = TmtParser_same(input, st1.offset, 61U);
         bool non_simple1 = non_simple || prefix.non_simple || default_;
         TmtParser_parser_state st2;
@@ -8096,7 +8142,7 @@ TmtParser_function_parameters(
                   .count = st1.count,
                   .depth = st1.depth,
                   .status = st1.status,
-                  .local_names = prefix.names.used,
+                  .local_names = prefix.names1.used,
                   .await_allowed = false,
                   .jsx_allowed = st1.jsx_allowed,
                   .module_mode = st1.module_mode,
@@ -8131,7 +8177,7 @@ TmtParser_function_parameters(
         if (TmtParser_same(input, end_.offset, 44U))
         {
           TmtParser_parser_state tmp0 = TmtParser_consume(input, end_, 44U);
-          uint32_t tmp1 = prefix.names.used;
+          uint32_t tmp1 = prefix.names1.used;
           uint32_t tmp2 = TmtParser_minus(remaining, 1U);
           bool tmp = non_simple1;
           state = tmp0;
@@ -8141,11 +8187,11 @@ TmtParser_function_parameters(
         }
         else
         {
-          TmtParser_named_state uu____1 = prefix.names;
+          TmtParser_named_state uu____1 = prefix.names1;
           return
             (
               (TmtParser_parameter_list){
-                .names = { .state = TmtParser_consume(input, end_, 41U), .used = uu____1.used },
+                .names1 = { .state = TmtParser_consume(input, end_, 41U), .used = uu____1.used },
                 .non_simple = non_simple1
               }
             );
@@ -8215,9 +8261,9 @@ TmtParser_function_tail(
   constructor = super_ == TmtParser_BaseConstructor || super_ == TmtParser_DerivedConstructor;
   TmtParser_parser_state st;
   if (constructor)
-    st = TmtParser_skip(input, params.names.state);
+    st = TmtParser_skip(input, params.names1.state);
   else
-    st = TmtParser_skip(input, TmtParser_result_annotation(input, params.names.state));
+    st = TmtParser_skip(input, TmtParser_result_annotation(input, params.names1.state));
   TmtParser_parser_state
   st1 =
     {
@@ -8234,7 +8280,7 @@ TmtParser_function_tail(
       true,
       TmtParser_NoJump,
       floor,
-      params.names.used);
+      params.names1.used);
   return
     (
       (TmtParser_parser_state){

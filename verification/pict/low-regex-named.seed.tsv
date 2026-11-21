@@ -1,0 +1,5 @@
+Shape	Flag	Suffix
+Named	Global	Valid
+Nested	Unicode	Valid
+Siblings	None	Valid
+Lookaround	Unicode	Invalid

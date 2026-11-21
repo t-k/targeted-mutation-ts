@@ -272,18 +272,41 @@ uint32_t TmtParser_regex_flag_bit(uint8_t byte);
 TmtParser_cursor
 TmtParser_regex_flags(TmtParser_tape input0, uint32_t at0, uint32_t seen0, uint32_t fuel0);
 
-TmtParser_cursor
+typedef struct TmtParser_regex_result_s
+{
+  TmtParser_cursor ending;
+  uint64_t names;
+}
+TmtParser_regex_result;
+
+typedef struct TmtParser_regex_group_result_s
+{
+  TmtParser_regex_result pattern;
+  bool repeatable_group;
+}
+TmtParser_regex_group_result;
+
+TmtParser_regex_result TmtParser_regex_result_at(uint32_t at, bool ok, uint64_t names);
+
+TmtParser_regex_result
 TmtParser_regex_pattern(
   TmtParser_tape input0,
   uint32_t at0,
   uint32_t depth0,
   uint32_t fuel0,
   bool nested0,
-  bool can_repeat0
+  bool can_repeat0,
+  uint64_t names0
 );
 
-TmtParser_regex_unit
-TmtParser_regex_group(TmtParser_tape input, uint32_t at, uint32_t depth, uint32_t fuel);
+TmtParser_regex_group_result
+TmtParser_regex_group(
+  TmtParser_tape input,
+  uint32_t at,
+  uint32_t depth,
+  uint32_t fuel,
+  uint64_t names
+);
 
 TmtParser_cursor TmtParser_regex_end(TmtParser_tape input, uint32_t at);
 
@@ -560,7 +583,7 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
 
 typedef struct TmtParser_parameter_list_s
 {
-  TmtParser_named_state names;
+  TmtParser_named_state names1;
   bool non_simple;
 }
 TmtParser_parameter_list;
