@@ -122,13 +122,128 @@ def decodeRequest (input : Json) : Except String Request := do
   let observations ← input.getObjValAs? (List (Int × Int)) "observations"
   pure { candidate, traceCandidate, complete, deterministic, original, replacement, observations }
 
-def main : IO UInt32 := do
+namespace Threshold
+
+def bounds (threshold lo hi : Int) : List Int → Int × Int
+  | [] => (lo, hi)
+  | x :: xs =>
+    if x < threshold then bounds threshold (max lo (x + 1)) hi xs
+    else bounds threshold lo (min hi x) xs
+
+def Feasible (threshold lo hi candidate : Int) (xs : List Int) : Prop :=
+  lo ≤ candidate ∧ candidate ≤ hi ∧ ∀ x ∈ xs, (threshold ≤ x ↔ candidate ≤ x)
+
+theorem bounds_exact (threshold lo hi candidate : Int) (xs : List Int) :
+    let b := bounds threshold lo hi xs
+    (b.1 ≤ candidate ∧ candidate ≤ b.2) ↔ Feasible threshold lo hi candidate xs := by
+  induction xs generalizing lo hi with
+  | nil => simp [bounds, Feasible]
+  | cons x xs ih =>
+    simp only [bounds]
+    split <;> rename_i hx <;>
+      simp only [ih, Feasible, List.mem_cons, forall_eq_or_imp, Int.max_le, Int.le_min]
+    · constructor
+      · rintro ⟨⟨lower, next⟩, upper, rest⟩
+        exact ⟨lower, upper, by omega, rest⟩
+      · rintro ⟨lower, upper, same, rest⟩
+        exact ⟨⟨lower, by omega⟩, upper, rest⟩
+    · constructor
+      · rintro ⟨lower, ⟨upper, previous⟩, rest⟩
+        exact ⟨lower, upper, by omega, rest⟩
+      · rintro ⟨lower, upper, same, rest⟩
+        exact ⟨lower, ⟨upper, by omega⟩, rest⟩
+
+structure Gap where
+  interval : Int × Int
+  alternate : Int
+  witness : Int
+  expected : Bool
+  mutant : Bool
+deriving ToJson
+
+def choose (threshold : Int) (b : Int × Int) : Option Gap :=
+  if b.1 < threshold then
+    some ⟨b, threshold - 1, threshold - 1, false, true⟩
+  else if threshold < b.2 then
+    some ⟨b, threshold + 1, threshold, true, false⟩
+  else none
+
+theorem choose_correct (threshold lo hi : Int) (xs : List Int) (g : Gap)
+    (inside : lo ≤ threshold ∧ threshold ≤ hi)
+    (chosen : choose threshold (bounds threshold lo hi xs) = some g) :
+    Feasible threshold lo hi g.alternate xs ∧
+    g.interval = bounds threshold lo hi xs ∧
+    (g.alternate = threshold - 1 ∨ g.alternate = threshold + 1) ∧
+    (g.expected = decide (threshold ≤ g.witness)) ∧
+    (g.mutant = decide (g.alternate ≤ g.witness)) ∧
+    g.expected ≠ g.mutant ∧
+    ∀ c, Feasible threshold lo hi c xs →
+      ((c < threshold ∧ g.alternate < threshold) ∨ (threshold < c ∧ threshold < g.alternate)) →
+      decide (c ≤ g.witness) = g.mutant := by
+  have self := (bounds_exact threshold lo hi threshold xs).mpr
+    (show Feasible threshold lo hi threshold xs from ⟨inside.1, inside.2, by simp⟩)
+  unfold choose at chosen
+  split at chosen
+  · cases chosen
+    refine ⟨(bounds_exact ..).mp (by dsimp; omega), rfl, Or.inl rfl, by simp <;> omega,
+      by simp <;> omega, by simp, ?_⟩
+    intro c _ side
+    simp only at side ⊢
+    simp [show c ≤ threshold - 1 by omega]
+  · split at chosen
+    · cases chosen
+      refine ⟨(bounds_exact ..).mp (by dsimp; omega), rfl, Or.inr rfl, by simp,
+        by simp <;> omega, by simp, ?_⟩
+      intro c _ side
+      simp only at side ⊢
+      simp [show ¬ c ≤ threshold by omega]
+    · contradiction
+
+theorem no_gap_iff_unique (threshold lo hi : Int) (xs : List Int)
+    (inside : lo ≤ threshold ∧ threshold ≤ hi) :
+    choose threshold (bounds threshold lo hi xs) = none ↔
+      ∀ c, Feasible threshold lo hi c xs → c = threshold := by
+  have self := (bounds_exact threshold lo hi threshold xs).mpr
+    (show Feasible threshold lo hi threshold xs from ⟨inside.1, inside.2, by simp⟩)
+  constructor
+  · intro noGap c feasible
+    have member := (bounds_exact ..).mpr feasible
+    unfold choose at noGap
+    split at noGap <;> try contradiction
+    split at noGap <;> first | contradiction | omega
+  · intro unique
+    unfold choose
+    split <;> rename_i lower
+    · have adjacent := unique (threshold - 1) ((bounds_exact ..).mp (by omega))
+      omega
+    · split <;> rename_i upper
+      · have adjacent := unique (threshold + 1) ((bounds_exact ..).mp (by omega))
+        omega
+      · rfl
+
+def decodeGap (input : Json) : Except String (Option Gap) := do
+  let threshold ← input.getObjValAs? Int "threshold"
+  let lo ← input.getObjValAs? Int "min"
+  let hi ← input.getObjValAs? Int "max"
+  let xs ← input.getObjValAs? (List Int) "observations"
+  if safe lo && safe hi && lo ≤ threshold && threshold ≤ hi && !xs.isEmpty &&
+      xs.all (fun x => lo ≤ x && x ≤ hi) then
+    return choose threshold (bounds threshold lo hi xs)
+  return none
+
+end Threshold
+
+def main (args : List String) : IO UInt32 := do
   let input ← (← IO.getStdin).readToEnd
   match Json.parse input >>= Json.getArr? with
   | .error message =>
     (← IO.getStderr).putStrLn message
     return 1
   | .ok requests =>
+    if args == ["thresholds"] then
+      let gaps := requests.map fun request => (Threshold.decodeGap request).toOption.join
+      (← IO.getStdout).putStrLn (toJson gaps).compress
+      return 0
     let decisions := requests.map fun request =>
       match decodeRequest request with
       | .ok decoded => maySkip decoded
@@ -137,3 +252,8 @@ def main : IO UInt32 := do
     return 0
 
 #print axioms maySkip_replays
+
+#print axioms Threshold.bounds_exact
+#print axioms Threshold.choose_correct
+
+#print axioms Threshold.no_gap_iff_unique

@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync }
 import { dirname, relative, resolve, sep } from 'node:path';
 import { byteOffsets, extract } from './extract.mjs';
 import { thresholdSites } from './prototype.mjs';
-import { thresholdGap } from './threshold.mjs';
+import { thresholdGaps } from './threshold.mjs';
 import { tightenComparison } from './displacement.mjs';
 import { inside, runVitest, withCopy } from './vitest.mjs';
 import { instrument, installProbe, rewrite } from './probe.mjs';
@@ -131,33 +131,41 @@ function callableThreshold(subject, site, observations, specification) {
   const specified = contract?.operator === site.operator && contract.threshold === meta.threshold &&
     typeof contract.rationale === 'string' && contract.rationale.trim().length > 0;
   const inputs = observations.rows.map(row => row.operands[0]);
-  const gap = site.operator === '>='
-    ? thresholdGap(meta.threshold, inputs, specified ? contract.min : undefined, specified ? contract.max : undefined)
-    : null;
-  return { meta, gap, specified, inputs, contract };
+  return { meta, gap: null, specified, inputs, contract };
 }
 
 function plan(subjects, trace, baseline, specification, displaceThresholds) {
-  const trials = [];
+  const sites = [];
+  const thresholds = [];
   for (const subject of subjects) {
     for (const site of subject.sites) {
       const observation = matchObservations(site, trace, baseline);
-      const threshold = site.operator === '>=' ? callableThreshold(subject, site, observation, specification) : null;
-      const boundary = { site, edit: site.edit, replacement: site.replacement, rule: site.rule, observation, threshold };
-      trials.push(boundary);
-      if (threshold?.gap) {
-        const alternate = String(threshold.gap.alternate);
-        if (threshold.gap.alternate === threshold.meta.threshold + 1) {
-          boundary.equivalentOnSafeIntegers = [`>= ${alternate}`];
-        } else {
-          trials.push({ site, edit: site.right, replacement: alternate, rule: 'comparison-threshold/v1', observation, threshold });
-        }
-      }
       const tightened = tightenComparison(subject.input, site, observation, displaceThresholds);
-      if (tightened) trials.push({
-        ...tightened, threshold: callableThreshold(subject, site, observation, specification),
-      });
+      const threshold = site.operator === '>=' || tightened
+        ? callableThreshold(subject, site, observation, specification) : null;
+      if (threshold && site.operator === '>=') thresholds.push(threshold);
+      sites.push({ site, observation, tightened, threshold });
     }
+  }
+  const gaps = thresholdGaps(thresholds.map(({ meta, inputs, specified, contract }) => ({
+    threshold: meta.threshold, observations: inputs,
+    min: specified ? contract.min : undefined, max: specified ? contract.max : undefined,
+  })));
+  thresholds.forEach((threshold, index) => { threshold.gap = gaps[index]; });
+
+  const trials = [];
+  for (const { site, observation, tightened, threshold } of sites) {
+    const boundary = { site, edit: site.edit, replacement: site.replacement, rule: site.rule, observation, threshold: site.operator === '>=' ? threshold : null };
+    trials.push(boundary);
+    if (threshold?.gap) {
+      const alternate = String(threshold.gap.alternate);
+      if (threshold.gap.alternate === threshold.meta.threshold + 1) {
+        boundary.equivalentOnSafeIntegers = [`>= ${alternate}`];
+      } else {
+        trials.push({ site, edit: site.right, replacement: alternate, rule: 'comparison-threshold/v1', observation, threshold });
+      }
+    }
+    if (tightened) trials.push({ ...tightened, threshold });
   }
   return trials;
 }

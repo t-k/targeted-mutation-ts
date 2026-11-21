@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 
 const executable = fileURLToPath(new URL('../build/tmt-decide', import.meta.url));
 
-export function checkReplay(requests) {
+export function runDecisionBatch(requests, args = []) {
   if (!requests.length || !existsSync(executable)) return null;
-  const result = spawnSync(executable, [], {
+  const result = spawnSync(executable, args, {
     encoding: 'utf8', input: JSON.stringify(requests), timeout: 15_000, maxBuffer: 4 * 1024 * 1024,
   });
   if (result.status !== 0) return null;
@@ -16,4 +16,8 @@ export function checkReplay(requests) {
   } catch {
     return null;
   }
+}
+
+export function checkReplay(requests) {
+  return runDecisionBatch(requests);
 }

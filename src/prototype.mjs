@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, relative, resolve } from 'node:path';
-import { thresholdGap } from './threshold.mjs';
+import { thresholdGaps } from './threshold.mjs';
 import { inside, runVitest, withCopy } from './vitest.mjs';
 
 const require = createRequire(import.meta.url);
@@ -153,11 +153,18 @@ export function runPrototype(project, file, { spec } = {}) {
     const observations = readTrace(trace);
     const diagnostics = [];
 
-    for (const site of sites) {
+    const candidates = sites.map(site => {
       const observed = observations.filter(([id]) => id === site.from).map(([, value]) => value);
       const contract = Object.hasOwn(specification, site.functionName) ? specification[site.functionName] : null;
       const specified = contract?.operator === '>=' && contract.threshold === site.threshold && Boolean(contract.rationale?.trim());
-      const gap = thresholdGap(site.threshold, observed, specified ? contract.min : undefined, specified ? contract.max : undefined);
+      return { site, specified, observed, request: {
+        threshold: site.threshold, observations: observed,
+        min: specified ? contract.min : undefined, max: specified ? contract.max : undefined,
+      } };
+    });
+    const gaps = thresholdGaps(candidates.map(candidate => candidate.request));
+    for (const [index, { site, specified, observed }] of candidates.entries()) {
+      const gap = gaps[index];
       if (!gap) continue;
 
       const mutant = edit(source, site.literalFrom, site.literalTo, String(gap.alternate));
