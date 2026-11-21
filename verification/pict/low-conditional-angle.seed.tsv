@@ -1,0 +1,6 @@
+Angle	Placement	Suffix
+Condition	Object	Valid
+Consequent	Call	Valid
+Alternate	Declaration	Valid
+Alternate	Object	Nested
+None	Array	Invalid

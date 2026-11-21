@@ -6734,7 +6734,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             (TmtParser_parsed){
               .parser = alternate.parser,
               .range = { .first = lhs.range.first, .last = alternate.range.last },
-              .open_angle = lhs.open_angle || consequent.open_angle || alternate.open_angle,
+              .open_angle = alternate.open_angle,
               .outer_or = false,
               .right_shift = alternate.right_shift,
               .shortcut = 0U,

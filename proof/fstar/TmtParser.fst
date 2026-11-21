@@ -1938,8 +1938,8 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
       let consequent = comparison input { st with offset = next st.offset; in_allowed = true } inner in
       let colon = skip input { consequent.parser with in_allowed = st.in_allowed } in
       let alternate = comparison input (consume input colon 58uy) inner in
+      // The conditional delimiters close the condition and consequent before any enclosing comma.
       { alternate with range = { alternate.range with G.first = lhs.range.G.first };
-        open_angle = lhs.open_angle || consequent.open_angle || alternate.open_angle;
         outer_or = false; shortcut = 0ul; target = NotAssignable }
 and binary (input:tape) (state:parser_state) (fuel:U32.t) (minimum:precedence)
   : Run parsed input (decreases %[U32.v fuel; 26 - U32.v minimum - U32.v minimum; 0]) =
