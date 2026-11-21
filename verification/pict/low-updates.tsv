@@ -1,0 +1,13 @@
+Form	Target	Position
+PreIncrement	Index	Comparison
+PreDecrement	Name	Loop
+PostIncrement	Member	Assignment
+PostDecrement	Name	Comparison
+PreDecrement	Member	Comparison
+PreIncrement	Name	Assignment
+PreIncrement	Member	Loop
+PostIncrement	Index	Loop
+PostDecrement	Index	Assignment
+PostIncrement	Name	Comparison
+PostDecrement	Member	Loop
+PreDecrement	Index	Assignment

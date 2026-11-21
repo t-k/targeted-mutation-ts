@@ -46,7 +46,7 @@ test('compound syntax keeps unsupported cases on the reference route', () => {
     'import type { type Limit } from "limits"; const x = a < b;',
     'const x = (a, a) => a < b;',
     'const x = a\n=> a < b;',
-    'const x = (...args) => args.length < 2;',
+    'const x = (...[arg]) => arg < 2;',
     'const x: { [K in keyof A]: boolean } = a < b;',
     'const x = [1, , a < b];',
     '{ a: b < c }',

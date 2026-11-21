@@ -1,0 +1,5 @@
+Form	Target	Position
+PreIncrement	Index	Comparison
+PreDecrement	Name	Loop
+PostIncrement	Member	Assignment
+PostDecrement	Name	Comparison

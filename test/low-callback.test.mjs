@@ -52,7 +52,7 @@ test('nested arrows preserve surrounding declarations and allow lexical shadowin
   }
 });
 
-test('module handlers can store an arrow with ASI and still decline update continuations', () => {
+test('module handlers can store an arrow with ASI and preserve update continuations', () => {
   const handler = [
     'let count = 0',
     'self.onconnect = (event) => {',
@@ -66,7 +66,7 @@ test('module handlers can store an arrow with ASI and still decline update conti
   assert.deepEqual(connected.candidates, extractFallback(handler).candidates);
   const continuation = 'const f = () => { index++\n + value < limit; };';
   const result = extract(continuation, { requireNative: true });
-  assert.notEqual(result.path, 'fast');
+  assert.equal(result.path, 'fast');
   assert.deepEqual(result.candidates, extractFallback(continuation).candidates);
 });
 
