@@ -1040,7 +1040,7 @@ let optional_type_parameters (input:tape) (state:parser_state) : Read parser_sta
   else if same input state.offset 60uy then type_parameters input (consume input state 60uy) 16ul 64ul
   else state
 
-let pattern_default (input:tape) (state:parser_state) : Read parser_state input =
+let simple_default (input:tape) (state:parser_state) : Read parser_state input =
   let equal = same input state.offset 61uy in
   if state.status <> 0ul || not equal then state
   else
@@ -1050,12 +1050,16 @@ let pattern_default (input:tape) (state:parser_state) : Read parser_state input 
       if first = 34uy || first = 39uy then from_cursor st (string_end input (next st.offset) first input.size true)
       else if G.decimal_digit first || first = 46uy then from_cursor st (number_end input st.offset)
       else if first = 45uy then from_cursor st (number_end input (next st.offset))
+      else if first = 123uy || first = 91uy then
+        let closed = if first = 123uy then 125uy else 93uy in
+        consume input (skip input (consume input st first)) closed
       else
         let width = if first = 116uy then (if keyword input st.offset 4ul 0x74727565uL then 4ul else 0ul)
           else if first = 102uy then (if keyword input st.offset 5ul 0x66616c7365uL then 5ul else 0ul)
           else if first = 110uy then (if keyword input st.offset 4ul 0x6e756c6cuL then 4ul else 0ul)
           else 0ul in
-        if width = 0ul then failed st 1ul else { st with offset = plus st.offset width } in
+        if width = 0ul then from_cursor st (name input st.offset false false)
+        else { st with offset = plus st.offset width } in
     skip input value
 
 let rec pattern_names (input:tape) (state:parser_state) (base:names_base) (floor used:names_used)
@@ -1083,7 +1087,7 @@ let rec pattern_names (input:tape) (state:parser_state) (base:names_base) (floor
             let target = skip input (consume input after 58uy) in
             pattern_binding_at input target base floor used depth
           else bind_pattern_name input st base floor used st.offset in
-      let st = pattern_default input (skip input bound.state) in
+      let st = simple_default input (skip input bound.state) in
       if same input st.offset 44uy then
         pattern_names input (consume input st 44uy) base floor bound.used depth (minus remaining 1ul) close
       else { bound with state = consume input st close }
@@ -1148,8 +1152,9 @@ let rec parameters (input:tape) (state:parser_state) (floor used:names_used) (fu
   else if spread_at input st.offset then rest_parameter input st floor used
   else
     let prefix = parameter_prefix input st floor used in
-    let non_simple = non_simple || prefix.non_simple in
-    let st = prefix.names.state in
+    let initialized = same input prefix.names.state.offset 61uy in
+    let non_simple = non_simple || prefix.non_simple || initialized in
+    let st = simple_default input prefix.names.state in
     if same input st.offset 44uy then
       parameters input (consume input st 44uy) floor prefix.names.used (minus fuel 1ul) non_simple
     else { names = { prefix.names with state = consume input st 41uy }; non_simple }

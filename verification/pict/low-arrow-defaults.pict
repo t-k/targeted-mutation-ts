@@ -1,0 +1,3 @@
+Arrow: Plain, Async, Typed, Destructured
+Default: String, Number, Keyword, Reference, Object, Array
+Suffix: Valid, Invalid

@@ -3414,7 +3414,7 @@ TmtParser_optional_type_parameters(TmtParser_tape input, TmtParser_parser_state 
 }
 
 TmtParser_parser_state
-TmtParser_pattern_default(TmtParser_tape input, TmtParser_parser_state state)
+TmtParser_simple_default(TmtParser_tape input, TmtParser_parser_state state)
 {
   bool equal = TmtParser_same(input, state.offset, 61U);
   if (state.status != 0U || !equal)
@@ -3432,6 +3432,14 @@ TmtParser_pattern_default(TmtParser_tape input, TmtParser_parser_state state)
       value = TmtParser_from_cursor(st, TmtParser_number_end(input, st.offset));
     else if (first == 45U)
       value = TmtParser_from_cursor(st, TmtParser_number_end(input, TmtParser_next(st.offset)));
+    else if (first == 123U || first == 91U)
+    {
+      uint8_t closed = first == 123U ? 125U : 93U;
+      value =
+        TmtParser_consume(input,
+          TmtParser_skip(input, TmtParser_consume(input, st, first)),
+          closed);
+    }
     else
     {
       uint32_t width;
@@ -3459,7 +3467,7 @@ TmtParser_pattern_default(TmtParser_tape input, TmtParser_parser_state state)
       else
         width = 0U;
       if (width == 0U)
-        value = TmtParser_failed(st, 1U);
+        value = TmtParser_from_cursor(st, TmtParser_name(input, st.offset, false, false));
       else
         value =
           (
@@ -3571,7 +3579,7 @@ TmtParser_pattern_names(
             bound = TmtParser_bind_pattern_name(input, st, base, floor, used, st.offset);
         }
         TmtParser_parser_state
-        st1 = TmtParser_pattern_default(input, TmtParser_skip(input, bound.state));
+        st1 = TmtParser_simple_default(input, TmtParser_skip(input, bound.state));
         if (TmtParser_same(input, st1.offset, 44U))
         {
           TmtParser_parser_state tmp0 = TmtParser_consume(input, st1, 44U);
@@ -3831,8 +3839,9 @@ TmtParser_parameters(
     else
     {
       TmtParser_parameter_list prefix = TmtParser_parameter_prefix(input, st, floor, used);
-      bool non_simple1 = non_simple || prefix.non_simple;
-      TmtParser_parser_state st1 = prefix.names1.state;
+      bool initialized = TmtParser_same(input, prefix.names1.state.offset, 61U);
+      bool non_simple1 = non_simple || prefix.non_simple || initialized;
+      TmtParser_parser_state st1 = TmtParser_simple_default(input, prefix.names1.state);
       if (TmtParser_same(input, st1.offset, 44U))
       {
         TmtParser_parser_state tmp0 = TmtParser_consume(input, st1, 44U);

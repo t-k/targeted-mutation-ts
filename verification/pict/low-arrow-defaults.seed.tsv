@@ -1,0 +1,6 @@
+Arrow	Default	Suffix
+Plain	Object	Valid
+Async	Array	Valid
+Typed	Reference	Valid
+Destructured	Object	Valid
+Plain	Keyword	Invalid

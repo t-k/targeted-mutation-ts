@@ -41,6 +41,10 @@ test('literal defaults compose with nested bindings and preserve speculative arr
   compare('const data = { punctuation: left < right }; const ok = x > y;', 'fast');
 });
 
+test('binding defaults can use names and empty collections without adding candidates', () => {
+  compare('const [first = fallback, second = {}, third = []] = input; const ok = first < max;', 'fast');
+});
+
 test('rest and malformed defaults refuse, and expressions retain their comparison candidates', () => {
   for (const source of ['const [...name = 0] = input;', 'const { ...name = null } = input;',
     'const [name = "unfinished] = input;', 'const [name = true] ;']) {
