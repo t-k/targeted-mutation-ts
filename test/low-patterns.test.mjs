@@ -51,6 +51,6 @@ test('nested bindings retain duplicate detection, rest placement and scope', () 
 test('binding patterns delegate cleanly at the nesting limit', () => {
   for (const depth of [16, 17]) {
     const pattern = '['.repeat(depth) + 'value' + ']'.repeat(depth);
-    compare(`const ${pattern} = source; const ok = value < limit;`, depth === 16 ? 'fast' : 'native');
+    compare(`const ${pattern} = source; const ok = value < limit;`, depth === 16 ? 'fast' : 'fallback');
   }
 });

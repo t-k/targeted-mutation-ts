@@ -3,10 +3,6 @@
 #include <string.h>
 
 #include "parser.h"
-#ifdef TMT_WITH_OXC
-#include "syntax.h"
-#include "TmtScan.h"
-#endif
 
 #define NAPI(call) do { if ((call) != napi_ok) goto error; } while (0)
 
@@ -87,79 +83,22 @@ error:
   return NULL;
 }
 
-#ifdef TMT_WITH_OXC
-static bool syntax_candidate_valid(const uint8_t *source, uint32_t size, const tmt_syntax_candidate *candidate) {
-  const uint32_t start = candidate->edit[0];
-  const uint32_t end = candidate->edit[1];
-  const uint32_t op = candidate->operator;
-  if (op < 1 || op > 5 || candidate->left[0] > candidate->left[1] ||
-      candidate->right[0] > candidate->right[1] || candidate->left[1] > start ||
-      start >= end || end > candidate->right[0] || candidate->right[1] > size) return false;
-  if (op == 5) {
-    return end - start == 2 && source[start] == '|' && source[start + 1] == '|' &&
-      candidate->expression[0] == candidate->left[0] && candidate->expression[1] == candidate->right[1];
-  }
-  return TmtScan_source_boundary(source, size, start) == op && end - start == (op % 2 == 0 ? 2u : 1u);
-}
-
-static napi_value syntax(napi_env env, napi_callback_info info) {
-  enum { COLUMNS = 9, METRICS = 2 };
-  _Static_assert(sizeof(tmt_syntax_candidate) == COLUMNS * sizeof(uint32_t), "Unexpected Rust candidate layout");
-  napi_value args[3], backing, result;
-  size_t argc = 3, size;
-  void *source, *data;
-  bool tsx, logical;
-  tmt_syntax_result parsed = {0};
-  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
-  if (argc != 3) goto error;
-  NAPI(napi_get_buffer_info(env, args[0], &source, &size));
-  NAPI(napi_get_value_bool(env, args[1], &tsx));
-  NAPI(napi_get_value_bool(env, args[2], &logical));
-  if (size > TMT_SOURCE_MAX || !tmt_syntax_parse(source, size, tsx, logical, &parsed)) {
-    NAPI(napi_get_null(env, &result));
-    return result;
-  }
-  if (parsed.len > (SIZE_MAX / sizeof(uint32_t) - METRICS) / COLUMNS) goto error;
-  for (size_t i = 0; i < parsed.len; i++) {
-    if (!syntax_candidate_valid(source, (uint32_t)size, &parsed.rows[i])) {
-      tmt_syntax_free(parsed.rows, parsed.len);
-      parsed.rows = NULL;
-      NAPI(napi_get_null(env, &result));
-      return result;
-    }
-  }
-  const size_t length = METRICS + COLUMNS * parsed.len;
-  NAPI(napi_create_arraybuffer(env, length * sizeof(uint32_t), &data, &backing));
-  uint32_t *values = data;
-  values[0] = parsed.ast_nodes;
-  values[1] = parsed.max_depth;
-  if (parsed.len) memcpy(values + METRICS, parsed.rows, sizeof(*parsed.rows) * parsed.len);
-  NAPI(napi_create_typedarray(env, napi_uint32_array, length, backing, 0, &result));
-  tmt_syntax_free(parsed.rows, parsed.len);
-  return result;
-error:
-  if (parsed.rows) tmt_syntax_free(parsed.rows, parsed.len);
-  napi_throw_error(env, NULL, "Native syntax extractor arguments or allocation failed");
-  return NULL;
-}
-#endif
-
 static napi_value init(napi_env env, napi_value exports) {
   napi_value entry;
   if (napi_create_function(env, "parse", NAPI_AUTO_LENGTH, parse, NULL, &entry) != napi_ok ||
       napi_set_named_property(env, exports, "parse", entry) != napi_ok ||
       napi_create_function(env, "locations", NAPI_AUTO_LENGTH, locations, NULL, &entry) != napi_ok ||
-      napi_set_named_property(env, exports, "locations", entry) != napi_ok ||
-#ifdef TMT_WITH_OXC
-      napi_create_function(env, "syntax", NAPI_AUTO_LENGTH, syntax, NULL, &entry) != napi_ok ||
-      napi_set_named_property(env, exports, "syntax", entry) != napi_ok) {
-#else
-      napi_get_boolean(env, true, &entry) != napi_ok ||
-      napi_set_named_property(env, exports, "standalone", entry) != napi_ok) {
-#endif
+      napi_set_named_property(env, exports, "locations", entry) != napi_ok) {
     napi_throw_error(env, NULL, "Unable to register the native parser");
     return NULL;
   }
+#ifdef TMT_LOW_ONLY
+  if (napi_get_boolean(env, true, &entry) != napi_ok ||
+      napi_set_named_property(env, exports, "standalone", entry) != napi_ok) {
+    napi_throw_error(env, NULL, "Unable to register the standalone parser");
+    return NULL;
+  }
+#endif
   return exports;
 }
 

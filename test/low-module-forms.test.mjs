@@ -51,7 +51,7 @@ test('module imports distinguish type modifiers, names and call boundaries', () 
     assert.deepEqual(result.diagnostics, reference.diagnostics, source);
   }
   compare('const ok = import.meta.url < limit;', 'diagnostic', { mode: 'script' });
-  compare('const ok = new (import.meta) < limit;', 'native');
+  compare('const ok = new (import.meta) < limit;', 'fallback');
 });
 
 test('in shares relational precedence without consuming a classic for delimiter', () => {

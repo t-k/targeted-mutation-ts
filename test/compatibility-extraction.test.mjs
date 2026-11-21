@@ -1,8 +1,19 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 import { extract, extractFallback } from '../src/extract.mjs';
+
+test('the ordinary addon has no external native parser', () => {
+  const load = createRequire(import.meta.url);
+  const addon = load('../build/tmt.node');
+  assert.equal(addon.syntax, undefined);
+  assert.equal(addon.standalone, undefined);
+  const source = 'const result = run <number>() < limit;';
+  const actual = extract(source, { requireNative: true });
+  assert.equal(actual.path, 'fallback');
+  assert.deepEqual(actual.candidates, extractFallback(source).candidates);
+});
 
 const inputs = {
   Plain: 'function ready(state: { count: number }) { if (ready <number>(state.count /* > */) >= 3) return true; }',
@@ -14,7 +25,7 @@ const rows = readFileSync(new URL('../verification/pict/broad-native.tsv', impor
   .trim().split(/\r?\n/).slice(1);
 for (const row of rows) {
   const [dialect, mode, candidate, validity] = row.split('\t');
-  test(`broad native: ${dialect} ${mode} ${candidate} ${validity}`, () => {
+  test(`compatibility fallback: ${dialect} ${mode} ${candidate} ${validity}`, () => {
     const source = Buffer.from(inputs[candidate] + {
       Valid: '', Syntax: '\nconst =', Semantic: '\nconst checked = 1; let checked = 2;',
     }[validity]);
@@ -23,30 +34,9 @@ for (const row of rows) {
     const result = extract(source, options);
     assert.deepEqual(result.candidates, reference.candidates);
     assert.deepEqual(result.diagnostics, reference.diagnostics);
-    assert.equal(result.path, reference.path === 'diagnostic' ? 'diagnostic' : mode === 'Module' ? 'native' : 'fallback');
-    if (result.path === 'native') assert.ok(result.metrics.astNodes > 0);
+    assert.equal(result.path, reference.path);
   });
 }
-
-test('the broad native result precedes any Yuku load in a fresh process', () => {
-  const module = new URL('../src/extract.mjs', import.meta.url).href;
-  const code = `
-    import assert from 'node:assert/strict';
-    import { registerHooks } from 'node:module';
-    registerHooks({ resolve(specifier, context, nextResolve) {
-      if (specifier === 'yuku-parser') throw new Error('Unexpected Yuku load');
-      return nextResolve(specifier, context);
-    } });
-    const { extract } = await import(${JSON.stringify(module)});
-    const source = 'import { result } from "lib"; export function run() { return result <number>() < 4; }';
-    const result = extract(Buffer.from(source), { requireNative: true });
-    assert.equal(result.path, 'native');
-    assert.equal(result.candidates.length, 1);
-    assert.throws(() => extract('let x; let x;'), /Unexpected Yuku load/);
-  `;
-  const child = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', timeout: 20_000 });
-  assert.equal(child.status, 0, child.error?.message ?? child.stderr);
-});
 
 test('module early errors keep exact fallback diagnostics and discard candidate prefixes', () => {
   for (const suffix of [
@@ -93,55 +83,30 @@ test('module early errors keep exact fallback diagnostics and discard candidate 
   }
 });
 
-test('namespace exports and class members named default stay native', () => {
+test('namespace exports and class members named default retain their candidates', () => {
   const source = 'namespace T { export class C { default = 3; method() { return this.default < 10; } } }';
   const result = extract(source, { requireNative: true });
-  assert.equal(result.path, 'native');
+  assert.equal(result.path, 'fallback');
   assert.equal(result.candidates.length, 1);
   assert.deepEqual(result.candidates, extractFallback(source).candidates);
 });
 
-test('a broad parser budget refusal extracts the full file through Yuku', () => {
-  const source = 'namespace T { export const first = a < b; } /*' + '('.repeat(16_384) +
-    '*/ export const second = c >= d;';
+test('a syntax refusal discards the Low* prefix and extracts the entire file', () => {
+  const source = 'const first = a < b; namespace T { export const second = c >= d; }';
   const result = extract(source, { requireNative: true });
   assert.equal(result.path, 'fallback');
   assert.equal(result.candidates.length, 2);
   assert.deepEqual(result.candidates, extractFallback(source).candidates);
 });
 
-test('the broad parser has enough stack even when called from a short-stack worker', () => {
-  const module = new URL('../src/extract.mjs', import.meta.url).href;
-  const code = `
-    import { Worker } from 'node:worker_threads';
-    import assert from 'node:assert/strict';
-    const worker = new Worker(\`
-      import assert from 'node:assert/strict';
-      import { extract } from ${JSON.stringify(module)};
-      const source = 'const x = ' + '['.repeat(1000) + 'a < b], 2' + ']'.repeat(999) + ';';
-      const result = extract(source, { requireNative: true });
-      assert.equal(result.path, 'native');
-      assert.equal(result.reason, 'depth-limit');
-      assert.equal(result.candidates.length, 1);
-    \`, { eval: true, resourceLimits: { stackSizeMb: 0.5 } });
-    const exit = await new Promise((resolve, reject) => {
-      worker.once('exit', resolve);
-      worker.once('error', reject);
-    });
-    assert.equal(exit, 0);
-  `;
-  const child = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', timeout: 20_000 });
-  assert.equal(child.status, 0, child.error?.message ?? child.signal ?? child.stderr);
-});
-
-test('directly exported overload declarations use native extraction', () => {
+test('directly exported overload declarations preserve exact fallback candidates', () => {
   const source = [
     'export function ready(value: number): boolean;',
     'export function ready(value: string): boolean;',
     'export function ready(value: number | string) { return Number(value) < 5; }',
   ].join('\n');
   const result = extract(source, { requireNative: true });
-  assert.equal(result.path, 'native');
+  assert.equal(result.path, 'fallback');
   assert.equal(result.candidates.length, 1);
   assert.deepEqual(result.candidates, extractFallback(source).candidates);
 });

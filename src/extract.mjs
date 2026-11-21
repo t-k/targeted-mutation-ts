@@ -182,32 +182,6 @@ export function extractFallback(input, options = {}, allowTokens = false) {
   }
 }
 
-function extractNativeSyntax(source, dialect, logical) {
-  const packed = native.syntax?.(source, dialect === 'tsx', !!logical);
-  if (!packed) return;
-  const candidates = [];
-  for (let index = 2; index < packed.length; index += 9) {
-    const operator = packed[index];
-    const edit = [packed[index + 1], packed[index + 2]];
-    const left = [packed[index + 3], packed[index + 4]];
-    const right = [packed[index + 5], packed[index + 6]];
-    if (operator === 5) {
-      candidates.push({
-        rule: 'jsx-disabled-drop-left/v1', operator: '||', operatorEdit: edit,
-        replacement: '(' + source.subarray(...right).toString() + ')',
-        edit: [packed[index + 7], packed[index + 8]], left, right,
-      });
-    } else {
-      const original = operators[operator];
-      candidates.push({ rule, operator: original, replacement: replacements.get(original), edit, left, right });
-    }
-  }
-  return {
-    path: 'native', candidates,
-    metrics: { astNodes: packed[0], maxDepth: packed[1], candidateBytes: packed.byteLength - 8 },
-  };
-}
-
 export function extract(input, options = {}) {
   if (!native && options.requireNative) throw new Error('Run npm run build:native to build the extractor');
   const { dialect, mode } = optionsFor(options);
@@ -244,10 +218,6 @@ export function extract(input, options = {}) {
       return { path: 'diagnostic', reason, metrics, candidates: [], diagnostics: [{
         severity: 'error', message: 'Standalone Low* extraction declined the source', start: 0, end: 0,
       }] };
-    }
-    if ((status === 1 || status === 3) && mode === 'module') {
-      const broad = extractNativeSyntax(source, dialect, options.logical);
-      if (broad) return status === 3 ? { ...broad, reason } : broad;
     }
   }
   return { ...extractFallback(fallbackInput, options, true), reason, metrics };

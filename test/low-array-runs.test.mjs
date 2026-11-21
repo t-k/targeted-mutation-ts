@@ -31,8 +31,8 @@ for (const row of rows) {
 test('a deep array run preserves valid wrappers with extra syntax through fallback', () => {
   const open = '['.repeat(120);
   const close = ']'.repeat(119);
-  compare('const a = ' + open + 'b < c] .length >= 0' + close + ';', 'native');
-  compare('const a = ' + open + 'b < c], b > c' + close + ';', 'native');
+  compare('const a = ' + open + 'b < c] .length >= 0' + close + ';', 'fallback');
+  compare('const a = ' + open + 'b < c], b > c' + close + ';', 'fallback');
   compare('const a = ' + open + 'b < c' + close + ';', 'diagnostic');
 });
 

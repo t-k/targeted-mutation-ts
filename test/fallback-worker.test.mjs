@@ -63,6 +63,14 @@ test('fallback output is separate from Node preload output and preserves the tok
   assert.deepEqual(runWorker('extract', sample, options.mode, setup), expected);
 });
 
+test('module extraction after a native depth refusal preserves the complete candidate in a worker', () => {
+  const result = runWorker('extract', examples.Deep, 'module');
+  assert.equal(result.path, 'fallback');
+  assert.equal(result.reason, 'depth-limit');
+  assert.deepEqual(result.candidates, extractFallback(examples.Deep.source).candidates);
+  assert.equal(result.candidates.length, 1);
+});
+
 const rows = readFileSync(new URL('../verification/pict/fallback-worker.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1);
 for (const row of rows) {

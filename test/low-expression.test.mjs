@@ -132,7 +132,7 @@ test('a line break before a tagged template keeps the full left operand', () => 
 
 test('wider precedence preserves the direct JSX disabled disjunction rule', () => {
   for (const [attribute, path] of [
-    ['disabled={x > n || count >= 2}', 'native'],
+    ['disabled={x > n || count >= 2}', 'fallback'],
     ['disabled={(x > n || count >= 2)}', 'fast'],
     ['hidden={x > n || count >= 2}', 'fast'],
   ]) {

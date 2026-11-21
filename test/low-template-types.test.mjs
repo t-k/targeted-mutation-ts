@@ -51,5 +51,5 @@ test('the broad parser cannot accept two types inside the same template interpol
   for (const value of ['`raw-${T U}`', '`raw-${T as U}`', '`outer-${`nested-${T U}`}`']) {
     compare(withComparisons(value), 'diagnostic');
   }
-  compare(withComparisons('`raw-${T extends U ? T : U}`'), 'native');
+  compare(withComparisons('`raw-${T extends U ? T : U}`'), 'fallback');
 });

@@ -55,6 +55,6 @@ test('try handlers share the surrounding control permissions and restore scratch
 test('nested try blocks complete or delegate at the existing depth boundary', () => {
   for (const depth of [64, 65]) {
     const source = 'try { '.repeat(depth) + 'a < b;' + ' } finally {} '.repeat(depth);
-    compare(source, depth === 64 ? 'fast' : 'native');
+    compare(source, depth === 64 ? 'fast' : 'fallback');
   }
 });

@@ -149,7 +149,7 @@ test('call depth and candidate allocation preserve complete results at their lim
   for (const depth of [64, 65]) {
     const source = 'const result = ' + 'pick('.repeat(depth) + 'a < b' + ')'.repeat(depth) + ';';
     const result = extract(source, { requireNative: true });
-    assert.equal(result.path, depth === 64 ? 'fast' : 'native');
+    assert.equal(result.path, depth === 64 ? 'fast' : 'fallback');
     if (depth > 64) assert.equal(result.reason, 'depth-limit');
     assert.deepEqual(result.candidates, extractFallback(source).candidates);
   }
@@ -168,9 +168,7 @@ test('the standalone CLI extracts without Cargo, Oxc, or installed npm dependenc
     for (const dir of ['bin', 'src']) cpSync(new URL(`../${dir}/`, import.meta.url), join(root, dir), { recursive: true });
     mkdirSync(join(root, 'scripts'));
     cpSync(new URL('../scripts/build-native.mjs', import.meta.url), join(root, 'scripts/build-native.mjs'));
-    cpSync(new URL('../native/', import.meta.url), join(root, 'native'), {
-      recursive: true, filter: path => !path.endsWith('/syntax') && !path.endsWith('/syntax.h'),
-    });
+    cpSync(new URL('../native/', import.meta.url), join(root, 'native'), { recursive: true });
     const built = spawnSync(process.execPath, ['scripts/build-native.mjs', '--low-only'], {
       cwd: root, encoding: 'utf8', timeout: 30_000, env: { ...process.env, TMT_CARGO: join(root, 'absent-cargo') },
     });
@@ -199,7 +197,7 @@ test('function parameter list limits preserve the complete extraction', () => {
     const params = Array.from({ length: count }, (_, index) => `p${index}: number`).join(', ');
     const source = `export function result(${params}) { return p0 < limit; }`;
     const actual = extract(source, { requireNative: true });
-    assert.equal(actual.path, count === 64 ? 'fast' : 'native');
+    assert.equal(actual.path, count === 64 ? 'fast' : 'fallback');
     assert.deepEqual(actual.candidates, extractFallback(source).candidates);
   }
 });

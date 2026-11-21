@@ -24,7 +24,7 @@ for (const row of rows) {
     }[suffix];
     const result = extract(input, { requireNative: true });
     const reference = extractFallback(input);
-    assert.equal(result.path, { Complete: 'fast', Invalid: 'diagnostic', Unsupported: 'native' }[suffix]);
+    assert.equal(result.path, { Complete: 'fast', Invalid: 'diagnostic', Unsupported: 'fallback' }[suffix]);
     assert.deepEqual(result.candidates, reference.candidates);
     assert.deepEqual(result.diagnostics, reference.diagnostics);
   });
@@ -61,7 +61,7 @@ test('rejects restricted bindings, malformed postfix updates, and excess stateme
   }
   const deep = 'if (a < b) { '.repeat(70) + '}'.repeat(70);
   const result = extract(deep, { requireNative: true });
-  assert.equal(result.path, 'native');
+  assert.equal(result.path, 'fallback');
   assert.equal(result.reason, 'depth-limit');
   assert.equal(result.candidates.length, 70);
   assert.deepEqual(result.candidates, extractFallback(deep).candidates);

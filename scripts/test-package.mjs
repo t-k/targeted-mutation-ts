@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -23,6 +24,10 @@ try {
   const install = (...packages) => run(npm, ['install', ...packages, '--no-audit', '--no-fund']);
   install(tarball);
   const installed = join(cwd, 'node_modules/targeted-mutation-ts');
+  const load = createRequire(import.meta.url);
+  const addon = load(join(installed, 'build/tmt.node'));
+  assert.equal(addon.syntax, undefined);
+  assert.equal(addon.standalone, undefined);
   const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
   assert.deepEqual(manifest.dependencies, { typescript: '6.0.3', 'yuku-parser': '0.19.0' });
   const lock = JSON.parse(readFileSync(join(cwd, 'package-lock.json'), 'utf8'));
@@ -38,8 +43,8 @@ try {
   assert.match(run(process.execPath, [entry, '--help']), /tmt-ts analyze/);
   writeFileSync(join(cwd, 'broad.ts'), 'export const a = {}; export const b = a <number>().value < 2;');
   const broad = JSON.parse(run(process.execPath, [entry, 'extract', 'broad.ts']));
-  assert.equal(broad.path, 'native');
-  assert.ok(broad.metrics.astNodes > 0);
+  assert.equal(broad.path, 'fallback');
+  assert.equal(broad.metrics.astNodes, 0);
   assert.deepEqual(broad.candidates.map(candidate => candidate.operator), ['<']);
   writeFileSync(join(cwd, 'module.ts'), 'import { limit } from "./settings"; export function ready(n: number): boolean { return n < limit; }');
   const module = JSON.parse(run(process.execPath, [entry, 'extract', 'module.ts']));

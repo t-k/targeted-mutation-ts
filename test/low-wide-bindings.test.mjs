@@ -17,7 +17,7 @@ for (const row of rows) {
       : 'function check() {\n' + declarations + '\nreturn x < y; }';
     const actual = extract(source, { requireNative: true });
     const reference = extractFallback(source);
-    assert.equal(actual.path, names === 'Duplicate' ? 'diagnostic' : count === 'Over' ? 'native' : 'fast');
+    assert.equal(actual.path, names === 'Duplicate' ? 'diagnostic' : count === 'Over' ? 'fallback' : 'fast');
     assert.deepEqual(actual.candidates, reference.candidates);
     assert.deepEqual(actual.diagnostics, reference.diagnostics);
   });

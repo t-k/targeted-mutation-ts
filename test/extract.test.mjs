@@ -46,12 +46,12 @@ test('nested comparisons retain lexical order and parenthesized operand spans', 
 });
 
 test('inputs outside the Low* grammar receive complete extraction', () => {
-  for (const [src, dialect, count, path = 'native'] of [
+  for (const [src, dialect, count, path = 'fallback'] of [
     ['const x = f <number>(2) < 3;', 'ts', 1],
     [String.raw`const x = /\p{Letter}/u.test("a") && 3 / 4 > 0;`, 'ts', 1],
     ['const x = format<string>`x > < ${2 >= 3}`;', 'ts', 1],
     ['const x = <A.B><B valid={3 < 5} /></A.B>;', 'tsx', 1],
-    ['const x = ' + '('.repeat(65) + '2 >= 3' + ')'.repeat(65), 'ts', 1, 'native'],
+    ['const x = ' + '('.repeat(65) + '2 >= 3' + ')'.repeat(65), 'ts', 1, 'fallback'],
     ['const x = 2 < 3; const y = obj <number>().count > 5;', 'ts', 2],
   ]) {
     const result = extract(src, { dialect, ...fast });
@@ -61,11 +61,11 @@ test('inputs outside the Low* grammar receive complete extraction', () => {
   }
 });
 
-test('native extraction reports exact JSX operand and rewrite spans', () => {
+test('fallback extraction reports exact JSX operand and rewrite spans', () => {
   const source = 'const status = "🐈"; const view = <button disabled={pending /* comment */ || (!valid)} />;';
   const input = Buffer.from(source);
   const result = extract(input, { dialect: 'tsx', logical: true, ...fast });
-  assert.equal(result.path, 'native');
+  assert.equal(result.path, 'fallback');
   assert.deepEqual(result.candidates, extractFallback(input, { dialect: 'tsx', logical: true }).candidates);
   const [site] = result.candidates;
   assert.equal(site.rule, 'jsx-disabled-drop-left/v1');
@@ -213,7 +213,7 @@ for (const row of encodingRows) {
     const result = extract(input, { dialect: 'tsx', ...fast });
     const reference = extractFallback(input, { dialect: 'tsx' });
     assert.deepEqual(result.candidates, reference.candidates);
-    assert.equal(result.path, text === 'Invalid' ? 'diagnostic' : syntax === 'L1' ? 'fast' : 'native');
+    assert.equal(result.path, text === 'Invalid' ? 'diagnostic' : syntax === 'L1' ? 'fast' : 'fallback');
   });
 }
 

@@ -50,7 +50,7 @@ test('JSX mode preserves operands and refuses invalid text or mismatched names',
 
 test('nested JSX still delegates the disabled disjunction rule', () => {
   const source = 'const view = <Tag>{count < limit && <button disabled={busy || invalid} />}</Tag>;';
-  for (const logical of [false, true]) compare(source, 'native', { logical });
+  for (const logical of [false, true]) compare(source, 'fallback', { logical });
 });
 
 test('a named attribute immediately after a bare fragment preserves diagnostics', () => {

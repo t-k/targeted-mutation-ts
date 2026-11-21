@@ -28,6 +28,6 @@ for (const row of rows) {
 test('optional generic calls preserve chain state and spaced type argument fallback', () => {
   compare('const ok = firstCard?.querySelector<HTMLElement>("[data-id=a]")?.count < bound;', 'fast');
   compare('const ok = callback?.<T>(n < max).length++ >= bound;', 'diagnostic');
-  compare('const ok = node?.select <T>(n < max) >= bound;', 'native');
+  compare('const ok = node?.select <T>(n < max) >= bound;', 'fallback');
   compare('const ok = callback?.<T,>(n < max) >= bound;', 'fast');
 });
