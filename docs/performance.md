@@ -1,5 +1,25 @@
 # Performance measurements
 
+## Low★ callable and mapped type coverage
+
+At `a9c789c`, Low★ extracts 1,843 of 2,968 candidates across 3,472 of 8,549 files. Overloads, object accessors, generic function and constructor types, and mapped types moved 205 candidates to Low★ since `89f96fd`. The complete ordered candidate records and diagnostics match Yuku across the five pinned checkouts in both JSX logical modes.
+
+| Checkout | All candidates | Low★ | Yuku fallback |
+| --- | ---: | ---: | ---: |
+| Vite | 201 | 159 | 42 |
+| Preact | 1 | 0 | 1 |
+| TypeScript corpus | 562 | 107 | 455 |
+| mreact | 1,550 | 1,191 | 359 |
+| tachyon-dom | 654 | 386 | 268 |
+
+| Warm extraction workload | Oxc-linked baseline `b42c79a` | Low★ and Yuku `a9c789c` |
+| --- | ---: | ---: |
+| Vite | 17.71 ms | 25.34 ms |
+| mreact | 83.83 ms | 109.38 ms |
+| tachyon-dom | 35.48 ms | 58.38 ms |
+
+Each pair uses nine alternating warm runs over the same input buffers on an Apple M5 Max with Node 24.14.0. The C-only addon still takes longer on all three workloads. The [measurements](../evidence/m1/low-type-coverage.json) include corpus revisions and samples.
+
 ## Low★ coverage after Oxc removal
 
 At `89f96fd`, the Low★ parser extracts 1,638 of 2,968 candidates across 3,271 of 8,549 files in the same five checkouts. The first C-only build extracted 1,212. The complete ordered candidate records and diagnostics match Yuku with the JSX logical rule enabled and disabled.
