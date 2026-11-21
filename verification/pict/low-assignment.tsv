@@ -1,0 +1,12 @@
+Operator	Target	Context
+Plain	Index	Nested
+Arithmetic	Name	Statement
+Logical	Field	Nested
+Logical	Index	Invalid
+Plain	Name	Invalid
+Arithmetic	Field	Invalid
+Logical	Field	Statement
+Logical	Name	Nested
+Arithmetic	Index	Nested
+Plain	Field	Statement
+Logical	Index	Statement

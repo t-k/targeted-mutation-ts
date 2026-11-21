@@ -81,6 +81,18 @@ typedef struct TmtParser_parser_state_s
 }
 TmtParser_parser_state;
 
+#define TmtParser_NotAssignable 0
+#define TmtParser_Assignable 1
+#define TmtParser_OptionalChain 2
+
+typedef uint8_t TmtParser_assignment_target;
+
+bool TmtParser_uu___is_NotAssignable(TmtParser_assignment_target projectee);
+
+bool TmtParser_uu___is_Assignable(TmtParser_assignment_target projectee);
+
+bool TmtParser_uu___is_OptionalChain(TmtParser_assignment_target projectee);
+
 typedef struct TmtParser_parsed_s
 {
   TmtParser_parser_state parser;
@@ -88,6 +100,7 @@ typedef struct TmtParser_parsed_s
   bool open_angle;
   bool outer_or;
   uint32_t shortcut;
+  TmtParser_assignment_target target;
 }
 TmtParser_parsed;
 
@@ -360,14 +373,11 @@ uint32_t TmtParser_statement_kind(TmtParser_tape input, uint32_t at);
 
 TmtParser_parser_state TmtParser_update(TmtParser_tape input, TmtParser_parser_state state);
 
-TmtParser_parser_state
-TmtParser_assignment_target(
-  TmtParser_tape input0,
-  TmtParser_parser_state state0,
-  uint32_t fuel0
-);
+uint32_t
+TmtParser_assignment_width(TmtParser_tape input, uint32_t at, uint8_t byte, uint8_t follower);
 
-TmtParser_cursor TmtParser_assignment_head(TmtParser_tape input, TmtParser_parser_state state);
+TmtParser_assignment_target
+TmtParser_identifier_target(TmtParser_tape input, uint32_t pos, uint8_t ch);
 
 TmtParser_parser_state
 TmtParser_statement_end(
@@ -476,6 +486,15 @@ TmtParser_jsx_element(TmtParser_tape input, TmtParser_parser_state state, uint32
 
 TmtParser_parser_state
 TmtParser_condition(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+
+TmtParser_parser_state
+TmtParser_variable_initializer(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  bool optional,
+  bool before_brace
+);
 
 TmtParser_parser_state
 TmtParser_binding(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
@@ -607,6 +626,20 @@ TmtParser_named_parameters(
   uint32_t remaining0,
   bool non_simple0
 );
+
+TmtParser_cursor TmtParser_ambient_modifier(TmtParser_tape input, uint32_t start);
+
+typedef struct TmtParser_declaration_head_s
+{
+  TmtParser_parser_state after_modifiers;
+  uint32_t width1;
+  bool async_declaration;
+  bool ambient_declaration;
+}
+TmtParser_declaration_head;
+
+TmtParser_declaration_head
+TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_named_state
 TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);

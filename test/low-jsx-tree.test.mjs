@@ -52,3 +52,9 @@ test('nested JSX still delegates the disabled disjunction rule', () => {
   const source = 'const view = <Tag>{count < limit && <button disabled={busy || invalid} />}</Tag>;';
   for (const logical of [false, true]) compare(source, 'native', { logical });
 });
+
+test('a named attribute immediately after a bare fragment preserves diagnostics', () => {
+  compare('const view = <X a=<></> b={x < y}/>;', 'diagnostic');
+  compare('const view = <X a={<></>} b={x < y}/>;', 'fast');
+  compare('const view = <X a=<></> {...props} b={x < y}/>;', 'fast');
+});

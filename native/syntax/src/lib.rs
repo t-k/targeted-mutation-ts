@@ -5,10 +5,10 @@ use std::{ptr, slice, str};
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
     BinaryExpression, BindingIdentifier, Declaration, Expression, Ident, IdentifierReference,
-    JSXAttribute, JSXAttributeName, JSXAttributeValue, JSXExpression, MethodDefinition,
-    MethodDefinitionKind, ModuleDeclaration, NumericLiteral, PropertyDefinition, Statement,
-    StringLiteral, TSClassImplements, TSExportAssignment, TSMethodSignature, TSMethodSignatureKind,
-    TSModuleBlock, UnaryExpression,
+    JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXExpression,
+    JSXOpeningElement, MethodDefinition, MethodDefinitionKind, ModuleDeclaration, NumericLiteral,
+    PropertyDefinition, Statement, StringLiteral, TSClassImplements, TSExportAssignment,
+    TSMethodSignature, TSMethodSignatureKind, TSModuleBlock, UnaryExpression,
 };
 use oxc_ast::ast_kind::AstKind;
 use oxc_ast_visit::{Visit, walk};
@@ -244,6 +244,18 @@ impl<'a> Visit<'a> for Collector<'_> {
             self.record(text, code, node.left.span(), node.right.span(), node.span);
         }
         walk::walk_binary_expression(self, node);
+    }
+
+    fn visit_jsx_opening_element(&mut self, node: &JSXOpeningElement<'a>) {
+        // Yuku diagnoses a named attribute immediately following a bare JSX fragment.
+        self.rejected |= node.attributes.windows(2).any(|pair| {
+            matches!(
+                (&pair[0], &pair[1]),
+                (JSXAttributeItem::Attribute(left), JSXAttributeItem::Attribute(_))
+                    if matches!(&left.value, Some(JSXAttributeValue::Fragment(_)))
+            )
+        });
+        walk::walk_jsx_opening_element(self, node);
     }
 
     fn visit_jsx_attribute(&mut self, node: &JSXAttribute<'a>) {
