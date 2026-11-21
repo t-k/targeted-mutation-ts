@@ -1,5 +1,23 @@
 # Performance measurements
 
+## Expanded Low★ expression and module grammar
+
+The expanded Low★ path handled 321 of 8,549 tracked TS/TSX files, up from 81 at `ca1bc93`. It produced 16 candidates, up from four. All candidate fields and diagnostics in the five checkouts matched Yuku with the JSX logical rule disabled and enabled.
+
+| Checkout | Previous Low★ files | Current Low★ files | Previous Low★ candidates | Current Low★ candidates |
+| --- | ---: | ---: | ---: | ---: |
+| Vite | 9 | 57 | 0 | 2 |
+| Preact | 0 | 1 | 0 | 0 |
+| TypeScript compiler fixtures | 70 | 232 | 3 | 3 |
+| mreact | 2 | 27 | 1 | 8 |
+| tachyon-dom | 0 | 4 | 0 | 3 |
+
+A clean `--low-only` build extracted all 16 candidates across ten files without Cargo, Oxc sources, or npm dependencies. The Vite candidates came from HMR playground modules, and the tachyon-dom candidates came from `tests/whitespace-policy-types.ts`. The normal build still uses Yuku for 67 mreact candidates and four tachyon-dom candidates.
+
+Nine alternating warm samples against `ca1bc93` measured median extraction times of 33.74 to 32.86 ms on Vite, 189.49 to 188.28 ms on mreact, and 49.68 to 49.74 ms on tachyon-dom. The mreact and tachyon-dom interquartile ranges overlap.
+
+The [audit and benchmark data](../evidence/m1/low-expression-expansion.json) include the exact revisions, operand spans, and timing samples.
+
 ## Standalone Low★ extraction
 
 The [standalone extraction run](../evidence/m1/standalone-low-extraction.json) adds typed modules, generic type references, and method calls to the Low★ path. A clean build without npm dependencies, Cargo or Oxc sources extracted the comparison in mreact's `packages/router/src/navigation-history-cache.ts` directly from bytes. The macOS arm64 standalone addon was 86,776 bytes.
