@@ -146,9 +146,14 @@ let name (input:tape) (at:U32.t) (jsx binding:bool) : Read cursor input =
       { at = stop; ok = not (reserved || invalid_binding); newline = false }
 
 type names_used = used:U32.t{U32.v used <= 64}
+type binding_mode =
+  | NoLocals
+  | LexicalLocals
+  | VarLocals
+
 type parser_state = {
   offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used;
-  await_allowed:bool; jsx_allowed:bool; module_mode:bool; in_allowed:bool
+  await_allowed:bool; jsx_allowed:bool; module_mode:bool; in_allowed:bool; binding_mode:binding_mode
 }
 type assignment_target =
   | NotAssignable
@@ -166,6 +171,10 @@ type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:boo
 
 let failed (state:parser_state) (error:U32.t) : parser_state =
   if state.status = 0ul then { state with status = error } else state
+
+let record_binding_mode (state:parser_state) (kind:binding_mode) : parser_state =
+  if state.binding_mode = NoLocals || state.binding_mode = kind then { state with binding_mode = kind }
+  else failed state 1ul
 
 let start_range (pos:U32.t) : G.span = { G.first = pos; G.last = pos }
 let empty_range (state:parser_state) : parsed =
@@ -1329,7 +1338,7 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   let start = skip input current in
   let arrow = arrow_parameters input start in
   if arrow.names.state.status = 0ul then
-    let body = skip input { arrow.names.state with local_names = arrow.names.used } in
+    let body = skip input { arrow.names.state with local_names = arrow.names.used; binding_mode = NoLocals } in
     if fuel = 0ul then empty_range (failed body 3ul)
     else
       let depth = minus 65ul fuel in
@@ -1342,7 +1351,7 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
           let stop = control_block input (function_body input body arrow.non_simple) inner true NoJump start.local_names arrow.names.used in
           empty_range stop
         else comparison input body inner in
-      { result with parser = { result.parser with local_names = start.local_names; await_allowed = start.await_allowed };
+      { result with parser = { result.parser with local_names = start.local_names; await_allowed = start.await_allowed; binding_mode = start.binding_mode };
         range = { result.range with G.first = start.offset }; outer_or = false; shortcut = 0ul; target = NotAssignable }
   else
   let lhs = binary input start fuel 1ul in
@@ -1706,12 +1715,14 @@ and binding (input:tape) (state:parser_state) (fuel:U32.t) (in_allowed:bool) : R
   let value = comparison input { st with in_allowed } fuel in
   { value.parser with in_allowed = state.in_allowed }
 
-and classic_for_header (input:tape) (st:parser_state) (top_level:bool) (fuel:U32.t) : Run parser_state input (decreases %[U32.v fuel; 45; 0]) =
-  let declared = keyword input st.offset 3ul 0x6c6574uL in
-  let declared = if not declared && top_level then keyword input st.offset 3ul 0x766172uL else declared in
+and classic_for_header (input:tape) (st:parser_state) (top_level local_var:bool) (fuel:U32.t)
+  : Run parser_state input (decreases %[U32.v fuel; 45; 0]) =
+  let lexical = keyword input st.offset 3ul 0x6c6574uL in
+  let var = if not lexical && (top_level || local_var) then keyword input st.offset 3ul 0x766172uL else false in
   let st =
     if same input st.offset 59uy then st
-    else if declared then
+    else if lexical || var then
+      let st = if local_var then record_binding_mode st (if var then VarLocals else LexicalLocals) else st in
       binding input { st with offset = plus st.offset 3ul } fuel false
     else failed st 1ul in
   let st = consume input (skip input st) 59uy in
@@ -1722,17 +1733,19 @@ and classic_for_header (input:tape) (st:parser_state) (top_level:bool) (fuel:U32
   let st = if same input st.offset 41uy then st else (comparison input st fuel).parser in
   consume input (skip input st) 41uy
 
-and for_header (input:tape) (state:parser_state) (top_level:bool) (fuel:U32.t) : Run parser_state input (decreases %[U32.v fuel; 46; 0]) =
+and for_header (input:tape) (state:parser_state) (top_level local_var:bool) (fuel:U32.t)
+  : Run parser_state input (decreases %[U32.v fuel; 46; 0]) =
   let head = skip input state in
   let async_ = if head.await_allowed then keyword input head.offset 5ul 0x6177616974uL else false in
   let head = if async_ then skip input { head with offset = plus head.offset 5ul } else head in
   let st = skip input (consume input head 40uy) in
   let collection = collection_head input st (not async_) in
   if collection.status = 0ul then
+    let collection = if local_var then record_binding_mode collection LexicalLocals else collection in
     let value = comparison input collection fuel in
     consume input (skip input value.parser) 41uy
   else if async_ then collection
-  else classic_for_header input st top_level fuel
+  else classic_for_header input st top_level local_var fuel
 
 and return_statement (input:tape) (state:parser_state) (fuel:U32.t) : Run parser_state input (decreases %[U32.v fuel; 44; 0]) =
   let after = plus state.offset 6ul in
@@ -1775,8 +1788,16 @@ and simple_statement (input:tape) (state:parser_state) (in_function:bool) (jumps
   else if byte = 59uy then consume input state 59uy
   else ordinary_statement input state fuel
 
+and local_var_declaration (input:tape) (state:parser_state) (fuel:U32.t)
+  : Run parser_state input (decreases %[U32.v fuel; 45; 0]) =
+  let st = record_binding_mode state VarLocals in
+  let start = skip input { st with offset = plus st.offset 3ul } in
+  let named = from_cursor start (name input start.offset false true) in
+  variable_initializer input named fuel true true
+
 and local_declaration (input:tape) (state:parser_state) (width:U32.t) (floor used:names_used) (fuel:U32.t)
   : Run named_state input (decreases %[U32.v fuel; 45; 0]) =
+  let state = record_binding_mode state LexicalLocals in
   let start = skip input { state with offset = plus state.offset width } in
   let first = peek input start.offset in
   let decl = pattern_binding input start 64ul floor used in
@@ -1794,7 +1815,8 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
   else if fn.ok then
     if fuel = 0ul then { state = failed st 3ul; used }
     else
-      let named = skip input { st with offset = plus fn.at 8ul } in
+      let declared = record_binding_mode st LexicalLocals in
+      let named = skip input { declared with offset = plus fn.at 8ul } in
       let decl = bind_since input named 64ul floor used named.offset in
       let start = { decl.state with local_names = decl.used } in
       { decl with state = function_tail input start (minus fuel 1ul) (st.offset <> fn.at) }
@@ -1844,10 +1866,12 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
   let kind = statement_kind input state.offset in
   if state.status <> 0ul then { state; used }
   else if kind = 0ul then
-    let alias =
-      if in_function && state.module_mode then type_declaration_width input state.offset = 4ul
-      else false in
+    let local_var = in_function && state.module_mode in
+    let first = peek input state.offset in
+    let alias = if local_var && first = 116uy then type_declaration_width input state.offset = 4ul else false in
+    let var = if local_var && first = 118uy then keyword input state.offset 3ul 0x766172uL else false in
     if alias then local_type_alias input state floor used
+    else if var then { state = local_var_declaration input state fuel; used }
     else { state = simple_statement input state in_function jumps fuel; used }
   else if fuel = 0ul then { state = failed state 3ul; used }
   else
@@ -1876,7 +1900,7 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
     else
       let result =
         if kind = 4ul then
-          let tested = for_header input { state with offset = plus state.offset 3ul } allow_var fuel in
+          let tested = for_header input { state with offset = plus state.offset 3ul } allow_var (in_function && state.module_mode) fuel in
           let body = control_body input tested inner in_function LoopJump used used in
           { body.state with local_names = state.local_names }
         else if kind = 5ul then
@@ -1899,6 +1923,7 @@ and catch_block (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bool
   : Run parser_state input (decreases %[U32.v fuel; 52; 0]) =
   let st = skip input state in
   if same input st.offset 40uy then
+    let st = record_binding_mode st LexicalLocals in
     let start = skip input (consume input st 40uy) in
     let bound = pattern_binding input start 64ul used used in
     let annotated = skip input (simple_annotation input bound.state) in
@@ -1960,9 +1985,9 @@ and function_tail (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool)
   let floor = state.local_names in
   let params = function_parameters input (consume input start 40uy) floor floor fuel 64ul false in
   let st = skip input (result_annotation input params.names.state) in
-  let st = { st with await_allowed = async_; in_allowed = true } in
+  let st = { st with await_allowed = async_; in_allowed = true; binding_mode = NoLocals } in
   let closed = control_block input (function_body input st params.non_simple) fuel true NoJump floor params.names.used in
-  { closed with await_allowed = state.await_allowed; in_allowed = state.in_allowed }
+  { closed with await_allowed = state.await_allowed; in_allowed = state.in_allowed; binding_mode = state.binding_mode }
 
 let declaration (input:tape) (state:parser_state) : Run parser_state input =
   let has_const = keyword input state.offset 5ul 0x636f6e7374uL in
@@ -2228,7 +2253,7 @@ let parse (input:tape) (jsx module_mode:bool)
     }) input =
   let initial = skip input {
     offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
-    await_allowed = module_mode; jsx_allowed = jsx; module_mode; in_allowed = true
+    await_allowed = module_mode; jsx_allowed = jsx; module_mode; in_allowed = true; binding_mode = NoLocals
   } in
   let state = parse_state input initial module_mode in
   let state : parser_state =

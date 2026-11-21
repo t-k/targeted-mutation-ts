@@ -69,6 +69,18 @@ TmtParser_cursor TmtParser_name(TmtParser_tape input, uint32_t at, bool jsx, boo
 
 typedef uint32_t TmtParser_names_used;
 
+#define TmtParser_NoLocals 0
+#define TmtParser_LexicalLocals 1
+#define TmtParser_VarLocals 2
+
+typedef uint8_t TmtParser_binding_mode;
+
+bool TmtParser_uu___is_NoLocals(TmtParser_binding_mode projectee);
+
+bool TmtParser_uu___is_LexicalLocals(TmtParser_binding_mode projectee);
+
+bool TmtParser_uu___is_VarLocals(TmtParser_binding_mode projectee);
+
 typedef struct TmtParser_parser_state_s
 {
   uint32_t offset;
@@ -80,6 +92,7 @@ typedef struct TmtParser_parser_state_s
   bool jsx_allowed;
   bool module_mode;
   bool in_allowed;
+  TmtParser_binding_mode binding_mode;
 }
 TmtParser_parser_state;
 
@@ -124,6 +137,9 @@ typedef struct TmtParser_parsed_s
 TmtParser_parsed;
 
 TmtParser_parser_state TmtParser_failed(TmtParser_parser_state state, uint32_t error);
+
+TmtParser_parser_state
+TmtParser_record_binding_mode(TmtParser_parser_state state, TmtParser_binding_mode kind);
 
 TmtGrammar_span TmtParser_start_range(uint32_t pos);
 
@@ -692,6 +708,7 @@ TmtParser_classic_for_header(
   TmtParser_tape input,
   TmtParser_parser_state st,
   bool top_level,
+  bool local_var,
   uint32_t fuel
 );
 
@@ -700,6 +717,7 @@ TmtParser_for_header(
   TmtParser_tape input,
   TmtParser_parser_state state,
   bool top_level,
+  bool local_var,
   uint32_t fuel
 );
 
@@ -715,6 +733,13 @@ TmtParser_simple_statement(
   TmtParser_parser_state state,
   bool in_function,
   TmtParser_jump_context jumps,
+  uint32_t fuel
+);
+
+TmtParser_parser_state
+TmtParser_local_var_declaration(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
   uint32_t fuel
 );
 

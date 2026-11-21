@@ -365,6 +365,51 @@ TmtParser_cursor TmtParser_name(TmtParser_tape input, uint32_t at, bool jsx, boo
   }
 }
 
+bool TmtParser_uu___is_NoLocals(TmtParser_binding_mode projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_NoLocals:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
+bool TmtParser_uu___is_LexicalLocals(TmtParser_binding_mode projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_LexicalLocals:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
+bool TmtParser_uu___is_VarLocals(TmtParser_binding_mode projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_VarLocals:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
 bool TmtParser_uu___is_NotAssignable(TmtParser_assignment_target projectee)
 {
   switch (projectee)
@@ -488,10 +533,34 @@ TmtParser_parser_state TmtParser_failed(TmtParser_parser_state state, uint32_t e
                            .await_allowed = state.await_allowed,
                            .jsx_allowed = state.jsx_allowed,
                            .module_mode = state.module_mode,
-                           .in_allowed = state.in_allowed
+                           .in_allowed = state.in_allowed,
+                           .binding_mode = state.binding_mode
                          }
                        )
                        : state;
+}
+
+TmtParser_parser_state
+TmtParser_record_binding_mode(TmtParser_parser_state state, TmtParser_binding_mode kind)
+{
+  if (state.binding_mode == TmtParser_NoLocals || state.binding_mode == kind)
+    return
+      (
+        (TmtParser_parser_state){
+          .offset = state.offset,
+          .count = state.count,
+          .depth = state.depth,
+          .status = state.status,
+          .local_names = state.local_names,
+          .await_allowed = state.await_allowed,
+          .jsx_allowed = state.jsx_allowed,
+          .module_mode = state.module_mode,
+          .in_allowed = state.in_allowed,
+          .binding_mode = kind
+        }
+      );
+  else
+    return TmtParser_failed(state, 1U);
 }
 
 TmtGrammar_span TmtParser_start_range(uint32_t pos)
@@ -534,7 +603,8 @@ TmtParser_consume(TmtParser_tape input, TmtParser_parser_state state, uint8_t by
             .await_allowed = state.await_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed
+            .in_allowed = state.in_allowed,
+            .binding_mode = state.binding_mode
           }
         );
     else
@@ -559,7 +629,8 @@ TmtParser_from_cursor(TmtParser_parser_state state, TmtParser_cursor read)
           .await_allowed = state.await_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
-          .in_allowed = state.in_allowed
+          .in_allowed = state.in_allowed,
+          .binding_mode = state.binding_mode
         }
       );
   else
@@ -1650,7 +1721,8 @@ TmtParser_qualified_name(TmtParser_tape input0, TmtParser_parser_state state0, u
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ));
         uint8_t byte = TmtParser_peek(input, property.offset);
@@ -1665,7 +1737,8 @@ TmtParser_qualified_name(TmtParser_tape input0, TmtParser_parser_state state0, u
               .offset = end_at, .count = property.count, .depth = property.depth,
               .status = property.status, .local_names = property.local_names,
               .await_allowed = property.await_allowed, .jsx_allowed = property.jsx_allowed,
-              .module_mode = property.module_mode, .in_allowed = property.in_allowed
+              .module_mode = property.module_mode, .in_allowed = property.in_allowed,
+              .binding_mode = property.binding_mode
             };
           uint32_t tmp = TmtParser_minus(fuel, 1U);
           state = tmp0;
@@ -1877,7 +1950,8 @@ TmtParser_import_type(TmtParser_tape input, TmtParser_parser_state state)
           .await_allowed = state.await_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
-          .in_allowed = state.in_allowed
+          .in_allowed = state.in_allowed,
+          .binding_mode = state.binding_mode
         }
       ));
   TmtParser_parser_state module_ = TmtParser_skip(input, TmtParser_consume(input, open_, 40U));
@@ -1910,7 +1984,8 @@ TmtParser_parser_state TmtParser_type_query(TmtParser_tape input, TmtParser_pars
           .await_allowed = state.await_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
-          .in_allowed = state.in_allowed
+          .in_allowed = state.in_allowed,
+          .binding_mode = state.binding_mode
         }
       ));
   if (TmtParser_keyword(input, target.offset, 6U, 0x696d706f7274ULL))
@@ -2032,7 +2107,7 @@ TmtParser_type_list(
             .offset = TmtParser_next(st1.offset), .count = st1.count, .depth = st1.depth,
             .status = st1.status, .local_names = st1.local_names, .await_allowed = st1.await_allowed,
             .jsx_allowed = st1.jsx_allowed, .module_mode = st1.module_mode,
-            .in_allowed = st1.in_allowed
+            .in_allowed = st1.in_allowed, .binding_mode = st1.binding_mode
           };
         uint32_t tmp1 = TmtParser_minus(remaining, 1U);
         bool tmp = true;
@@ -2071,7 +2146,8 @@ TmtParser_object_type_member(TmtParser_tape input, TmtParser_parser_state st, ui
             .await_allowed = st.await_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
-            .in_allowed = st.in_allowed
+            .in_allowed = st.in_allowed,
+            .binding_mode = st.binding_mode
           }
         ));
     uint8_t next_key = TmtParser_peek(input, after.offset);
@@ -2249,7 +2325,8 @@ TmtParser_signature_parameters(
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ));
       else
@@ -2272,7 +2349,8 @@ TmtParser_signature_parameters(
               .await_allowed = st1.await_allowed,
               .jsx_allowed = st1.jsx_allowed,
               .module_mode = st1.module_mode,
-              .in_allowed = st1.in_allowed
+              .in_allowed = st1.in_allowed,
+              .binding_mode = st1.binding_mode
             }
           );
       else
@@ -2334,7 +2412,8 @@ TmtParser_type_term(
               .await_allowed = st.await_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed
+              .in_allowed = st.in_allowed,
+              .binding_mode = st.binding_mode
             }
           ));
     else
@@ -2373,7 +2452,8 @@ TmtParser_type_term(
                 .await_allowed = st1.await_allowed,
                 .jsx_allowed = st1.jsx_allowed,
                 .module_mode = st1.module_mode,
-                .in_allowed = st1.in_allowed
+                .in_allowed = st1.in_allowed,
+                .binding_mode = st1.binding_mode
               }
             ),
             TmtParser_minus(fuel, 1U),
@@ -2408,7 +2488,7 @@ TmtParser_type_term(
             .offset = TmtParser_next(st1.offset), .count = st1.count, .depth = st1.depth,
             .status = st1.status, .local_names = st1.local_names, .await_allowed = st1.await_allowed,
             .jsx_allowed = st1.jsx_allowed, .module_mode = st1.module_mode,
-            .in_allowed = st1.in_allowed
+            .in_allowed = st1.in_allowed, .binding_mode = st1.binding_mode
           };
         uint32_t inner = TmtParser_minus(fuel, 1U);
         if (byte == 91U)
@@ -2560,7 +2640,8 @@ TmtParser_result_type(TmtParser_tape input, TmtParser_parser_state state, uint32
               .await_allowed = st.await_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed
+              .in_allowed = st.in_allowed,
+              .binding_mode = st.binding_mode
             }
           ),
           fuel,
@@ -2577,7 +2658,8 @@ TmtParser_result_type(TmtParser_tape input, TmtParser_parser_state state, uint32
             .await_allowed = st.await_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
-            .in_allowed = st.in_allowed
+            .in_allowed = st.in_allowed,
+            .binding_mode = st.binding_mode
           }
         );
     else
@@ -2627,7 +2709,7 @@ TmtParser_type_terms(
               .offset = TmtParser_next(st.offset), .count = st.count, .depth = st.depth,
               .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed,
               .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed
+              .in_allowed = st.in_allowed, .binding_mode = st.binding_mode
             };
           uint32_t tmp1 = TmtParser_minus(remaining, 1U);
           bool tmp = false;
@@ -2689,7 +2771,8 @@ TmtParser_type_parameters(
                     .await_allowed = st1.await_allowed,
                     .jsx_allowed = st1.jsx_allowed,
                     .module_mode = st1.module_mode,
-                    .in_allowed = st1.in_allowed
+                    .in_allowed = st1.in_allowed,
+                    .binding_mode = st1.binding_mode
                   }
                 ),
                 fuel,
@@ -2752,7 +2835,8 @@ TmtParser_simple_annotation(TmtParser_tape input, TmtParser_parser_state state)
             .await_allowed = st.await_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
-            .in_allowed = st.in_allowed
+            .in_allowed = st.in_allowed,
+            .binding_mode = st.binding_mode
           }
         ),
         16U,
@@ -2847,7 +2931,8 @@ TmtParser_pattern_names(
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ));
         TmtParser_named_state
@@ -2984,7 +3069,8 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
             .await_allowed = state.await_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed
+            .in_allowed = state.in_allowed,
+            .binding_mode = state.binding_mode
           }
         ));
     uint32_t mark = state.local_names;
@@ -3004,7 +3090,8 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
             .await_allowed = next_token.await_allowed,
             .jsx_allowed = next_token.jsx_allowed,
             .module_mode = next_token.module_mode,
-            .in_allowed = next_token.in_allowed
+            .in_allowed = next_token.in_allowed,
+            .binding_mode = next_token.binding_mode
           }
         );
     else
@@ -3057,7 +3144,8 @@ TmtParser_rest_parameter(
           .await_allowed = state.await_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
-          .in_allowed = state.in_allowed
+          .in_allowed = state.in_allowed,
+          .binding_mode = state.binding_mode
         }
       ));
   TmtParser_named_state
@@ -3180,7 +3268,8 @@ TmtParser_arrow_token(TmtParser_tape input, TmtParser_parser_state state)
             .await_allowed = st.await_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
-            .in_allowed = st.in_allowed
+            .in_allowed = st.in_allowed,
+            .binding_mode = st.binding_mode
           }
         );
     else
@@ -3247,7 +3336,8 @@ TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state st
                   .offset = body.offset, .count = uu____1.count, .depth = uu____1.depth,
                   .status = uu____1.status, .local_names = uu____1.local_names,
                   .await_allowed = uu____1.await_allowed, .jsx_allowed = uu____1.jsx_allowed,
-                  .module_mode = uu____1.module_mode, .in_allowed = uu____1.in_allowed
+                  .module_mode = uu____1.module_mode, .in_allowed = uu____1.in_allowed,
+                  .binding_mode = uu____1.binding_mode
                 },
                 .used = param.used
               },
@@ -3329,7 +3419,8 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
             .await_allowed = true,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed
+            .in_allowed = state.in_allowed,
+            .binding_mode = state.binding_mode
           }
         ));
     if (async_.names.state.status == 0U)
@@ -3347,7 +3438,8 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
               .await_allowed = false,
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
-              .in_allowed = state.in_allowed
+              .in_allowed = state.in_allowed,
+              .binding_mode = state.binding_mode
             }
           ));
   }
@@ -3364,7 +3456,8 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
             .await_allowed = false,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed
+            .in_allowed = state.in_allowed,
+            .binding_mode = state.binding_mode
           }
         ));
 }
@@ -3623,7 +3716,8 @@ TmtParser_local_type_alias(
           .await_allowed = state.await_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
-          .in_allowed = state.in_allowed
+          .in_allowed = state.in_allowed,
+          .binding_mode = state.binding_mode
         }
       ));
   TmtParser_named_state
@@ -3640,7 +3734,8 @@ TmtParser_local_type_alias(
         .state = {
           .offset = st.offset, .count = st.count, .depth = st.depth, .status = st.status,
           .local_names = decl.used, .await_allowed = st.await_allowed, .jsx_allowed = st.jsx_allowed,
-          .module_mode = st.module_mode, .in_allowed = st.in_allowed
+          .module_mode = st.module_mode, .in_allowed = st.in_allowed,
+          .binding_mode = st.binding_mode
         },
         .used = decl.used
       }
@@ -3661,7 +3756,8 @@ TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parse
         .await_allowed = state.await_allowed,
         .jsx_allowed = state.jsx_allowed,
         .module_mode = state.module_mode,
-        .in_allowed = state.in_allowed
+        .in_allowed = state.in_allowed,
+        .binding_mode = state.binding_mode
       }
     );
 }
@@ -3810,7 +3906,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ),
             TmtParser_minus(fuel, 1U));
@@ -3854,7 +3951,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ));
         uint8_t byte = TmtParser_peek(input, first.offset);
@@ -3900,7 +3998,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               .await_allowed = st.await_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed
+              .in_allowed = st.in_allowed,
+              .binding_mode = st.binding_mode
             }
           ));
       uint8_t byte = TmtParser_peek(input, after.offset);
@@ -3924,7 +4023,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                                     .await_allowed = after.await_allowed,
                                     .jsx_allowed = after.jsx_allowed,
                                     .module_mode = after.module_mode,
-                                    .in_allowed = after.in_allowed
+                                    .in_allowed = after.in_allowed,
+                                    .binding_mode = after.binding_mode
                                   }
                                 )
                                 : after;
@@ -3947,7 +4047,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .await_allowed = meta.await_allowed,
                 .jsx_allowed = meta.jsx_allowed,
                 .module_mode = meta.module_mode,
-                .in_allowed = meta.in_allowed
+                .in_allowed = meta.in_allowed,
+                .binding_mode = meta.binding_mode
               }
             );
         else
@@ -4007,7 +4108,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
             .offset = st.offset, .count = st.count, .depth = depth1, .status = st.status,
             .local_names = st.local_names, .await_allowed = st.await_allowed,
             .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
-            .in_allowed = st.in_allowed
+            .in_allowed = st.in_allowed, .binding_mode = st.binding_mode
           };
         uint32_t inner = TmtParser_minus(fuel, 1U);
         TmtParser_parser_state completed;
@@ -4026,7 +4127,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                   .await_allowed = st1.await_allowed,
                   .jsx_allowed = st1.jsx_allowed,
                   .module_mode = st1.module_mode,
-                  .in_allowed = st1.in_allowed
+                  .in_allowed = st1.in_allowed,
+                  .binding_mode = st1.binding_mode
                 }
               ));
           TmtParser_parser_state
@@ -4050,7 +4152,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               .offset = TmtParser_next(start_pos), .count = st1.count, .depth = st1.depth,
               .status = st1.status, .local_names = st1.local_names,
               .await_allowed = st1.await_allowed, .jsx_allowed = st1.jsx_allowed,
-              .module_mode = st1.module_mode, .in_allowed = st1.in_allowed
+              .module_mode = st1.module_mode, .in_allowed = st1.in_allowed,
+              .binding_mode = st1.binding_mode
             };
           if (ch == 96U)
             completed = TmtParser_template_body(input, inside, inner, input.size, false);
@@ -4096,7 +4199,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = true
+                .in_allowed = true,
+                .binding_mode = st.binding_mode
               }
             ),
             TmtParser_minus(fuel, 1U));
@@ -4114,7 +4218,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .await_allowed = consumed.await_allowed,
                 .jsx_allowed = consumed.jsx_allowed,
                 .module_mode = consumed.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = consumed.binding_mode
               }
             ),
             41U);
@@ -4210,7 +4315,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                   .offset = TmtParser_plus(start_pos, width), .count = st.count, .depth = st.depth,
                   .status = st.status, .local_names = st.local_names,
                   .await_allowed = st.await_allowed, .jsx_allowed = st.jsx_allowed,
-                  .module_mode = st.module_mode, .in_allowed = st.in_allowed
+                  .module_mode = st.module_mode, .in_allowed = st.in_allowed,
+                  .binding_mode = st.binding_mode
                 },
                 .snd = TmtParser_NotAssignable
               }
@@ -4262,7 +4368,8 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             .await_allowed = uu____0.await_allowed,
             .jsx_allowed = uu____0.jsx_allowed,
             .module_mode = uu____0.module_mode,
-            .in_allowed = uu____0.in_allowed
+            .in_allowed = uu____0.in_allowed,
+            .binding_mode = TmtParser_NoLocals
           }
         ));
     if (fuel == 0U)
@@ -4277,7 +4384,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
           .offset = body.offset, .count = body.count, .depth = depth1, .status = body.status,
           .local_names = body.local_names, .await_allowed = body.await_allowed,
           .jsx_allowed = body.jsx_allowed, .module_mode = body.module_mode,
-          .in_allowed = body.in_allowed
+          .in_allowed = body.in_allowed, .binding_mode = body.binding_mode
         };
       uint32_t inner = TmtParser_minus(fuel, 1U);
       bool block = TmtParser_same(input, body1.offset, 123U);
@@ -4305,7 +4412,8 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
               .offset = uu____1.offset, .count = uu____1.count, .depth = uu____1.depth,
               .status = uu____1.status, .local_names = start.local_names,
               .await_allowed = start.await_allowed, .jsx_allowed = uu____1.jsx_allowed,
-              .module_mode = uu____1.module_mode, .in_allowed = uu____1.in_allowed
+              .module_mode = uu____1.module_mode, .in_allowed = uu____1.in_allowed,
+              .binding_mode = start.binding_mode
             },
             .range = { .first = start.offset, .last = result.range.last },
             .open_angle = result.open_angle,
@@ -4350,7 +4458,8 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                   .await_allowed = st.await_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
-                  .in_allowed = st.in_allowed
+                  .in_allowed = st.in_allowed,
+                  .binding_mode = st.binding_mode
                 }
               ),
               TmtParser_minus(fuel, 1U));
@@ -4387,7 +4496,8 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ),
             inner);
@@ -4492,7 +4602,8 @@ TmtParser_binary_tail(
                   .await_allowed = st.await_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
-                  .in_allowed = st.in_allowed
+                  .in_allowed = st.in_allowed,
+                  .binding_mode = st.binding_mode
                 }
               ),
               16U,
@@ -4550,7 +4661,7 @@ TmtParser_binary_tail(
               .offset = TmtParser_plus(st.offset, op.width), .count = count, .depth = st.depth,
               .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed,
               .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed
+              .in_allowed = st.in_allowed, .binding_mode = st.binding_mode
             };
           TmtParser_parsed rhs = TmtParser_binary(input, after, fuel, op.strength + 1U);
           if (rhs.parser.status != 0U)
@@ -4652,7 +4763,7 @@ TmtParser_postfix(
                   .offset = end_at, .count = st.count, .depth = st.depth, .status = st.status,
                   .local_names = st.local_names, .await_allowed = st.await_allowed,
                   .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
-                  .in_allowed = st.in_allowed
+                  .in_allowed = st.in_allowed, .binding_mode = st.binding_mode
                 },
                 .range = { .first = base.range.first, .last = end_at },
                 .open_angle = base.open_angle,
@@ -4696,7 +4807,8 @@ TmtParser_postfix(
                   .await_allowed = st.await_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
-                  .in_allowed = st.in_allowed
+                  .in_allowed = st.in_allowed,
+                  .binding_mode = st.binding_mode
                 }
               ));
         else
@@ -4725,7 +4837,8 @@ TmtParser_postfix(
                 .offset = TmtParser_next(operand.offset), .count = operand.count, .depth = depth1,
                 .status = operand.status, .local_names = operand.local_names,
                 .await_allowed = operand.await_allowed, .jsx_allowed = operand.jsx_allowed,
-                .module_mode = operand.module_mode, .in_allowed = operand.in_allowed
+                .module_mode = operand.module_mode, .in_allowed = operand.in_allowed,
+                .binding_mode = operand.binding_mode
               };
             if (kind == 40U)
               next_st =
@@ -4767,7 +4880,8 @@ TmtParser_postfix(
                     .await_allowed = st.await_allowed,
                     .jsx_allowed = st.jsx_allowed,
                     .module_mode = st.module_mode,
-                    .in_allowed = st.in_allowed
+                    .in_allowed = st.in_allowed,
+                    .binding_mode = st.binding_mode
                   }
                 ));
           uint8_t first = TmtParser_peek(input, property.offset);
@@ -4785,7 +4899,8 @@ TmtParser_postfix(
                   .await_allowed = property.await_allowed,
                   .jsx_allowed = property.jsx_allowed,
                   .module_mode = property.module_mode,
-                  .in_allowed = property.in_allowed
+                  .in_allowed = property.in_allowed,
+                  .binding_mode = property.binding_mode
                 }
               );
         }
@@ -4801,7 +4916,8 @@ TmtParser_postfix(
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             );
         TmtParser_assignment_target
@@ -4909,7 +5025,8 @@ TmtParser_expression_list(
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             );
         else
@@ -4972,7 +5089,8 @@ TmtParser_object_member(
             .await_allowed = st.await_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
-            .in_allowed = st.in_allowed
+            .in_allowed = st.in_allowed,
+            .binding_mode = st.binding_mode
           }
         ),
         fuel);
@@ -5001,7 +5119,8 @@ TmtParser_object_member(
                        .await_allowed = st.await_allowed,
                        .jsx_allowed = st.jsx_allowed,
                        .module_mode = st.module_mode,
-                       .in_allowed = st.in_allowed
+                       .in_allowed = st.in_allowed,
+                       .binding_mode = st.binding_mode
                      }
                    )
                    : st;
@@ -5024,7 +5143,8 @@ TmtParser_object_member(
               .await_allowed = key_start.await_allowed,
               .jsx_allowed = key_start.jsx_allowed,
               .module_mode = key_start.module_mode,
-              .in_allowed = true
+              .in_allowed = true,
+              .binding_mode = key_start.binding_mode
             }
           ),
           fuel);
@@ -5041,7 +5161,8 @@ TmtParser_object_member(
             .await_allowed = closed.await_allowed,
             .jsx_allowed = closed.jsx_allowed,
             .module_mode = closed.module_mode,
-            .in_allowed = st.in_allowed
+            .in_allowed = st.in_allowed,
+            .binding_mode = closed.binding_mode
           }
         );
     }
@@ -5186,7 +5307,8 @@ TmtParser_template_body(
               .await_allowed = state.await_allowed,
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
-              .in_allowed = state.in_allowed
+              .in_allowed = state.in_allowed,
+              .binding_mode = state.binding_mode
             }
           );
       else
@@ -5207,7 +5329,8 @@ TmtParser_template_body(
                   .await_allowed = state.await_allowed,
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
-                  .in_allowed = true
+                  .in_allowed = true,
+                  .binding_mode = state.binding_mode
                 }
               ),
               fuel);
@@ -5224,7 +5347,8 @@ TmtParser_template_body(
                   .await_allowed = uu____0.await_allowed,
                   .jsx_allowed = uu____0.jsx_allowed,
                   .module_mode = uu____0.module_mode,
-                  .in_allowed = state.in_allowed
+                  .in_allowed = state.in_allowed,
+                  .binding_mode = uu____0.binding_mode
                 }
               ),
               125U);
@@ -5243,7 +5367,8 @@ TmtParser_template_body(
                   .await_allowed = state.await_allowed,
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
-                  .in_allowed = state.in_allowed
+                  .in_allowed = state.in_allowed,
+                  .binding_mode = state.binding_mode
                 }
               );
           else
@@ -5261,7 +5386,8 @@ TmtParser_template_body(
                 .await_allowed = state.await_allowed,
                 .jsx_allowed = state.jsx_allowed,
                 .module_mode = state.module_mode,
-                .in_allowed = state.in_allowed
+                .in_allowed = state.in_allowed,
+                .binding_mode = state.binding_mode
               }
             );
         TmtParser_parser_state tmp0 = st;
@@ -5302,7 +5428,8 @@ TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint
               .await_allowed = inner.await_allowed,
               .jsx_allowed = inner.jsx_allowed,
               .module_mode = inner.module_mode,
-              .in_allowed = inner.in_allowed
+              .in_allowed = inner.in_allowed,
+              .binding_mode = inner.binding_mode
             }
           ),
           fuel);
@@ -5336,7 +5463,8 @@ TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ),
             byte);
@@ -5360,7 +5488,8 @@ TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint
                   .await_allowed = st.await_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
-                  .in_allowed = st.in_allowed
+                  .in_allowed = st.in_allowed,
+                  .binding_mode = st.binding_mode
                 }
               ));
           bool fragment = TmtParser_same(input, opening.offset, 62U);
@@ -5491,7 +5620,8 @@ TmtParser_jsx_children(
                   .await_allowed = state.await_allowed,
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
-                  .in_allowed = state.in_allowed
+                  .in_allowed = state.in_allowed,
+                  .binding_mode = state.binding_mode
                 }
               ));
           uint32_t length = TmtParser_minus(tag.last, tag.first);
@@ -5552,7 +5682,8 @@ TmtParser_jsx_children(
             .offset = TmtParser_next(state.offset), .count = state.count, .depth = state.depth,
             .status = state.status, .local_names = state.local_names,
             .await_allowed = state.await_allowed, .jsx_allowed = state.jsx_allowed,
-            .module_mode = state.module_mode, .in_allowed = state.in_allowed
+            .module_mode = state.module_mode, .in_allowed = state.in_allowed,
+            .binding_mode = state.binding_mode
           };
         uint32_t tmp = TmtParser_minus(remaining, 1U);
         state = tmp0;
@@ -5582,7 +5713,8 @@ TmtParser_jsx_element(TmtParser_tape input, TmtParser_parser_state state, uint32
                             .await_allowed = state.await_allowed,
                             .jsx_allowed = state.jsx_allowed,
                             .module_mode = state.module_mode,
-                            .in_allowed = state.in_allowed
+                            .in_allowed = state.in_allowed,
+                            .binding_mode = state.binding_mode
                           }
                         )
                         : state;
@@ -5674,7 +5806,8 @@ TmtParser_binding(
           .await_allowed = st2.await_allowed,
           .jsx_allowed = st2.jsx_allowed,
           .module_mode = st2.module_mode,
-          .in_allowed = in_allowed
+          .in_allowed = in_allowed,
+          .binding_mode = st2.binding_mode
         }
       ),
       fuel);
@@ -5690,7 +5823,8 @@ TmtParser_binding(
         .await_allowed = uu____0.await_allowed,
         .jsx_allowed = uu____0.jsx_allowed,
         .module_mode = uu____0.module_mode,
-        .in_allowed = state.in_allowed
+        .in_allowed = state.in_allowed,
+        .binding_mode = uu____0.binding_mode
       }
     );
 }
@@ -5700,39 +5834,48 @@ TmtParser_classic_for_header(
   TmtParser_tape input,
   TmtParser_parser_state st,
   bool top_level,
+  bool local_var,
   uint32_t fuel
 )
 {
-  bool declared = TmtParser_keyword(input, st.offset, 3U, 0x6c6574ULL);
-  bool declared1;
-  if (!declared && top_level)
-    declared1 = TmtParser_keyword(input, st.offset, 3U, 0x766172ULL);
+  bool lexical = TmtParser_keyword(input, st.offset, 3U, 0x6c6574ULL);
+  bool var;
+  if (!lexical && (top_level || local_var))
+    var = TmtParser_keyword(input, st.offset, 3U, 0x766172ULL);
   else
-    declared1 = declared;
-  TmtParser_parser_state st1;
+    var = false;
+  TmtParser_parser_state st10;
   if (TmtParser_same(input, st.offset, 59U))
-    st1 = st;
-  else if (declared1)
-    st1 =
+    st10 = st;
+  else if (lexical || var)
+  {
+    TmtParser_parser_state st1;
+    if (local_var)
+      st1 = TmtParser_record_binding_mode(st, var ? TmtParser_VarLocals : TmtParser_LexicalLocals);
+    else
+      st1 = st;
+    st10 =
       TmtParser_binding(input,
         (
           (TmtParser_parser_state){
-            .offset = TmtParser_plus(st.offset, 3U),
-            .count = st.count,
-            .depth = st.depth,
-            .status = st.status,
-            .local_names = st.local_names,
-            .await_allowed = st.await_allowed,
-            .jsx_allowed = st.jsx_allowed,
-            .module_mode = st.module_mode,
-            .in_allowed = st.in_allowed
+            .offset = TmtParser_plus(st1.offset, 3U),
+            .count = st1.count,
+            .depth = st1.depth,
+            .status = st1.status,
+            .local_names = st1.local_names,
+            .await_allowed = st1.await_allowed,
+            .jsx_allowed = st1.jsx_allowed,
+            .module_mode = st1.module_mode,
+            .in_allowed = st1.in_allowed,
+            .binding_mode = st1.binding_mode
           }
         ),
         fuel,
         false);
+  }
   else
-    st1 = TmtParser_failed(st, 1U);
-  TmtParser_parser_state st2 = TmtParser_consume(input, TmtParser_skip(input, st1), 59U);
+    st10 = TmtParser_failed(st, 1U);
+  TmtParser_parser_state st2 = TmtParser_consume(input, TmtParser_skip(input, st10), 59U);
   TmtParser_parser_state st3 = TmtParser_skip(input, st2);
   TmtParser_parser_state st4;
   if (TmtParser_same(input, st3.offset, 59U))
@@ -5754,6 +5897,7 @@ TmtParser_for_header(
   TmtParser_tape input,
   TmtParser_parser_state state,
   bool top_level,
+  bool local_var,
   uint32_t fuel
 )
 {
@@ -5777,7 +5921,8 @@ TmtParser_for_header(
             .await_allowed = head.await_allowed,
             .jsx_allowed = head.jsx_allowed,
             .module_mode = head.module_mode,
-            .in_allowed = head.in_allowed
+            .in_allowed = head.in_allowed,
+            .binding_mode = head.binding_mode
           }
         ));
   else
@@ -5786,13 +5931,18 @@ TmtParser_for_header(
   TmtParser_parser_state collection = TmtParser_collection_head(input, st, !async_);
   if (collection.status == 0U)
   {
-    TmtParser_parsed value = TmtParser_comparison(input, collection, fuel);
+    TmtParser_parser_state collection1;
+    if (local_var)
+      collection1 = TmtParser_record_binding_mode(collection, TmtParser_LexicalLocals);
+    else
+      collection1 = collection;
+    TmtParser_parsed value = TmtParser_comparison(input, collection1, fuel);
     return TmtParser_consume(input, TmtParser_skip(input, value.parser), 41U);
   }
   else if (async_)
     return collection;
   else
-    return TmtParser_classic_for_header(input, st, top_level, fuel);
+    return TmtParser_classic_for_header(input, st, top_level, local_var, fuel);
 }
 
 TmtParser_parser_state
@@ -5889,6 +6039,36 @@ TmtParser_simple_statement(
     return TmtParser_ordinary_statement(input, state, fuel);
 }
 
+TmtParser_parser_state
+TmtParser_local_var_declaration(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel
+)
+{
+  TmtParser_parser_state st = TmtParser_record_binding_mode(state, TmtParser_VarLocals);
+  TmtParser_parser_state
+  start =
+    TmtParser_skip(input,
+      (
+        (TmtParser_parser_state){
+          .offset = TmtParser_plus(st.offset, 3U),
+          .count = st.count,
+          .depth = st.depth,
+          .status = st.status,
+          .local_names = st.local_names,
+          .await_allowed = st.await_allowed,
+          .jsx_allowed = st.jsx_allowed,
+          .module_mode = st.module_mode,
+          .in_allowed = st.in_allowed,
+          .binding_mode = st.binding_mode
+        }
+      ));
+  TmtParser_parser_state
+  named = TmtParser_from_cursor(start, TmtParser_name(input, start.offset, false, true));
+  return TmtParser_variable_initializer(input, named, fuel, true, true);
+}
+
 TmtParser_named_state
 TmtParser_local_declaration(
   TmtParser_tape input,
@@ -5899,20 +6079,22 @@ TmtParser_local_declaration(
   uint32_t fuel
 )
 {
+  TmtParser_parser_state state1 = TmtParser_record_binding_mode(state, TmtParser_LexicalLocals);
   TmtParser_parser_state
   start =
     TmtParser_skip(input,
       (
         (TmtParser_parser_state){
-          .offset = TmtParser_plus(state.offset, width),
-          .count = state.count,
-          .depth = state.depth,
-          .status = state.status,
-          .local_names = state.local_names,
-          .await_allowed = state.await_allowed,
-          .jsx_allowed = state.jsx_allowed,
-          .module_mode = state.module_mode,
-          .in_allowed = state.in_allowed
+          .offset = TmtParser_plus(state1.offset, width),
+          .count = state1.count,
+          .depth = state1.depth,
+          .status = state1.status,
+          .local_names = state1.local_names,
+          .await_allowed = state1.await_allowed,
+          .jsx_allowed = state1.jsx_allowed,
+          .module_mode = state1.module_mode,
+          .in_allowed = state1.in_allowed,
+          .binding_mode = state1.binding_mode
         }
       ));
   uint8_t first = TmtParser_peek(input, start.offset);
@@ -5925,7 +6107,7 @@ TmtParser_local_declaration(
       .offset = uu____0.offset, .count = uu____0.count, .depth = uu____0.depth,
       .status = uu____0.status, .local_names = decl.used, .await_allowed = uu____0.await_allowed,
       .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
-      .in_allowed = uu____0.in_allowed
+      .in_allowed = uu____0.in_allowed, .binding_mode = uu____0.binding_mode
     };
   return
     (
@@ -5966,20 +6148,22 @@ TmtParser_scope_statement(
       return ((TmtParser_named_state){ .state = TmtParser_failed(st, 3U), .used = used });
     else
     {
+      TmtParser_parser_state declared = TmtParser_record_binding_mode(st, TmtParser_LexicalLocals);
       TmtParser_parser_state
       named =
         TmtParser_skip(input,
           (
             (TmtParser_parser_state){
               .offset = TmtParser_plus(fn.at, 8U),
-              .count = st.count,
-              .depth = st.depth,
-              .status = st.status,
-              .local_names = st.local_names,
-              .await_allowed = st.await_allowed,
-              .jsx_allowed = st.jsx_allowed,
-              .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed
+              .count = declared.count,
+              .depth = declared.depth,
+              .status = declared.status,
+              .local_names = declared.local_names,
+              .await_allowed = declared.await_allowed,
+              .jsx_allowed = declared.jsx_allowed,
+              .module_mode = declared.module_mode,
+              .in_allowed = declared.in_allowed,
+              .binding_mode = declared.binding_mode
             }
           ));
       TmtParser_named_state
@@ -5991,7 +6175,7 @@ TmtParser_scope_statement(
           .offset = uu____0.offset, .count = uu____0.count, .depth = uu____0.depth,
           .status = uu____0.status, .local_names = decl.used, .await_allowed = uu____0.await_allowed,
           .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
-          .in_allowed = uu____0.in_allowed
+          .in_allowed = uu____0.in_allowed, .binding_mode = uu____0.binding_mode
         };
       return
         (
@@ -6054,7 +6238,8 @@ TmtParser_control_sequence(
             .await_allowed = state.await_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed
+            .in_allowed = state.in_allowed,
+            .binding_mode = state.binding_mode
           }
         ));
     bool closed = TmtParser_same(input, st.offset, 125U);
@@ -6128,7 +6313,8 @@ TmtParser_switch_sequence(
             .await_allowed = state.await_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed
+            .in_allowed = state.in_allowed,
+            .binding_mode = state.binding_mode
           }
         ));
     bool closed = TmtParser_same(input, st.offset, 125U);
@@ -6165,7 +6351,8 @@ TmtParser_switch_sequence(
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ),
             fuel);
@@ -6198,7 +6385,8 @@ TmtParser_switch_sequence(
                     .await_allowed = st.await_allowed,
                     .jsx_allowed = st.jsx_allowed,
                     .module_mode = st.module_mode,
-                    .in_allowed = st.in_allowed
+                    .in_allowed = st.in_allowed,
+                    .binding_mode = st.binding_mode
                   }
                 )),
               58U);
@@ -6269,7 +6457,8 @@ TmtParser_control_block(
           .await_allowed = st.await_allowed,
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
-          .in_allowed = st.in_allowed
+          .in_allowed = st.in_allowed,
+          .binding_mode = st.binding_mode
         }
       ),
       fuel,
@@ -6291,7 +6480,8 @@ TmtParser_control_block(
           .await_allowed = st1.await_allowed,
           .jsx_allowed = st1.jsx_allowed,
           .module_mode = st1.module_mode,
-          .in_allowed = st1.in_allowed
+          .in_allowed = st1.in_allowed,
+          .binding_mode = st1.binding_mode
         }
       ),
       125U);
@@ -6314,13 +6504,28 @@ TmtParser_control_statement(
     return ((TmtParser_named_state){ .state = state, .used = used });
   else if (kind == 0U)
   {
+    bool local_var = in_function && state.module_mode;
+    uint8_t first = TmtParser_peek(input, state.offset);
     bool alias;
-    if (in_function && state.module_mode)
+    if (local_var && first == 116U)
       alias = TmtParser_type_declaration_width(input, state.offset) == 4U;
     else
       alias = false;
+    bool var;
+    if (local_var && first == 118U)
+      var = TmtParser_keyword(input, state.offset, 3U, 0x766172ULL);
+    else
+      var = false;
     if (alias)
       return TmtParser_local_type_alias(input, state, floor, used);
+    else if (var)
+      return
+        (
+          (TmtParser_named_state){
+            .state = TmtParser_local_var_declaration(input, state, fuel),
+            .used = used
+          }
+        );
     else
       return
         (
@@ -6348,7 +6553,8 @@ TmtParser_control_statement(
                               .await_allowed = state.await_allowed,
                               .jsx_allowed = state.jsx_allowed,
                               .module_mode = state.module_mode,
-                              .in_allowed = state.in_allowed
+                              .in_allowed = state.in_allowed,
+                              .binding_mode = state.binding_mode
                             }
                           )
                           : state;
@@ -6368,7 +6574,8 @@ TmtParser_control_statement(
               .await_allowed = state1.await_allowed,
               .jsx_allowed = state1.jsx_allowed,
               .module_mode = state1.module_mode,
-              .in_allowed = state1.in_allowed
+              .in_allowed = state1.in_allowed,
+              .binding_mode = state1.binding_mode
             }
           ),
           fuel);
@@ -6394,7 +6601,8 @@ TmtParser_control_statement(
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ),
             inner,
@@ -6420,7 +6628,8 @@ TmtParser_control_statement(
               .await_allowed = state1.await_allowed,
               .jsx_allowed = state1.jsx_allowed,
               .module_mode = state1.module_mode,
-              .in_allowed = state1.in_allowed
+              .in_allowed = state1.in_allowed,
+              .binding_mode = state1.binding_mode
             }
           ),
           inner,
@@ -6449,7 +6658,8 @@ TmtParser_control_statement(
                   .await_allowed = st.await_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
-                  .in_allowed = st.in_allowed
+                  .in_allowed = st.in_allowed,
+                  .binding_mode = st.binding_mode
                 }
               ),
               fuel));
@@ -6478,10 +6688,12 @@ TmtParser_control_statement(
                 .await_allowed = state1.await_allowed,
                 .jsx_allowed = state1.jsx_allowed,
                 .module_mode = state1.module_mode,
-                .in_allowed = state1.in_allowed
+                .in_allowed = state1.in_allowed,
+                .binding_mode = state1.binding_mode
               }
             ),
             allow_var,
+            in_function && state1.module_mode,
             fuel);
         TmtParser_named_state
         body =
@@ -6504,7 +6716,8 @@ TmtParser_control_statement(
               .await_allowed = uu____0.await_allowed,
               .jsx_allowed = uu____0.jsx_allowed,
               .module_mode = uu____0.module_mode,
-              .in_allowed = uu____0.in_allowed
+              .in_allowed = uu____0.in_allowed,
+              .binding_mode = uu____0.binding_mode
             }
           );
       }
@@ -6521,7 +6734,8 @@ TmtParser_control_statement(
                 .await_allowed = state1.await_allowed,
                 .jsx_allowed = state1.jsx_allowed,
                 .module_mode = state1.module_mode,
-                .in_allowed = state1.in_allowed
+                .in_allowed = state1.in_allowed,
+                .binding_mode = state1.binding_mode
               }
             ),
             inner,
@@ -6545,7 +6759,8 @@ TmtParser_control_statement(
                 .await_allowed = state1.await_allowed,
                 .jsx_allowed = state1.jsx_allowed,
                 .module_mode = state1.module_mode,
-                .in_allowed = state1.in_allowed
+                .in_allowed = state1.in_allowed,
+                .binding_mode = state1.binding_mode
               }
             ),
             fuel);
@@ -6577,7 +6792,8 @@ TmtParser_control_statement(
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ),
             125U);
@@ -6626,7 +6842,8 @@ TmtParser_catch_block(
   TmtParser_parser_state st = TmtParser_skip(input, state);
   if (TmtParser_same(input, st.offset, 40U))
   {
-    TmtParser_parser_state start = TmtParser_skip(input, TmtParser_consume(input, st, 40U));
+    TmtParser_parser_state st1 = TmtParser_record_binding_mode(st, TmtParser_LexicalLocals);
+    TmtParser_parser_state start = TmtParser_skip(input, TmtParser_consume(input, st1, 40U));
     TmtParser_named_state bound = TmtParser_pattern_binding(input, start, 64U, used, used);
     TmtParser_parser_state
     annotated = TmtParser_skip(input, TmtParser_simple_annotation(input, bound.state));
@@ -6671,7 +6888,8 @@ TmtParser_try_statement(
                 .await_allowed = after.await_allowed,
                 .jsx_allowed = after.jsx_allowed,
                 .module_mode = after.module_mode,
-                .in_allowed = after.in_allowed
+                .in_allowed = after.in_allowed,
+                .binding_mode = after.binding_mode
               }
             ),
             fuel,
@@ -6694,7 +6912,8 @@ TmtParser_try_statement(
               .await_allowed = st.await_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed
+              .in_allowed = st.in_allowed,
+              .binding_mode = st.binding_mode
             }
           ),
           fuel,
@@ -6777,7 +6996,8 @@ TmtParser_function_parameters(
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ));
         TmtParser_parser_state
@@ -6823,7 +7043,8 @@ TmtParser_function_parameters(
                   .await_allowed = false,
                   .jsx_allowed = st1.jsx_allowed,
                   .module_mode = st1.module_mode,
-                  .in_allowed = st1.in_allowed
+                  .in_allowed = st1.in_allowed,
+                  .binding_mode = st1.binding_mode
                 }
               ),
               61U);
@@ -6840,7 +7061,8 @@ TmtParser_function_parameters(
                 .await_allowed = st1.await_allowed,
                 .jsx_allowed = uu____0.jsx_allowed,
                 .module_mode = uu____0.module_mode,
-                .in_allowed = uu____0.in_allowed
+                .in_allowed = uu____0.in_allowed,
+                .binding_mode = uu____0.binding_mode
               }
             );
         }
@@ -6900,7 +7122,8 @@ TmtParser_function_tail(
                             .await_allowed = state.await_allowed,
                             .jsx_allowed = state.jsx_allowed,
                             .module_mode = state.module_mode,
-                            .in_allowed = state.in_allowed
+                            .in_allowed = state.in_allowed,
+                            .binding_mode = state.binding_mode
                           }
                         )
                         : state;
@@ -6925,7 +7148,7 @@ TmtParser_function_tail(
     {
       .offset = st.offset, .count = st.count, .depth = st.depth, .status = st.status,
       .local_names = st.local_names, .await_allowed = async_, .jsx_allowed = st.jsx_allowed,
-      .module_mode = st.module_mode, .in_allowed = true
+      .module_mode = st.module_mode, .in_allowed = true, .binding_mode = TmtParser_NoLocals
     };
   TmtParser_parser_state
   closed =
@@ -6947,7 +7170,8 @@ TmtParser_function_tail(
         .await_allowed = state1.await_allowed,
         .jsx_allowed = closed.jsx_allowed,
         .module_mode = closed.module_mode,
-        .in_allowed = state1.in_allowed
+        .in_allowed = state1.in_allowed,
+        .binding_mode = state1.binding_mode
       }
     );
 }
@@ -6973,7 +7197,8 @@ TmtParser_declaration(TmtParser_tape input, TmtParser_parser_state state)
             .await_allowed = state.await_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed
+            .in_allowed = state.in_allowed,
+            .binding_mode = state.binding_mode
           }
         ));
     TmtParser_cursor named = TmtParser_name(input, st.offset, false, true);
@@ -7042,7 +7267,8 @@ TmtParser_import_members(
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ));
         uint8_t first = TmtParser_peek(input, after.offset);
@@ -7073,7 +7299,8 @@ TmtParser_import_members(
                 .await_allowed = st1.await_allowed,
                 .jsx_allowed = st1.jsx_allowed,
                 .module_mode = st1.module_mode,
-                .in_allowed = st1.in_allowed
+                .in_allowed = st1.in_allowed,
+                .binding_mode = st1.binding_mode
               }
             ));
         TmtParser_named_state local;
@@ -7092,7 +7319,8 @@ TmtParser_import_members(
                   .await_allowed = tail.await_allowed,
                   .jsx_allowed = tail.jsx_allowed,
                   .module_mode = tail.module_mode,
-                  .in_allowed = tail.in_allowed
+                  .in_allowed = tail.in_allowed,
+                  .binding_mode = tail.binding_mode
                 }
               ));
           local = TmtParser_bind_at(input, start, 0U, used, start.offset);
@@ -7161,7 +7389,8 @@ TmtParser_import_bindings(
             .await_allowed = st.await_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
-            .in_allowed = st.in_allowed
+            .in_allowed = st.in_allowed,
+            .binding_mode = st.binding_mode
           }
         ));
     if (TmtParser_keyword(input, as_.offset, 2U, 0x6173ULL))
@@ -7179,7 +7408,8 @@ TmtParser_import_bindings(
               .await_allowed = as_.await_allowed,
               .jsx_allowed = as_.jsx_allowed,
               .module_mode = as_.module_mode,
-              .in_allowed = as_.in_allowed
+              .in_allowed = as_.in_allowed,
+              .binding_mode = as_.binding_mode
             }
           ));
       return TmtParser_bind_at(input, local, 0U, used, local.offset);
@@ -7207,7 +7437,8 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
           .await_allowed = state.await_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
-          .in_allowed = state.in_allowed
+          .in_allowed = state.in_allowed,
+          .binding_mode = state.binding_mode
         }
       ));
   uint8_t byte = TmtParser_peek(input, st.offset);
@@ -7229,7 +7460,8 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .await_allowed = st.await_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed
+              .in_allowed = st.in_allowed,
+              .binding_mode = st.binding_mode
             }
           ));
     else
@@ -7254,7 +7486,8 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .await_allowed = after_type.await_allowed,
               .jsx_allowed = after_type.jsx_allowed,
               .module_mode = after_type.module_mode,
-              .in_allowed = after_type.in_allowed
+              .in_allowed = after_type.in_allowed,
+              .binding_mode = after_type.binding_mode
             }
           ));
       uint8_t first = TmtParser_peek(input, source.offset);
@@ -7301,7 +7534,8 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .await_allowed = st1.await_allowed,
               .jsx_allowed = st1.jsx_allowed,
               .module_mode = st1.module_mode,
-              .in_allowed = st1.in_allowed
+              .in_allowed = st1.in_allowed,
+              .binding_mode = st1.binding_mode
             }
           ));
     else
@@ -7346,7 +7580,8 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
             .await_allowed = state.await_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed
+            .in_allowed = state.in_allowed,
+            .binding_mode = state.binding_mode
           }
         ));
   else
@@ -7364,7 +7599,8 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
                   .await_allowed = st.await_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
-                  .in_allowed = st.in_allowed
+                  .in_allowed = st.in_allowed,
+                  .binding_mode = st.binding_mode
                 }
               )
               : st;
@@ -7381,7 +7617,8 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
                    .await_allowed = st1.await_allowed,
                    .jsx_allowed = st1.jsx_allowed,
                    .module_mode = st1.module_mode,
-                   .in_allowed = st1.in_allowed
+                   .in_allowed = st1.in_allowed,
+                   .binding_mode = st1.binding_mode
                  }
                )
                : st1;
@@ -7473,7 +7710,8 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
             .await_allowed = st.await_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
-            .in_allowed = st.in_allowed
+            .in_allowed = st.in_allowed,
+            .binding_mode = st.binding_mode
           }
         ));
     uint8_t first = TmtParser_peek(input, start.offset);
@@ -7508,7 +7746,8 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
                   .await_allowed = st2.await_allowed,
                   .jsx_allowed = st2.jsx_allowed,
                   .module_mode = st2.module_mode,
-                  .in_allowed = st2.in_allowed
+                  .in_allowed = st2.in_allowed,
+                  .binding_mode = st2.binding_mode
                 }
               ),
               64U);
@@ -7541,7 +7780,8 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
             .offset = result.offset, .count = result.count, .depth = result.depth,
             .status = result.status, .local_names = result.local_names,
             .await_allowed = state.await_allowed, .jsx_allowed = result.jsx_allowed,
-            .module_mode = result.module_mode, .in_allowed = result.in_allowed
+            .module_mode = result.module_mode, .in_allowed = result.in_allowed,
+            .binding_mode = result.binding_mode
           },
           .used = decl.used
         }
@@ -7575,7 +7815,8 @@ TmtParser_module_export(TmtParser_tape input, TmtParser_parser_state state)
             .await_allowed = state.await_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed
+            .in_allowed = state.in_allowed,
+            .binding_mode = state.binding_mode
           }
         ));
     if (TmtParser_keyword(input, tail.offset, 7U, 0x64656661756c74ULL))
@@ -7593,7 +7834,8 @@ TmtParser_module_export(TmtParser_tape input, TmtParser_parser_state state)
                   .await_allowed = tail.await_allowed,
                   .jsx_allowed = tail.jsx_allowed,
                   .module_mode = tail.module_mode,
-                  .in_allowed = tail.in_allowed
+                  .in_allowed = tail.in_allowed,
+                  .binding_mode = tail.binding_mode
                 }
               )),
             .export_kind = 1U
@@ -7616,7 +7858,8 @@ TmtParser_module_export(TmtParser_tape input, TmtParser_parser_state state)
                 .await_allowed = tail.await_allowed,
                 .jsx_allowed = tail.jsx_allowed,
                 .module_mode = tail.module_mode,
-                .in_allowed = tail.in_allowed
+                .in_allowed = tail.in_allowed,
+                .binding_mode = tail.binding_mode
               }
             ));
       else
@@ -7658,7 +7901,8 @@ TmtParser_default_declaration(
             .await_allowed = state.await_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed
+            .in_allowed = state.in_allowed,
+            .binding_mode = state.binding_mode
           }
         ));
     uint8_t byte = TmtParser_peek(input, start.offset);
@@ -7744,7 +7988,8 @@ TmtParser_module_sequence(
                   .await_allowed = tail.await_allowed,
                   .jsx_allowed = tail.jsx_allowed,
                   .module_mode = tail.module_mode,
-                  .in_allowed = tail.in_allowed
+                  .in_allowed = tail.in_allowed,
+                  .binding_mode = tail.binding_mode
                 }
               ));
         else
@@ -7865,7 +8110,8 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed
+                .in_allowed = st.in_allowed,
+                .binding_mode = st.binding_mode
               }
             ),
             64U,
@@ -7911,7 +8157,8 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
                   .await_allowed = st.await_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
-                  .in_allowed = st.in_allowed
+                  .in_allowed = st.in_allowed,
+                  .binding_mode = st.binding_mode
                 }
               ));
         else
@@ -7935,7 +8182,8 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
                 .await_allowed = st3.await_allowed,
                 .jsx_allowed = st3.jsx_allowed,
                 .module_mode = st3.module_mode,
-                .in_allowed = st3.in_allowed
+                .in_allowed = st3.in_allowed,
+                .binding_mode = st3.binding_mode
               }
             ));
       else
@@ -7959,7 +8207,8 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .await_allowed = module_mode,
           .jsx_allowed = jsx,
           .module_mode = module_mode,
-          .in_allowed = true
+          .in_allowed = true,
+          .binding_mode = TmtParser_NoLocals
         }
       ));
   TmtParser_parser_state state = parse_state(input, initial, module_mode);
@@ -7986,7 +8235,8 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .await_allowed = uu____0.await_allowed,
           .jsx_allowed = uu____0.jsx_allowed,
           .module_mode = uu____0.module_mode,
-          .in_allowed = uu____0.in_allowed
+          .in_allowed = uu____0.in_allowed,
+          .binding_mode = uu____0.binding_mode
         }
       );
   }
@@ -8004,7 +8254,8 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .await_allowed = uu____1.await_allowed,
           .jsx_allowed = uu____1.jsx_allowed,
           .module_mode = uu____1.module_mode,
-          .in_allowed = uu____1.in_allowed
+          .in_allowed = uu____1.in_allowed,
+          .binding_mode = uu____1.binding_mode
         }
       );
   }

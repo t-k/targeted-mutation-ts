@@ -1,0 +1,13 @@
+Declaration	Context	Suffix
+Plain	Function	Valid
+Typed	Arrow	Valid
+Init	Async	Valid
+ClassicFor	Function	Valid
+ClassicFor	Async	Invalid
+Typed	Function	Invalid
+Typed	Async	Valid
+Plain	Arrow	Invalid
+Init	Arrow	Invalid
+ClassicFor	Arrow	Invalid
+Init	Function	Invalid
+Plain	Async	Valid
