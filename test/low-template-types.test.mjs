@@ -45,3 +45,11 @@ test('invalid template types cannot publish earlier comparison candidates', () =
   }
   compare('const before = a < b; const row = define<`a${T}`>(x < y;', 'diagnostic');
 });
+
+test('the broad parser cannot accept two types inside the same template interpolation', () => {
+  const withComparisons = value => `const before = a < b; type Row<T, U> = ${value}; const after = c >= d;`;
+  for (const value of ['`raw-${T U}`', '`raw-${T as U}`', '`outer-${`nested-${T U}`}`']) {
+    compare(withComparisons(value), 'diagnostic');
+  }
+  compare(withComparisons('`raw-${T extends U ? T : U}`'), 'native');
+});

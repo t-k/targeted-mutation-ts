@@ -9,7 +9,7 @@ use oxc_ast::ast::{
     JSXAttributeValue, JSXExpression, JSXOpeningElement, MethodDefinition, MethodDefinitionKind,
     ModuleDeclaration, NewExpression, NumericLiteral, PropertyDefinition, PropertyKey, Statement,
     StringLiteral, TSClassImplements, TSExportAssignment, TSImportType, TSIndexSignature,
-    TSMethodSignature, TSMethodSignatureKind, TSModuleBlock, UnaryExpression,
+    TSMethodSignature, TSMethodSignatureKind, TSModuleBlock, TSTemplateLiteralType, UnaryExpression,
 };
 use oxc_ast::ast_kind::AstKind;
 use oxc_ast_visit::{Visit, walk};
@@ -192,6 +192,11 @@ impl<'a> Visit<'a> for Collector<'_> {
 
     fn visit_ts_export_assignment(&mut self, _node: &TSExportAssignment<'a>) {
         self.rejected = true;
+    }
+
+    fn visit_ts_template_literal_type(&mut self, node: &TSTemplateLiteralType<'a>) {
+        self.rejected |= node.quasis.len() != node.types.len() + 1;
+        walk::walk_ts_template_literal_type(self, node);
     }
 
     fn visit_ts_class_implements(&mut self, node: &TSClassImplements<'a>) {
