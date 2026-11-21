@@ -1,0 +1,5 @@
+Token	Side	Validity
+Decimal	Left	Valid
+Exponent	Right	Invalid
+Hex	Left	Invalid
+BigInt	Right	Valid

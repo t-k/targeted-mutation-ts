@@ -254,6 +254,10 @@ let operator (input:tape) (at:U32.t) : Read binary_operator input =
   else if byte = 63uy && follower = 63uy then
     let assignment = same input (plus at 2ul) 61uy in
     if assignment then none else { strength = 1ul; width = 2ul; boundary = 0ul; nullish = true }
+  else if byte = 105uy && follower = 110uy then
+    if keyword input (plus at 2ul) 8ul 0x7374616e63656f66uL then
+      { strength = 7ul; width = 10ul; boundary = 0ul; nullish = false }
+    else none
   else if follower = 61uy then none
   else if byte = 124uy then
     { strength = (if follower = byte then 1ul else 3ul); width = (if follower = byte then 2ul else 1ul); boundary = 0ul; nullish = false }
@@ -329,6 +333,7 @@ let type_name (input:tape) (state:parser_state) : Read cursor input =
     else if keyword input state.offset 4ul 0x6e756c6cuL then 4ul
     else if keyword input state.offset 4ul 0x74727565uL then 4ul
     else if keyword input state.offset 5ul 0x66616c7365uL then 5ul
+    else if keyword input state.offset 5ul 0x636f6e7374uL then 5ul
     else 0ul in
   if width <> 0ul then { at = plus state.offset width; ok = true; newline = false }
   else name input state.offset false false
@@ -378,6 +383,69 @@ let property_name (input:tape) (state:parser_state) : Read cursor input =
   else if G.identifier_start byte then
     { at = scan_class input state.offset G.Identifier; ok = true; newline = false }
   else { at = state.offset; ok = false; newline = false }
+
+let radix_digit (radix:U32.t) (ch:U8.t) : bool =
+  if radix = 2ul then ch = 48uy || ch = 49uy
+  else if radix = 8ul then U8.(ch >=^ 48uy && ch <=^ 55uy)
+  else G.decimal_digit ch || (radix = 16ul &&
+    (U8.(ch >=^ 65uy && ch <=^ 70uy) || U8.(ch >=^ 97uy && ch <=^ 102uy)))
+
+let rec radix_end (input:tape) (at radix fuel:U32.t) : Read U32.t input (decreases U32.v fuel) =
+  if fuel = 0ul then at
+  else
+    let byte = peek input at in
+    if radix_digit radix byte then radix_end input (next at) radix (minus fuel 1ul)
+    else at
+
+let rec number_digits (input:tape) (at radix fuel:U32.t) : Read cursor input (decreases U32.v fuel) =
+  let first = peek input at in
+  if fuel = 0ul || not (radix_digit radix first) then { at; ok = false; newline = false }
+  else
+    let stop = if radix = 10ul then scan_class input at G.DecimalDigits else radix_end input at radix input.size in
+    let separator = same input stop 95uy in
+    if separator then number_digits input (next stop) radix (minus fuel 1ul)
+    else { at = stop; ok = true; newline = false }
+
+let number_suffix (input:tape) (digits:cursor) (bigint:bool) : Read cursor input =
+  if not digits.ok then digits
+  else
+    let byte = peek input digits.at in
+    let finish = if bigint && byte = 110uy then next digits.at else digits.at in
+    let following = peek input finish in
+    { at = finish; ok = not (G.identifier_continue following || following = 92uy); newline = false }
+
+let number_end (input:tape) (at:U32.t) : Read cursor input =
+  let first = peek input at in
+  let second = peek input (next at) in
+  let radix =
+    if first <> 48uy then 10ul
+    else if second = 120uy || second = 88uy then 16ul
+    else if second = 111uy || second = 79uy then 8ul
+    else if second = 98uy || second = 66uy then 2ul
+    else 10ul in
+  if radix <> 10ul then number_suffix input (number_digits input (plus at 2ul) radix input.size) true
+  else if first = 48uy && (G.decimal_digit second || second = 95uy) then
+    { at; ok = false; newline = false }
+  else
+    let integer = if first = 46uy then { at; ok = true; newline = false }
+      else number_digits input at 10ul input.size in
+    let dot = same input integer.at 46uy in
+    let fraction =
+      if not integer.ok || not dot then integer
+      else
+        let start = next integer.at in
+        let next_byte = peek input start in
+        if G.decimal_digit next_byte || first = 46uy then number_digits input start 10ul input.size
+        else { integer with at = start } in
+    let marker = peek input fraction.at in
+    let exponent = marker = 101uy || marker = 69uy in
+    let value =
+      if not fraction.ok || not exponent then fraction
+      else
+        let sign = peek input (next fraction.at) in
+        let start = plus fraction.at (if sign = 43uy || sign = 45uy then 2ul else 1ul) in
+        number_digits input start 10ul input.size in
+    number_suffix input value (not dot && not exponent)
 
 let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 0; 0]) =
@@ -451,6 +519,9 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t)
     let primary =
       if byte = 34uy || byte = 39uy then
         from_cursor st (string_end input (next st.offset) byte input.size)
+      else if G.decimal_digit byte || byte = 45uy || byte = 46uy then
+        let start = if byte = 45uy then next st.offset else st.offset in
+        from_cursor st (number_end input start)
       else if byte = 91uy || byte = 123uy then
         if fuel = 0ul then failed st 1ul
         else
@@ -727,7 +798,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
             else if ch = 91uy then expression_list input inside inner input.size 93uy
             else object_members input inside inner input.size false in
         postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset }; open_angle = false; outer_or = false; shortcut = 0ul }
-          fuel input.size false
+          fuel input.size
     else if ch = 40uy then
       if fuel = 0ul then empty_range (failed st 3ul)
       else
@@ -737,18 +808,11 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         let consumed = skip input inner.parser in
         let done_ = consume input consumed 41uy in
         postfix input { parser = done_; range = { G.first = start_pos; G.last = done_.offset }; open_angle = false; outer_or = false; shortcut = 0ul }
-          fuel input.size false
-    else if G.decimal_digit ch then
-      let finish = scan_class input start_pos G.DecimalDigits in
-      if ch = 48uy && U32.(finish >^ next start_pos) then empty_range (failed st 1ul)
-      else
-        let dot = same input finish 46uy in
-        let decimal = peek input (next finish) in
-        let finish =
-          if dot && G.decimal_digit decimal then scan_class input (next finish) G.DecimalDigits
-          else finish in
-        postfix input { parser = { st with offset = finish }; range = { G.first = start_pos; G.last = finish }; open_angle = false; outer_or = false; shortcut = 0ul }
-          fuel input.size true
+          fuel input.size
+    else if G.decimal_digit ch || ch = 46uy then
+      let number = number_end input start_pos in
+      postfix input { parser = from_cursor st number; range = { G.first = start_pos; G.last = number.at }; open_angle = false; outer_or = false; shortcut = 0ul }
+        fuel input.size
     else
       let named =
         if ch = 34uy || ch = 39uy then from_cursor st (string_end input (next start_pos) ch input.size)
@@ -764,7 +828,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           if width <> 0ul then { st with offset = plus start_pos width }
           else from_cursor st (name input start_pos false false) in
       let base = { parser = named; range = { G.first = start_pos; G.last = named.offset }; open_angle = false; outer_or = false; shortcut = 0ul } in
-      postfix input base fuel input.size false
+      postfix input base fuel input.size
 and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 25; 0]) =
   let start = skip input current in
@@ -810,16 +874,19 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
   if st.status <> 0ul then empty_range st
   else
     let first = peek input st.offset in
-    let cast =
-      if U32.(minimum <=^ 7ul) && first = 97uy then
-        let word = keyword input st.offset 2ul 0x6173uL in
-        if not word then false
-        else let before = trivia input lhs.range.G.last in not before.newline
-      else false in
-    if cast then
+    let type_width =
+      if U32.(minimum >^ 7ul) then 0ul
+      else if first = 97uy then (if keyword input st.offset 2ul 0x6173uL then 2ul else 0ul)
+      else if first = 115uy then
+        (if keyword input (next st.offset) 8ul 0x6174697366696573uL then 9ul else 0ul)
+      else 0ul in
+    let assertion =
+      if type_width = 0ul then false
+      else let before = trivia input lhs.range.G.last in not before.newline in
+    if assertion then
       if remaining = 0ul then empty_range (failed st 3ul)
       else
-        let asserted = annotation_type input { st with offset = plus st.offset 2ul } 16ul 64ul in
+        let asserted = annotation_type input { st with offset = plus st.offset type_width } 16ul 64ul in
         let value = { lhs with parser = asserted; range = { lhs.range with G.last = asserted.offset }; outer_or = false } in
         binary_tail input value fuel minimum (minus remaining 1ul)
     else
@@ -847,7 +914,7 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
               open_angle = lhs.open_angle || rhs.open_angle || op.boundary = 1ul; outer_or = op.strength = 1ul && not op.nullish } in
             binary_tail input combined fuel minimum (minus remaining 1ul)
 
-and postfix (input:tape) (base:parsed) (fuel remaining:U32.t) (decimal:bool)
+and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 1; U32.v remaining]) =
   if base.parser.status <> 0ul then base
   else
@@ -868,7 +935,6 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t) (decimal:bool)
     else if byte = 96uy then empty_range (failed st 1ul)
     else if byte <> 46uy && byte <> 40uy && byte <> 91uy && not bang && not optional then { base with parser = st }
     else if remaining = 0ul then empty_range (failed st 3ul)
-    else if decimal && byte = 46uy then empty_range (failed st 1ul)
     else
       let operand = if optional then skip input { st with offset = plus st.offset 2ul } else st in
       let kind = if optional then peek input operand.offset else byte in
@@ -890,7 +956,7 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t) (decimal:bool)
           else { property with offset = scan_class input property.offset G.Identifier }
         else { st with offset = next st.offset } in
       postfix input { base with parser = next_st; range = { base.range with G.last = next_st.offset } }
-        fuel (minus remaining 1ul) false
+        fuel (minus remaining 1ul)
 and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (close:U8.t)
   : Run parser_state input (decreases %[U32.v fuel; 26; U32.v remaining]) =
   let st = skip input state in

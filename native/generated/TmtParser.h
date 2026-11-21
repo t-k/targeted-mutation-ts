@@ -208,6 +208,19 @@ TmtParser_array_type_suffixes(
 
 TmtParser_cursor TmtParser_property_name(TmtParser_tape input, TmtParser_parser_state state);
 
+bool TmtParser_radix_digit(uint32_t radix, uint8_t ch);
+
+uint32_t
+TmtParser_radix_end(TmtParser_tape input0, uint32_t at0, uint32_t radix0, uint32_t fuel0);
+
+TmtParser_cursor
+TmtParser_number_digits(TmtParser_tape input0, uint32_t at0, uint32_t radix0, uint32_t fuel0);
+
+TmtParser_cursor
+TmtParser_number_suffix(TmtParser_tape input, TmtParser_cursor digits, bool bigint);
+
+TmtParser_cursor TmtParser_number_end(TmtParser_tape input, uint32_t at);
+
 TmtParser_parser_state
 TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
@@ -351,8 +364,7 @@ TmtParser_postfix(
   TmtParser_tape input0,
   TmtParser_parsed base0,
   uint32_t fuel0,
-  uint32_t remaining0,
-  bool decimal0
+  uint32_t remaining0
 );
 
 TmtParser_parser_state

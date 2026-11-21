@@ -1,0 +1,15 @@
+Token	Side	Validity
+Decimal	Left	Valid
+Exponent	Right	Invalid
+Hex	Left	Invalid
+BigInt	Right	Valid
+Exponent	Left	Valid
+Binary	Left	Invalid
+Octal	Left	Valid
+Hex	Right	Valid
+Decimal	Right	Invalid
+Fraction	Left	Invalid
+Binary	Right	Valid
+BigInt	Left	Invalid
+Fraction	Right	Valid
+Octal	Right	Invalid

@@ -1,0 +1,3 @@
+Token: Decimal, Fraction, Exponent, Hex, Octal, Binary, BigInt
+Side: Left, Right
+Validity: Valid, Invalid
