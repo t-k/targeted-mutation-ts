@@ -1081,60 +1081,6 @@ TmtParser_qualified_name(TmtParser_tape input0, TmtParser_parser_state state0, u
   KRML_HOST_EXIT(255U);
 }
 
-TmtParser_parser_state
-TmtParser_array_type_suffixes(
-  TmtParser_tape input0,
-  TmtParser_parser_state state0,
-  uint32_t fuel0
-)
-{
-  TmtParser_tape input = input0;
-  TmtParser_parser_state state = state0;
-  uint32_t fuel = fuel0;
-  while (true)
-  {
-    TmtParser_cursor after = TmtParser_trivia(input, state.offset);
-    TmtParser_parser_state st = TmtParser_from_cursor(state, after);
-    if (st.status != 0U)
-      return st;
-    else if (TmtParser_same(input, st.offset, 91U))
-    {
-      if (after.newline || fuel == 0U)
-        return TmtParser_failed(st, 1U);
-      else
-      {
-        TmtParser_parser_state
-        close =
-          TmtParser_consume(input,
-            TmtParser_skip(input,
-              (
-                (TmtParser_parser_state){
-                  .offset = TmtParser_next(st.offset),
-                  .count = st.count,
-                  .depth = st.depth,
-                  .status = st.status,
-                  .local_names = st.local_names,
-                  .await_allowed = st.await_allowed,
-                  .jsx_allowed = st.jsx_allowed
-                }
-              )),
-            93U);
-        TmtParser_parser_state tmp0 = close;
-        uint32_t tmp = TmtParser_minus(fuel, 1U);
-        state = tmp0;
-        fuel = tmp;
-      }
-    }
-    else
-      return state;
-  }
-  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
-    __FILE__,
-    __LINE__,
-    "unreachable, returns inserted above");
-  KRML_HOST_EXIT(255U);
-}
-
 TmtParser_cursor TmtParser_property_name(TmtParser_tape input, TmtParser_parser_state state)
 {
   uint8_t byte = TmtParser_peek(input, state.offset);
@@ -1314,6 +1260,64 @@ TmtParser_cursor TmtParser_number_end(TmtParser_tape input, uint32_t at)
 }
 
 TmtParser_parser_state
+TmtParser_import_type(TmtParser_tape input, TmtParser_parser_state state)
+{
+  TmtParser_parser_state
+  open_ =
+    TmtParser_skip(input,
+      (
+        (TmtParser_parser_state){
+          .offset = TmtParser_plus(state.offset, 6U),
+          .count = state.count,
+          .depth = state.depth,
+          .status = state.status,
+          .local_names = state.local_names,
+          .await_allowed = state.await_allowed,
+          .jsx_allowed = state.jsx_allowed
+        }
+      ));
+  TmtParser_parser_state module_ = TmtParser_skip(input, TmtParser_consume(input, open_, 40U));
+  uint8_t delimiter = TmtParser_peek(input, module_.offset);
+  if (delimiter != 34U && delimiter != 39U)
+    return TmtParser_failed(module_, 1U);
+  else
+  {
+    TmtParser_parser_state
+    text =
+      TmtParser_from_cursor(module_,
+        TmtParser_string_end(input, TmtParser_next(module_.offset), delimiter, input.size));
+    TmtParser_parser_state close = TmtParser_consume(input, TmtParser_skip(input, text), 41U);
+    return TmtParser_qualified_name(input, close, 64U);
+  }
+}
+
+TmtParser_parser_state TmtParser_type_query(TmtParser_tape input, TmtParser_parser_state state)
+{
+  TmtParser_parser_state
+  target =
+    TmtParser_skip(input,
+      (
+        (TmtParser_parser_state){
+          .offset = TmtParser_plus(state.offset, 6U),
+          .count = state.count,
+          .depth = state.depth,
+          .status = state.status,
+          .local_names = state.local_names,
+          .await_allowed = state.await_allowed,
+          .jsx_allowed = state.jsx_allowed
+        }
+      ));
+  if (TmtParser_keyword(input, target.offset, 6U, 0x696d706f7274ULL))
+    return TmtParser_import_type(input, target);
+  else
+  {
+    TmtParser_parser_state
+    named = TmtParser_from_cursor(target, TmtParser_name(input, target.offset, false, false));
+    return TmtParser_qualified_name(input, named, 64U);
+  }
+}
+
+TmtParser_parser_state
 TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel)
 {
   TmtParser_parser_state st = TmtParser_skip(input, state);
@@ -1331,39 +1335,34 @@ TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uin
       reference = named1;
     else
       reference = TmtParser_qualified_name(input, named1, 64U);
-    TmtParser_cursor after = TmtParser_trivia(input, reference.offset);
-    TmtParser_parser_state tail = TmtParser_from_cursor(reference, after);
     if (TmtParser_type_operator(packed))
+      return TmtParser_failed(reference, 1U);
+    else if (primitive)
+      return reference;
+    else
+      return TmtParser_type_arguments(input, reference, fuel);
+  }
+}
+
+TmtParser_parser_state
+TmtParser_type_arguments(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel)
+{
+  TmtParser_cursor after = TmtParser_trivia(input, state.offset);
+  TmtParser_parser_state tail = TmtParser_from_cursor(state, after);
+  if (tail.status != 0U)
+    return tail;
+  else if (TmtParser_same(input, tail.offset, 60U))
+  {
+    if (after.newline || fuel == 0U)
       return TmtParser_failed(tail, 1U);
-    else if (tail.status != 0U)
-      return tail;
     else
     {
-      bool starts = TmtParser_same(input, tail.offset, 60U);
-      if (!starts || primitive)
-        return reference;
-      else if (after.newline || fuel == 0U)
-        return TmtParser_failed(tail, 1U);
-      else
-        return
-          TmtParser_type_list(input,
-            (
-              (TmtParser_parser_state){
-                .offset = TmtParser_next(tail.offset),
-                .count = tail.count,
-                .depth = tail.depth,
-                .status = tail.status,
-                .local_names = tail.local_names,
-                .await_allowed = tail.await_allowed,
-                .jsx_allowed = tail.jsx_allowed
-              }
-            ),
-            TmtParser_minus(fuel, 1U),
-            64U,
-            62U,
-            false);
+      TmtParser_parser_state uu____0 = TmtParser_consume(input, tail, 60U);
+      return TmtParser_type_list(input, uu____0, TmtParser_minus(fuel, 1U), 64U, 62U, false);
     }
   }
+  else
+    return state;
 }
 
 TmtParser_parser_state
@@ -1481,8 +1480,24 @@ TmtParser_object_type(
         after1 = TmtParser_skip(input, TmtParser_consume(input, after, 63U));
       else
         after1 = after;
+      bool method = TmtParser_same(input, after1.offset, 40U);
+      TmtParser_parser_state after2;
+      if (method && key_start.offset == st.offset)
+      {
+        if (fuel == 0U)
+          after2 = TmtParser_failed(after1, 1U);
+        else
+        {
+          TmtParser_parser_state uu____0 = TmtParser_consume(input, after1, 40U);
+          after2 =
+            TmtParser_skip(input,
+              TmtParser_signature_parameters(input, uu____0, TmtParser_minus(fuel, 1U), 64U));
+        }
+      }
+      else
+        after2 = after1;
       TmtParser_parser_state
-      declared = TmtParser_annotation_type(input, TmtParser_consume(input, after1, 58U), fuel, 64U);
+      declared = TmtParser_annotation_type(input, TmtParser_consume(input, after2, 58U), fuel, 64U);
       TmtParser_cursor boundary = TmtParser_trivia(input, declared.offset);
       TmtParser_parser_state end_ = TmtParser_from_cursor(declared, boundary);
       uint8_t next_byte = TmtParser_peek(input, end_.offset);
@@ -1599,8 +1614,48 @@ TmtParser_type_term(
     else
       st1 = st;
     uint8_t byte = TmtParser_peek(input, st1.offset);
+    bool keyof;
+    if (byte == 107U)
+      keyof = TmtParser_keyword(input, st1.offset, 5U, 0x6b65796f66ULL);
+    else
+      keyof = false;
+    bool queried;
+    if (byte == 116U)
+      queried = TmtParser_keyword(input, st1.offset, 6U, 0x747970656f66ULL);
+    else
+      queried = false;
+    bool imported;
+    if (byte == 105U)
+      imported = TmtParser_keyword(input, st1.offset, 6U, 0x696d706f7274ULL);
+    else
+      imported = false;
     TmtParser_parser_state primary;
-    if (byte == 34U || byte == 39U)
+    if (keyof)
+    {
+      if (readonly || fuel == 0U)
+        primary = TmtParser_failed(st1, 1U);
+      else
+        primary =
+          TmtParser_type_term(input,
+            (
+              (TmtParser_parser_state){
+                .offset = TmtParser_plus(st1.offset, 5U),
+                .count = st1.count,
+                .depth = st1.depth,
+                .status = st1.status,
+                .local_names = st1.local_names,
+                .await_allowed = st1.await_allowed,
+                .jsx_allowed = st1.jsx_allowed
+              }
+            ),
+            TmtParser_minus(fuel, 1U),
+            false);
+    }
+    else if (queried)
+      primary = TmtParser_type_arguments(input, TmtParser_type_query(input, st1), fuel);
+    else if (imported)
+      primary = TmtParser_type_arguments(input, TmtParser_import_type(input, st1), fuel);
+    else if (byte == 34U || byte == 39U)
       primary =
         TmtParser_from_cursor(st1,
           TmtParser_string_end(input, TmtParser_next(st1.offset), byte, input.size));
@@ -1653,12 +1708,67 @@ TmtParser_type_term(
     }
     else
       primary = TmtParser_type_reference(input, st1, fuel);
-    TmtParser_parser_state with_arrays = TmtParser_array_type_suffixes(input, primary, 16U);
+    TmtParser_parser_state
+    with_arrays = TmtParser_type_suffixes(input, primary, fuel, 16U, !readonly);
     if (readonly && byte != 91U && primary.offset == with_arrays.offset)
       return TmtParser_failed(with_arrays, 1U);
     else
       return with_arrays;
   }
+}
+
+TmtParser_parser_state
+TmtParser_type_suffixes(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool indexed0
+)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  uint32_t fuel = fuel0;
+  uint32_t remaining = remaining0;
+  bool indexed = indexed0;
+  while (true)
+  {
+    TmtParser_cursor after = TmtParser_trivia(input, state.offset);
+    TmtParser_parser_state st = TmtParser_from_cursor(state, after);
+    if (st.status != 0U)
+      return st;
+    else if (TmtParser_same(input, st.offset, 91U))
+    {
+      if (after.newline || remaining == 0U)
+        return TmtParser_failed(st, 1U);
+      else
+      {
+        TmtParser_parser_state inner = TmtParser_skip(input, TmtParser_consume(input, st, 91U));
+        bool empty = TmtParser_same(input, inner.offset, 93U);
+        TmtParser_parser_state index;
+        if (empty)
+          index = inner;
+        else if (!indexed || fuel == 0U)
+          index = TmtParser_failed(inner, 1U);
+        else
+          index =
+            TmtParser_skip(input,
+              TmtParser_annotation_type(input, inner, TmtParser_minus(fuel, 1U), 64U));
+        TmtParser_parser_state closed = TmtParser_consume(input, index, 93U);
+        TmtParser_parser_state tmp0 = closed;
+        uint32_t tmp = TmtParser_minus(remaining, 1U);
+        state = tmp0;
+        remaining = tmp;
+      }
+    }
+    else
+      return state;
+  }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
 }
 
 TmtParser_parser_state

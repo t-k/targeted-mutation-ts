@@ -5,10 +5,10 @@ import test from 'node:test';
 import { extract, extractFallback } from '../src/extract.mjs';
 
 const inputs = {
-  Plain: 'function ready(state: { count: number }) { if (ready<number>(state.count /* > */) >= 3) return true; }',
+  Plain: 'function ready(state: { count: number }) { if (ready <number>(state.count /* > */) >= 3) return true; }',
   Nested: 'const name = "🧪"; const fit = (a < b) <= (c > d);',
   Logical: 'const label = "🐈"; export const view = <button disabled={saving || (!valid)}>{label}</button>;',
-  None: 'const label = join<string>("no comparison"); label.trim();',
+  None: 'const label = join <string>("no comparison"); label.trim();',
 };
 const rows = readFileSync(new URL('../verification/pict/broad-native.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1);
@@ -38,7 +38,7 @@ test('the broad native result precedes any Yuku load in a fresh process', () => 
       return nextResolve(specifier, context);
     } });
     const { extract } = await import(${JSON.stringify(module)});
-    const source = 'import { result } from "lib"; export function run() { return result<number>() < 4; }';
+    const source = 'import { result } from "lib"; export function run() { return result <number>() < 4; }';
     const result = extract(Buffer.from(source), { requireNative: true });
     assert.equal(result.path, 'native');
     assert.equal(result.candidates.length, 1);

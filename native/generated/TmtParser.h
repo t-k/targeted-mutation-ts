@@ -214,13 +214,6 @@ bool TmtParser_undefined_type(TmtParser_tape input, uint32_t start, uint32_t fin
 TmtParser_parser_state
 TmtParser_qualified_name(TmtParser_tape input0, TmtParser_parser_state state0, uint32_t fuel0);
 
-TmtParser_parser_state
-TmtParser_array_type_suffixes(
-  TmtParser_tape input0,
-  TmtParser_parser_state state0,
-  uint32_t fuel0
-);
-
 TmtParser_cursor TmtParser_property_name(TmtParser_tape input, TmtParser_parser_state state);
 
 bool TmtParser_radix_digit(uint32_t radix, uint8_t ch);
@@ -237,7 +230,16 @@ TmtParser_number_suffix(TmtParser_tape input, TmtParser_cursor digits, bool bigi
 TmtParser_cursor TmtParser_number_end(TmtParser_tape input, uint32_t at);
 
 TmtParser_parser_state
+TmtParser_import_type(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
+TmtParser_type_query(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
 TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+
+TmtParser_parser_state
+TmtParser_type_arguments(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
 TmtParser_type_list(
@@ -271,6 +273,15 @@ TmtParser_type_term(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool allow_signature
+);
+
+TmtParser_parser_state
+TmtParser_type_suffixes(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool indexed0
 );
 
 TmtParser_parser_state

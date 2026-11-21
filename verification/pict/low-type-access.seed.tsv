@@ -1,0 +1,5 @@
+Shape	Position	Suffix
+Index	Alias	Valid
+KeyOf	Call	Valid
+TypeOf	Signature	Valid
+Import	Alias	Invalid

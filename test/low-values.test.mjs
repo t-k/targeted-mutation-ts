@@ -47,7 +47,7 @@ test('compound syntax keeps unsupported cases on the reference route', () => {
     'const x = (a, a) => a < b;',
     'const x = a\n=> a < b;',
     'const x = (...args) => args.length < 2;',
-    'const x: A[Key] = a < b;',
+    'const x: { [K in keyof A]: boolean } = a < b;',
     'const x = [1, , a < b];',
     '{ a: b < c }',
   ]) {

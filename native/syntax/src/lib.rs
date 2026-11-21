@@ -8,7 +8,8 @@ use oxc_ast::ast::{
     IdentifierReference, JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
     JSXExpression, JSXOpeningElement, MethodDefinition, MethodDefinitionKind, ModuleDeclaration,
     NumericLiteral, PropertyDefinition, Statement, StringLiteral, TSClassImplements,
-    TSExportAssignment, TSMethodSignature, TSMethodSignatureKind, TSModuleBlock, UnaryExpression,
+    TSExportAssignment, TSImportType, TSMethodSignature, TSMethodSignatureKind, TSModuleBlock,
+    UnaryExpression,
 };
 use oxc_ast::ast_kind::AstKind;
 use oxc_ast_visit::{Visit, walk};
@@ -245,6 +246,18 @@ impl<'a> Visit<'a> for Collector<'_> {
             self.rejected = true;
         }
         walk::walk_function(self, node, flags);
+    }
+
+    fn visit_ts_import_type(&mut self, node: &TSImportType<'a>) {
+        // Yuku can attach an angle list to an import type across a line terminator.
+        self.rejected |= node.type_arguments.is_none()
+            && self
+                .tokens_from(node.span.end)
+                .first()
+                .is_some_and(|token| {
+                    token.is_on_new_line() && matches!(token.kind(), Kind::LAngle | Kind::ShiftLeft)
+                });
+        walk::walk_ts_import_type(self, node);
     }
 
     fn visit_binary_expression(&mut self, node: &BinaryExpression<'a>) {
