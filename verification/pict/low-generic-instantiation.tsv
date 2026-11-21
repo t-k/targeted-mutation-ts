@@ -1,0 +1,14 @@
+Base	Follow	Suffix
+Simple	LeftShift	Valid
+Simple	RightShift	Valid
+Nested	Unsigned	Compare
+Member	Inclusive	Compare
+Nested	RightShift	Invalid
+Member	Unsigned	Valid
+Member	LeftShift	Invalid
+Simple	Unsigned	Invalid
+Member	RightShift	Compare
+Nested	LeftShift	Compare
+Simple	Inclusive	Compare
+Nested	Inclusive	Invalid
+Nested	Inclusive	Valid

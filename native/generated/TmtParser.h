@@ -630,6 +630,9 @@ TmtParser_parser_state
 TmtParser_result_annotation(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
+TmtParser_expression_type_arguments(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
 TmtParser_call_type_arguments(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
@@ -805,10 +808,33 @@ typedef struct TmtParser_postfix_head_s
   uint8_t token;
   uint32_t update;
   bool type_call;
+  bool instantiated;
   bool optional_chain;
   bool non_null;
 }
 TmtParser_postfix_head;
+
+bool
+TmtParser_instantiation_follower(
+  TmtParser_tape input,
+  TmtParser_parser_state type_end,
+  TmtParser_parser_state after
+);
+
+typedef struct TmtParser_generic_postfix_s
+{
+  TmtParser_parser_state type_cursor;
+  bool calls;
+  bool instantiates;
+}
+TmtParser_generic_postfix;
+
+TmtParser_generic_postfix
+TmtParser_read_generic_postfix(
+  TmtParser_tape input,
+  TmtParser_parser_state st,
+  bool allow_instantiation
+);
 
 TmtParser_postfix_head TmtParser_postfix_start(TmtParser_tape input, TmtParser_parsed base);
 

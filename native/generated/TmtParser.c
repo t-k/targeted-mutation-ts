@@ -4045,11 +4045,16 @@ TmtParser_result_annotation(TmtParser_tape input, TmtParser_parser_state state)
 }
 
 TmtParser_parser_state
+TmtParser_expression_type_arguments(TmtParser_tape input, TmtParser_parser_state state)
+{
+  return TmtParser_type_list(input, TmtParser_consume(input, state, 60U), 16U, 64U, 62U, false);
+}
+
+TmtParser_parser_state
 TmtParser_call_type_arguments(TmtParser_tape input, TmtParser_parser_state state)
 {
   TmtParser_parser_state
-  types = TmtParser_type_list(input, TmtParser_consume(input, state, 60U), 16U, 64U, 62U, false);
-  TmtParser_parser_state arguments = TmtParser_skip(input, types);
+  arguments = TmtParser_skip(input, TmtParser_expression_type_arguments(input, state));
   if (TmtParser_same(input, arguments.offset, 40U))
     return arguments;
   else
@@ -5049,6 +5054,52 @@ TmtParser_quote_end(TmtParser_tape input0, uint32_t at0, uint8_t delimiter0, uin
   KRML_HOST_EXIT(255U);
 }
 
+bool
+TmtParser_instantiation_follower(
+  TmtParser_tape input,
+  TmtParser_parser_state type_end,
+  TmtParser_parser_state after
+)
+{
+  uint8_t byte = TmtParser_peek(input, after.offset);
+  if (byte == 60U || byte == 62U && type_end.offset != after.offset)
+  {
+    uint8_t second = TmtParser_peek(input, TmtParser_next(after.offset));
+    return second == byte || second == 61U;
+  }
+  else
+    return false;
+}
+
+TmtParser_generic_postfix
+TmtParser_read_generic_postfix(
+  TmtParser_tape input,
+  TmtParser_parser_state st,
+  bool allow_instantiation
+)
+{
+  TmtParser_parser_state generic = TmtParser_expression_type_arguments(input, st);
+  TmtParser_parser_state after = TmtParser_skip(input, generic);
+  bool call;
+  if (after.status == 0U)
+    call = TmtParser_same(input, after.offset, 40U);
+  else
+    call = false;
+  bool instantiates;
+  if (after.status == 0U && !call && allow_instantiation)
+    instantiates = TmtParser_instantiation_follower(input, generic, after);
+  else
+    instantiates = false;
+  return
+    (
+      (TmtParser_generic_postfix){
+        .type_cursor = call ? after : generic,
+        .calls = call,
+        .instantiates = instantiates
+      }
+    );
+}
+
 TmtParser_postfix_head TmtParser_postfix_start(TmtParser_tape input, TmtParser_parsed base)
 {
   TmtParser_cursor after = TmtParser_trivia(input, base.parser.offset);
@@ -5059,16 +5110,22 @@ TmtParser_postfix_head TmtParser_postfix_start(TmtParser_tape input, TmtParser_p
     increment = 0U;
   else
     increment = TmtParser_update_width(input, st.offset, byte);
-  TmtParser_parser_state generic;
+  TmtParser_generic_postfix generic;
   if
   (
     byte == 60U && st.offset == base.range.last &&
       (TmtParser_can_assign(base.target) || base.target == TmtParser_OptionalChain)
   )
-    generic = TmtParser_call_type_arguments(input, st);
+    generic = TmtParser_read_generic_postfix(input, st, TmtParser_can_assign(base.target));
   else
-    generic = TmtParser_failed(st, 1U);
-  bool typed = generic.status == 0U;
+    generic =
+      (
+        (TmtParser_generic_postfix){
+          .type_cursor = TmtParser_failed(st, 1U),
+          .calls = false,
+          .instantiates = false
+        }
+      );
   bool optional;
   if (byte == 63U)
   {
@@ -5090,10 +5147,11 @@ TmtParser_postfix_head TmtParser_postfix_start(TmtParser_tape input, TmtParser_p
     (
       (TmtParser_postfix_head){
         .after_trivia = st,
-        .after_types = generic,
+        .after_types = generic.type_cursor,
         .token = byte,
         .update = increment,
-        .type_call = typed,
+        .type_call = generic.calls,
+        .instantiated = generic.instantiates,
         .optional_chain = optional,
         .non_null = bang
       }
@@ -6955,6 +7013,19 @@ TmtParser_postfix(
               .right_shift = base.right_shift,
               .shortcut = base.shortcut,
               .target = base.target
+            }
+          );
+      else if (head.instantiated)
+        return
+          (
+            (TmtParser_parsed){
+              .parser = head.after_types,
+              .range = { .first = base.range.first, .last = head.after_types.offset },
+              .open_angle = base.open_angle,
+              .outer_or = base.outer_or,
+              .right_shift = base.right_shift,
+              .shortcut = base.shortcut,
+              .target = TmtParser_NotAssignable
             }
           );
       else if (increment != 0U)

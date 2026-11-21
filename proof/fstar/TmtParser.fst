@@ -1197,9 +1197,11 @@ let result_annotation (input:tape) (state:parser_state) : Read parser_state inpu
   if same input st.offset 58uy then result_type input (consume input st 58uy) 16ul
   else st
 
+let expression_type_arguments (input:tape) (state:parser_state) : Read parser_state input =
+  type_list input (consume input state 60uy) 16ul 64ul 62uy false
+
 let call_type_arguments (input:tape) (state:parser_state) : Read parser_state input =
-  let types = type_list input (consume input state 60uy) 16ul 64ul 62uy false in
-  let arguments = skip input types in
+  let arguments = skip input (expression_type_arguments input state) in
   if same input arguments.offset 40uy then arguments else failed arguments 1ul
 
 let optional_type_parameters (input:tape) (state:parser_state) : Read parser_state input =
@@ -1514,8 +1516,27 @@ type jsx_opening = { after_tag:parser_state; self_closing:bool }
 
 type postfix_head = {
   after_trivia:parser_state; after_types:parser_state; token:U8.t;
-  update:U32.t; type_call:bool; optional_chain:bool; non_null:bool
+  update:U32.t; type_call:bool; instantiated:bool; optional_chain:bool; non_null:bool
 }
+
+let instantiation_follower (input:tape) (type_end after:parser_state) : Read bool input =
+  let byte = peek input after.offset in
+  if byte = 60uy || (byte = 62uy && type_end.offset <> after.offset) then
+    let second = peek input (next after.offset) in
+    second = byte || second = 61uy
+  else false
+
+type generic_postfix = { type_cursor:parser_state; calls:bool; instantiates:bool }
+
+let read_generic_postfix (input:tape) (st:parser_state) (allow_instantiation:bool)
+  : Read generic_postfix input =
+  let generic = expression_type_arguments input st in
+  let after = skip input generic in
+  let call = if after.status = 0ul then same input after.offset 40uy else false in
+  let instantiates =
+    if after.status = 0ul && not call && allow_instantiation then instantiation_follower input generic after
+    else false in
+  { type_cursor = if call then after else generic; calls = call; instantiates }
 
 let postfix_start (input:tape) (base:parsed) : Read postfix_head input =
   let after = trivia input base.parser.offset in
@@ -1524,9 +1545,8 @@ let postfix_start (input:tape) (base:parsed) : Read postfix_head input =
   let increment = if after.newline then 0ul else update_width input st.offset byte in
   let generic =
     if byte = 60uy && st.offset = base.range.G.last && (can_assign base.target || base.target = OptionalChain) then
-      call_type_arguments input st
-    else failed st 1ul in
-  let typed = generic.status = 0ul in
+      read_generic_postfix input st (can_assign base.target)
+    else { type_cursor = failed st 1ul; calls = false; instantiates = false } in
   let optional =
     if byte = 63uy then
       let dot = same input (next st.offset) 46uy in
@@ -1536,8 +1556,8 @@ let postfix_start (input:tape) (base:parsed) : Read postfix_head input =
   let bang = if byte = 33uy && not after.newline then
       let equality = same input (next st.offset) 61uy in not equality
     else false in
-  { after_trivia = st; after_types = generic; token = byte; update = increment;
-    type_call = typed; optional_chain = optional; non_null = bang }
+  { after_trivia = st; after_types = generic.type_cursor; token = byte;
+    update = increment; type_call = generic.calls; instantiated = generic.instantiates; optional_chain = optional; non_null = bang }
 
 let class_keyword (input:tape) (offset:U32.t) : Read bool input =
   keyword input offset 5ul 0x636c617373uL
@@ -1997,6 +2017,9 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
     let optional = head.optional_chain in
     let bang = head.non_null in
     if st.status <> 0ul then { base with parser = st }
+    else if head.instantiated then
+      { base with parser = head.after_types; range = { base.range with G.last = head.after_types.offset };
+        target = NotAssignable }
     else if increment <> 0ul then
       if not (can_assign base.target) then empty_range (failed st 1ul)
       else

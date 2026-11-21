@@ -31,7 +31,7 @@ for (const row of rows) {
 test('shift tokens preserve complete type arguments and nearby relational spans', () => {
   compare('const out = id<Type<Arg>>(n < limit) >> shift;', 'fast');
   compare('const out = id<T>>limit; const copy = id<T>>>limit;', 'fast');
-  compare('const out = id<T> >> limit; const copy = id<T><<limit;', 'fallback');
+  compare('const out = id<T> >> limit; const copy = id<T><<limit;', 'fast');
   compare('const out = <Box value={first << bits < limit} />;', 'fast', { dialect: 'tsx' });
 });
 
