@@ -1,5 +1,27 @@
 # Performance measurements
 
+## Low★ coverage after Oxc removal
+
+At `89f96fd`, the Low★ parser extracts 1,638 of 2,968 candidates across 3,271 of 8,549 files in the same five checkouts. The first C-only build extracted 1,212. The complete ordered candidate records and diagnostics match Yuku with the JSX logical rule enabled and disabled.
+
+| Checkout | Low★ at Oxc removal | Low★ after grammar expansion | Yuku fallback |
+| --- | ---: | ---: | ---: |
+| Vite | 99 | 128 | 73 |
+| Preact | 0 | 0 | 1 |
+| TypeScript corpus | 56 | 107 | 455 |
+| mreact | 883 | 1,062 | 488 |
+| tachyon-dom | 174 | 341 | 313 |
+
+Packed candidate transfer reduced time by 2.7–2.9× in synthetic inputs with 16, 512 or 4,096 sites per file. In the three complete repository workloads, the medians stayed within roughly 2.2% of the unoptimized transfer. Those workloads still spend a substantial share of extraction time in the parser and compatibility route.
+
+| Warm extraction workload | Earlier Oxc build | Expanded Low★ with Yuku fallback |
+| --- | ---: | ---: |
+| Vite | 19.21 ms | 29.52 ms |
+| mreact | 84.19 ms | 123.00 ms |
+| tachyon-dom | 33.14 ms | 66.57 ms |
+
+These are extraction timings over identical pinned source inputs, from nine alternating samples. The analyzer's test execution is outside these measurements. See the [audit, benchmark samples and verification](../evidence/m1/low-workload-after-oxc.json).
+
 
 ## Native runtime without Oxc
 
