@@ -1,0 +1,3 @@
+Pattern: Array, Shorthand, Renamed
+Context: Module, Function, Arrow, Collection
+Value: String, Number, Keyword, Invalid

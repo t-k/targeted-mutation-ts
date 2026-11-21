@@ -1,0 +1,6 @@
+Pattern	Context	Value
+Array	Module	String
+Shorthand	Function	Keyword
+Renamed	Arrow	Number
+Array	Collection	String
+Renamed	Module	Invalid

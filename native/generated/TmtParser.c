@@ -3413,6 +3413,75 @@ TmtParser_optional_type_parameters(TmtParser_tape input, TmtParser_parser_state 
     return state;
 }
 
+TmtParser_parser_state
+TmtParser_pattern_default(TmtParser_tape input, TmtParser_parser_state state)
+{
+  bool equal = TmtParser_same(input, state.offset, 61U);
+  if (state.status != 0U || !equal)
+    return state;
+  else
+  {
+    TmtParser_parser_state st = TmtParser_skip(input, TmtParser_consume(input, state, 61U));
+    uint8_t first = TmtParser_peek(input, st.offset);
+    TmtParser_parser_state value;
+    if (first == 34U || first == 39U)
+      value =
+        TmtParser_from_cursor(st,
+          TmtParser_string_end(input, TmtParser_next(st.offset), first, input.size, true));
+    else if (TmtGrammar_decimal_digit(first) || first == 46U)
+      value = TmtParser_from_cursor(st, TmtParser_number_end(input, st.offset));
+    else if (first == 45U)
+      value = TmtParser_from_cursor(st, TmtParser_number_end(input, TmtParser_next(st.offset)));
+    else
+    {
+      uint32_t width;
+      if (first == 116U)
+      {
+        if (TmtParser_keyword(input, st.offset, 4U, 0x74727565ULL))
+          width = 4U;
+        else
+          width = 0U;
+      }
+      else if (first == 102U)
+      {
+        if (TmtParser_keyword(input, st.offset, 5U, 0x66616c7365ULL))
+          width = 5U;
+        else
+          width = 0U;
+      }
+      else if (first == 110U)
+      {
+        if (TmtParser_keyword(input, st.offset, 4U, 0x6e756c6cULL))
+          width = 4U;
+        else
+          width = 0U;
+      }
+      else
+        width = 0U;
+      if (width == 0U)
+        value = TmtParser_failed(st, 1U);
+      else
+        value =
+          (
+            (TmtParser_parser_state){
+              .offset = TmtParser_plus(st.offset, width),
+              .count = st.count,
+              .depth = st.depth,
+              .status = st.status,
+              .local_names = st.local_names,
+              .await_allowed = st.await_allowed,
+              .jsx_allowed = st.jsx_allowed,
+              .module_mode = st.module_mode,
+              .in_allowed = st.in_allowed,
+              .binding_mode = st.binding_mode,
+              .super_context = st.super_context
+            }
+          );
+    }
+    return TmtParser_skip(input, value);
+  }
+}
+
 TmtParser_named_state
 TmtParser_pattern_names(
   TmtParser_tape input0,
@@ -3501,7 +3570,8 @@ TmtParser_pattern_names(
           else
             bound = TmtParser_bind_pattern_name(input, st, base, floor, used, st.offset);
         }
-        TmtParser_parser_state st1 = TmtParser_skip(input, bound.state);
+        TmtParser_parser_state
+        st1 = TmtParser_pattern_default(input, TmtParser_skip(input, bound.state));
         if (TmtParser_same(input, st1.offset, 44U))
         {
           TmtParser_parser_state tmp0 = TmtParser_consume(input, st1, 44U);

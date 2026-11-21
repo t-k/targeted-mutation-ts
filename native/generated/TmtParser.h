@@ -555,6 +555,9 @@ TmtParser_call_type_arguments(TmtParser_tape input, TmtParser_parser_state state
 TmtParser_parser_state
 TmtParser_optional_type_parameters(TmtParser_tape input, TmtParser_parser_state state);
 
+TmtParser_parser_state
+TmtParser_pattern_default(TmtParser_tape input, TmtParser_parser_state state);
+
 TmtParser_named_state
 TmtParser_pattern_names(
   TmtParser_tape input0,

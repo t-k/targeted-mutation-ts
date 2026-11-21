@@ -1,0 +1,17 @@
+Pattern	Context	Value
+Array	Module	String
+Shorthand	Function	Keyword
+Renamed	Arrow	Number
+Array	Collection	String
+Renamed	Module	Invalid
+Shorthand	Arrow	String
+Shorthand	Module	Number
+Renamed	Collection	Keyword
+Array	Function	Number
+Array	Arrow	Keyword
+Array	Arrow	Invalid
+Renamed	Function	Invalid
+Renamed	Function	String
+Shorthand	Collection	Number
+Shorthand	Collection	Invalid
+Shorthand	Module	Keyword
