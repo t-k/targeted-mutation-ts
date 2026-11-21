@@ -206,12 +206,19 @@ export function extract(input, options = {}) {
         return invalidEncoding();
       }
     }
-    const [status, maxDepth, astNodes, candidateBytes, ...rows] = native.parse(source, dialect === 'tsx', mode === 'module');
-    metrics = { maxDepth, astNodes, candidateBytes };
+    const rows = native.parse(source, dialect === 'tsx', mode === 'module');
+    if (!types.isUint32Array(rows)) throw new Error('Run npm run build:native to rebuild the extractor');
+    const status = rows[0];
+    metrics = { maxDepth: rows[1], astNodes: rows[2], candidateBytes: rows[3] };
     if (status === 0) {
-      return { path: 'fast', metrics, candidates: rows.map(([op, replacement, a, b, c, d, e, f]) => ({
-        rule, operator: operators[op], replacement: operators[replacement], edit: [a, b], left: [c, d], right: [e, f],
-      })) };
+      const candidates = [];
+      for (let i = 4; i < rows.length; i += 8) {
+        candidates.push({
+          rule, operator: operators[rows[i]], replacement: operators[rows[i + 1]],
+          edit: [rows[i + 2], rows[i + 3]], left: [rows[i + 4], rows[i + 5]], right: [rows[i + 6], rows[i + 7]],
+        });
+      }
+      return { path: 'fast', metrics, candidates };
     }
     reason = reasons[status];
     if (native.standalone) {

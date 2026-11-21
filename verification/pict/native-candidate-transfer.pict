@@ -1,0 +1,3 @@
+Outcome: Empty, Direct, Retry, Capacity, OverCapacity, BadSuffix
+Dialect: TS, TSX
+Encoding: ASCII, UTF8

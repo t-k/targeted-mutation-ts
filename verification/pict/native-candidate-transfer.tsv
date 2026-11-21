@@ -1,0 +1,13 @@
+Outcome	Dialect	Encoding
+Empty	TS	ASCII
+Direct	TSX	UTF8
+Retry	TS	UTF8
+Capacity	TSX	ASCII
+OverCapacity	TS	ASCII
+BadSuffix	TSX	UTF8
+Empty	TSX	UTF8
+Capacity	TS	UTF8
+BadSuffix	TS	ASCII
+Retry	TSX	ASCII
+Direct	TS	ASCII
+OverCapacity	TSX	UTF8

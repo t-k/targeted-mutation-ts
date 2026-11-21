@@ -1,4 +1,5 @@
 #include <node_api.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -33,31 +34,28 @@ static napi_value parse(napi_env env, napi_callback_info info) {
   }
   const TmtGrammar_candidate *records = output ? output : initial;
 
-  napi_value array, value;
-  NAPI(napi_create_array_with_length(env, (size_t)result.count + 4, &array));
-  const uint32_t metrics[] = {
-    result.status, result.max_depth, 0, heap_bytes,
-  };
-  for (uint32_t index = 0; index < 4; index++) {
-    NAPI(napi_create_uint32(env, metrics[index], &value));
-    NAPI(napi_set_element(env, array, index, value));
-  }
-  for (uint32_t index = 0; index < result.count; index++) {
-    TmtGrammar_candidate candidate = records[index];
-    const uint32_t fields[] = {
-      candidate.original, candidate.replacement, candidate.edit.first, candidate.edit.last,
-      candidate.left.first, candidate.left.last, candidate.right.first, candidate.right.last,
-    };
-    napi_value row;
-    NAPI(napi_create_array_with_length(env, 8, &row));
-    for (uint32_t col = 0; col < 8; col++) {
-      NAPI(napi_create_uint32(env, fields[col], &value));
-      NAPI(napi_set_element(env, row, col, value));
-    }
-    NAPI(napi_set_element(env, array, index + 4, row));
-  }
+  enum { METRICS = 4, COLUMNS = 8 };
+  _Static_assert(sizeof(TmtGrammar_candidate) == COLUMNS * sizeof(uint32_t) &&
+    offsetof(TmtGrammar_candidate, original) == 0 &&
+    offsetof(TmtGrammar_candidate, replacement) == sizeof(uint32_t) &&
+    offsetof(TmtGrammar_candidate, edit) == 2 * sizeof(uint32_t) &&
+    offsetof(TmtGrammar_candidate, left) == 4 * sizeof(uint32_t) &&
+    offsetof(TmtGrammar_candidate, right) == 6 * sizeof(uint32_t) &&
+    offsetof(TmtGrammar_span, first) == 0 && offsetof(TmtGrammar_span, last) == sizeof(uint32_t),
+    "Unexpected candidate layout");
+  const size_t length = METRICS + (size_t)result.count * COLUMNS;
+  napi_value backing, packed;
+  void *data;
+  NAPI(napi_create_arraybuffer(env, length * sizeof(uint32_t), &data, &backing));
+  uint32_t *cells = data;
+  cells[0] = result.status;
+  cells[1] = result.max_depth;
+  cells[2] = 0;
+  cells[3] = heap_bytes;
+  if (result.count) memcpy(cells + METRICS, records, (size_t)result.count * sizeof(*records));
+  NAPI(napi_create_typedarray(env, napi_uint32_array, length, backing, 0, &packed));
   free(output);
-  return array;
+  return packed;
 error:
   free(output);
   napi_throw_error(env, NULL, "Native parser arguments or allocation failed");
