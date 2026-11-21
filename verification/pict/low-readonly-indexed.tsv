@@ -1,0 +1,17 @@
+Base	Suffix	Use
+Named	IndexArray	Alias
+Generic	IndexArray	Assertion
+Tuple	Index	Annotation
+Grouped	ArrayIndex	Alias
+Named	Newline	Assertion
+Generic	Index	Alias
+Named	Index	Annotation
+Grouped	IndexArray	Annotation
+Tuple	Newline	Alias
+Tuple	ArrayIndex	Assertion
+Named	ArrayIndex	Annotation
+Tuple	IndexArray	Alias
+Generic	Newline	Annotation
+Generic	ArrayIndex	Alias
+Grouped	Newline	Assertion
+Grouped	Index	Assertion

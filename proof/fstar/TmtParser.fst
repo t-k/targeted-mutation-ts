@@ -1062,7 +1062,7 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature al
             if arrow.status = 0ul then result_type input arrow inner
             else consume input (skip input (annotation_type input inside inner 64ul)) 41uy
       else type_reference input st fuel in
-    let with_arrays = type_suffixes input primary fuel 16ul (not readonly) in
+    let with_arrays = type_suffixes input primary fuel 16ul true in
     if readonly && byte <> 91uy && primary.offset = with_arrays.offset then failed with_arrays 1ul
     else with_arrays
 and function_type (input:tape) (state:parser_state) (fuel:U32.t)

@@ -3519,8 +3519,7 @@ TmtParser_type_term(
     }
     else
       primary = TmtParser_type_reference(input, st1, fuel);
-    TmtParser_parser_state
-    with_arrays = TmtParser_type_suffixes(input, primary, fuel, 16U, !readonly);
+    TmtParser_parser_state with_arrays = TmtParser_type_suffixes(input, primary, fuel, 16U, true);
     if (readonly && byte != 91U && primary.offset == with_arrays.offset)
       return TmtParser_failed(with_arrays, 1U);
     else
