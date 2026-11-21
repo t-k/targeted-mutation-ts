@@ -152,7 +152,10 @@ type parser_state = {
 type assignment_target =
   | NotAssignable
   | Assignable
+  | MemberTarget
   | OptionalChain
+
+let can_assign (target:assignment_target) : bool = target = Assignable || target = MemberTarget
 type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:bool; shortcut:U32.t; target:assignment_target }
 
 let failed (state:parser_state) (error:U32.t) : parser_state =
@@ -196,6 +199,13 @@ let emit_comparison (input:tape) (state:parser_state) (slot op start:U32.t) (lef
     state
   ) else failed state 4ul
 
+let hex_value (ch:U8.t) : U32.t =
+  let n = Cast.uint8_to_uint32 ch in
+  if G.decimal_digit ch then U32.sub n 48ul
+  else if U8.(ch >=^ 97uy && ch <=^ 102uy) then U32.sub n 87ul
+  else if U8.(ch >=^ 65uy && ch <=^ 70uy) then U32.sub n 55ul
+  else 16ul
+
 let simple_escape (input:tape) (at:U32.t) (template:bool) : Read bool input =
   let escape = peek input (next at) in
   let following = peek input (plus at 2ul) in
@@ -204,7 +214,41 @@ let simple_escape (input:tape) (at:U32.t) (template:bool) : Read bool input =
   escape = 102uy || escape = 118uy || (escape = 48uy && not (G.decimal_digit following)) ||
   (template && (escape = 36uy || escape = 96uy))
 
-let rec string_end (input:tape) (at:U32.t) (delimiter:U8.t) (fuel:U32.t)
+let rec fixed_hex (input:tape) (at digits:U32.t) : Read cursor input (decreases U32.v digits) =
+  if digits = 0ul then { at; ok = true; newline = false }
+  else
+    let value = hex_value (peek input at) in
+    if value = 16ul then { at; ok = false; newline = false }
+    else fixed_hex input (next at) (minus digits 1ul)
+
+let rec unicode_escape (input:tape) (at value fuel:U32.t) (seen:bool) : Read cursor input (decreases U32.v fuel) =
+  if fuel = 0ul || U32.(value >^ 0x10fffful) then { at; ok = false; newline = false }
+  else if same input at 125uy then { at = next at; ok = seen; newline = false }
+  else
+    let digit = hex_value (peek input at) in
+    if digit = 16ul then { at; ok = false; newline = false }
+    else unicode_escape input (next at) (U32.add (U32.mul value 16ul) digit) (minus fuel 1ul) true
+
+let escape_end (input:tape) (at:U32.t) (template extended:bool) : Read cursor input =
+  if simple_escape input at template then { at = plus at 2ul; ok = true; newline = false }
+  else if not extended then { at; ok = false; newline = false }
+  else
+    let start = next at in
+    let escape = peek input start in
+    let after = next start in
+    if escape = 120uy then fixed_hex input after 2ul
+    else if escape = 117uy then
+      if same input after 123uy then unicode_escape input (next after) 0ul input.size false
+      else fixed_hex input after 4ul
+    else
+      let breaks = line_break input start in
+      if not breaks then { at; ok = false; newline = false }
+      else
+        let width = if escape = 13uy then (if same input after 10uy then 2ul else 1ul)
+          else if escape = 10uy then 1ul else 3ul in
+        { at = plus start width; ok = true; newline = false }
+
+let rec string_end (input:tape) (at:U32.t) (delimiter:U8.t) (fuel:U32.t) (extended:bool)
   : Read cursor input (decreases U32.v fuel) =
   if fuel = 0ul || U32.(at >=^ input.size) then { at; ok = false; newline = false }
   else
@@ -214,19 +258,12 @@ let rec string_end (input:tape) (at:U32.t) (delimiter:U8.t) (fuel:U32.t)
       let breaks = line_break input at in
       if breaks then { at; ok = false; newline = false }
       else if byte = 92uy then
-        let valid = simple_escape input at false in
-        if valid then string_end input (plus at 2ul) delimiter (minus fuel 1ul)
-        else { at; ok = false; newline = false }
-      else string_end input (next at) delimiter (minus fuel 1ul)
+        let escape = escape_end input at false extended in
+        if escape.ok then string_end input escape.at delimiter (minus fuel 1ul) extended
+        else escape
+      else string_end input (next at) delimiter (minus fuel 1ul) extended
 
 let regex_printable (ch:U8.t) : bool = U8.(ch >=^ 32uy && ch <=^ 126uy)
-
-let hex_value (ch:U8.t) : U32.t =
-  let n = Cast.uint8_to_uint32 ch in
-  if G.decimal_digit ch then U32.sub n 48ul
-  else if U8.(ch >=^ 97uy && ch <=^ 102uy) then U32.sub n 87ul
-  else if U8.(ch >=^ 65uy && ch <=^ 70uy) then U32.sub n 55ul
-  else 16ul
 
 let no_character : U32.t = 256ul
 
@@ -235,6 +272,9 @@ type regex_unit = { unit_end:U32.t; unit_ok:bool; character:U32.t; repeatable:bo
 let regex_escape (input:tape) (at:U32.t) (in_class:bool) : Read regex_unit input =
   let escape = peek input (next at) in
   let finish = plus at 2ul in
+  let nul = if escape = 48uy then
+    let following = peek input finish in not (G.decimal_digit following)
+    else false in
   let punctuation =
     escape = 47uy || escape = 92uy || escape = 46uy || escape = 36uy || escape = 94uy ||
     escape = 43uy || escape = 42uy || escape = 63uy || escape = 124uy ||
@@ -248,6 +288,7 @@ let regex_escape (input:tape) (at:U32.t) (in_class:bool) : Read regex_unit input
     else if escape = 102uy then 12ul
     else if escape = 118uy then 11ul
     else if in_class && escape = 98uy then 8ul
+    else if nul then 0ul
     else no_character in
   if escape = 120uy then
     let high = hex_value (peek input finish) in
@@ -515,7 +556,7 @@ let rec qualified_name (input:tape) (state:parser_state) (fuel:U32.t)
 
 let property_name (input:tape) (state:parser_state) : Read cursor input =
   let byte = peek input state.offset in
-  if byte = 34uy || byte = 39uy then string_end input (next state.offset) byte input.size
+  if byte = 34uy || byte = 39uy then string_end input (next state.offset) byte input.size false
   else if G.identifier_start byte then
     { at = scan_class input state.offset G.Identifier; ok = true; newline = false }
   else { at = state.offset; ok = false; newline = false }
@@ -589,7 +630,7 @@ let import_type (input:tape) (state:parser_state) : Read parser_state input =
   let delimiter = peek input module_.offset in
   if delimiter <> 34uy && delimiter <> 39uy then failed module_ 1ul
   else
-    let text = from_cursor module_ (string_end input (next module_.offset) delimiter input.size) in
+    let text = from_cursor module_ (string_end input (next module_.offset) delimiter input.size false) in
     let close = consume input (skip input text) 41uy in
     qualified_name input close 64ul
 
@@ -723,7 +764,7 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature:bo
       else if queried then type_arguments input (type_query input st) fuel
       else if imported then type_arguments input (import_type input st) fuel
       else if byte = 34uy || byte = 39uy then
-        from_cursor st (string_end input (next st.offset) byte input.size)
+        from_cursor st (string_end input (next st.offset) byte input.size true)
       else if G.decimal_digit byte || byte = 45uy || byte = 46uy then
         let start = if byte = 45uy then next st.offset else st.offset in
         from_cursor st (number_end input start)
@@ -1087,7 +1128,7 @@ let postfix_start (input:tape) (base:parsed) : Read postfix_head input =
   let byte = peek input st.offset in
   let increment = if after.newline then 0ul else update_width input st.offset byte in
   let generic =
-    if byte = 60uy && st.offset = base.range.G.last && base.target = Assignable then
+    if byte = 60uy && st.offset = base.range.G.last && can_assign base.target then
       call_type_arguments input st
     else failed st 1ul in
   let typed = generic.status = 0ul in
@@ -1116,13 +1157,17 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
     let await_ =
       if st.await_allowed && ch = 97uy then keyword input start_pos 5ul 0x6177616974uL
       else false in
-    let prefix = if await_ then 5ul else if increment <> 0ul then increment else unary_width input start_pos ch in
+    let deleting = if ch = 100uy then keyword input start_pos 6ul 0x64656c657465uL else false in
+    let prefix = if deleting then 6ul else if await_ then 5ul
+      else if increment <> 0ul then increment else unary_width input start_pos ch in
     let constructor = if ch = 110uy then keyword input start_pos 3ul 0x6e6577uL else false in
     if prefix <> 0ul then
       if fuel = 0ul then empty_range (failed st 3ul)
       else
         let child = atom input { st with offset = plus start_pos prefix } (minus fuel 1ul) in
-        if increment <> 0ul && child.target <> Assignable then empty_range (failed child.parser 1ul)
+        if (increment <> 0ul && not (can_assign child.target)) ||
+           (deleting && child.target <> MemberTarget && child.target <> OptionalChain) then
+          empty_range (failed child.parser 1ul)
         else { child with range = { child.range with G.first = start_pos }; target = NotAssignable }
     else if fn.ok then
       if fuel = 0ul then empty_range (failed st 3ul)
@@ -1198,7 +1243,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         fuel input.size
     else
       let named, target =
-        if ch = 34uy || ch = 39uy then (from_cursor st (string_end input (next start_pos) ch input.size), NotAssignable)
+        if ch = 34uy || ch = 39uy then (from_cursor st (string_end input (next start_pos) ch input.size true), NotAssignable)
         else if ch = 47uy then (from_cursor st (regex_end input (next start_pos)), NotAssignable)
         else
           let width =
@@ -1240,7 +1285,7 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   else
     let byte = peek input st.offset in
     let follower = peek input (next st.offset) in
-    let assignment = if lhs.target = Assignable then assignment_width input st.offset byte follower else 0ul in
+    let assignment = if can_assign lhs.target then assignment_width input st.offset byte follower else 0ul in
     if assignment <> 0ul then
       if fuel = 0ul then empty_range (failed st 3ul)
       else
@@ -1321,7 +1366,7 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
     let bang = head.non_null in
     if st.status <> 0ul then { base with parser = st }
     else if increment <> 0ul then
-      if base.target <> Assignable then empty_range (failed st 1ul)
+      if not (can_assign base.target) then empty_range (failed st 1ul)
       else
         let end_at = plus st.offset increment in
         { base with parser = { st with offset = end_at }; range = { base.range with G.last = end_at };
@@ -1355,7 +1400,7 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
         else { st with offset = next st.offset } in
       let target =
         if optional || base.target = OptionalChain then OptionalChain
-        else if kind = 46uy || kind = 91uy then Assignable
+        else if kind = 46uy || kind = 91uy then MemberTarget
         else NotAssignable in
       postfix input { base with parser = next_st; range = { base.range with G.last = next_st.offset }; target }
         fuel (minus remaining 1ul)
@@ -1449,8 +1494,7 @@ and template_body (input:tape) (state:parser_state) (fuel remaining:U32.t)
           let value = comparison input { state with offset = plus at 2ul } fuel in
           consume input value.parser 125uy
         else if byte = 92uy then
-          if simple_escape input at true then { state with offset = plus at 2ul }
-          else failed state 1ul
+          from_cursor state (escape_end input at true true)
         else { state with offset = next at } in
       template_body input st fuel (minus remaining 1ul)
 
@@ -1803,7 +1847,7 @@ let import_source (input:tape) (state:parser_state) : Read parser_state input =
   let delimiter = peek input st.offset in
   if st.status <> 0ul || (delimiter <> 34uy && delimiter <> 39uy) then failed st 1ul
   else
-    let literal = string_end input (next st.offset) delimiter input.size in
+    let literal = string_end input (next st.offset) delimiter input.size false in
     statement_end input (from_cursor st literal) literal.at false
 
 let rec import_members (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (allow_type:bool)

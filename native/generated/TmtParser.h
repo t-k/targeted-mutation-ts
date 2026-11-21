@@ -85,7 +85,8 @@ TmtParser_parser_state;
 
 #define TmtParser_NotAssignable 0
 #define TmtParser_Assignable 1
-#define TmtParser_OptionalChain 2
+#define TmtParser_MemberTarget 2
+#define TmtParser_OptionalChain 3
 
 typedef uint8_t TmtParser_assignment_target;
 
@@ -93,7 +94,11 @@ bool TmtParser_uu___is_NotAssignable(TmtParser_assignment_target projectee);
 
 bool TmtParser_uu___is_Assignable(TmtParser_assignment_target projectee);
 
+bool TmtParser_uu___is_MemberTarget(TmtParser_assignment_target projectee);
+
 bool TmtParser_uu___is_OptionalChain(TmtParser_assignment_target projectee);
+
+bool TmtParser_can_assign(TmtParser_assignment_target target);
 
 typedef struct TmtParser_parsed_s
 {
@@ -133,14 +138,34 @@ TmtParser_emit_comparison(
   TmtGrammar_span right
 );
 
+uint32_t TmtParser_hex_value(uint8_t ch);
+
 bool TmtParser_simple_escape(TmtParser_tape input, uint32_t at, bool template0);
 
+TmtParser_cursor TmtParser_fixed_hex(TmtParser_tape input0, uint32_t at0, uint32_t digits0);
+
 TmtParser_cursor
-TmtParser_string_end(TmtParser_tape input0, uint32_t at0, uint8_t delimiter0, uint32_t fuel0);
+TmtParser_unicode_escape(
+  TmtParser_tape input0,
+  uint32_t at0,
+  uint32_t value0,
+  uint32_t fuel0,
+  bool seen0
+);
+
+TmtParser_cursor
+TmtParser_escape_end(TmtParser_tape input, uint32_t at, bool template0, bool extended);
+
+TmtParser_cursor
+TmtParser_string_end(
+  TmtParser_tape input0,
+  uint32_t at0,
+  uint8_t delimiter0,
+  uint32_t fuel0,
+  bool extended0
+);
 
 bool TmtParser_regex_printable(uint8_t ch);
-
-uint32_t TmtParser_hex_value(uint8_t ch);
 
 extern uint32_t TmtParser_no_character;
 

@@ -1,0 +1,3 @@
+Escape: Hex, CodeUnit, CodePoint, Continuation
+Placement: String, Template
+Suffix: Valid, Invalid

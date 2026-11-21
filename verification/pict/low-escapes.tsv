@@ -1,0 +1,9 @@
+Escape	Placement	Suffix
+Hex	String	Valid
+CodeUnit	Template	Valid
+CodePoint	String	Invalid
+Continuation	Template	Valid
+CodePoint	Template	Valid
+Continuation	String	Invalid
+Hex	Template	Invalid
+CodeUnit	String	Invalid

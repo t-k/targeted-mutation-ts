@@ -386,6 +386,21 @@ bool TmtParser_uu___is_Assignable(TmtParser_assignment_target projectee)
   }
 }
 
+bool TmtParser_uu___is_MemberTarget(TmtParser_assignment_target projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_MemberTarget:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
 bool TmtParser_uu___is_OptionalChain(TmtParser_assignment_target projectee)
 {
   switch (projectee)
@@ -399,6 +414,11 @@ bool TmtParser_uu___is_OptionalChain(TmtParser_assignment_target projectee)
         return false;
       }
   }
+}
+
+bool TmtParser_can_assign(TmtParser_assignment_target target)
+{
+  return target == TmtParser_Assignable || target == TmtParser_MemberTarget;
 }
 
 TmtParser_parser_state TmtParser_failed(TmtParser_parser_state state, uint32_t error)
@@ -532,6 +552,15 @@ TmtParser_emit_comparison(
     return TmtParser_failed(state, 4U);
 }
 
+uint32_t TmtParser_hex_value(uint8_t ch)
+{
+  uint32_t n = (uint32_t)ch;
+  if (TmtGrammar_decimal_digit(ch))
+    return n - 48U;
+  else
+    return ch >= 97U && ch <= 102U ? n - 87U : ch >= 65U && ch <= 70U ? n - 55U : 16U;
+}
+
 bool TmtParser_simple_escape(TmtParser_tape input, uint32_t at, bool template0)
 {
   uint8_t escape = TmtParser_peek(input, TmtParser_next(at));
@@ -546,13 +575,136 @@ bool TmtParser_simple_escape(TmtParser_tape input, uint32_t at, bool template0)
     || template0 && (escape == 36U || escape == 96U);
 }
 
+TmtParser_cursor TmtParser_fixed_hex(TmtParser_tape input0, uint32_t at0, uint32_t digits0)
+{
+  TmtParser_tape input = input0;
+  uint32_t at = at0;
+  uint32_t digits = digits0;
+  while (true)
+    if (digits == 0U)
+      return ((TmtParser_cursor){ .at = at, .ok = true, .newline = false });
+    else
+    {
+      uint32_t value = TmtParser_hex_value(TmtParser_peek(input, at));
+      if (value == 16U)
+        return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
+      else
+      {
+        uint32_t tmp0 = TmtParser_next(at);
+        uint32_t tmp = TmtParser_minus(digits, 1U);
+        at = tmp0;
+        digits = tmp;
+      }
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
 TmtParser_cursor
-TmtParser_string_end(TmtParser_tape input0, uint32_t at0, uint8_t delimiter0, uint32_t fuel0)
+TmtParser_unicode_escape(
+  TmtParser_tape input0,
+  uint32_t at0,
+  uint32_t value0,
+  uint32_t fuel0,
+  bool seen0
+)
+{
+  TmtParser_tape input = input0;
+  uint32_t at = at0;
+  uint32_t value = value0;
+  uint32_t fuel = fuel0;
+  bool seen = seen0;
+  while (true)
+    if (fuel == 0U || value > 0x10ffffU)
+      return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
+    else if (TmtParser_same(input, at, 125U))
+      return ((TmtParser_cursor){ .at = TmtParser_next(at), .ok = seen, .newline = false });
+    else
+    {
+      uint32_t digit = TmtParser_hex_value(TmtParser_peek(input, at));
+      if (digit == 16U)
+        return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
+      else
+      {
+        uint32_t tmp0 = TmtParser_next(at);
+        uint32_t tmp1 = value * 16U + digit;
+        uint32_t tmp2 = TmtParser_minus(fuel, 1U);
+        bool tmp = true;
+        at = tmp0;
+        value = tmp1;
+        fuel = tmp2;
+        seen = tmp;
+      }
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+TmtParser_cursor
+TmtParser_escape_end(TmtParser_tape input, uint32_t at, bool template0, bool extended)
+{
+  if (TmtParser_simple_escape(input, at, template0))
+    return ((TmtParser_cursor){ .at = TmtParser_plus(at, 2U), .ok = true, .newline = false });
+  else if (!extended)
+    return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
+  else
+  {
+    uint32_t start = TmtParser_next(at);
+    uint8_t escape = TmtParser_peek(input, start);
+    uint32_t after = TmtParser_next(start);
+    if (escape == 120U)
+      return TmtParser_fixed_hex(input, after, 2U);
+    else if (escape == 117U)
+    {
+      if (TmtParser_same(input, after, 123U))
+        return TmtParser_unicode_escape(input, TmtParser_next(after), 0U, input.size, false);
+      else
+        return TmtParser_fixed_hex(input, after, 4U);
+    }
+    else
+    {
+      bool breaks = TmtParser_line_break(input, start);
+      if (!breaks)
+        return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
+      else
+      {
+        uint32_t width;
+        if (escape == 13U)
+        {
+          if (TmtParser_same(input, after, 10U))
+            width = 2U;
+          else
+            width = 1U;
+        }
+        else
+          width = escape == 10U ? 1U : 3U;
+        return
+          ((TmtParser_cursor){ .at = TmtParser_plus(start, width), .ok = true, .newline = false });
+      }
+    }
+  }
+}
+
+TmtParser_cursor
+TmtParser_string_end(
+  TmtParser_tape input0,
+  uint32_t at0,
+  uint8_t delimiter0,
+  uint32_t fuel0,
+  bool extended0
+)
 {
   TmtParser_tape input = input0;
   uint32_t at = at0;
   uint8_t delimiter = delimiter0;
   uint32_t fuel = fuel0;
+  bool extended = extended0;
   while (true)
     if (fuel == 0U || at >= input.size)
       return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
@@ -568,16 +720,16 @@ TmtParser_string_end(TmtParser_tape input0, uint32_t at0, uint8_t delimiter0, ui
           return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
         else if (byte == 92U)
         {
-          bool valid = TmtParser_simple_escape(input, at, false);
-          if (valid)
+          TmtParser_cursor escape = TmtParser_escape_end(input, at, false, extended);
+          if (escape.ok)
           {
-            uint32_t tmp0 = TmtParser_plus(at, 2U);
+            uint32_t tmp0 = escape.at;
             uint32_t tmp = TmtParser_minus(fuel, 1U);
             at = tmp0;
             fuel = tmp;
           }
           else
-            return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
+            return escape;
         }
         else
         {
@@ -600,21 +752,20 @@ bool TmtParser_regex_printable(uint8_t ch)
   return ch >= 32U && ch <= 126U;
 }
 
-uint32_t TmtParser_hex_value(uint8_t ch)
-{
-  uint32_t n = (uint32_t)ch;
-  if (TmtGrammar_decimal_digit(ch))
-    return n - 48U;
-  else
-    return ch >= 97U && ch <= 102U ? n - 87U : ch >= 65U && ch <= 70U ? n - 55U : 16U;
-}
-
 uint32_t TmtParser_no_character = 256U;
 
 TmtParser_regex_unit TmtParser_regex_escape(TmtParser_tape input, uint32_t at, bool in_class)
 {
   uint8_t escape = TmtParser_peek(input, TmtParser_next(at));
   uint32_t finish = TmtParser_plus(at, 2U);
+  bool nul;
+  if (escape == 48U)
+  {
+    uint8_t following = TmtParser_peek(input, finish);
+    nul = !TmtGrammar_decimal_digit(following);
+  }
+  else
+    nul = false;
   bool
   punctuation =
     escape == 47U || escape == 92U || escape == 46U || escape == 36U || escape == 94U ||
@@ -642,7 +793,8 @@ TmtParser_regex_unit TmtParser_regex_escape(TmtParser_tape input, uint32_t at, b
                                                                                                        escape
                                                                                                        ==
                                                                                                          98U ? 8U
-                                                                                                             : TmtParser_no_character;
+                                                                                                             : nul ? 0U
+                                                                                                                   : TmtParser_no_character;
   if (escape == 120U)
   {
     uint32_t high = TmtParser_hex_value(TmtParser_peek(input, finish));
@@ -1481,7 +1633,7 @@ TmtParser_cursor TmtParser_property_name(TmtParser_tape input, TmtParser_parser_
 {
   uint8_t byte = TmtParser_peek(input, state.offset);
   if (byte == 34U || byte == 39U)
-    return TmtParser_string_end(input, TmtParser_next(state.offset), byte, input.size);
+    return TmtParser_string_end(input, TmtParser_next(state.offset), byte, input.size, false);
   else if (TmtGrammar_identifier_start(byte))
     return
       (
@@ -1683,7 +1835,7 @@ TmtParser_import_type(TmtParser_tape input, TmtParser_parser_state state)
     TmtParser_parser_state
     text =
       TmtParser_from_cursor(module_,
-        TmtParser_string_end(input, TmtParser_next(module_.offset), delimiter, input.size));
+        TmtParser_string_end(input, TmtParser_next(module_.offset), delimiter, input.size, false));
     TmtParser_parser_state close = TmtParser_consume(input, TmtParser_skip(input, text), 41U);
     return TmtParser_qualified_name(input, close, 64U);
   }
@@ -2133,7 +2285,7 @@ TmtParser_type_term(
     else if (byte == 34U || byte == 39U)
       primary =
         TmtParser_from_cursor(st1,
-          TmtParser_string_end(input, TmtParser_next(st1.offset), byte, input.size));
+          TmtParser_string_end(input, TmtParser_next(st1.offset), byte, input.size, true));
     else if (TmtGrammar_decimal_digit(byte) || byte == 45U || byte == 46U)
     {
       uint32_t start;
@@ -3281,7 +3433,7 @@ TmtParser_postfix_head TmtParser_postfix_start(TmtParser_tape input, TmtParser_p
   else
     increment = TmtParser_update_width(input, st.offset, byte);
   TmtParser_parser_state generic;
-  if (byte == 60U && st.offset == base.range.last && base.target == TmtParser_Assignable)
+  if (byte == 60U && st.offset == base.range.last && TmtParser_can_assign(base.target))
     generic = TmtParser_call_type_arguments(input, st);
   else
     generic = TmtParser_failed(st, 1U);
@@ -3346,8 +3498,15 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
       await_ = TmtParser_keyword(input, start_pos, 5U, 0x6177616974ULL);
     else
       await_ = false;
+    bool deleting;
+    if (ch == 100U)
+      deleting = TmtParser_keyword(input, start_pos, 6U, 0x64656c657465ULL);
+    else
+      deleting = false;
     uint32_t prefix;
-    if (await_)
+    if (deleting)
+      prefix = 6U;
+    else if (await_)
       prefix = 5U;
     else if (increment != 0U)
       prefix = increment;
@@ -3381,7 +3540,12 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               }
             ),
             TmtParser_minus(fuel, 1U));
-        if (increment != 0U && child.target != TmtParser_Assignable)
+        if
+        (
+          increment != 0U && !TmtParser_can_assign(child.target) ||
+            deleting && child.target != TmtParser_MemberTarget &&
+              child.target != TmtParser_OptionalChain
+        )
           return TmtParser_empty_range(TmtParser_failed(child.parser, 1U));
         else
           return
@@ -3722,7 +3886,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
           (
             (__TmtParser_parser_state_TmtParser_assignment_target){
               .fst = TmtParser_from_cursor(st,
-                TmtParser_string_end(input, TmtParser_next(start_pos), ch, input.size)),
+                TmtParser_string_end(input, TmtParser_next(start_pos), ch, input.size, true)),
               .snd = TmtParser_NotAssignable
             }
           );
@@ -3889,7 +4053,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
       uint8_t byte = TmtParser_peek(input, st.offset);
       uint8_t follower = TmtParser_peek(input, TmtParser_next(st.offset));
       uint32_t assignment;
-      if (lhs.target == TmtParser_Assignable)
+      if (TmtParser_can_assign(lhs.target))
         assignment = TmtParser_assignment_width(input, st.offset, byte, follower);
       else
         assignment = 0U;
@@ -4202,7 +4366,7 @@ TmtParser_postfix(
           );
       else if (increment != 0U)
       {
-        if (base.target != TmtParser_Assignable)
+        if (!TmtParser_can_assign(base.target))
           return TmtParser_empty_range(TmtParser_failed(st, 1U));
         else
         {
@@ -4361,7 +4525,7 @@ TmtParser_postfix(
         TmtParser_assignment_target
         target =
           optional || base.target == TmtParser_OptionalChain ? TmtParser_OptionalChain
-                                                             : kind == 46U || kind == 91U ? TmtParser_Assignable
+                                                             : kind == 46U || kind == 91U ? TmtParser_MemberTarget
                                                                                           : TmtParser_NotAssignable;
         TmtParser_parsed
         tmp0 =
@@ -4701,25 +4865,7 @@ TmtParser_template_body(
           st = TmtParser_consume(input, value.parser, 125U);
         }
         else if (byte == 92U)
-        {
-          if (TmtParser_simple_escape(input, at, true))
-            st =
-              (
-                (TmtParser_parser_state){
-                  .offset = TmtParser_plus(at, 2U),
-                  .count = state.count,
-                  .depth = state.depth,
-                  .status = state.status,
-                  .local_names = state.local_names,
-                  .await_allowed = state.await_allowed,
-                  .jsx_allowed = state.jsx_allowed,
-                  .module_mode = state.module_mode,
-                  .in_allowed = state.in_allowed
-                }
-              );
-          else
-            st = TmtParser_failed(state, 1U);
-        }
+          st = TmtParser_from_cursor(state, TmtParser_escape_end(input, at, true, true));
         else
           st =
             (
@@ -6184,7 +6330,7 @@ TmtParser_import_source(TmtParser_tape input, TmtParser_parser_state state)
   else
   {
     TmtParser_cursor
-    literal = TmtParser_string_end(input, TmtParser_next(st.offset), delimiter, input.size);
+    literal = TmtParser_string_end(input, TmtParser_next(st.offset), delimiter, input.size, false);
     return TmtParser_statement_end(input, TmtParser_from_cursor(st, literal), literal.at, false);
   }
 }
