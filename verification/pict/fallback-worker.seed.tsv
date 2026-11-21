@@ -1,0 +1,5 @@
+Entry	Mode	Result
+Extract	Script	Deep
+Reference	Module	Deep
+Extract	Module	Diagnostic
+Reference	Script	Logical

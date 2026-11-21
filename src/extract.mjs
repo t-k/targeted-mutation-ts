@@ -1,7 +1,10 @@
 import { isUtf8 } from 'node:buffer';
+import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { types } from 'node:util';
+import { isMainThread } from 'node:worker_threads';
 import { tokenComparisons } from './token-comparisons.mjs';
 
 const load = createRequire(import.meta.url);
@@ -152,8 +155,31 @@ function extractParsed(input, options = {}, allowTokens = false) {
   return { path: 'fallback', candidates };
 }
 
-export function extractFallback(input, options = {}) {
-  return extractParsed(input, options);
+export function extractFallback(input, options = {}, allowTokens = false) {
+  if (isMainThread) return extractParsed(input, options, allowTokens);
+
+  // Native fallback parsing can exhaust a caller's deliberately small worker stack.
+  const source = normalize(input);
+  if (source === null) return invalidEncoding();
+  const { dialect, mode } = optionsFor(options);
+  const child = spawnSync(process.execPath, [
+    '--max-old-space-size=512', fileURLToPath(new URL('./fallback-process.mjs', import.meta.url)),
+  ], {
+    input: JSON.stringify({ source, options: { dialect, mode, logical: !!options.logical, file: options.file }, allowTokens }),
+    stdio: ['pipe', 'ignore', 'pipe', 'pipe'],
+    encoding: 'utf8', timeout: 30_000, maxBuffer: 64 * 1024 * 1024, killSignal: 'SIGKILL',
+  });
+  if (child.error || child.status !== 0) {
+    const reason = child.error?.message ?? (child.signal ? `signal ${child.signal}` : `status ${child.status}`);
+    const stderr = child.stderr?.trim();
+    const cause = child.error ?? (stderr ? new Error(stderr.slice(0, 1024)) : undefined);
+    throw new Error(`The isolated parser failed with ${reason}`, { cause });
+  }
+  try {
+    return JSON.parse(child.output[3]);
+  } catch (cause) {
+    throw new Error('The isolated parser returned an unreadable result', { cause });
+  }
 }
 
 function extractNativeSyntax(source, dialect, logical) {
@@ -224,5 +250,5 @@ export function extract(input, options = {}) {
       if (broad) return status === 3 ? { ...broad, reason } : broad;
     }
   }
-  return { ...extractParsed(fallbackInput, options, true), reason, metrics };
+  return { ...extractFallback(fallbackInput, options, true), reason, metrics };
 }
