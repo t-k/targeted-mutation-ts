@@ -417,6 +417,7 @@ TmtParser_simple_statement(
   TmtParser_tape input,
   TmtParser_parser_state state,
   bool in_function,
+  bool in_loop,
   uint32_t fuel
 );
 
@@ -436,6 +437,7 @@ TmtParser_control_block(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
+  bool in_loop,
   uint32_t floor,
   uint32_t used
 );
@@ -447,6 +449,7 @@ TmtParser_control_sequence(
   uint32_t fuel0,
   uint32_t remaining0,
   bool in_function0,
+  bool in_loop0,
   uint32_t floor0,
   uint32_t used0,
   bool allow_var0
@@ -458,6 +461,7 @@ TmtParser_control_statement(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
+  bool in_loop,
   uint32_t used,
   bool allow_var
 );
@@ -468,6 +472,7 @@ TmtParser_control_body(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
+  bool in_loop,
   uint32_t used
 );
 

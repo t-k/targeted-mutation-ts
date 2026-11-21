@@ -2292,6 +2292,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             TmtParser_function_body(input, body1, arrow.patterned),
             inner,
             true,
+            false,
             start.local_names,
             arrow.names.used);
         result = TmtParser_empty_range(stop);
@@ -3165,6 +3166,7 @@ TmtParser_simple_statement(
   TmtParser_tape input,
   TmtParser_parser_state state,
   bool in_function,
+  bool in_loop,
   uint32_t fuel
 )
 {
@@ -3179,8 +3181,32 @@ TmtParser_simple_statement(
     is_throw = TmtParser_keyword(input, state.offset, 5U, 0x7468726f77ULL);
   else
     is_throw = false;
+  uint32_t jump;
+  if (byte == 98U)
+  {
+    if (TmtParser_keyword(input, state.offset, 5U, 0x627265616bULL))
+      jump = 5U;
+    else
+      jump = 0U;
+  }
+  else if (byte == 99U)
+  {
+    if (TmtParser_keyword(input, state.offset, 8U, 0x636f6e74696e7565ULL))
+      jump = 8U;
+    else
+      jump = 0U;
+  }
+  else
+    jump = 0U;
   if (is_return)
     return TmtParser_return_statement(input, state, fuel);
+  else if (jump != 0U)
+  {
+    if (in_loop)
+      return TmtParser_statement_end(input, state, TmtParser_plus(state.offset, jump), true);
+    else
+      return TmtParser_failed(state, 1U);
+  }
   else if (is_throw)
   {
     TmtParser_cursor body = TmtParser_trivia(input, TmtParser_plus(state.offset, 5U));
@@ -3253,6 +3279,7 @@ TmtParser_control_block(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
+  bool in_loop,
   uint32_t floor,
   uint32_t used
 )
@@ -3273,6 +3300,7 @@ TmtParser_control_block(
       fuel,
       input.size,
       in_function,
+      in_loop,
       floor,
       used,
       false);
@@ -3297,6 +3325,7 @@ TmtParser_control_sequence(
   uint32_t fuel0,
   uint32_t remaining0,
   bool in_function0,
+  bool in_loop0,
   uint32_t floor0,
   uint32_t used0,
   bool allow_var0
@@ -3307,6 +3336,7 @@ TmtParser_control_sequence(
   uint32_t fuel = fuel0;
   uint32_t remaining = remaining0;
   bool in_function = in_function0;
+  bool in_loop = in_loop0;
   uint32_t floor = floor0;
   uint32_t used = used0;
   bool allow_var = allow_var0;
@@ -3343,7 +3373,13 @@ TmtParser_control_sequence(
         next_statement =
           (
             (TmtParser_named_state){
-              .state = TmtParser_control_statement(input, st, fuel, in_function, used, allow_var),
+              .state = TmtParser_control_statement(input,
+                st,
+                fuel,
+                in_function,
+                in_loop,
+                used,
+                allow_var),
               .used = used
             }
           );
@@ -3368,6 +3404,7 @@ TmtParser_control_statement(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
+  bool in_loop,
   uint32_t used,
   bool allow_var
 )
@@ -3376,7 +3413,7 @@ TmtParser_control_statement(
   if (state.status != 0U)
     return state;
   else if (kind == 0U)
-    return TmtParser_simple_statement(input, state, in_function, fuel);
+    return TmtParser_simple_statement(input, state, in_function, in_loop, fuel);
   else if (fuel == 0U)
     return TmtParser_failed(state, 3U);
   else
@@ -3411,8 +3448,11 @@ TmtParser_control_statement(
             }
           ),
           fuel);
+      bool body_loop = in_loop || kind == 2U;
       TmtParser_parser_state
-      st = TmtParser_skip(input, TmtParser_control_body(input, tested, inner, in_function, used));
+      st =
+        TmtParser_skip(input,
+          TmtParser_control_body(input, tested, inner, in_function, body_loop, used));
       bool has_else;
       if (kind == 1U)
         has_else = TmtParser_keyword(input, st.offset, 4U, 0x656c7365ULL);
@@ -3432,6 +3472,7 @@ TmtParser_control_statement(
             ),
             inner,
             in_function,
+            in_loop,
             used);
       else
         return st;
@@ -3453,6 +3494,7 @@ TmtParser_control_statement(
             ),
             inner,
             in_function,
+            true,
             used));
       bool tested = TmtParser_keyword(input, st.offset, 5U, 0x7768696c65ULL);
       if (!tested)
@@ -3495,7 +3537,7 @@ TmtParser_control_statement(
           ),
           allow_var,
           fuel);
-      return TmtParser_control_body(input, tested, inner, in_function, used);
+      return TmtParser_control_body(input, tested, inner, in_function, true, used);
     }
   }
 }
@@ -3506,6 +3548,7 @@ TmtParser_control_body(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
+  bool in_loop,
   uint32_t used
 )
 {
@@ -3513,9 +3556,9 @@ TmtParser_control_body(
   if (st.status != 0U)
     return st;
   else if (TmtParser_same(input, st.offset, 123U))
-    return TmtParser_control_block(input, st, fuel, in_function, used, used);
+    return TmtParser_control_block(input, st, fuel, in_function, in_loop, used, used);
   else
-    return TmtParser_control_statement(input, st, fuel, in_function, used, false);
+    return TmtParser_control_statement(input, st, fuel, in_function, in_loop, used, false);
 }
 
 TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parser_state state)
@@ -4196,6 +4239,7 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
           TmtParser_function_body(input, st4, params.patterned),
           64U,
           true,
+          false,
           0U,
           params.names.used);
     }
@@ -4266,7 +4310,7 @@ TmtParser_module_sequence(
           decl =
             (
               (TmtParser_named_state){
-                .state = TmtParser_control_statement(input, st, 64U, false, 0U, false),
+                .state = TmtParser_control_statement(input, st, 64U, false, false, 0U, false),
                 .used = used
               }
             );
@@ -4296,7 +4340,7 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool jsx, bool modu
     uint8_t first = TmtParser_peek(input, st.offset);
     uint32_t control = TmtParser_statement_kind(input, st.offset);
     if (control != 0U)
-      return TmtParser_control_sequence(input, st, 64U, input.size, false, 0U, 0U, true);
+      return TmtParser_control_sequence(input, st, 64U, input.size, false, false, 0U, 0U, true);
     else if (first == 118U)
     {
       if (TmtParser_keyword(input, st.offset, 3U, 0x766172ULL))
@@ -4316,7 +4360,7 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool jsx, bool modu
             64U);
         TmtParser_parser_state
         st1 = TmtParser_consume(input, TmtParser_skip(input, initialized), 59U);
-        return TmtParser_control_sequence(input, st1, 64U, input.size, false, 0U, 0U, true);
+        return TmtParser_control_sequence(input, st1, 64U, input.size, false, false, 0U, 0U, true);
       }
       else
         return TmtParser_failed(st, 1U);
