@@ -5,6 +5,8 @@ import test from 'node:test';
 import { extract, extractFallback } from '../src/extract.mjs';
 
 const deep = 'const x = ' + '['.repeat(1000) + 'a < b], 2' + ']'.repeat(999) + ';';
+const deeplyGrouped = 'const x = ' + '('.repeat(3000) + 'a < b' + ')'.repeat(3000) + ';';
+const deeplyNested = 'const x = ' + '['.repeat(3000) + 'a < b' + ']'.repeat(3000) + ';';
 const extractModule = new URL('../src/extract.mjs', import.meta.url).href;
 const examples = {
   Deep: { source: deep, file: 'deep.ts' },
@@ -54,13 +56,33 @@ test('an isolated parser exit preserves the cause of the child startup failure',
   assert.match(result.detail, /tmt-unsupported-argument/);
 });
 
-test('fallback output is separate from Node preload output and preserves the token route', () => {
+test('fallback output is separate from Node preload output and preserves the compatibility route', () => {
   const sample = { source: 'declare const values: Array<number>; for (let i = 0; i < values.length; i++) {}', file: 'values.ts' };
   const options = { file: sample.file, mode: 'script', logical: true };
   const expected = extract(sample.source, options);
-  assert.equal(expected.fallback, 'tokens');
+  assert.equal(expected.fallback, 'typescript');
   const setup = 'process.env.NODE_OPTIONS = "--import=data:text/javascript,console.log%28%22preload%22%29";';
   assert.deepEqual(runWorker('extract', sample, options.mode, setup), expected);
+});
+
+test('stack exhaustion retries the whole source in an isolated parser from the main thread', () => {
+  const code = `
+    import { extract, extractFallback } from ${JSON.stringify(extractModule)};
+    const sources = ${JSON.stringify([deep, deeplyGrouped, deeplyNested])};
+    const options = { file: 'deep.ts' };
+    process.stdout.write(JSON.stringify([extract(sources[0], options), ...sources.slice(1).map(source => extractFallback(source, options))]));
+  `;
+  const parsed = spawnSync(process.execPath, ['--stack-size=512', '--input-type=module', '-e', code], {
+    encoding: 'utf8', timeout: 20_000,
+  });
+  assert.equal(parsed.status, 0, parsed.error?.message ?? parsed.stderr);
+  const results = JSON.parse(parsed.stdout);
+  assert.equal(results[0].reason, 'depth-limit');
+  for (const result of results) {
+    assert.equal(result.path, 'fallback');
+    assert.equal(result.fallback, 'typescript');
+    assert.deepEqual(result.candidates.map(({ operator }) => operator), ['<']);
+  }
 });
 
 test('module extraction after a native depth refusal preserves the complete candidate in a worker', () => {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { extract, extractFallback } from '../src/extract.mjs';
+import { extractYuku } from './support/yuku-extraction.mjs';
 
 function rows(name) {
   return readFileSync(new URL(`../verification/pict/${name}.tsv`, import.meta.url), 'utf8')
@@ -10,7 +11,7 @@ function rows(name) {
 
 function compare(source, diagnostic) {
   const result = extract(source, { requireNative: true, file: 'subject.ts' });
-  const reference = extractFallback(source, { file: 'subject.ts' });
+  const reference = (result.path === 'fast' ? extractYuku : extractFallback)(source, { file: 'subject.ts' });
   assert.equal(reference.path === 'diagnostic', diagnostic, source);
   assert.equal(result.path === 'diagnostic', diagnostic, source);
   assert.deepEqual(result.candidates, reference.candidates, source);

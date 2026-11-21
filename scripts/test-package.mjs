@@ -29,13 +29,10 @@ try {
   assert.equal(addon.syntax, undefined);
   assert.equal(addon.standalone, undefined);
   const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
-  assert.deepEqual(manifest.dependencies, { typescript: '6.0.3', 'yuku-parser': '0.19.0' });
+  assert.deepEqual(manifest.dependencies, { typescript: '6.0.3' });
   const lock = JSON.parse(readFileSync(join(cwd, 'package-lock.json'), 'utf8'));
-  const dependencies = Object.entries(lock.packages).filter(([path]) => path.startsWith('node_modules/'));
-  assert.deepEqual(dependencies.filter(([, meta]) => !meta.optional).map(([path]) => path).sort(),
-    ['node_modules/@yuku-toolchain/types', 'node_modules/targeted-mutation-ts', 'node_modules/typescript',
-      'node_modules/yuku-core', 'node_modules/yuku-parser']);
-  assert.ok(dependencies.filter(([, meta]) => meta.optional).every(([path]) => path.startsWith('node_modules/@yuku-core/binding-')));
+  assert.deepEqual(Object.keys(lock.packages).filter(path => path.startsWith('node_modules/')).sort(),
+    ['node_modules/targeted-mutation-ts', 'node_modules/typescript']);
   assert.deepEqual(manifest.os, [process.platform]);
   assert.deepEqual(manifest.cpu, [process.arch]);
   mkdirSync(join(installed, 'node_modules/unrelated'), { recursive: true });
@@ -44,6 +41,7 @@ try {
   writeFileSync(join(cwd, 'broad.ts'), 'export const a = {}; export const b = a <number>().value < 2;');
   const broad = JSON.parse(run(process.execPath, [entry, 'extract', 'broad.ts']));
   assert.equal(broad.path, 'fallback');
+  assert.equal(broad.fallback, 'typescript');
   assert.equal(broad.metrics.astNodes, 0);
   assert.deepEqual(broad.candidates.map(candidate => candidate.operator), ['<']);
   writeFileSync(join(cwd, 'module.ts'), 'import { limit } from "./settings"; export function ready(n: number): boolean { return n < limit; }');
@@ -54,11 +52,11 @@ try {
   writeFileSync(join(cwd, 'control.ts'), condition);
   const nativeControl = JSON.parse(run(process.execPath, [entry, 'extract', 'control.ts']));
   assert.equal(nativeControl.path, 'fast');
-  writeFileSync(join(cwd, 'tokens.ts'), 'declare const values: Array<number>;\n' + condition);
-  const tokenControl = JSON.parse(run(process.execPath, [entry, 'extract', 'tokens.ts', '--mode', 'script']));
-  assert.equal(tokenControl.fallback, 'tokens');
+  writeFileSync(join(cwd, 'ambient.ts'), 'declare const values: Array<number>;\n' + condition);
+  const compatibilityControl = JSON.parse(run(process.execPath, [entry, 'extract', 'ambient.ts', '--mode', 'script']));
+  assert.equal(compatibilityControl.fallback, 'typescript');
   assert.deepEqual(nativeControl.candidates.map(candidate => candidate.operator), ['<']);
-  assert.deepEqual(tokenControl.candidates.map(candidate => candidate.operator), ['<']);
+  assert.deepEqual(compatibilityControl.candidates.map(candidate => candidate.operator), ['<']);
   writeFileSync(join(cwd, 'fixture/src/strict.ts'), 'export const positive = (count: number) => count > 0;');
   writeFileSync(join(cwd, 'fixture/test/strict.test.ts'), "import { expect, it } from 'vitest'; import { positive } from '../src/strict'; it('checks two', () => expect(positive(2)).toBe(true));");
   cpSync(resolve('fixtures/witnesses'), join(cwd, 'witnesses'), { recursive: true });

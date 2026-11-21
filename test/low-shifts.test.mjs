@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { extract, extractFallback } from '../src/extract.mjs';
+import { extractYuku } from './support/yuku-extraction.mjs';
 
 function compare(source, path, options = {}) {
   const actual = extract(source, { ...options, requireNative: true });
-  const reference = extractFallback(source, options);
+  const reference = (actual.path === 'fast' ? extractYuku : extractFallback)(source, options);
   assert.equal(actual.path, path, source);
   assert.deepEqual(actual.candidates, reference.candidates, source);
   assert.deepEqual(actual.diagnostics, reference.diagnostics, source);

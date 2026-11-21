@@ -4,7 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { arch, cpus, platform, release } from 'node:os';
 import { basename, extname, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { extract, extractFallback } from '../src/extract.mjs';
+import { extract } from '../src/extract.mjs';
+import { extractYuku } from '../test/support/yuku-extraction.mjs';
 
 const { positionals: projects, values } = parseArgs({ allowPositionals: true,
   options: { prefix: { type: 'string', default: '' }, 'source-only': { type: 'boolean' }, logical: { type: 'boolean' } } });
@@ -24,16 +25,25 @@ const reports = projects.map(project => {
   const files = paths.map(file => ({ file, source: readFileSync(resolve(root, file)) }));
   const report = { project: basename(root), revision, files: files.length, bytes: 0, tsxFiles: 0, fastFiles: 0, fastBytes: 0,
     candidates: 0, candidateFiles: 0, fastCandidates: 0, nativeFiles: 0, nativeCandidates: 0,
-    yukuFiles: 0, yukuCandidates: 0, yukuCandidateFiles: 0, tokenFiles: 0, tokenCandidates: 0, diagnostics: 0,
+    compatibilityFiles: 0, compatibilityCandidates: 0, compatibilityCandidateFiles: 0, diagnostics: 0,
     nativeDiagnosticFiles: 0,
-    fastCandidateFiles: [], tokenCandidateFiles: [], fallbackReasons: {}, candidateBytes: 0, maxDepth: 0 };
+    fastCandidateFiles: [], fallbackReasons: {}, candidateBytes: 0, maxDepth: 0 };
   for (const { file, source } of files) {
     const options = { file, logical: values.logical, requireNative: true };
     const result = extract(source, options);
-    const reference = extractFallback(source, options);
+    const reference = extractYuku(source, options);
     assert.deepEqual(result.candidates, reference.candidates, `${root}/${file}`);
     assert.equal(result.path === 'diagnostic', reference.path === 'diagnostic', `${root}/${file}`);
-    assert.deepEqual(result.diagnostics, reference.diagnostics, `${root}/${file}`);
+    if (result.reason === 'duplicate-lexical' || result.reason === 'invalid-utf8') {
+      assert.deepEqual(result.diagnostics, reference.diagnostics, `${root}/${file}`);
+    } else if (result.path === 'diagnostic') {
+      assert.ok(result.diagnostics.length > 0, `${root}/${file}`);
+      for (const diagnostic of result.diagnostics) {
+        assert.equal(diagnostic.severity, 'error');
+        assert.equal(diagnostic.path, file);
+        assert.ok(diagnostic.start >= 0 && diagnostic.start <= diagnostic.end && diagnostic.end <= source.length);
+      }
+    }
     report.bytes += source.length;
     if (file.endsWith('.tsx')) report.tsxFiles++;
     report.candidates += result.candidates.length;
@@ -53,16 +63,11 @@ const reports = projects.map(project => {
       report.nativeDiagnosticFiles++;
     } else {
       if (result.reason !== 'invalid-utf8') {
-        report.yukuFiles++;
-        report.yukuCandidates += result.candidates.length;
-        if (result.candidates.length) report.yukuCandidateFiles++;
+        report.compatibilityFiles++;
+        report.compatibilityCandidates += result.candidates.length;
+        if (result.candidates.length) report.compatibilityCandidateFiles++;
       }
       report.fallbackReasons[result.reason] = (report.fallbackReasons[result.reason] ?? 0) + 1;
-      if (result.fallback === 'tokens') {
-        report.tokenFiles++;
-        report.tokenCandidates += result.candidates.length;
-        report.tokenCandidateFiles.push({ file, candidates: result.candidates.length });
-      }
     }
     if (result.path === 'diagnostic') report.diagnostics++;
   }

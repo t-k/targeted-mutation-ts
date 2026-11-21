@@ -214,13 +214,40 @@ function createExtractor(ts) {
     return { tree: repaired, originalOffset: offset => originalOffset(repair.originalOffset(offset)) };
   }
 
+  function repairImportTypeArguments(tree, read) {
+    const source = tree.text;
+    if (!/\bimport\b(?=\s*[(/])/.test(source)) return tree;
+    const scanner = scannerFor(source);
+    const pending = [tree];
+    const gaps = [];
+    while (pending.length) {
+      const node = pending.pop();
+      if (ts.isImportTypeNode(node) && !node.typeArguments) {
+        scanner.setTextPos(node.end);
+        if (scanner.scan() === kind.LessThanToken && scanner.hasPrecedingLineBreak()) {
+          gaps.push([node.end, scanner.getTokenStart()]);
+        }
+      }
+      ts.forEachChild(node, child => { pending.push(child); });
+    }
+    if (!gaps.length) return tree;
+    const parts = [];
+    let previous = 0;
+    for (const [start, end] of gaps.sort((a, b) => a[0] - b[0])) {
+      parts.push(source.slice(previous, start), ' '.repeat(end - start));
+      previous = end;
+    }
+    parts.push(source.slice(previous));
+    return read(parts.join(''));
+  }
+
   function parse(source, file, dialect) {
     const scriptKind = dialect === 'tsx' ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
     const read = text => ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false, scriptKind);
-    const tree = read(source);
+    const tree = repairImportTypeArguments(read(source), read);
     let result = { tree, originalOffset: offset => offset };
     if (!tree.parseDiagnostics.length) return result;
-    if (scriptKind === ts.ScriptKind.TSX) result = repairTsx(source, tree, read);
+    if (scriptKind === ts.ScriptKind.TSX) result = repairTsx(tree.text, tree, read);
     return repairAssertedAssignments(result, read);
   }
 

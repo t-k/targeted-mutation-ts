@@ -19,8 +19,8 @@ const files = git('ls-files', '-z').split('\0')
     !file.endsWith('.d.ts') && (!values['source-only'] || !/(?:^|\/)__tests[^/]*\/|\.(?:test|spec)\.tsx?$/.test(file)) &&
     existsSync(resolve(root, file)))
   .map(file => ({ file, source: readFileSync(resolve(root, file)) }));
-const resultShape = ({ path, candidates, diagnostics }) => ({ diagnostic: path === 'diagnostic', candidates, diagnostics });
-const tokenSubset = values['token-subset'] ? files.filter(({ file, source }) => current.extract(source, { file }).fallback === 'tokens') : [];
+const resultShape = ({ path, candidates }) => ({ diagnostic: path === 'diagnostic', candidates });
+const tokenSubset = values['token-subset'] ? files.filter(({ file, source }) => baseline.extract(source, { file }).fallback === 'tokens') : [];
 const inputs = [
   { name: 'repository', revision, files },
   ...(tokenSubset.length ? [{ name: 'validated token files', revision, files: tokenSubset, turns: 100 }] : []),
@@ -41,10 +41,8 @@ for (const input of inputs) {
   let nativeFiles = 0;
   let nativeCandidates = 0;
   let nativeDiagnosticFiles = 0;
-  let yukuFiles = 0;
-  let yukuCandidates = 0;
-  let tokenFiles = 0;
-  let tokenCandidates = 0;
+  let compatibilityFiles = 0;
+  let compatibilityCandidates = 0;
   for (const { file, source } of input.files) {
     const original = baseline.extract(source, { file, requireNative: true });
     const optimized = current.extract(source, { file, requireNative: true });
@@ -58,12 +56,8 @@ for (const input of inputs) {
     } else if (optimized.reason === 'duplicate-lexical') {
       nativeDiagnosticFiles++;
     } else if (optimized.reason !== 'invalid-utf8') {
-      yukuFiles++;
-      yukuCandidates += optimized.candidates.length;
-    }
-    if (optimized.fallback === 'tokens') {
-      tokenFiles++;
-      tokenCandidates += optimized.candidates.length;
+      compatibilityFiles++;
+      compatibilityCandidates += optimized.candidates.length;
     }
   }
 
@@ -93,7 +87,7 @@ for (const input of inputs) {
   };
   reports.push({
     workload: input.name, revision: input.revision, files: input.files.length, bytes, turnsPerRepetition: turns, fastFiles: fast,
-    fastCandidates, nativeFiles, nativeCandidates, nativeDiagnosticFiles, yukuFiles, yukuCandidates, tokenFiles, tokenCandidates,
+    fastCandidates, nativeFiles, nativeCandidates, nativeDiagnosticFiles, compatibilityFiles, compatibilityCandidates,
     baseline: stats(summaries[0]), optimized: stats(summaries[1]), samplesMs: summaries,
   });
 }

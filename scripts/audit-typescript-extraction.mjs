@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { extract, extractFallback } from '../src/extract.mjs';
-import { extractTypeScript } from '../src/typescript-extraction.mjs';
+import { extractYuku } from '../test/support/yuku-extraction.mjs';
 
 const { positionals, values } = parseArgs({ allowPositionals: true, options: {
   logical: { type: 'boolean' }, synthetic: { type: 'string' },
@@ -37,9 +37,9 @@ function audit(name, inputs) {
       report.native++;
       continue;
     }
-    const reference = extractFallback(text, options);
+    const reference = extractYuku(text, options);
     try {
-      const result = extractTypeScript(text, options);
+      const result = extractFallback(text, options);
       assert.equal(result.path, reference.path, 'Source acceptance differs');
       assert.deepEqual(result.candidates, reference.candidates, 'Candidate records differ');
       if (result.path === 'diagnostic') {

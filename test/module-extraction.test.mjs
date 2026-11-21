@@ -62,13 +62,13 @@ test('native modules preserve ASI, binding scope, and failure diagnostics', () =
   assert.equal(extract(script, { requireNative: true, mode: 'script' }).path, 'diagnostic');
 });
 
-test('a complete typed module is extracted without either grammar fallback', () => {
+test('a complete typed module is extracted without loading the compiler', () => {
   const module = new URL('../src/extract.mjs', import.meta.url).href;
   const code = `
     import assert from 'node:assert/strict';
     import { registerHooks } from 'node:module';
     registerHooks({ resolve(specifier, context, nextResolve) {
-      if (specifier === 'yuku-parser') throw new Error('Unexpected Yuku load');
+      if (specifier === 'typescript') throw new Error('Unexpected TypeScript load');
       return nextResolve(specifier, context);
     } });
     const { extract } = await import(${JSON.stringify(module)});

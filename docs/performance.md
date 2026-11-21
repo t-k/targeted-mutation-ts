@@ -75,7 +75,7 @@ The macOS ARM64 addon shrank from 2,113,064 to 170,344 bytes. Routing every Low�
 | mreact | 83.11 ms | 165.83 ms |
 | tachyon-dom | 35.43 ms | 86.19 ms |
 
-The standalone `--low-only` build also runs without Yuku for files within the Low★ grammar. The standard build still needs Yuku for the other files. See the [corpus audits and samples](../evidence/m1/oxc-removal.json).
+The standalone `--low-only` build also runs without Yuku for files within the Low★ grammar. At that revision, the standard build used Yuku for the other files. See the [corpus audits and samples](../evidence/m1/oxc-removal.json).
 
 ## macOS link-time optimization and symbol visibility
 
@@ -260,7 +260,7 @@ node --expose-gc scripts/bench-extraction.mjs --prefix packages/vite/src/ --sour
 
 The generated Low★ parser consumes the original byte buffer. Node's `buffer.isUtf8` validates byte inputs using simdutf. The native path can return candidates without constructing a UTF-16 string. On fallback the AST walker uses identity offsets for ASCII input, and builds a UTF-16-to-byte table for non-ASCII input. Both changes preserve candidate edits and diagnostics.
 
-The runtime package uses Yuku as its syntax fallback. An extraction-only run over 1,585 tracked TS/TSX files from this repository, mreact, and tachyon-dom produced identical paths and candidate spans with Yuku and Babel. Three files used the native path. The median of nine alternating warm passes was 0.46 s with Yuku 0.19.0 and 0.86 s with Babel 7.29.15 on macOS arm64 and Node.js 24.14.0.
+That version of the runtime used Yuku as its syntax fallback. An extraction-only run over 1,585 tracked TS/TSX files from this repository, mreact, and tachyon-dom produced identical paths and candidate spans with Yuku and Babel. Three files used the native path. The median of nine alternating warm passes was 0.46 s with Yuku 0.19.0 and 0.86 s with Babel 7.29.15 on macOS arm64 and Node.js 24.14.0.
 
 Against commit `8e81bed` on those 1,585 files, the token precheck and single-pass location scan reduced median extraction time from 466 ms to 432 ms and candidate collection from 601 ms to 534 ms. All 2,211 candidate records, diagnostics and report positions matched. A generated file with 4,096 candidates went from 353 ms to 17 ms for collection. These measurements exclude test execution. The [recorded runs](../evidence/performance/candidate-pipeline.json) include all nine samples for each version.
 

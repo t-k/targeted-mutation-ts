@@ -76,13 +76,13 @@ test('an unterminated comment rejects a deep prefix without publishing native ca
   assert.deepEqual(result.diagnostics, extractFallback(input).diagnostics);
 });
 
-test('a complete control program does not load Yuku on initial extraction', () => {
+test('a complete control program does not load TypeScript on initial extraction', () => {
   const module = new URL('../src/extract.mjs', import.meta.url).href;
   const program = `
     import assert from 'node:assert/strict';
     import { registerHooks } from 'node:module';
     registerHooks({ resolve(specifier, context, nextResolve) {
-      if (specifier === 'yuku-parser') throw new Error('Unexpected Yuku load');
+      if (specifier === 'typescript') throw new Error('Unexpected TypeScript load');
       return nextResolve(specifier, context);
     } });
     const { extract } = await import(${JSON.stringify(module)});
@@ -90,7 +90,7 @@ test('a complete control program does not load Yuku on initial extraction', () =
     assert.equal(result.path, 'fast');
     assert.equal(result.candidates.length, 2);
     assert.equal(extract('let x; let x;', { requireNative: true }).reason, 'duplicate-lexical');
-    assert.throws(() => extract('let x; let x; const =', { requireNative: true }), /Unexpected Yuku load/);
+    assert.throws(() => extract('let x; let x; const =', { requireNative: true }), /Unexpected TypeScript load/);
   `;
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', program], { encoding: 'utf8', timeout: 10_000 });
   assert.equal(child.status, 0, child.error?.message ?? child.stderr);

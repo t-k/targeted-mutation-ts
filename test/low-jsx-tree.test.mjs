@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { extract, extractFallback } from '../src/extract.mjs';
+import { extractYuku } from './support/yuku-extraction.mjs';
 
 function compare(source, path, options = {}) {
   const mode = { dialect: 'tsx', ...options };
   const input = Buffer.from(source);
   const result = extract(input, { ...mode, requireNative: true });
-  const reference = extractFallback(input, mode);
+  const reference = (result.path === 'fast' ? extractYuku : extractFallback)(input, mode);
   assert.equal(result.path, path, source);
   assert.deepEqual(result.candidates, reference.candidates, source);
   assert.deepEqual(result.diagnostics, reference.diagnostics, source);

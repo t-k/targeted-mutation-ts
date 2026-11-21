@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { extractFallback } from '../src/extract.mjs';
+import { extractYuku } from './support/yuku-extraction.mjs';
 import { extractTypeScript } from '../src/typescript-extraction.mjs';
 
 function compare(source, options) {
   const result = extractTypeScript(source, options);
-  const reference = extractFallback(source, options);
+  const reference = extractYuku(source, options);
   assert.equal(result.path, reference.path, source);
   assert.deepEqual(result.candidates, reference.candidates, source);
   for (const diagnostic of result.diagnostics ?? []) {
@@ -199,4 +199,23 @@ test('unparenthesized assertions can be assignment targets without changing byte
     '([] as T = z)', '(x as T + y = z)',
   ]) compare('/* 🧪 */ const keep = a < b; ' + expression + ';', options);
   compare('const view = <X.#tag-xx>{a < b}</X.#tag-xx>; const raw = "</X.#tag-xx>";', { file: 'literal.tsx' });
+});
+
+test('computed enum members and strict labelled function declarations discard mutations', () => {
+  const options = { file: 'declarations.ts' };
+  for (const member of ['[foo]', '["foo"]', '[1]', 'plain', '"plain"']) {
+    compare('enum X { ' + member + ' = 1 } const keep = a < b;', options);
+  }
+  compare('label: function f() {} const keep = a < b;', options);
+  compare('label: function f() {} const keep = a < b;', { ...options, mode: 'script' });
+});
+
+test('type argument lists after import types can cross trivia with a line break', () => {
+  const options = { file: 'import-types.ts' };
+  for (const gap of ['\n', ' /* 🧪\n */ ', ' // comment\r\n ', '\u2028']) {
+    for (const tail of ['<T> >= limit', '<T>> limit', '<T> + a < b', '<Box<T> + limit', '<T']) {
+      compare('const keep = a < b; const value = input as keyof import("pkg").Model' + gap + tail + ';', options);
+    }
+  }
+  compare('const value = input as Other\n<T> + a < b;', options);
 });

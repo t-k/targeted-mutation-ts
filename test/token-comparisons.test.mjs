@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { extract, extractFallback } from '../src/extract.mjs';
+import { extractYuku } from './support/yuku-extraction.mjs';
 
 const rows = readFileSync(new URL('../verification/pict/condition-tokens.tsv', import.meta.url), 'utf8').trim().split(/\r?\n/).slice(1);
 for (const row of rows) {
@@ -14,9 +14,9 @@ for (const row of rows) {
     const expr = left + gap + op + gap + 'limit';
     const source = 'type Index = number;\n' + prefix +
       ({ If: `if (${expr}) {}`, While: `while (${expr}) {}`, For: `for (let i = 0; ${expr}; i++) {}` }[condition]);
-    const result = extract(source, { dialect: 'ts', mode: 'script' });
+    const result = extractYuku(source, { dialect: 'ts', mode: 'script' }, true);
     assert.equal(result.fallback, 'tokens');
-    assert.deepEqual(result.candidates, extractFallback(source, { dialect: 'ts', mode: 'script' }).candidates);
+    assert.deepEqual(result.candidates, extractYuku(source, { dialect: 'ts', mode: 'script' }).candidates);
   });
 }
 
@@ -29,17 +29,17 @@ test('ambiguous operators and unsupported syntax use the AST without partial res
     'if (a < b && c > d) {}',
     'if (a < b) {} const x = `x ${a > b}`;',
   ]) {
-    const result = extract(source, { dialect: 'ts', mode: 'script' });
+    const result = extractYuku(source, { dialect: 'ts', mode: 'script' }, true);
     assert.notEqual(result.fallback, 'tokens', source);
-    assert.deepEqual(result.candidates, extractFallback(source, { dialect: 'ts', mode: 'script' }).candidates, source);
+    assert.deepEqual(result.candidates, extractYuku(source, { dialect: 'ts', mode: 'script' }).candidates, source);
   }
 });
 
 test('diagnostics and TSX remain on the existing path', () => {
   for (const [source, dialect] of [['if (a < b) {} const x;', 'ts'], ['if (a < b) {} let x; let x;', 'ts'], ['const x = <T n={a < b} />;', 'tsx']]) {
-    const result = extract(source, { dialect, mode: 'script' });
+    const result = extractYuku(source, { dialect, mode: 'script' }, true);
     assert.notEqual(result.fallback, 'tokens');
-    const oracle = extractFallback(source, { dialect, mode: 'script' });
+    const oracle = extractYuku(source, { dialect, mode: 'script' });
     assert.deepEqual(result.candidates, oracle.candidates);
     assert.deepEqual(result.diagnostics, oracle.diagnostics);
   }
@@ -47,17 +47,17 @@ test('diagnostics and TSX remain on the existing path', () => {
 
 test('regex contents do not become comparison tokens', () => {
   const source = 'if (a < b) {} const x = /[<]/;';
-  const result = extract(source, { dialect: 'ts', mode: 'script' });
+  const result = extractYuku(source, { dialect: 'ts', mode: 'script' }, true);
   assert.equal(result.fallback, 'tokens');
-  assert.deepEqual(result.candidates, extractFallback(source).candidates);
+  assert.deepEqual(result.candidates, extractYuku(source).candidates);
 });
 
 test('a leading ambient const type reference permits direct condition extraction', () => {
   for (const ending of ['; ', '\n', '']) {
     const source = `declare const defs: Record<string, any>${ending}${ending ? 'for (let i = 0; i < segments.length; i++) {}' : ''}`;
-    const result = extract(source, { dialect: 'ts', mode: 'script' });
+    const result = extractYuku(source, { dialect: 'ts', mode: 'script' }, true);
     if (ending) assert.equal(result.fallback, 'tokens');
-    assert.deepEqual(result.candidates, extractFallback(source, { dialect: 'ts', mode: 'script' }).candidates);
+    assert.deepEqual(result.candidates, extractYuku(source, { dialect: 'ts', mode: 'script' }).candidates);
   }
 });
 
@@ -70,9 +70,9 @@ test('type-like syntax outside the narrow ambient declaration stays on the AST p
     'declare const defs: Record<string, any>; const x = f<T>(); if (a < b) {}',
     'const x = 0; declare const defs: Record<string, any>; if (a < b) {}',
   ]) {
-    const result = extract(source, { dialect: 'ts', mode: 'script' });
+    const result = extractYuku(source, { dialect: 'ts', mode: 'script' }, true);
     assert.notEqual(result.fallback, 'tokens', source);
-    assert.deepEqual(result.candidates, extractFallback(source, { dialect: 'ts', mode: 'script' }).candidates, source);
+    assert.deepEqual(result.candidates, extractYuku(source, { dialect: 'ts', mode: 'script' }).candidates, source);
   }
 });
 
@@ -84,8 +84,8 @@ for (const row of ambientRows) {
     const args = arguments_ === 'One' ? 'string' : 'string, any';
     const body = { If: 'if (i < segments.length) {}', While: 'while (i < segments.length) {}', For: 'for (let i = 0; i < segments.length; i++) {}' }[condition];
     const source = `declare const defs: Record<${args}>${end}${body}`;
-    const result = extract(source, { dialect: 'ts', mode: 'script' });
+    const result = extractYuku(source, { dialect: 'ts', mode: 'script' }, true);
     assert.equal(result.fallback, 'tokens');
-    assert.deepEqual(result.candidates, extractFallback(source, { dialect: 'ts', mode: 'script' }).candidates);
+    assert.deepEqual(result.candidates, extractYuku(source, { dialect: 'ts', mode: 'script' }).candidates);
   });
 }

@@ -45,11 +45,11 @@ export function createTypeScriptGrammar(ts, bindings) {
       if (ts.isReturnStatement(node) && !functionContext) report("'return' statement is only valid inside a function");
       const single = parent && (
         (ts.isIfStatement(parent) && (parent.thenStatement === node || parent.elseStatement === node)) ||
-        ((ts.isIterationStatement(parent, true) || ts.isWithStatement(parent)) && parent.statement === node)
+        ((ts.isIterationStatement(parent, true) || ts.isWithStatement(parent) || ts.isLabeledStatement(parent)) && parent.statement === node)
       );
       if (single) {
         if (ts.isClassDeclaration(node)) report('Class declarations are not allowed in single-statement contexts');
-        if (ts.isFunctionDeclaration(node) && node.body && (strict || !ts.isIfStatement(parent))) {
+        if (ts.isFunctionDeclaration(node) && node.body && (strict || !ts.isIfStatement(parent) && !ts.isLabeledStatement(parent))) {
           report(strict ? 'In strict mode code, functions can only be declared at top level or inside a block' :
             'In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement');
         }
@@ -141,11 +141,13 @@ export function createTypeScriptGrammar(ts, bindings) {
       }
       if (ts.isLabeledStatement(node)) {
         const name = node.label.text;
+        if (strict && strictReservedBindings.has(name)) report(`'${name}' is reserved in strict mode and cannot be used as a label`, node.label);
         if (labels.some(label => label.name === name)) report(`Duplicate label '${name}'`);
       }
       if (ts.isBreakStatement(node) || ts.isContinueStatement(node)) {
         if (node.label) {
           const name = node.label.text;
+          if (strict && strictReservedBindings.has(name)) report(`'${name}' is reserved in strict mode and cannot be used as a label`, node.label);
           const target = labels.find(label => label.name === name);
           if (!target) {
             if (outerLabels.some(label => label.name === name)) {
@@ -239,6 +241,9 @@ export function createTypeScriptGrammar(ts, bindings) {
       if (ts.isCatchClause(node) && node.variableDeclaration?.initializer) {
         add("Expected ')' after catch parameter, but found '='");
       }
+      if (ts.isEnumMember(node) && ts.isComputedPropertyName(node.name)) {
+        add('Computed property names are not allowed in enums', node.name);
+      }
       if (ts.isTupleTypeNode(node)) {
         let optional = false;
         for (const element of node.elements) {
@@ -302,6 +307,13 @@ export function createTypeScriptGrammar(ts, bindings) {
           } else {
             if (implementsSeen) add("Expected '{' to start class body, but found 'implements'");
             implementsSeen = true;
+            for (const type of clause.types) {
+              let expression = type.expression;
+              while (ts.isPropertyAccessExpression(expression)) expression = expression.expression;
+              if (expression.kind === ts.SyntaxKind.NullKeyword) {
+                add("'null' is reserved and cannot be used as an identifier", expression);
+              }
+            }
           }
         }
       }
@@ -314,8 +326,10 @@ export function createTypeScriptGrammar(ts, bindings) {
           }
         }
       }
-      if (ts.isConstructorDeclaration(node) && node.typeParameters?.length) {
-        add('Type parameters cannot appear on a constructor declaration');
+      if (ts.isConstructorDeclaration(node)) {
+        if (node.typeParameters?.length) add('Type parameters cannot appear on a constructor declaration');
+        const field = nodeModifiers.find(flag => [ts.SyntaxKind.ConstKeyword, ts.SyntaxKind.InKeyword, ts.SyntaxKind.OutKeyword].includes(flag.kind));
+        if (field) add(`Expected ';' after class field, but found '${tokenAt(field.end)}'`, field);
       }
       if ((ts.isMethodDeclaration(node) || ts.isMethodSignature(node) || ts.isAccessor(node)) &&
           nodeModifiers.some(m => m.kind === ts.SyntaxKind.ReadonlyKeyword)) {

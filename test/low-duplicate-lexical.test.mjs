@@ -5,11 +5,12 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { pathToFileURL } from 'node:url';
 import { extract, extractFallback } from '../src/extract.mjs';
+import { extractYuku } from './support/yuku-extraction.mjs';
 
 function check(source, native, file = 'case.ts') {
   const options = { file, logical: true, requireNative: true };
   const actual = extract(source, options);
-  const reference = extractFallback(source, options);
+  const reference = native ? extractYuku(source, options) : extractFallback(source, options);
   assert.equal(actual.reason === 'duplicate-lexical', native, source);
   assert.equal(actual.path, 'diagnostic', source);
   assert.deepEqual(actual.candidates, [], source);
@@ -45,7 +46,7 @@ test('the normal addon reports a complete diagnostic without parser dependencies
   try {
     mkdirSync(join(root, 'build'));
     mkdirSync(join(root, 'src'));
-    for (const path of ['build/tmt.node', 'src/extract.mjs', 'src/source-text.mjs', 'src/token-comparisons.mjs']) {
+    for (const path of ['build/tmt.node', 'src/extract.mjs', 'src/source-text.mjs', 'src/typescript-extraction.mjs', 'src/typescript-bindings.mjs', 'src/typescript-grammar.mjs']) {
       copyFileSync(new URL(`../${path}`, import.meta.url), join(root, path));
     }
     const { extract: isolatedExtract } = await import(pathToFileURL(join(root, 'src/extract.mjs')));
@@ -53,7 +54,7 @@ test('the normal addon reports a complete diagnostic without parser dependencies
     const result = isolatedExtract(source, { requireNative: true });
     assert.equal(result.reason, 'duplicate-lexical');
     assert.deepEqual(result.candidates, []);
-    assert.deepEqual(result.diagnostics, extractFallback(source).diagnostics);
+    assert.deepEqual(result.diagnostics, extractYuku(source).diagnostics);
     assert.equal(result.diagnostics[0].path, null);
   } finally {
     rmSync(root, { recursive: true, force: true });
