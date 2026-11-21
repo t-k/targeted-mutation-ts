@@ -1,5 +1,29 @@
 # Performance measurements
 
+## Low★ exceptions, function forms, and regular expressions
+
+Against `acc4149`, the AST-free route increased from 1,139 to 1,934 of 8,549 tracked TS/TSX files and from 196 to 808 of 2,968 comparison candidates. Both logical-rule settings matched Yuku on complete ordered candidate records and diagnostics.
+
+| Checkout | Baseline Low★ files | Current Low★ files | Baseline Low★ candidates | Current Low★ candidates |
+| --- | ---: | ---: | ---: | ---: |
+| Vite | 145 | 300 | 11 | 45 |
+| Preact | 4 | 5 | 0 | 0 |
+| TypeScript compiler fixtures | 586 | 767 | 41 | 47 |
+| mreact | 322 | 704 | 105 | 591 |
+| tachyon-dom | 82 | 158 | 39 | 125 |
+
+In the 118-file Vite production scope, Low★ accepted 53 files and emitted 24 of 160 candidates, up from eight files and two candidates. These include all eight comparisons in `packages/vite/src/node/plugins/reporter.ts` and all five in `packages/vite/src/node/server/transformRequest.ts`. A clean standalone build reproduced all 808 candidates in 243 files without the Oxc source tree, Cargo, or npm dependencies. The original 85 Yuku candidates still use Yuku, including 67 in mreact and four in tachyon-dom.
+
+| Warm extraction workload | Baseline median | Current median |
+| --- | ---: | ---: |
+| Vite | 76.39 ms | 64.66 ms |
+| Vite production source | 32.08 ms | 29.42 ms |
+| mreact | 425.70 ms | 447.30 ms |
+| mreact repeat | 381.46 ms | 337.90 ms |
+| tachyon-dom | 96.72 ms | 90.26 ms |
+
+Each measurement uses nine alternating samples on the same source buffers. The first mreact run has overlapping interquartile ranges, and the repeat favored the current parser. The [audit and benchmark data](../evidence/m1/low-statements-and-regex.json) include the samples and standalone candidate spans.
+
 ## Low★ control, TSX, and type syntax expansion
 
 Against `3612949`, the AST-free route increased from 554 to 1,139 of 8,549 tracked TS/TSX files and from 40 to 196 of 2,968 comparison candidates. Both logical-rule settings agreed with Yuku on ordered candidates, all byte spans, and complete diagnostic output.
