@@ -1936,7 +1936,8 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
     else
       let inner = minus fuel 1ul in
       let consequent = comparison input { st with offset = next st.offset; in_allowed = true } inner in
-      let alternate = comparison input (consume input { consequent.parser with in_allowed = st.in_allowed } 58uy) inner in
+      let colon = skip input { consequent.parser with in_allowed = st.in_allowed } in
+      let alternate = comparison input (consume input colon 58uy) inner in
       { alternate with range = { alternate.range with G.first = lhs.range.G.first };
         open_angle = lhs.open_angle || consequent.open_angle || alternate.open_angle;
         outer_or = false; shortcut = 0ul; target = NotAssignable }

@@ -1,0 +1,7 @@
+Arrow	Gap	Suffix
+Plain	Adjacent	Valid
+Plain	CRLF	Valid
+Async	Block	Valid
+TypedGeneric	Unicode	Valid
+TypedGeneric	Space	MissingColon
+Plain	Block	InvalidStatement

@@ -1,0 +1,3 @@
+Arrow: Plain, Async, TypedGeneric
+Gap: Adjacent, Space, CRLF, Block, Unicode
+Suffix: Valid, MissingColon, InvalidStatement

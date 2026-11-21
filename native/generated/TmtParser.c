@@ -6707,29 +6707,28 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             ),
             inner);
         TmtParser_parser_state uu____2 = consequent.parser;
+        TmtParser_parser_state
+        colon =
+          TmtParser_skip(input,
+            (
+              (TmtParser_parser_state){
+                .offset = uu____2.offset,
+                .count = uu____2.count,
+                .depth = uu____2.depth,
+                .status = uu____2.status,
+                .local_names = uu____2.local_names,
+                .await_allowed = uu____2.await_allowed,
+                .jsx_allowed = uu____2.jsx_allowed,
+                .module_mode = uu____2.module_mode,
+                .in_allowed = st.in_allowed,
+                .for_initializer = uu____2.for_initializer,
+                .arrow_defaults_allowed = uu____2.arrow_defaults_allowed,
+                .binding_mode = uu____2.binding_mode,
+                .super_context = uu____2.super_context
+              }
+            ));
         TmtParser_parsed
-        alternate =
-          TmtParser_comparison(input,
-            TmtParser_consume(input,
-              (
-                (TmtParser_parser_state){
-                  .offset = uu____2.offset,
-                  .count = uu____2.count,
-                  .depth = uu____2.depth,
-                  .status = uu____2.status,
-                  .local_names = uu____2.local_names,
-                  .await_allowed = uu____2.await_allowed,
-                  .jsx_allowed = uu____2.jsx_allowed,
-                  .module_mode = uu____2.module_mode,
-                  .in_allowed = st.in_allowed,
-                  .for_initializer = uu____2.for_initializer,
-                  .arrow_defaults_allowed = uu____2.arrow_defaults_allowed,
-                  .binding_mode = uu____2.binding_mode,
-                  .super_context = uu____2.super_context
-                }
-              ),
-              58U),
-            inner);
+        alternate = TmtParser_comparison(input, TmtParser_consume(input, colon, 58U), inner);
         return
           (
             (TmtParser_parsed){
