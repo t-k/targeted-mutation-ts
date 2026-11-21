@@ -13,19 +13,27 @@ const conflicts = {
 };
 
 export function createTypeScriptBindings(ts) {
-  const hasModifier = (node, flags) => (ts.getCombinedModifierFlags(node) & flags) !== 0;
+  const {
+    ModifierFlags, NodeFlags, SyntaxKind, forEachChild, getCombinedModifierFlags, isArrayBindingPattern,
+    isBindingElement, isCaseBlock, isCaseOrDefaultClause, isCatchClause, isClassDeclaration, isClassLike,
+    isEmptyStatement, isEnumDeclaration, isExportAssignment, isExportDeclaration, isFunctionDeclaration,
+    isFunctionLike, isIdentifier, isImportDeclaration, isImportEqualsDeclaration, isInterfaceDeclaration,
+    isModuleBlock, isModuleDeclaration, isNamedExports, isNamedImports, isNamespaceExport, isNamespaceImport,
+    isObjectBindingPattern, isStatement, isTypeAliasDeclaration, isVariableDeclarationList, isVariableStatement,
+  } = ts;
+  const hasModifier = (node, flags) => (getCombinedModifierFlags(node) & flags) !== 0;
 
   function namesIn(pattern) {
     const pending = [pattern];
     const names = [];
     while (pending.length) {
       const node = pending.pop();
-      if (ts.isIdentifier(node)) {
+      if (isIdentifier(node)) {
         names.push(node);
-      } else if (ts.isObjectBindingPattern(node) || ts.isArrayBindingPattern(node)) {
+      } else if (isObjectBindingPattern(node) || isArrayBindingPattern(node)) {
         for (let index = node.elements.length - 1; index >= 0; index--) {
           const element = node.elements[index];
-          if (ts.isBindingElement(element)) pending.push(element.name);
+          if (isBindingElement(element)) pending.push(element.name);
         }
       }
     }
@@ -36,11 +44,11 @@ export function createTypeScriptBindings(ts) {
     const pending = [namespace];
     while (pending.length) {
       const node = pending.pop();
-      if (ts.isModuleDeclaration(node)) {
+      if (isModuleDeclaration(node)) {
         if (node.body) pending.push(node.body);
-      } else if (ts.isModuleBlock(node)) {
+      } else if (isModuleBlock(node)) {
         for (const statement of node.statements) pending.push(statement);
-      } else if (!ts.isTypeAliasDeclaration(node) && !ts.isInterfaceDeclaration(node) && !ts.isEmptyStatement(node)) {
+      } else if (!isTypeAliasDeclaration(node) && !isInterfaceDeclaration(node) && !isEmptyStatement(node)) {
         return true;
       }
     }
@@ -48,36 +56,36 @@ export function createTypeScriptBindings(ts) {
   }
 
   function declaration(statement, ambient = false) {
-    if (ts.isVariableStatement(statement)) {
+    if (isVariableStatement(statement)) {
       const { declarationList } = statement;
-      const kind = (declarationList.flags & ts.NodeFlags.BlockScoped) === 0 ? 'Var' : 'Lexical';
+      const kind = (declarationList.flags & NodeFlags.BlockScoped) === 0 ? 'Var' : 'Lexical';
       return { kind, names: declarationList.declarations.flatMap(node => namesIn(node.name)) };
     }
-    if (ts.isFunctionDeclaration(statement)) return { kind: 'Function', names: statement.name ? [statement.name] : [] };
-    if (ts.isClassDeclaration(statement)) {
-      const kind = ambient || hasModifier(statement, ts.ModifierFlags.Ambient) ? 'AmbientClass' : 'Class';
+    if (isFunctionDeclaration(statement)) return { kind: 'Function', names: statement.name ? [statement.name] : [] };
+    if (isClassDeclaration(statement)) {
+      const kind = ambient || hasModifier(statement, ModifierFlags.Ambient) ? 'AmbientClass' : 'Class';
       return { kind, names: statement.name ? [statement.name] : [] };
     }
-    if (ts.isTypeAliasDeclaration(statement)) return { kind: 'Type', names: [statement.name] };
-    if (ts.isInterfaceDeclaration(statement)) return { kind: 'Interface', names: [statement.name] };
-    if (ts.isEnumDeclaration(statement)) {
-      const kind = hasModifier(statement, ts.ModifierFlags.Const) ? 'ConstEnum' : 'Enum';
+    if (isTypeAliasDeclaration(statement)) return { kind: 'Type', names: [statement.name] };
+    if (isInterfaceDeclaration(statement)) return { kind: 'Interface', names: [statement.name] };
+    if (isEnumDeclaration(statement)) {
+      const kind = hasModifier(statement, ModifierFlags.Const) ? 'ConstEnum' : 'Enum';
       return { kind, names: [statement.name] };
     }
-    if (ts.isModuleDeclaration(statement) && ts.isIdentifier(statement.name) &&
-        (statement.flags & ts.NodeFlags.GlobalAugmentation) === 0 && hasRuntimeMembers(statement)) {
+    if (isModuleDeclaration(statement) && isIdentifier(statement.name) &&
+        (statement.flags & NodeFlags.GlobalAugmentation) === 0 && hasRuntimeMembers(statement)) {
       return { kind: 'Namespace', names: [statement.name] };
     }
-    if (ts.isImportDeclaration(statement) && statement.importClause) {
+    if (isImportDeclaration(statement) && statement.importClause) {
       const { name, namedBindings } = statement.importClause;
       const names = name ? [name] : [];
-      if (namedBindings && ts.isNamespaceImport(namedBindings)) names.push(namedBindings.name);
-      if (namedBindings && ts.isNamedImports(namedBindings)) {
+      if (namedBindings && isNamespaceImport(namedBindings)) names.push(namedBindings.name);
+      if (namedBindings && isNamedImports(namedBindings)) {
         for (const element of namedBindings.elements) names.push(element.name);
       }
       return { kind: 'Import', names };
     }
-    if (ts.isImportEqualsDeclaration(statement)) return { kind: 'Import', names: [statement.name] };
+    if (isImportEqualsDeclaration(statement)) return { kind: 'Import', names: [statement.name] };
   }
 
   function duplicate(name, previous, report) {
@@ -89,16 +97,16 @@ export function createTypeScriptBindings(ts) {
     const names = [];
     while (pending.length) {
       const node = pending.pop();
-      if (ts.isFunctionLike(node) || ts.isClassLike(node) || ts.isModuleDeclaration(node)) continue;
-      if (ts.isVariableDeclarationList(node)) {
-        if ((node.flags & ts.NodeFlags.BlockScoped) === 0) {
+      if (isFunctionLike(node) || isClassLike(node) || isModuleDeclaration(node)) continue;
+      if (isVariableDeclarationList(node)) {
+        if ((node.flags & NodeFlags.BlockScoped) === 0) {
           for (const declaration of node.declarations) names.push(...namesIn(declaration.name));
         }
         continue;
       }
-      ts.forEachChild(node, child => {
-        if (ts.isStatement(child) || ts.isVariableDeclarationList(child) ||
-            ts.isCaseBlock(child) || ts.isCaseOrDefaultClause(child) || ts.isCatchClause(child)) {
+      forEachChild(node, child => {
+        if (isStatement(child) || isVariableDeclarationList(child) ||
+            isCaseBlock(child) || isCaseOrDefaultClause(child) || isCatchClause(child)) {
           pending.push(child);
         }
       });
@@ -135,7 +143,7 @@ export function createTypeScriptBindings(ts) {
     const locals = new Set(nestedVars.map(name => name.text));
     for (const statement of file.statements) {
       for (const name of declaration(statement)?.names ?? []) locals.add(name.text);
-      if (ts.isModuleDeclaration(statement) && ts.isIdentifier(statement.name)) locals.add(statement.name.text);
+      if (isModuleDeclaration(statement) && isIdentifier(statement.name)) locals.add(statement.name.text);
     }
 
     const exported = new Map();
@@ -145,12 +153,12 @@ export function createTypeScriptBindings(ts) {
       else exported.set(name, node);
     }
     for (const statement of file.statements) {
-      if (ts.isExportDeclaration(statement)) {
+      if (isExportDeclaration(statement)) {
         const clause = statement.exportClause;
         if (!clause) continue;
-        if (ts.isNamespaceExport(clause)) {
+        if (isNamespaceExport(clause)) {
           record(clause.name.text, clause.name);
-        } else if (ts.isNamedExports(clause)) {
+        } else if (isNamedExports(clause)) {
           for (const element of clause.elements) {
             const local = element.propertyName ?? element.name;
             if (!statement.moduleSpecifier && !statement.isTypeOnly && !element.isTypeOnly && !locals.has(local.text)) {
@@ -161,17 +169,17 @@ export function createTypeScriptBindings(ts) {
         }
         continue;
       }
-      if (ts.isExportAssignment(statement)) {
+      if (isExportAssignment(statement)) {
         if (!statement.isExportEquals) {
           if (implicitDefault) report(statement, "Duplicate export of 'default'", implicitDefault);
           record('default', statement);
         }
         continue;
       }
-      if (!hasModifier(statement, ts.ModifierFlags.Export)) continue;
-      const defaultToken = statement.modifiers?.find(modifier => modifier.kind === ts.SyntaxKind.DefaultKeyword);
-      if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) ||
-          (ts.isFunctionDeclaration(statement) && !statement.body)) {
+      if (!hasModifier(statement, ModifierFlags.Export)) continue;
+      const defaultToken = statement.modifiers?.find(modifier => modifier.kind === SyntaxKind.DefaultKeyword);
+      if (isInterfaceDeclaration(statement) || isTypeAliasDeclaration(statement) ||
+          (isFunctionDeclaration(statement) && !statement.body)) {
         implicitDefault ??= defaultToken;
         continue;
       }
@@ -179,8 +187,8 @@ export function createTypeScriptBindings(ts) {
         record('default', defaultToken);
         continue;
       }
-      if (ts.isVariableStatement(statement) || ts.isClassDeclaration(statement) ||
-          ts.isFunctionDeclaration(statement) || ts.isImportEqualsDeclaration(statement)) {
+      if (isVariableStatement(statement) || isClassDeclaration(statement) ||
+          isFunctionDeclaration(statement) || isImportEqualsDeclaration(statement)) {
         for (const name of declaration(statement)?.names ?? []) record(name.text, name);
       }
     }
@@ -191,21 +199,21 @@ export function createTypeScriptBindings(ts) {
     while (pending.length) {
       const { statements, namespaces, ambient, shared } = pending.pop();
       for (const statement of statements) {
-        if (!ts.isModuleDeclaration(statement)) continue;
-        const ambientNamespace = ambient || hasModifier(statement, ts.ModifierFlags.Ambient);
-        const joinsNamespace = !shared || ambient || hasModifier(statement, ts.ModifierFlags.Export);
+        if (!isModuleDeclaration(statement)) continue;
+        const ambientNamespace = ambient || hasModifier(statement, ModifierFlags.Ambient);
+        const joinsNamespace = !shared || ambient || hasModifier(statement, ModifierFlags.Export);
         let scope = namespaces;
         let part = statement;
-        while (part && ts.isModuleDeclaration(part) && part.body) {
+        while (part && isModuleDeclaration(part) && part.body) {
           const key = JSON.stringify([part.name.kind, part.name.text]);
           const previous = joinsNamespace ? scope.get(key) : undefined;
           const joined = previous ?? { namespaces: new Map(), exports: new Map() };
           if (joinsNamespace && !previous) scope.set(key, joined);
-          if (ts.isModuleBlock(part.body)) {
+          if (isModuleBlock(part.body)) {
             const children = part.body.statements;
             const current = new Map();
             for (const child of children) {
-              if (!ambientNamespace && !hasModifier(child, ts.ModifierFlags.Export)) continue;
+              if (!ambientNamespace && !hasModifier(child, ModifierFlags.Export)) continue;
               const entry = declaration(child, ambientNamespace);
               if (!entry) continue;
               for (const name of entry.names) {

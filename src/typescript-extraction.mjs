@@ -7,9 +7,15 @@ const load = createRequire(import.meta.url);
 let extractWithCompiler;
 
 function createExtractor(ts) {
+  const {
+    LanguageVariant, ScriptKind, ScriptTarget, SyntaxKind, createScanner, createSourceFile,
+    flattenDiagnosticMessageText, forEachChild, isArrowFunction, isAsExpression, isBinaryExpression, isIdentifier,
+    isImportTypeNode, isJsxAttribute, isJsxClosingElement, isJsxElement, isJsxExpression, isJsxOpeningElement,
+    isJsxSelfClosingElement, isParenthesizedExpression, isSatisfiesExpression, isTypeAssertionExpression,
+  } = ts;
   const checkGrammar = createTypeScriptGrammar(ts, createTypeScriptBindings(ts));
 
-  const kind = ts.SyntaxKind;
+  const kind = SyntaxKind;
   const comparison = new Map([
     [kind.LessThanToken, ['<', '<=']],
     [kind.LessThanEqualsToken, ['<=', '<']],
@@ -17,7 +23,7 @@ function createExtractor(ts) {
     [kind.GreaterThanEqualsToken, ['>=', '>']],
   ]);
   const isName = token => token === kind.Identifier || token >= kind.FirstKeyword && token <= kind.LastKeyword;
-  const scannerFor = source => ts.createScanner(ts.ScriptTarget.Latest, true, ts.LanguageVariant.Standard, source);
+  const scannerFor = source => createScanner(ScriptTarget.Latest, true, LanguageVariant.Standard, source);
 
   function jsxTagMarkers(source, diagnostics) {
     const errors = new Set(diagnostics.filter(diagnostic => diagnostic.code === 1003).map(diagnostic => diagnostic.start));
@@ -76,13 +82,13 @@ function createExtractor(ts) {
     const pending = [repaired];
     while (pending.length) {
       const node = pending.pop();
-      if (ts.isJsxOpeningElement(node) || ts.isJsxClosingElement(node) || ts.isJsxSelfClosingElement(node)) {
+      if (isJsxOpeningElement(node) || isJsxClosingElement(node) || isJsxSelfClosingElement(node)) {
         const start = node.tagName.getStart(repaired);
         for (let index = start; index < node.tagName.end; index++) {
           if (text[index] !== source[index]) confirmed.add(index);
         }
       }
-      ts.forEachChild(node, child => { pending.push(child); });
+      forEachChild(node, child => { pending.push(child); });
     }
     if (!confirmed.size) return tree;
     if (markers.some(position => !confirmed.has(position))) {
@@ -124,10 +130,10 @@ function createExtractor(ts) {
     const pending = [tree];
     while (pending.length) {
       const node = pending.pop();
-      if (ts.isJsxElement(node) && node.openingElement.tagName.getText(tree) === node.closingElement.tagName.getText(tree)) {
+      if (isJsxElement(node) && node.openingElement.tagName.getText(tree) === node.closingElement.tagName.getText(tree)) {
         matchedTags.add(node.openingElement.getStart(tree));
       }
-      ts.forEachChild(node, child => { pending.push(child); });
+      forEachChild(node, child => { pending.push(child); });
     }
     const scanner = scannerFor(source);
     const offsets = [];
@@ -149,11 +155,11 @@ function createExtractor(ts) {
     const pending = [tree];
     while (pending.length) {
       const node = pending.pop();
-      if (ts.isArrowFunction(node) && node.typeParameters?.length === 1 && node.typeParameters.hasTrailingComma &&
+      if (isArrowFunction(node) && node.typeParameters?.length === 1 && node.typeParameters.hasTrailingComma &&
           node.equalsGreaterThanToken.getWidth(tree) > 0) {
         confirmed.add(node.typeParameters.end - 1);
       }
-      ts.forEachChild(node, child => { pending.push(child); });
+      forEachChild(node, child => { pending.push(child); });
     }
     return confirmed;
   }
@@ -187,7 +193,7 @@ function createExtractor(ts) {
     if (!expected.size) return result;
     const scanner = scannerFor(tree.text);
     const isAssignment = token => token >= kind.FirstAssignment && token <= kind.LastAssignment;
-    const isAssertion = node => ts.isAsExpression(node) || ts.isSatisfiesExpression(node) || ts.isTypeAssertionExpression(node);
+    const isAssertion = node => isAsExpression(node) || isSatisfiesExpression(node) || isTypeAssertionExpression(node);
     const edits = [];
     const pending = [tree];
     while (pending.length) {
@@ -198,7 +204,7 @@ function createExtractor(ts) {
           edits.push([node.getStart(tree), '('], [node.end, ')']);
         }
       }
-      ts.forEachChild(node, child => { pending.push(child); });
+      forEachChild(node, child => { pending.push(child); });
     }
     if (!edits.length) return result;
     edits.sort((a, b) => a[0] - b[0]);
@@ -208,12 +214,12 @@ function createExtractor(ts) {
     pending.push(repaired);
     while (pending.length) {
       const node = pending.pop();
-      if (ts.isBinaryExpression(node) && isAssignment(node.operatorToken.kind) &&
-          ts.isParenthesizedExpression(node.left) && isAssertion(node.left.expression)) {
+      if (isBinaryExpression(node) && isAssignment(node.operatorToken.kind) &&
+          isParenthesizedExpression(node.left) && isAssertion(node.left.expression)) {
         confirmed.add(node.left.getStart(repaired));
         confirmed.add(node.left.end - 1);
       }
-      ts.forEachChild(node, child => { pending.push(child); });
+      forEachChild(node, child => { pending.push(child); });
     }
     if (repair.inserted.some(position => !confirmed.has(position))) return result;
     return { tree: repaired, originalOffset: offset => originalOffset(repair.originalOffset(offset)) };
@@ -227,13 +233,13 @@ function createExtractor(ts) {
     const gaps = [];
     while (pending.length) {
       const node = pending.pop();
-      if (ts.isImportTypeNode(node) && !node.typeArguments) {
+      if (isImportTypeNode(node) && !node.typeArguments) {
         scanner.setTextPos(node.end);
         if (scanner.scan() === kind.LessThanToken && scanner.hasPrecedingLineBreak()) {
           gaps.push([node.end, scanner.getTokenStart()]);
         }
       }
-      ts.forEachChild(node, child => { pending.push(child); });
+      forEachChild(node, child => { pending.push(child); });
     }
     if (!gaps.length) return tree;
     const parts = [];
@@ -247,12 +253,12 @@ function createExtractor(ts) {
   }
 
   function parse(source, file, dialect) {
-    const scriptKind = dialect === 'tsx' ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-    const read = text => ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false, scriptKind);
+    const scriptKind = dialect === 'tsx' ? ScriptKind.TSX : ScriptKind.TS;
+    const read = text => createSourceFile(file, text, ScriptTarget.Latest, false, scriptKind);
     const tree = repairImportTypeArguments(read(source), read);
     let result = { tree, originalOffset: offset => offset };
     if (!tree.parseDiagnostics.length) return result;
-    if (scriptKind === ts.ScriptKind.TSX) result = repairTsx(tree.text, tree, read);
+    if (scriptKind === ScriptKind.TSX) result = repairTsx(tree.text, tree, read);
     return repairAssertedAssignments(result, read);
   }
 
@@ -262,7 +268,7 @@ function createExtractor(ts) {
     const candidates = [];
     while (pending.length) {
       const { node, parent, grandparent } = pending.pop();
-      if (ts.isBinaryExpression(node)) {
+      if (isBinaryExpression(node)) {
         const boundary = comparison.get(node.operatorToken.kind);
         if (boundary) {
           const [operator, replacement] = boundary;
@@ -270,9 +276,9 @@ function createExtractor(ts) {
             rule: 'comparison-boundary/v1', operator, replacement,
             edit: span(node.operatorToken), left: span(node.left), right: span(node.right),
           });
-        } else if (logical && node.operatorToken.kind === kind.BarBarToken && parent && ts.isJsxExpression(parent) &&
-            grandparent && ts.isJsxAttribute(grandparent) &&
-            ts.isIdentifier(grandparent.name) && grandparent.name.text === 'disabled') {
+        } else if (logical && node.operatorToken.kind === kind.BarBarToken && parent && isJsxExpression(parent) &&
+            grandparent && isJsxAttribute(grandparent) &&
+            isIdentifier(grandparent.name) && grandparent.name.text === 'disabled') {
           candidates.push({
             rule: 'jsx-disabled-drop-left/v1', operator: '||', operatorEdit: span(node.operatorToken),
             replacement: '(' + source.slice(originalOffset(node.right.getStart(tree)), originalOffset(node.right.end)) + ')',
@@ -280,7 +286,7 @@ function createExtractor(ts) {
           });
         }
       }
-      ts.forEachChild(node, child => { pending.push({ node: child, parent: node, grandparent: parent }); });
+      forEachChild(node, child => { pending.push({ node: child, parent: node, grandparent: parent }); });
     }
     candidates.sort((a, b) => (a.operatorEdit ?? a.edit)[0] - (b.operatorEdit ?? b.edit)[0]);
     return candidates;
@@ -316,7 +322,7 @@ function createExtractor(ts) {
       const first = insideCodePoint(start) ? start - 1 : start;
       const last = insideCodePoint(end) ? end + 1 : end;
       syntaxErrors.push({ start: at, end: at + (diagnostic.length ?? 0) });
-      record(bytes(first), bytes(last), ts.flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
+      record(bytes(first), bytes(last), flattenDiagnosticMessageText(diagnostic.messageText, '\n'));
     }
     function overlapsSyntaxError(node) {
       if (!syntaxErrors.length) return false;
