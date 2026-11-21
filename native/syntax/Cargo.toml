@@ -1,0 +1,19 @@
+[package]
+name = "tmt-syntax"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+oxc_allocator = "=0.159.0"
+oxc_ast = "=0.159.0"
+oxc_ast_visit = "=0.159.0"
+oxc_parser = { version = "=0.159.0", features = ["regular_expression"] }
+oxc_semantic = "=0.159.0"
+oxc_span = "=0.159.0"
+oxc_syntax = "=0.159.0"
+stacker = "=0.1.24"

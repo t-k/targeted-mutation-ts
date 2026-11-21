@@ -1,0 +1,7 @@
+Dialect	Mode	Candidate	Validity
+TS	Module	Plain	Valid
+TSX	Module	Logical	Valid
+TS	Script	Nested	Valid
+TSX	Module	Plain	Syntax
+TS	Module	Plain	Semantic
+TSX	Module	None	Valid

@@ -24,7 +24,7 @@ for (const row of rows) {
     }[suffix];
     const result = extract(input, { requireNative: true });
     const reference = extractFallback(input);
-    assert.equal(result.path, { Complete: 'fast', Invalid: 'diagnostic', Unsupported: 'fallback' }[suffix]);
+    assert.equal(result.path, { Complete: 'fast', Invalid: 'diagnostic', Unsupported: 'native' }[suffix]);
     assert.deepEqual(result.candidates, reference.candidates);
     assert.deepEqual(result.diagnostics, reference.diagnostics);
   });
@@ -88,7 +88,7 @@ test('a complete control program does not load Yuku on initial extraction', () =
     const result = extract('for (let i = 0; i < list.length; i++) { if (this.size > 0) {} }', { requireNative: true });
     assert.equal(result.path, 'fast');
     assert.equal(result.candidates.length, 2);
-    assert.throws(() => extract('import { x } from "./lib";', { requireNative: true }), /Unexpected Yuku load/);
+    assert.throws(() => extract('let x; let x;', { requireNative: true }), /Unexpected Yuku load/);
   `;
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', program], { encoding: 'utf8', timeout: 10_000 });
   assert.equal(child.status, 0, child.error?.message ?? child.stderr);

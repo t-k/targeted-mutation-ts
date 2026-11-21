@@ -1,0 +1,5 @@
+Dialect: TS, TSX
+Mode: Module, Script
+Candidate: Plain, Nested, Logical, None
+Validity: Valid, Syntax, Semantic
+IF [Candidate] = "Logical" THEN [Dialect] = "TSX";

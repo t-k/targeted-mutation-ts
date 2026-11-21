@@ -38,6 +38,10 @@ for (const input of inputs) {
   const bytes = input.files.reduce((size, entry) => size + entry.source.length, 0);
   let fast = 0;
   let fastCandidates = 0;
+  let nativeFiles = 0;
+  let nativeCandidates = 0;
+  let yukuFiles = 0;
+  let yukuCandidates = 0;
   let tokenFiles = 0;
   let tokenCandidates = 0;
   for (const { file, source } of input.files) {
@@ -47,6 +51,12 @@ for (const input of inputs) {
     if (optimized.path === 'fast') {
       fast++;
       fastCandidates += optimized.candidates.length;
+    } else if (optimized.path === 'native') {
+      nativeFiles++;
+      nativeCandidates += optimized.candidates.length;
+    } else if (optimized.reason !== 'invalid-utf8') {
+      yukuFiles++;
+      yukuCandidates += optimized.candidates.length;
     }
     if (optimized.fallback === 'tokens') {
       tokenFiles++;
@@ -80,7 +90,7 @@ for (const input of inputs) {
   };
   reports.push({
     workload: input.name, revision: input.revision, files: input.files.length, bytes, turnsPerRepetition: turns, fastFiles: fast,
-    fastCandidates, tokenFiles, tokenCandidates,
+    fastCandidates, nativeFiles, nativeCandidates, yukuFiles, yukuCandidates, tokenFiles, tokenCandidates,
     baseline: stats(summaries[0]), optimized: stats(summaries[1]), samplesMs: summaries,
   });
 }
