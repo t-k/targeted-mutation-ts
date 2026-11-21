@@ -31,6 +31,7 @@ for (const row of rows) {
       BadBinding: 'let eval = left > right;',
       ModuleExport: 'export const before = a < b;',
       Logical: dialect === 'TSX' ? 'const view = <Button disabled={a > b || ready} />;' : 'const ready = a > b || active;',
+      HoistedVar: 'try {} catch { switch (key) { default: for (var exported of values) {} } } export { exported };',
     };
     compare(`/* 🧪 */\n${sources[kind]}`, { file: dialect === 'TSX' ? 'case.tsx' : 'case.ts', mode: mode.toLowerCase(), logical: true });
   });
@@ -218,4 +219,19 @@ test('type argument lists after import types can cross trivia with a line break'
     }
   }
   compare('const value = input as Other\n<T> + a < b;', options);
+});
+
+test('var declarations stay visible through statement edges in the same scope', () => {
+  const options = { file: 'hoist.ts' };
+  for (const body of [
+    'if (flag) { var clash; } else { var clash; }',
+    'switch (key) { case 0: var clash; break; default: break; }',
+    'try {} catch { var clash; } finally { var clash; }',
+    'label: for (var clash of items) {}',
+    'call(function () { var clash; });',
+    'class C { static { var clash; } }',
+    'namespace Nested { var clash; }',
+  ]) compare('let clash; ' + body + ' const keep = a < b;', options);
+  compare('let broken; const broken = 0;', options);
+  compare('const value = a || b;', { ...options, logical: true });
 });

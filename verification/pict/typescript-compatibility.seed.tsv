@@ -4,3 +4,4 @@ TSX	Module	Logical
 TS	Script	BadBinding
 TSX	Script	ModuleExport
 TS	Module	BadBinding
+TS	Module	HoistedVar

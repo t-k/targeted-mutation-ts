@@ -4,13 +4,18 @@ import { createTypeScriptBindings } from './typescript-bindings.mjs';
 import { createTypeScriptGrammar } from './typescript-grammar.mjs';
 
 const load = createRequire(import.meta.url);
-const replacements = new Map([['<', '<='], ['<=', '<'], ['>', '>='], ['>=', '>']]);
 let extractWithCompiler;
 
 function createExtractor(ts) {
   const checkGrammar = createTypeScriptGrammar(ts, createTypeScriptBindings(ts));
 
   const kind = ts.SyntaxKind;
+  const comparison = new Map([
+    [kind.LessThanToken, ['<', '<=']],
+    [kind.LessThanEqualsToken, ['<=', '<']],
+    [kind.GreaterThanToken, ['>', '>=']],
+    [kind.GreaterThanEqualsToken, ['>=', '>']],
+  ]);
   const isName = token => token === kind.Identifier || token >= kind.FirstKeyword && token <= kind.LastKeyword;
   const scannerFor = source => ts.createScanner(ts.ScriptTarget.Latest, true, ts.LanguageVariant.Standard, source);
 
@@ -252,23 +257,24 @@ function createExtractor(ts) {
   }
 
   function collectCandidates(tree, source, span, originalOffset, logical) {
+    if (!source.includes('<') && !source.includes('>') && (!logical || !source.includes('||'))) return [];
     const pending = [{ node: tree, parent: null, grandparent: null }];
     const candidates = [];
     while (pending.length) {
       const { node, parent, grandparent } = pending.pop();
       if (ts.isBinaryExpression(node)) {
-        const operator = node.operatorToken.getText(tree);
-        const replacement = replacements.get(operator);
-        if (replacement) {
+        const boundary = comparison.get(node.operatorToken.kind);
+        if (boundary) {
+          const [operator, replacement] = boundary;
           candidates.push({
             rule: 'comparison-boundary/v1', operator, replacement,
             edit: span(node.operatorToken), left: span(node.left), right: span(node.right),
           });
-        } else if (logical && operator === '||' && parent && ts.isJsxExpression(parent) &&
+        } else if (logical && node.operatorToken.kind === kind.BarBarToken && parent && ts.isJsxExpression(parent) &&
             grandparent && ts.isJsxAttribute(grandparent) &&
             ts.isIdentifier(grandparent.name) && grandparent.name.text === 'disabled') {
           candidates.push({
-            rule: 'jsx-disabled-drop-left/v1', operator, operatorEdit: span(node.operatorToken),
+            rule: 'jsx-disabled-drop-left/v1', operator: '||', operatorEdit: span(node.operatorToken),
             replacement: '(' + source.slice(originalOffset(node.right.getStart(tree)), originalOffset(node.right.end)) + ')',
             edit: span(node), left: span(node.left), right: span(node.right),
           });

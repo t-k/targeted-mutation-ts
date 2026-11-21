@@ -90,10 +90,18 @@ export function createTypeScriptBindings(ts) {
     while (pending.length) {
       const node = pending.pop();
       if (ts.isFunctionLike(node) || ts.isClassLike(node) || ts.isModuleDeclaration(node)) continue;
-      if (ts.isVariableDeclarationList(node) && (node.flags & ts.NodeFlags.BlockScoped) === 0) {
-        for (const declaration of node.declarations) names.push(...namesIn(declaration.name));
+      if (ts.isVariableDeclarationList(node)) {
+        if ((node.flags & ts.NodeFlags.BlockScoped) === 0) {
+          for (const declaration of node.declarations) names.push(...namesIn(declaration.name));
+        }
+        continue;
       }
-      ts.forEachChild(node, child => { pending.push(child); });
+      ts.forEachChild(node, child => {
+        if (ts.isStatement(child) || ts.isVariableDeclarationList(child) ||
+            ts.isCaseBlock(child) || ts.isCaseOrDefaultClause(child) || ts.isCatchClause(child)) {
+          pending.push(child);
+        }
+      });
     }
     return names;
   }

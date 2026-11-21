@@ -4,9 +4,11 @@ TSX	Module	Logical
 TS	Script	BadBinding
 TSX	Script	ModuleExport
 TS	Module	BadBinding
+TS	Module	HoistedVar
 TSX	Script	Comparison
-TS	Script	BadStatement
-TSX	Script	BadBinding
-TS	Script	Logical
+TSX	Script	HoistedVar
 TSX	Module	BadStatement
 TS	Module	ModuleExport
+TSX	Module	BadBinding
+TS	Script	BadStatement
+TS	Script	Logical

@@ -1,5 +1,27 @@
 # Performance measurements
 
+## Production extraction without Yuku or Oxc
+
+The installed runtime uses Low★ first and uses its existing TypeScript dependency for declined files. Yuku is the development reference. Across 8,549 tracked TS/TSX files in the five pinned checkouts, both settings of the JSX logical rule produced the same source acceptance and ordered candidate fields as the reference. Low★ extracted 2,168 of 2,968 candidates across 3,786 valid files and reported five duplicate-declaration diagnostics. The compatibility parser retains source byte ranges and can use different diagnostic wording and recovery.
+
+| Checkout | All candidates | Low★ | TypeScript compatibility |
+| --- | ---: | ---: | ---: |
+| Vite | 201 | 159 | 42 |
+| Preact | 1 | 0 | 1 |
+| TypeScript corpus | 562 | 115 | 447 |
+| mreact | 1,550 | 1,339 | 211 |
+| tachyon-dom | 654 | 550 | 104 |
+
+The 37 JavaScript implementation files under Preact's root and package `src/` directories produced 43 identical candidates in both logical modes, with 12 from Low★. A separate audit of 3,303 captured inputs also found agreement on all source acceptance decisions and ordered candidate fields.
+
+| Warm extraction workload | Yuku runtime `8592705` | TypeScript cutover `5c60b31` | After reducing AST traversal |
+| --- | ---: | ---: | ---: |
+| Vite | 24.51 ms | 150.58 ms | 143.40 ms |
+| mreact | 87.63 ms | 419.52 ms | 408.53 ms |
+| tachyon-dom | 40.72 ms | 214.89 ms | 204.64 ms |
+
+Each experiment alternates nine warm samples on an Apple M5 Max with Node 24.14.0 and measures extraction from in-memory buffers. The traversal experiment uses the TypeScript cutover as its paired baseline and reduces the three medians by 3.4%, 1.8%, and 1.7%. The current compatibility path still costs more than the former Yuku path on these workloads. The [audit and timing evidence](../evidence/m1/typescript-runtime-cutover.json) includes the paired samples and exact checkout revisions.
+
 ## Low★ arrow parameter expressions
 
 At `2a8a993`, Low★ extracts 1,964 of 2,968 candidates across 3,490 of 8,549 files, including 1,200 in mreact and 498 in tachyon-dom. The ordinary and logical audits match all candidate fields and ordered diagnostics. Five diagnostic files also complete in Low★.

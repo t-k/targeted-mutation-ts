@@ -1,0 +1,959 @@
+{
+  "standard": {
+    "runtime": "v24.14.0",
+    "system": "darwin 27.2.0 arm64",
+    "cpu": "Apple M5 Max",
+    "reference": "yuku-parser 0.19.0",
+    "scope": {
+      "prefix": "",
+      "sourceOnly": false,
+      "logical": false
+    },
+    "reports": [
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "files": 482,
+        "bytes": 2207415,
+        "tsxFiles": 14,
+        "fastFiles": 426,
+        "fastBytes": 1523545,
+        "candidates": 201,
+        "candidateFiles": 65,
+        "fastCandidates": 159,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "compatibilityFiles": 56,
+        "compatibilityCandidates": 42,
+        "diagnostics": 1,
+        "nativeDiagnosticFiles": 0,
+        "fallbackReasons": {
+          "outside-l1": 56
+        },
+        "candidateBytes": 262144,
+        "maxDepth": 16
+      },
+      {
+        "project": "preact-corpus",
+        "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+        "files": 22,
+        "bytes": 41760,
+        "tsxFiles": 19,
+        "fastFiles": 13,
+        "fastBytes": 25926,
+        "candidates": 1,
+        "candidateFiles": 1,
+        "fastCandidates": 0,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "compatibilityFiles": 9,
+        "compatibilityCandidates": 1,
+        "diagnostics": 0,
+        "nativeDiagnosticFiles": 0,
+        "fallbackReasons": {
+          "outside-l1": 9
+        },
+        "candidateBytes": 0,
+        "maxDepth": 10
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "files": 6479,
+        "bytes": 4318704,
+        "tsxFiles": 116,
+        "fastFiles": 1901,
+        "fastBytes": 986454,
+        "candidates": 562,
+        "candidateFiles": 151,
+        "fastCandidates": 115,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "compatibilityFiles": 4564,
+        "compatibilityCandidates": 447,
+        "diagnostics": 952,
+        "nativeDiagnosticFiles": 5,
+        "fallbackReasons": {
+          "outside-l1": 4564,
+          "invalid-utf8": 9
+        },
+        "candidateBytes": 32288,
+        "maxDepth": 26
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "files": 1193,
+        "bytes": 12465294,
+        "tsxFiles": 100,
+        "fastFiles": 1108,
+        "fastBytes": 10835675,
+        "candidates": 1550,
+        "candidateFiles": 336,
+        "fastCandidates": 1339,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "compatibilityFiles": 85,
+        "compatibilityCandidates": 211,
+        "diagnostics": 0,
+        "nativeDiagnosticFiles": 0,
+        "fallbackReasons": {
+          "outside-l1": 85
+        },
+        "candidateBytes": 2151328,
+        "maxDepth": 33
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+        "files": 373,
+        "bytes": 3431318,
+        "tsxFiles": 32,
+        "fastFiles": 338,
+        "fastBytes": 2653901,
+        "candidates": 654,
+        "candidateFiles": 120,
+        "fastCandidates": 550,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "compatibilityFiles": 35,
+        "compatibilityCandidates": 104,
+        "diagnostics": 0,
+        "nativeDiagnosticFiles": 0,
+        "fallbackReasons": {
+          "outside-l1": 35
+        },
+        "candidateBytes": 655360,
+        "maxDepth": 17
+      }
+    ]
+  },
+  "logical": {
+    "runtime": "v24.14.0",
+    "system": "darwin 27.2.0 arm64",
+    "cpu": "Apple M5 Max",
+    "reference": "yuku-parser 0.19.0",
+    "scope": {
+      "prefix": "",
+      "sourceOnly": false,
+      "logical": true
+    },
+    "reports": [
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "files": 482,
+        "bytes": 2207415,
+        "tsxFiles": 14,
+        "fastFiles": 426,
+        "fastBytes": 1523545,
+        "candidates": 201,
+        "candidateFiles": 65,
+        "fastCandidates": 159,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "compatibilityFiles": 56,
+        "compatibilityCandidates": 42,
+        "diagnostics": 1,
+        "nativeDiagnosticFiles": 0,
+        "fallbackReasons": {
+          "outside-l1": 56
+        },
+        "candidateBytes": 262144,
+        "maxDepth": 16
+      },
+      {
+        "project": "preact-corpus",
+        "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+        "files": 22,
+        "bytes": 41760,
+        "tsxFiles": 19,
+        "fastFiles": 13,
+        "fastBytes": 25926,
+        "candidates": 1,
+        "candidateFiles": 1,
+        "fastCandidates": 0,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "compatibilityFiles": 9,
+        "compatibilityCandidates": 1,
+        "diagnostics": 0,
+        "nativeDiagnosticFiles": 0,
+        "fallbackReasons": {
+          "outside-l1": 9
+        },
+        "candidateBytes": 0,
+        "maxDepth": 10
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "files": 6479,
+        "bytes": 4318704,
+        "tsxFiles": 116,
+        "fastFiles": 1901,
+        "fastBytes": 986454,
+        "candidates": 562,
+        "candidateFiles": 151,
+        "fastCandidates": 115,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "compatibilityFiles": 4564,
+        "compatibilityCandidates": 447,
+        "diagnostics": 952,
+        "nativeDiagnosticFiles": 5,
+        "fallbackReasons": {
+          "outside-l1": 4564,
+          "invalid-utf8": 9
+        },
+        "candidateBytes": 32288,
+        "maxDepth": 26
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "files": 1193,
+        "bytes": 12465294,
+        "tsxFiles": 100,
+        "fastFiles": 1108,
+        "fastBytes": 10835675,
+        "candidates": 1550,
+        "candidateFiles": 336,
+        "fastCandidates": 1339,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "compatibilityFiles": 85,
+        "compatibilityCandidates": 211,
+        "diagnostics": 0,
+        "nativeDiagnosticFiles": 0,
+        "fallbackReasons": {
+          "outside-l1": 85
+        },
+        "candidateBytes": 2151328,
+        "maxDepth": 33
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+        "files": 373,
+        "bytes": 3431318,
+        "tsxFiles": 32,
+        "fastFiles": 338,
+        "fastBytes": 2653901,
+        "candidates": 654,
+        "candidateFiles": 120,
+        "fastCandidates": 550,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "compatibilityFiles": 35,
+        "compatibilityCandidates": 104,
+        "diagnostics": 0,
+        "nativeDiagnosticFiles": 0,
+        "fallbackReasons": {
+          "outside-l1": 35
+        },
+        "candidateBytes": 655360,
+        "maxDepth": 17
+      }
+    ]
+  },
+  "javascript": {
+    "project": "preact",
+    "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+    "fileScope": "JavaScript under src/ or a top-level package src/",
+    "results": [
+      {
+        "logical": false,
+        "files": 37,
+        "fastFiles": 24,
+        "candidates": 43,
+        "fastCandidates": 12,
+        "diagnostics": 0
+      },
+      {
+        "logical": true,
+        "files": 37,
+        "fastFiles": 24,
+        "candidates": 43,
+        "fastCandidates": 12,
+        "diagnostics": 0
+      }
+    ]
+  },
+  "capturedSourceSummary": {
+    "files": 3303,
+    "native": 1446,
+    "invalidEncoding": 4,
+    "accepted": 321,
+    "diagnostic": 1532,
+    "candidates": 29106,
+    "sameOrderedMessages": 546,
+    "mismatches": [],
+    "failures": 0
+  },
+  "cutover": {
+    "baseline": "8592705",
+    "updated": "5c60b31",
+    "measurements": [
+      {
+        "node": "v24.14.0",
+        "os": "darwin 27.2.0 arm64",
+        "cpu": "Apple M5 Max",
+        "repetitions": 9,
+        "collectBetweenSamples": true,
+        "temperature": "warm",
+        "scope": {
+          "prefix": "",
+          "sourceOnly": false
+        },
+        "reports": [
+          {
+            "workload": "repository",
+            "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+            "files": 482,
+            "bytes": 2207415,
+            "turnsPerRepetition": 7,
+            "fastFiles": 426,
+            "fastCandidates": 159,
+            "nativeFiles": 0,
+            "nativeCandidates": 0,
+            "nativeDiagnosticFiles": 0,
+            "compatibilityFiles": 56,
+            "compatibilityCandidates": 42,
+            "baseline": {
+              "medianMs": 24.51445242857127,
+              "p25Ms": 24.029505857142794,
+              "p75Ms": 24.67180957142864
+            },
+            "optimized": {
+              "medianMs": 150.5827500000001,
+              "p25Ms": 149.56579757142853,
+              "p75Ms": 152.20185714285714
+            },
+            "samplesMs": [
+              [
+                27.613607142857127,
+                24.60163685714289,
+                24.67180957142864,
+                24.029505857142794,
+                23.89405357142862,
+                25.311970142857067,
+                24.128113142857078,
+                24.51445242857127,
+                23.90072028571428
+              ],
+              [
+                149.56579757142853,
+                152.20185714285714,
+                147.2518392857142,
+                148.36420242857145,
+                152.24733328571423,
+                150.3944702857143,
+                152.85207742857165,
+                151.0433272857143,
+                150.5827500000001
+              ]
+            ]
+          },
+          {
+            "workload": "L1 TSX",
+            "files": 120,
+            "bytes": 262380,
+            "turnsPerRepetition": 7,
+            "fastFiles": 120,
+            "fastCandidates": 120,
+            "nativeFiles": 0,
+            "nativeCandidates": 0,
+            "nativeDiagnosticFiles": 0,
+            "compatibilityFiles": 0,
+            "compatibilityCandidates": 0,
+            "baseline": {
+              "medianMs": 0.34082142857135167,
+              "p25Ms": 0.2974285714286192,
+              "p75Ms": 0.3573631428571389
+            },
+            "optimized": {
+              "medianMs": 0.35525599999995655,
+              "p25Ms": 0.3547381428571888,
+              "p75Ms": 0.3558928571429923
+            },
+            "samplesMs": [
+              [
+                0.34082142857135167,
+                0.3573631428571389,
+                0.2974285714286192,
+                0.3543272857142646,
+                0.35913685714279253,
+                0.29225000000016216,
+                0.29348814285705366,
+                0.35994042857133274,
+                0.3233749999999418
+              ],
+              [
+                0.3554939999999728,
+                0.3624999999997921,
+                0.36035128571425695,
+                0.3558928571429923,
+                0.3551845714285134,
+                0.3534584285714248,
+                0.35525599999995655,
+                0.3547381428571888,
+                0.3375772857143602
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "node": "v24.14.0",
+        "os": "darwin 27.2.0 arm64",
+        "cpu": "Apple M5 Max",
+        "repetitions": 9,
+        "collectBetweenSamples": true,
+        "temperature": "warm",
+        "scope": {
+          "prefix": "",
+          "sourceOnly": false
+        },
+        "reports": [
+          {
+            "workload": "repository",
+            "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+            "files": 1193,
+            "bytes": 12465294,
+            "turnsPerRepetition": 7,
+            "fastFiles": 1108,
+            "fastCandidates": 1339,
+            "nativeFiles": 0,
+            "nativeCandidates": 0,
+            "nativeDiagnosticFiles": 0,
+            "compatibilityFiles": 85,
+            "compatibilityCandidates": 211,
+            "baseline": {
+              "medianMs": 87.63398799999985,
+              "p25Ms": 86.33905357142898,
+              "p75Ms": 89.38258328571439
+            },
+            "optimized": {
+              "medianMs": 419.5160594285714,
+              "p25Ms": 416.78256542857133,
+              "p75Ms": 424.4923511428572
+            },
+            "samplesMs": [
+              [
+                89.38258328571439,
+                90.34270828571425,
+                88.22234514285707,
+                87.63398799999985,
+                84.93910714285708,
+                87.11899400000038,
+                86.33905357142898,
+                90.89782142857128,
+                84.66536314285726
+              ],
+              [
+                407.6978392857142,
+                416.78256542857133,
+                425.7315594285714,
+                424.4923511428572,
+                415.60704157142857,
+                426.6512084285714,
+                421.06642857142805,
+                419.5160594285714,
+                417.991976285714
+              ]
+            ]
+          },
+          {
+            "workload": "L1 TSX",
+            "files": 120,
+            "bytes": 262380,
+            "turnsPerRepetition": 7,
+            "fastFiles": 120,
+            "fastCandidates": 120,
+            "nativeFiles": 0,
+            "nativeCandidates": 0,
+            "nativeDiagnosticFiles": 0,
+            "compatibilityFiles": 0,
+            "compatibilityCandidates": 0,
+            "baseline": {
+              "medianMs": 0.31802385714295917,
+              "p25Ms": 0.2736845714285404,
+              "p75Ms": 0.3296667142858496
+            },
+            "optimized": {
+              "medianMs": 0.34906557142884204,
+              "p25Ms": 0.33795842857216485,
+              "p75Ms": 0.35406542857111034
+            },
+            "samplesMs": [
+              [
+                0.3409227142858851,
+                0.3635237142859426,
+                0.31802385714295917,
+                0.32016657142854194,
+                0.2736845714285404,
+                0.2729642857136371,
+                0.27227385714234387,
+                0.3296667142858496,
+                0.3115714285709795
+              ],
+              [
+                0.33509528571448755,
+                0.33795842857216485,
+                0.33265485714322757,
+                0.3558451428574959,
+                0.35406542857111034,
+                0.3534345714288065,
+                0.3583571428576501,
+                0.34906557142884204,
+                0.3411904285718005
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "node": "v24.14.0",
+        "os": "darwin 27.2.0 arm64",
+        "cpu": "Apple M5 Max",
+        "repetitions": 9,
+        "collectBetweenSamples": true,
+        "temperature": "warm",
+        "scope": {
+          "prefix": "",
+          "sourceOnly": false
+        },
+        "reports": [
+          {
+            "workload": "repository",
+            "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+            "files": 373,
+            "bytes": 3431318,
+            "turnsPerRepetition": 7,
+            "fastFiles": 338,
+            "fastCandidates": 550,
+            "nativeFiles": 0,
+            "nativeCandidates": 0,
+            "nativeDiagnosticFiles": 0,
+            "compatibilityFiles": 35,
+            "compatibilityCandidates": 104,
+            "baseline": {
+              "medianMs": 40.722738,
+              "p25Ms": 39.96873214285707,
+              "p75Ms": 41.258386999999594
+            },
+            "optimized": {
+              "medianMs": 214.88516657142853,
+              "p25Ms": 212.85854171428582,
+              "p75Ms": 216.2835475714284
+            },
+            "samplesMs": [
+              [
+                41.62736314285712,
+                39.61388699999991,
+                40.722738,
+                43.73370242857163,
+                40.359107142857155,
+                39.96873214285707,
+                41.20308928571415,
+                41.258386999999594,
+                38.85112500000001
+              ],
+              [
+                219.576756,
+                213.85385128571423,
+                208.89878571428576,
+                216.45642857142852,
+                216.2835475714284,
+                214.88516657142853,
+                212.85854171428582,
+                212.305827285714,
+                215.43906557142847
+              ]
+            ]
+          },
+          {
+            "workload": "L1 TSX",
+            "files": 120,
+            "bytes": 262380,
+            "turnsPerRepetition": 7,
+            "fastFiles": 120,
+            "fastCandidates": 120,
+            "nativeFiles": 0,
+            "nativeCandidates": 0,
+            "nativeDiagnosticFiles": 0,
+            "compatibilityFiles": 0,
+            "compatibilityCandidates": 0,
+            "baseline": {
+              "medianMs": 0.3401071428571803,
+              "p25Ms": 0.33566071428556044,
+              "p75Ms": 0.34317857142845504
+            },
+            "optimized": {
+              "medianMs": 0.342809571428266,
+              "p25Ms": 0.3408214285716115,
+              "p75Ms": 0.35138685714264284
+            },
+            "samplesMs": [
+              [
+                0.3257142857141194,
+                0.3401071428571803,
+                0.33862499999980045,
+                0.3567738571426681,
+                0.3666129999998832,
+                0.34317857142845504,
+                0.34161899999993955,
+                0.33566071428556044,
+                0.325315571428551
+              ],
+              [
+                0.3233631428572283,
+                0.342809571428266,
+                0.3408214285716115,
+                0.35138685714264284,
+                0.356732142857384,
+                0.35769042857178385,
+                0.3436547142856788,
+                0.34226785714262015,
+                0.32208928571396556
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "traversal": {
+    "baseline": "5c60b31",
+    "measurements": [
+      {
+        "node": "v24.14.0",
+        "os": "darwin 27.2.0 arm64",
+        "cpu": "Apple M5 Max",
+        "repetitions": 9,
+        "collectBetweenSamples": true,
+        "temperature": "warm",
+        "scope": {
+          "prefix": "",
+          "sourceOnly": false
+        },
+        "reports": [
+          {
+            "workload": "repository",
+            "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+            "files": 482,
+            "bytes": 2207415,
+            "turnsPerRepetition": 7,
+            "fastFiles": 426,
+            "fastCandidates": 159,
+            "nativeFiles": 0,
+            "nativeCandidates": 0,
+            "nativeDiagnosticFiles": 0,
+            "compatibilityFiles": 56,
+            "compatibilityCandidates": 42,
+            "baseline": {
+              "medianMs": 148.47764285714285,
+              "p25Ms": 146.76114285714252,
+              "p75Ms": 148.95434528571448
+            },
+            "optimized": {
+              "medianMs": 143.3990832857141,
+              "p25Ms": 142.60161899999989,
+              "p75Ms": 144.59080957142865
+            },
+            "samplesMs": [
+              [
+                149.9039165714285,
+                148.47764285714285,
+                146.53105942857135,
+                146.62566671428587,
+                147.38200585714262,
+                149.93116657142855,
+                148.95434528571448,
+                148.50222014285723,
+                146.76114285714252
+              ],
+              [
+                143.79343457142855,
+                144.59080957142865,
+                144.7544047142857,
+                142.60161899999989,
+                141.7847857142858,
+                140.91305957142842,
+                143.08510714285745,
+                143.3990832857141,
+                145.14346428571403
+              ]
+            ]
+          },
+          {
+            "workload": "L1 TSX",
+            "files": 120,
+            "bytes": 262380,
+            "turnsPerRepetition": 7,
+            "fastFiles": 120,
+            "fastCandidates": 120,
+            "nativeFiles": 0,
+            "nativeCandidates": 0,
+            "nativeDiagnosticFiles": 0,
+            "compatibilityFiles": 0,
+            "compatibilityCandidates": 0,
+            "baseline": {
+              "medianMs": 0.3340357142858141,
+              "p25Ms": 0.2844761428573942,
+              "p75Ms": 0.33601185714308357
+            },
+            "optimized": {
+              "medianMs": 0.3362261428571531,
+              "p25Ms": 0.3360832857142668,
+              "p75Ms": 0.3371428571429403
+            },
+            "samplesMs": [
+              [
+                0.2844761428573942,
+                0.3378512857140907,
+                0.2807202857142589,
+                0.33882142857172376,
+                0.3357262857145023,
+                0.33601185714308357,
+                0.3340357142858141,
+                0.27059514285688885,
+                0.31897614285740666
+              ],
+              [
+                0.33867257142836543,
+                0.33616071428592215,
+                0.3376785714286338,
+                0.33639885714312967,
+                0.3362261428571531,
+                0.3360832857142668,
+                0.3371428571429403,
+                0.332565571428339,
+                0.3207737142859384
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "node": "v24.14.0",
+        "os": "darwin 27.2.0 arm64",
+        "cpu": "Apple M5 Max",
+        "repetitions": 9,
+        "collectBetweenSamples": true,
+        "temperature": "warm",
+        "scope": {
+          "prefix": "",
+          "sourceOnly": false
+        },
+        "reports": [
+          {
+            "workload": "repository",
+            "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+            "files": 1193,
+            "bytes": 12465294,
+            "turnsPerRepetition": 7,
+            "fastFiles": 1108,
+            "fastCandidates": 1339,
+            "nativeFiles": 0,
+            "nativeCandidates": 0,
+            "nativeDiagnosticFiles": 0,
+            "compatibilityFiles": 85,
+            "compatibilityCandidates": 211,
+            "baseline": {
+              "medianMs": 415.855994142857,
+              "p25Ms": 414.1479642857142,
+              "p75Ms": 417.29178571428565
+            },
+            "optimized": {
+              "medianMs": 408.52983928571484,
+              "p25Ms": 406.2522797142852,
+              "p75Ms": 411.6170774285716
+            },
+            "samplesMs": [
+              [
+                416.1659584285713,
+                414.0431428571428,
+                414.1479642857142,
+                417.29178571428565,
+                419.6643689999993,
+                412.28239285714307,
+                419.9416310000005,
+                414.90945242857146,
+                415.855994142857
+              ],
+              [
+                409.43683328571416,
+                418.30611899999997,
+                411.6170774285716,
+                408.41505357142887,
+                416.743065571428,
+                403.3463095714282,
+                408.52983928571484,
+                406.2522797142852,
+                404.12276785714283
+              ]
+            ]
+          },
+          {
+            "workload": "L1 TSX",
+            "files": 120,
+            "bytes": 262380,
+            "turnsPerRepetition": 7,
+            "fastFiles": 120,
+            "fastCandidates": 120,
+            "nativeFiles": 0,
+            "nativeCandidates": 0,
+            "nativeDiagnosticFiles": 0,
+            "compatibilityFiles": 0,
+            "compatibilityCandidates": 0,
+            "baseline": {
+              "medianMs": 0.32113100000008543,
+              "p25Ms": 0.2676488571430257,
+              "p75Ms": 0.3228334285709674
+            },
+            "optimized": {
+              "medianMs": 0.32280957142834915,
+              "p25Ms": 0.3216071428573092,
+              "p75Ms": 0.32898214285731747
+            },
+            "samplesMs": [
+              [
+                0.2676488571430257,
+                0.3224642857135872,
+                0.34402971428582013,
+                0.33725599999992745,
+                0.2250952857149449,
+                0.2639702857143545,
+                0.3228334285709674,
+                0.32113100000008543,
+                0.3201607142847414
+              ],
+              [
+                0.32099414285767125,
+                0.32258328571437495,
+                0.32331542857095236,
+                0.3192499999994262,
+                0.3504939999994739,
+                0.3378452857141383,
+                0.3216071428573092,
+                0.32898214285731747,
+                0.32280957142834915
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "node": "v24.14.0",
+        "os": "darwin 27.2.0 arm64",
+        "cpu": "Apple M5 Max",
+        "repetitions": 9,
+        "collectBetweenSamples": true,
+        "temperature": "warm",
+        "scope": {
+          "prefix": "",
+          "sourceOnly": false
+        },
+        "reports": [
+          {
+            "workload": "repository",
+            "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+            "files": 373,
+            "bytes": 3431318,
+            "turnsPerRepetition": 7,
+            "fastFiles": 338,
+            "fastCandidates": 550,
+            "nativeFiles": 0,
+            "nativeCandidates": 0,
+            "nativeDiagnosticFiles": 0,
+            "compatibilityFiles": 35,
+            "compatibilityCandidates": 104,
+            "baseline": {
+              "medianMs": 208.19546428571448,
+              "p25Ms": 207.59747014285702,
+              "p75Ms": 209.39625585714288
+            },
+            "optimized": {
+              "medianMs": 204.63880357142847,
+              "p25Ms": 204.24817857142858,
+              "p75Ms": 205.03451185714286
+            },
+            "samplesMs": [
+              [
+                209.39625585714288,
+                205.9792440000001,
+                209.54401200000004,
+                208.19546428571448,
+                207.59747014285702,
+                209.3248274285714,
+                212.79555957142864,
+                207.43940471428556,
+                207.66117257142884
+              ],
+              [
+                205.03451185714286,
+                204.63880357142847,
+                204.24817857142858,
+                204.56836899999976,
+                204.91026785714297,
+                207.05390485714244,
+                205.29917271428556,
+                204.22332142857184,
+                204.01729171428607
+              ]
+            ]
+          },
+          {
+            "workload": "L1 TSX",
+            "files": 120,
+            "bytes": 262380,
+            "turnsPerRepetition": 7,
+            "fastFiles": 120,
+            "fastCandidates": 120,
+            "nativeFiles": 0,
+            "nativeCandidates": 0,
+            "nativeDiagnosticFiles": 0,
+            "compatibilityFiles": 0,
+            "compatibilityCandidates": 0,
+            "baseline": {
+              "medianMs": 0.2841250000003908,
+              "p25Ms": 0.28316671428599094,
+              "p75Ms": 0.3218392857140446
+            },
+            "optimized": {
+              "medianMs": 0.3370595714285238,
+              "p25Ms": 0.3291607142860552,
+              "p75Ms": 0.3428869999999214
+            },
+            "samplesMs": [
+              [
+                0.29983928571423996,
+                0.2841250000003908,
+                0.2838452857145707,
+                0.34181542857134317,
+                0.28316671428599094,
+                0.2760417142859036,
+                0.279059571428661,
+                0.3218629999999913,
+                0.3218392857140446
+              ],
+              [
+                0.2913035714284758,
+                0.3477738571429135,
+                0.34647628571422373,
+                0.3428869999999214,
+                0.3370595714285238,
+                0.3355178571426742,
+                0.33720242857141003,
+                0.3291607142860552,
+                0.31948814285715343
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}
