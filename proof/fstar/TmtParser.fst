@@ -17,12 +17,14 @@ type binding_namespace =
 
 type binding_name = { span:G.span; namespace:binding_namespace }
 
+let binding_region_width : U32.t = 512ul
+
 noeq type tape = {
   source : C.const_buffer U8.t;
   size : n:U32.t { U32.v n == C.length source /\ U32.v n <= 1048576 };
   output : B.buffer G.candidate;
   capacity : n:U32.t { U32.v n == B.length output };
-  bindings : b:B.buffer binding_name { B.length b == 512 }
+  bindings : b:B.buffer binding_name { B.length b == U32.v binding_region_width + U32.v binding_region_width }
 }
 
 let live (input:tape) h = C.live h input.source /\ B.live h input.output /\ B.live h input.bindings
@@ -151,8 +153,6 @@ let name (input:tape) (at:U32.t) (jsx binding:bool) : Read cursor input =
       let reserved = if wide then long_reserved head rest else short_reserved head in
       let invalid_binding = binding && (head = 0x6576616cuL || (head = 0x617267756d656e74uL && rest = 0x73uL)) in
       { at = stop; ok = not (reserved || invalid_binding); newline = false }
-
-let binding_region_width : U32.t = 256ul
 
 type names_used = used:U32.t{U32.v used <= U32.v binding_region_width}
 type binding_mode =

@@ -54,6 +54,8 @@ bool TmtParser_uu___is_BothNames(TmtParser_binding_namespace projectee)
   }
 }
 
+uint32_t TmtParser_binding_region_width = 512U;
+
 uint32_t TmtParser_plus(uint32_t value, uint32_t amount)
 {
   return value + amount;
@@ -409,8 +411,6 @@ TmtParser_cursor TmtParser_name(TmtParser_tape input, uint32_t at, bool jsx, boo
     }
   }
 }
-
-uint32_t TmtParser_binding_region_width = 256U;
 
 bool TmtParser_uu___is_NoLocals(TmtParser_binding_mode projectee)
 {

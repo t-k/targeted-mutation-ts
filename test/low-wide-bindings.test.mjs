@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { extract, extractFallback } from '../src/extract.mjs';
 
-const sizes = { Previous: 64, High: 128, Capacity: 256, Over: 257 };
+const sizes = { Previous: 256, High: 384, Capacity: 512, Over: 513 };
 const rows = readFileSync(new URL('../verification/pict/low-wide-bindings.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1);
 for (const row of rows) {
@@ -24,10 +25,31 @@ for (const row of rows) {
 
 test('the native addon can fill the module and local binding regions at once', () => {
   const declarations = count => Array.from({ length: count }, (_, index) => 'const name' + index + ' = 0;').join('\n');
-  const source = declarations(255) + '\nfunction check() {\n' + declarations(256) + '\nreturn x < y; }';
+  const source = declarations(511) + '\nfunction check() {\n' + declarations(512) + '\nreturn x < y; }';
   const actual = extract(source, { requireNative: true });
   const reference = extractFallback(source);
   assert.equal(actual.path, 'fast');
   assert.deepEqual(actual.candidates, reference.candidates);
   assert.deepEqual(actual.diagnostics, reference.diagnostics);
+
+  const extractModule = new URL('../src/extract.mjs', import.meta.url).href;
+  const worker = `
+    import assert from 'node:assert/strict';
+    import { extract } from ${JSON.stringify(extractModule)};
+    const result = extract(${JSON.stringify(source)}, { requireNative: true });
+    assert.equal(result.path, 'fast');
+    assert.equal(result.candidates.length, 1);
+  `;
+  const parent = `
+    import assert from 'node:assert/strict';
+    import { Worker } from 'node:worker_threads';
+    const child = new Worker(${JSON.stringify(worker)}, { eval: true, resourceLimits: { stackSizeMb: 0.5 } });
+    const exit = await new Promise((resolve, reject) => {
+      child.once('exit', resolve);
+      child.once('error', reject);
+    });
+    assert.equal(exit, 0);
+  `;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', parent], { encoding: 'utf8', timeout: 10_000 });
+  assert.equal(child.status, 0, child.error?.message ?? child.signal ?? child.stderr);
 });

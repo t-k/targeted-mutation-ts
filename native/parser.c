@@ -4,7 +4,9 @@
 tmt_result tmt_parse(const uint8_t *source, uint32_t size, int tsx, int module,
                      TmtGrammar_candidate *output, uint32_t capacity) {
   if (size > TMT_SOURCE_MAX) return (tmt_result){ TMT_SOURCE_LIMIT, 0, 0 };
-  TmtParser_binding_name bindings[512];
+  TmtParser_binding_name bindings[1024];
+  if (TmtParser_binding_region_width != (sizeof(bindings) / sizeof(*bindings)) / 2)
+    return (tmt_result){ TMT_UNSUPPORTED, 0, 0 };
   const TmtParser_tape input = { source, size, output, capacity, bindings };
   const TmtParser_parser_state result = TmtParser_parse(input, tsx != 0, module != 0);
   return (tmt_result){ (tmt_status)result.status, result.count, result.depth };

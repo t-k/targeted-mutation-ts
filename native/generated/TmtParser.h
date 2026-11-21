@@ -30,6 +30,8 @@ typedef struct TmtParser_binding_name_s
 }
 TmtParser_binding_name;
 
+extern uint32_t TmtParser_binding_region_width;
+
 typedef struct TmtParser_tape_s
 {
   const uint8_t *source;
@@ -85,8 +87,6 @@ bool TmtParser_short_reserved(uint64_t packed);
 bool TmtParser_long_reserved(uint64_t first, uint64_t rest);
 
 TmtParser_cursor TmtParser_name(TmtParser_tape input, uint32_t at, bool jsx, bool binding);
-
-extern uint32_t TmtParser_binding_region_width;
 
 typedef uint32_t TmtParser_names_used;
 
