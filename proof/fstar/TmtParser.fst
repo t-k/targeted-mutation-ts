@@ -10,12 +10,19 @@ module Cast = FStar.Int.Cast
 module G = TmtGrammar
 module S = TmtScan
 
+type binding_namespace =
+  | TypeName
+  | ValueName
+  | BothNames
+
+type binding_name = { span:G.span; namespace:binding_namespace }
+
 noeq type tape = {
   source : C.const_buffer U8.t;
   size : n:U32.t { U32.v n == C.length source /\ U32.v n <= 1048576 };
   output : B.buffer G.candidate;
   capacity : n:U32.t { U32.v n == B.length output };
-  bindings : b:B.buffer G.span { B.length b == 128 }
+  bindings : b:B.buffer binding_name { B.length b == 128 }
 }
 
 let live (input:tape) h = C.live h input.source /\ B.live h input.output /\ B.live h input.bindings
@@ -494,26 +501,37 @@ let rec same_bytes (input:tape) (left right length:U32.t)
     let r = peek input right in
     if l = r then same_bytes input (next left) (next right) (minus length 1ul) else false
 
-let rec name_seen (input:tape) (base:names_base) (floor used:names_used) (pos len:U32.t)
+let rec name_seen (input:tape) (base:names_base) (floor used:names_used) (pos len:U32.t) (namespace:binding_namespace)
   : Run bool input (decreases U32.v used) =
   if U32.(used <=^ floor) then false
   else
     let previous = U32.sub used 1ul in
     let saved = B.index input.bindings (U32.add base previous) in
-    let equal = if len = minus saved.G.last saved.G.first then same_bytes input pos saved.G.first len else false in
-    if equal then true else name_seen input base floor previous pos len
+    let overlaps = namespace = BothNames || saved.namespace = BothNames || namespace = saved.namespace in
+    let equal = if overlaps && len = minus saved.span.G.last saved.span.G.first then
+      same_bytes input pos saved.span.G.first len else false in
+    if equal then true else name_seen input base floor previous pos len namespace
 
-let bind_since (input:tape) (st:parser_state) (base:names_base) (floor used:names_used) (pos:U32.t)
+let bind_in_namespace (input:tape) (st:parser_state) (base:names_base) (floor used:names_used)
+  (pos:U32.t) (namespace:binding_namespace)
   : Run named_state input =
   let end_name = name input pos false true in
   let st = from_cursor st end_name in
   let length = minus st.offset pos in
   if st.status <> 0ul || used = 64ul || U32.(length >^ 256ul) then { state = failed st 1ul; used }
-  else if name_seen input base floor used pos length then { state = failed st 1ul; used }
+  else if name_seen input base floor used pos length namespace then { state = failed st 1ul; used }
   else (
-    B.upd input.bindings (U32.add base used) { G.first = pos; G.last = st.offset };
+    B.upd input.bindings (U32.add base used) { span = { G.first = pos; G.last = st.offset }; namespace };
     { state = st; used = U32.add used 1ul }
   )
+
+let bind_since (input:tape) (st:parser_state) (base:names_base) (floor used:names_used) (pos:U32.t)
+  : Run named_state input = bind_in_namespace input st base floor used pos BothNames
+
+let bind_pattern_name (input:tape) (st:parser_state) (base:names_base) (floor used:names_used) (pos:U32.t)
+  : Run named_state input =
+  let namespace = if base = 0ul then ValueName else BothNames in
+  bind_in_namespace input st base floor used pos namespace
 
 let bind_at (input:tape) (st:parser_state) (base:names_base) (used:names_used) (pos:U32.t)
   : Run named_state input = bind_since input st base 0ul used pos
@@ -933,7 +951,7 @@ let rec pattern_names (input:tape) (state:parser_state) (base:names_base) (floor
       pattern_names input (consume input st 44uy) base floor used depth (minus remaining 1ul) close
     else if spread_at input st.offset then
       let target = skip input { st with offset = plus st.offset 3ul } in
-      let rest = bind_since input target base floor used target.offset in
+      let rest = bind_pattern_name input target base floor used target.offset in
       { rest with state = consume input (skip input rest.state) close }
     else
       let bound =
@@ -944,7 +962,7 @@ let rec pattern_names (input:tape) (state:parser_state) (base:names_base) (floor
           if same input after.offset 58uy then
             let target = skip input (consume input after 58uy) in
             pattern_binding_at input target base floor used depth
-          else bind_since input st base floor used st.offset in
+          else bind_pattern_name input st base floor used st.offset in
       let st = skip input bound.state in
       if same input st.offset 44uy then
         pattern_names input (consume input st 44uy) base floor bound.used depth (minus remaining 1ul) close
@@ -958,7 +976,7 @@ and pattern_binding_at (input:tape) (state:parser_state) (base:names_base) (floo
     else
       let close = if byte = 123uy then 125uy else 93uy in
       pattern_names input (consume input state byte) base floor used (minus depth 1ul) 64ul close
-  else bind_since input state base floor used state.offset
+  else bind_pattern_name input state base floor used state.offset
 
 let pattern_binding (input:tape) (state:parser_state) (base:names_base) (floor used:names_used) : Run named_state input =
   pattern_binding_at input state base floor used 16ul
@@ -2163,11 +2181,12 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
   else
     let start = skip input { st with offset = plus st.offset width } in
     let first = peek input start.offset in
+    let type_only = width = 4ul || width = 9ul in
     let decl = if (width = 3ul || width = 5ul) && not head.ambient_declaration then pattern_binding input start 0ul 0ul used
-      else bind_at input start 0ul used start.offset in
+      else bind_in_namespace input start 0ul 0ul used start.offset (if type_only then TypeName else ValueName) in
     let st = skip input decl.state in
     let result =
-      if width = 4ul || width = 9ul then
+      if type_only then
         let valid = admissible_type_binding input start.offset decl.state.offset in
         if not valid then failed st 1ul
         else if width = 9ul then
@@ -2207,7 +2226,7 @@ let default_declaration (input:tape) (state:parser_state) (used:names_used) : Ru
     let start = skip input { state with offset = plus fn.at 8ul } in
     let byte = peek input start.offset in
     let name = if byte = 40uy || byte = 60uy then { state = start; used }
-      else bind_at input start 0ul used start.offset in
+      else bind_in_namespace input start 0ul 0ul used start.offset ValueName in
     { name with state = function_tail input name.state 64ul (state.offset <> fn.at) }
   else
     let value = comparison input state 64ul in

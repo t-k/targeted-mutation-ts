@@ -1,0 +1,5 @@
+Type	Value	Order	Suffix
+Alias	Const	TypeFirst	Valid
+Interface	Pattern	ValueFirst	Valid
+Interface	Function	TypeFirst	Valid
+Alias	Function	ValueFirst	Invalid

@@ -9,6 +9,51 @@
 #include "TmtScan.h"
 #include "TmtGrammar.h"
 
+bool TmtParser_uu___is_TypeName(TmtParser_binding_namespace projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_TypeName:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
+bool TmtParser_uu___is_ValueName(TmtParser_binding_namespace projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_ValueName:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
+bool TmtParser_uu___is_BothNames(TmtParser_binding_namespace projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_BothNames:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
 uint32_t TmtParser_plus(uint32_t value, uint32_t amount)
 {
   return value + amount;
@@ -1545,7 +1590,8 @@ TmtParser_name_seen(
   uint32_t floor0,
   uint32_t used0,
   uint32_t pos0,
-  uint32_t len0
+  uint32_t len0,
+  TmtParser_binding_namespace namespace0
 )
 {
   TmtParser_tape input = input0;
@@ -1554,16 +1600,21 @@ TmtParser_name_seen(
   uint32_t used = used0;
   uint32_t pos = pos0;
   uint32_t len = len0;
+  TmtParser_binding_namespace namespace1 = namespace0;
   while (true)
     if (used <= floor)
       return false;
     else
     {
       uint32_t previous = used - 1U;
-      TmtGrammar_span saved = input.bindings[base + previous];
+      TmtParser_binding_name saved = input.bindings[base + previous];
+      bool
+      overlaps =
+        namespace1 == TmtParser_BothNames || saved.namespace0 == TmtParser_BothNames ||
+          namespace1 == saved.namespace0;
       bool equal;
-      if (len == TmtParser_minus(saved.last, saved.first))
-        equal = TmtParser_same_bytes(input, pos, saved.first, len);
+      if (overlaps && len == TmtParser_minus(saved.span.last, saved.span.first))
+        equal = TmtParser_same_bytes(input, pos, saved.span.first, len);
       else
         equal = false;
       if (equal)
@@ -1582,6 +1633,37 @@ TmtParser_name_seen(
 }
 
 TmtParser_named_state
+TmtParser_bind_in_namespace(
+  TmtParser_tape input,
+  TmtParser_parser_state st,
+  uint32_t base,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t pos,
+  TmtParser_binding_namespace namespace0
+)
+{
+  TmtParser_cursor end_name = TmtParser_name(input, pos, false, true);
+  TmtParser_parser_state st1 = TmtParser_from_cursor(st, end_name);
+  uint32_t length = TmtParser_minus(st1.offset, pos);
+  if (st1.status != 0U || used == 64U || length > 256U)
+    return ((TmtParser_named_state){ .state = TmtParser_failed(st1, 1U), .used = used });
+  else if (TmtParser_name_seen(input, base, floor, used, pos, length, namespace0))
+    return ((TmtParser_named_state){ .state = TmtParser_failed(st1, 1U), .used = used });
+  else
+  {
+    input.bindings[base + used] =
+      (
+        (TmtParser_binding_name){
+          .span = { .first = pos, .last = st1.offset },
+          .namespace0 = namespace0
+        }
+      );
+    return ((TmtParser_named_state){ .state = st1, .used = used + 1U });
+  }
+}
+
+TmtParser_named_state
 TmtParser_bind_since(
   TmtParser_tape input,
   TmtParser_parser_state st,
@@ -1591,18 +1673,22 @@ TmtParser_bind_since(
   uint32_t pos
 )
 {
-  TmtParser_cursor end_name = TmtParser_name(input, pos, false, true);
-  TmtParser_parser_state st1 = TmtParser_from_cursor(st, end_name);
-  uint32_t length = TmtParser_minus(st1.offset, pos);
-  if (st1.status != 0U || used == 64U || length > 256U)
-    return ((TmtParser_named_state){ .state = TmtParser_failed(st1, 1U), .used = used });
-  else if (TmtParser_name_seen(input, base, floor, used, pos, length))
-    return ((TmtParser_named_state){ .state = TmtParser_failed(st1, 1U), .used = used });
-  else
-  {
-    input.bindings[base + used] = ((TmtGrammar_span){ .first = pos, .last = st1.offset });
-    return ((TmtParser_named_state){ .state = st1, .used = used + 1U });
-  }
+  return TmtParser_bind_in_namespace(input, st, base, floor, used, pos, TmtParser_BothNames);
+}
+
+TmtParser_named_state
+TmtParser_bind_pattern_name(
+  TmtParser_tape input,
+  TmtParser_parser_state st,
+  uint32_t base,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t pos
+)
+{
+  TmtParser_binding_namespace
+  namespace0 = base == 0U ? TmtParser_ValueName : TmtParser_BothNames;
+  return TmtParser_bind_in_namespace(input, st, base, floor, used, pos, namespace0);
 }
 
 TmtParser_named_state
@@ -2936,7 +3022,7 @@ TmtParser_pattern_names(
               }
             ));
         TmtParser_named_state
-        rest = TmtParser_bind_since(input, target, base, floor, used, target.offset);
+        rest = TmtParser_bind_pattern_name(input, target, base, floor, used, target.offset);
         return
           (
             (TmtParser_named_state){
@@ -2961,7 +3047,7 @@ TmtParser_pattern_names(
             bound = TmtParser_pattern_binding_at(input, target, base, floor, used, depth);
           }
           else
-            bound = TmtParser_bind_since(input, st, base, floor, used, st.offset);
+            bound = TmtParser_bind_pattern_name(input, st, base, floor, used, st.offset);
         }
         TmtParser_parser_state st1 = TmtParser_skip(input, bound.state);
         if (TmtParser_same(input, st1.offset, 44U))
@@ -3022,7 +3108,7 @@ TmtParser_pattern_binding_at(
     }
   }
   else
-    return TmtParser_bind_since(input, state, base, floor, used, state.offset);
+    return TmtParser_bind_pattern_name(input, state, base, floor, used, state.offset);
 }
 
 TmtParser_named_state
@@ -7836,14 +7922,22 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
           }
         ));
     uint8_t first = TmtParser_peek(input, start.offset);
+    bool type_only = width == 4U || width == 9U;
     TmtParser_named_state decl;
     if ((width == 3U || width == 5U) && !head.ambient_declaration)
       decl = TmtParser_pattern_binding(input, start, 0U, 0U, used);
     else
-      decl = TmtParser_bind_at(input, start, 0U, used, start.offset);
+      decl =
+        TmtParser_bind_in_namespace(input,
+          start,
+          0U,
+          0U,
+          used,
+          start.offset,
+          type_only ? TmtParser_TypeName : TmtParser_ValueName);
     TmtParser_parser_state st1 = TmtParser_skip(input, decl.state);
     TmtParser_parser_state result;
-    if (width == 4U || width == 9U)
+    if (type_only)
     {
       bool valid = TmtParser_admissible_type_binding(input, start.offset, decl.state.offset);
       if (!valid)
@@ -8031,7 +8125,14 @@ TmtParser_default_declaration(
     if (byte == 40U || byte == 60U)
       name1 = ((TmtParser_named_state){ .state = start, .used = used });
     else
-      name1 = TmtParser_bind_at(input, start, 0U, used, start.offset);
+      name1 =
+        TmtParser_bind_in_namespace(input,
+          start,
+          0U,
+          0U,
+          used,
+          start.offset,
+          TmtParser_ValueName);
     return
       (
         (TmtParser_named_state){

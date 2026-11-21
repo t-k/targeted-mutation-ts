@@ -1,0 +1,4 @@
+Type: Alias, Interface
+Value: Const, Pattern, Function
+Order: TypeFirst, ValueFirst
+Suffix: Valid, Invalid

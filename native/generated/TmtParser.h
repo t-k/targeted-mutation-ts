@@ -11,13 +11,32 @@
 
 #include "TmtGrammar.h"
 
+#define TmtParser_TypeName 0
+#define TmtParser_ValueName 1
+#define TmtParser_BothNames 2
+
+typedef uint8_t TmtParser_binding_namespace;
+
+bool TmtParser_uu___is_TypeName(TmtParser_binding_namespace projectee);
+
+bool TmtParser_uu___is_ValueName(TmtParser_binding_namespace projectee);
+
+bool TmtParser_uu___is_BothNames(TmtParser_binding_namespace projectee);
+
+typedef struct TmtParser_binding_name_s
+{
+  TmtGrammar_span span;
+  TmtParser_binding_namespace namespace0;
+}
+TmtParser_binding_name;
+
 typedef struct TmtParser_tape_s
 {
   const uint8_t *source;
   uint32_t size;
   TmtGrammar_candidate *output;
   uint32_t capacity;
-  TmtGrammar_span *bindings;
+  TmtParser_binding_name *bindings;
 }
 TmtParser_tape;
 
@@ -285,11 +304,33 @@ TmtParser_name_seen(
   uint32_t floor0,
   uint32_t used0,
   uint32_t pos0,
-  uint32_t len0
+  uint32_t len0,
+  TmtParser_binding_namespace namespace0
+);
+
+TmtParser_named_state
+TmtParser_bind_in_namespace(
+  TmtParser_tape input,
+  TmtParser_parser_state st,
+  uint32_t base,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t pos,
+  TmtParser_binding_namespace namespace0
 );
 
 TmtParser_named_state
 TmtParser_bind_since(
+  TmtParser_tape input,
+  TmtParser_parser_state st,
+  uint32_t base,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t pos
+);
+
+TmtParser_named_state
+TmtParser_bind_pattern_name(
   TmtParser_tape input,
   TmtParser_parser_state st,
   uint32_t base,
