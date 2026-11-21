@@ -1,0 +1,5 @@
+Shape	Context	Suffix
+Empty	Module	Valid
+Cases	Function	Valid
+Default	Loop	Valid
+Default	Module	Invalid

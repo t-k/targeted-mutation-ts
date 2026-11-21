@@ -98,6 +98,18 @@ bool TmtParser_uu___is_MemberTarget(TmtParser_assignment_target projectee);
 
 bool TmtParser_uu___is_OptionalChain(TmtParser_assignment_target projectee);
 
+#define TmtParser_NoJump 0
+#define TmtParser_BreakOnly 1
+#define TmtParser_LoopJump 2
+
+typedef uint8_t TmtParser_jump_context;
+
+bool TmtParser_uu___is_NoJump(TmtParser_jump_context projectee);
+
+bool TmtParser_uu___is_BreakOnly(TmtParser_jump_context projectee);
+
+bool TmtParser_uu___is_LoopJump(TmtParser_jump_context projectee);
+
 bool TmtParser_can_assign(TmtParser_assignment_target target);
 
 typedef struct TmtParser_parsed_s
@@ -670,7 +682,7 @@ TmtParser_simple_statement(
   TmtParser_tape input,
   TmtParser_parser_state state,
   bool in_function,
-  bool in_loop,
+  TmtParser_jump_context jumps,
   uint32_t fuel
 );
 
@@ -684,15 +696,16 @@ TmtParser_local_declaration(
   uint32_t fuel
 );
 
-TmtParser_parser_state
-TmtParser_control_block(
+TmtParser_named_state
+TmtParser_scope_statement(
   TmtParser_tape input,
-  TmtParser_parser_state state,
+  TmtParser_parser_state st,
   uint32_t fuel,
   bool in_function,
-  bool in_loop,
+  TmtParser_jump_context jumps,
   uint32_t floor,
-  uint32_t used
+  uint32_t used,
+  bool root_control
 );
 
 TmtParser_parser_state
@@ -702,10 +715,35 @@ TmtParser_control_sequence(
   uint32_t fuel0,
   uint32_t remaining0,
   bool in_function0,
-  bool in_loop0,
+  TmtParser_jump_context jumps0,
   uint32_t floor0,
   uint32_t used0,
   bool root_control0
+);
+
+TmtParser_parser_state
+TmtParser_switch_sequence(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool in_function0,
+  TmtParser_jump_context jumps0,
+  uint32_t floor0,
+  uint32_t used0,
+  bool has_label0,
+  bool seen_default0
+);
+
+TmtParser_parser_state
+TmtParser_control_block(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  bool in_function,
+  TmtParser_jump_context jumps,
+  uint32_t floor,
+  uint32_t used
 );
 
 TmtParser_parser_state
@@ -714,7 +752,7 @@ TmtParser_control_statement(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
-  bool in_loop,
+  TmtParser_jump_context jumps,
   uint32_t used,
   bool allow_var
 );
@@ -725,7 +763,7 @@ TmtParser_control_body(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
-  bool in_loop,
+  TmtParser_jump_context jumps,
   uint32_t used
 );
 
@@ -735,7 +773,7 @@ TmtParser_catch_block(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
-  bool in_loop,
+  TmtParser_jump_context jumps,
   uint32_t used
 );
 
@@ -745,7 +783,7 @@ TmtParser_try_statement(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
-  bool in_loop,
+  TmtParser_jump_context jumps,
   uint32_t used
 );
 

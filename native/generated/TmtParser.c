@@ -416,6 +416,51 @@ bool TmtParser_uu___is_OptionalChain(TmtParser_assignment_target projectee)
   }
 }
 
+bool TmtParser_uu___is_NoJump(TmtParser_jump_context projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_NoJump:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
+bool TmtParser_uu___is_BreakOnly(TmtParser_jump_context projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_BreakOnly:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
+bool TmtParser_uu___is_LoopJump(TmtParser_jump_context projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_LoopJump:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
 bool TmtParser_can_assign(TmtParser_assignment_target target)
 {
   return target == TmtParser_Assignable || target == TmtParser_MemberTarget;
@@ -3332,8 +3377,17 @@ uint32_t TmtParser_statement_kind(TmtParser_tape input, uint32_t at)
     else
       return 0U;
   }
+  else if (byte == 123U)
+    return 6U;
+  else if (byte == 115U)
+  {
+    if (TmtParser_keyword(input, at, 6U, 0x737769746368ULL))
+      return 7U;
+    else
+      return 0U;
+  }
   else
-    return byte == 123U ? 6U : 0U;
+    return 0U;
 }
 
 uint32_t TmtParser_update_width(TmtParser_tape input, uint32_t at, uint8_t byte)
@@ -4079,7 +4133,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             TmtParser_function_body(input, body1, arrow.non_simple),
             inner,
             true,
-            false,
+            TmtParser_NoJump,
             start.local_names,
             arrow.names.used);
         result = TmtParser_empty_range(stop);
@@ -5534,7 +5588,7 @@ TmtParser_simple_statement(
   TmtParser_tape input,
   TmtParser_parser_state state,
   bool in_function,
-  bool in_loop,
+  TmtParser_jump_context jumps,
   uint32_t fuel
 )
 {
@@ -5570,7 +5624,7 @@ TmtParser_simple_statement(
     return TmtParser_return_statement(input, state, fuel);
   else if (jump != 0U)
   {
-    if (in_loop)
+    if (jumps == TmtParser_LoopJump || jumps == TmtParser_BreakOnly && jump == 5U)
       return TmtParser_statement_end(input, state, TmtParser_plus(state.offset, jump), true);
     else
       return TmtParser_failed(state, 1U);
@@ -5640,57 +5694,89 @@ TmtParser_local_declaration(
     );
 }
 
-TmtParser_parser_state
-TmtParser_control_block(
+TmtParser_named_state
+TmtParser_scope_statement(
   TmtParser_tape input,
-  TmtParser_parser_state state,
+  TmtParser_parser_state st,
   uint32_t fuel,
   bool in_function,
-  bool in_loop,
+  TmtParser_jump_context jumps,
   uint32_t floor,
-  uint32_t used
+  uint32_t used,
+  bool root_control
 )
 {
-  TmtParser_parser_state st = TmtParser_consume(input, TmtParser_skip(input, state), 123U);
-  TmtParser_parser_state
-  st1 =
-    TmtParser_control_sequence(input,
+  uint32_t width;
+  if (root_control)
+    width = 0U;
+  else
+    width = TmtParser_local_width(input, st.offset);
+  TmtParser_cursor fn;
+  if (root_control || !st.module_mode)
+    fn = ((TmtParser_cursor){ .at = st.offset, .ok = false, .newline = false });
+  else
+    fn = TmtParser_function_start(input, st.offset);
+  if (width != 0U)
+    return TmtParser_local_declaration(input, st, width, floor, used, fuel);
+  else if (fn.ok)
+  {
+    if (fuel == 0U)
+      return ((TmtParser_named_state){ .state = TmtParser_failed(st, 3U), .used = used });
+    else
+    {
+      TmtParser_parser_state
+      named =
+        TmtParser_skip(input,
+          (
+            (TmtParser_parser_state){
+              .offset = TmtParser_plus(fn.at, 8U),
+              .count = st.count,
+              .depth = st.depth,
+              .status = st.status,
+              .local_names = st.local_names,
+              .await_allowed = st.await_allowed,
+              .jsx_allowed = st.jsx_allowed,
+              .module_mode = st.module_mode,
+              .in_allowed = st.in_allowed
+            }
+          ));
+      TmtParser_named_state
+      decl = TmtParser_bind_since(input, named, 64U, floor, used, named.offset);
+      TmtParser_parser_state uu____0 = decl.state;
+      TmtParser_parser_state
+      start =
+        {
+          .offset = uu____0.offset, .count = uu____0.count, .depth = uu____0.depth,
+          .status = uu____0.status, .local_names = decl.used, .await_allowed = uu____0.await_allowed,
+          .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
+          .in_allowed = uu____0.in_allowed
+        };
+      return
+        (
+          (TmtParser_named_state){
+            .state = TmtParser_function_tail(input,
+              start,
+              TmtParser_minus(fuel, 1U),
+              st.offset != fn.at),
+            .used = decl.used
+          }
+        );
+    }
+  }
+  else
+    return
       (
-        (TmtParser_parser_state){
-          .offset = st.offset,
-          .count = st.count,
-          .depth = st.depth,
-          .status = st.status,
-          .local_names = used,
-          .await_allowed = st.await_allowed,
-          .jsx_allowed = st.jsx_allowed,
-          .module_mode = st.module_mode,
-          .in_allowed = st.in_allowed
+        (TmtParser_named_state){
+          .state = TmtParser_control_statement(input,
+            st,
+            fuel,
+            in_function,
+            jumps,
+            used,
+            root_control),
+          .used = used
         }
-      ),
-      fuel,
-      input.size,
-      in_function,
-      in_loop,
-      floor,
-      used,
-      false);
-  return
-    TmtParser_consume(input,
-      (
-        (TmtParser_parser_state){
-          .offset = st1.offset,
-          .count = st1.count,
-          .depth = st1.depth,
-          .status = st1.status,
-          .local_names = state.local_names,
-          .await_allowed = st1.await_allowed,
-          .jsx_allowed = st1.jsx_allowed,
-          .module_mode = st1.module_mode,
-          .in_allowed = st1.in_allowed
-        }
-      ),
-      125U);
+      );
 }
 
 TmtParser_parser_state
@@ -5700,7 +5786,7 @@ TmtParser_control_sequence(
   uint32_t fuel0,
   uint32_t remaining0,
   bool in_function0,
-  bool in_loop0,
+  TmtParser_jump_context jumps0,
   uint32_t floor0,
   uint32_t used0,
   bool root_control0
@@ -5711,7 +5797,7 @@ TmtParser_control_sequence(
   uint32_t fuel = fuel0;
   uint32_t remaining = remaining0;
   bool in_function = in_function0;
-  bool in_loop = in_loop0;
+  TmtParser_jump_context jumps = jumps0;
   uint32_t floor = floor0;
   uint32_t used = used0;
   bool root_control = root_control0;
@@ -5740,82 +5826,19 @@ TmtParser_control_sequence(
       return TmtParser_failed(st, 1U);
     else
     {
-      uint32_t width;
-      if (root_control)
-        width = 0U;
-      else
-        width = TmtParser_local_width(input, st.offset);
-      TmtParser_cursor fn;
-      if (root_control || !st.module_mode)
-        fn = ((TmtParser_cursor){ .at = st.offset, .ok = false, .newline = false });
-      else
-        fn = TmtParser_function_start(input, st.offset);
-      TmtParser_named_state next_statement;
-      if (width != 0U)
-        next_statement = TmtParser_local_declaration(input, st, width, floor, used, fuel);
-      else if (fn.ok)
-      {
-        if (fuel == 0U)
-          next_statement =
-            ((TmtParser_named_state){ .state = TmtParser_failed(st, 3U), .used = used });
-        else
-        {
-          TmtParser_parser_state
-          named =
-            TmtParser_skip(input,
-              (
-                (TmtParser_parser_state){
-                  .offset = TmtParser_plus(fn.at, 8U),
-                  .count = st.count,
-                  .depth = st.depth,
-                  .status = st.status,
-                  .local_names = st.local_names,
-                  .await_allowed = st.await_allowed,
-                  .jsx_allowed = st.jsx_allowed,
-                  .module_mode = st.module_mode,
-                  .in_allowed = st.in_allowed
-                }
-              ));
-          TmtParser_named_state
-          decl = TmtParser_bind_since(input, named, 64U, floor, used, named.offset);
-          TmtParser_parser_state uu____0 = decl.state;
-          TmtParser_parser_state
-          start =
-            {
-              .offset = uu____0.offset, .count = uu____0.count, .depth = uu____0.depth,
-              .status = uu____0.status, .local_names = decl.used,
-              .await_allowed = uu____0.await_allowed, .jsx_allowed = uu____0.jsx_allowed,
-              .module_mode = uu____0.module_mode, .in_allowed = uu____0.in_allowed
-            };
-          next_statement =
-            (
-              (TmtParser_named_state){
-                .state = TmtParser_function_tail(input,
-                  start,
-                  TmtParser_minus(fuel, 1U),
-                  st.offset != fn.at),
-                .used = decl.used
-              }
-            );
-        }
-      }
-      else
-        next_statement =
-          (
-            (TmtParser_named_state){
-              .state = TmtParser_control_statement(input,
-                st,
-                fuel,
-                in_function,
-                in_loop,
-                used,
-                root_control),
-              .used = used
-            }
-          );
-      TmtParser_parser_state tmp0 = next_statement.state;
+      TmtParser_named_state
+      statement =
+        TmtParser_scope_statement(input,
+          st,
+          fuel,
+          in_function,
+          jumps,
+          floor,
+          used,
+          root_control);
+      TmtParser_parser_state tmp0 = statement.state;
       uint32_t tmp1 = TmtParser_minus(remaining, 1U);
-      uint32_t tmp = next_statement.used;
+      uint32_t tmp = statement.used;
       state = tmp0;
       remaining = tmp1;
       used = tmp;
@@ -5829,12 +5852,220 @@ TmtParser_control_sequence(
 }
 
 TmtParser_parser_state
+TmtParser_switch_sequence(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool in_function0,
+  TmtParser_jump_context jumps0,
+  uint32_t floor0,
+  uint32_t used0,
+  bool has_label0,
+  bool seen_default0
+)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  uint32_t fuel = fuel0;
+  uint32_t remaining = remaining0;
+  bool in_function = in_function0;
+  TmtParser_jump_context jumps = jumps0;
+  uint32_t floor = floor0;
+  uint32_t used = used0;
+  bool has_label = has_label0;
+  bool seen_default = seen_default0;
+  while (true)
+  {
+    TmtParser_parser_state
+    st =
+      TmtParser_skip(input,
+        (
+          (TmtParser_parser_state){
+            .offset = state.offset,
+            .count = state.count,
+            .depth = state.depth,
+            .status = state.status,
+            .local_names = used,
+            .await_allowed = state.await_allowed,
+            .jsx_allowed = state.jsx_allowed,
+            .module_mode = state.module_mode,
+            .in_allowed = state.in_allowed
+          }
+        ));
+    bool closed = TmtParser_same(input, st.offset, 125U);
+    if (st.status != 0U || closed)
+      return st;
+    else if (st.offset == input.size || remaining == 0U)
+      return TmtParser_failed(st, 1U);
+    else
+    {
+      uint32_t left = TmtParser_minus(remaining, 1U);
+      uint8_t byte = TmtParser_peek(input, st.offset);
+      bool case_;
+      if (byte == 99U)
+        case_ = TmtParser_keyword(input, st.offset, 4U, 0x63617365ULL);
+      else
+        case_ = false;
+      bool default_;
+      if (byte == 100U)
+        default_ = TmtParser_keyword(input, st.offset, 7U, 0x64656661756c74ULL);
+      else
+        default_ = false;
+      if (case_)
+      {
+        TmtParser_parsed
+        test =
+          TmtParser_comparison(input,
+            (
+              (TmtParser_parser_state){
+                .offset = TmtParser_plus(st.offset, 4U),
+                .count = st.count,
+                .depth = st.depth,
+                .status = st.status,
+                .local_names = st.local_names,
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed,
+                .module_mode = st.module_mode,
+                .in_allowed = st.in_allowed
+              }
+            ),
+            fuel);
+        TmtParser_parser_state
+        colon = TmtParser_consume(input, TmtParser_skip(input, test.parser), 58U);
+        TmtParser_parser_state tmp0 = colon;
+        uint32_t tmp1 = left;
+        bool tmp = true;
+        state = tmp0;
+        remaining = tmp1;
+        has_label = tmp;
+      }
+      else if (default_)
+      {
+        if (seen_default)
+          return TmtParser_failed(st, 1U);
+        else
+        {
+          TmtParser_parser_state
+          colon =
+            TmtParser_consume(input,
+              TmtParser_skip(input,
+                (
+                  (TmtParser_parser_state){
+                    .offset = TmtParser_plus(st.offset, 7U),
+                    .count = st.count,
+                    .depth = st.depth,
+                    .status = st.status,
+                    .local_names = st.local_names,
+                    .await_allowed = st.await_allowed,
+                    .jsx_allowed = st.jsx_allowed,
+                    .module_mode = st.module_mode,
+                    .in_allowed = st.in_allowed
+                  }
+                )),
+              58U);
+          TmtParser_parser_state tmp0 = colon;
+          uint32_t tmp1 = left;
+          bool tmp2 = true;
+          bool tmp = true;
+          state = tmp0;
+          remaining = tmp1;
+          has_label = tmp2;
+          seen_default = tmp;
+        }
+      }
+      else if (!has_label)
+        return TmtParser_failed(st, 1U);
+      else
+      {
+        TmtParser_named_state
+        statement =
+          TmtParser_scope_statement(input,
+            st,
+            fuel,
+            in_function,
+            jumps,
+            floor,
+            used,
+            false);
+        TmtParser_parser_state tmp0 = statement.state;
+        uint32_t tmp1 = left;
+        uint32_t tmp2 = statement.used;
+        bool tmp = true;
+        state = tmp0;
+        remaining = tmp1;
+        used = tmp2;
+        has_label = tmp;
+      }
+    }
+  }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+TmtParser_parser_state
+TmtParser_control_block(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  bool in_function,
+  TmtParser_jump_context jumps,
+  uint32_t floor,
+  uint32_t used
+)
+{
+  TmtParser_parser_state st = TmtParser_consume(input, TmtParser_skip(input, state), 123U);
+  TmtParser_parser_state
+  st1 =
+    TmtParser_control_sequence(input,
+      (
+        (TmtParser_parser_state){
+          .offset = st.offset,
+          .count = st.count,
+          .depth = st.depth,
+          .status = st.status,
+          .local_names = used,
+          .await_allowed = st.await_allowed,
+          .jsx_allowed = st.jsx_allowed,
+          .module_mode = st.module_mode,
+          .in_allowed = st.in_allowed
+        }
+      ),
+      fuel,
+      input.size,
+      in_function,
+      jumps,
+      floor,
+      used,
+      false);
+  return
+    TmtParser_consume(input,
+      (
+        (TmtParser_parser_state){
+          .offset = st1.offset,
+          .count = st1.count,
+          .depth = st1.depth,
+          .status = st1.status,
+          .local_names = state.local_names,
+          .await_allowed = st1.await_allowed,
+          .jsx_allowed = st1.jsx_allowed,
+          .module_mode = st1.module_mode,
+          .in_allowed = st1.in_allowed
+        }
+      ),
+      125U);
+}
+
+TmtParser_parser_state
 TmtParser_control_statement(
   TmtParser_tape input,
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
-  bool in_loop,
+  TmtParser_jump_context jumps,
   uint32_t used,
   bool allow_var
 )
@@ -5843,7 +6074,7 @@ TmtParser_control_statement(
   if (state.status != 0U)
     return state;
   else if (kind == 0U)
-    return TmtParser_simple_statement(input, state, in_function, in_loop, fuel);
+    return TmtParser_simple_statement(input, state, in_function, jumps, fuel);
   else if (fuel == 0U)
     return TmtParser_failed(state, 3U);
   else
@@ -5886,11 +6117,11 @@ TmtParser_control_statement(
             }
           ),
           fuel);
-      bool body_loop = in_loop || kind == 2U;
+      TmtParser_jump_context body_jumps = kind == 2U ? TmtParser_LoopJump : jumps;
       TmtParser_parser_state
       st =
         TmtParser_skip(input,
-          TmtParser_control_body(input, tested, inner, in_function, body_loop, used));
+          TmtParser_control_body(input, tested, inner, in_function, body_jumps, used));
       bool has_else;
       if (kind == 1U)
         has_else = TmtParser_keyword(input, st.offset, 4U, 0x656c7365ULL);
@@ -5914,7 +6145,7 @@ TmtParser_control_statement(
             ),
             inner,
             in_function,
-            in_loop,
+            jumps,
             used);
       else
         return st;
@@ -5940,7 +6171,7 @@ TmtParser_control_statement(
             ),
             inner,
             in_function,
-            true,
+            TmtParser_LoopJump,
             used));
       bool tested = TmtParser_keyword(input, st.offset, 5U, 0x7768696c65ULL);
       if (!tested)
@@ -5991,7 +6222,7 @@ TmtParser_control_statement(
           ),
           allow_var,
           fuel);
-      return TmtParser_control_body(input, tested, inner, in_function, true, used);
+      return TmtParser_control_body(input, tested, inner, in_function, TmtParser_LoopJump, used);
     }
     else if (kind == 5U)
       return
@@ -6011,10 +6242,61 @@ TmtParser_control_statement(
           ),
           inner,
           in_function,
-          in_loop,
+          jumps,
           used);
+    else if (kind == 6U)
+      return TmtParser_control_block(input, state1, inner, in_function, jumps, used, used);
     else
-      return TmtParser_control_block(input, state1, inner, in_function, in_loop, used, used);
+    {
+      TmtParser_parser_state
+      tested =
+        TmtParser_condition(input,
+          (
+            (TmtParser_parser_state){
+              .offset = TmtParser_plus(state1.offset, 6U),
+              .count = state1.count,
+              .depth = state1.depth,
+              .status = state1.status,
+              .local_names = state1.local_names,
+              .await_allowed = state1.await_allowed,
+              .jsx_allowed = state1.jsx_allowed,
+              .module_mode = state1.module_mode,
+              .in_allowed = state1.in_allowed
+            }
+          ),
+          fuel);
+      TmtParser_parser_state start = TmtParser_consume(input, TmtParser_skip(input, tested), 123U);
+      TmtParser_jump_context
+      case_jumps = jumps == TmtParser_LoopJump ? TmtParser_LoopJump : TmtParser_BreakOnly;
+      TmtParser_parser_state
+      st =
+        TmtParser_switch_sequence(input,
+          start,
+          inner,
+          input.size,
+          in_function,
+          case_jumps,
+          used,
+          used,
+          false,
+          false);
+      return
+        TmtParser_consume(input,
+          (
+            (TmtParser_parser_state){
+              .offset = st.offset,
+              .count = st.count,
+              .depth = st.depth,
+              .status = st.status,
+              .local_names = state1.local_names,
+              .await_allowed = st.await_allowed,
+              .jsx_allowed = st.jsx_allowed,
+              .module_mode = st.module_mode,
+              .in_allowed = st.in_allowed
+            }
+          ),
+          125U);
+    }
   }
 }
 
@@ -6024,7 +6306,7 @@ TmtParser_control_body(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
-  bool in_loop,
+  TmtParser_jump_context jumps,
   uint32_t used
 )
 {
@@ -6032,9 +6314,9 @@ TmtParser_control_body(
   if (st.status != 0U)
     return st;
   else if (TmtParser_same(input, st.offset, 123U))
-    return TmtParser_control_block(input, st, fuel, in_function, in_loop, used, used);
+    return TmtParser_control_block(input, st, fuel, in_function, jumps, used, used);
   else
-    return TmtParser_control_statement(input, st, fuel, in_function, in_loop, used, false);
+    return TmtParser_control_statement(input, st, fuel, in_function, jumps, used, false);
 }
 
 TmtParser_parser_state
@@ -6043,7 +6325,7 @@ TmtParser_catch_block(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
-  bool in_loop,
+  TmtParser_jump_context jumps,
   uint32_t used
 )
 {
@@ -6055,10 +6337,10 @@ TmtParser_catch_block(
     TmtParser_parser_state
     annotated = TmtParser_skip(input, TmtParser_simple_annotation(input, bound.state));
     TmtParser_parser_state body = TmtParser_consume(input, annotated, 41U);
-    return TmtParser_control_block(input, body, fuel, in_function, in_loop, used, bound.used);
+    return TmtParser_control_block(input, body, fuel, in_function, jumps, used, bound.used);
   }
   else
-    return TmtParser_control_block(input, st, fuel, in_function, in_loop, used, used);
+    return TmtParser_control_block(input, st, fuel, in_function, jumps, used, used);
 }
 
 TmtParser_parser_state
@@ -6067,14 +6349,14 @@ TmtParser_try_statement(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
-  bool in_loop,
+  TmtParser_jump_context jumps,
   uint32_t used
 )
 {
   TmtParser_parser_state
   after =
     TmtParser_skip(input,
-      TmtParser_control_block(input, state, fuel, in_function, in_loop, used, used));
+      TmtParser_control_block(input, state, fuel, in_function, jumps, used, used));
   if (after.status != 0U)
     return after;
   else
@@ -6100,7 +6382,7 @@ TmtParser_try_statement(
             ),
             fuel,
             in_function,
-            in_loop,
+            jumps,
             used));
     else
       st = after;
@@ -6123,7 +6405,7 @@ TmtParser_try_statement(
           ),
           fuel,
           in_function,
-          in_loop,
+          jumps,
           used,
           used);
     else if (caught)
@@ -6357,7 +6639,7 @@ TmtParser_function_tail(
       TmtParser_function_body(input, st1, params.non_simple),
       fuel,
       true,
-      false,
+      TmtParser_NoJump,
       floor,
       params.names.used);
   return
@@ -7226,7 +7508,13 @@ TmtParser_module_sequence(
           decl =
             (
               (TmtParser_named_state){
-                .state = TmtParser_control_statement(input, st, 64U, false, false, 0U, false),
+                .state = TmtParser_control_statement(input,
+                  st,
+                  64U,
+                  false,
+                  TmtParser_NoJump,
+                  0U,
+                  false),
                 .used = used
               }
             );
@@ -7261,7 +7549,13 @@ TmtParser_module_sequence(
           decl =
             (
               (TmtParser_named_state){
-                .state = TmtParser_control_statement(input, st, 64U, false, false, 0U, false),
+                .state = TmtParser_control_statement(input,
+                  st,
+                  64U,
+                  false,
+                  TmtParser_NoJump,
+                  0U,
+                  false),
                 .used = used
               }
             );
@@ -7293,7 +7587,16 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
     uint8_t first = TmtParser_peek(input, st.offset);
     uint32_t control = TmtParser_statement_kind(input, st.offset);
     if (control != 0U)
-      return TmtParser_control_sequence(input, st, 64U, input.size, false, false, 0U, 0U, true);
+      return
+        TmtParser_control_sequence(input,
+          st,
+          64U,
+          input.size,
+          false,
+          TmtParser_NoJump,
+          0U,
+          0U,
+          true);
     else if (first == 118U)
     {
       if (TmtParser_keyword(input, st.offset, 3U, 0x766172ULL))
@@ -7318,7 +7621,16 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
             true);
         TmtParser_parser_state
         st1 = TmtParser_consume(input, TmtParser_skip(input, initialized), 59U);
-        return TmtParser_control_sequence(input, st1, 64U, input.size, false, false, 0U, 0U, true);
+        return
+          TmtParser_control_sequence(input,
+            st1,
+            64U,
+            input.size,
+            false,
+            TmtParser_NoJump,
+            0U,
+            0U,
+            true);
       }
       else
         return TmtParser_failed(st, 1U);
