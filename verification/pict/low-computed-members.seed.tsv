@@ -1,0 +1,5 @@
+Member	Context	Suffix
+Property	Module	Valid
+Method	Function	Valid
+Async	TSX	Valid
+Property	Function	Invalid

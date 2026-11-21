@@ -1464,45 +1464,53 @@ and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (cl
         if arg.open_angle && not next_hole then failed st 1ul
         else expression_list input next_item fuel (minus remaining 1ul) close
       else consume input st close
+and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bool)
+  : Run parsed input (decreases %[U32.v fuel; 26; 0]) =
+  let byte = peek input st.offset in
+  let spread = spread_at input st.offset in
+  if spread && not colon_required then comparison input { st with offset = plus st.offset 3ul } fuel
+  else
+    let modifier = async_modifier input st.offset in
+    let method_byte = if modifier.ok then peek input modifier.at else 0uy in
+    let async_method = modifier.ok && (G.identifier_start method_byte || method_byte = 34uy ||
+      method_byte = 39uy || method_byte = 91uy) in
+    let key_start = if async_method then { st with offset = modifier.at } else st in
+    let byte = if async_method then method_byte else byte in
+    let quoted = byte = 34uy || byte = 39uy in
+    let computed = byte = 91uy in
+    let end_key =
+      if computed then
+        let key = comparison input { key_start with offset = next key_start.offset; in_allowed = true } fuel in
+        let closed = consume input (skip input key.parser) 93uy in
+        { closed with in_allowed = st.in_allowed }
+      else
+        let key = property_name input key_start in
+        let first = if quoted then next key_start.offset else key_start.offset in
+        let last = if quoted then minus key.at 1ul else key.at in
+        let prototype = if key.ok then proto_key input first last else false in
+        if prototype then failed st 1ul else from_cursor key_start key in
+    let after_key = skip input end_key in
+    let colon = same input after_key.offset 58uy in
+    if after_key.status <> 0ul then empty_range after_key
+    else if colon && not async_method then comparison input (consume input after_key 58uy) fuel
+    else
+      let next_token = peek input after_key.offset in
+      if not colon_required && (next_token = 40uy || next_token = 60uy) then
+        if fuel = 0ul then empty_range (failed after_key 3ul)
+        else empty_range (function_tail input after_key (minus fuel 1ul) async_method)
+      else if computed || quoted || colon_required || async_method then empty_range (failed st 1ul)
+      else
+        let shorthand = name input st.offset false false in
+        if shorthand.ok then empty_range after_key else empty_range (failed st 1ul)
 and object_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (colon_required:bool)
-  : Run parser_state input (decreases %[U32.v fuel; 26; U32.v remaining]) =
+  : Run parser_state input (decreases %[U32.v fuel; 27; U32.v remaining]) =
   let st = skip input state in
   let byte = peek input st.offset in
   if st.status <> 0ul then st
   else if byte = 125uy then consume input st 125uy
   else if remaining = 0ul then failed st 3ul
   else
-    let spread = spread_at input st.offset in
-    let value =
-    if spread && not colon_required then comparison input { st with offset = plus st.offset 3ul } fuel
-    else
-    let modifier = async_modifier input st.offset in
-    let method_byte = if modifier.ok then peek input modifier.at else 0uy in
-    let async_method = modifier.ok && (G.identifier_start method_byte || method_byte = 34uy || method_byte = 39uy) in
-    let key_start = if async_method then { st with offset = modifier.at } else st in
-    let byte = if async_method then method_byte else byte in
-    let quoted = byte = 34uy || byte = 39uy in
-    let key = property_name input key_start in
-    if not key.ok then empty_range (failed st 1ul)
-    else
-      let first = if quoted then next key_start.offset else key_start.offset in
-      let last = if quoted then minus key.at 1ul else key.at in
-      let prototype = proto_key input first last in
-      let after_key = skip input { st with offset = key.at } in
-      let colon = same input after_key.offset 58uy in
-      (
-        if prototype then empty_range (failed st 1ul)
-        else if colon && not async_method then comparison input (consume input after_key 58uy) fuel
-        else
-          let next_token = peek input after_key.offset in
-          if not colon_required && (next_token = 40uy || next_token = 60uy) then
-            if fuel = 0ul then empty_range (failed after_key 3ul)
-            else empty_range (function_tail input after_key (minus fuel 1ul) async_method)
-          else if quoted || colon_required || async_method then empty_range (failed st 1ul)
-          else
-            let shorthand = name input st.offset false false in
-            if shorthand.ok then empty_range after_key else empty_range (failed st 1ul)
-      ) in
+    let value = object_member input st fuel colon_required in
     let st = skip input value.parser in
     if same input st.offset 44uy then
       // A colon in the next property rules out a generic argument list across the comma.

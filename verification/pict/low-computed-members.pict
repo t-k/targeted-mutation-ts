@@ -1,0 +1,3 @@
+Member: Property, Method, Async
+Context: Module, Function, TSX
+Suffix: Valid, Invalid

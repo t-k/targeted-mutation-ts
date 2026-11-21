@@ -595,6 +595,14 @@ TmtParser_expression_list(
   uint8_t close0
 );
 
+TmtParser_parsed
+TmtParser_object_member(
+  TmtParser_tape input,
+  TmtParser_parser_state st,
+  uint32_t fuel,
+  bool colon_required
+);
+
 TmtParser_parser_state
 TmtParser_object_members(
   TmtParser_tape input0,
