@@ -24,9 +24,9 @@ npm run verify:fstar
 npm run audit:extraction -- /path/to/vite /path/to/preact /path/to/typescript
 ```
 
-The native build uses the checked-in KaRaMeL C files and Node-API headers. Set `TMT_NODE_INCLUDE` if they are outside the standard paths. The F★ verification command uses F★ 2025.12.15 and the KaRaMeL executable shipped with F★ 2026.11.15. Set `FSTAR_EXE` and `KARAMEL_EXE` to their paths. It verifies the sources and checks regeneration against the checked-in C files.
+The native build uses the checked-in KaRaMeL C files, Node-API headers, and Rust 1.98 or newer to link Oxc into the addon. Set `TMT_NODE_INCLUDE` if Node's headers are outside the standard paths. The F★ verification command uses F★ 2025.12.15 and the KaRaMeL executable shipped with F★ 2026.11.15. Set `FSTAR_EXE` and `KARAMEL_EXE` to their paths. It verifies the sources and checks regeneration against the checked-in C files.
 
-The [L1 grammar and trust boundary](docs/l1.md) define how candidates and fallback work. A [recorded differential run](evidence/m1/corpus.json) includes Vite, Preact, and a sparse checkout of the TypeScript compiler test corpus.
+The [L1 grammar and trust boundary](docs/l1.md) describe the AST-free Low★ parser, native module extraction, and Yuku fallback. The [recorded differential run](evidence/m1/broad-native-extraction.json) covers Vite, Preact, TypeScript compiler fixtures, mreact, and tachyon-dom.
 
 ## Analyze a Vitest project
 
@@ -54,6 +54,6 @@ npm ci
 npm run pack:runtime
 ```
 
-The archive written to `build/` has the OS and CPU in its filename and npm metadata. It contains the native parser and Lean decision executable for the build machine's OS and architecture. The installed `tmt-ts` command runs them directly. Building another platform's package requires its C toolchain and pinned Lean toolchain. See [performance measurements](docs/performance.md) for the evaluated workloads.
+The archive written to `build/` has the OS and CPU in its filename and npm metadata. It contains the native parser and Lean decision executable for the build machine's OS and architecture. The installed `tmt-ts` command runs them directly. Building another platform's package requires its C and Rust toolchains and the pinned Lean toolchain. See [performance measurements](docs/performance.md) for the evaluated workloads.
 
 The archive installs Yuku for TS/TSX syntax fallback and TypeScript for witness AST analysis. TMT uses the test runner installed in the target project or its workspace. The `standard` and `all` profiles also require `@stryker-mutator/instrumenter@10.1.1`.
