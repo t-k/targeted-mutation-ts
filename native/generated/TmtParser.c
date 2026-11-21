@@ -3906,6 +3906,34 @@ TmtParser_arrow_token(TmtParser_tape input, TmtParser_parser_state state)
   }
 }
 
+TmtParser_parser_state
+TmtParser_generic_arrow_head(TmtParser_tape input, TmtParser_parser_state state)
+{
+  TmtParser_parser_state head = TmtParser_consume(input, state, 60U);
+  bool eligible;
+  if (!head.jsx_allowed)
+    eligible = true;
+  else
+  {
+    TmtParser_parser_state first = TmtParser_skip(input, head);
+    TmtParser_cursor named = TmtParser_name(input, first.offset, false, true);
+    TmtParser_parser_state tail = TmtParser_skip(input, TmtParser_from_cursor(first, named));
+    uint8_t byte = TmtParser_peek(input, tail.offset);
+    if (tail.status != 0U)
+      eligible = false;
+    else if (byte == 44U || byte == 61U)
+      eligible = true;
+    else if (byte == 101U)
+      eligible = TmtParser_keyword(input, tail.offset, 7U, 0x657874656e6473ULL);
+    else
+      eligible = false;
+  }
+  if (eligible)
+    return TmtParser_skip(input, TmtParser_type_parameters(input, head, 16U, 64U));
+  else
+    return TmtParser_failed(head, 1U);
+}
+
 TmtParser_parameter_list
 TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
 {
@@ -3918,12 +3946,20 @@ TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state st
   else
   {
     uint8_t byte = TmtParser_peek(input, state.offset);
-    if (byte == 40U)
+    TmtParser_parser_state opening;
+    if (byte == 60U)
+      opening = TmtParser_generic_arrow_head(input, state);
+    else
+      opening = state;
+    bool parenthesized = TmtParser_same(input, opening.offset, 40U);
+    if (opening.status != 0U)
+      return missed;
+    else if (parenthesized)
     {
       TmtParser_parameter_list
       params =
         TmtParser_parameters(input,
-          TmtParser_consume(input, state, 40U),
+          TmtParser_consume(input, opening, 40U),
           used,
           used,
           64U,

@@ -628,6 +628,9 @@ TmtParser_parameters(
 TmtParser_parser_state
 TmtParser_arrow_token(TmtParser_tape input, TmtParser_parser_state state);
 
+TmtParser_parser_state
+TmtParser_generic_arrow_head(TmtParser_tape input, TmtParser_parser_state state);
+
 TmtParser_parameter_list
 TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state);
 

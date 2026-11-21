@@ -1,0 +1,7 @@
+Dialect	Types	Arrow
+TS	Single	Plain
+TSX	Comma	Plain
+TSX	Single	Plain
+TSX	Constraint	Typed
+TSX	Default	Async
+TS	Multiple	Typed

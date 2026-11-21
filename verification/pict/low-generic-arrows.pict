@@ -1,0 +1,3 @@
+Dialect: TS, TSX
+Types: Single, Comma, Multiple, Constraint, Default
+Arrow: Plain, Async, Typed

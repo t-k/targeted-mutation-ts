@@ -1169,14 +1169,32 @@ let arrow_token (input:tape) (state:parser_state) : Read parser_state input =
     if not tail.newline && equal && greater then { st with offset = plus st.offset 2ul }
     else failed st 1ul
 
+let generic_arrow_head (input:tape) (state:parser_state) : Read parser_state input =
+  let head = consume input state 60uy in
+  let eligible =
+    if not head.jsx_allowed then true
+    else
+      let first = skip input head in
+      let named = name input first.offset false true in
+      let tail = skip input (from_cursor first named) in
+      let byte = peek input tail.offset in
+      if tail.status <> 0ul then false
+      else if byte = 44uy || byte = 61uy then true
+      else if byte = 101uy then keyword input tail.offset 7ul 0x657874656e6473uL
+      else false in
+  if eligible then skip input (type_parameters input head 16ul 64ul) else failed head 1ul
+
 let plain_arrow_parameters (input:tape) (state:parser_state) : Run parameter_list input =
   let used = state.local_names in
   let missed = { names = { state = failed state 1ul; used }; non_simple = false } in
   if state.status <> 0ul then missed
   else
     let byte = peek input state.offset in
-    if byte = 40uy then
-      let params = parameters input (consume input state 40uy) used used 64ul false in
+    let opening = if byte = 60uy then generic_arrow_head input state else state in
+    let parenthesized = same input opening.offset 40uy in
+    if opening.status <> 0ul then missed
+    else if parenthesized then
+      let params = parameters input (consume input opening 40uy) used used 64ul false in
       let after = trivia input params.names.state.offset in
       let st = from_cursor params.names.state after in
       let colon = same input st.offset 58uy in
