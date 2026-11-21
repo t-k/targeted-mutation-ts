@@ -1,0 +1,290 @@
+{
+  "baselineRevision": "4be72f5",
+  "runtimeRevision": "2a8a993",
+  "node": "v24.14.0",
+  "system": "darwin 27.2.0 arm64",
+  "cpu": "Apple M5 Max",
+  "reference": "yuku-parser 0.19.0",
+  "audits": [
+    {
+      "scope": {
+        "prefix": "",
+        "sourceOnly": false,
+        "logical": false
+      },
+      "reports": [
+        {
+          "project": "vite-corpus",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 482,
+          "fastFiles": 422,
+          "fastCandidates": 159,
+          "yukuFiles": 60,
+          "yukuCandidates": 42,
+          "diagnostics": 1,
+          "nativeDiagnosticFiles": 0
+        },
+        {
+          "project": "preact-corpus",
+          "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+          "files": 22,
+          "fastFiles": 11,
+          "fastCandidates": 0,
+          "yukuFiles": 11,
+          "yukuCandidates": 1,
+          "diagnostics": 0,
+          "nativeDiagnosticFiles": 0
+        },
+        {
+          "project": "typescript-corpus",
+          "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+          "files": 6479,
+          "fastFiles": 1629,
+          "fastCandidates": 107,
+          "yukuFiles": 4836,
+          "yukuCandidates": 455,
+          "diagnostics": 952,
+          "nativeDiagnosticFiles": 5
+        },
+        {
+          "project": "mreact",
+          "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+          "files": 1193,
+          "fastFiles": 1095,
+          "fastCandidates": 1200,
+          "yukuFiles": 98,
+          "yukuCandidates": 350,
+          "diagnostics": 0,
+          "nativeDiagnosticFiles": 0
+        },
+        {
+          "project": "tachyon-dom",
+          "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+          "files": 373,
+          "fastFiles": 333,
+          "fastCandidates": 498,
+          "yukuFiles": 40,
+          "yukuCandidates": 156,
+          "diagnostics": 0,
+          "nativeDiagnosticFiles": 0
+        }
+      ]
+    },
+    {
+      "scope": {
+        "prefix": "",
+        "sourceOnly": false,
+        "logical": true
+      },
+      "reports": [
+        {
+          "project": "vite-corpus",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 482,
+          "fastFiles": 422,
+          "fastCandidates": 159,
+          "yukuFiles": 60,
+          "yukuCandidates": 42,
+          "diagnostics": 1,
+          "nativeDiagnosticFiles": 0
+        },
+        {
+          "project": "preact-corpus",
+          "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+          "files": 22,
+          "fastFiles": 11,
+          "fastCandidates": 0,
+          "yukuFiles": 11,
+          "yukuCandidates": 1,
+          "diagnostics": 0,
+          "nativeDiagnosticFiles": 0
+        },
+        {
+          "project": "typescript-corpus",
+          "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+          "files": 6479,
+          "fastFiles": 1629,
+          "fastCandidates": 107,
+          "yukuFiles": 4836,
+          "yukuCandidates": 455,
+          "diagnostics": 952,
+          "nativeDiagnosticFiles": 5
+        },
+        {
+          "project": "mreact",
+          "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+          "files": 1193,
+          "fastFiles": 1095,
+          "fastCandidates": 1200,
+          "yukuFiles": 98,
+          "yukuCandidates": 350,
+          "diagnostics": 0,
+          "nativeDiagnosticFiles": 0
+        },
+        {
+          "project": "tachyon-dom",
+          "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+          "files": 373,
+          "fastFiles": 333,
+          "fastCandidates": 498,
+          "yukuFiles": 40,
+          "yukuCandidates": 156,
+          "diagnostics": 0,
+          "nativeDiagnosticFiles": 0
+        }
+      ]
+    }
+  ],
+  "benchmark": {
+    "vite-corpus": {
+      "workload": "repository",
+      "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+      "files": 482,
+      "bytes": 2207415,
+      "turnsPerRepetition": 7,
+      "fastFiles": 422,
+      "fastCandidates": 159,
+      "nativeFiles": 0,
+      "nativeCandidates": 0,
+      "nativeDiagnosticFiles": 0,
+      "yukuFiles": 60,
+      "yukuCandidates": 42,
+      "tokenFiles": 0,
+      "tokenCandidates": 0,
+      "baseline": {
+        "medianMs": 25.15600585714284,
+        "p25Ms": 24.814934428571437,
+        "p75Ms": 26.13086900000001
+      },
+      "optimized": {
+        "medianMs": 24.709333428571426,
+        "p25Ms": 24.554517857142855,
+        "p75Ms": 25.56577385714289
+      },
+      "samplesMs": [
+        [
+          28.23481542857142,
+          25.275773857142863,
+          28.757982142857145,
+          24.618511857142853,
+          24.814934428571437,
+          25.152428571428572,
+          25.15600585714284,
+          26.13086900000001,
+          24.32898799999995
+        ],
+        [
+          23.97735714285716,
+          24.554517857142855,
+          23.85338085714287,
+          27.876226285714274,
+          25.56577385714289,
+          24.709333428571426,
+          24.828470285714307,
+          28.22105942857141,
+          24.65422614285717
+        ]
+      ]
+    },
+    "mreact": {
+      "workload": "repository",
+      "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+      "files": 1193,
+      "bytes": 12465294,
+      "turnsPerRepetition": 7,
+      "fastFiles": 1095,
+      "fastCandidates": 1200,
+      "nativeFiles": 0,
+      "nativeCandidates": 0,
+      "nativeDiagnosticFiles": 0,
+      "yukuFiles": 98,
+      "yukuCandidates": 350,
+      "tokenFiles": 0,
+      "tokenCandidates": 0,
+      "baseline": {
+        "medianMs": 105.21132728571423,
+        "p25Ms": 104.52005942857146,
+        "p75Ms": 107.11302971428579
+      },
+      "optimized": {
+        "medianMs": 98.29184514285718,
+        "p25Ms": 97.26490471428575,
+        "p75Ms": 98.73890471428565
+      },
+      "samplesMs": [
+        [
+          116.61510714285717,
+          105.18059528571426,
+          104.52005942857146,
+          104.08488685714279,
+          102.87123214285722,
+          107.11302971428579,
+          106.45387500000002,
+          105.21132728571423,
+          108.06640471428571
+        ],
+        [
+          95.2332082857143,
+          97.56317257142857,
+          97.26490471428575,
+          98.73890471428565,
+          98.29184514285718,
+          99.31927371428563,
+          99.07267257142874,
+          98.60257142857154,
+          96.47344042857132
+        ]
+      ]
+    },
+    "tachyon-dom": {
+      "workload": "repository",
+      "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+      "files": 373,
+      "bytes": 3431318,
+      "turnsPerRepetition": 7,
+      "fastFiles": 333,
+      "fastCandidates": 498,
+      "nativeFiles": 0,
+      "nativeCandidates": 0,
+      "nativeDiagnosticFiles": 0,
+      "yukuFiles": 40,
+      "yukuCandidates": 156,
+      "tokenFiles": 0,
+      "tokenCandidates": 0,
+      "baseline": {
+        "medianMs": 54.30601200000001,
+        "p25Ms": 52.12129771428564,
+        "p75Ms": 55.93907142857136
+      },
+      "optimized": {
+        "medianMs": 45.588053571428645,
+        "p25Ms": 44.39433328571431,
+        "p75Ms": 48.02156557142858
+      },
+      "samplesMs": [
+        [
+          49.087928571428556,
+          53.37416657142857,
+          54.395499999999956,
+          64.04270828571427,
+          48.864708285714315,
+          56.98405357142864,
+          55.93907142857136,
+          54.30601200000001,
+          52.12129771428564
+        ],
+        [
+          47.805761999999994,
+          48.02156557142858,
+          49.89377971428569,
+          50.24898214285713,
+          43.771779714285785,
+          45.588053571428645,
+          45.520178571428524,
+          44.39433328571431,
+          43.8368452857142
+        ]
+      ]
+    }
+  }
+}

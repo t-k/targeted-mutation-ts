@@ -1,5 +1,17 @@
 # Performance measurements
 
+## Low★ arrow parameter expressions
+
+At `2a8a993`, Low★ extracts 1,964 of 2,968 candidates across 3,490 of 8,549 files, including 1,200 in mreact and 498 in tachyon-dom. The ordinary and logical audits match all candidate fields and ordered diagnostics. Five diagnostic files also complete in Low★.
+
+| Warm extraction workload | Previous C-only build `4be72f5` | Expanded arrow defaults |
+| --- | ---: | ---: |
+| Vite | 25.16 ms | 24.71 ms |
+| mreact | 105.21 ms | 98.29 ms |
+| tachyon-dom | 54.31 ms | 45.59 ms |
+
+These are nine alternating warm samples over identical buffers. The [audit and samples](../evidence/m1/low-arrow-default-expressions.json) record fallback counts and fixed revisions.
+
 ## Low★ callable and mapped type coverage
 
 At `a9c789c`, Low★ extracts 1,843 of 2,968 candidates across 3,472 of 8,549 files. Overloads, object accessors, generic function and constructor types, and mapped types moved 205 candidates to Low★ since `89f96fd`. The complete ordered candidate records and diagnostics match Yuku across the five pinned checkouts in both JSX logical modes.
