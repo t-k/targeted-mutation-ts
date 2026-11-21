@@ -1,0 +1,10 @@
+Receiver	Types	Suffix
+Member	Name	Valid
+Index	Nested	Valid
+Call	Pair	Valid
+Member	Pair	Invalid
+Call	Name	Invalid
+Member	Nested	Invalid
+Call	Nested	Invalid
+Index	Pair	Invalid
+Index	Name	Invalid

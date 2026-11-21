@@ -1239,7 +1239,7 @@ let postfix_start (input:tape) (base:parsed) : Read postfix_head input =
   let byte = peek input st.offset in
   let increment = if after.newline then 0ul else update_width input st.offset byte in
   let generic =
-    if byte = 60uy && st.offset = base.range.G.last && can_assign base.target then
+    if byte = 60uy && st.offset = base.range.G.last && (can_assign base.target || base.target = OptionalChain) then
       call_type_arguments input st
     else failed st 1ul in
   let typed = generic.status = 0ul in
@@ -1592,7 +1592,9 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
     else
       let operand =
         if typed then head.after_types
-        else if optional then skip input { st with offset = plus st.offset 2ul }
+        else if optional then
+          let after = skip input { st with offset = plus st.offset 2ul } in
+          if same input after.offset 60uy then call_type_arguments input after else after
         else st in
       let kind = if typed then 40uy else if optional then peek input operand.offset else byte in
       let next_st =

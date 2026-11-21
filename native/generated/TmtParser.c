@@ -4015,7 +4015,11 @@ TmtParser_postfix_head TmtParser_postfix_start(TmtParser_tape input, TmtParser_p
   else
     increment = TmtParser_update_width(input, st.offset, byte);
   TmtParser_parser_state generic;
-  if (byte == 60U && st.offset == base.range.last && TmtParser_can_assign(base.target))
+  if
+  (
+    byte == 60U && st.offset == base.range.last &&
+      (TmtParser_can_assign(base.target) || base.target == TmtParser_OptionalChain)
+  )
     generic = TmtParser_call_type_arguments(input, st);
   else
     generic = TmtParser_failed(st, 1U);
@@ -5374,7 +5378,9 @@ TmtParser_postfix(
         if (typed)
           operand = head.after_types;
         else if (optional)
-          operand =
+        {
+          TmtParser_parser_state
+          after =
             TmtParser_skip(input,
               (
                 (TmtParser_parser_state){
@@ -5391,6 +5397,11 @@ TmtParser_postfix(
                   .super_context = st.super_context
                 }
               ));
+          if (TmtParser_same(input, after.offset, 60U))
+            operand = TmtParser_call_type_arguments(input, after);
+          else
+            operand = after;
+        }
         else
           operand = st;
         uint8_t kind;
