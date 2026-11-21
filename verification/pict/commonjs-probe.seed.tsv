@@ -1,0 +1,10 @@
+File	Site	Strict
+CJS	TopLevel	Directive
+CTS	Function	None
+MJS	Function	Directive
+JSCommon	TopLevel	None
+JSImplicit	TopLevel	Directive
+JSImplicitESM	Function	None
+TSCommon	TopLevel	None
+TSImplicit	Function	Directive
+TSTypeOnly	TopLevel	None

@@ -6,7 +6,7 @@ import { thresholdSites } from './prototype.mjs';
 import { thresholdGaps } from './threshold.mjs';
 import { tightenComparison } from './displacement.mjs';
 import { inside, runVitest, withCopy } from './vitest.mjs';
-import { instrument, installProbe, rewrite } from './probe.mjs';
+import { needsProbePreload, freshProbeBinding, instrument, installProbe, rewrite } from './probe.mjs';
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
 import { checkReplay } from './lean-replay.mjs';
@@ -72,11 +72,15 @@ function traceFrom(path) {
 function makeAttempt(root, subjects, runner, copyExclude, { tracing = false, activate, trial, witness } = {}) {
   return withCopy(root, (workspace, temp) => {
     const trace = tracing ? resolve(temp, 'trace.jsonl') : undefined;
-    if (tracing) installProbe(workspace);
-    for (const subject of subjects) {
-      const file = inside(workspace, subject.file);
+    const files = subjects.map(subject => ({ subject, file: inside(workspace, subject.file) }));
+    const preloaded = tracing ? new Set(files.filter(({ file, subject }) => needsProbePreload(workspace, file, subject.input))) : null;
+    const binding = preloaded?.size ? freshProbeBinding([...preloaded].map(({ subject }) => subject.input)) : undefined;
+    const probePreload = tracing ? installProbe(workspace, binding) : undefined;
+    for (const entry of files) {
+      const { subject, file } = entry;
       if (sha(readFileSync(file)) !== subject.digest) throw new Error(`Source changed during analysis: ${subject.file}`);
-      if (tracing) writeFileSync(file, instrument(workspace, subject.file, subject.input, subject.sites));
+      if (tracing) writeFileSync(file, instrument(workspace, subject.file, subject.input, subject.sites,
+        preloaded.has(entry) ? binding : undefined));
       else if (trial?.site.location.file === subject.file) writeFileSync(file, rewrite(subject.input, trial.edit, trial.replacement));
     }
     let witnessFile;
@@ -90,7 +94,7 @@ function makeAttempt(root, subjects, runner, copyExclude, { tracing = false, act
       writeFileSync(path, readFileSync(inside(workspace, witness.content)), { flag: 'wx' });
       witnessFile = relative(workspace, path);
     }
-    const result = runner(workspace, temp, { trace, active: activate, product: true });
+    const result = runner(workspace, temp, { trace, active: activate, product: true, probePreload });
     return tracing ? { ...result, trace: traceFrom(trace) } : { ...result, witnessFile, witnessName: witness?.testName };
   }, { exclude: copyExclude });
 }
@@ -336,6 +340,17 @@ function analyzePlaywright(root, subjects, report, options, specification) {
   return report;
 }
 
+function definitive(status) {
+  return status === 'killed' || status === 'survived';
+}
+
+export function focusedAuditStatus(source, probe, predicted, status) {
+  if (!definitive(source)) return 'inconclusive';
+  if ((predicted && source !== 'survived') || (definitive(probe) && source !== probe)) return 'mismatch';
+  if (source === status && (probe === null ? predicted : definitive(probe))) return 'agreed';
+  return 'inconclusive';
+}
+
 export function analyze(project, files, options) {
   const root = realpathSync(project);
   const { subjects, extraction } = collectComparisons(root, files, options);
@@ -379,6 +394,7 @@ export function analyze(project, files, options) {
       edit: trial.edit, replacement: trial.replacement, equivalentOnSafeIntegers: trial.equivalentOnSafeIntegers,
       status: predicted ? 'survived' : 'unevaluated', evidence: predicted ? 'predicted' : 'reexecuted',
     };
+    let audit;
     if (!predicted || options.audit) {
       const source = attempt({ trial });
       const actual = verdict(source, baseline);
@@ -388,12 +404,10 @@ export function analyze(project, files, options) {
       }
 
       if (options.audit) {
-        const probe = trial.rule === site.rule && tracedStatus === 'survived'
-          ? verdict(attempt({ tracing: true, activate: site.id }), baseline) : null;
-        const agrees = ['killed', 'survived'].includes(actual) && result.status === actual &&
-          (probe === null || probe === actual);
-        result.audit = { status: agrees ? 'agreed' : 'mismatch', source: actual, probe };
-        if (!agrees && (predicted || probe !== null)) result.status = 'unstable';
+        const focused = trial.rule === site.rule && trace && trial.observation.rows.length
+          ? attempt({ tracing: true, activate: site.id }) : null;
+        const activation = focused?.trace?.some(row => row.site === site.id && row.operator === site.replacement);
+        audit = { source: actual, probe: focused ? (activation ? verdict(focused, baseline) : 'unevaluated') : null };
       }
     }
 
@@ -401,6 +415,11 @@ export function analyze(project, files, options) {
       result.sourceVerdict = 'survived';
       result.status = report.instrumented.stable === false ? 'unstable'
         : trial.observation.loaded ? 'unreached' : 'unevaluated';
+    }
+    if (audit) {
+      const status = focusedAuditStatus(audit.source, audit.probe, predicted, result.status);
+      result.audit = { status, ...audit };
+      if (status === 'mismatch') result.status = 'unstable';
     }
     report.mutants.push(result);
     const gap = diagnose(trial, result);

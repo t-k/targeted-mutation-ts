@@ -164,7 +164,7 @@ export function withCopy(project, action, { exclude = [] } = {}) {
   }
 }
 
-export function runVitest(root, temp, { trace, config, testFiles = [], product = false, active, timeout = 60_000 } = {}) {
+export function runVitest(root, temp, { trace, config, testFiles = [], product = false, active, probePreload, timeout = 60_000 } = {}) {
   const vitest = resolve(dirname(runnerPackage(root, 'vitest')), 'vitest.mjs');
   const testsToRun = [...new Set(testFiles.map(file => inside(root, file)))];
   const configuration = config === undefined ? [] : ['--config', inside(root, config)];
@@ -182,6 +182,8 @@ export function runVitest(root, temp, { trace, config, testFiles = [], product =
     env: {
       ...process.env, CI: 'true', VITE_CACHE_DIR: cache, TMT_WORKSPACE: root, TMT_REPORT: report,
       TMT_TRACE: trace ?? '', TMT_ACTIVE_SITE: active ?? '',
+      ...(probePreload ? { NODE_OPTIONS: [process.env.NODE_OPTIONS, '--require=' + JSON.stringify(probePreload)]
+        .filter(Boolean).join(' ') } : {}),
     },
     encoding: 'utf8',
     timeout: timeout + 5000,

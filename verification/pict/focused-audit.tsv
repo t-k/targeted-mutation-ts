@@ -1,0 +1,12 @@
+Source	Evidence	Observation
+Survived	Matches	Unloaded
+Survived	Matches	Unreached
+Killed	Missing	Observed
+Killed	Matches	Observed
+Survived	Contradicts	Observed
+Unevaluated	Missing	Unloaded
+Survived	Missing	Unreached
+Killed	Contradicts	Unloaded
+Killed	Contradicts	Unreached
+Unevaluated	Contradicts	Unreached
+Unevaluated	Matches	Observed
