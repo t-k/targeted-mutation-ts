@@ -1,0 +1,3 @@
+Pattern: Class, Group, Lookaround, Quantified
+Flags: None, Multiple, Unicode
+Suffix: Valid, Invalid

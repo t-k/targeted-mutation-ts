@@ -219,30 +219,167 @@ let rec string_end (input:tape) (at:U32.t) (delimiter:U8.t) (fuel:U32.t)
         else { at; ok = false; newline = false }
       else string_end input (next at) delimiter (minus fuel 1ul)
 
-// Only atoms and quantifiers whose validity needs no regex parser are admitted.
-let rec regex_end (input:tape) (at:U32.t) (first can_repeat:bool) (fuel:U32.t)
-  : Read cursor input (decreases U32.v fuel) =
+let regex_printable (ch:U8.t) : bool = U8.(ch >=^ 32uy && ch <=^ 126uy)
+
+let hex_value (ch:U8.t) : U32.t =
+  let n = Cast.uint8_to_uint32 ch in
+  if G.decimal_digit ch then U32.sub n 48ul
+  else if U8.(ch >=^ 97uy && ch <=^ 102uy) then U32.sub n 87ul
+  else if U8.(ch >=^ 65uy && ch <=^ 70uy) then U32.sub n 55ul
+  else 16ul
+
+let no_character : U32.t = 256ul
+
+type regex_unit = { unit_end:U32.t; unit_ok:bool; character:U32.t; repeatable:bool }
+
+let regex_escape (input:tape) (at:U32.t) (in_class:bool) : Read regex_unit input =
+  let escape = peek input (next at) in
+  let finish = plus at 2ul in
+  let punctuation =
+    escape = 47uy || escape = 92uy || escape = 46uy || escape = 36uy || escape = 94uy ||
+    escape = 43uy || escape = 42uy || escape = 63uy || escape = 124uy ||
+    escape = 91uy || escape = 93uy || escape = 123uy || escape = 125uy ||
+    escape = 40uy || escape = 41uy || (in_class && escape = 45uy) in
+  let character =
+    if punctuation then Cast.uint8_to_uint32 escape
+    else if escape = 110uy then 10ul
+    else if escape = 114uy then 13ul
+    else if escape = 116uy then 9ul
+    else if escape = 102uy then 12ul
+    else if escape = 118uy then 11ul
+    else if in_class && escape = 98uy then 8ul
+    else no_character in
+  if escape = 120uy then
+    let high = hex_value (peek input finish) in
+    let low = hex_value (peek input (next finish)) in
+    if high = 16ul || low = 16ul then
+      { unit_end = at; unit_ok = false; character = no_character; repeatable = false }
+    else { unit_end = plus at 4ul; unit_ok = true;
+      character = U32.add (U32.mul high 16ul) low; repeatable = true }
+  else
+    let group = escape = 115uy || escape = 83uy || escape = 100uy || escape = 68uy || escape = 119uy || escape = 87uy in
+    let boundary = not in_class && (escape = 98uy || escape = 66uy) in
+    { unit_end = finish; unit_ok = character <> no_character || group || boundary;
+      character; repeatable = not boundary }
+
+let regex_class_unit (input:tape) (at:U32.t) : Read regex_unit input =
+  let byte = peek input at in
+  if byte = 92uy then regex_escape input at true
+  else { unit_end = next at; unit_ok = regex_printable byte && byte <> 93uy;
+    character = Cast.uint8_to_uint32 byte; repeatable = true }
+
+let rec regex_class (input:tape) (at fuel:U32.t) : Read cursor input (decreases U32.v fuel) =
+  if fuel = 0ul then { at; ok = false; newline = false }
+  else if same input at 93uy then { at = next at; ok = true; newline = false }
+  else
+    let lhs = regex_class_unit input at in
+    if not lhs.unit_ok then { at; ok = false; newline = false }
+    else
+      let dash = same input lhs.unit_end 45uy in
+      let close = same input (next lhs.unit_end) 93uy in
+      if dash && not close then
+        let rhs = regex_class_unit input (next lhs.unit_end) in
+        if rhs.unit_ok && U32.(lhs.character <=^ rhs.character && rhs.character <^ no_character) then
+          regex_class input rhs.unit_end (minus fuel 1ul)
+        else { at; ok = false; newline = false }
+      else regex_class input lhs.unit_end (minus fuel 1ul)
+
+type regex_count = { count_end:U32.t; count_value:U32.t; count_ok:bool }
+
+let rec regex_decimal (input:tape) (at value remaining:U32.t)
+  : Read regex_count input (decreases U32.v remaining) =
+  let byte = peek input at in
+  if not (G.decimal_digit byte) then { count_end = at; count_value = value; count_ok = remaining <> 6ul }
+  else if remaining = 0ul || U32.(value >^ 99999ul) then
+    { count_end = at; count_value = value; count_ok = false }
+  else
+    let digit = U32.sub (Cast.uint8_to_uint32 byte) 48ul in
+    regex_decimal input (next at) (U32.add (U32.mul value 10ul) digit) (minus remaining 1ul)
+
+let regex_counted (input:tape) (at:U32.t) : Read cursor input =
+  let lower = regex_decimal input (next at) 0ul 6ul in
+  let comma = same input lower.count_end 44uy in
+  let upper =
+    if not comma then lower
+    else if same input (next lower.count_end) 125uy then { lower with count_end = next lower.count_end }
+    else regex_decimal input (next lower.count_end) 0ul 6ul in
+  let complete = same input upper.count_end 125uy in
+  { at = next upper.count_end;
+    ok = lower.count_ok && upper.count_ok && complete && U32.(lower.count_value <=^ upper.count_value);
+    newline = false }
+
+let regex_flag_bit (byte:U8.t) : U32.t =
+  if byte = 100uy then 1ul
+  else if byte = 103uy then 2ul
+  else if byte = 105uy then 4ul
+  else if byte = 109uy then 8ul
+  else if byte = 115uy then 16ul
+  else if byte = 117uy then 32ul
+  else if byte = 121uy then 64ul
+  else 0ul
+
+let rec regex_flags (input:tape) (at seen fuel:U32.t) : Read cursor input (decreases U32.v fuel) =
+  let byte = peek input at in
+  let bit = regex_flag_bit byte in
+  if bit = 0ul then { at; ok = not (G.identifier_continue byte || byte = 92uy); newline = false }
+  else if fuel = 0ul || U32.logand bit seen <> 0ul then { at; ok = false; newline = false }
+  else regex_flags input (next at) (U32.logor bit seen) (minus fuel 1ul)
+
+let rec regex_pattern (input:tape) (at depth fuel:U32.t) (nested can_repeat:bool)
+  : Read cursor input (decreases %[U32.v depth; 1; U32.v fuel]) =
   if fuel = 0ul || U32.(at >=^ input.size) then { at; ok = false; newline = false }
   else
     let byte = peek input at in
-    if byte = 47uy && not first then { at = next at; ok = true; newline = false }
+    let rest = minus fuel 1ul in
+    if byte = 47uy && not nested then regex_flags input (next at) 0ul 7ul
+    else if byte = 41uy && nested then { at = next at; ok = true; newline = false }
+    else if byte = 40uy then
+      let group = regex_group input at depth rest in
+      if not group.unit_ok then { at = group.unit_end; ok = false; newline = false }
+      else regex_pattern input group.unit_end depth rest nested group.repeatable
+    else if byte = 91uy then
+      let negated = same input (next at) 94uy in
+      let class_ = regex_class input (plus at (if negated then 2ul else 1ul)) rest in
+      if not class_.ok then class_ else regex_pattern input class_.at depth rest nested true
     else if byte = 92uy then
-      let escape = peek input (next at) in
-      if escape = 47uy || escape = 92uy || escape = 46uy ||
-         escape = 115uy || escape = 83uy || escape = 100uy || escape = 68uy || escape = 119uy || escape = 87uy then
-        regex_end input (plus at 2ul) false true (minus fuel 1ul)
-      else { at; ok = false; newline = false }
-    else if byte = 36uy then
-      let closes = same input (next at) 47uy in
-      if closes then { at = plus at 2ul; ok = true; newline = false }
-      else { at; ok = false; newline = false }
-    else if byte = 94uy && first then regex_end input (next at) false false (minus fuel 1ul)
-    else if byte = 43uy || byte = 42uy || byte = 63uy then
-      if can_repeat then regex_end input (next at) false false (minus fuel 1ul)
-      else { at; ok = false; newline = false }
-    else if G.identifier_continue byte || byte = 46uy || byte = 45uy || byte = 32uy then
-      regex_end input (next at) false true (minus fuel 1ul)
+      let escaped = regex_escape input at false in
+      if not escaped.unit_ok then { at; ok = false; newline = false }
+      else regex_pattern input escaped.unit_end depth rest nested escaped.repeatable
+    else if byte = 124uy || byte = 94uy || byte = 36uy then
+      regex_pattern input (next at) depth rest nested false
+    else if byte = 43uy || byte = 42uy || byte = 63uy || byte = 123uy then
+      if not can_repeat then { at; ok = false; newline = false }
+      else
+        let quantifier = if byte = 123uy then regex_counted input at
+          else { at = next at; ok = true; newline = false } in
+        if not quantifier.ok then quantifier
+        else
+          let lazy_ = same input quantifier.at 63uy in
+          let after = if lazy_ then next quantifier.at else quantifier.at in
+          regex_pattern input after depth rest nested false
+    else if regex_printable byte && byte <> 47uy && byte <> 41uy && byte <> 93uy && byte <> 125uy then
+      regex_pattern input (next at) depth rest nested true
     else { at; ok = false; newline = false }
+and regex_group (input:tape) (at depth fuel:U32.t)
+  : Read regex_unit input (decreases %[U32.v depth; 0; U32.v fuel]) =
+  // Only a group descent uses a native stack frame. The flat scanner is tail-recursive.
+  let question = same input (next at) 63uy in
+  let marker = peek input (plus at 2ul) in
+  let width =
+    if not question then 1ul
+    else if marker = 58uy || marker = 61uy || marker = 33uy then 3ul
+    else if marker = 60uy then
+      let direction = peek input (plus at 3ul) in
+      if direction = 61uy || direction = 33uy then 4ul else 0ul
+    else 0ul in
+  if width = 0ul || depth = 0ul then
+    { unit_end = at; unit_ok = false; character = no_character; repeatable = false }
+  else
+    let group = regex_pattern input (plus at width) (minus depth 1ul) fuel true false in
+    { unit_end = group.at; unit_ok = group.ok; character = no_character; repeatable = not question || marker = 58uy }
+
+let regex_end (input:tape) (at:U32.t) : Read cursor input =
+  regex_pattern input at 32ul input.size false false
 
 type precedence = p:U32.t{1 <= U32.v p /\ U32.v p <= 10}
 type binary_operator = { strength:precedence; width:U32.t; boundary:U32.t; nullish:bool }
@@ -1010,7 +1147,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
     else
       let named, target =
         if ch = 34uy || ch = 39uy then (from_cursor st (string_end input (next start_pos) ch input.size), NotAssignable)
-        else if ch = 47uy then (from_cursor st (regex_end input (next start_pos) true false input.size), NotAssignable)
+        else if ch = 47uy then (from_cursor st (regex_end input (next start_pos)), NotAssignable)
         else
           let width =
             if ch = 116uy then

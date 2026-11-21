@@ -138,14 +138,64 @@ bool TmtParser_simple_escape(TmtParser_tape input, uint32_t at, bool template0);
 TmtParser_cursor
 TmtParser_string_end(TmtParser_tape input0, uint32_t at0, uint8_t delimiter0, uint32_t fuel0);
 
-TmtParser_cursor
-TmtParser_regex_end(
+bool TmtParser_regex_printable(uint8_t ch);
+
+uint32_t TmtParser_hex_value(uint8_t ch);
+
+extern uint32_t TmtParser_no_character;
+
+typedef struct TmtParser_regex_unit_s
+{
+  uint32_t unit_end;
+  bool unit_ok;
+  uint32_t character;
+  bool repeatable;
+}
+TmtParser_regex_unit;
+
+TmtParser_regex_unit TmtParser_regex_escape(TmtParser_tape input, uint32_t at, bool in_class);
+
+TmtParser_regex_unit TmtParser_regex_class_unit(TmtParser_tape input, uint32_t at);
+
+TmtParser_cursor TmtParser_regex_class(TmtParser_tape input0, uint32_t at0, uint32_t fuel0);
+
+typedef struct TmtParser_regex_count_s
+{
+  uint32_t count_end;
+  uint32_t count_value;
+  bool count_ok;
+}
+TmtParser_regex_count;
+
+TmtParser_regex_count
+TmtParser_regex_decimal(
   TmtParser_tape input0,
   uint32_t at0,
-  bool first0,
-  bool can_repeat0,
-  uint32_t fuel0
+  uint32_t value0,
+  uint32_t remaining0
 );
+
+TmtParser_cursor TmtParser_regex_counted(TmtParser_tape input, uint32_t at);
+
+uint32_t TmtParser_regex_flag_bit(uint8_t byte);
+
+TmtParser_cursor
+TmtParser_regex_flags(TmtParser_tape input0, uint32_t at0, uint32_t seen0, uint32_t fuel0);
+
+TmtParser_cursor
+TmtParser_regex_pattern(
+  TmtParser_tape input0,
+  uint32_t at0,
+  uint32_t depth0,
+  uint32_t fuel0,
+  bool nested0,
+  bool can_repeat0
+);
+
+TmtParser_regex_unit
+TmtParser_regex_group(TmtParser_tape input, uint32_t at, uint32_t depth, uint32_t fuel);
+
+TmtParser_cursor TmtParser_regex_end(TmtParser_tape input, uint32_t at);
 
 typedef uint32_t TmtParser_precedence;
 

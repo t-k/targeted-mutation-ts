@@ -1,0 +1,13 @@
+Pattern	Flags	Suffix
+Class	Multiple	Valid
+Group	Unicode	Valid
+Lookaround	None	Valid
+Quantified	Unicode	Invalid
+Quantified	None	Valid
+Class	None	Invalid
+Lookaround	Unicode	Invalid
+Group	Multiple	Invalid
+Lookaround	Multiple	Valid
+Quantified	Multiple	Invalid
+Group	None	Invalid
+Class	Unicode	Invalid
