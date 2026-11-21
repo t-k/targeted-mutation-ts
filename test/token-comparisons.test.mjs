@@ -50,3 +50,41 @@ test('regex contents do not become comparison tokens', () => {
   assert.equal(result.fallback, 'tokens');
   assert.deepEqual(result.candidates, extractFallback(source).candidates);
 });
+
+test('a leading ambient const type reference permits direct condition extraction', () => {
+  for (const ending of ['; ', '\n', '']) {
+    const source = `declare const defs: Record<string, any>${ending}${ending ? 'for (let i = 0; i < segments.length; i++) {}' : ''}`;
+    const result = extract(source, { dialect: 'ts' });
+    if (ending) assert.equal(result.fallback, 'tokens');
+    assert.deepEqual(result.candidates, extractFallback(source, { dialect: 'ts' }).candidates);
+  }
+});
+
+test('type-like syntax outside the narrow ambient declaration stays on the AST path', () => {
+  for (const source of [
+    'type X = Record<string, any>; if (a < b) {}',
+    'declare let defs: Record<string, any>; if (a < b) {}',
+    'declare const defs: Record<string, Array<number>>; if (a < b) {}',
+    'declare const defs: Record<string, any> & Extra; if (a < b) {}',
+    'declare const defs: Record<string, any>; const x = f<T>(); if (a < b) {}',
+    'const x = 0; declare const defs: Record<string, any>; if (a < b) {}',
+  ]) {
+    const result = extract(source, { dialect: 'ts' });
+    assert.notEqual(result.fallback, 'tokens', source);
+    assert.deepEqual(result.candidates, extractFallback(source, { dialect: 'ts' }).candidates, source);
+  }
+});
+
+const ambientRows = readFileSync(new URL('../verification/pict/ambient-condition.tsv', import.meta.url), 'utf8').trim().split(/\r?\n/).slice(1);
+for (const row of ambientRows) {
+  test('ambient type condition ' + row.replaceAll('\t', ' / '), () => {
+    const [terminator, arguments_, condition] = row.split('\t');
+    const end = terminator === 'Newline' ? '\n' : '; ';
+    const args = arguments_ === 'One' ? 'string' : 'string, any';
+    const body = { If: 'if (i < segments.length) {}', While: 'while (i < segments.length) {}', For: 'for (let i = 0; i < segments.length; i++) {}' }[condition];
+    const source = `declare const defs: Record<${args}>${end}${body}`;
+    const result = extract(source, { dialect: 'ts' });
+    assert.equal(result.fallback, 'tokens');
+    assert.deepEqual(result.candidates, extractFallback(source, { dialect: 'ts' }).candidates);
+  });
+}

@@ -12,6 +12,24 @@ export function tokenComparisons(tokens, kinds, bytes) {
   };
   const result = [];
   const accepted = new Set();
+  const primitive = new Set([kinds.Identifier, kinds.String, kinds.Number, kinds.Boolean, kinds.Any,
+    kinds.Unknown, kinds.Never, kinds.Object, kinds.Symbol, kinds.Bigint, kinds.Undefined, kinds.NullLiteral]);
+  if (kind(0) === kinds.Declare && kind(1) === kinds.Const && kind(2) === kinds.Identifier &&
+      kind(3) === kinds.Colon && kind(4) === kinds.Identifier && kind(5) === kinds.LessThan) {
+    let end = 6;
+    if (primitive.has(kind(end))) {
+      end++;
+      while (kind(end) === kinds.Comma && primitive.has(kind(end + 1))) end += 2;
+      const after = end + 1;
+      const statement = new Set([kinds.Const, kinds.Let, kinds.Var, kinds.Declare, kinds.Import, kinds.Export,
+        kinds.Function, kinds.Class, kinds.If, kinds.For, kinds.While]);
+      if (kind(end) === kinds.GreaterThan && (after === tokens.length || kind(after) === kinds.Semicolon ||
+          statement.has(kind(after)) && tokens.newlineBefore(after))) {
+        accepted.add(5);
+        accepted.add(end);
+      }
+    }
+  }
   for (let i = 0; i < tokens.length; i++) {
     const k = kind(i);
     if (k !== kinds.If && k !== kinds.While && k !== kinds.For) continue;

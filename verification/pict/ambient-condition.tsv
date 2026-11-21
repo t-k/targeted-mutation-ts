@@ -1,0 +1,7 @@
+Terminator	Arguments	Condition
+Newline	Multiple	For
+Semicolon	One	If
+Newline	One	While
+Semicolon	One	For
+Semicolon	Multiple	While
+Newline	Multiple	If
