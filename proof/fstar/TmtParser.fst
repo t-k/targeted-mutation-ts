@@ -183,7 +183,7 @@ type jump_context =
   | LoopJump
 
 let can_assign (target:assignment_target) : bool = target = Assignable || target = MemberTarget
-type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:bool; shortcut:U32.t; target:assignment_target }
+type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:bool; right_shift:bool; shortcut:U32.t; target:assignment_target }
 
 let failed (state:parser_state) (error:U32.t) : parser_state =
   if state.status = 0ul then { state with status = error } else state
@@ -194,7 +194,7 @@ let record_binding_mode (state:parser_state) (kind:binding_mode) : parser_state 
 
 let start_range (pos:U32.t) : G.span = { G.first = pos; G.last = pos }
 let empty_range (state:parser_state) : parsed =
-  { parser = state; range = start_range state.offset; open_angle = false; outer_or = false; shortcut = 0ul; target = NotAssignable }
+  { parser = state; range = start_range state.offset; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable }
 
 let consume (input:tape) (state:parser_state) (byte:U8.t) : Read parser_state input =
   if state.status <> 0ul then state
@@ -487,15 +487,22 @@ let regex_end (input:tape) (at:U32.t) : Read cursor input =
   let parsed = regex_pattern input at 32ul input.size false false { names = 0uL; count = 0ul } in
   parsed.ending
 
-type precedence = p:U32.t{1 <= U32.v p /\ U32.v p <= 10}
+type precedence = p:U32.t{1 <= U32.v p /\ U32.v p <= 11}
 type binary_operator = { strength:precedence; width:U32.t; boundary:U32.t; nullish:bool }
+
+let shift_width (input:tape) (at:U32.t) (byte:U8.t) : Read U32.t input =
+  let third = peek input (plus at 2ul) in
+  if byte = 62uy && third = 62uy then 3ul else 2ul
 
 let operator (input:tape) (at:U32.t) (in_allowed:bool) : Read binary_operator input =
   let byte = peek input at in
   let follower = peek input (next at) in
   let none = { strength = 1ul; width = 0ul; boundary = 0ul; nullish = false } in
   if byte = 60uy || byte = 62uy then
-    if byte = follower then none
+    if byte = follower then
+      let width = shift_width input at byte in
+      if same input (plus at width) 61uy then none
+      else { strength = 8ul; width; boundary = 0ul; nullish = false }
     else
       let boundary = S.source_boundary input.source input.size at in
       { strength = 7ul; width = (if follower = 61uy then 2ul else 1ul); boundary; nullish = false }
@@ -518,9 +525,9 @@ let operator (input:tape) (at:U32.t) (in_allowed:bool) : Read binary_operator in
   else if byte = 124uy then { strength = 3ul; width = 1ul; boundary = 0ul; nullish = false }
   else if byte = 38uy then { strength = 5ul; width = 1ul; boundary = 0ul; nullish = false }
   else if byte = 94uy then { strength = 4ul; width = 1ul; boundary = 0ul; nullish = false }
-  else if (byte = 43uy || byte = 45uy) && follower <> byte then { strength = 8ul; width = 1ul; boundary = 0ul; nullish = false }
+  else if (byte = 43uy || byte = 45uy) && follower <> byte then { strength = 9ul; width = 1ul; boundary = 0ul; nullish = false }
   else if (byte = 42uy && follower <> byte) || byte = 47uy || byte = 37uy then
-    { strength = 9ul; width = 1ul; boundary = 0ul; nullish = false }
+    { strength = 10ul; width = 1ul; boundary = 0ul; nullish = false }
   else none
 
 let unary_width (input:tape) (at:U32.t) (byte:U8.t) : Read U32.t input =
@@ -1356,6 +1363,9 @@ let ambiguous_assertion_update (input:tape) (state:parser_state) : Read bool inp
 
 let assignment_width (input:tape) (at:U32.t) (byte follower:U8.t) : Read U32.t input =
   if byte = 61uy && follower <> 61uy && follower <> 62uy then 1ul
+  else if (byte = 60uy || byte = 62uy) && follower = byte then
+    let width = shift_width input at byte in
+    if same input (plus at width) 61uy then next width else 0ul
   else if (byte = 38uy || byte = 124uy || byte = 63uy) && follower = byte then
     if same input (plus at 2ul) 61uy then 3ul else 0ul
   else if follower <> 61uy then 0ul
@@ -1544,6 +1554,24 @@ let read_atom_head (input:tape) (st:parser_state) : Read atom_head input =
   { token_ = ch; imported_ = imported; super_; fn_ = fn; increment_ = increment; deleting_ = deleting; prefix_ = prefix;
     constructor_ = constructor }
 
+let combine_binary (input:tape) (lhs rhs:parsed) (st:parser_state) (op:binary_operator) (first:U8.t)
+  : Run parsed input =
+  if rhs.parser.status <> 0ul then rhs
+  // Multiple opening angles and a packed right shift can be nested type arguments.
+  else if op.boundary = 1ul && lhs.open_angle && rhs.right_shift then empty_range (failed rhs.parser 1ul)
+  else
+    let logical = (U32.(op.strength <=^ 2ul) && not op.nullish) || lhs.shortcut = 1ul || rhs.shortcut = 1ul in
+    let nullish = op.nullish || lhs.shortcut = 2ul || rhs.shortcut = 2ul in
+    if logical && nullish then empty_range (failed rhs.parser 1ul)
+    else
+      let result = if op.boundary = 0ul then rhs.parser
+        else emit_comparison input rhs.parser st.count op.boundary st.offset lhs.range rhs.range in
+      let shortcut = if logical then 1ul else if nullish then 2ul else 0ul in
+      { parser = result; range = { lhs.range with G.last = rhs.range.G.last }; shortcut;
+        open_angle = lhs.open_angle || rhs.open_angle || op.boundary = 1ul;
+        right_shift = lhs.right_shift || rhs.right_shift || (op.strength = 8ul && first = 62uy);
+        outer_or = op.strength = 1ul && not op.nullish; target = NotAssignable }
+
 #push-options "--split_queries always"
 let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 2; 0]) =
@@ -1578,7 +1606,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           else from_cursor first (name input first.offset false true) in
         let closed = function_tail input named (minus fuel 1ul) (start_pos <> fn.at) NoSuper in
         postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
-          open_angle = false; outer_or = false; shortcut = 0ul; target = NotAssignable } fuel input.size
+          open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
     else if super_ then super_expression input st fuel
     else if imported then
       let after = skip input { st with offset = plus start_pos 6ul } in
@@ -1596,13 +1624,13 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           else failed meta 1ul
         else failed after 1ul in
       postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
-        open_angle = false; outer_or = false; shortcut = 0ul; target = NotAssignable } fuel input.size
+        open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
     else if ch = 60uy && st.jsx_allowed then
       if fuel = 0ul then empty_range (failed st 3ul)
       else
         let closed = jsx_element input st (minus fuel 1ul) in
         postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
-          open_angle = false; outer_or = false; shortcut = 0ul; target = NotAssignable } fuel input.size
+          open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
     else if constructor || ch = 96uy || ch = 91uy || ch = 123uy then
       if fuel = 0ul then empty_range (failed st 3ul)
       else
@@ -1627,7 +1655,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
               if U32.(inner <=^ 8ul) then deep_array_literal input inside inner
               else expression_list input inside inner input.size 93uy
             else object_members input inside inner input.size false in
-        postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset }; open_angle = false; outer_or = false; shortcut = 0ul; target = NotAssignable }
+        postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable }
           fuel input.size
     else if ch = 40uy then
       if fuel = 0ul then empty_range (failed st 3ul)
@@ -1637,11 +1665,11 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         let inner = comparison input { st with offset = next start_pos; depth; in_allowed = true } (minus fuel 1ul) in
         let consumed = skip input inner.parser in
         let done_ = consume input { consumed with in_allowed = st.in_allowed } 41uy in
-        postfix input { parser = done_; range = { G.first = start_pos; G.last = done_.offset }; open_angle = false; outer_or = false; shortcut = 0ul; target = NotAssignable }
+        postfix input { parser = done_; range = { G.first = start_pos; G.last = done_.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable }
           fuel input.size
     else if G.decimal_digit ch || ch = 46uy then
       let number = number_end input start_pos in
-      postfix input { parser = from_cursor st number; range = { G.first = start_pos; G.last = number.at }; open_angle = false; outer_or = false; shortcut = 0ul; target = NotAssignable }
+      postfix input { parser = from_cursor st number; range = { G.first = start_pos; G.last = number.at }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable }
         fuel input.size
     else
       let named, target =
@@ -1658,7 +1686,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           if width <> 0ul then ({ st with offset = plus start_pos width }, NotAssignable)
           else (from_cursor st (name input start_pos false false), identifier_target input start_pos ch) in
       let base = { parser = named; range = { G.first = start_pos; G.last = named.offset };
-        open_angle = false; outer_or = false; shortcut = 0ul; target } in
+        open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target } in
       postfix input base fuel input.size
 and super_expression (input:tape) (st:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 1; U32.v input.size + 1]) =
@@ -1675,7 +1703,7 @@ and super_expression (input:tape) (st:parser_state) (fuel:U32.t)
     else if byte = 46uy || byte = 91uy then { st with offset = plus start_pos 5ul }
     else failed after 1ul in
   postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset };
-    open_angle = false; outer_or = false; shortcut = 0ul; target = NotAssignable } fuel input.size
+    open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
 and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 25; 0]) =
   let start = skip input current in
@@ -1720,11 +1748,11 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
         open_angle = lhs.open_angle || consequent.open_angle || alternate.open_angle;
         outer_or = false; shortcut = 0ul; target = NotAssignable }
 and binary (input:tape) (state:parser_state) (fuel:U32.t) (minimum:precedence)
-  : Run parsed input (decreases %[U32.v fuel; 24 - U32.v minimum - U32.v minimum; 0]) =
+  : Run parsed input (decreases %[U32.v fuel; 26 - U32.v minimum - U32.v minimum; 0]) =
   let lhs = atom input state fuel in
   binary_tail input lhs fuel minimum input.size
 and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (remaining:U32.t)
-  : Run parsed input (decreases %[U32.v fuel; 23 - U32.v minimum - U32.v minimum; U32.v remaining]) =
+  : Run parsed input (decreases %[U32.v fuel; 25 - U32.v minimum - U32.v minimum; U32.v remaining]) =
   let st = skip input lhs.parser in
   if st.status <> 0ul then empty_range st
   else
@@ -1751,27 +1779,17 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
       let op = operator input st.offset st.in_allowed in
       if op.width = 0ul || U32.(op.strength <^ minimum) then { lhs with parser = st }
       else if remaining = 0ul then empty_range (failed st 3ul)
-      else if op.strength = 10ul then empty_range (failed st 1ul)
+      else if op.strength = 11ul then empty_range (failed st 1ul)
       else if lhs.open_angle && (op.boundary = 3ul || op.boundary = 4ul ||
-          op.strength = 3ul || op.strength = 5ul) then empty_range (failed st 1ul)
+          op.strength = 3ul || op.strength = 5ul || op.strength = 8ul) then empty_range (failed st 1ul)
       else if op.boundary <> 0ul && U32.(st.count >=^ input.capacity) then empty_range (failed st 4ul)
       else
         let count = if op.boundary = 0ul then st.count else next st.count in
         let after = { st with offset = plus st.offset op.width; count } in
         let rhs = binary input after fuel (U32.add op.strength 1ul) in
-        if rhs.parser.status <> 0ul then rhs
-        else
-          let logical = (U32.(op.strength <=^ 2ul) && not op.nullish) || lhs.shortcut = 1ul || rhs.shortcut = 1ul in
-          let nullish = op.nullish || lhs.shortcut = 2ul || rhs.shortcut = 2ul in
-          if logical && nullish then empty_range (failed rhs.parser 1ul)
-          else
-            let result = if op.boundary = 0ul then rhs.parser
-              else emit_comparison input rhs.parser st.count op.boundary st.offset lhs.range rhs.range in
-            let shortcut = if logical then 1ul else if nullish then 2ul else 0ul in
-            let combined = { parser = result; range = { lhs.range with G.last = rhs.range.G.last }; shortcut;
-              open_angle = lhs.open_angle || rhs.open_angle || op.boundary = 1ul;
-              outer_or = op.strength = 1ul && not op.nullish; target = NotAssignable } in
-            binary_tail input combined fuel minimum (minus remaining 1ul)
+        let combined = combine_binary input lhs rhs st op first in
+        if combined.parser.status <> 0ul then combined
+        else binary_tail input combined fuel minimum (minus remaining 1ul)
 
 and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 1; U32.v remaining]) =

@@ -1,0 +1,3 @@
+Shift: Left, Right, Unsigned
+Context: LeftOperand, RightOperand, Assignment
+Trivia: Compact, Comments

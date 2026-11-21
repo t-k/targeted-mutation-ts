@@ -1,0 +1,10 @@
+Shift	Context	Trivia
+Left	LeftOperand	Compact
+Right	RightOperand	Comments
+Unsigned	Assignment	Compact
+Unsigned	RightOperand	Compact
+Left	RightOperand	Comments
+Left	Assignment	Comments
+Right	Assignment	Compact
+Right	LeftOperand	Comments
+Unsigned	LeftOperand	Comments

@@ -688,6 +688,7 @@ TmtParser_parsed TmtParser_empty_range(TmtParser_parser_state state)
         .range = TmtParser_start_range(state.offset),
         .open_angle = false,
         .outer_or = false,
+        .right_shift = false,
         .shortcut = 0U,
         .target = TmtParser_NotAssignable
       }
@@ -1540,6 +1541,12 @@ TmtParser_cursor TmtParser_regex_end(TmtParser_tape input, uint32_t at)
   return parsed1.ending;
 }
 
+uint32_t TmtParser_shift_width(TmtParser_tape input, uint32_t at, uint8_t byte)
+{
+  uint8_t third = TmtParser_peek(input, TmtParser_plus(at, 2U));
+  return byte == 62U && third == 62U ? 3U : 2U;
+}
+
 TmtParser_binary_operator
 TmtParser_operator(TmtParser_tape input, uint32_t at, bool in_allowed)
 {
@@ -1550,7 +1557,21 @@ TmtParser_operator(TmtParser_tape input, uint32_t at, bool in_allowed)
   if (byte == 60U || byte == 62U)
   {
     if (byte == follower)
-      return none;
+    {
+      uint32_t width = TmtParser_shift_width(input, at, byte);
+      if (TmtParser_same(input, TmtParser_plus(at, width), 61U))
+        return none;
+      else
+        return
+          (
+            (TmtParser_binary_operator){
+              .strength = 8U,
+              .width = width,
+              .boundary = 0U,
+              .nullish = false
+            }
+          );
+    }
     else
     {
       uint32_t boundary = TmtScan_source_boundary(input.source, input.size, at);
@@ -1652,7 +1673,7 @@ TmtParser_operator(TmtParser_tape input, uint32_t at, bool in_allowed)
                                                                  : (byte == 43U || byte == 45U) &&
                                                                    follower != byte ? (
                                                                                       (TmtParser_binary_operator){
-                                                                                        .strength = 8U,
+                                                                                        .strength = 9U,
                                                                                         .width = 1U,
                                                                                         .boundary = 0U,
                                                                                         .nullish = false
@@ -1664,7 +1685,7 @@ TmtParser_operator(TmtParser_tape input, uint32_t at, bool in_allowed)
                                                                                     || byte == 47U
                                                                                     || byte == 37U ? (
                                                                                                      (TmtParser_binary_operator){
-                                                                                                       .strength = 9U,
+                                                                                                       .strength = 10U,
                                                                                                        .width = 1U,
                                                                                                        .boundary = 0U,
                                                                                                        .nullish = false
@@ -4478,6 +4499,14 @@ TmtParser_assignment_width(TmtParser_tape input, uint32_t at, uint8_t byte, uint
 {
   if (byte == 61U && follower != 61U && follower != 62U)
     return 1U;
+  else if ((byte == 60U || byte == 62U) && follower == byte)
+  {
+    uint32_t width = TmtParser_shift_width(input, at, byte);
+    if (TmtParser_same(input, TmtParser_plus(at, width), 61U))
+      return TmtParser_next(width);
+    else
+      return 0U;
+  }
   else if ((byte == 38U || byte == 124U || byte == 63U) && follower == byte)
   {
     if (TmtParser_same(input, TmtParser_plus(at, 2U), 61U))
@@ -5038,6 +5067,57 @@ TmtParser_atom_head TmtParser_read_atom_head(TmtParser_tape input, TmtParser_par
     );
 }
 
+TmtParser_parsed
+TmtParser_combine_binary(
+  TmtParser_tape input,
+  TmtParser_parsed lhs,
+  TmtParser_parsed rhs,
+  TmtParser_parser_state st,
+  TmtParser_binary_operator op,
+  uint8_t first
+)
+{
+  if (rhs.parser.status != 0U)
+    return rhs;
+  else if (op.boundary == 1U && lhs.open_angle && rhs.right_shift)
+    return TmtParser_empty_range(TmtParser_failed(rhs.parser, 1U));
+  else
+  {
+    bool logical = op.strength <= 2U && !op.nullish || lhs.shortcut == 1U || rhs.shortcut == 1U;
+    bool nullish = op.nullish || lhs.shortcut == 2U || rhs.shortcut == 2U;
+    if (logical && nullish)
+      return TmtParser_empty_range(TmtParser_failed(rhs.parser, 1U));
+    else
+    {
+      TmtParser_parser_state result;
+      if (op.boundary == 0U)
+        result = rhs.parser;
+      else
+        result =
+          TmtParser_emit_comparison(input,
+            rhs.parser,
+            st.count,
+            op.boundary,
+            st.offset,
+            lhs.range,
+            rhs.range);
+      uint32_t shortcut = logical ? 1U : nullish ? 2U : 0U;
+      return
+        (
+          (TmtParser_parsed){
+            .parser = result,
+            .range = { .first = lhs.range.first, .last = rhs.range.last },
+            .open_angle = lhs.open_angle || rhs.open_angle || op.boundary == 1U,
+            .outer_or = op.strength == 1U && !op.nullish,
+            .right_shift = lhs.right_shift || rhs.right_shift || op.strength == 8U && first == 62U,
+            .shortcut = shortcut,
+            .target = TmtParser_NotAssignable
+          }
+        );
+    }
+  }
+}
+
 typedef struct __TmtParser_parser_state_TmtParser_assignment_target_s
 {
   TmtParser_parser_state fst;
@@ -5103,6 +5183,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .range = { .first = start_pos, .last = child.range.last },
                 .open_angle = child.open_angle,
                 .outer_or = child.outer_or,
+                .right_shift = child.right_shift,
                 .shortcut = child.shortcut,
                 .target = TmtParser_NotAssignable
               }
@@ -5154,6 +5235,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .range = { .first = start_pos, .last = closed.offset },
                 .open_angle = false,
                 .outer_or = false,
+                .right_shift = false,
                 .shortcut = 0U,
                 .target = TmtParser_NotAssignable
               }
@@ -5248,6 +5330,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               .range = { .first = start_pos, .last = closed.offset },
               .open_angle = false,
               .outer_or = false,
+              .right_shift = false,
               .shortcut = 0U,
               .target = TmtParser_NotAssignable
             }
@@ -5270,6 +5353,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .range = { .first = start_pos, .last = closed.offset },
                 .open_angle = false,
                 .outer_or = false,
+                .right_shift = false,
                 .shortcut = 0U,
                 .target = TmtParser_NotAssignable
               }
@@ -5361,6 +5445,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .range = { .first = start_pos, .last = completed.offset },
                 .open_angle = false,
                 .outer_or = false,
+                .right_shift = false,
                 .shortcut = 0U,
                 .target = TmtParser_NotAssignable
               }
@@ -5424,6 +5509,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .range = { .first = start_pos, .last = done_.offset },
                 .open_angle = false,
                 .outer_or = false,
+                .right_shift = false,
                 .shortcut = 0U,
                 .target = TmtParser_NotAssignable
               }
@@ -5443,6 +5529,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               .range = { .first = start_pos, .last = number.at },
               .open_angle = false,
               .outer_or = false,
+              .right_shift = false,
               .shortcut = 0U,
               .target = TmtParser_NotAssignable
             }
@@ -5533,7 +5620,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
       base =
         {
           .parser = named, .range = { .first = start_pos, .last = named.offset },
-          .open_angle = false, .outer_or = false, .shortcut = 0U, .target = target
+          .open_angle = false, .outer_or = false, .right_shift = false, .shortcut = 0U,
+          .target = target
         };
       return TmtParser_postfix(input, base, fuel, input.size);
     }
@@ -5625,6 +5713,7 @@ TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint
           .range = { .first = start_pos, .last = completed.offset },
           .open_angle = false,
           .outer_or = false,
+          .right_shift = false,
           .shortcut = 0U,
           .target = TmtParser_NotAssignable
         }
@@ -5706,6 +5795,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             .range = { .first = start.offset, .last = result.range.last },
             .open_angle = result.open_angle,
             .outer_or = false,
+            .right_shift = result.right_shift,
             .shortcut = 0U,
             .target = TmtParser_NotAssignable
           }
@@ -5759,6 +5849,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                 .range = { .first = lhs.range.first, .last = rhs.range.last },
                 .open_angle = lhs.open_angle || rhs.open_angle,
                 .outer_or = false,
+                .right_shift = rhs.right_shift,
                 .shortcut = 0U,
                 .target = TmtParser_NotAssignable
               }
@@ -5803,6 +5894,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
               .range = { .first = lhs.range.first, .last = alternate.range.last },
               .open_angle = lhs.open_angle || consequent.open_angle || alternate.open_angle,
               .outer_or = false,
+              .right_shift = alternate.right_shift,
               .shortcut = 0U,
               .target = TmtParser_NotAssignable
             }
@@ -5907,8 +5999,8 @@ TmtParser_binary_tail(
             value =
               {
                 .parser = asserted, .range = { .first = lhs.range.first, .last = asserted.offset },
-                .open_angle = lhs.open_angle, .outer_or = false, .shortcut = lhs.shortcut,
-                .target = TmtParser_NotAssignable
+                .open_angle = lhs.open_angle, .outer_or = false, .right_shift = lhs.right_shift,
+                .shortcut = lhs.shortcut, .target = TmtParser_NotAssignable
               };
             TmtParser_parsed tmp0 = value;
             uint32_t tmp = TmtParser_minus(remaining, 1U);
@@ -5928,18 +6020,20 @@ TmtParser_binary_tail(
                 .range = lhs.range,
                 .open_angle = lhs.open_angle,
                 .outer_or = lhs.outer_or,
+                .right_shift = lhs.right_shift,
                 .shortcut = lhs.shortcut,
                 .target = lhs.target
               }
             );
         else if (remaining == 0U)
           return TmtParser_empty_range(TmtParser_failed(st, 3U));
-        else if (op.strength == 10U)
+        else if (op.strength == 11U)
           return TmtParser_empty_range(TmtParser_failed(st, 1U));
         else if
         (
           lhs.open_angle &&
-            (op.boundary == 3U || op.boundary == 4U || op.strength == 3U || op.strength == 5U)
+            (op.boundary == 3U || op.boundary == 4U || op.strength == 3U || op.strength == 5U ||
+              op.strength == 8U)
         )
           return TmtParser_empty_range(TmtParser_failed(st, 1U));
         else if (op.boundary != 0U && st.count >= input.capacity)
@@ -5961,43 +6055,15 @@ TmtParser_binary_tail(
               .super_context = st.super_context
             };
           TmtParser_parsed rhs = TmtParser_binary(input, after, fuel, op.strength + 1U);
-          if (rhs.parser.status != 0U)
-            return rhs;
+          TmtParser_parsed combined = TmtParser_combine_binary(input, lhs, rhs, st, op, first);
+          if (combined.parser.status != 0U)
+            return combined;
           else
           {
-            bool
-            logical = op.strength <= 2U && !op.nullish || lhs.shortcut == 1U || rhs.shortcut == 1U;
-            bool nullish = op.nullish || lhs.shortcut == 2U || rhs.shortcut == 2U;
-            if (logical && nullish)
-              return TmtParser_empty_range(TmtParser_failed(rhs.parser, 1U));
-            else
-            {
-              TmtParser_parser_state result;
-              if (op.boundary == 0U)
-                result = rhs.parser;
-              else
-                result =
-                  TmtParser_emit_comparison(input,
-                    rhs.parser,
-                    st.count,
-                    op.boundary,
-                    st.offset,
-                    lhs.range,
-                    rhs.range);
-              uint32_t shortcut = logical ? 1U : nullish ? 2U : 0U;
-              TmtParser_parsed
-              combined =
-                {
-                  .parser = result, .range = { .first = lhs.range.first, .last = rhs.range.last },
-                  .open_angle = lhs.open_angle || rhs.open_angle || op.boundary == 1U,
-                  .outer_or = op.strength == 1U && !op.nullish, .shortcut = shortcut,
-                  .target = TmtParser_NotAssignable
-                };
-              TmtParser_parsed tmp0 = combined;
-              uint32_t tmp = TmtParser_minus(remaining, 1U);
-              lhs = tmp0;
-              remaining = tmp;
-            }
+            TmtParser_parsed tmp0 = combined;
+            uint32_t tmp = TmtParser_minus(remaining, 1U);
+            lhs = tmp0;
+            remaining = tmp;
           }
         }
       }
@@ -6042,6 +6108,7 @@ TmtParser_postfix(
               .range = base.range,
               .open_angle = base.open_angle,
               .outer_or = base.outer_or,
+              .right_shift = base.right_shift,
               .shortcut = base.shortcut,
               .target = base.target
             }
@@ -6066,6 +6133,7 @@ TmtParser_postfix(
                 .range = { .first = base.range.first, .last = end_at },
                 .open_angle = base.open_angle,
                 .outer_or = base.outer_or,
+                .right_shift = base.right_shift,
                 .shortcut = base.shortcut,
                 .target = TmtParser_NotAssignable
               }
@@ -6081,6 +6149,7 @@ TmtParser_postfix(
               .range = base.range,
               .open_angle = base.open_angle,
               .outer_or = base.outer_or,
+              .right_shift = base.right_shift,
               .shortcut = base.shortcut,
               .target = base.target
             }
@@ -6238,8 +6307,8 @@ TmtParser_postfix(
         tmp0 =
           {
             .parser = next_st, .range = { .first = base.range.first, .last = next_st.offset },
-            .open_angle = base.open_angle, .outer_or = base.outer_or, .shortcut = base.shortcut,
-            .target = target
+            .open_angle = base.open_angle, .outer_or = base.outer_or,
+            .right_shift = base.right_shift, .shortcut = base.shortcut, .target = target
           };
         uint32_t tmp = TmtParser_minus(remaining, 1U);
         base = tmp0;

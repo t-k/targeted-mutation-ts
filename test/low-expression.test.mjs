@@ -52,7 +52,6 @@ test('type arguments, unsupported operators and malformed literals publish no fa
     'make <T | U>(item) > limit',
     'make <T & U>(item) > limit',
     'choose(make <A | B, C>(item)) > limit',
-    'a << 1 < b',
     'a ?? b || c < d',
     'a ** 2 < c',
     'left < /++/',

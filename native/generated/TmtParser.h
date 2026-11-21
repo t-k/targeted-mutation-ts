@@ -170,6 +170,7 @@ typedef struct TmtParser_parsed_s
   TmtGrammar_span range;
   bool open_angle;
   bool outer_or;
+  bool right_shift;
   uint32_t shortcut;
   TmtParser_assignment_target target;
 }
@@ -330,6 +331,8 @@ typedef struct TmtParser_binary_operator_s
   bool nullish;
 }
 TmtParser_binary_operator;
+
+uint32_t TmtParser_shift_width(TmtParser_tape input, uint32_t at, uint8_t byte);
 
 TmtParser_binary_operator
 TmtParser_operator(TmtParser_tape input, uint32_t at, bool in_allowed);
@@ -821,6 +824,16 @@ typedef struct TmtParser_atom_head_s
 TmtParser_atom_head;
 
 TmtParser_atom_head TmtParser_read_atom_head(TmtParser_tape input, TmtParser_parser_state st);
+
+TmtParser_parsed
+TmtParser_combine_binary(
+  TmtParser_tape input,
+  TmtParser_parsed lhs,
+  TmtParser_parsed rhs,
+  TmtParser_parser_state st,
+  TmtParser_binary_operator op,
+  uint8_t first
+);
 
 TmtParser_parsed
 TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel);
