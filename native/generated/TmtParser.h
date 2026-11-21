@@ -1018,6 +1018,14 @@ TmtParser_parser_state
 TmtParser_dynamic_import(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
+TmtParser_grouped_tail(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtParser_parser_state
 TmtParser_deep_array_literal(
   TmtParser_tape input,
   TmtParser_parser_state inside,
@@ -1280,7 +1288,8 @@ TmtParser_function_parameters(
   uint32_t used0,
   uint32_t fuel0,
   uint32_t remaining0,
-  bool non_simple0
+  bool non_simple0,
+  bool constructor0
 );
 
 TmtParser_parser_state

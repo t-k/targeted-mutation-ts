@@ -25,6 +25,8 @@ export function createTypeScriptGrammar(ts, bindings) {
   } = ts;
   const strictReservedBindings = new Set(['implements', 'interface', 'let', 'package', 'private', 'protected', 'public', 'static', 'yield']);
   const strictRestrictedBindings = new Set(['eval', 'arguments']);
+  const isInstanceConstructor = node => isConstructorDeclaration(node) &&
+    !node.modifiers?.some(modifier => modifier.kind === SyntaxKind.StaticKeyword);
 
   function checkStatementSyntax(file, module, strictRoot, emit) {
     const pending = [{
@@ -204,7 +206,8 @@ export function createTypeScriptGrammar(ts, bindings) {
         }
         let childSuper = super_;
         if (isConstructorDeclaration(node) && child !== node.name) {
-          const derived = parent && isClassLike(parent) && parent.heritageClauses?.some(c => c.token === SyntaxKind.ExtendsKeyword);
+          const derived = isInstanceConstructor(node) && parent && isClassLike(parent) &&
+            parent.heritageClauses?.some(c => c.token === SyntaxKind.ExtendsKeyword);
           childSuper = derived ? 'constructor' : 'property';
         } else if ((isMethodDeclaration(node) || isAccessor(node)) && child !== node.name) childSuper = 'property';
         else if (isFunctionDeclaration(node) || isFunctionExpression(node)) childSuper = 'none';
@@ -279,7 +282,7 @@ export function createTypeScriptGrammar(ts, bindings) {
       }
       if (isParameter(node) && !isIndexSignatureDeclaration(parent)) {
         const flags = modifiers(node);
-        const constructor = isConstructorDeclaration(parent);
+        const constructor = isInstanceConstructor(parent);
         const isProperty = constructor && flags.length && flags.every(propertyModifier);
         if (isProperty && !isIdentifier(node.name)) {
           add('A parameter property may not be declared using a binding pattern');
@@ -351,7 +354,13 @@ export function createTypeScriptGrammar(ts, bindings) {
         }
       }
       if (isConstructorDeclaration(node)) {
-        if (node.typeParameters?.length) add('Type parameters cannot appear on a constructor declaration');
+        if (isInstanceConstructor(node)) {
+          if (node.typeParameters?.length) add('Type parameters cannot appear on a constructor declaration');
+          if (nodeModifiers.some(modifier => modifier.kind === SyntaxKind.AsyncKeyword)) add('Constructor cannot be async');
+        }
+        if (nodeModifiers.some(modifier => modifier.kind === SyntaxKind.DeclareKeyword)) {
+          add("A 'declare' modifier cannot appear on a class element of this kind");
+        }
         const field = nodeModifiers.find(flag => [SyntaxKind.ConstKeyword, SyntaxKind.InKeyword, SyntaxKind.OutKeyword].includes(flag.kind));
         if (field) add(`Expected ';' after class field, but found '${tokenAt(field.end)}'`, field);
       }

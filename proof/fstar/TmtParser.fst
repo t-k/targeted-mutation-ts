@@ -1807,7 +1807,12 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         let depth = if U32.(depth >^ st.depth) then depth else st.depth in
         let inner = comparison input { st with offset = next start_pos; depth; in_allowed = true } (minus fuel 1ul) in
         let consumed = skip input inner.parser in
-        let done_ = consume input { consumed with in_allowed = st.in_allowed } 41uy in
+        let comma = same input consumed.offset 44uy in
+        let done_ =
+          if consumed.status <> 0ul || not comma then consume input consumed 41uy
+          else if inner.open_angle then failed consumed 1ul
+          else grouped_tail input (consume input consumed 44uy) (minus fuel 1ul) input.size in
+        let done_ = { done_ with in_allowed = st.in_allowed } in
         postfix input { parser = done_; range = { G.first = start_pos; G.last = done_.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable }
           fuel input.size
     else if G.decimal_digit ch || ch = 46uy then
@@ -2085,6 +2090,17 @@ and dynamic_import (input:tape) (state:parser_state) (fuel:U32.t)
       let tail = skip input value.parser in
       let tail = if same input tail.offset 44uy then skip input (consume input tail 44uy) else tail in
       consume input tail 41uy
+and grouped_tail (input:tape) (state:parser_state) (fuel remaining:U32.t)
+  : Run parser_state input (decreases %[U32.v fuel; 26; U32.v remaining]) =
+  if state.status <> 0ul then state
+  else if remaining = 0ul then failed state 3ul
+  else
+    let item = comparison input state fuel in
+    let st = skip input item.parser in
+    let comma = same input st.offset 44uy in
+    if st.status <> 0ul || not comma then consume input st 41uy
+    else if item.open_angle then failed st 1ul
+    else grouped_tail input (consume input st 44uy) fuel (minus remaining 1ul)
 and deep_array_literal (input:tape) (inside:parser_state) (fuel:U32.t)
   : Run parser_state input (decreases %[U32.v fuel; 27; 0]) =
   let run = array_openers input inside 0ul input.size in
@@ -2619,7 +2635,8 @@ and try_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bo
     else if caught then st
     else failed st 1ul
 
-and function_parameters (input:tape) (state:parser_state) (floor used:names_used) (fuel remaining:U32.t) (non_simple:bool)
+and function_parameters (input:tape) (state:parser_state) (floor used:names_used) (fuel remaining:U32.t)
+  (non_simple constructor:bool)
   : Run parameter_list input (decreases %[U32.v fuel; 46; U32.v remaining]) =
   let st = skip input state in
   if st.status <> 0ul then { names = { state = st; used }; non_simple }
@@ -2633,10 +2650,21 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
       let typed = annotation_type input (consume input colon 58uy) 16ul 64ul in
       let end_ = skip input typed in
       if same input end_.offset 44uy then
-        function_parameters input (consume input end_ 44uy) floor used fuel (minus remaining 1ul) non_simple
+        function_parameters input (consume input end_ 44uy) floor used fuel (minus remaining 1ul) non_simple constructor
       else { names = { state = consume input end_ 41uy; used }; non_simple }
     else if spread then rest_parameter input st floor used
     else
+      let readonly = if constructor then keyword input st.offset 8ul 0x726561646f6e6c79uL else false in
+      let st =
+        if readonly then
+          let property = trivia input (plus st.offset 8ul) in
+          let binding = name input property.at false true in
+          let colon = trivia input binding.at in
+          let typed = same input colon.at 58uy in
+          if property.ok && not property.newline && binding.ok && colon.ok && typed then
+            { st with offset = property.at }
+          else st
+        else st in
       let prefix = parameter_prefix input st floor used in
       let st = prefix.names.state in
       let default_ = same input st.offset 61uy in
@@ -2649,7 +2677,7 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
         else st in
       let end_ = skip input st in
       if same input end_.offset 44uy then
-        function_parameters input (consume input end_ 44uy) floor prefix.names.used fuel (minus remaining 1ul) non_simple
+        function_parameters input (consume input end_ 44uy) floor prefix.names.used fuel (minus remaining 1ul) non_simple constructor
       else { names = { prefix.names with state = consume input end_ 41uy }; non_simple }
 and function_tail (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (super_:super_context)
   : Run parser_state input (decreases %[U32.v fuel; 54; 0]) =
@@ -2672,8 +2700,8 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
       else if (if close then true else spread_at input first.offset) then (failed first 1ul, 1ul)
       else (first, 1ul) in
   let floor = state.local_names in
-  let params = function_parameters input opening floor floor fuel limit false in
   let constructor = super_ = BaseConstructor || super_ = DerivedConstructor in
+  let params = function_parameters input opening floor floor fuel limit false constructor in
   let annotation = if constructor then params.names.state else result_annotation input params.names.state in
   let st = skip input annotation in
   let signature_only = if overload && st.status = 0ul then not (same input st.offset 123uy) else false in

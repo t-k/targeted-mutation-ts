@@ -1,0 +1,13 @@
+Context	Parameter	Suffix
+Base	Readonly	Valid
+Derived	Default	Valid
+Method	Readonly	Valid
+Method	Binding	Valid
+Base	Destructure	Valid
+Derived	Readonly	Broken
+Base	Binding	Broken
+Derived	Binding	Valid
+Method	Default	Broken
+Derived	Destructure	Broken
+Method	Destructure	Broken
+Base	Default	Broken

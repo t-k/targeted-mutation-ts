@@ -1,0 +1,7 @@
+Context	Parameter	Suffix
+Base	Readonly	Valid
+Derived	Default	Valid
+Method	Readonly	Valid
+Method	Binding	Valid
+Base	Destructure	Valid
+Derived	Readonly	Broken

@@ -1,0 +1,7 @@
+Context	Item	Suffix
+Arrow	Update	Valid
+Initializer	Boundary	Valid
+Condition	Nested	Valid
+Initializer	Update	Trailing
+Condition	Boundary	Empty
+Arrow	Nested	Broken
