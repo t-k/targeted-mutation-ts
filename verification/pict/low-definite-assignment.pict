@@ -1,0 +1,3 @@
+Scope: ModuleLet, LocalLet, LocalVar
+Marker: Adjacent, Spaced, LineBefore, LineAfter
+Ending: Typed, MissingType, Initialized

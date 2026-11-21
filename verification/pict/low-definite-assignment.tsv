@@ -1,0 +1,14 @@
+Scope	Marker	Ending
+ModuleLet	Adjacent	Typed
+LocalLet	Spaced	Typed
+LocalVar	LineAfter	Typed
+ModuleLet	LineBefore	Typed
+ModuleLet	Adjacent	Initialized
+LocalVar	Adjacent	MissingType
+LocalLet	Adjacent	MissingType
+LocalVar	Spaced	Initialized
+LocalVar	LineBefore	MissingType
+ModuleLet	Spaced	MissingType
+LocalLet	LineBefore	Initialized
+LocalLet	LineAfter	MissingType
+ModuleLet	LineAfter	Initialized

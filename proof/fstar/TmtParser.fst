@@ -1990,13 +1990,25 @@ and condition (input:tape) (state:parser_state) (fuel:U32.t) : Run parser_state 
 
 and variable_initializer (input:tape) (state:parser_state) (fuel:U32.t) (optional before_brace:bool)
   : Run parser_state input (decreases %[U32.v fuel; 43; 0]) =
-  let annotation = simple_annotation input state in
-  let st = skip input annotation in
-  if same input st.offset 61uy then
-    let value = comparison input (consume input st 61uy) fuel in
-    statement_end input value.parser value.range.G.last before_brace
-  else if optional then statement_end input annotation annotation.offset before_brace
-  else failed st 1ul
+  let after_name = trivia input state.offset in
+  let tail = from_cursor state after_name in
+  if tail.status <> 0ul then tail
+  else
+    let byte = peek input tail.offset in
+    if optional && not after_name.newline && byte = 33uy then
+      let colon = skip input (consume input tail 33uy) in
+      let annotation = annotation_type input (consume input colon 58uy) 16ul 64ul in
+      let next_token = skip input annotation in
+      if same input next_token.offset 61uy then failed next_token 1ul
+      else statement_end input annotation annotation.offset before_brace
+    else
+      let annotation = if byte = 58uy then annotation_type input (consume input tail 58uy) 16ul 64ul else state in
+      let st = if byte = 58uy then skip input annotation else tail in
+      if same input st.offset 61uy then
+        let value = comparison input (consume input st 61uy) fuel in
+        statement_end input value.parser value.range.G.last before_brace
+      else if optional then statement_end input annotation annotation.offset before_brace
+      else failed st 1ul
 
 and binding (input:tape) (state:parser_state) (fuel:U32.t) (in_allowed:bool) : Run parser_state input (decreases %[U32.v fuel; 43; 0]) =
   let st = skip input state in

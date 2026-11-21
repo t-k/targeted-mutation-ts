@@ -6922,17 +6922,48 @@ TmtParser_variable_initializer(
   bool before_brace
 )
 {
-  TmtParser_parser_state annotation = TmtParser_simple_annotation(input, state);
-  TmtParser_parser_state st = TmtParser_skip(input, annotation);
-  if (TmtParser_same(input, st.offset, 61U))
-  {
-    TmtParser_parsed value = TmtParser_comparison(input, TmtParser_consume(input, st, 61U), fuel);
-    return TmtParser_statement_end(input, value.parser, value.range.last, before_brace);
-  }
-  else if (optional)
-    return TmtParser_statement_end(input, annotation, annotation.offset, before_brace);
+  TmtParser_cursor after_name = TmtParser_trivia(input, state.offset);
+  TmtParser_parser_state tail = TmtParser_from_cursor(state, after_name);
+  if (tail.status != 0U)
+    return tail;
   else
-    return TmtParser_failed(st, 1U);
+  {
+    uint8_t byte = TmtParser_peek(input, tail.offset);
+    if (optional && !after_name.newline && byte == 33U)
+    {
+      TmtParser_parser_state colon = TmtParser_skip(input, TmtParser_consume(input, tail, 33U));
+      TmtParser_parser_state
+      annotation = TmtParser_annotation_type(input, TmtParser_consume(input, colon, 58U), 16U, 64U);
+      TmtParser_parser_state next_token = TmtParser_skip(input, annotation);
+      if (TmtParser_same(input, next_token.offset, 61U))
+        return TmtParser_failed(next_token, 1U);
+      else
+        return TmtParser_statement_end(input, annotation, annotation.offset, before_brace);
+    }
+    else
+    {
+      TmtParser_parser_state annotation;
+      if (byte == 58U)
+        annotation = TmtParser_annotation_type(input, TmtParser_consume(input, tail, 58U), 16U, 64U);
+      else
+        annotation = state;
+      TmtParser_parser_state st;
+      if (byte == 58U)
+        st = TmtParser_skip(input, annotation);
+      else
+        st = tail;
+      if (TmtParser_same(input, st.offset, 61U))
+      {
+        TmtParser_parsed
+        value = TmtParser_comparison(input, TmtParser_consume(input, st, 61U), fuel);
+        return TmtParser_statement_end(input, value.parser, value.range.last, before_brace);
+      }
+      else if (optional)
+        return TmtParser_statement_end(input, annotation, annotation.offset, before_brace);
+      else
+        return TmtParser_failed(st, 1U);
+    }
+  }
 }
 
 TmtParser_parser_state
