@@ -1,0 +1,3643 @@
+{
+  "baselineRevision": "91b9af3",
+  "parserRevision": "1361d53",
+  "reference": "yuku-parser 0.19.0",
+  "runtime": "v24.14.0",
+  "system": "darwin 27.2.0 arm64",
+  "cpu": "Apple M5 Max",
+  "baselines": [
+    {
+      "project": "vite-corpus",
+      "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+      "files": 482,
+      "fastFiles": 382,
+      "fastCandidates": 85,
+      "nativeFiles": 99,
+      "nativeCandidates": 116,
+      "yukuFiles": 1,
+      "yukuCandidates": 0
+    },
+    {
+      "project": "preact-corpus",
+      "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+      "files": 22,
+      "fastFiles": 5,
+      "fastCandidates": 0,
+      "nativeFiles": 17,
+      "nativeCandidates": 1,
+      "yukuFiles": 0,
+      "yukuCandidates": 0
+    },
+    {
+      "project": "typescript-corpus",
+      "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+      "files": 6479,
+      "fastFiles": 866,
+      "fastCandidates": 47,
+      "nativeFiles": 3818,
+      "nativeCandidates": 501,
+      "yukuFiles": 1786,
+      "yukuCandidates": 14
+    },
+    {
+      "project": "mreact",
+      "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+      "files": 1193,
+      "fastFiles": 931,
+      "fastCandidates": 720,
+      "nativeFiles": 254,
+      "nativeCandidates": 763,
+      "yukuFiles": 8,
+      "yukuCandidates": 67
+    },
+    {
+      "project": "tachyon-dom",
+      "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+      "files": 373,
+      "fastFiles": 217,
+      "fastCandidates": 168,
+      "nativeFiles": 155,
+      "nativeCandidates": 482,
+      "yukuFiles": 1,
+      "yukuCandidates": 4
+    }
+  ],
+  "audits": [
+    {
+      "runtime": "v24.14.0",
+      "system": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "reference": "yuku-parser 0.19.0",
+      "scope": {
+        "prefix": "",
+        "sourceOnly": false,
+        "logical": false
+      },
+      "reports": [
+        {
+          "project": "vite-corpus",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 482,
+          "bytes": 2207415,
+          "tsxFiles": 14,
+          "fastFiles": 388,
+          "fastBytes": 1042868,
+          "candidates": 201,
+          "candidateFiles": 65,
+          "fastCandidates": 88,
+          "nativeFiles": 93,
+          "nativeCandidates": 113,
+          "yukuFiles": 1,
+          "yukuCandidates": 0,
+          "yukuCandidateFiles": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 1,
+          "fastCandidateFiles": [
+            {
+              "file": "docs/.vitepress/theme/composables/useCardAnimation.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/create-vite/src/index.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/plugin-legacy/src/__tests__/snippets.spec.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/rolldown.config.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/vite/rollupLicensePlugin.ts",
+              "candidates": 7
+            },
+            {
+              "file": "packages/vite/src/client/env.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/optimizer/optimizer.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/vite/src/node/optimizer/resolve.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/packages.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/assetImportMetaUrl.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/node/plugins/define.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/node/plugins/dynamicImportVars.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/importMetaGlob.ts",
+              "candidates": 11
+            },
+            {
+              "file": "packages/vite/src/node/plugins/json.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/node/plugins/manifest.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/vite/src/node/plugins/pluginFilter.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/preAlias.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/reporter.ts",
+              "candidates": 8
+            },
+            {
+              "file": "packages/vite/src/node/plugins/workerImportMetaUrl.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/vite/src/node/server/__tests__/pluginContainer.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/server/middlewares/indexHtml.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/server/sourcemap.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/vite/src/node/server/transformRequest.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/vite/src/node/ssr/__tests__/ssrStacktrace.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/ssr/ssrManifestPlugin.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/shared/moduleRunnerTransport.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/backend-integration/__tests__/backend-integration.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/cli-module/__tests__/serve.ts",
+              "candidates": 2
+            },
+            {
+              "file": "playground/cli/__tests__/serve.ts",
+              "candidates": 2
+            },
+            {
+              "file": "playground/css-codesplit/__tests__/css-codesplit-consistent.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/css/__tests__/same-file-name/css-same-file-name.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/css/__tests__/tests.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/hmr-ssr/accept-exports/main-accepted/main-accepted.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/hmr/accept-exports/main-accepted/main-accepted.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/ssr-html/__tests__/ssr-html.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/__tests__/sourcemap-hidden/worker-sourcemap-hidden.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/__tests__/sourcemap-inline/worker-sourcemap-inline.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/__tests__/sourcemap/worker-sourcemap.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/my-inline-shared-worker.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/my-shared-worker.ts",
+              "candidates": 1
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {
+            "outside-l1": 1
+          },
+          "candidateBytes": 4068,
+          "maxDepth": 40
+        },
+        {
+          "project": "preact-corpus",
+          "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+          "files": 22,
+          "bytes": 41760,
+          "tsxFiles": 19,
+          "fastFiles": 10,
+          "fastBytes": 14212,
+          "candidates": 1,
+          "candidateFiles": 1,
+          "fastCandidates": 0,
+          "nativeFiles": 12,
+          "nativeCandidates": 1,
+          "yukuFiles": 0,
+          "yukuCandidates": 0,
+          "yukuCandidateFiles": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {},
+          "candidateBytes": 36,
+          "maxDepth": 26
+        },
+        {
+          "project": "typescript-corpus",
+          "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+          "files": 6479,
+          "bytes": 4318704,
+          "tsxFiles": 116,
+          "fastFiles": 1310,
+          "fastBytes": 703904,
+          "candidates": 562,
+          "candidateFiles": 151,
+          "fastCandidates": 56,
+          "nativeFiles": 3390,
+          "nativeCandidates": 496,
+          "yukuFiles": 1770,
+          "yukuCandidates": 10,
+          "yukuCandidateFiles": 5,
+          "tokenFiles": 3,
+          "tokenCandidates": 4,
+          "diagnostics": 952,
+          "fastCandidateFiles": [
+            {
+              "file": "tests/cases/compiler/argumentsAsPropertyName2.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/argumentsReferenceInFunction1_Js.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/arrayFrom.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/asyncAwaitWithCapturedBlockScopeVar.ts",
+              "candidates": 4
+            },
+            {
+              "file": "tests/cases/compiler/booleanLiteralsContextuallyTypedFromUnion.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/circularOptionalityRemoval.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/constructorWithCapturedSuper.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/cases/compiler/contextualExpressionTypecheckingDoesntBlowStack.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/controlFlowForStatementContinueIntoIncrementor1.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/cases/compiler/functionsWithImplicitReturnTypeAssignableToUndefined.ts",
+              "candidates": 6
+            },
+            {
+              "file": "tests/cases/compiler/jsFileCompilationLetBeingRenamed.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/jsFileFunctionOverloads.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/jsFileFunctionOverloads2.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/mapGroupBy.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/nestedLoopTypeGuards.ts",
+              "candidates": 3
+            },
+            {
+              "file": "tests/cases/compiler/objectGroupBy.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/operationsAvailableOnPromisedType.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/potentiallyUnassignedVariableInCatch.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/relationalOperatorComparable.ts",
+              "candidates": 11
+            },
+            {
+              "file": "tests/cases/compiler/simpleRecursionWithBaseCase2.ts",
+              "candidates": 6
+            },
+            {
+              "file": "tests/cases/compiler/simpleRecursionWithBaseCase3.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/sourceMapValidationDo.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/cases/compiler/strictNullLogicalAndOr.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/subtypeRelationForNever.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/truthinessCallExpressionCoercion.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/typeAliasDeclarationEmit3.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/typeGuardNarrowsIndexedAccessOfKnownProperty3.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/typePredicatesOptionalChaining1.ts",
+              "candidates": 1
+            }
+          ],
+          "tokenCandidateFiles": [
+            {
+              "file": "tests/cases/compiler/duplicateLocalVariable2.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/duplicateVariablesByScope.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/cases/compiler/multivar.ts",
+              "candidates": 1
+            }
+          ],
+          "fallbackReasons": {
+            "outside-l1": 1770,
+            "invalid-utf8": 9
+          },
+          "candidateBytes": 17856,
+          "maxDepth": 4956
+        },
+        {
+          "project": "mreact",
+          "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+          "files": 1193,
+          "bytes": 12465294,
+          "tsxFiles": 100,
+          "fastFiles": 957,
+          "fastBytes": 6722855,
+          "candidates": 1550,
+          "candidateFiles": 336,
+          "fastCandidates": 776,
+          "nativeFiles": 229,
+          "nativeCandidates": 710,
+          "yukuFiles": 7,
+          "yukuCandidates": 64,
+          "yukuCandidateFiles": 5,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [
+            {
+              "file": "benchmarks/compat-micro/bench-core.ts",
+              "candidates": 10
+            },
+            {
+              "file": "benchmarks/compat-micro/review-entry.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/endurance.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact-react-compat-vdom/src/main.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact-react-compat/src/main.tsx",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact-react-compat/vite.config.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact/src/main.tsx",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact/vite.config.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/report-specializations.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/specialization-ablation.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/lambda-generated-handler-latency/run.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/lambda-route-latency/run.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/non-router/run.ts",
+              "candidates": 11
+            },
+            {
+              "file": "benchmarks/paired/measure.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive-browser/event-lifecycle.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmarks/primitive-browser/review-native-fixture.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive-browser/review-native.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/primitive-browser/run.ts",
+              "candidates": 7
+            },
+            {
+              "file": "benchmarks/primitive-browser/runner.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/adapters/framework-runtime-utils.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmarks/primitive/adapters/marko.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmarks/primitive/adapters/mreact.ts",
+              "candidates": 5
+            },
+            {
+              "file": "benchmarks/primitive/adapters/qwik.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/adapters/simple-dom.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/primitive/adapters/solid-v2.ts",
+              "candidates": 5
+            },
+            {
+              "file": "benchmarks/primitive/adapters/solid.ts",
+              "candidates": 5
+            },
+            {
+              "file": "benchmarks/primitive/adapters/svelte.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/adapters/vue.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/filter.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/fixtures/event-targets.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/memory.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/request-fastpaths.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmarks/primitive/runner.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmarks/primitive/runner.ts",
+              "candidates": 7
+            },
+            {
+              "file": "benchmarks/primitive/worker.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmarks/router/adapters/marko-run.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/adapters/production-app-adapter.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/adapters/qwik-city.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/adapters/qwik-router-v2.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/adapters/solid-start.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/adapters/tanstack-start-solid.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/adapters/tanstack-start.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/browser-probes.ts",
+              "candidates": 6
+            },
+            {
+              "file": "benchmarks/router/browser-trials.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/router/build-output-size.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/build-time.ts",
+              "candidates": 7
+            },
+            {
+              "file": "benchmarks/router/fixture-server.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/http-cache-modes.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmarks/router/http-load-worker.ts",
+              "candidates": 5
+            },
+            {
+              "file": "benchmarks/router/http-probes.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/router/http-trial-types.ts",
+              "candidates": 10
+            },
+            {
+              "file": "benchmarks/router/http-trials.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/http-trials.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/router/process-supervisor.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/process-supervisor.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmarks/router/report.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmarks/router/run-output.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmarks/router/runner-browser.ts",
+              "candidates": 10
+            },
+            {
+              "file": "benchmarks/router/runner-http.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/router/test-fixtures/analog-ssr-worker.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/scheduler/run.ts",
+              "candidates": 6
+            },
+            {
+              "file": "benchmarks/shared/env.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/shared/report.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/shared/results.ts",
+              "candidates": 1
+            },
+            {
+              "file": "compat-lab/radix/runner.ts",
+              "candidates": 6
+            },
+            {
+              "file": "compat-lab/react-flow/fixtures.tsx",
+              "candidates": 2
+            },
+            {
+              "file": "compat-lab/react-flow/runner.ts",
+              "candidates": 23
+            },
+            {
+              "file": "compat-lab/recharts/api-surface.ts",
+              "candidates": 1
+            },
+            {
+              "file": "compat-lab/recharts/dom-summary.ts",
+              "candidates": 1
+            },
+            {
+              "file": "compat-lab/recharts/image-diff.ts",
+              "candidates": 2
+            },
+            {
+              "file": "compat-lab/recharts/runner.ts",
+              "candidates": 2
+            },
+            {
+              "file": "compat-lab/shared/assert-run-passed.ts",
+              "candidates": 1
+            },
+            {
+              "file": "compat-lab/ui-primitives/runner.ts",
+              "candidates": 10
+            },
+            {
+              "file": "examples/app-router/app/analytics/AnalyticsTracker.client.tsx",
+              "candidates": 2
+            },
+            {
+              "file": "examples/app-router/app/api/contact/route.ts",
+              "candidates": 4
+            },
+            {
+              "file": "examples/app-router/app/counter/page.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "examples/app-router/app/forms/page.tsx",
+              "candidates": 3
+            },
+            {
+              "file": "examples/app-router/app/forms/zod/page.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "examples/app-router/app/server-actions/actions.ts",
+              "candidates": 2
+            },
+            {
+              "file": "examples/app-router/scripts/export-static.ts",
+              "candidates": 1
+            },
+            {
+              "file": "examples/docs-site/scripts/measure-dev-latency.ts",
+              "candidates": 3
+            },
+            {
+              "file": "examples/docs-site/src/nav.config.ts",
+              "candidates": 2
+            },
+            {
+              "file": "examples/e2e/react-libraries.spec.ts",
+              "candidates": 4
+            },
+            {
+              "file": "examples/hacker-news/src/app/user/$id/page.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "examples/hacker-news/src/hn/client.ts",
+              "candidates": 1
+            },
+            {
+              "file": "examples/hacker-news/src/hn/feed.mreact.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "examples/hacker-news/src/hn/format.ts",
+              "candidates": 6
+            },
+            {
+              "file": "examples/hacker-news/src/hn/story-batches.ts",
+              "candidates": 1
+            },
+            {
+              "file": "examples/react-libraries/app/lib/db.ts",
+              "candidates": 1
+            },
+            {
+              "file": "examples/unit/docs-site-contract.test.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/collection/src/index.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/component-constant-inline.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/compiler/src/component-prop-text.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/emit-client-specialization.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/emit-server-shared.ts",
+              "candidates": 8
+            },
+            {
+              "file": "packages/compiler/src/emit-server-stream.ts",
+              "candidates": 12
+            },
+            {
+              "file": "packages/compiler/src/emit-server.ts",
+              "candidates": 9
+            },
+            {
+              "file": "packages/compiler/src/oxc-bindings.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/oxc-code-utils.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/compiler/src/oxc-compat-create-element.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/compiler/src/oxc-component-detection.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/compiler/src/oxc-component-references.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/oxc-expression-facts.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/compiler/src/oxc-jsx-text.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/compiler/src/oxc-node-utils.ts",
+              "candidates": 6
+            },
+            {
+              "file": "packages/compiler/src/oxc-raw-jsx.ts",
+              "candidates": 21
+            },
+            {
+              "file": "packages/compiler/src/oxc-render-values.ts",
+              "candidates": 16
+            },
+            {
+              "file": "packages/compiler/src/oxc-runtime-emit.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/compiler/src/oxc-transform.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/compiler/src/static-reactivity.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/compiler/src/transform.ts",
+              "candidates": 18
+            },
+            {
+              "file": "packages/compiler/test/escape-helper-byte-identity.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/test/server-emit-shared.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/create-mreact-app/src/cli-args.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/create-mreact-app/src/prompts.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/create-mreact-app/src/run-cli.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/devtools/test/devtools.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/next/src/index.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/query/test/query-cross-tab-sync.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/query/test/query-lifecycle.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/query/test/query-observer.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/react-compat/src/class-component.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/react-compat/src/context.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/src/devtools.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/react-compat/src/dom-children.ts",
+              "candidates": 8
+            },
+            {
+              "file": "packages/react-compat/src/dom-props.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/react-compat/src/fiber-child.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/react-compat/src/fiber-commit.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/react-compat/src/fiber-reconciler.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/react-compat/src/fiber-scheduler.ts",
+              "candidates": 11
+            },
+            {
+              "file": "packages/react-compat/src/fiber-work-loop.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/src/hydration.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/src/prehydration-form-state.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/react-compat/src/reconciler.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/src/suspense.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/react-compat/test/compat-normalizer-bundle.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/react-compat/test/deletion-registration.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/react-compat/test/fiber-scheduler.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/test/flight-depth-cap.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/test/hooks-state.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-core/src/effect.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-core/src/resource-events.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/reactive-core/src/scheduler.ts",
+              "candidates": 6
+            },
+            {
+              "file": "packages/reactive-core/src/setup-tracking.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/reactive-core/src/writer-diagnostics.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-core/test/computed.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-core/test/coverage-fill.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-core/test/dormant-dependency-snapshot.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-core/test/effect-wakeup.test.ts",
+              "candidates": 6
+            },
+            {
+              "file": "packages/reactive-core/test/effect.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-core/test/more-edges.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-dom/src/bind-event.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/reactive-dom/src/bind-spread-props.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-dom/src/bind-text.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-dom/src/dom-ref.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/reactive-dom/src/prop-binding-registry.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-dom/src/render-value-guard.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-dom/src/scope.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-dom/test/root.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/e2e/client-delivery-accounting.spec.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/e2e/route-conditional-teardown.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/adapters/static.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/router/src/boundaries.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/router/src/built-assets.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/router/src/built-runtime.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/src/bundle-pipeline.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/cache-config.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/cache-policy.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/cli-options.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/router/src/compat-ssr.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/router/src/config.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/router/src/csp.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/src/csrf.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/dev-server.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/router/src/http.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/src/middleware.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/router/src/module-preload-graph.ts",
+              "candidates": 9
+            },
+            {
+              "file": "packages/router/src/native-route-matcher.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/navigation-history-cache.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/navigation-marker.ts",
+              "candidates": 28
+            },
+            {
+              "file": "packages/router/src/navigation-snapshots.ts",
+              "candidates": 12
+            },
+            {
+              "file": "packages/router/src/node-server.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/src/prerender-entry.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/src/prerender-store.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/router/src/route-module-loader.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/route-path.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/route-shells.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/routes.ts",
+              "candidates": 8
+            },
+            {
+              "file": "packages/router/src/security-headers.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/router/src/server-action-inference.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/session.ts",
+              "candidates": 8
+            },
+            {
+              "file": "packages/router/src/static-middleware-config.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/router/src/static-route-lookup.ts",
+              "candidates": 9
+            },
+            {
+              "file": "packages/router/src/stream-list.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/tailwind-source.ts",
+              "candidates": 6
+            },
+            {
+              "file": "packages/router/test/adapters.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/aws-lambda-adapter.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/cache-unit.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/test/client-module-boundaries.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/dev-server.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/http-unit.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/logger.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/navigation-history-cache.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/test/navigation-shared-runtime.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/replay-store.test.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/router/test/route-client-capability-facts.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/serve-unit.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/static-route-lookup.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/server/src/boundary.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/server/src/buffer-sink.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/server/src/sink.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/server/src/stream.ts",
+              "candidates": 17
+            },
+            {
+              "file": "packages/server/test/flight-depth-cap.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/server/test/flight-roundtrip-corpus.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/server/test/flight.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/server/test/server-action-validation.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/server/test/stream.test.ts",
+              "candidates": 6
+            },
+            {
+              "file": "packages/shared/src/dom-prop-names.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/shared/src/html-escape.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/shared/src/url-safety.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/store/test/large-app.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/store/test/store-types.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/virtual/src/index.ts",
+              "candidates": 29
+            },
+            {
+              "file": "size/client-delivery-report.ts",
+              "candidates": 7
+            },
+            {
+              "file": "size/client-delivery.ts",
+              "candidates": 1
+            },
+            {
+              "file": "size/context-delivery.ts",
+              "candidates": 3
+            },
+            {
+              "file": "size/direct-cell-text-graph.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "size/run.ts",
+              "candidates": 5
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {
+            "outside-l1": 7
+          },
+          "candidateBytes": 735096,
+          "maxDepth": 45
+        },
+        {
+          "project": "tachyon-dom",
+          "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+          "files": 373,
+          "bytes": 3429677,
+          "tsxFiles": 32,
+          "fastFiles": 228,
+          "fastBytes": 1102351,
+          "candidates": 654,
+          "candidateFiles": 120,
+          "fastCandidates": 170,
+          "nativeFiles": 144,
+          "nativeCandidates": 480,
+          "yukuFiles": 1,
+          "yukuCandidates": 4,
+          "yukuCandidateFiles": 1,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [
+            {
+              "file": "benchmark/client-bundle/measure.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmark/client-bundle/run-client-bundle.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/compiler/compare-expression-backends.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmark/compiler/compare-sfc-transform.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmark/html-minification.ts",
+              "candidates": 5
+            },
+            {
+              "file": "benchmark/local-compare/validation.ts",
+              "candidates": 23
+            },
+            {
+              "file": "benchmark/provenance.ts",
+              "candidates": 6
+            },
+            {
+              "file": "benchmark/raw-text-scan/candidate.ts",
+              "candidates": 10
+            },
+            {
+              "file": "benchmark/raw-text-scan/evaluation.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/raw-text-scan/run.ts",
+              "candidates": 7
+            },
+            {
+              "file": "benchmark/server-html.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmark/streaming-backpressure-compare.ts",
+              "candidates": 24
+            },
+            {
+              "file": "benchmark/streaming-backpressure.ts",
+              "candidates": 5
+            },
+            {
+              "file": "benchmark/summary/cli.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/summary/markdown.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmark/summary/ranking.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/virtual-list-update.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/web-framework/run-web-framework-benchmark.ts",
+              "candidates": 14
+            },
+            {
+              "file": "src/code-preview.ts",
+              "candidates": 3
+            },
+            {
+              "file": "src/compiler/explain.ts",
+              "candidates": 5
+            },
+            {
+              "file": "src/compiler/html-tree.ts",
+              "candidates": 3
+            },
+            {
+              "file": "src/compiler/parser.ts",
+              "candidates": 6
+            },
+            {
+              "file": "src/constant-time.ts",
+              "candidates": 1
+            },
+            {
+              "file": "src/html-raw-text.ts",
+              "candidates": 5
+            },
+            {
+              "file": "src/html-whitespace.ts",
+              "candidates": 7
+            },
+            {
+              "file": "src/package-integrity.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/inspector-trace.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/lifecycle-state-machine-property.test.ts",
+              "candidates": 4
+            },
+            {
+              "file": "tests/raw-text-scan-benchmark.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/review-regressions-2026-09-11.test.ts",
+              "candidates": 3
+            },
+            {
+              "file": "tests/router-query.test.ts",
+              "candidates": 6
+            },
+            {
+              "file": "tests/runtime-conditional.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/runtime-diagnostics.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/sfc-component-updates.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/sfc-scope-behavior.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/sfc-scope-emission.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/statistical-authority.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/web-framework-contract.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/whitespace-policy-types.ts",
+              "candidates": 3
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {
+            "outside-l1": 1
+          },
+          "candidateBytes": 279424,
+          "maxDepth": 38
+        }
+      ]
+    },
+    {
+      "runtime": "v24.14.0",
+      "system": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "reference": "yuku-parser 0.19.0",
+      "scope": {
+        "prefix": "",
+        "sourceOnly": false,
+        "logical": true
+      },
+      "reports": [
+        {
+          "project": "vite-corpus",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 482,
+          "bytes": 2207415,
+          "tsxFiles": 14,
+          "fastFiles": 388,
+          "fastBytes": 1042868,
+          "candidates": 201,
+          "candidateFiles": 65,
+          "fastCandidates": 88,
+          "nativeFiles": 93,
+          "nativeCandidates": 113,
+          "yukuFiles": 1,
+          "yukuCandidates": 0,
+          "yukuCandidateFiles": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 1,
+          "fastCandidateFiles": [
+            {
+              "file": "docs/.vitepress/theme/composables/useCardAnimation.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/create-vite/src/index.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/plugin-legacy/src/__tests__/snippets.spec.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/rolldown.config.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/vite/rollupLicensePlugin.ts",
+              "candidates": 7
+            },
+            {
+              "file": "packages/vite/src/client/env.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/optimizer/optimizer.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/vite/src/node/optimizer/resolve.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/packages.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/assetImportMetaUrl.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/node/plugins/define.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/node/plugins/dynamicImportVars.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/importMetaGlob.ts",
+              "candidates": 11
+            },
+            {
+              "file": "packages/vite/src/node/plugins/json.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/node/plugins/manifest.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/vite/src/node/plugins/pluginFilter.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/preAlias.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/reporter.ts",
+              "candidates": 8
+            },
+            {
+              "file": "packages/vite/src/node/plugins/workerImportMetaUrl.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/vite/src/node/server/__tests__/pluginContainer.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/server/middlewares/indexHtml.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/server/sourcemap.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/vite/src/node/server/transformRequest.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/vite/src/node/ssr/__tests__/ssrStacktrace.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/ssr/ssrManifestPlugin.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/shared/moduleRunnerTransport.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/backend-integration/__tests__/backend-integration.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/cli-module/__tests__/serve.ts",
+              "candidates": 2
+            },
+            {
+              "file": "playground/cli/__tests__/serve.ts",
+              "candidates": 2
+            },
+            {
+              "file": "playground/css-codesplit/__tests__/css-codesplit-consistent.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/css/__tests__/same-file-name/css-same-file-name.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/css/__tests__/tests.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/hmr-ssr/accept-exports/main-accepted/main-accepted.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/hmr/accept-exports/main-accepted/main-accepted.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/ssr-html/__tests__/ssr-html.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/__tests__/sourcemap-hidden/worker-sourcemap-hidden.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/__tests__/sourcemap-inline/worker-sourcemap-inline.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/__tests__/sourcemap/worker-sourcemap.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/my-inline-shared-worker.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/my-shared-worker.ts",
+              "candidates": 1
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {
+            "outside-l1": 1
+          },
+          "candidateBytes": 4068,
+          "maxDepth": 40
+        },
+        {
+          "project": "preact-corpus",
+          "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+          "files": 22,
+          "bytes": 41760,
+          "tsxFiles": 19,
+          "fastFiles": 10,
+          "fastBytes": 14212,
+          "candidates": 1,
+          "candidateFiles": 1,
+          "fastCandidates": 0,
+          "nativeFiles": 12,
+          "nativeCandidates": 1,
+          "yukuFiles": 0,
+          "yukuCandidates": 0,
+          "yukuCandidateFiles": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {},
+          "candidateBytes": 36,
+          "maxDepth": 26
+        },
+        {
+          "project": "typescript-corpus",
+          "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+          "files": 6479,
+          "bytes": 4318704,
+          "tsxFiles": 116,
+          "fastFiles": 1310,
+          "fastBytes": 703904,
+          "candidates": 562,
+          "candidateFiles": 151,
+          "fastCandidates": 56,
+          "nativeFiles": 3390,
+          "nativeCandidates": 496,
+          "yukuFiles": 1770,
+          "yukuCandidates": 10,
+          "yukuCandidateFiles": 5,
+          "tokenFiles": 3,
+          "tokenCandidates": 4,
+          "diagnostics": 952,
+          "fastCandidateFiles": [
+            {
+              "file": "tests/cases/compiler/argumentsAsPropertyName2.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/argumentsReferenceInFunction1_Js.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/arrayFrom.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/asyncAwaitWithCapturedBlockScopeVar.ts",
+              "candidates": 4
+            },
+            {
+              "file": "tests/cases/compiler/booleanLiteralsContextuallyTypedFromUnion.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/circularOptionalityRemoval.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/constructorWithCapturedSuper.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/cases/compiler/contextualExpressionTypecheckingDoesntBlowStack.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/controlFlowForStatementContinueIntoIncrementor1.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/cases/compiler/functionsWithImplicitReturnTypeAssignableToUndefined.ts",
+              "candidates": 6
+            },
+            {
+              "file": "tests/cases/compiler/jsFileCompilationLetBeingRenamed.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/jsFileFunctionOverloads.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/jsFileFunctionOverloads2.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/mapGroupBy.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/nestedLoopTypeGuards.ts",
+              "candidates": 3
+            },
+            {
+              "file": "tests/cases/compiler/objectGroupBy.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/operationsAvailableOnPromisedType.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/potentiallyUnassignedVariableInCatch.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/relationalOperatorComparable.ts",
+              "candidates": 11
+            },
+            {
+              "file": "tests/cases/compiler/simpleRecursionWithBaseCase2.ts",
+              "candidates": 6
+            },
+            {
+              "file": "tests/cases/compiler/simpleRecursionWithBaseCase3.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/sourceMapValidationDo.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/cases/compiler/strictNullLogicalAndOr.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/subtypeRelationForNever.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/truthinessCallExpressionCoercion.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/typeAliasDeclarationEmit3.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/typeGuardNarrowsIndexedAccessOfKnownProperty3.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/typePredicatesOptionalChaining1.ts",
+              "candidates": 1
+            }
+          ],
+          "tokenCandidateFiles": [
+            {
+              "file": "tests/cases/compiler/duplicateLocalVariable2.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/duplicateVariablesByScope.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/cases/compiler/multivar.ts",
+              "candidates": 1
+            }
+          ],
+          "fallbackReasons": {
+            "outside-l1": 1770,
+            "invalid-utf8": 9
+          },
+          "candidateBytes": 17856,
+          "maxDepth": 4956
+        },
+        {
+          "project": "mreact",
+          "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+          "files": 1193,
+          "bytes": 12465294,
+          "tsxFiles": 100,
+          "fastFiles": 957,
+          "fastBytes": 6722855,
+          "candidates": 1550,
+          "candidateFiles": 336,
+          "fastCandidates": 776,
+          "nativeFiles": 229,
+          "nativeCandidates": 710,
+          "yukuFiles": 7,
+          "yukuCandidates": 64,
+          "yukuCandidateFiles": 5,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [
+            {
+              "file": "benchmarks/compat-micro/bench-core.ts",
+              "candidates": 10
+            },
+            {
+              "file": "benchmarks/compat-micro/review-entry.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/endurance.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact-react-compat-vdom/src/main.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact-react-compat/src/main.tsx",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact-react-compat/vite.config.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact/src/main.tsx",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact/vite.config.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/report-specializations.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/specialization-ablation.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/lambda-generated-handler-latency/run.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/lambda-route-latency/run.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/non-router/run.ts",
+              "candidates": 11
+            },
+            {
+              "file": "benchmarks/paired/measure.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive-browser/event-lifecycle.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmarks/primitive-browser/review-native-fixture.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive-browser/review-native.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/primitive-browser/run.ts",
+              "candidates": 7
+            },
+            {
+              "file": "benchmarks/primitive-browser/runner.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/adapters/framework-runtime-utils.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmarks/primitive/adapters/marko.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmarks/primitive/adapters/mreact.ts",
+              "candidates": 5
+            },
+            {
+              "file": "benchmarks/primitive/adapters/qwik.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/adapters/simple-dom.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/primitive/adapters/solid-v2.ts",
+              "candidates": 5
+            },
+            {
+              "file": "benchmarks/primitive/adapters/solid.ts",
+              "candidates": 5
+            },
+            {
+              "file": "benchmarks/primitive/adapters/svelte.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/adapters/vue.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/filter.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/fixtures/event-targets.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/memory.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/request-fastpaths.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmarks/primitive/runner.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmarks/primitive/runner.ts",
+              "candidates": 7
+            },
+            {
+              "file": "benchmarks/primitive/worker.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmarks/router/adapters/marko-run.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/adapters/production-app-adapter.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/adapters/qwik-city.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/adapters/qwik-router-v2.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/adapters/solid-start.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/adapters/tanstack-start-solid.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/adapters/tanstack-start.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/browser-probes.ts",
+              "candidates": 6
+            },
+            {
+              "file": "benchmarks/router/browser-trials.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/router/build-output-size.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/build-time.ts",
+              "candidates": 7
+            },
+            {
+              "file": "benchmarks/router/fixture-server.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/http-cache-modes.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmarks/router/http-load-worker.ts",
+              "candidates": 5
+            },
+            {
+              "file": "benchmarks/router/http-probes.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/router/http-trial-types.ts",
+              "candidates": 10
+            },
+            {
+              "file": "benchmarks/router/http-trials.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/http-trials.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/router/process-supervisor.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/router/process-supervisor.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmarks/router/report.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmarks/router/run-output.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmarks/router/runner-browser.ts",
+              "candidates": 10
+            },
+            {
+              "file": "benchmarks/router/runner-http.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/router/test-fixtures/analog-ssr-worker.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/scheduler/run.ts",
+              "candidates": 6
+            },
+            {
+              "file": "benchmarks/shared/env.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/shared/report.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/shared/results.ts",
+              "candidates": 1
+            },
+            {
+              "file": "compat-lab/radix/runner.ts",
+              "candidates": 6
+            },
+            {
+              "file": "compat-lab/react-flow/fixtures.tsx",
+              "candidates": 2
+            },
+            {
+              "file": "compat-lab/react-flow/runner.ts",
+              "candidates": 23
+            },
+            {
+              "file": "compat-lab/recharts/api-surface.ts",
+              "candidates": 1
+            },
+            {
+              "file": "compat-lab/recharts/dom-summary.ts",
+              "candidates": 1
+            },
+            {
+              "file": "compat-lab/recharts/image-diff.ts",
+              "candidates": 2
+            },
+            {
+              "file": "compat-lab/recharts/runner.ts",
+              "candidates": 2
+            },
+            {
+              "file": "compat-lab/shared/assert-run-passed.ts",
+              "candidates": 1
+            },
+            {
+              "file": "compat-lab/ui-primitives/runner.ts",
+              "candidates": 10
+            },
+            {
+              "file": "examples/app-router/app/analytics/AnalyticsTracker.client.tsx",
+              "candidates": 2
+            },
+            {
+              "file": "examples/app-router/app/api/contact/route.ts",
+              "candidates": 4
+            },
+            {
+              "file": "examples/app-router/app/counter/page.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "examples/app-router/app/forms/page.tsx",
+              "candidates": 3
+            },
+            {
+              "file": "examples/app-router/app/forms/zod/page.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "examples/app-router/app/server-actions/actions.ts",
+              "candidates": 2
+            },
+            {
+              "file": "examples/app-router/scripts/export-static.ts",
+              "candidates": 1
+            },
+            {
+              "file": "examples/docs-site/scripts/measure-dev-latency.ts",
+              "candidates": 3
+            },
+            {
+              "file": "examples/docs-site/src/nav.config.ts",
+              "candidates": 2
+            },
+            {
+              "file": "examples/e2e/react-libraries.spec.ts",
+              "candidates": 4
+            },
+            {
+              "file": "examples/hacker-news/src/app/user/$id/page.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "examples/hacker-news/src/hn/client.ts",
+              "candidates": 1
+            },
+            {
+              "file": "examples/hacker-news/src/hn/feed.mreact.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "examples/hacker-news/src/hn/format.ts",
+              "candidates": 6
+            },
+            {
+              "file": "examples/hacker-news/src/hn/story-batches.ts",
+              "candidates": 1
+            },
+            {
+              "file": "examples/react-libraries/app/lib/db.ts",
+              "candidates": 1
+            },
+            {
+              "file": "examples/unit/docs-site-contract.test.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/collection/src/index.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/component-constant-inline.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/compiler/src/component-prop-text.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/emit-client-specialization.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/emit-server-shared.ts",
+              "candidates": 8
+            },
+            {
+              "file": "packages/compiler/src/emit-server-stream.ts",
+              "candidates": 12
+            },
+            {
+              "file": "packages/compiler/src/emit-server.ts",
+              "candidates": 9
+            },
+            {
+              "file": "packages/compiler/src/oxc-bindings.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/oxc-code-utils.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/compiler/src/oxc-compat-create-element.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/compiler/src/oxc-component-detection.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/compiler/src/oxc-component-references.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/oxc-expression-facts.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/compiler/src/oxc-jsx-text.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/compiler/src/oxc-node-utils.ts",
+              "candidates": 6
+            },
+            {
+              "file": "packages/compiler/src/oxc-raw-jsx.ts",
+              "candidates": 21
+            },
+            {
+              "file": "packages/compiler/src/oxc-render-values.ts",
+              "candidates": 16
+            },
+            {
+              "file": "packages/compiler/src/oxc-runtime-emit.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/compiler/src/oxc-transform.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/compiler/src/static-reactivity.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/compiler/src/transform.ts",
+              "candidates": 18
+            },
+            {
+              "file": "packages/compiler/test/escape-helper-byte-identity.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/test/server-emit-shared.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/create-mreact-app/src/cli-args.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/create-mreact-app/src/prompts.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/create-mreact-app/src/run-cli.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/devtools/test/devtools.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/next/src/index.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/query/test/query-cross-tab-sync.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/query/test/query-lifecycle.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/query/test/query-observer.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/react-compat/src/class-component.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/react-compat/src/context.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/src/devtools.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/react-compat/src/dom-children.ts",
+              "candidates": 8
+            },
+            {
+              "file": "packages/react-compat/src/dom-props.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/react-compat/src/fiber-child.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/react-compat/src/fiber-commit.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/react-compat/src/fiber-reconciler.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/react-compat/src/fiber-scheduler.ts",
+              "candidates": 11
+            },
+            {
+              "file": "packages/react-compat/src/fiber-work-loop.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/src/hydration.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/src/prehydration-form-state.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/react-compat/src/reconciler.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/src/suspense.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/react-compat/test/compat-normalizer-bundle.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/react-compat/test/deletion-registration.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/react-compat/test/fiber-scheduler.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/test/flight-depth-cap.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/test/hooks-state.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-core/src/effect.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-core/src/resource-events.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/reactive-core/src/scheduler.ts",
+              "candidates": 6
+            },
+            {
+              "file": "packages/reactive-core/src/setup-tracking.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/reactive-core/src/writer-diagnostics.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-core/test/computed.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-core/test/coverage-fill.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-core/test/dormant-dependency-snapshot.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-core/test/effect-wakeup.test.ts",
+              "candidates": 6
+            },
+            {
+              "file": "packages/reactive-core/test/effect.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-core/test/more-edges.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-dom/src/bind-event.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/reactive-dom/src/bind-spread-props.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-dom/src/bind-text.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-dom/src/dom-ref.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/reactive-dom/src/prop-binding-registry.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-dom/src/render-value-guard.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-dom/src/scope.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-dom/test/root.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/e2e/client-delivery-accounting.spec.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/e2e/route-conditional-teardown.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/adapters/static.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/router/src/boundaries.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/router/src/built-assets.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/router/src/built-runtime.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/src/bundle-pipeline.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/cache-config.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/cache-policy.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/cli-options.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/router/src/compat-ssr.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/router/src/config.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/router/src/csp.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/src/csrf.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/dev-server.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/router/src/http.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/src/middleware.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/router/src/module-preload-graph.ts",
+              "candidates": 9
+            },
+            {
+              "file": "packages/router/src/native-route-matcher.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/navigation-history-cache.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/navigation-marker.ts",
+              "candidates": 28
+            },
+            {
+              "file": "packages/router/src/navigation-snapshots.ts",
+              "candidates": 12
+            },
+            {
+              "file": "packages/router/src/node-server.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/src/prerender-entry.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/src/prerender-store.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/router/src/route-module-loader.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/route-path.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/route-shells.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/routes.ts",
+              "candidates": 8
+            },
+            {
+              "file": "packages/router/src/security-headers.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/router/src/server-action-inference.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/session.ts",
+              "candidates": 8
+            },
+            {
+              "file": "packages/router/src/static-middleware-config.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/router/src/static-route-lookup.ts",
+              "candidates": 9
+            },
+            {
+              "file": "packages/router/src/stream-list.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/tailwind-source.ts",
+              "candidates": 6
+            },
+            {
+              "file": "packages/router/test/adapters.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/aws-lambda-adapter.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/cache-unit.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/test/client-module-boundaries.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/dev-server.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/http-unit.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/logger.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/navigation-history-cache.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/test/navigation-shared-runtime.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/replay-store.test.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/router/test/route-client-capability-facts.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/serve-unit.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/static-route-lookup.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/server/src/boundary.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/server/src/buffer-sink.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/server/src/sink.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/server/src/stream.ts",
+              "candidates": 17
+            },
+            {
+              "file": "packages/server/test/flight-depth-cap.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/server/test/flight-roundtrip-corpus.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/server/test/flight.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/server/test/server-action-validation.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/server/test/stream.test.ts",
+              "candidates": 6
+            },
+            {
+              "file": "packages/shared/src/dom-prop-names.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/shared/src/html-escape.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/shared/src/url-safety.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/store/test/large-app.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/store/test/store-types.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/virtual/src/index.ts",
+              "candidates": 29
+            },
+            {
+              "file": "size/client-delivery-report.ts",
+              "candidates": 7
+            },
+            {
+              "file": "size/client-delivery.ts",
+              "candidates": 1
+            },
+            {
+              "file": "size/context-delivery.ts",
+              "candidates": 3
+            },
+            {
+              "file": "size/direct-cell-text-graph.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "size/run.ts",
+              "candidates": 5
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {
+            "outside-l1": 7
+          },
+          "candidateBytes": 735096,
+          "maxDepth": 45
+        },
+        {
+          "project": "tachyon-dom",
+          "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+          "files": 373,
+          "bytes": 3429677,
+          "tsxFiles": 32,
+          "fastFiles": 228,
+          "fastBytes": 1102351,
+          "candidates": 654,
+          "candidateFiles": 120,
+          "fastCandidates": 170,
+          "nativeFiles": 144,
+          "nativeCandidates": 480,
+          "yukuFiles": 1,
+          "yukuCandidates": 4,
+          "yukuCandidateFiles": 1,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [
+            {
+              "file": "benchmark/client-bundle/measure.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmark/client-bundle/run-client-bundle.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/compiler/compare-expression-backends.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmark/compiler/compare-sfc-transform.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmark/html-minification.ts",
+              "candidates": 5
+            },
+            {
+              "file": "benchmark/local-compare/validation.ts",
+              "candidates": 23
+            },
+            {
+              "file": "benchmark/provenance.ts",
+              "candidates": 6
+            },
+            {
+              "file": "benchmark/raw-text-scan/candidate.ts",
+              "candidates": 10
+            },
+            {
+              "file": "benchmark/raw-text-scan/evaluation.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/raw-text-scan/run.ts",
+              "candidates": 7
+            },
+            {
+              "file": "benchmark/server-html.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmark/streaming-backpressure-compare.ts",
+              "candidates": 24
+            },
+            {
+              "file": "benchmark/streaming-backpressure.ts",
+              "candidates": 5
+            },
+            {
+              "file": "benchmark/summary/cli.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/summary/markdown.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmark/summary/ranking.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/virtual-list-update.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/web-framework/run-web-framework-benchmark.ts",
+              "candidates": 14
+            },
+            {
+              "file": "src/code-preview.ts",
+              "candidates": 3
+            },
+            {
+              "file": "src/compiler/explain.ts",
+              "candidates": 5
+            },
+            {
+              "file": "src/compiler/html-tree.ts",
+              "candidates": 3
+            },
+            {
+              "file": "src/compiler/parser.ts",
+              "candidates": 6
+            },
+            {
+              "file": "src/constant-time.ts",
+              "candidates": 1
+            },
+            {
+              "file": "src/html-raw-text.ts",
+              "candidates": 5
+            },
+            {
+              "file": "src/html-whitespace.ts",
+              "candidates": 7
+            },
+            {
+              "file": "src/package-integrity.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/inspector-trace.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/lifecycle-state-machine-property.test.ts",
+              "candidates": 4
+            },
+            {
+              "file": "tests/raw-text-scan-benchmark.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/review-regressions-2026-09-11.test.ts",
+              "candidates": 3
+            },
+            {
+              "file": "tests/router-query.test.ts",
+              "candidates": 6
+            },
+            {
+              "file": "tests/runtime-conditional.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/runtime-diagnostics.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/sfc-component-updates.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/sfc-scope-behavior.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/sfc-scope-emission.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/statistical-authority.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/web-framework-contract.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/whitespace-policy-types.ts",
+              "candidates": 3
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {
+            "outside-l1": 1
+          },
+          "candidateBytes": 279424,
+          "maxDepth": 38
+        }
+      ]
+    },
+    {
+      "runtime": "v24.14.0",
+      "system": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "reference": "yuku-parser 0.19.0",
+      "scope": {
+        "prefix": "packages/vite/src/",
+        "sourceOnly": true,
+        "logical": false
+      },
+      "reports": [
+        {
+          "project": "vite-corpus",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 118,
+          "bytes": 1248759,
+          "tsxFiles": 0,
+          "fastFiles": 67,
+          "fastBytes": 323420,
+          "candidates": 160,
+          "candidateFiles": 39,
+          "fastCandidates": 55,
+          "nativeFiles": 51,
+          "nativeCandidates": 105,
+          "yukuFiles": 0,
+          "yukuCandidates": 0,
+          "yukuCandidateFiles": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [
+            {
+              "file": "packages/vite/src/client/env.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/optimizer/optimizer.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/vite/src/node/optimizer/resolve.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/packages.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/assetImportMetaUrl.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/node/plugins/define.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/node/plugins/dynamicImportVars.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/importMetaGlob.ts",
+              "candidates": 11
+            },
+            {
+              "file": "packages/vite/src/node/plugins/json.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/node/plugins/manifest.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/vite/src/node/plugins/pluginFilter.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/preAlias.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/reporter.ts",
+              "candidates": 8
+            },
+            {
+              "file": "packages/vite/src/node/plugins/workerImportMetaUrl.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/vite/src/node/server/middlewares/indexHtml.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/server/sourcemap.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/vite/src/node/server/transformRequest.ts",
+              "candidates": 5
+            },
+            {
+              "file": "packages/vite/src/node/ssr/ssrManifestPlugin.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/shared/moduleRunnerTransport.ts",
+              "candidates": 1
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {},
+          "candidateBytes": 3780,
+          "maxDepth": 40
+        }
+      ]
+    }
+  ],
+  "standalone": {
+    "addonBytes": 189592,
+    "cargoAbsent": true,
+    "npmDependenciesAbsent": true,
+    "rustSourcesOmitted": true,
+    "files": 335,
+    "candidates": 1090
+  },
+  "linuxFlagBenchmarks": {
+    "environment": "Linux ARM64, GCC 12.2.0, Node.js 24.21.0, CPU pinned in Podman VM on Apple M5 Max",
+    "nativeSourceRevision": "0b6a626",
+    "method": "Nine alternating or rotating warm samples. Same buffers and native parser and Rust sources. Exact native row equality before timing.",
+    "lowOnly": [
+      {
+        "scope": "all",
+        "inputs": 482,
+        "samples": {
+          "base": [
+            28.060426249999992,
+            27.03023031250001,
+            26.804780812499985,
+            26.878366687499977,
+            26.238400812500004,
+            26.824933687499993,
+            27.175423312500016,
+            26.778393499999993,
+            26.879419062500006
+          ],
+          "lto": [
+            28.13527425000001,
+            27.754857000000015,
+            26.797847312499982,
+            26.324455687500006,
+            26.311985749999963,
+            26.907951249999996,
+            26.39961925,
+            26.796359875000007,
+            26.78323087499996
+          ],
+          "hidden": [
+            17.24262543750001,
+            16.831034625,
+            16.515712250000036,
+            16.219991562500013,
+            16.00416800000005,
+            15.717471250000017,
+            16.58537631249999,
+            16.32344493749997,
+            16.48426737500006
+          ],
+          "combined": [
+            11.541398750000013,
+            11.06468187500002,
+            10.995092,
+            11.015444875000014,
+            11.026370062500064,
+            10.760901124999918,
+            11.506456437499992,
+            10.907047250000005,
+            11.09554737499991
+          ]
+        },
+        "medians": {
+          "base": 26.878366687499977,
+          "lto": 26.796359875000007,
+          "hidden": 16.48426737500006,
+          "combined": 11.026370062500064
+        }
+      },
+      {
+        "scope": "source",
+        "inputs": 118,
+        "samples": {
+          "base": [
+            9.640307124999936,
+            9.327685812500022,
+            9.386972062499922,
+            9.42368643750001,
+            9.476303999999914,
+            9.359956062500032,
+            9.418380062500091,
+            9.2955353750001,
+            9.407155312499981
+          ],
+          "lto": [
+            9.407040687499943,
+            9.435914124999954,
+            9.44052750000003,
+            9.277222562500015,
+            9.607343937500104,
+            9.5361972500001,
+            9.291695687499896,
+            9.29008581249991,
+            9.454831312499891
+          ],
+          "hidden": [
+            5.530315250000058,
+            5.65273537500002,
+            5.73123062500008,
+            5.810246937499983,
+            5.606700499999988,
+            5.866873499999883,
+            5.5853476874999615,
+            5.796211374999984,
+            5.80192924999983
+          ],
+          "combined": [
+            3.8100853749999715,
+            3.7623443124999767,
+            3.7662516875000165,
+            3.764699124999993,
+            3.9932974375000185,
+            3.7976023749999968,
+            3.81441481249999,
+            3.7540969374999804,
+            3.873315625000032
+          ]
+        },
+        "medians": {
+          "base": 9.407155312499981,
+          "lto": 9.435914124999954,
+          "hidden": 5.73123062500008,
+          "combined": 3.7976023749999968
+        }
+      }
+    ],
+    "withOxc": [
+      {
+        "scope": "all",
+        "inputs": 482,
+        "samples": {
+          "base": [
+            33.168808666666656,
+            32.59006150000001,
+            33.48469283333335,
+            33.8825708333333,
+            35.860286333333306,
+            35.44310266666662,
+            35.574812000000065,
+            34.913293333333364,
+            35.960801000000025
+          ],
+          "combined": [
+            21.445557500000007,
+            21.142103833333334,
+            22.83440766666668,
+            23.140722333333354,
+            23.32901549999997,
+            23.969867333333315,
+            23.31386933333336,
+            23.589739500000025,
+            23.789560500000032
+          ]
+        },
+        "medians": {
+          "base": 34.913293333333364,
+          "combined": 23.31386933333336
+        }
+      },
+      {
+        "scope": "source",
+        "inputs": 118,
+        "samples": {
+          "base": [
+            20.039408500000036,
+            20.039672166666605,
+            19.520238000000063,
+            19.353521500000017,
+            19.5100294999999,
+            19.540543833333384,
+            19.979727499999928,
+            20.1660343333333,
+            20.043394499999977
+          ],
+          "combined": [
+            15.024351333333394,
+            14.946878666666635,
+            15.042663999999908,
+            15.453208500000073,
+            15.463188000000022,
+            15.872253333333296,
+            15.777968000000024,
+            15.646647499999895,
+            15.719995333333221
+          ]
+        },
+        "medians": {
+          "base": 19.979727499999928,
+          "combined": 15.463188000000022
+        }
+      }
+    ],
+    "withoutLtoLinkerPlugin": "Verified hidden-only fallback and addon loading with a compiler wrapper that rejects -flto."
+  },
+  "verification": {
+    "fstar": "Five modules verified; native C and headers match KaRaMeL regeneration.",
+    "nodeTestsPassed": 926,
+    "playwrightTestsPassed": 1,
+    "pict": [
+      {
+        "model": "low-tagged",
+        "rows": 12,
+        "pairs": 26,
+        "seeds": 5
+      },
+      {
+        "model": "low-local-types",
+        "rows": 14,
+        "pairs": 32,
+        "seeds": 8
+      },
+      {
+        "model": "low-type-signatures",
+        "rows": 15,
+        "pairs": 31,
+        "seeds": 6
+      },
+      {
+        "model": "low-vars",
+        "rows": 12,
+        "pairs": 26,
+        "seeds": 5
+      },
+      {
+        "model": "low-array-runs",
+        "rows": 9,
+        "pairs": 21,
+        "seeds": 4
+      },
+      {
+        "model": "low-binding-namespaces",
+        "rows": 6,
+        "pairs": 30,
+        "seeds": 4
+      },
+      {
+        "model": "low-classes",
+        "rows": 12,
+        "pairs": 26,
+        "seeds": 5
+      },
+      {
+        "model": "low-wide-bindings",
+        "rows": 11,
+        "pairs": 20,
+        "seeds": 7
+      },
+      {
+        "model": "assertion-update-parity",
+        "rows": 9,
+        "pairs": 21,
+        "seeds": 5
+      },
+      {
+        "model": "ambient-prototype-parity",
+        "rows": 7,
+        "pairs": 16,
+        "seeds": 4
+      },
+      {
+        "model": "commonjs-probe",
+        "rows": 18,
+        "pairs": 40,
+        "seeds": 9
+      },
+      {
+        "model": "focused-audit",
+        "rows": 11,
+        "pairs": 27,
+        "seeds": 6
+      }
+    ],
+    "tlcDistinctStates": {
+      "LocalTypeScopes": 161820,
+      "VarModes": 1705,
+      "BindingNamespaces": 153,
+      "SuperContexts": 9331,
+      "TrialAudit": 1280,
+      "LoopContexts": 7812,
+      "CallbackScopes": 90,
+      "LowModulePublication": 288,
+      "NativePublication": 30
+    },
+    "generatedCMutationProbes": [
+      {
+        "name": "disable-raw-template-escape",
+        "source": "const ok = String.raw`\\d+ ${a < b}` > bound;",
+        "baseline": {
+          "path": "fast",
+          "candidates": [
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": "<",
+              "replacement": "<=",
+              "edit": [
+                30,
+                31
+              ],
+              "left": [
+                28,
+                29
+              ],
+              "right": [
+                32,
+                33
+              ]
+            },
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": ">",
+              "replacement": ">=",
+              "edit": [
+                36,
+                37
+              ],
+              "left": [
+                11,
+                35
+              ],
+              "right": [
+                38,
+                43
+              ]
+            }
+          ]
+        },
+        "mutant": {
+          "path": "diagnostic",
+          "candidates": []
+        }
+      },
+      {
+        "name": "misclassify-derived-super-call",
+        "source": "class B extends A { constructor() { super(x < y); } }",
+        "baseline": {
+          "path": "fast",
+          "candidates": [
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": "<",
+              "replacement": "<=",
+              "edit": [
+                44,
+                45
+              ],
+              "left": [
+                42,
+                43
+              ],
+              "right": [
+                46,
+                47
+              ]
+            }
+          ]
+        },
+        "mutant": {
+          "path": "diagnostic",
+          "candidates": []
+        }
+      },
+      {
+        "name": "allow-static-constructor-field",
+        "source": "class B { static constructor; } const ok = x < y;",
+        "baseline": {
+          "path": "diagnostic",
+          "candidates": []
+        },
+        "mutant": {
+          "path": "fast",
+          "candidates": [
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": "<",
+              "replacement": "<=",
+              "edit": [
+                45,
+                46
+              ],
+              "left": [
+                43,
+                44
+              ],
+              "right": [
+                47,
+                48
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "omit-assertion-update-refusal",
+        "source": "const ok = ready as boolean ? ++x < y : false;",
+        "baseline": {
+          "path": "diagnostic",
+          "candidates": []
+        },
+        "mutant": {
+          "path": "fast",
+          "candidates": [
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": "<",
+              "replacement": "<=",
+              "edit": [
+                34,
+                35
+              ],
+              "left": [
+                30,
+                33
+              ],
+              "right": [
+                36,
+                37
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "restore-old-scope-capacity",
+        "source": "const local0=0;\nconst local1=0;\nconst local2=0;\nconst local3=0;\nconst local4=0;\nconst local5=0;\nconst local6=0;\nconst local7=0;\nconst local8=0;\nconst local9=0;\nconst local10=0;\nconst local11=0;\nconst local12=0;\nconst local13=0;\nconst local14=0;\nconst local15=0;\nconst local16=0;\nconst local17=0;\nconst local18=0;\nconst local19=0;\nconst local20=0;\nconst local21=0;\nconst local22=0;\nconst local23=0;\nconst local24=0;\nconst local25=0;\nconst local26=0;\nconst local27=0;\nconst local28=0;\nconst local29=0;\nconst local30=0;\nconst local31=0;\nconst local32=0;\nconst local33=0;\nconst local34=0;\nconst local35=0;\nconst local36=0;\nconst local37=0;\nconst local38=0;\nconst local39=0;\nconst local40=0;\nconst local41=0;\nconst local42=0;\nconst local43=0;\nconst local44=0;\nconst local45=0;\nconst local46=0;\nconst local47=0;\nconst local48=0;\nconst local49=0;\nconst local50=0;\nconst local51=0;\nconst local52=0;\nconst local53=0;\nconst local54=0;\nconst local55=0;\nconst local56=0;\nconst local57=0;\nconst local58=0;\nconst local59=0;\nconst local60=0;\nconst local61=0;\nconst local62=0;\nconst local63=0;\nconst local64=0;\nconst local65=0;\nconst local66=0;\nconst local67=0;\nconst local68=0;\nconst local69=0;\nconst local70=0;\nconst local71=0;\nconst local72=0;\nconst local73=0;\nconst local74=0;\nconst local75=0;\nconst local76=0;\nconst local77=0;\nconst local78=0;\nconst local79=0;\nconst local80=0;\nconst local81=0;\nconst local82=0;\nconst local83=0;\nconst local84=0;\nconst local85=0;\nconst local86=0;\nconst local87=0;\nconst local88=0;\nconst local89=0;record(a < b);",
+        "baseline": {
+          "path": "fast",
+          "candidates": [
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": "<",
+              "replacement": "<=",
+              "edit": [
+                1528,
+                1529
+              ],
+              "left": [
+                1526,
+                1527
+              ],
+              "right": [
+                1530,
+                1531
+              ]
+            }
+          ]
+        },
+        "mutant": {
+          "path": "diagnostic",
+          "candidates": []
+        }
+      }
+    ]
+  }
+}

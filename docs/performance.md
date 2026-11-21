@@ -1,5 +1,32 @@
 # Performance measurements
 
+## Low★ classes, binding scopes, and tagged templates
+
+Against `91b9af3`, Low★ accepted 2,893 of 8,549 tracked TS/TSX files, up from 2,401. It extracted 1,090 of 2,968 comparison candidates, up from 1,020. The byte spans, candidate order and diagnostics matched Yuku in both settings of the JSX logical rule.
+
+| Checkout | Previous Low★ candidates | Current Low★ candidates | Oxc candidates | Yuku candidates |
+| --- | ---: | ---: | ---: | ---: |
+| Vite | 85 | 88 | 113 | 0 |
+| Preact | 0 | 0 | 1 | 0 |
+| TypeScript corpus | 47 | 56 | 496 | 10 |
+| mreact | 720 | 776 | 710 | 64 |
+| tachyon-dom | 168 | 170 | 480 | 4 |
+
+In Vite's 118-file production scope, Low★ accepted 67 files and produced 55 of 160 candidates. The wider name table added Vite's `node/server/middlewares/indexHtml.ts` and mreact's `emit-server.ts` and `emit-server-stream.ts`. Module type/value namespaces and local type and variable declarations moved seven candidates off Yuku. A standalone build reproduced all 1,090 fast-path candidates in 335 files without Cargo, Oxc or npm dependencies. [Corpus and verification data](../evidence/m1/low-scope-expansion.json)
+
+## Linux link-time optimization and symbol visibility
+
+On Linux ARM64, GCC 12.2 and Node 24.21.0, a single-core benchmark compared builds from the same native source with identical candidate records. Each value is the median of nine warm measurements over the same Vite buffers. Both Node-API registration symbols remained visible.
+
+| Workload | Baseline | Hidden visibility plus LTO |
+| --- | ---: | ---: |
+| Vite, Low★ native call | 26.88 ms | 11.03 ms |
+| Vite production, Low★ native call | 9.41 ms | 3.80 ms |
+| Vite, native routes including Oxc | 34.91 ms | 23.31 ms |
+| Vite production, native routes including Oxc | 19.98 ms | 15.46 ms |
+
+The build retains hidden visibility if the selected Linux compiler cannot link a shared library with LTO. The native-route timings include the Node-API calls but exclude the JavaScript Yuku fallback and test execution. [Compiler experiment data](../evidence/m1/low-scope-expansion.json)
+
 ## Low★ binding, module, and statement coverage
 
 Against `3589d6e`, the AST-free route grew from 1,934 to 2,401 of 8,549 tracked TS/TSX files and from 808 to 1,020 of 2,968 comparison candidates. Both logical-rule settings matched Yuku on the complete diagnostics and ordered candidate records, including exact byte spans.
