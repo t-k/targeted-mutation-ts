@@ -1,0 +1,3 @@
+Position: Declaration, Arrow, Interface, FunctionType
+Predicate: Name, Asserts, AssertsIs
+Suffix: Valid, Invalid

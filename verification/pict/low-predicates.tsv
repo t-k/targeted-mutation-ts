@@ -1,0 +1,13 @@
+Position	Predicate	Suffix
+Declaration	Name	Valid
+Arrow	AssertsIs	Valid
+Interface	Name	Valid
+FunctionType	Asserts	Invalid
+FunctionType	AssertsIs	Valid
+Interface	Asserts	Valid
+Declaration	AssertsIs	Invalid
+FunctionType	Name	Invalid
+Declaration	Asserts	Valid
+Arrow	Asserts	Invalid
+Arrow	Name	Invalid
+Interface	AssertsIs	Invalid
