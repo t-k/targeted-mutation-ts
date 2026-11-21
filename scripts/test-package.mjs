@@ -36,7 +36,7 @@ try {
   mkdirSync(join(installed, 'node_modules/unrelated'), { recursive: true });
   const entry = join(installed, 'bin/tmt.mjs');
   assert.match(run(process.execPath, [entry, '--help']), /tmt-ts analyze/);
-  writeFileSync(join(cwd, 'broad.ts'), 'export const a = {}; export const b = a?.value < 2;');
+  writeFileSync(join(cwd, 'broad.ts'), 'export const a = {}; export const b = a<number>().value < 2;');
   const broad = JSON.parse(run(process.execPath, [entry, 'extract', 'broad.ts']));
   assert.equal(broad.path, 'native');
   assert.ok(broad.metrics.astNodes > 0);

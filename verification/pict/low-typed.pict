@@ -1,0 +1,3 @@
+Type: Alias, Interface, Nested, Tuple
+Expression: Optional, Nullish, Spread
+Suffix: Valid, Invalid

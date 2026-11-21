@@ -1,0 +1,6 @@
+Type	Expression	Suffix
+Alias	Optional	Valid
+Interface	Nullish	Valid
+Nested	Spread	Valid
+Tuple	Optional	Invalid
+Tuple	Spread	Valid

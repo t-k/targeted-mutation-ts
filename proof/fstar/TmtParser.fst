@@ -145,13 +145,13 @@ let name (input:tape) (at:U32.t) (jsx binding:bool) : Read cursor input =
       { at = stop; ok = not (reserved || invalid_binding); newline = false }
 
 type parser_state = { offset:U32.t; count:U32.t; depth:U32.t; status:U32.t }
-type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:bool }
+type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:bool; shortcut:U32.t }
 
 let failed (state:parser_state) (error:U32.t) : parser_state =
   if state.status = 0ul then { state with status = error } else state
 
 let start_range (pos:U32.t) : G.span = { G.first = pos; G.last = pos }
-let empty_range (state:parser_state) : parsed = { parser = state; range = start_range state.offset; open_angle = false; outer_or = false }
+let empty_range (state:parser_state) : parsed = { parser = state; range = start_range state.offset; open_angle = false; outer_or = false; shortcut = 0ul }
 
 let consume (input:tape) (state:parser_state) (byte:U8.t) : Read parser_state input =
   if state.status <> 0ul then state
@@ -236,29 +236,32 @@ let rec regex_end (input:tape) (at:U32.t) (first can_repeat:bool) (fuel:U32.t)
     else { at; ok = false; newline = false }
 
 type precedence = p:U32.t{1 <= U32.v p /\ U32.v p <= 10}
-type binary_operator = { strength:precedence; width:U32.t; boundary:U32.t }
+type binary_operator = { strength:precedence; width:U32.t; boundary:U32.t; nullish:bool }
 
 let operator (input:tape) (at:U32.t) : Read binary_operator input =
   let byte = peek input at in
   let follower = peek input (next at) in
-  let none = { strength = 1ul; width = 0ul; boundary = 0ul } in
+  let none = { strength = 1ul; width = 0ul; boundary = 0ul; nullish = false } in
   if byte = 60uy || byte = 62uy then
     if byte = follower then none
     else
       let boundary = S.source_boundary input.source input.size at in
-      { strength = 7ul; width = (if follower = 61uy then 2ul else 1ul); boundary }
+      { strength = 7ul; width = (if follower = 61uy then 2ul else 1ul); boundary; nullish = false }
   else if (byte = 61uy || byte = 33uy) && follower = 61uy then
     let triple = same input (plus at 2ul) 61uy in
-    { strength = 6ul; width = (if triple then 3ul else 2ul); boundary = 0ul }
+    { strength = 6ul; width = (if triple then 3ul else 2ul); boundary = 0ul; nullish = false }
+  else if byte = 63uy && follower = 63uy then
+    let assignment = same input (plus at 2ul) 61uy in
+    if assignment then none else { strength = 1ul; width = 2ul; boundary = 0ul; nullish = true }
   else if follower = 61uy then none
   else if byte = 124uy then
-    { strength = (if follower = byte then 1ul else 3ul); width = (if follower = byte then 2ul else 1ul); boundary = 0ul }
+    { strength = (if follower = byte then 1ul else 3ul); width = (if follower = byte then 2ul else 1ul); boundary = 0ul; nullish = false }
   else if byte = 38uy then
-    { strength = (if follower = byte then 2ul else 5ul); width = (if follower = byte then 2ul else 1ul); boundary = 0ul }
-  else if byte = 94uy then { strength = 4ul; width = 1ul; boundary = 0ul }
-  else if (byte = 43uy || byte = 45uy) && follower <> byte then { strength = 8ul; width = 1ul; boundary = 0ul }
+    { strength = (if follower = byte then 2ul else 5ul); width = (if follower = byte then 2ul else 1ul); boundary = 0ul; nullish = false }
+  else if byte = 94uy then { strength = 4ul; width = 1ul; boundary = 0ul; nullish = false }
+  else if (byte = 43uy || byte = 45uy) && follower <> byte then { strength = 8ul; width = 1ul; boundary = 0ul; nullish = false }
   else if (byte = 42uy && follower <> byte) || byte = 47uy || byte = 37uy then
-    { strength = 9ul; width = 1ul; boundary = 0ul }
+    { strength = 9ul; width = 1ul; boundary = 0ul; nullish = false }
   else none
 
 let unary_width (input:tape) (at:U32.t) (byte:U8.t) : Read U32.t input =
@@ -308,6 +311,14 @@ let proto_key (input:tape) (first last:U32.t) : Read bool input =
     let last = peek input (plus first 8ul) in
     start = 0x5f5f70726f746f5fuL && last = 95uy
 
+let spread_at (input:tape) (at:U32.t) : Read bool input =
+  let first = same input at 46uy in
+  if not first then false
+  else
+    let second = same input (next at) 46uy in
+    let third = same input (plus at 2ul) 46uy in
+    second && third
+
 let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 2; 0]) =
   let st = skip input current in
@@ -340,7 +351,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
             if ch = 96uy then template_body input inside inner input.size
             else if ch = 91uy then expression_list input inside inner input.size 93uy
             else object_members input inside inner input.size false in
-        postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset }; open_angle = false; outer_or = false }
+        postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset }; open_angle = false; outer_or = false; shortcut = 0ul }
           fuel input.size false
     else if ch = 40uy then
       if fuel = 0ul then empty_range (failed st 3ul)
@@ -350,7 +361,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         let inner = comparison input { st with offset = next start_pos; depth } (minus fuel 1ul) in
         let consumed = skip input inner.parser in
         let done_ = consume input consumed 41uy in
-        postfix input { parser = done_; range = { G.first = start_pos; G.last = done_.offset }; open_angle = false; outer_or = false }
+        postfix input { parser = done_; range = { G.first = start_pos; G.last = done_.offset }; open_angle = false; outer_or = false; shortcut = 0ul }
           fuel input.size false
     else if G.decimal_digit ch then
       let finish = scan_class input start_pos G.DecimalDigits in
@@ -361,7 +372,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         let finish =
           if dot && G.decimal_digit decimal then scan_class input (next finish) G.DecimalDigits
           else finish in
-        postfix input { parser = { st with offset = finish }; range = { G.first = start_pos; G.last = finish }; open_angle = false; outer_or = false }
+        postfix input { parser = { st with offset = finish }; range = { G.first = start_pos; G.last = finish }; open_angle = false; outer_or = false; shortcut = 0ul }
           fuel input.size true
     else
       let named =
@@ -377,7 +388,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
             else 0ul in
           if width <> 0ul then { st with offset = plus start_pos width }
           else from_cursor st (name input start_pos false false) in
-      let base = { parser = named; range = { G.first = start_pos; G.last = named.offset }; open_angle = false; outer_or = false } in
+      let base = { parser = named; range = { G.first = start_pos; G.last = named.offset }; open_angle = false; outer_or = false; shortcut = 0ul } in
       postfix input base fuel input.size false
 and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 25; 0]) =
@@ -390,7 +401,7 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
     else if fuel = 0ul then empty_range (failed body 3ul)
     else
       let expression = comparison input body (minus fuel 1ul) in
-      { expression with range = { expression.range with G.first = start.offset }; outer_or = false }
+      { expression with range = { expression.range with G.first = start.offset }; outer_or = false; shortcut = 0ul }
   else
   let lhs = binary input start fuel 1ul in
   let st = lhs.parser in
@@ -405,7 +416,7 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
       let consequent = comparison input { st with offset = next st.offset } inner in
       let alternate = comparison input (consume input consequent.parser 58uy) inner in
       { alternate with range = { alternate.range with G.first = lhs.range.G.first };
-        open_angle = lhs.open_angle || consequent.open_angle || alternate.open_angle; outer_or = false }
+        open_angle = lhs.open_angle || consequent.open_angle || alternate.open_angle; outer_or = false; shortcut = 0ul }
 and binary (input:tape) (state:parser_state) (fuel:U32.t) (minimum:precedence)
   : Run parsed input (decreases %[U32.v fuel; 24 - U32.v minimum - U32.v minimum; 0]) =
   let lhs = atom input state fuel in
@@ -428,11 +439,16 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
       let rhs = binary input after fuel (U32.add op.strength 1ul) in
       if rhs.parser.status <> 0ul then rhs
       else
-        let result = if op.boundary = 0ul then rhs.parser
-          else emit_comparison input rhs.parser st.count op.boundary st.offset lhs.range rhs.range in
-        let combined = { parser = result; range = { lhs.range with G.last = rhs.range.G.last };
-          open_angle = lhs.open_angle || rhs.open_angle || op.boundary = 1ul; outer_or = op.strength = 1ul } in
-        binary_tail input combined fuel minimum (minus remaining 1ul)
+        let logical = (U32.(op.strength <=^ 2ul) && not op.nullish) || lhs.shortcut = 1ul || rhs.shortcut = 1ul in
+        let nullish = op.nullish || lhs.shortcut = 2ul || rhs.shortcut = 2ul in
+        if logical && nullish then empty_range (failed rhs.parser 1ul)
+        else
+          let result = if op.boundary = 0ul then rhs.parser
+            else emit_comparison input rhs.parser st.count op.boundary st.offset lhs.range rhs.range in
+          let shortcut = if logical then 1ul else if nullish then 2ul else 0ul in
+          let combined = { parser = result; range = { lhs.range with G.last = rhs.range.G.last }; shortcut;
+            open_angle = lhs.open_angle || rhs.open_angle || op.boundary = 1ul; outer_or = op.strength = 1ul && not op.nullish } in
+          binary_tail input combined fuel minimum (minus remaining 1ul)
 
 and postfix (input:tape) (base:parsed) (fuel remaining:U32.t) (decimal:bool)
   : Run parsed input (decreases %[U32.v fuel; 1; U32.v remaining]) =
@@ -441,32 +457,40 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t) (decimal:bool)
     let after = trivia input base.parser.offset in
     let st = from_cursor base.parser after in
     let byte = peek input st.offset in
+    let optional =
+      if byte = 63uy then
+        let dot = same input (next st.offset) 46uy in
+        let digit = peek input (plus st.offset 2ul) in
+        dot && not (G.decimal_digit digit)
+      else false in
     let bang = if byte = 33uy && not after.newline then
         let equality = same input (next st.offset) 61uy in not equality
       else false in
     if st.status <> 0ul then { base with parser = st }
     // A tagged template continues the left operand even across a line break.
     else if byte = 96uy then empty_range (failed st 1ul)
-    else if byte <> 46uy && byte <> 40uy && byte <> 91uy && not bang then { base with parser = st }
+    else if byte <> 46uy && byte <> 40uy && byte <> 91uy && not bang && not optional then { base with parser = st }
     else if remaining = 0ul then empty_range (failed st 3ul)
     else if decimal && byte = 46uy then empty_range (failed st 1ul)
     else
+      let operand = if optional then skip input { st with offset = plus st.offset 2ul } else st in
+      let kind = if optional then peek input operand.offset else byte in
       let next_st =
-        if byte = 46uy then
-          let property = skip input { st with offset = next st.offset } in
-          let first = peek input property.offset in
-          if not (G.identifier_start first) then failed property 1ul
-          else { property with offset = scan_class input property.offset G.Identifier }
-        else if byte = 40uy || byte = 91uy then
+        if kind = 40uy || kind = 91uy then
           if fuel = 0ul then failed st 3ul
           else
             let depth = minus 65ul fuel in
             let depth = if U32.(depth >^ st.depth) then depth else st.depth in
-            let inside = { st with offset = next st.offset; depth } in
-            if byte = 40uy then expression_list input inside (minus fuel 1ul) input.size 41uy
+            let inside = { operand with offset = next operand.offset; depth } in
+            if kind = 40uy then expression_list input inside (minus fuel 1ul) input.size 41uy
             else
               let index = comparison input inside (minus fuel 1ul) in
               consume input index.parser 93uy
+        else if optional || byte = 46uy then
+          let property = if optional then operand else skip input { st with offset = next st.offset } in
+          let first = peek input property.offset in
+          if not (G.identifier_start first) then failed property 1ul
+          else { property with offset = scan_class input property.offset G.Identifier }
         else { st with offset = next st.offset } in
       postfix input { base with parser = next_st; range = { base.range with G.last = next_st.offset } }
         fuel (minus remaining 1ul) false
@@ -477,7 +501,9 @@ and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (cl
   else if same input st.offset close then consume input st close
   else if remaining = 0ul then failed st 3ul
   else
-    let arg = comparison input st fuel in
+    let spread = spread_at input st.offset in
+    let start = if spread then { st with offset = plus st.offset 3ul } else st in
+    let arg = comparison input start fuel in
     let st = skip input arg.parser in
     if same input st.offset 44uy then
       // An ungrouped less-than can open a generic call spanning this comma.
@@ -492,30 +518,35 @@ and object_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (col
   else if byte = 125uy then consume input st 125uy
   else if remaining = 0ul then failed st 3ul
   else
+    let spread = spread_at input st.offset in
+    let value =
+    if spread && not colon_required then comparison input { st with offset = plus st.offset 3ul } fuel
+    else
     let quoted = byte = 34uy || byte = 39uy in
     let key =
       if quoted then string_end input (next st.offset) byte input.size
       else if G.identifier_start byte then { at = scan_class input st.offset G.Identifier; ok = true; newline = false }
       else { at = st.offset; ok = false; newline = false } in
-    if not key.ok then failed st 1ul
+    if not key.ok then empty_range (failed st 1ul)
     else
       let first = if quoted then next st.offset else st.offset in
       let last = if quoted then minus key.at 1ul else key.at in
       let prototype = proto_key input first last in
       let after_key = skip input { st with offset = key.at } in
       let colon = same input after_key.offset 58uy in
-      let value =
+      (
         if prototype then empty_range (failed st 1ul)
         else if colon then comparison input (consume input after_key 58uy) fuel
         else if quoted || colon_required then empty_range (failed st 1ul)
         else
           let shorthand = name input st.offset false false in
-          if shorthand.ok then empty_range after_key else empty_range (failed st 1ul) in
-      let st = skip input value.parser in
-      if same input st.offset 44uy then
-        // A colon in the next property rules out a generic argument list across the comma.
-        object_members input (consume input st 44uy) fuel (minus remaining 1ul) value.open_angle
-      else consume input st 125uy
+          if shorthand.ok then empty_range after_key else empty_range (failed st 1ul)
+      ) in
+    let st = skip input value.parser in
+    if same input st.offset 44uy then
+      // A colon in the next property rules out a generic argument list across the comma.
+      object_members input (consume input st 44uy) fuel (minus remaining 1ul) value.open_angle
+    else consume input st 125uy
 and template_body (input:tape) (state:parser_state) (fuel remaining:U32.t)
   : Run parser_state input (decreases %[U32.v fuel; 26; U32.v remaining]) =
   if state.status <> 0ul then state
@@ -813,34 +844,21 @@ let undefined_type (input:tape) (start finish:U32.t) : Read bool input =
     let last = peek input (plus start 8ul) in
     prefix = 0x756e646566696e65uL && last = 100uy
 
-let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
-  : Read parser_state input (decreases %[U32.v fuel; 0; 0]) =
-  let st = skip input state in
+let rec qualified_type (input:tape) (state:parser_state) (fuel:U32.t)
+  : Read parser_state input (decreases U32.v fuel) =
+  let after = trivia input state.offset in
+  let st = from_cursor state after in
   if st.status <> 0ul then st
-  else
-    let named = type_name input st in
-    let packed = packed_type input st.offset named.at in
-    let reference = from_cursor st named in
-    let after = trivia input reference.offset in
-    let tail = from_cursor reference after in
-    if type_operator packed then failed tail 1ul
-    else if tail.status <> 0ul then tail
+  else if same input st.offset 46uy then
+    if after.newline || fuel = 0ul then failed st 1ul
     else
-      let starts = same input tail.offset 60uy in
-      if not starts then reference
+      let property = skip input { st with offset = next st.offset } in
+      let byte = peek input property.offset in
+      if property.status <> 0ul || not (G.identifier_start byte) then failed property 1ul
       else
-        let primitive = undefined_type input st.offset named.at in
-        if after.newline || fuel = 0ul || builtin_type packed || primitive then failed tail 1ul
-        else type_arguments input { tail with offset = next tail.offset } (minus fuel 1ul) 64ul
-and type_arguments (input:tape) (state:parser_state) (fuel remaining:U32.t)
-  : Read parser_state input (decreases %[U32.v fuel; 1; U32.v remaining]) =
-  if remaining = 0ul then failed state 1ul
-  else
-    let st = skip input (type_reference input state fuel) in
-    if st.status <> 0ul then st
-    else if same input st.offset 44uy then
-      type_arguments input { st with offset = next st.offset } fuel (minus remaining 1ul)
-    else consume input st 62uy
+        let end_at = scan_class input property.offset G.Identifier in
+        qualified_type input { property with offset = end_at } (minus fuel 1ul)
+  else state
 
 let rec array_type_suffixes (input:tape) (state:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases U32.v fuel) =
@@ -852,29 +870,115 @@ let rec array_type_suffixes (input:tape) (state:parser_state) (fuel:U32.t)
     else
       let close = consume input (skip input { st with offset = next st.offset }) 93uy in
       array_type_suffixes input close (minus fuel 1ul)
-  else st
+  else state
 
-let rec annotation_type (input:tape) (state:parser_state) (fuel:U32.t)
-  : Read parser_state input (decreases U32.v fuel) =
+let property_name (input:tape) (state:parser_state) : Read cursor input =
+  let byte = peek input state.offset in
+  if byte = 34uy || byte = 39uy then string_end input (next state.offset) byte input.size
+  else if G.identifier_start byte then
+    { at = scan_class input state.offset G.Identifier; ok = true; newline = false }
+  else { at = state.offset; ok = false; newline = false }
+
+let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
+  : Read parser_state input (decreases %[U32.v fuel; 0; 0]) =
   let st = skip input state in
-  if st.status <> 0ul || fuel = 0ul then failed st 1ul
+  if st.status <> 0ul then st
   else
+    let named = type_name input st in
+    let packed = packed_type input st.offset named.at in
+    let undefined = undefined_type input st.offset named.at in
+    let primitive = builtin_type packed || undefined in
+    let named = from_cursor st named in
+    let reference = if primitive then named else qualified_type input named 64ul in
+    let after = trivia input reference.offset in
+    let tail = from_cursor reference after in
+    if type_operator packed then failed tail 1ul
+    else if tail.status <> 0ul then tail
+    else
+      let starts = same input tail.offset 60uy in
+      if not starts then reference
+      else if after.newline || fuel = 0ul || primitive then failed tail 1ul
+      else type_list input { tail with offset = next tail.offset } (minus fuel 1ul) 64ul 62uy false
+and type_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (close:U8.t) (allow_empty:bool)
+  : Read parser_state input (decreases %[U32.v fuel; 3; U32.v remaining]) =
+  let st = skip input state in
+  let closed = same input st.offset close in
+  if st.status <> 0ul then st
+  else if closed && allow_empty then consume input st close
+  else if remaining = 0ul then failed st 1ul
+  else
+    let st = skip input (annotation_type input st fuel 64ul) in
+    if st.status <> 0ul then st
+    else if same input st.offset 44uy then
+      type_list input { st with offset = next st.offset } fuel (minus remaining 1ul) close true
+    else consume input st close
+and object_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
+  : Read parser_state input (decreases %[U32.v fuel; 3; U32.v remaining]) =
+  let st = skip input state in
+  if st.status <> 0ul then st
+  else if same input st.offset 125uy then consume input st 125uy
+  else if remaining = 0ul then failed st 1ul
+  else
+    let is_readonly = keyword input st.offset 8ul 0x726561646f6e6c79uL in
+    let key_start =
+      if is_readonly then
+        let after = skip input { st with offset = plus st.offset 8ul } in
+        let next_key = peek input after.offset in
+        if G.identifier_start next_key || next_key = 34uy || next_key = 39uy then after else st
+      else st in
+    let key = property_name input key_start in
+    let after = skip input (from_cursor key_start key) in
+    let optional = same input after.offset 63uy in
+    let after = if optional then skip input (consume input after 63uy) else after in
+    let declared = annotation_type input (consume input after 58uy) fuel 64ul in
+    let boundary = trivia input declared.offset in
+    let end_ = from_cursor declared boundary in
+    let next_byte = peek input end_.offset in
+    if end_.status <> 0ul then end_
+    else if next_byte = 59uy || next_byte = 44uy then
+      object_type input (consume input end_ next_byte) fuel (minus remaining 1ul)
+    else if next_byte = 125uy then consume input end_ 125uy
+    else if boundary.newline then object_type input end_ fuel (minus remaining 1ul)
+    else failed end_ 1ul
+and type_term (input:tape) (state:parser_state) (fuel:U32.t)
+  : Read parser_state input (decreases %[U32.v fuel; 1; 0]) =
+  let st = skip input state in
+  if st.status <> 0ul then st
+  else
+    let readonly = keyword input st.offset 8ul 0x726561646f6e6c79uL in
+    let st = if readonly then skip input { st with offset = plus st.offset 8ul } else st in
     let byte = peek input st.offset in
-    let st =
+    let primary =
       if byte = 34uy || byte = 39uy then
         from_cursor st (string_end input (next st.offset) byte input.size)
-      else type_reference input st 16ul in
-    let st = array_type_suffixes input st 16ul in
-    let union = same input st.offset 124uy in
-    if st.status = 0ul && union then
-      annotation_type input { st with offset = next st.offset } (minus fuel 1ul)
-    else st
+      else if byte = 91uy || byte = 123uy then
+        if fuel = 0ul then failed st 1ul
+        else
+          let inside = { st with offset = next st.offset } in
+          let inner = minus fuel 1ul in
+          if byte = 91uy then type_list input inside inner 64ul 93uy true
+          else object_type input inside inner input.size
+      else type_reference input st fuel in
+    let with_arrays = array_type_suffixes input primary 16ul in
+    if readonly && byte <> 91uy && primary.offset = with_arrays.offset then failed with_arrays 1ul
+    else with_arrays
+and annotation_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
+  : Read parser_state input (decreases %[U32.v fuel; 2; U32.v remaining]) =
+  if remaining = 0ul then failed state 1ul
+  else
+    let term = type_term input state fuel in
+    let st = skip input term in
+    let byte = peek input st.offset in
+    if st.status <> 0ul then st
+    else if byte = 124uy || byte = 38uy then
+      annotation_type input { st with offset = next st.offset } fuel (minus remaining 1ul)
+    else term
 
 let simple_annotation (input:tape) (state:parser_state) : Read parser_state input =
   let st = skip input state in
   let annotation = same input st.offset 58uy in
   if st.status <> 0ul || not annotation then st
-  else annotation_type input { st with offset = next st.offset } 64ul
+  else annotation_type input { st with offset = next st.offset } 16ul 64ul
 
 let function_type_parameter (input:tape) (state:parser_state) : Read parser_state input =
   if state.status <> 0ul then state
@@ -1046,6 +1150,18 @@ let async_function (input:tape) (start:U32.t) : Read cursor input =
     else { at = start; ok = false; newline = false }
   else { at = start; ok = false; newline = false }
 
+let type_declaration_width (input:tape) (start:U32.t) : Read U32.t input =
+  let first = peek input start in
+  let width =
+    if first = 105uy then (if keyword input start 9ul 0x6e74657266616365uL then 9ul else 0ul)
+    else if first = 116uy then (if keyword input start 4ul 0x74797065uL then 4ul else 0ul)
+    else 0ul in
+  if width = 0ul then width
+  else
+    let named = trivia input (plus start width) in
+    let byte = peek input named.at in
+    if named.ok && not named.newline && G.identifier_start byte then width else 0ul
+
 let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
   let st =
     if keyword input state.offset 6ul 0x6578706f7274uL then skip input { state with offset = plus state.offset 6ul }
@@ -1054,14 +1170,26 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
   let st = if async_.ok then { st with offset = async_.at } else st in
   let width =
     if keyword input st.offset 8ul 0x66756e6374696f6euL then 8ul
-    else local_width input st.offset in
+    else
+      let declared = type_declaration_width input st.offset in
+      if declared <> 0ul then declared else local_width input st.offset in
   if width = 0ul then { state = failed st 1ul; used }
   else
     let start = skip input { st with offset = plus st.offset width } in
     let decl = bind_at input start 0ul used start.offset in
     let st = skip input decl.state in
     let result =
-      if width = 8ul then
+      if width = 4ul || width = 9ul then
+        let packed = packed_type input start.offset decl.state.offset in
+        let undefined = undefined_type input start.offset decl.state.offset in
+        if builtin_type packed || undefined || type_operator packed then failed st 1ul
+        else
+          let st = skip input (function_type_parameter input st) in
+          if width = 9ul then object_type input (consume input st 123uy) 15ul input.size
+          else
+            let alias = annotation_type input (consume input st 61uy) 16ul 64ul in
+            statement_end input alias alias.offset false
+      else if width = 8ul then
         let st = skip input (function_type_parameter input st) in
         let params = parameters input (consume input st 40uy) 0ul 64ul in
         let st = simple_annotation input params.state in
@@ -1088,6 +1216,8 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
           if first = 101uy then keyword input st.offset 6ul 0x6578706f7274uL
           else if first = 102uy then keyword input st.offset 8ul 0x66756e6374696f6euL
           else if first = 97uy then (async_function input st.offset).ok
+          else if first = 105uy || first = 116uy then
+            let width = type_declaration_width input st.offset in width <> 0ul
           else
             let width = local_width input st.offset in width <> 0ul in
         if declared then module_declaration input st used
