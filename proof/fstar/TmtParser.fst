@@ -793,6 +793,15 @@ let type_chain_start (input:tape) (state:parser_state) : Read (parser_state & bo
   let first = peek input st.offset in
   if first = 124uy || first = 38uy then consume input st first, false else st, true
 
+let constructor_type_start (input:tape) (st:parser_state) (byte:U8.t) : Read parser_state input =
+  let start =
+    if byte = 97uy then
+      if keyword input st.offset 8ul 0x6162737472616374uL then skip input { st with offset = plus st.offset 8ul }
+      else st
+    else st in
+  let new_ = if start.status = 0ul then keyword input start.offset 3ul 0x6e6577uL else false in
+  if new_ then skip input { start with offset = plus start.offset 3ul } else st
+
 #push-options "--split_queries always"
 let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 1; 0]) =
@@ -952,6 +961,7 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature al
     let keyof = head.term_keyof in
     let queried = head.term_queried in
     let imported = head.term_imported in
+    let constructor = if byte = 110uy || byte = 97uy then constructor_type_start input st byte else st in
     let primary =
       if keyof then
         if readonly || fuel = 0ul then failed st 1ul
@@ -979,6 +989,9 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature al
       else if G.decimal_digit byte || byte = 45uy || byte = 46uy then
         let start = if byte = 45uy then next st.offset else st.offset in
         from_cursor st (number_end input start)
+      else if byte = 60uy || constructor.offset <> st.offset then
+        if readonly || fuel = 0ul || not allow_signature then failed st 1ul
+        else function_type input constructor (minus fuel 1ul)
       else if byte = 91uy || byte = 123uy || byte = 40uy then
         if fuel = 0ul then failed st 1ul
         else
@@ -997,6 +1010,15 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature al
     let with_arrays = type_suffixes input primary fuel 16ul (not readonly) in
     if readonly && byte <> 91uy && primary.offset = with_arrays.offset then failed with_arrays 1ul
     else with_arrays
+and function_type (input:tape) (state:parser_state) (fuel:U32.t)
+  : Read parser_state input (decreases %[U32.v fuel; 6; 0]) =
+  let generic = same input state.offset 60uy in
+  let start = if generic then skip input (type_parameters input (consume input state 60uy) fuel 64ul)
+    else state in
+  let params = signature_parameters input (consume input start 40uy) fuel 64ul in
+  let tail = skip input params in
+  let arrow = consume input (consume input tail 61uy) 62uy in
+  result_type input arrow fuel
 and template_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 5; U32.v remaining]) =
   if state.status <> 0ul then state

@@ -1,0 +1,17 @@
+Signature	Use	Tail
+Generic	Assertion	Complete
+AbstractConstructor	Alias	Nested
+Constructor	Annotation	MissingReturn
+Generic	TSX	Complete
+Constructor	TSX	MissingArrow
+AbstractConstructor	Annotation	Complete
+AbstractConstructor	Assertion	MissingReturn
+Constructor	Assertion	Nested
+Generic	Alias	MissingArrow
+Generic	TSX	MissingReturn
+AbstractConstructor	Assertion	MissingArrow
+Constructor	Alias	Complete
+Generic	Annotation	MissingArrow
+Generic	Alias	MissingReturn
+Generic	Annotation	Nested
+AbstractConstructor	TSX	Nested

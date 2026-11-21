@@ -1,0 +1,3 @@
+Signature: Generic, Constructor, AbstractConstructor
+Use: Alias, Annotation, Assertion, TSX
+Tail: Complete, MissingArrow, MissingReturn, Nested

@@ -1,0 +1,6 @@
+Signature	Use	Tail
+Generic	Assertion	Complete
+AbstractConstructor	Alias	Nested
+Constructor	Annotation	MissingReturn
+Generic	TSX	Complete
+Constructor	TSX	MissingArrow

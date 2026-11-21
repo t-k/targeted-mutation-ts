@@ -496,6 +496,9 @@ K___TmtParser_parser_state_bool
 TmtParser_type_chain_start(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
+TmtParser_constructor_type_start(TmtParser_tape input, TmtParser_parser_state st, uint8_t byte);
+
+TmtParser_parser_state
 TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
@@ -550,6 +553,9 @@ TmtParser_type_term(
   bool allow_signature,
   bool allow_constrained_infer
 );
+
+TmtParser_parser_state
+TmtParser_function_type(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
 TmtParser_template_type(
