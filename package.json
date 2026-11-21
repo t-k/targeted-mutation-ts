@@ -25,8 +25,8 @@
     "test:package": "node scripts/test-package.mjs"
   },
   "dependencies": {
-    "@babel/parser": "7.29.15",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "yuku-parser": "0.19.0"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",

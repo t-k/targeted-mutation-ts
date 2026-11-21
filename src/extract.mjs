@@ -49,72 +49,58 @@ function invalidEncoding() {
   ] };
 }
 
-function tokenAfter(tokens, position) {
-  let low = 0;
-  let high = tokens.length;
-  while (low < high) {
-    const mid = (low + high) >>> 1;
-    if (tokens[mid].start < position) low = mid + 1;
-    else high = mid;
-  }
-  while (typeof tokens[low]?.type === 'string') low++;
-  return tokens[low];
+function operatorSpan(tokens, node) {
+  const token = tokens.after(node.left.end);
+  if (token < 0) return;
+  const start = tokens.start(token);
+  const end = tokens.end(token);
+  if (start >= node.left.end && end <= node.right.start && tokens.text(token) === node.operator) return { start, end };
 }
 
 export function extractFallback(input, options = {}) {
   const source = normalize(input);
   if (source === null) return invalidEncoding();
   const { dialect, mode } = optionsFor(options);
-  const { parse } = load('@babel/parser');
+  const { parse } = load('yuku-parser');
+  const { program, tokens, diagnostics } = parse(source, {
+    lang: dialect, sourceType: mode, path: options.file, tokens: true, preserveParens: true, semanticErrors: true,
+  });
   const offsets = Buffer.byteLength(source) === source.length ? null : byteOffsets(source);
   const bytes = index => offsets === null ? index : offsets[index];
   const span = node => [bytes(node.start), bytes(node.end)];
-  const diagnostic = (message, start, end = start) => ({
-    path: 'diagnostic', candidates: [], diagnostics: [{ severity: 'error', message, start: bytes(start), end: bytes(end) }],
-  });
-  const plugins = [['typescript', { dts: /\.d\.[cm]?ts$/.test(options.file) }], 'decoratorAutoAccessors', 'deprecatedImportAssert'];
-  if (dialect === 'tsx') plugins.push('jsx');
-  const parseWith = decorators => parse(source, {
-    sourceType: mode, sourceFilename: options.file, plugins: [...plugins, decorators],
-    tokens: true, createParenthesizedExpressions: true, attachComment: false,
-  });
-  let tree;
-  try {
-    try {
-      tree = parseWith('decorators-legacy');
-    } catch (error) {
-      // Modern decorators may follow export. Legacy mode still accepts parameter decorators.
-      if (error.reasonCode !== 'UnexpectedToken' || source[error.pos] !== '@') throw error;
-      tree = parseWith('decorators');
-    }
-  } catch (error) {
-    if (error instanceof SyntaxError || error instanceof RangeError) return diagnostic(error.message, error.pos ?? 0);
-    throw error;
+  if (diagnostics.some(diagnostic => diagnostic.severity === 'error')) {
+    const relocate = location => ({ ...location, start: bytes(location.start), end: bytes(location.end) });
+    return {
+      path: 'diagnostic', candidates: [], diagnostics: diagnostics.map(diagnostic => ({
+        ...relocate(diagnostic), labels: diagnostic.labels.map(relocate),
+      })),
+    };
   }
+  const missingOperator = node => ({
+    path: 'diagnostic', candidates: [], diagnostics: [{
+      severity: 'error', message: 'Could not locate an expression operator', start: bytes(node.start), end: bytes(node.end),
+    }],
+  });
 
   const candidates = [];
-  const pending = [tree.program];
+  const pending = [program];
   while (pending.length) {
     const node = pending.pop();
     if (node.type === 'BinaryExpression' && replacements.has(node.operator)) {
-      const token = tokenAfter(tree.tokens, node.left.end);
-      if (!token || token.end > node.right.start || source.slice(token.start, token.end) !== node.operator) {
-        return diagnostic('Could not locate a comparison operator', node.start, node.end);
-      }
+      const operator = operatorSpan(tokens, node);
+      if (!operator) return missingOperator(node);
       candidates.push({
         rule, operator: node.operator, replacement: replacements.get(node.operator),
-        edit: span(token), left: span(node.left), right: span(node.right),
+        edit: span(operator), left: span(node.left), right: span(node.right),
       });
     }
     if (options.logical && node.type === 'JSXAttribute' && node.name.type === 'JSXIdentifier' && node.name.name === 'disabled' &&
         node.value?.expression?.type === 'LogicalExpression' && node.value.expression.operator === '||') {
       const expression = node.value.expression;
-      const token = tokenAfter(tree.tokens, expression.left.end);
-      if (!token || token.end > expression.right.start || source.slice(token.start, token.end) !== '||') {
-        return diagnostic('Could not locate a JSX logical operator', expression.start, expression.end);
-      }
+      const operator = operatorSpan(tokens, expression);
+      if (!operator) return missingOperator(expression);
       candidates.push({
-        rule: 'jsx-disabled-drop-left/v1', operator: '||', operatorEdit: span(token),
+        rule: 'jsx-disabled-drop-left/v1', operator: '||', operatorEdit: span(operator),
         replacement: '(' + source.slice(expression.right.start, expression.right.end) + ')',
         edit: span(expression), left: span(expression.left), right: span(expression.right),
       });

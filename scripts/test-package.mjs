@@ -24,11 +24,13 @@ try {
   install(tarball);
   const installed = join(cwd, 'node_modules/targeted-mutation-ts');
   const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
-  assert.deepEqual(manifest.dependencies, { '@babel/parser': '7.29.15', typescript: '6.0.3' });
+  assert.deepEqual(manifest.dependencies, { typescript: '6.0.3', 'yuku-parser': '0.19.0' });
   const lock = JSON.parse(readFileSync(join(cwd, 'package-lock.json'), 'utf8'));
-  assert.deepEqual(Object.keys(lock.packages).filter(path => path.startsWith('node_modules/')).sort(),
-    ['node_modules/@babel/helper-string-parser', 'node_modules/@babel/helper-validator-identifier',
-      'node_modules/@babel/parser', 'node_modules/@babel/types', 'node_modules/targeted-mutation-ts', 'node_modules/typescript']);
+  const dependencies = Object.entries(lock.packages).filter(([path]) => path.startsWith('node_modules/'));
+  assert.deepEqual(dependencies.filter(([, meta]) => !meta.optional).map(([path]) => path).sort(),
+    ['node_modules/@yuku-toolchain/types', 'node_modules/targeted-mutation-ts', 'node_modules/typescript',
+      'node_modules/yuku-core', 'node_modules/yuku-parser']);
+  assert.ok(dependencies.filter(([, meta]) => meta.optional).every(([path]) => path.startsWith('node_modules/@yuku-core/binding-')));
   assert.deepEqual(manifest.os, [process.platform]);
   assert.deepEqual(manifest.cpu, [process.arch]);
   mkdirSync(join(installed, 'node_modules/unrelated'), { recursive: true });

@@ -116,6 +116,7 @@ test('fallback supports TypeScript decorators, auto-accessors and both import at
     'export class C { accessor x = 1; cmp() { return this.x < 3; } }',
     'export @dec class C { cmp() { return x < 3; } }',
     'class C { constructor(@inject a: number) {} cmp() { return x < 3; } }',
+    'export @dec class C { constructor(@inject a: number) {} cmp() { return x < 3; } }',
     'import data from "./data.json" assert { type: "json" }; export const cmp = data.x < 3;',
     'import data from "./data.json" with { type: "json" }; export const cmp = data.x < 3;',
   ]) {

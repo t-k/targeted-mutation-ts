@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { arch, cpus, platform, release } from 'node:os';
 import { basename, extname, resolve } from 'node:path';
 import { extract, extractFallback } from '../src/extract.mjs';
 
-const require = createRequire(import.meta.url);
 const projects = process.argv.slice(2);
 if (!projects.length) throw new Error('Usage: audit-extraction GIT_CHECKOUT [GIT_CHECKOUT...]');
 
@@ -46,5 +44,5 @@ const reports = projects.map(project => {
 
 console.log(JSON.stringify({
   runtime: process.version, system: `${platform()} ${release()} ${arch()}`, cpu: cpus()[0]?.model,
-  reference: '@babel/parser ' + require('@babel/parser/package.json').version, reports,
+  reference: 'yuku-parser 0.19.0', reports,
 }, null, 2));
