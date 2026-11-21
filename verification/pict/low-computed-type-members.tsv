@@ -1,0 +1,17 @@
+Key	Type	Member
+Identifier	Alias	Property
+Chain	Interface	Method
+String	Inline	Optional
+Number	Alias	ReadonlyMethod
+Identifier	Inline	Method
+Number	Interface	Property
+String	Interface	Property
+Chain	Alias	Optional
+Identifier	Interface	Optional
+String	Inline	ReadonlyMethod
+Chain	Inline	Property
+Number	Inline	Optional
+Identifier	Interface	ReadonlyMethod
+Number	Alias	Method
+String	Alias	Method
+Chain	Interface	ReadonlyMethod

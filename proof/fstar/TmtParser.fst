@@ -746,6 +746,27 @@ let read_type_term_head (input:tape) (state:parser_state) : Read type_term_head 
   { term_state = st; term_readonly = readonly; term_byte = byte;
     term_keyof = keyof; term_queried = queried; term_imported = imported }
 
+type bracket_type_key = { key_end:parser_state; index_signature:bool }
+
+let read_bracket_type_key (input:tape) (state:parser_state) : Read bracket_type_key input =
+  let start = skip input (consume input state 91uy) in
+  let first = peek input start.offset in
+  let name_end = from_cursor start (name input start.offset false false) in
+  let tail = skip input name_end in
+  let colon = same input tail.offset 58uy in
+  if tail.status = 0ul && colon then { key_end = tail; index_signature = true }
+  else
+    let key =
+      if first = 34uy || first = 39uy then
+        from_cursor start (string_end input (next start.offset) first input.size true)
+      else if G.decimal_digit first || first = 46uy || first = 45uy then
+        from_cursor start (number_end input (if first = 45uy then next start.offset else start.offset))
+      else
+        let this_ = if first = 116uy then keyword input start.offset 4ul 0x74686973uL else false in
+        let key = if this_ then { start with offset = plus start.offset 4ul } else name_end in
+        qualified_name input key 64ul in
+    { key_end = skip input (consume input (skip input key) 93uy); index_signature = false }
+
 #push-options "--split_queries always"
 let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 1; 0]) =
@@ -831,15 +852,18 @@ and object_type_member (input:tape) (st:parser_state) (fuel:U32.t)
       if G.identifier_start next_key || next_key = 34uy || next_key = 39uy || next_key = 91uy then after else st
     else st in
   let first = peek input key_start.offset in
-  if first = 91uy then
-    let name_start = skip input (consume input key_start 91uy) in
-    let after_name = from_cursor name_start (name input name_start.offset false false) in
-    let key_type = annotation_type input (consume input (skip input after_name) 58uy) fuel 64ul in
+  let head =
+    if first = 91uy then read_bracket_type_key input key_start
+    else
+      let unnamed = first = 40uy || first = 60uy in
+      let key_end = if unnamed then key_start else skip input (from_cursor key_start (property_name input key_start)) in
+      { key_end; index_signature = false } in
+  if head.index_signature then
+    let key_type = annotation_type input (consume input head.key_end 58uy) fuel 64ul in
     let last = consume input (skip input key_type) 93uy in
     annotation_type input (consume input (skip input last) 58uy) fuel 64ul
   else
-    let unnamed = first = 40uy || first = 60uy in
-    let after = if unnamed then key_start else skip input (from_cursor key_start (property_name input key_start)) in
+    let after = head.key_end in
     let optional = same input after.offset 63uy in
     let after = if optional then skip input (consume input after 63uy) else after in
     let byte = peek input after.offset in

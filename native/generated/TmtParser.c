@@ -2312,6 +2312,73 @@ TmtParser_read_type_term_head(TmtParser_tape input, TmtParser_parser_state state
     );
 }
 
+TmtParser_bracket_type_key
+TmtParser_read_bracket_type_key(TmtParser_tape input, TmtParser_parser_state state)
+{
+  TmtParser_parser_state start = TmtParser_skip(input, TmtParser_consume(input, state, 91U));
+  uint8_t first = TmtParser_peek(input, start.offset);
+  TmtParser_parser_state
+  name_end = TmtParser_from_cursor(start, TmtParser_name(input, start.offset, false, false));
+  TmtParser_parser_state tail = TmtParser_skip(input, name_end);
+  bool colon = TmtParser_same(input, tail.offset, 58U);
+  if (tail.status == 0U && colon)
+    return ((TmtParser_bracket_type_key){ .key_end = tail, .index_signature = true });
+  else
+  {
+    TmtParser_parser_state key0;
+    if (first == 34U || first == 39U)
+      key0 =
+        TmtParser_from_cursor(start,
+          TmtParser_string_end(input, TmtParser_next(start.offset), first, input.size, true));
+    else if (TmtGrammar_decimal_digit(first) || first == 46U || first == 45U)
+    {
+      uint32_t ite;
+      if (first == 45U)
+        ite = TmtParser_next(start.offset);
+      else
+        ite = start.offset;
+      key0 = TmtParser_from_cursor(start, TmtParser_number_end(input, ite));
+    }
+    else
+    {
+      bool this_;
+      if (first == 116U)
+        this_ = TmtParser_keyword(input, start.offset, 4U, 0x74686973ULL);
+      else
+        this_ = false;
+      TmtParser_parser_state key;
+      if (this_)
+        key =
+          (
+            (TmtParser_parser_state){
+              .offset = TmtParser_plus(start.offset, 4U),
+              .count = start.count,
+              .depth = start.depth,
+              .status = start.status,
+              .local_names = start.local_names,
+              .await_allowed = start.await_allowed,
+              .jsx_allowed = start.jsx_allowed,
+              .module_mode = start.module_mode,
+              .in_allowed = start.in_allowed,
+              .binding_mode = start.binding_mode,
+              .super_context = start.super_context
+            }
+          );
+      else
+        key = name_end;
+      key0 = TmtParser_qualified_name(input, key, 64U);
+    }
+    return
+      (
+        (TmtParser_bracket_type_key){
+          .key_end = TmtParser_skip(input,
+            TmtParser_consume(input, TmtParser_skip(input, key0), 93U)),
+          .index_signature = false
+        }
+      );
+  }
+}
+
 TmtParser_parser_state
 TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel)
 {
@@ -2618,18 +2685,27 @@ TmtParser_object_type_member(TmtParser_tape input, TmtParser_parser_state st, ui
   else
     key_start = st;
   uint8_t first = TmtParser_peek(input, key_start.offset);
+  TmtParser_bracket_type_key head;
   if (first == 91U)
+    head = TmtParser_read_bracket_type_key(input, key_start);
+  else
   {
-    TmtParser_parser_state
-    name_start = TmtParser_skip(input, TmtParser_consume(input, key_start, 91U));
-    TmtParser_parser_state
-    after_name =
-      TmtParser_from_cursor(name_start,
-        TmtParser_name(input, name_start.offset, false, false));
+    bool unnamed = first == 40U || first == 60U;
+    TmtParser_parser_state key_end;
+    if (unnamed)
+      key_end = key_start;
+    else
+      key_end =
+        TmtParser_skip(input,
+          TmtParser_from_cursor(key_start, TmtParser_property_name(input, key_start)));
+    head = ((TmtParser_bracket_type_key){ .key_end = key_end, .index_signature = false });
+  }
+  if (head.index_signature)
+  {
     TmtParser_parser_state
     key_type =
       TmtParser_annotation_type(input,
-        TmtParser_consume(input, TmtParser_skip(input, after_name), 58U),
+        TmtParser_consume(input, head.key_end, 58U),
         fuel,
         64U);
     TmtParser_parser_state last = TmtParser_consume(input, TmtParser_skip(input, key_type), 93U);
@@ -2641,14 +2717,7 @@ TmtParser_object_type_member(TmtParser_tape input, TmtParser_parser_state st, ui
   }
   else
   {
-    bool unnamed = first == 40U || first == 60U;
-    TmtParser_parser_state after;
-    if (unnamed)
-      after = key_start;
-    else
-      after =
-        TmtParser_skip(input,
-          TmtParser_from_cursor(key_start, TmtParser_property_name(input, key_start)));
+    TmtParser_parser_state after = head.key_end;
     bool optional = TmtParser_same(input, after.offset, 63U);
     TmtParser_parser_state after1;
     if (optional)

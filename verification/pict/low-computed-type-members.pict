@@ -1,0 +1,3 @@
+Key: Identifier, Chain, String, Number
+Type: Alias, Interface, Inline
+Member: Property, Optional, Method, ReadonlyMethod

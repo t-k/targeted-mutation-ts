@@ -1,0 +1,5 @@
+Key	Type	Member
+Identifier	Alias	Property
+Chain	Interface	Method
+String	Inline	Optional
+Number	Alias	ReadonlyMethod
