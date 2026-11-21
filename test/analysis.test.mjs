@@ -46,11 +46,13 @@ for (const [variant, status, gapKind] of [
 }
 
 test('uses the product runner for the M0 threshold shift and filters on the operator line', () => {
-  const result = analyze('fixtures/shipping', 'src/shipping.ts', '--spec', 'spec.json', '--lines', 'src/shipping.ts:1-1', '--audit');
+  const result = analyze('fixtures/shipping', 'src/shipping.ts', '--spec', 'spec.json', '--lines', 'src/shipping.ts:1-1', '--deterministic', '--audit');
   assert.equal(result.diagnostics.length, 1);
   assert.equal(result.diagnostics[0].suggestedTest, 'expect(shipsFree(4999)).toBe(false)');
   assert.deepEqual(result.diagnostics[0].verification, { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' });
   assert.deepEqual(result.mutants.map(result => result.status), ['killed', 'survived']);
+  assert.equal(result.mutants[1].evidence, 'predicted');
+  assert.deepEqual(result.mutants[1].audit, { status: 'agreed', source: 'survived', probe: null });
   assert.equal(analyze('fixtures/shipping', 'src/shipping.ts', '--lines', 'src/shipping.ts:2-2').evaluation, 'no_sites');
 });
 

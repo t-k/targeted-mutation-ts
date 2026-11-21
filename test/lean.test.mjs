@@ -16,10 +16,15 @@ test('Lean only skips matching, complete, deterministic safe-integer observation
     };
   });
   requests.push({ ...requests[0], original: 'invalid' }, { ...requests[0], complete: 'yes' });
+  const thresholds = requests.map(request => ({ ...request, replacement: { geLiteral: 19 } }));
+  const valid = thresholds[0];
+  const invalid = [1.5, 9007199254740992, '19', null].map(geLiteral => ({ ...valid, replacement: { geLiteral } }));
+  requests.push(...thresholds, ...invalid, { ...valid, original: '<' });
   const result = spawnSync('build/tmt-decide', [], { encoding: 'utf8', input: JSON.stringify(requests) });
   assert.equal(result.status, 0, result.error?.message ?? result.stderr);
   const decisions = JSON.parse(result.stdout);
-  assert.deepEqual(decisions, [...rows.map(row => row === 'Match\tYes\tEqual\tYes'), false, false]);
+  const expected = [...rows.map(row => row === 'Match\tYes\tEqual\tYes'), false, false];
+  assert.deepEqual(decisions, [...expected, ...expected, ...invalid.map(() => false), false]);
 });
 
 test('Lean accepts a true condition only for safe uniformly true observations', () => {

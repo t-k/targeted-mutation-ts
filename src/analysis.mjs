@@ -176,19 +176,18 @@ function leanSkips(trials, baseline, deterministic) {
   const indices = [];
   for (const [index, trial] of trials.entries()) {
     const { site, rule, observation } = trial;
-    if (rule !== site.rule || !observation.complete || observation.observed.size !== observation.tests.size) continue;
-    for (const operands of observation.observed.values()) {
-      indices.push(index);
-      requests.push({
-        candidate: site.id, traceCandidate: site.id, complete: true, deterministic,
-        original: site.operator, replacement: trial.replacement, observations: operands,
-      });
-    }
+    if (!observation.complete || observation.observed.size !== observation.tests.size) continue;
+    const literal = rule === 'comparison-threshold/v1';
+    if (!literal && rule !== site.rule) continue;
+    indices.push(index);
+    requests.push({
+      candidate: site.id, traceCandidate: site.id, complete: true, deterministic,
+      original: site.operator, replacement: literal ? { geLiteral: Number(trial.replacement) } : trial.replacement,
+      observations: observation.rows.map(row => row.operands),
+    });
   }
   const accepted = checkReplay(requests);
-  if (!accepted) return new Set();
-  const rejected = new Set(indices.filter((_, index) => accepted[index] !== true));
-  return new Set(indices.filter(index => !rejected.has(index)));
+  return new Set(indices.filter((_, position) => accepted?.[position] === true));
 }
 
 function diagnose(trial, result) {

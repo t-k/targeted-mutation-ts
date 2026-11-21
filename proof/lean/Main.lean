@@ -5,7 +5,7 @@ import Lean.Data.Json.FromToJson.Basic
 open Lean
 
 inductive Op where
-  | lt | le | gt | ge | constantTrue
+  | lt | le | gt | ge | constantTrue | geLiteral (value : Int)
 deriving DecidableEq, Repr
 
 def compareBy (op : Op) (lhs rhs : Int) : Bool :=
@@ -15,6 +15,7 @@ def compareBy (op : Op) (lhs rhs : Int) : Bool :=
   | .gt => lhs > rhs
   | .ge => lhs ≥ rhs
   | .constantTrue => true
+  | .geLiteral value => lhs ≥ value
 
 structure Observation where
   site : Nat
@@ -118,7 +119,13 @@ def decodeRequest (input : Json) : Except String Request := do
   let complete ← input.getObjValAs? Bool "complete"
   let deterministic ← input.getObjValAs? Bool "deterministic"
   let original ← decodeOp (← input.getObjValAs? String "original")
-  let replacement ← decodeOp (← input.getObjValAs? String "replacement")
+  let encoded ← input.getObjVal? "replacement"
+  let replacement ← match encoded with
+    | .str op => decodeOp op
+    | _ => do
+      let literal ← encoded.getObjValAs? Int "geLiteral"
+      unless original == .ge && safe literal do throw "invalid literal threshold"
+      pure (.geLiteral literal)
   let observations ← input.getObjValAs? (List (Int × Int)) "observations"
   pure { candidate, traceCandidate, complete, deterministic, original, replacement, observations }
 
