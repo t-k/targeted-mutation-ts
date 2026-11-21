@@ -468,6 +468,14 @@ TmtParser_type_term(
 );
 
 TmtParser_parser_state
+TmtParser_template_type(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtParser_parser_state
 TmtParser_type_suffixes(
   TmtParser_tape input0,
   TmtParser_parser_state state0,

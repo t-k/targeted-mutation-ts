@@ -859,6 +859,9 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature:bo
       else if imported then type_arguments input (import_type input st) fuel
       else if byte = 34uy || byte = 39uy then
         from_cursor st (string_end input (next st.offset) byte input.size true)
+      else if byte = 96uy then
+        if fuel = 0ul then failed st 1ul
+        else template_type input { st with offset = next st.offset } (minus fuel 1ul) input.size
       else if G.decimal_digit byte || byte = 45uy || byte = 46uy then
         let start = if byte = 45uy then next st.offset else st.offset in
         from_cursor st (number_end input start)
@@ -880,6 +883,23 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature:bo
     let with_arrays = type_suffixes input primary fuel 16ul (not readonly) in
     if readonly && byte <> 91uy && primary.offset = with_arrays.offset then failed with_arrays 1ul
     else with_arrays
+and template_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
+  : Read parser_state input (decreases %[U32.v fuel; 5; U32.v remaining]) =
+  if state.status <> 0ul then state
+  else if remaining = 0ul || U32.(state.offset >=^ input.size) then failed state 1ul
+  else
+    let at = state.offset in
+    let byte = peek input at in
+    if byte = 96uy then { state with offset = next at }
+    else
+      let interpolation = if byte = 36uy then same input (next at) 123uy else false in
+      let st =
+        if interpolation then
+          let value = annotation_type input { state with offset = plus at 2ul } fuel 64ul in
+          consume input (skip input value) 125uy
+        else if byte = 92uy then from_cursor state (escape_end input at true true)
+        else { state with offset = next at } in
+      template_type input st fuel (minus remaining 1ul)
 and type_suffixes (input:tape) (state:parser_state) (fuel remaining:U32.t) (indexed:bool)
   : Read parser_state input (decreases %[U32.v fuel; 0; U32.v remaining]) =
   let after = trivia input state.offset in

@@ -1,0 +1,10 @@
+Shape	Context	Suffix
+Raw	Call	Valid
+Interpolation	Alias	Valid
+Nested	Annotation	Valid
+Nested	Call	Invalid
+Nested	Alias	Invalid
+Raw	Alias	Invalid
+Interpolation	Annotation	Invalid
+Interpolation	Call	Invalid
+Raw	Annotation	Invalid

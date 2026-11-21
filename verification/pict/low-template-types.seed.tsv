@@ -1,0 +1,5 @@
+Shape	Context	Suffix
+Raw	Call	Valid
+Interpolation	Alias	Valid
+Nested	Annotation	Valid
+Nested	Call	Invalid
