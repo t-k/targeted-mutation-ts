@@ -2544,10 +2544,15 @@ let import_declaration (input:tape) (state:parser_state) (used:names_used) : Run
       else failed st 1ul in
     { members with state = result }
 
+let ambient_variable_width (input:tape) (start:U32.t) : Read U32.t input =
+  let lexical = local_width input start in
+  if lexical <> 0ul then lexical
+  else if keyword input start 3ul 0x766172uL then 3ul else 0ul
+
 let ambient_modifier (input:tape) (start:U32.t) : Read cursor input =
   if keyword input start 7ul 0x6465636c617265uL then
     let after = trivia input (plus start 7ul) in
-    let width = local_width input after.at in
+    let width = ambient_variable_width input after.at in
     { after with ok = after.ok && not after.newline && width <> 0ul }
   else { at = start; ok = false; newline = false }
 
@@ -2569,7 +2574,9 @@ let declaration_start (input:tape) (state:parser_state) : Read declaration_head 
     else if keyword input st.offset 8ul 0x66756e6374696f6euL then 8ul
     else
       let declared = type_declaration_width input st.offset in
-      if declared <> 0ul then declared else local_width input st.offset in
+      if declared <> 0ul then declared
+      else if ambient.ok then ambient_variable_width input st.offset
+      else local_width input st.offset in
   { after_modifiers = st; width; async_declaration = async_.ok; ambient_declaration = ambient.ok; class_declaration = class_ }
 
 #push-options "--split_queries always"

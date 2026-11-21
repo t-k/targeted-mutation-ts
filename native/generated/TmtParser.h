@@ -1159,6 +1159,8 @@ TmtParser_import_bindings(
 TmtParser_named_state
 TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);
 
+uint32_t TmtParser_ambient_variable_width(TmtParser_tape input, uint32_t start);
+
 TmtParser_cursor TmtParser_ambient_modifier(TmtParser_tape input, uint32_t start);
 
 typedef struct TmtParser_declaration_head_s

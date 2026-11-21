@@ -1,0 +1,7 @@
+Kind	Scope	Type
+Var	Module	Object
+Var	Export	Reference
+Var	Function	Reference
+Var	Module	Invalid
+Let	Module	Reference
+Const	Export	Object

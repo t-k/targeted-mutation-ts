@@ -1,0 +1,3 @@
+Kind: Var, Let, Const
+Scope: Module, Export, Function
+Type: Reference, Object, Invalid

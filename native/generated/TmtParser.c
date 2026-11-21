@@ -9370,12 +9370,23 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
   }
 }
 
+uint32_t TmtParser_ambient_variable_width(TmtParser_tape input, uint32_t start)
+{
+  uint32_t lexical = TmtParser_local_width(input, start);
+  if (lexical != 0U)
+    return lexical;
+  else if (TmtParser_keyword(input, start, 3U, 0x766172ULL))
+    return 3U;
+  else
+    return 0U;
+}
+
 TmtParser_cursor TmtParser_ambient_modifier(TmtParser_tape input, uint32_t start)
 {
   if (TmtParser_keyword(input, start, 7U, 0x6465636c617265ULL))
   {
     TmtParser_cursor after = TmtParser_trivia(input, TmtParser_plus(start, 7U));
-    uint32_t width = TmtParser_local_width(input, after.at);
+    uint32_t width = TmtParser_ambient_variable_width(input, after.at);
     return
       (
         (TmtParser_cursor){
@@ -9462,6 +9473,8 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
     uint32_t declared = TmtParser_type_declaration_width(input, st2.offset);
     if (declared != 0U)
       width = declared;
+    else if (ambient.ok)
+      width = TmtParser_ambient_variable_width(input, st2.offset);
     else
       width = TmtParser_local_width(input, st2.offset);
   }
