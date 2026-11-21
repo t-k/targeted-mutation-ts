@@ -1,5 +1,6 @@
 import ts from 'typescript';
-import { dirname, relative, resolve, sep } from 'node:path';
+import { realpathSync, statSync } from 'node:fs';
+import { dirname, extname, resolve } from 'node:path';
 import { bare, integer } from './witness-rules.mjs';
 import { orderProjection } from './witness-order.mjs';
 
@@ -44,14 +45,27 @@ export function importedBindings(tree) {
   return names;
 }
 
-export function importMatches(file, specifier, subject) {
+const moduleExtensions = ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json'];
+
+export function importMatches(file, specifier, subject, project) {
   if (!specifier.startsWith('.')) return false;
-  const path = relative('.', resolve(dirname(file), specifier)).split(sep).join('/');
-  const source = subject.split(sep).join('/');
-  return source === path || source === path + '.ts' || source === path.replace(/\.js$/, '.ts');
+  const root = project ?? '.';
+  const path = resolve(root, dirname(file), specifier);
+  const source = resolve(root, subject);
+  if (project && statSync(path, { throwIfNoEntry: false })?.isFile()) return realpathSync(path) === source;
+  const extension = extname(path);
+  const substitutes = { '.js': ['.ts', '.tsx'], '.jsx': ['.tsx'], '.mjs': ['.mts'], '.cjs': ['.cts'] };
+  const candidates = Object.hasOwn(substitutes, extension)
+    ? substitutes[extension].map(ext => path.slice(0, -extension.length) + ext)
+    : moduleExtensions.includes(extension) || extension === '.cts' ? []
+      : [...moduleExtensions.map(ext => path + ext), ...moduleExtensions.map(ext => resolve(path, 'index' + ext))];
+  if (!project) return source === path || candidates.includes(source);
+  const existing = new Set(candidates.filter(candidate => statSync(candidate, { throwIfNoEntry: false })?.isFile())
+    .map(candidate => realpathSync(candidate)));
+  return existing.size === 1 && existing.has(source);
 }
 
-export function fixtureCalls(tree, file, candidate, subject) {
+export function fixtureCalls(tree, file, candidate, subject, project) {
   if (tree.parseDiagnostics.length) return [];
   const imports = importedBindings(tree);
   const results = [];
@@ -76,7 +90,7 @@ export function fixtureCalls(tree, file, candidate, subject) {
     const call = projection?.call ?? root;
     if (!ts.isCallExpression(call) || !ts.isIdentifier(call.expression) || call.arguments.length !== candidate.parameters.length) continue;
     const binding = imports.get(call.expression.text);
-    if (binding?.name !== candidate.name || !importMatches(file, binding.module, subject)) continue;
+    if (binding?.name !== candidate.name || !importMatches(file, binding.module, subject, project)) continue;
     const arguments_ = call.arguments.map((arg, index) => literal(arg, candidate.parameters[index].shape));
     if (arguments_.includes(null)) continue;
     const expected = bare(assertion.arguments[0]);

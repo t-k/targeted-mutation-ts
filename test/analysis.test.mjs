@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -176,6 +176,40 @@ test('audits a generated witness for a callable strict threshold', () => {
     const gap = result.diagnostics.find(diagnostic => diagnostic.mutations[0].rule === 'comparison-tighten/v1');
     assert.equal(gap.suggestedTest, 'expect(keep(3)).toBe(true)');
     assert.deepEqual(gap.verification, { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('keeps both focused probe bindings fresh for escaped identifiers', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tmt-probe-escape-'));
+  try {
+    writeFileSync(join(root, 'subject.ts'), String.raw`
+const __tmtCompar\u0065 = 1;
+const __tmtCompar\u0065_\u004coaded = 2;
+export const positive = (value: number) => value > 0;
+`);
+    writeFileSync(join(root, 'subject.test.ts'),
+      "import { expect, it } from 'vitest'; import { positive } from './subject'; it('checks two', () => expect(positive(2)).toBe(true));");
+    const result = analyze(root, 'subject.ts', '--audit');
+    assert.equal(result.instrumented.status, 'passed');
+    assert.equal(result.mutants[0].status, 'survived');
+    assert.equal(result.mutants[0].audit.status, 'agreed');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('kills a focused mutation when the tests import through a project alias', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tmt-probe-symlink-'));
+  try {
+    writeFileSync(join(root, 'subject.ts'), 'export const positive = (value: number) => value > 0;');
+    symlinkSync('subject.ts', join(root, 'alias.ts'), 'file');
+    writeFileSync(join(root, 'subject.test.ts'),
+      "import { expect, it } from 'vitest'; import { positive } from './alias'; it('checks zero', () => expect(positive(0)).toBe(false));");
+    const result = analyze(root, 'subject.ts');
+    assert.equal(result.instrumented.status, 'passed');
+    assert.equal(result.mutants[0].status, 'killed');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

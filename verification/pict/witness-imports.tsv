@@ -1,0 +1,10 @@
+Spelling	Layout	Candidates
+Extensionless	TSX	Unique
+Extensionless	Index	Unique
+Extensionless	TSX	Multiple
+JsAlias	TS	Unique
+JsAlias	TSX	Multiple
+Explicit	TS	Unique
+Extensionless	Index	Multiple
+Explicit	TSX	Unique
+Extensionless	TS	Multiple

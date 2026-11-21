@@ -9,8 +9,13 @@ export function rewrite(source, edit, replacement) {
 export function instrument(root, file, source, sites) {
   const runtime = resolve(root, '.tmt-probe.mjs');
   const path = relative(dirname(resolve(root, file)), runtime).split(sep).join('/');
+  const spellings = source.includes('\\u') ? source.toString().replace(/\\u(?:\{([\da-fA-F]+)\}|([\da-fA-F]{4}))/g,
+    (escape, braced, short) => {
+      const code = Number.parseInt(braced ?? short, 16);
+      return code < 128 ? String.fromCharCode(code) : escape;
+    }) : source;
   let alias = '__tmtCompare';
-  while (source.includes(alias)) alias += '_';
+  while (spellings.includes(alias)) alias += '_';
   const sorted = sites.slice().sort((a, b) => a.left[0] - b.left[0] || b.right[1] - a.right[1]);
   let index = 0;
 

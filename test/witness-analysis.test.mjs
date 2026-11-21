@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 
 const root = 'fixtures/witnesses';
@@ -105,3 +105,19 @@ test('verifies an appended witness when the literal array has a trailing comma',
   assert.deepEqual(gap.witness.arguments, [[5, 5], 5]);
   assert.equal(gap.verification.status, 'confirmed');
 }));
+
+for (const target of ['src/queries.tsx', 'src/queries/index.ts']) {
+  test(`discovers a witness through an extensionless import of ${target}`, () => isolatedFixture(project => {
+    const input = readFileSync(join(project, source));
+    rmSync(join(project, source));
+    mkdirSync(dirname(join(project, target)), { recursive: true });
+    writeFileSync(join(project, target), input);
+    const result = runWitness(project, target, suite, '--lines', `${target}:5-5`);
+    assert.ok(result.diagnostics.some(gap => gap.rule === 'first-to-last-index/v1'));
+  }));
+}
+
+test('applies a project-wide sort specification to a different selected source', () => {
+  const result = runWitness(root, source, suite, '--spec', 'order-spec.json', '--lines', `${source}:5-5`);
+  assert.ok(result.diagnostics.some(gap => gap.rule === 'first-to-last-index/v1'));
+});

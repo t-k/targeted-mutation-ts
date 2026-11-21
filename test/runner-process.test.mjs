@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
+import { runVitest } from '../src/vitest.mjs';
 
 test('a lost CLI parent cancels its active process group', { skip: process.platform === 'win32', timeout: 6_000 }, async () => {
   const temp = mkdtempSync(join(tmpdir(), 'tmt-supervisor-test-'));
@@ -34,5 +35,30 @@ spawnSync(process.execPath, ${JSON.stringify([runner, pidFile, '4500', program])
   } finally {
     caller.kill('SIGTERM');
     rmSync(temp, { recursive: true, force: true });
+  }
+});
+
+test('a timed-out Vitest run stops its descendant worker', { skip: process.platform === 'win32' }, () => {
+  const project = mkdtempSync(join(tmpdir(), 'tmt-vitest-timeout-'));
+  try {
+    const pkg = join(project, 'node_modules/vitest');
+    mkdirSync(pkg, { recursive: true });
+    writeFileSync(join(pkg, 'package.json'), '{"name":"vitest"}');
+    writeFileSync(join(pkg, 'vitest.mjs'), `
+import { spawn } from 'node:child_process';
+spawn(process.execPath, ['--input-type=module', '-e', ${JSON.stringify(`
+import { writeFileSync } from 'node:fs';
+process.on('SIGTERM', () => { writeFileSync('worker-stopped', 'yes'); process.exit(0); });
+writeFileSync('worker-ready', 'yes');
+setTimeout(() => process.exit(0), 1600);
+`)}], { stdio: 'ignore' });
+setTimeout(() => process.exit(1), 1400);
+`);
+    const result = runVitest(project, project, { product: true, timeout: 600 });
+    assert.ok(existsSync(join(project, 'worker-ready')));
+    assert.equal(result.status, 'timeout');
+    assert.ok(existsSync(join(project, 'worker-stopped')));
+  } finally {
+    rmSync(project, { recursive: true, force: true });
   }
 });

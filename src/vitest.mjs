@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const reporter = fileURLToPath(new URL('./vitest-reporter.mjs', import.meta.url));
+const supervisor = fileURLToPath(new URL('./runner-process.mjs', import.meta.url));
 const toolDependencies = [
   { name: 'vitest', bin: 'vitest.mjs', command: 'vitest' },
   { name: '@playwright/test', bin: 'cli.js', command: 'playwright' },
@@ -29,7 +30,12 @@ export function resolveCopyExclusions(source, exclude = []) {
     if (!fromRoot || isAbsolute(path) || isAbsolute(fromRoot) || fromRoot === '..' || fromRoot.startsWith('..' + sep)) {
       throw new Error(`Copy exclusion must be inside the project: ${path}`);
     }
-    if (fromRoot.split(sep)[0] === 'node_modules') throw new Error(`Copy exclusion cannot target node_modules: ${path}`);
+    const components = fromRoot.split(sep);
+    const dependency = components.indexOf('node_modules');
+    if (dependency === 0) throw new Error(`Copy exclusion cannot target node_modules: ${path}`);
+    if (dependency > 0 && dependency !== components.length - 1) {
+      throw new Error(`Copy exclusion cannot target node_modules contents: ${path}`);
+    }
     if (!existsSync(candidate)) throw new Error(`Copy exclusion does not exist: ${path}`);
     const parent = dirname(candidate);
     if (realpathSync(parent) !== parent) throw new Error(`Copy exclusion must not traverse a symbolic link: ${path}`);
@@ -53,7 +59,7 @@ function linkInstalledModules(source, root, projectModules, installed) {
     const target = entry.isSymbolicLink() && existsSync(original) ? realpathSync(original) : null;
     const within = target === null ? '..' : relative(source, target);
     const local = within !== '..' && !within.startsWith('..' + sep) && !isAbsolute(within) &&
-      within.split(sep)[0] !== 'node_modules';
+      !within.split(sep).includes('node_modules');
     return { name, target: local ? resolve(root, within) : original, local };
   });
   if (!modules.some(module => module.local)) {
@@ -68,21 +74,41 @@ function linkInstalledModules(source, root, projectModules, installed) {
   }
 }
 
+function rebaseCopiedLinks(source, workspace) {
+  for (const entry of readdirSync(workspace, { withFileTypes: true, recursive: true })) {
+    if (!entry.isSymbolicLink()) continue;
+    const path = resolve(entry.parentPath, entry.name);
+    const target = resolve(entry.parentPath, readlinkSync(path));
+    let within = relative(source, target);
+    const outside = value => isAbsolute(value) || value === '..' || value.startsWith('..' + sep);
+    if (outside(within) && existsSync(target)) within = relative(source, realpathSync(target));
+    if (outside(within)) continue;
+    unlinkSync(path);
+    symlinkSync(resolve(workspace, within), path);
+  }
+}
+
 export function withCopy(project, action, { exclude = [] } = {}) {
   const source = realpathSync(project);
   const exclusions = resolveCopyExclusions(source, exclude);
   const temp = realpathSync(mkdtempSync(resolve(tmpdir(), 'tmt-')));
   try {
     const root = resolve(temp, 'project');
+    const moduleTrees = [];
     cpSync(source, root, {
       recursive: true,
-      filter: path => !copyPathIsExcluded(source, path, exclusions),
+      filter(path) {
+        if (path !== source && basename(path) === 'node_modules' && !exclusions.includes(path) &&
+            !copyPathIsExcluded(source, dirname(path), exclusions) &&
+            statSync(path, { throwIfNoEntry: false })?.isDirectory()) moduleTrees.push(path);
+        return !copyPathIsExcluded(source, path, exclusions);
+      },
     });
+    rebaseCopiedLinks(source, root);
+    for (const modules of moduleTrees) linkInstalledModules(source, root, modules, resolve(root, relative(source, modules)));
     const projectModules = resolve(source, 'node_modules');
     const installed = resolve(root, 'node_modules');
-    if (existsSync(projectModules)) {
-      linkInstalledModules(source, root, projectModules, installed);
-    } else {
+    if (!moduleTrees.includes(projectModules)) {
       const binDir = resolve(installed, '.bin');
       mkdirSync(binDir, { recursive: true });
       for (const { name, bin, command } of toolDependencies) {
@@ -99,7 +125,7 @@ export function withCopy(project, action, { exclude = [] } = {}) {
   }
 }
 
-export function runVitest(root, temp, { trace, config, testFiles = [], product = false, active } = {}) {
+export function runVitest(root, temp, { trace, config, testFiles = [], product = false, active, timeout = 60_000 } = {}) {
   const projectRequire = createRequire(resolve(root, 'package.json'));
   const vitest = projectRequire.resolve('vitest/package.json').replace(/package\.json$/, 'vitest.mjs');
   const testsToRun = [...new Set(testFiles.map(file => inside(root, file)))];
@@ -109,6 +135,7 @@ export function runVitest(root, temp, { trace, config, testFiles = [], product =
   const cache = resolve(temp, 'vite-cache');
   mkdirSync(cache, { recursive: true });
   const result = spawnSync(process.execPath, [
+    supervisor, resolve(temp, 'vitest.pid'), String(timeout),
     vitest, 'run', '--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism', '--no-cache',
     ...configuration, ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]),
     ...testsToRun,
@@ -119,10 +146,10 @@ export function runVitest(root, temp, { trace, config, testFiles = [], product =
       TMT_TRACE: trace ?? '', TMT_ACTIVE_SITE: active ?? '',
     },
     encoding: 'utf8',
-    timeout: 60_000,
+    timeout: timeout + 5000,
     maxBuffer: 4 * 1024 * 1024,
   });
-  if (result.error?.code === 'ETIMEDOUT') return { status: 'timeout', output: result.stderr ?? '' };
+  if (result.status === 124 || result.error?.code === 'ETIMEDOUT') return { status: 'timeout', output: result.stderr ?? '' };
   if (result.error || !existsSync(report)) {
     return { status: 'error', output: result.error?.message ?? (result.stderr + result.stdout) };
   }

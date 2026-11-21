@@ -9,12 +9,13 @@ let status;
 let interrupted = false;
 
 function signalChild(signal) {
-  if (!child.pid) return;
+  if (!child.pid) return false;
   try {
-    if (process.platform === 'win32') child.kill(signal);
-    else process.kill(-child.pid, signal);
+    if (process.platform === 'win32') return child.kill(signal);
+    return process.kill(-child.pid, signal);
   } catch (error) {
     if (error.code !== 'ESRCH') throw error;
+    return false;
   }
 }
 
@@ -24,7 +25,10 @@ function finish(code) {
   clearTimeout(deadline);
   clearInterval(parentWatch);
   status = interrupted ? 124 : code;
-  signalChild('SIGTERM');
+  if (!signalChild('SIGTERM')) {
+    process.exitCode = status;
+    return;
+  }
   setTimeout(() => {
     signalChild('SIGKILL');
     process.exitCode = status;

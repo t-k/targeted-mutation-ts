@@ -116,7 +116,7 @@ function assertion(node, imports) {
     ? { value: bare(expect.arguments[0]), expected: bare(node.arguments[0]) } : null;
 }
 
-function testCases(fixtures, baseline) {
+function testCases(fixtures, baseline, project) {
   const result = [];
   const inventory = new Map();
   for (const test of baseline.tests) {
@@ -136,7 +136,7 @@ function testCases(fixtures, baseline) {
       const known = inventory.get(JSON.stringify([file, title.text]));
       if (known?.status !== 'passed' || known.retry || known.repeats || known.concurrent) continue;
       const statements = ts.isBlock(callback.body) ? [...callback.body.statements] : null;
-      result.push({ file, title: title.text, imports, statements, concise: statements ? null : callback.body });
+      result.push({ file, title: title.text, imports, statements, concise: statements ? null : callback.body, project });
     }
   }
   return result;
@@ -146,7 +146,7 @@ function matchesBinding(test, expression, candidates, file) {
   if (!named(expression)) return null;
   const binding = test.imports.get(expression.text);
   if (!binding) return null;
-  const matches = candidates.filter(candidate => binding.name === candidate.name && importMatches(test.file, binding.module, file(candidate)));
+  const matches = candidates.filter(candidate => binding.name === candidate.name && importMatches(test.file, binding.module, file(candidate), test.project));
   return matches.length === 1 ? matches[0] : null;
 }
 
@@ -228,8 +228,8 @@ function* statePlans(tests, stores) {
   }
 }
 
-export function discoverContracts(fixtures, baseline, sources, limit = 32) {
-  const tests = testCases(fixtures, baseline);
+export function discoverContracts(fixtures, baseline, sources, { limit = 32, project } = {}) {
+  const tests = testCases(fixtures, baseline, project);
   const endpoints = sources.flatMap(source => source.endpoints);
   const stores = sources.flatMap(source => source.stores);
   const plans = new Map();

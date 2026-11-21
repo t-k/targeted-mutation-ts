@@ -1,7 +1,7 @@
 import { isUtf8 } from 'node:buffer';
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { verdict } from './analysis.mjs';
 import { selectScope } from './scope.mjs';
 import { inside, runVitest, withCopy } from './vitest.mjs';
@@ -106,7 +106,14 @@ export function analyzeWitnesses(project, files, options) {
   const root = realpathSync(project);
   const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
   if (!specification || typeof specification !== 'object' || Array.isArray(specification)) throw new Error('Expected a witness specification object');
-  const constraints = parseSortConstraints(specification);
+  const constraints = parseSortConstraints(specification).map(entry => {
+    const file = resolve(root, entry.file);
+    const path = relative(root, existsSync(file) ? inside(root, entry.file) : file);
+    if (!path || isAbsolute(entry.file) || isAbsolute(path) || path === '..' || path.startsWith('..' + sep)) {
+      throw new Error(`Sort constraint must name a project-relative source file: ${entry.file}`);
+    }
+    return { ...entry, file: path };
+  });
   const boundConstraints = new Set();
   const snapshots = new Map();
   const candidates = [];
@@ -139,7 +146,8 @@ export function analyzeWitnesses(project, files, options) {
       candidates.push({ ...rule, id, edit, location });
     }
   }
-  const unmatched = constraints.find(entry => !boundConstraints.has(entry));
+  const selectedPaths = new Set(selectedFiles.map(({ file }) => file));
+  const unmatched = constraints.find(entry => selectedPaths.has(entry.file) && !boundConstraints.has(entry));
   if (unmatched) throw new Error(`Sort constraints do not match a supported export: ${unmatched.file} / ${unmatched.function}`);
 
   const report = { schemaVersion: 1, runner: 'vitest', profile: 'witnesses', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
@@ -163,7 +171,7 @@ export function analyzeWitnesses(project, files, options) {
     return [{ file, tree: parseSource(file, source) }];
   });
   const prepared = candidates.filter(candidate => !testFiles.has(candidate.location.file)).flatMap(candidate => {
-    const fixtures = fixtureSources.flatMap(({ tree, file }) => fixtureCalls(tree, file, candidate, candidate.location.file))
+    const fixtures = fixtureSources.flatMap(({ tree, file }) => fixtureCalls(tree, file, candidate, candidate.location.file, root))
       .filter(fixture => {
         const keys = distinct(baseline.tests, fixture.name, fixture.file);
         return keys.length === 1 && keys[0].status === 'passed' && !keys[0].retry && !keys[0].repeats;
@@ -197,7 +205,7 @@ export function analyzeWitnesses(project, files, options) {
       break;
     }
   }
-  const automatic = discoverContracts(fixtureSources, baseline, sources).filter(plan => !plans.some(explicit =>
+  const automatic = discoverContracts(fixtureSources, baseline, sources, { project: root }).filter(plan => !plans.some(explicit =>
     explicit.testFile === plan.testFile && explicit.seedTest === plan.seedTest &&
     explicit.edits.length === plan.edits.length && explicit.edits.every(edit => plan.edits.some(other =>
       edit.file === other.file && edit.line === other.line && edit.original === other.original && edit.replacement === other.replacement))));

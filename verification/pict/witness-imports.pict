@@ -1,0 +1,5 @@
+Spelling: Extensionless, Explicit, JsAlias
+Layout: TS, TSX, Index
+Candidates: Unique, Multiple
+IF [Layout] = "Index" THEN [Spelling] = "Extensionless";
+IF [Spelling] = "Explicit" THEN [Candidates] = "Unique";

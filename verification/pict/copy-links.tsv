@@ -1,0 +1,8 @@
+Link	Target	Placement
+Relative	File	Internal
+Absolute	File	Internal
+Relative	Directory	Excluded
+Absolute	Directory	External
+Relative	Directory	Internal
+Absolute	File	Excluded
+Relative	File	External

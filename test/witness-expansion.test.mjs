@@ -49,6 +49,12 @@ test('requires registered sort constraints and all lines of a changed comparator
     const invalid = invoke(project, subject, suite, '--spec', 'order-spec.json');
     assert.equal(invalid.status, 1);
     assert.match(invalid.stderr, /Sort constraints do not match a supported export/);
+    const constraint = JSON.parse(readFileSync(specification, 'utf8'));
+    Object.assign(constraint.sortConstraints[0], { file: './' + subject, function: 'byCreated', before: 'typo' });
+    writeFileSync(specification, JSON.stringify(constraint));
+    const aliased = invoke(project, subject, suite, '--spec', 'order-spec.json');
+    assert.equal(aliased.status, 1);
+    assert.match(aliased.stderr, /Sort constraints must name numeric fields/);
   } finally {
     rmSync(project, { recursive: true, force: true });
   }
