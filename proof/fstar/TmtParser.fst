@@ -41,10 +41,7 @@ type cursor = { at:U32.t; ok:bool; newline:bool }
 let line_break (input:tape) (at:U32.t) : Read bool input =
   let ch = peek input at in
   if ch = 13uy || ch = 10uy then true
-  else if ch = 226uy then
-    let second = peek input (plus at 1ul) in
-    let third = peek input (plus at 2ul) in
-    second = 128uy && (third = 168uy || third = 169uy)
+  else if ch = 226uy then S.unicode_line_separator input.source input.size at
   else false
 
 let rec line_comment (input:tape) (at:U32.t) (fuel:U32.t)

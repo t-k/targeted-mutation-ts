@@ -64,10 +64,31 @@ error:
   return NULL;
 }
 
+static napi_value locations(napi_env env, napi_callback_info info) {
+  napi_value args[2], backing, result;
+  size_t argc = 2, size, count;
+  napi_typedarray_type type;
+  void *source, *offsets, *positions;
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc != 2) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &source, &size));
+  NAPI(napi_get_typedarray_info(env, args[1], &type, &count, &offsets, NULL, NULL));
+  if (type != napi_uint32_array || size >= UINT32_MAX || count > SIZE_MAX / (2 * sizeof(uint32_t))) goto error;
+  NAPI(napi_create_arraybuffer(env, count * 2 * sizeof(uint32_t), &positions, &backing));
+  if (!tmt_locate_positions(source, (uint32_t)size, offsets, count, positions)) goto error;
+  NAPI(napi_create_typedarray(env, napi_uint32_array, count * 2, backing, 0, &result));
+  return result;
+error:
+  napi_throw_type_error(env, NULL, "Expected a source buffer and ordered UTF-8 byte boundaries");
+  return NULL;
+}
+
 static napi_value init(napi_env env, napi_value exports) {
   napi_value entry;
   if (napi_create_function(env, "parse", NAPI_AUTO_LENGTH, parse, NULL, &entry) != napi_ok ||
-      napi_set_named_property(env, exports, "parse", entry) != napi_ok) {
+      napi_set_named_property(env, exports, "parse", entry) != napi_ok ||
+      napi_create_function(env, "locations", NAPI_AUTO_LENGTH, locations, NULL, &entry) != napi_ok ||
+      napi_set_named_property(env, exports, "locations", entry) != napi_ok) {
     napi_throw_error(env, NULL, "Unable to register the native parser");
     return NULL;
   }

@@ -13,6 +13,27 @@ let peek (source: C.const_buffer U8.t) (size: U32.t{U32.v size == C.length sourc
       (if U32.v at < U32.v size then byte == Seq.index (C.as_seq h0 source) (U32.v at) else byte == 0uy))
   = if U32.(at <^ size) then C.index source at else 0uy
 
+let unicode_line_separator
+  (source:C.const_buffer U8.t) (size:U32.t{U32.v size == C.length source}) (at:U32.t)
+  : Stack bool
+    (requires fun h -> C.live h source)
+    (ensures fun h0 separator h1 -> h0 == h1 /\
+      (if U32.v at + 2 < U32.v size then
+        let bytes = C.as_seq h0 source in
+        let i = U32.v at in
+        separator = (Seq.index bytes i = 226uy && Seq.index bytes (i + 1) = 128uy &&
+          (Seq.index bytes (i + 2) = 168uy || Seq.index bytes (i + 2) = 169uy))
+      else not separator))
+  = if U32.(at <^ size) then
+      let remaining = U32.sub size at in
+      if U32.(remaining >^ 2ul) then
+        let first = C.index source at in
+        let second = C.index source (U32.add at 1ul) in
+        let third = C.index source (U32.add at 2ul) in
+        first = 226uy && second = 128uy && (third = 168uy || third = 169uy)
+      else false
+    else false
+
 let source_boundary (source: C.const_buffer U8.t) (size: U32.t{U32.v size == C.length source}) (at: U32.t)
   : Stack U32.t
     (requires fun h -> C.live h source)

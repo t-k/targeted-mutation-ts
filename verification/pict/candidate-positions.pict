@@ -1,0 +1,3 @@
+Marker: Plain, LF, CR, CRLF, LS, PS, BMP, Astral
+Width: 0, 15, 16, 17, 32
+Buffer: Aligned, Sliced

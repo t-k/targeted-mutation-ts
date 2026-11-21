@@ -1,0 +1,9 @@
+Marker	Width	Buffer
+Plain	0	Aligned
+Plain	16	Aligned
+LF	15	Sliced
+CR	16	Sliced
+CRLF	17	Sliced
+LS	15	Aligned
+PS	32	Aligned
+Astral	16	Aligned

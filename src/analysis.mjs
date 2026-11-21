@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
-import { byteOffsets, extract, sourceDialect } from './extract.mjs';
+import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mjs';
 import { thresholdSites } from './prototype.mjs';
 import { thresholdGaps } from './threshold.mjs';
 import { tightenComparison } from './displacement.mjs';
@@ -24,11 +24,6 @@ function compare(operator, left, right) {
   }
 }
 
-function lineAt(source, offset) {
-  const lines = source.subarray(0, offset).toString().split(/\r\n|[\n\r\u2028\u2029]/);
-  return { line: lines.length, column: lines.at(-1).length + 1 };
-}
-
 export function collectComparisons(root, files, options) {
   const subjects = [];
   const extraction = [];
@@ -37,11 +32,13 @@ export function collectComparisons(root, files, options) {
     const { path, reason, candidates, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, requireNative: true, logical: options.runner === 'playwright' });
     extraction.push({ file, path, reason, diagnostics });
     if (path === 'diagnostic') continue;
-    const digest = sha(input);
-    const sites = candidates.flatMap(candidate => {
+    const positions = byteLocations(input, candidates.map(candidate => (candidate.operatorEdit ?? candidate.edit)[0]));
+    let digest;
+    const sites = candidates.flatMap((candidate, index) => {
       const [start, end] = candidate.operatorEdit ?? candidate.edit;
-      const location = { file, ...lineAt(input, start), start, end };
+      const location = { file, line: positions[index * 2], column: positions[index * 2 + 1], start, end };
       if (!selected(location.line)) return [];
+      digest ??= sha(input);
       return [{ ...candidate, location, id: sha(JSON.stringify([
         file, digest, options.mode ?? 'module', options.dialect ?? sourceDialect(file),
         candidate,

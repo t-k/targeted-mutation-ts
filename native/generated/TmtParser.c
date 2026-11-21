@@ -41,11 +41,7 @@ bool TmtParser_line_break(TmtParser_tape input, uint32_t at)
   if (ch == 13U || ch == 10U)
     return true;
   else if (ch == 226U)
-  {
-    uint8_t second = TmtParser_peek(input, TmtParser_plus(at, 1U));
-    uint8_t third = TmtParser_peek(input, TmtParser_plus(at, 2U));
-    return second == 128U && (third == 168U || third == 169U);
-  }
+    return TmtScan_unicode_line_separator(input.source, input.size, at);
   else
     return false;
 }

@@ -13,6 +13,25 @@ uint8_t TmtScan_peek(const uint8_t *source, uint32_t size, uint32_t at)
   return at < size ? source[at] : 0U;
 }
 
+bool TmtScan_unicode_line_separator(const uint8_t *source, uint32_t size, uint32_t at)
+{
+  if (at < size)
+  {
+    uint32_t remaining = size - at;
+    if (remaining > 2U)
+    {
+      uint8_t first = source[at];
+      uint8_t second = source[at + 1U];
+      uint8_t third = source[at + 2U];
+      return first == 226U && second == 128U && (third == 168U || third == 169U);
+    }
+    else
+      return false;
+  }
+  else
+    return false;
+}
+
 uint32_t TmtScan_source_boundary(const uint8_t *source, uint32_t size, uint32_t at)
 {
   if (at < size)

@@ -4,6 +4,10 @@ The generated Low★ parser consumes the original byte buffer. Node's `buffer.is
 
 The runtime package uses Yuku as its syntax fallback. An extraction-only run over 1,585 tracked TS/TSX files from this repository, mreact, and tachyon-dom produced identical paths and candidate spans with Yuku and Babel. Three files used the native path. The median of nine alternating warm passes was 0.46 s with Yuku 0.19.0 and 0.86 s with Babel 7.29.15 on macOS arm64 and Node.js 24.14.0.
 
+Against commit `8e81bed` on those 1,585 files, the token precheck and single-pass location scan reduced median extraction time from 466 ms to 432 ms and candidate collection from 601 ms to 534 ms. All 2,211 candidate records, diagnostics and report positions matched. A generated file with 4,096 candidates went from 353 ms to 17 ms for collection. These measurements exclude test execution. The [recorded runs](../evidence/performance/candidate-pipeline.json) include all nine samples for each version.
+
+The shipping fixture used four Vitest invocations with deterministic literal-threshold replay, down from five. Both versions reported the same mutation verdicts, and audit reexecution agreed with the new prediction.
+
 For `--since` selection over 1,000 tracked TypeScript files with one edited line, five alternating runs measured a median of 11.49 s before batched path lookup and 54 ms afterward. Both versions selected the same file and line. The measured path includes Git processes and source selection through `selectScope`.
 
 Two historical changes exercised witness discovery in mreact and tachyon-dom. Both selected suites passed. The changed lines contained one and two comparison candidates respectively, all extracted by Yuku. Neither change matched an automatic witness source rule, so there were no proposals to assess for adoption. A positive control from this repository produced a confirmed one-literal edit. The [recorded study](../evidence/dogfood/pr-witnesses.json) includes source and test scopes, revisions, and counts.

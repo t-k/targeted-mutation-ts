@@ -25,6 +25,16 @@ export function byteOffsets(source) {
   return offsets;
 }
 
+// Extracted operator starts are in byte order and lie on UTF-8 code-point boundaries.
+export function byteLocations(source, offsets) {
+  if (!offsets.length) return [];
+  if (native?.locations && source.length < 0xffffffff) return native.locations(source, Uint32Array.from(offsets));
+  return offsets.flatMap(offset => {
+    const lines = source.toString('utf8', 0, offset).split(/\r\n|[\n\r\u2028\u2029]/);
+    return [lines.length, lines.at(-1).length + 1];
+  });
+}
+
 export function sourceDialect(file) {
   return /\.[jt]sx$/.test(file) ? 'tsx' : 'ts';
 }
@@ -61,18 +71,32 @@ function operatorSpan(tokens, node) {
   if (start >= node.left.end && end <= node.right.start && tokens.text(token) === node.operator) return { start, end };
 }
 
+function possibleOperator(tokens, kinds, logical) {
+  const { LessThan, GreaterThan, LessThanEqual, GreaterThanEqual, LogicalOr } = kinds;
+  for (let index = 0; index < tokens.length; index++) {
+    const kind = tokens.kind(index);
+    if (kind === LessThan || kind === GreaterThan || kind === LessThanEqual || kind === GreaterThanEqual ||
+        logical && kind === LogicalOr) return true;
+  }
+  return false;
+}
+
 export function extractFallback(input, options = {}) {
   const source = normalize(input);
   if (source === null) return invalidEncoding();
   const { dialect, mode } = optionsFor(options);
-  const { parse } = load('yuku-parser');
-  const { program, tokens, diagnostics } = parse(source, {
+  const { parse, TokenKind } = load('yuku-parser');
+  const parsed = parse(source, {
     lang: dialect, sourceType: mode, path: options.file, tokens: true, preserveParens: true, semanticErrors: true,
   });
+  const { diagnostics } = parsed;
+  const hasErrors = diagnostics.some(diagnostic => diagnostic.severity === 'error');
+  const tokens = hasErrors ? undefined : parsed.tokens;
+  if (tokens && !possibleOperator(tokens, TokenKind, options.logical)) return { path: 'fallback', candidates: [] };
   const offsets = Buffer.byteLength(source) === source.length ? null : byteOffsets(source);
   const bytes = index => offsets === null ? index : offsets[index];
   const span = node => [bytes(node.start), bytes(node.end)];
-  if (diagnostics.some(diagnostic => diagnostic.severity === 'error')) {
+  if (hasErrors) {
     const relocate = location => ({ ...location, start: bytes(location.start), end: bytes(location.end) });
     return {
       path: 'diagnostic', candidates: [], diagnostics: diagnostics.map(diagnostic => ({
@@ -87,7 +111,7 @@ export function extractFallback(input, options = {}) {
   });
 
   const candidates = [];
-  const pending = [program];
+  const pending = [parsed.program];
   while (pending.length) {
     const node = pending.pop();
     if (node.type === 'BinaryExpression' && replacements.has(node.operator)) {

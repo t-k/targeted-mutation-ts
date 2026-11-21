@@ -170,6 +170,19 @@ test('a JavaScript JSX filename selects the JSX dialect', () => {
   assert.equal(result.candidates[0].operator, '>=');
 });
 
+test('the fallback distinguishes operator tokens from strings, comments, JSX text, and arrows', () => {
+  const inert = 'const f = () => ">"; const view = <Tag>text &gt; &lt;</Tag>; /* a >= b */';
+  assert.deepEqual(extractFallback(inert, { dialect: 'tsx', logical: true }).candidates, []);
+  const insideTemplate = extractFallback('const f = () => `head ${n >= 3}`;');
+  assert.equal(insideTemplate.candidates[0].operator, '>=');
+  const source = 'const f = () => false; const view = <Tag disabled={a || b} />;';
+  assert.deepEqual(extractFallback(source, { dialect: 'tsx' }).candidates, []);
+  assert.equal(extractFallback(source, { dialect: 'tsx', logical: true }).candidates[0].operator, '||');
+  const invalid = extractFallback('const n = () => "🐈"; const n = 2;');
+  assert.equal(invalid.path, 'diagnostic');
+  assert.match(invalid.diagnostics[0].message, /already been declared/);
+});
+
 const encodingRows = readFileSync(new URL('../verification/pict/extraction-bytes.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1);
 for (const row of encodingRows) {

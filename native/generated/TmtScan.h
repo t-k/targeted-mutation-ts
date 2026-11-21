@@ -13,6 +13,8 @@
 
 uint8_t TmtScan_peek(const uint8_t *source, uint32_t size, uint32_t at);
 
+bool TmtScan_unicode_line_separator(const uint8_t *source, uint32_t size, uint32_t at);
+
 uint32_t TmtScan_source_boundary(const uint8_t *source, uint32_t size, uint32_t at);
 
 uint32_t

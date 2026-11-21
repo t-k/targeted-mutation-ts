@@ -34,6 +34,8 @@ The [recorded eligibility and shipping reports](../evidence/m2) show the standar
 
 Threshold suggestions use a batch call to the compiled Lean evaluator when available. Its theorems identify the closed interval of observationally feasible integer thresholds and show that the reported adjacent witness separates every feasible alternative on its side. The JavaScript calculation provides the same report when the compiled evaluator is unavailable.
 
+With `--deterministic` and complete, stable observations, the compiled replay decision can also skip reexecuting a generated integer-literal threshold alternative. `--audit` still runs the source rewrite and checks the result against the prediction.
+
 Pass `--displace-thresholds` to try tightening strict comparisons by one integer step. For example, `measured.size > 0` becomes `measured.size > 1`, and `offset < source.length` becomes `offset < source.length - 1`. The rule requires complete safe-integer observations with a representable shifted bound and always runs the source rewrite. A surviving mutation can identify an observed result that changed or propose an operand pair to exercise. When the comparison is a directly callable exported unary arrow with an integer literal, an input gap includes a suggested assertion and `--audit` verifies it. Use an application-level test to confirm reachability and expected behavior for other comparisons.
 
 ### Standard mutation profile
