@@ -180,6 +180,7 @@ type assignment_target =
   | Assignable
   | MemberTarget
   | OptionalChain
+  | AssertedTarget
 
 type jump_context =
   | NoJump
@@ -187,6 +188,7 @@ type jump_context =
   | LoopJump
 
 let can_assign (target:assignment_target) : bool = target = Assignable || target = MemberTarget
+let can_assign_expression (target:assignment_target) : bool = can_assign target || target = AssertedTarget
 type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:bool; right_shift:bool; shortcut:U32.t; target:assignment_target }
 
 let failed (state:parser_state) (error:U32.t) : parser_state =
@@ -733,12 +735,15 @@ let import_type (input:tape) (state:parser_state) : Read parser_state input =
     let close = consume input (skip input text) 41uy in
     qualified_name input close 64ul
 
-let type_query (input:tape) (state:parser_state) : Read parser_state input =
+type type_query_target = { query_end:parser_state; is_import:bool }
+
+let type_query (input:tape) (state:parser_state) : Read type_query_target input =
   let target = skip input { state with offset = plus state.offset 6ul } in
-  if keyword input target.offset 6ul 0x696d706f7274uL then import_type input target
+  if keyword input target.offset 6ul 0x696d706f7274uL then
+    { query_end = import_type input target; is_import = true }
   else
     let named = from_cursor target (name input target.offset false false) in
-    qualified_name input named 64ul
+    { query_end = qualified_name input named 64ul; is_import = false }
 
 let spread_at (input:tape) (at:U32.t) : Read bool input =
   let first = same input at 46uy in
@@ -847,14 +852,14 @@ let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
     let reference = if primitive then named else qualified_name input named 64ul in
     if type_operator packed then failed reference 1ul
     else if primitive then reference
-    else type_arguments input reference fuel
-and type_arguments (input:tape) (state:parser_state) (fuel:U32.t)
+    else type_arguments input reference fuel false
+and type_arguments (input:tape) (state:parser_state) (fuel:U32.t) (allow_newline:bool)
   : Read parser_state input (decreases %[U32.v fuel; 0; 0]) =
   let after = trivia input state.offset in
   let tail = from_cursor state after in
   if tail.status <> 0ul then tail
   else if same input tail.offset 60uy then
-    if after.newline || fuel = 0ul then failed tail 1ul
+    if (after.newline && not allow_newline) || fuel = 0ul then failed tail 1ul
     else type_list input (consume input tail 60uy) (minus fuel 1ul) 64ul 62uy false
   else state
 and type_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (close:U8.t) (allow_empty:bool)
@@ -1021,8 +1026,10 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature al
       if keyof then
         if readonly || fuel = 0ul then failed st 1ul
         else type_term input { st with offset = plus st.offset 5ul } (minus fuel 1ul) false allow_constrained_infer
-      else if queried then type_arguments input (type_query input st) fuel
-      else if imported then type_arguments input (import_type input st) fuel
+      else if queried then
+        let query = type_query input st in
+        type_arguments input query.query_end fuel query.is_import
+      else if imported then type_arguments input (import_type input st) fuel true
       else if head.term_inferred then
         let start = skip input { st with offset = plus st.offset 5ul } in
         let binding = from_cursor start (name input start.offset false true) in
@@ -1944,7 +1951,7 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   else
     let byte = peek input st.offset in
     let follower = peek input (next st.offset) in
-    let assignment = if can_assign lhs.target then assignment_width input st.offset byte follower else 0ul in
+    let assignment = if can_assign_expression lhs.target then assignment_width input st.offset byte follower else 0ul in
     if assignment <> 0ul then
       if fuel = 0ul then empty_range (failed st 3ul)
       else
@@ -1986,8 +1993,9 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
         let asserted = annotation_type input { st with offset = plus st.offset type_width } 16ul 64ul in
         if ambiguous_assertion_update input asserted then empty_range (failed asserted 1ul)
         else
+          let target = if can_assign_expression lhs.target then AssertedTarget else NotAssignable in
           let value = { lhs with parser = asserted; range = { lhs.range with G.last = asserted.offset };
-            outer_or = false; target = NotAssignable } in
+            outer_or = false; target } in
           binary_tail input value fuel minimum (minus remaining 1ul)
     else
       let op = operator input st.offset st.in_allowed in

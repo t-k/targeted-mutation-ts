@@ -150,6 +150,7 @@ TmtParser_parser_state;
 #define TmtParser_Assignable 1
 #define TmtParser_MemberTarget 2
 #define TmtParser_OptionalChain 3
+#define TmtParser_AssertedTarget 4
 
 typedef uint8_t TmtParser_assignment_target;
 
@@ -160,6 +161,8 @@ bool TmtParser_uu___is_Assignable(TmtParser_assignment_target projectee);
 bool TmtParser_uu___is_MemberTarget(TmtParser_assignment_target projectee);
 
 bool TmtParser_uu___is_OptionalChain(TmtParser_assignment_target projectee);
+
+bool TmtParser_uu___is_AssertedTarget(TmtParser_assignment_target projectee);
 
 #define TmtParser_NoJump 0
 #define TmtParser_BreakOnly 1
@@ -174,6 +177,8 @@ bool TmtParser_uu___is_BreakOnly(TmtParser_jump_context projectee);
 bool TmtParser_uu___is_LoopJump(TmtParser_jump_context projectee);
 
 bool TmtParser_can_assign(TmtParser_assignment_target target);
+
+bool TmtParser_can_assign_expression(TmtParser_assignment_target target);
 
 typedef struct TmtParser_parsed_s
 {
@@ -449,7 +454,14 @@ TmtParser_cursor TmtParser_number_end(TmtParser_tape input, uint32_t at);
 TmtParser_parser_state
 TmtParser_import_type(TmtParser_tape input, TmtParser_parser_state state);
 
-TmtParser_parser_state
+typedef struct TmtParser_type_query_target_s
+{
+  TmtParser_parser_state query_end;
+  bool is_import;
+}
+TmtParser_type_query_target;
+
+TmtParser_type_query_target
 TmtParser_type_query(TmtParser_tape input, TmtParser_parser_state state);
 
 bool TmtParser_spread_at(TmtParser_tape input, uint32_t at);
@@ -516,7 +528,12 @@ TmtParser_parser_state
 TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
-TmtParser_type_arguments(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+TmtParser_type_arguments(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  bool allow_newline
+);
 
 TmtParser_parser_state
 TmtParser_type_list(

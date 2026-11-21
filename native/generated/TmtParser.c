@@ -624,6 +624,21 @@ bool TmtParser_uu___is_OptionalChain(TmtParser_assignment_target projectee)
   }
 }
 
+bool TmtParser_uu___is_AssertedTarget(TmtParser_assignment_target projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_AssertedTarget:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
 bool TmtParser_uu___is_NoJump(TmtParser_jump_context projectee)
 {
   switch (projectee)
@@ -672,6 +687,11 @@ bool TmtParser_uu___is_LoopJump(TmtParser_jump_context projectee)
 bool TmtParser_can_assign(TmtParser_assignment_target target)
 {
   return target == TmtParser_Assignable || target == TmtParser_MemberTarget;
+}
+
+bool TmtParser_can_assign_expression(TmtParser_assignment_target target)
+{
+  return TmtParser_can_assign(target) || target == TmtParser_AssertedTarget;
 }
 
 TmtParser_parser_state TmtParser_failed(TmtParser_parser_state state, uint32_t error)
@@ -2318,7 +2338,8 @@ TmtParser_import_type(TmtParser_tape input, TmtParser_parser_state state)
   }
 }
 
-TmtParser_parser_state TmtParser_type_query(TmtParser_tape input, TmtParser_parser_state state)
+TmtParser_type_query_target
+TmtParser_type_query(TmtParser_tape input, TmtParser_parser_state state)
 {
   TmtParser_parser_state
   target =
@@ -2341,12 +2362,24 @@ TmtParser_parser_state TmtParser_type_query(TmtParser_tape input, TmtParser_pars
         }
       ));
   if (TmtParser_keyword(input, target.offset, 6U, 0x696d706f7274ULL))
-    return TmtParser_import_type(input, target);
+    return
+      (
+        (TmtParser_type_query_target){
+          .query_end = TmtParser_import_type(input, target),
+          .is_import = true
+        }
+      );
   else
   {
     TmtParser_parser_state
     named = TmtParser_from_cursor(target, TmtParser_name(input, target.offset, false, false));
-    return TmtParser_qualified_name(input, named, 64U);
+    return
+      (
+        (TmtParser_type_query_target){
+          .query_end = TmtParser_qualified_name(input, named, 64U),
+          .is_import = false
+        }
+      );
   }
 }
 
@@ -2709,12 +2742,17 @@ TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uin
     else if (primitive)
       return reference;
     else
-      return TmtParser_type_arguments(input, reference, fuel);
+      return TmtParser_type_arguments(input, reference, fuel, false);
   }
 }
 
 TmtParser_parser_state
-TmtParser_type_arguments(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel)
+TmtParser_type_arguments(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  bool allow_newline
+)
 {
   TmtParser_cursor after = TmtParser_trivia(input, state.offset);
   TmtParser_parser_state tail = TmtParser_from_cursor(state, after);
@@ -2722,7 +2760,7 @@ TmtParser_type_arguments(TmtParser_tape input, TmtParser_parser_state state, uin
     return tail;
   else if (TmtParser_same(input, tail.offset, 60U))
   {
-    if (after.newline || fuel == 0U)
+    if (after.newline && !allow_newline || fuel == 0U)
       return TmtParser_failed(tail, 1U);
     else
     {
@@ -3358,9 +3396,12 @@ TmtParser_type_term(
             allow_constrained_infer);
     }
     else if (queried)
-      primary = TmtParser_type_arguments(input, TmtParser_type_query(input, st1), fuel);
+    {
+      TmtParser_type_query_target query = TmtParser_type_query(input, st1);
+      primary = TmtParser_type_arguments(input, query.query_end, fuel, query.is_import);
+    }
     else if (imported)
-      primary = TmtParser_type_arguments(input, TmtParser_import_type(input, st1), fuel);
+      primary = TmtParser_type_arguments(input, TmtParser_import_type(input, st1), fuel, true);
     else if (head.term_inferred)
     {
       TmtParser_parser_state
@@ -6690,7 +6731,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
       uint8_t byte = TmtParser_peek(input, st.offset);
       uint8_t follower = TmtParser_peek(input, TmtParser_next(st.offset));
       uint32_t assignment;
-      if (TmtParser_can_assign(lhs.target))
+      if (TmtParser_can_assign_expression(lhs.target))
         assignment = TmtParser_assignment_width(input, st.offset, byte, follower);
       else
         assignment = 0U;
@@ -6896,12 +6937,17 @@ TmtParser_binary_tail(
             return TmtParser_empty_range(TmtParser_failed(asserted, 1U));
           else
           {
+            TmtParser_assignment_target target;
+            if (TmtParser_can_assign_expression(lhs.target))
+              target = TmtParser_AssertedTarget;
+            else
+              target = TmtParser_NotAssignable;
             TmtParser_parsed
             value =
               {
                 .parser = asserted, .range = { .first = lhs.range.first, .last = asserted.offset },
                 .open_angle = lhs.open_angle, .outer_or = false, .right_shift = lhs.right_shift,
-                .shortcut = lhs.shortcut, .target = TmtParser_NotAssignable
+                .shortcut = lhs.shortcut, .target = target
               };
             TmtParser_parsed tmp0 = value;
             uint32_t tmp = TmtParser_minus(remaining, 1U);

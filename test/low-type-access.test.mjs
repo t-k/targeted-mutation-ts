@@ -37,6 +37,7 @@ test('type queries and interface methods preserve comparison spans', () => {
     'type Q = typeof import("pkg").api; const ok = (level as Q["code"]) < limit;',
     'const ok = value as typeof api.make<Item> >= limit;',
     'const ok = value as import("pkg").Model<Item> >= limit;',
+    'const ok = a as import("pkg")\n< b >= c;',
     'const ok = (value as import("pkg")) < limit;',
     'type Q<T extends keyof Models> = Models[T]; const ok = use<Q<Key>>(a) < b;',
     'interface Loader { load?(query: Input): Promise<Output>; close(): void } const ok = count < max;',
@@ -51,7 +52,6 @@ test('type queries and interface methods preserve comparison spans', () => {
     'const ok = a as typeof A < b;',
     'const ok = a as import("pkg").A < b;',
     'const ok = a as keyof typeof import("pkg").A < b;',
-    'const ok = a as import("pkg")\n< b >= c;',
     'const ok = a as import("pkg")\n<< b;',
   ]) {
     const result = extract(source, { requireNative: true });

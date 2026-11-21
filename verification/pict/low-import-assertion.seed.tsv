@@ -1,0 +1,8 @@
+Type	Operation	Target
+Direct	Assign	Name
+Qualified	Compare	Member
+Query	Assign	Member
+KeyOf	Compound	Name
+Direct	Assign	Optional
+Qualified	Assign	Call
+KeyOf	MissingClose	Name

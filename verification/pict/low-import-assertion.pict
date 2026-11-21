@@ -1,0 +1,3 @@
+Type: Direct, Qualified, Query, KeyOf
+Operation: Assign, Compound, Compare, MissingClose
+Target: Name, Member, Call, Optional
