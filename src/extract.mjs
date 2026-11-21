@@ -72,14 +72,14 @@ function operatorSpan(tokens, node) {
   if (start >= node.left.end && end <= node.right.start && tokens.text(token) === node.operator) return { start, end };
 }
 
-function possibleOperator(tokens, kinds, logical) {
+function firstOperator(tokens, kinds, logical) {
   const { LessThan, GreaterThan, LessThanEqual, GreaterThanEqual, LogicalOr } = kinds;
   for (let index = 0; index < tokens.length; index++) {
     const kind = tokens.kind(index);
     if (kind === LessThan || kind === GreaterThan || kind === LessThanEqual || kind === GreaterThanEqual ||
-        logical && kind === LogicalOr) return true;
+        logical && kind === LogicalOr) return index;
   }
-  return false;
+  return -1;
 }
 
 function extractParsed(input, options = {}, allowTokens = false) {
@@ -93,9 +93,13 @@ function extractParsed(input, options = {}, allowTokens = false) {
   const { diagnostics } = parsed;
   const hasErrors = diagnostics.some(diagnostic => diagnostic.severity === 'error');
   const tokens = hasErrors ? undefined : parsed.tokens;
-  if (tokens && !possibleOperator(tokens, TokenKind, options.logical)) return { path: 'fallback', candidates: [] };
-  const offsets = Buffer.byteLength(source) === source.length ? null : byteOffsets(source);
-  const bytes = index => offsets === null ? index : offsets[index];
+  const first = tokens ? firstOperator(tokens, TokenKind, options.logical) : -1;
+  if (tokens && first === -1) return { path: 'fallback', candidates: [] };
+  let offsets;
+  const bytes = index => {
+    if (offsets === undefined) offsets = Buffer.byteLength(source) === source.length ? null : byteOffsets(source);
+    return offsets === null ? index : offsets[index];
+  };
   const span = node => [bytes(node.start), bytes(node.end)];
   if (hasErrors) {
     const relocate = location => ({ ...location, start: bytes(location.start), end: bytes(location.end) });
@@ -106,7 +110,7 @@ function extractParsed(input, options = {}, allowTokens = false) {
     };
   }
   if (allowTokens && dialect === 'ts' && tokens) {
-    const candidates = tokenComparisons(tokens, TokenKind, bytes);
+    const candidates = tokenComparisons(tokens, TokenKind, bytes, first);
     if (candidates) return { path: 'fallback', fallback: 'tokens', candidates };
   }
   const missingOperator = node => ({

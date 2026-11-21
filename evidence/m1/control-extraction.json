@@ -1,0 +1,504 @@
+{
+  "baseline": "a4ecee8",
+  "corpus": {
+    "runtime": "v24.14.0",
+    "system": "darwin 27.2.0 arm64",
+    "cpu": "Apple M5 Max",
+    "reference": "yuku-parser 0.19.0",
+    "scope": {
+      "prefix": "",
+      "sourceOnly": false
+    },
+    "reports": [
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "files": 482,
+        "bytes": 2207415,
+        "tsxFiles": 14,
+        "fastFiles": 0,
+        "fastBytes": 0,
+        "candidates": 201,
+        "fastCandidates": 0,
+        "tokenFiles": 13,
+        "tokenCandidates": 15,
+        "diagnostics": 1,
+        "fastCandidateFiles": [],
+        "tokenCandidateFiles": [
+          {
+            "file": "packages/plugin-legacy/src/__tests__/snippets.spec.ts",
+            "candidates": 2
+          },
+          {
+            "file": "packages/vite/src/client/env.ts",
+            "candidates": 1
+          },
+          {
+            "file": "packages/vite/src/node/plugins/assetImportMetaUrl.ts",
+            "candidates": 2
+          },
+          {
+            "file": "packages/vite/src/node/plugins/preAlias.ts",
+            "candidates": 1
+          },
+          {
+            "file": "packages/vite/src/node/plugins/wasm.ts",
+            "candidates": 1
+          },
+          {
+            "file": "packages/vite/src/node/ssr/__tests__/ssrStacktrace.spec.ts",
+            "candidates": 1
+          },
+          {
+            "file": "playground/css-codesplit/__tests__/css-codesplit-consistent.spec.ts",
+            "candidates": 1
+          },
+          {
+            "file": "playground/css/__tests__/same-file-name/css-same-file-name.spec.ts",
+            "candidates": 1
+          },
+          {
+            "file": "playground/css/__tests__/tests.ts",
+            "candidates": 1
+          },
+          {
+            "file": "playground/hmr-ssr/accept-exports/main-accepted/main-accepted.ts",
+            "candidates": 1
+          },
+          {
+            "file": "playground/hmr/accept-exports/main-accepted/main-accepted.ts",
+            "candidates": 1
+          },
+          {
+            "file": "playground/worker/my-inline-shared-worker.ts",
+            "candidates": 1
+          },
+          {
+            "file": "playground/worker/my-shared-worker.ts",
+            "candidates": 1
+          }
+        ],
+        "fallbackReasons": {
+          "outside-l1": 482
+        },
+        "candidateBytes": 0,
+        "maxDepth": 0
+      },
+      {
+        "project": "preact-corpus",
+        "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+        "files": 22,
+        "bytes": 41760,
+        "tsxFiles": 19,
+        "fastFiles": 0,
+        "fastBytes": 0,
+        "candidates": 1,
+        "fastCandidates": 0,
+        "tokenFiles": 0,
+        "tokenCandidates": 0,
+        "diagnostics": 0,
+        "fastCandidateFiles": [],
+        "tokenCandidateFiles": [],
+        "fallbackReasons": {
+          "outside-l1": 22
+        },
+        "candidateBytes": 0,
+        "maxDepth": 0
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "files": 6479,
+        "bytes": 4318704,
+        "tsxFiles": 116,
+        "fastFiles": 35,
+        "fastBytes": 3139,
+        "candidates": 562,
+        "fastCandidates": 2,
+        "tokenFiles": 42,
+        "tokenCandidates": 67,
+        "diagnostics": 952,
+        "fastCandidateFiles": [
+          {
+            "file": "tests/cases/compiler/sourceMapValidationDo.ts",
+            "candidates": 2
+          }
+        ],
+        "tokenCandidateFiles": [
+          {
+            "file": "tests/cases/compiler/SystemModuleForStatementNoInitializer.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/argsInScope.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/argumentsAsPropertyName2.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/arrayFromAsync.ts",
+            "candidates": 2
+          },
+          {
+            "file": "tests/cases/compiler/arrayconcat.ts",
+            "candidates": 2
+          },
+          {
+            "file": "tests/cases/compiler/baseCheck.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/blockScopedBindingsReassignedInLoop1.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/capturedLetConstInLoop12.ts",
+            "candidates": 2
+          },
+          {
+            "file": "tests/cases/compiler/capturedLetConstInLoop8.ts",
+            "candidates": 6
+          },
+          {
+            "file": "tests/cases/compiler/capturedLetConstInLoop8_ES6.ts",
+            "candidates": 6
+          },
+          {
+            "file": "tests/cases/compiler/capturedLetConstInLoop9.ts",
+            "candidates": 2
+          },
+          {
+            "file": "tests/cases/compiler/capturedLetConstInLoop9_ES6.ts",
+            "candidates": 2
+          },
+          {
+            "file": "tests/cases/compiler/capturedVarInLoop.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/classExpressionWithStaticProperties3.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/classExpressionWithStaticPropertiesES63.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/constDeclarations-scopes2.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/constructorWithCapturedSuper.ts",
+            "candidates": 2
+          },
+          {
+            "file": "tests/cases/compiler/continueLabel.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/controlFlowAutoAccessor1.ts",
+            "candidates": 2
+          },
+          {
+            "file": "tests/cases/compiler/controlFlowForStatementContinueIntoIncrementor1.ts",
+            "candidates": 2
+          },
+          {
+            "file": "tests/cases/compiler/doubleUnderscoreLabels.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/duplicateLocalVariable2.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/duplicateVariablesByScope.ts",
+            "candidates": 2
+          },
+          {
+            "file": "tests/cases/compiler/dynamicModuleTypecheckError.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/forInModule.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/jsFileCompilationLetBeingRenamed.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/jsFileFunctionOverloads.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/jsFileFunctionOverloads2.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/letDeclarations-es5.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/letDeclarations.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/localClassesInLoop.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/localClassesInLoop_ES6.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/matchReturnTypeInAllBranches.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/modularizeLibrary_UsingES5LibAndES6FeatureLibs.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/moduleImport.ts",
+            "candidates": 2
+          },
+          {
+            "file": "tests/cases/compiler/multivar.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/nestedLoopTypeGuards.ts",
+            "candidates": 3
+          },
+          {
+            "file": "tests/cases/compiler/objectCreationOfElementAccessExpression.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/sourceMapSample.ts",
+            "candidates": 2
+          },
+          {
+            "file": "tests/cases/compiler/sourceMapValidationClasses.ts",
+            "candidates": 2
+          },
+          {
+            "file": "tests/cases/compiler/typeAliasDeclarationEmit3.ts",
+            "candidates": 1
+          },
+          {
+            "file": "tests/cases/compiler/vararg.ts",
+            "candidates": 2
+          }
+        ],
+        "fallbackReasons": {
+          "outside-l1": 6435,
+          "invalid-utf8": 9
+        },
+        "candidateBytes": 0,
+        "maxDepth": 1
+      }
+    ]
+  },
+  "viteProduction": {
+    "runtime": "v24.14.0",
+    "system": "darwin 27.2.0 arm64",
+    "cpu": "Apple M5 Max",
+    "reference": "yuku-parser 0.19.0",
+    "scope": {
+      "prefix": "packages/vite/src/",
+      "sourceOnly": true
+    },
+    "reports": [
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "files": 118,
+        "bytes": 1248759,
+        "tsxFiles": 0,
+        "fastFiles": 0,
+        "fastBytes": 0,
+        "candidates": 160,
+        "fastCandidates": 0,
+        "tokenFiles": 4,
+        "tokenCandidates": 5,
+        "diagnostics": 0,
+        "fastCandidateFiles": [],
+        "tokenCandidateFiles": [
+          {
+            "file": "packages/vite/src/client/env.ts",
+            "candidates": 1
+          },
+          {
+            "file": "packages/vite/src/node/plugins/assetImportMetaUrl.ts",
+            "candidates": 2
+          },
+          {
+            "file": "packages/vite/src/node/plugins/preAlias.ts",
+            "candidates": 1
+          },
+          {
+            "file": "packages/vite/src/node/plugins/wasm.ts",
+            "candidates": 1
+          }
+        ],
+        "fallbackReasons": {
+          "outside-l1": 118
+        },
+        "candidateBytes": 0,
+        "maxDepth": 0
+      }
+    ]
+  },
+  "benchmark": {
+    "node": "v24.14.0",
+    "os": "darwin 27.2.0 arm64",
+    "cpu": "Apple M5 Max",
+    "repetitions": 9,
+    "collectBetweenSamples": true,
+    "temperature": "warm",
+    "scope": {
+      "prefix": "packages/vite/src/",
+      "sourceOnly": true
+    },
+    "reports": [
+      {
+        "workload": "repository",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "files": 118,
+        "bytes": 1248759,
+        "turnsPerRepetition": 7,
+        "fastFiles": 0,
+        "fastCandidates": 0,
+        "tokenFiles": 4,
+        "tokenCandidates": 5,
+        "baseline": {
+          "medianMs": 40.00903571428574,
+          "p25Ms": 35.680583285714356,
+          "p75Ms": 41.385642857142884
+        },
+        "optimized": {
+          "medianMs": 38.28778571428575,
+          "p25Ms": 36.240440428571546,
+          "p75Ms": 38.875089285714274
+        },
+        "samplesMs": [
+          [
+            30.52652971428571,
+            42.067880857142846,
+            33.86527385714284,
+            43.305886999999984,
+            41.385642857142884,
+            41.29500000000001,
+            35.680583285714356,
+            39.045809428571374,
+            40.00903571428574
+          ],
+          [
+            38.875089285714274,
+            37.078880999999974,
+            35.7684227142857,
+            40.63155957142856,
+            40.46616071428571,
+            38.71523814285716,
+            38.28778571428575,
+            35.77438685714281,
+            36.240440428571546
+          ]
+        ]
+      },
+      {
+        "workload": "validated token files",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "files": 4,
+        "bytes": 14867,
+        "turnsPerRepetition": 100,
+        "fastFiles": 0,
+        "fastCandidates": 0,
+        "tokenFiles": 4,
+        "tokenCandidates": 5,
+        "baseline": {
+          "medianMs": 0.3531370799999968,
+          "p25Ms": 0.3030262500000026,
+          "p75Ms": 0.36513624999999594
+        },
+        "optimized": {
+          "medianMs": 0.12114125000000059,
+          "p25Ms": 0.11399000000000342,
+          "p75Ms": 0.12565166999999747
+        },
+        "samplesMs": [
+          [
+            0.35547333999999864,
+            0.3029845800000021,
+            0.3531370799999968,
+            0.3050254100000075,
+            0.3680483300000014,
+            0.3030262500000026,
+            0.3670049999999992,
+            0.2994062500000018,
+            0.36513624999999594
+          ],
+          [
+            0.12545374999999695,
+            0.11399000000000342,
+            0.12646582999999736,
+            0.11318500000000313,
+            0.12565166999999747,
+            0.11371499999999286,
+            0.12114125000000059,
+            0.11543957999999294,
+            0.1267224999999962
+          ]
+        ]
+      },
+      {
+        "workload": "L1 TSX",
+        "files": 120,
+        "bytes": 262380,
+        "turnsPerRepetition": 7,
+        "fastFiles": 120,
+        "fastCandidates": 120,
+        "tokenFiles": 0,
+        "tokenCandidates": 0,
+        "baseline": {
+          "medianMs": 0.7689167142856864,
+          "p25Ms": 0.7672738571428843,
+          "p75Ms": 0.7725654285713972
+        },
+        "optimized": {
+          "medianMs": 0.7693094285714324,
+          "p25Ms": 0.766743999999952,
+          "p75Ms": 0.7741011428571645
+        },
+        "samplesMs": [
+          [
+            0.7747024285715399,
+            0.7696785714285527,
+            0.7651488571429061,
+            0.7761725714286253,
+            0.7725654285713972,
+            0.7689167142856864,
+            0.763571428571465,
+            0.767767857142904,
+            0.7672738571428843
+          ],
+          [
+            0.7762500000000208,
+            0.7755654285714887,
+            0.7669464285714379,
+            0.7737202857143919,
+            0.766743999999952,
+            0.7741011428571645,
+            0.7659464285714941,
+            0.7646071428571304,
+            0.7693094285714324
+          ]
+        ]
+      }
+    ]
+  }
+}

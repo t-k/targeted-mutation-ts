@@ -29,8 +29,8 @@ export function collectComparisons(root, files, options) {
   const extraction = [];
   for (const { file, selected } of selectScope(root, files, options)) {
     const input = readFileSync(inside(root, file));
-    const { path, reason, candidates, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, requireNative: true, logical: options.runner === 'playwright' });
-    extraction.push({ file, path, reason, diagnostics });
+    const { path, fallback, reason, candidates, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, requireNative: true, logical: options.runner === 'playwright' });
+    extraction.push({ file, path, reason, diagnostics, ...(fallback === undefined ? {} : { fallback }) });
     if (path === 'diagnostic') continue;
     const positions = byteLocations(input, candidates.map(candidate => (candidate.operatorEdit ?? candidate.edit)[0]));
     let digest;

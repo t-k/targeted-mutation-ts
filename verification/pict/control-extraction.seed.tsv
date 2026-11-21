@@ -1,0 +1,9 @@
+Wrapper	Operand	Suffix
+Const	Simple	Complete
+Const	Property	Complete
+If	Property	Complete
+While	This	Complete
+DoWhile	Simple	Complete
+For	Grouped	Complete
+For	Property	Invalid
+If	Simple	Unsupported

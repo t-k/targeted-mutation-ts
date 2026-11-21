@@ -8,6 +8,14 @@ Against commit `8e81bed` on those 1,585 files, the token precheck and single-pas
 
 The shipping fixture used four Vitest invocations with deterministic literal-threshold replay, down from five. Both versions reported the same mutation verdicts, and audit reexecution agreed with the new prediction.
 
+On the pinned Vite checkout, the validated token path extracted five candidates from four production files. Nine alternating warm samples on macOS arm64 reduced the median for those four files from 0.353 ms to 0.121 ms against `a4ecee8`. Across all 118 production files in the same scope, the medians were 40.0 ms and 38.3 ms with overlapping interquartile ranges. The [recorded extraction runs](../evidence/m1/control-extraction.json) include the scope, paths, and samples.
+
+```sh
+npm run audit:extraction -- /path/to/vite /path/to/preact /path/to/typescript
+npm run audit:extraction -- --prefix packages/vite/src/ --source-only /path/to/vite
+node --expose-gc scripts/bench-extraction.mjs --prefix packages/vite/src/ --source-only --token-subset BASELINE/src/extract.mjs /path/to/vite
+```
+
 For `--since` selection over 1,000 tracked TypeScript files with one edited line, five alternating runs measured a median of 11.49 s before batched path lookup and 54 ms afterward. Both versions selected the same file and line. The measured path includes Git processes and source selection through `selectScope`.
 
 Two historical changes exercised witness discovery in mreact and tachyon-dom. Both selected suites passed. The changed lines contained one and two comparison candidates respectively, all extracted by Yuku. Neither change matched an automatic witness source rule, so there were no proposals to assess for adoption. A positive control from this repository produced a confirmed one-literal edit. The [recorded study](../evidence/dogfood/pr-witnesses.json) includes source and test scopes, revisions, and counts.

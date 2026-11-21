@@ -40,6 +40,15 @@ try {
   const fallback = JSON.parse(run(process.execPath, [entry, 'extract', 'fallback.ts']));
   assert.equal(fallback.path, 'fallback');
   assert.deepEqual(fallback.candidates.map(candidate => candidate.operator), ['<']);
+  const condition = 'for (let i = 0; i < values.length; i++) {}';
+  writeFileSync(join(cwd, 'control.ts'), condition);
+  const nativeControl = JSON.parse(run(process.execPath, [entry, 'extract', 'control.ts']));
+  assert.equal(nativeControl.path, 'fast');
+  writeFileSync(join(cwd, 'tokens.ts'), 'declare const values: Array<number>;\n' + condition);
+  const tokenControl = JSON.parse(run(process.execPath, [entry, 'extract', 'tokens.ts']));
+  assert.equal(tokenControl.fallback, 'tokens');
+  assert.deepEqual(nativeControl.candidates.map(candidate => candidate.operator), ['<']);
+  assert.deepEqual(tokenControl.candidates.map(candidate => candidate.operator), ['<']);
   writeFileSync(join(cwd, 'fixture/src/strict.ts'), 'export const positive = (count: number) => count > 0;');
   writeFileSync(join(cwd, 'fixture/test/strict.test.ts'), "import { expect, it } from 'vitest'; import { positive } from '../src/strict'; it('checks two', () => expect(positive(2)).toBe(true));");
   cpSync(resolve('fixtures/witnesses'), join(cwd, 'witnesses'), { recursive: true });

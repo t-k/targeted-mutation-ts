@@ -12,7 +12,8 @@ for (const row of rows) {
     const gap = trivia === 'Comment' ? ' /* > */ ' : ' ';
     const prefix = trivia === 'Unicode' ? '/* 🐈 */ ' : '';
     const expr = left + gap + op + gap + 'limit';
-    const source = prefix + ({ If: `if (${expr}) {}`, While: `while (${expr}) {}`, For: `for (let i = 0; ${expr}; i++) {}` }[condition]);
+    const source = 'type Index = number;\n' + prefix +
+      ({ If: `if (${expr}) {}`, While: `while (${expr}) {}`, For: `for (let i = 0; ${expr}; i++) {}` }[condition]);
     const result = extract(source, { dialect: 'ts' });
     assert.equal(result.fallback, 'tokens');
     assert.deepEqual(result.candidates, extractFallback(source, { dialect: 'ts' }).candidates);

@@ -96,6 +96,9 @@ TmtParser_from_cursor(TmtParser_parser_state state, TmtParser_cursor read);
 
 TmtParser_parser_state TmtParser_skip(TmtParser_tape input, TmtParser_parser_state state);
 
+TmtParser_parsed
+TmtParser_member_tail(TmtParser_tape input0, TmtParser_parsed base0, uint32_t fuel0);
+
 uint32_t TmtParser_operator_end(uint32_t start, uint32_t op);
 
 TmtParser_parser_state
@@ -136,6 +139,31 @@ TmtParser_initializer(TmtParser_tape input, TmtParser_parser_state state, bool j
 
 TmtParser_parser_state
 TmtParser_declaration(TmtParser_tape input, TmtParser_parser_state state, bool jsx);
+
+uint32_t TmtParser_statement_kind(TmtParser_tape input, uint32_t at);
+
+TmtParser_parser_state TmtParser_condition(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state TmtParser_binding(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state TmtParser_update(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
+TmtParser_for_header(TmtParser_tape input, TmtParser_parser_state state, bool top_level);
+
+TmtParser_parser_state
+TmtParser_control_block(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+
+TmtParser_parser_state
+TmtParser_control_sequence(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtParser_parser_state
+TmtParser_control_statement(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool module_mode);
 
