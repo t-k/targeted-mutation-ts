@@ -468,7 +468,7 @@ let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
       else if after.newline || fuel = 0ul then failed tail 1ul
       else type_list input { tail with offset = next tail.offset } (minus fuel 1ul) 64ul 62uy false
 and type_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (close:U8.t) (allow_empty:bool)
-  : Read parser_state input (decreases %[U32.v fuel; 3; U32.v remaining]) =
+  : Read parser_state input (decreases %[U32.v fuel; 4; U32.v remaining]) =
   let st = skip input state in
   let closed = same input st.offset close in
   if st.status <> 0ul then st
@@ -481,7 +481,7 @@ and type_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (close:U8
       type_list input { st with offset = next st.offset } fuel (minus remaining 1ul) close true
     else consume input st close
 and object_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
-  : Read parser_state input (decreases %[U32.v fuel; 3; U32.v remaining]) =
+  : Read parser_state input (decreases %[U32.v fuel; 4; U32.v remaining]) =
   let st = skip input state in
   if st.status <> 0ul then st
   else if same input st.offset 125uy then consume input st 125uy
@@ -508,6 +508,21 @@ and object_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
     else if next_byte = 125uy then consume input end_ 125uy
     else if boundary.newline then object_type input end_ fuel (minus remaining 1ul)
     else failed end_ 1ul
+and signature_parameters (input:tape) (state:parser_state) (fuel remaining:U32.t)
+  : Read parser_state input (decreases %[U32.v fuel; 4; U32.v remaining]) =
+  let st = skip input state in
+  if st.status <> 0ul then st
+  else if same input st.offset 41uy then consume input st 41uy
+  else if remaining = 0ul then failed st 1ul
+  else
+    let named = from_cursor st (name input st.offset false false) in
+    let tail = skip input named in
+    let tail = if same input tail.offset 63uy then skip input (consume input tail 63uy) else tail in
+    let annotated = annotation_type input (consume input tail 58uy) fuel 64ul in
+    let end_ = skip input annotated in
+    if same input end_.offset 44uy then
+      signature_parameters input (consume input end_ 44uy) fuel (minus remaining 1ul)
+    else consume input end_ 41uy
 and type_term (input:tape) (state:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 1; 0]) =
   let st = skip input state in
@@ -522,18 +537,30 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t)
       else if G.decimal_digit byte || byte = 45uy || byte = 46uy then
         let start = if byte = 45uy then next st.offset else st.offset in
         from_cursor st (number_end input start)
-      else if byte = 91uy || byte = 123uy then
+      else if byte = 91uy || byte = 123uy || byte = 40uy then
         if fuel = 0ul then failed st 1ul
         else
           let inside = { st with offset = next st.offset } in
           let inner = minus fuel 1ul in
           if byte = 91uy then type_list input inside inner 64ul 93uy true
-          else object_type input inside inner input.size
+          else if byte = 123uy then object_type input inside inner input.size
+          else
+            let params = signature_parameters input inside inner 64ul in
+            let tail = skip input params in
+            let arrow = consume input (consume input tail 61uy) 62uy in
+            if arrow.status = 0ul then annotation_type input arrow inner 64ul
+            else consume input (skip input (annotation_type input inside inner 64ul)) 41uy
       else type_reference input st fuel in
     let with_arrays = array_type_suffixes input primary 16ul in
     if readonly && byte <> 91uy && primary.offset = with_arrays.offset then failed with_arrays 1ul
     else with_arrays
 and annotation_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
+  : Read parser_state input (decreases %[U32.v fuel; 3; 0]) =
+  let st = skip input state in
+  let first = peek input st.offset in
+  let start = if first = 124uy || first = 38uy then consume input st first else st in
+  type_terms input start fuel remaining
+and type_terms (input:tape) (state:parser_state) (fuel remaining:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 2; U32.v remaining]) =
   if remaining = 0ul then failed state 1ul
   else
@@ -545,7 +572,7 @@ and annotation_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
       let union = if byte = 124uy || byte = 38uy then
         let repeated = same input (next st.offset) byte in not repeated
       else false in
-      if union then annotation_type input { st with offset = next st.offset } fuel (minus remaining 1ul)
+      if union then type_terms input { st with offset = next st.offset } fuel (minus remaining 1ul)
       else term
 
 let simple_annotation (input:tape) (state:parser_state) : Read parser_state input =
@@ -554,18 +581,36 @@ let simple_annotation (input:tape) (state:parser_state) : Read parser_state inpu
   if st.status <> 0ul || not annotation then st
   else annotation_type input { st with offset = next st.offset } 16ul 64ul
 
-let function_type_parameter (input:tape) (state:parser_state) : Read parser_state input =
-  if state.status <> 0ul then state
-  else if same input state.offset 60uy then
-    let st = skip input { state with offset = next state.offset } in
+let rec type_parameters (input:tape) (state:parser_state) (remaining:U32.t) : Read parser_state input (decreases U32.v remaining) =
+  let st = skip input state in
+  if st.status <> 0ul || remaining = 0ul then failed st 1ul
+  else
     let named = name input st.offset false true in
     let packed = packed_type input st.offset named.at in
+    let undefined = undefined_type input st.offset named.at in
     let st = skip input (from_cursor st named) in
-    if builtin_type packed || type_operator packed then failed st 1ul
-    else consume input st 62uy
+    if builtin_type packed || type_operator packed || undefined then failed st 1ul
+    else
+      let extends = keyword input st.offset 7ul 0x657874656e6473uL in
+      let st = if extends then
+        skip input (annotation_type input { st with offset = plus st.offset 7ul } 16ul 64ul)
+        else st in
+      let st = if same input st.offset 61uy then
+        skip input (annotation_type input (consume input st 61uy) 16ul 64ul)
+        else st in
+      if st.status <> 0ul then st
+      else if same input st.offset 44uy then
+        let after = skip input (consume input st 44uy) in
+        if same input after.offset 62uy then consume input after 62uy
+        else type_parameters input after (minus remaining 1ul)
+      else consume input st 62uy
+
+let optional_type_parameters (input:tape) (state:parser_state) : Read parser_state input =
+  if state.status <> 0ul then state
+  else if same input state.offset 60uy then type_parameters input (consume input state 60uy) 64ul
   else state
 
-let rec pattern_names (input:tape) (state:parser_state) (floor used:names_used) (fuel:U32.t) (close:U8.t)
+let rec pattern_names (input:tape) (state:parser_state) (base:names_base) (floor used:names_used) (fuel:U32.t) (close:U8.t)
   : Run named_state input (decreases U32.v fuel) =
   let st = skip input state in
   if st.status <> 0ul then { state = st; used }
@@ -579,18 +624,18 @@ let rec pattern_names (input:tape) (state:parser_state) (floor used:names_used) 
         if same input after.offset 58uy then skip input (consume input after 58uy)
         else st
       else st in
-    let bound = bind_since input start 64ul floor used start.offset in
+    let bound = bind_since input start base floor used start.offset in
     let st = skip input bound.state in
     if same input st.offset 44uy then
-      pattern_names input (consume input st 44uy) floor bound.used (minus fuel 1ul) close
+      pattern_names input (consume input st 44uy) base floor bound.used (minus fuel 1ul) close
     else { bound with state = consume input st close }
 
-let parameter_binding (input:tape) (state:parser_state) (floor used:names_used) : Run named_state input =
+let pattern_binding (input:tape) (state:parser_state) (base:names_base) (floor used:names_used) : Run named_state input =
   let byte = peek input state.offset in
   if byte = 123uy || byte = 91uy then
     let close = if byte = 123uy then 125uy else 93uy in
-    pattern_names input (consume input state byte) floor used 64ul close
-  else bind_since input state 64ul floor used state.offset
+    pattern_names input (consume input state byte) base floor used 64ul close
+  else bind_since input state base floor used state.offset
 
 let collection_head (input:tape) (state:parser_state) (allow_in:bool) : Run parser_state input =
   let byte = peek input state.offset in
@@ -604,7 +649,7 @@ let collection_head (input:tape) (state:parser_state) (allow_in:bool) : Run pars
   else
     let start = skip input { state with offset = plus state.offset width } in
     let mark = state.local_names in
-    let bound = parameter_binding input start mark mark in
+    let bound = pattern_binding input start 64ul mark mark in
     let next_token = skip input bound.state in
     let of_token = keyword input next_token.offset 2ul 0x6f66uL in
     let in_token = keyword input next_token.offset 2ul 0x696euL in
@@ -612,22 +657,31 @@ let collection_head (input:tape) (state:parser_state) (allow_in:bool) : Run pars
       { next_token with offset = plus next_token.offset 2ul }
     else failed state 1ul
 
-type parameter_list = { names:named_state; patterned:bool }
+type parameter_list = { names:named_state; non_simple:bool }
 
-let rec parameters (input:tape) (state:parser_state) (floor used:names_used) (fuel:U32.t) (patterned:bool)
+let parameter_prefix (input:tape) (state:parser_state) (floor used:names_used) : Run parameter_list input =
+  let first = peek input state.offset in
+  let bound = pattern_binding input state 64ul floor used in
+  let tail = skip input bound.state in
+  let typed = if same input tail.offset 63uy then
+      let colon = skip input (consume input tail 63uy) in
+      annotation_type input (consume input colon 58uy) 16ul 64ul
+    else simple_annotation input tail in
+  { names = { bound with state = skip input typed }; non_simple = first = 123uy || first = 91uy }
+
+let rec parameters (input:tape) (state:parser_state) (floor used:names_used) (fuel:U32.t) (non_simple:bool)
   : Run parameter_list input (decreases U32.v fuel) =
   let st = skip input state in
-  if st.status <> 0ul then { names = { state = st; used }; patterned }
-  else if same input st.offset 41uy then { names = { state = consume input st 41uy; used }; patterned }
-  else if fuel = 0ul then { names = { state = failed st 1ul; used }; patterned }
+  if st.status <> 0ul then { names = { state = st; used }; non_simple }
+  else if same input st.offset 41uy then { names = { state = consume input st 41uy; used }; non_simple }
+  else if fuel = 0ul then { names = { state = failed st 1ul; used }; non_simple }
   else
-    let byte = peek input st.offset in
-    let patterned = patterned || byte = 123uy || byte = 91uy in
-    let local = parameter_binding input st floor used in
-    let st = skip input (simple_annotation input local.state) in
+    let prefix = parameter_prefix input st floor used in
+    let non_simple = non_simple || prefix.non_simple in
+    let st = prefix.names.state in
     if same input st.offset 44uy then
-      parameters input (consume input st 44uy) floor local.used (minus fuel 1ul) patterned
-    else { names = { state = consume input st 41uy; used = local.used }; patterned }
+      parameters input (consume input st 44uy) floor prefix.names.used (minus fuel 1ul) non_simple
+    else { names = { prefix.names with state = consume input st 41uy }; non_simple }
 
 let arrow_token (input:tape) (state:parser_state) : Read parser_state input =
   if state.status <> 0ul then state
@@ -641,7 +695,7 @@ let arrow_token (input:tape) (state:parser_state) : Read parser_state input =
 
 let plain_arrow_parameters (input:tape) (state:parser_state) : Run parameter_list input =
   let used = state.local_names in
-  let missed = { names = { state = failed state 1ul; used }; patterned = false } in
+  let missed = { names = { state = failed state 1ul; used }; non_simple = false } in
   if state.status <> 0ul then missed
   else
     let byte = peek input state.offset in
@@ -680,10 +734,10 @@ let arrow_parameters (input:tape) (state:parser_state) : Run parameter_list inpu
     else plain_arrow_parameters input { state with await_allowed = false }
   else plain_arrow_parameters input { state with await_allowed = false }
 
-let function_body (input:tape) (state:parser_state) (patterned:bool) : Read parser_state input =
-  if not patterned || state.status <> 0ul then state
+let function_body (input:tape) (state:parser_state) (non_simple:bool) : Read parser_state input =
+  if not non_simple || state.status <> 0ul then state
   else
-    // Patterned parameters have an early error for a strict directive in the prologue.
+    // Non-simple parameters have an early error for a strict directive in the prologue.
     let first = skip input (consume input state 123uy) in
     let byte = peek input first.offset in
     if byte = 34uy || byte = 39uy then failed state 1ul else state
@@ -742,6 +796,8 @@ let assignment_head (input:tape) (state:parser_state) : Read cursor input =
   let width =
     if byte = 61uy && follower <> 61uy && follower <> 62uy then 1ul
     else if (byte = 43uy || byte = 45uy) && follower = 61uy then 2ul
+    else if (byte = 38uy || byte = 124uy || byte = 63uy) && follower = byte then
+      if same input (plus st.offset 2ul) 61uy then 3ul else 0ul
     else 0ul in
   if st.status <> 0ul || width = 0ul then { at = state.offset; ok = false; newline = false }
   else { at = plus st.offset width; ok = true; newline = false }
@@ -863,7 +919,7 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
       let block = same input body.offset 123uy in
       let result =
         if block then
-          let stop = control_block input (function_body input body arrow.patterned) inner true false start.local_names arrow.names.used in
+          let stop = control_block input (function_body input body arrow.non_simple) inner true false start.local_names arrow.names.used in
           empty_range stop
         else comparison input body inner in
       { result with parser = { result.parser with local_names = start.local_names; await_allowed = start.await_allowed };
@@ -1102,8 +1158,7 @@ and return_statement (input:tape) (state:parser_state) (fuel:U32.t) : Run parser
   let body = trivia input after in
   let st = from_cursor state body in
   let byte = peek input st.offset in
-  if byte = 59uy || byte = 125uy then statement_end input st after true
-  else if body.newline then failed st 1ul
+  if byte = 59uy || byte = 125uy || body.newline then statement_end input st after true
   else
     let value = comparison input st fuel in
     statement_end input value.parser value.range.G.last true
@@ -1145,7 +1200,7 @@ and simple_statement (input:tape) (state:parser_state) (in_function in_loop:bool
 and local_declaration (input:tape) (state:parser_state) (width:U32.t) (floor used:names_used) (fuel:U32.t)
   : Run named_state input (decreases %[U32.v fuel; 45; 0]) =
   let start = skip input { state with offset = plus state.offset width } in
-  let decl = bind_since input start 64ul floor used start.offset in
+  let decl = pattern_binding input start 64ul floor used in
   let st = skip input (simple_annotation input { decl.state with local_names = decl.used }) in
   let value = comparison input (consume input st 61uy) fuel in
   { decl with state = statement_end input value.parser value.range.G.last true }
@@ -1389,6 +1444,28 @@ let type_declaration_width (input:tape) (start:U32.t) : Read U32.t input =
     let byte = peek input named.at in
     if named.ok && not named.newline && G.identifier_start byte then width else 0ul
 
+let rec named_parameters (input:tape) (state:parser_state) (used:names_used) (remaining:U32.t) (non_simple:bool)
+  : Run parameter_list input (decreases U32.v remaining) =
+  let st = skip input state in
+  if st.status <> 0ul then { names = { state = st; used }; non_simple }
+  else if same input st.offset 41uy then { names = { state = consume input st 41uy; used }; non_simple }
+  else if remaining = 0ul then { names = { state = failed st 1ul; used }; non_simple }
+  else
+    let prefix = parameter_prefix input st 0ul used in
+    let st = prefix.names.state in
+    let default_ = same input st.offset 61uy in
+    let non_simple = non_simple || prefix.non_simple || default_ in
+    let st =
+      if default_ then
+        let start = consume input { st with await_allowed = false; local_names = prefix.names.used } 61uy in
+        let value = comparison input start 64ul in
+        { value.parser with await_allowed = st.await_allowed; local_names = st.local_names }
+      else st in
+    let end_ = skip input st in
+    if same input end_.offset 44uy then
+      named_parameters input (consume input end_ 44uy) prefix.names.used (minus remaining 1ul) non_simple
+    else { names = { prefix.names with state = consume input end_ 41uy }; non_simple }
+
 let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
   let st =
     if keyword input state.offset 6ul 0x6578706f7274uL then skip input { state with offset = plus state.offset 6ul }
@@ -1403,7 +1480,8 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
   if width = 0ul then { state = failed st 1ul; used }
   else
     let start = skip input { st with offset = plus st.offset width } in
-    let decl = bind_at input start 0ul used start.offset in
+    let decl = if width = 3ul || width = 5ul then pattern_binding input start 0ul 0ul used
+      else bind_at input start 0ul used start.offset in
     let st = skip input decl.state in
     let result =
       if width = 4ul || width = 9ul then
@@ -1411,17 +1489,17 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
         let undefined = undefined_type input start.offset decl.state.offset in
         if builtin_type packed || undefined || type_operator packed then failed st 1ul
         else
-          let st = skip input (function_type_parameter input st) in
+          let st = skip input (optional_type_parameters input st) in
           if width = 9ul then object_type input (consume input st 123uy) 15ul input.size
           else
             let alias = annotation_type input (consume input st 61uy) 16ul 64ul in
             statement_end input alias alias.offset false
       else if width = 8ul then
-        let st = skip input (function_type_parameter input st) in
-        let params = parameters input (consume input st 40uy) 0ul 0ul 64ul false in
+        let st = skip input (optional_type_parameters input st) in
+        let params = named_parameters input (consume input st 40uy) 0ul 64ul false in
         let st = skip input (simple_annotation input params.names.state) in
         let st = { st with await_allowed = async_.ok } in
-        control_block input (function_body input st params.patterned) 64ul true false 0ul params.names.used
+        control_block input (function_body input st params.non_simple) 64ul true false 0ul params.names.used
       else
         let st = skip input (simple_annotation input st) in
         let value = comparison input (consume input st 61uy) 64ul in

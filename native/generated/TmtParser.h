@@ -244,10 +244,26 @@ TmtParser_object_type(
 );
 
 TmtParser_parser_state
+TmtParser_signature_parameters(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtParser_parser_state
 TmtParser_type_term(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
 TmtParser_annotation_type(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  uint32_t remaining
+);
+
+TmtParser_parser_state
+TmtParser_type_terms(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
   uint32_t fuel0,
@@ -258,12 +274,20 @@ TmtParser_parser_state
 TmtParser_simple_annotation(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
-TmtParser_function_type_parameter(TmtParser_tape input, TmtParser_parser_state state);
+TmtParser_type_parameters(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t remaining0
+);
+
+TmtParser_parser_state
+TmtParser_optional_type_parameters(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_named_state
 TmtParser_pattern_names(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
+  uint32_t base0,
   uint32_t floor0,
   uint32_t used0,
   uint32_t fuel0,
@@ -271,9 +295,10 @@ TmtParser_pattern_names(
 );
 
 TmtParser_named_state
-TmtParser_parameter_binding(
+TmtParser_pattern_binding(
   TmtParser_tape input,
   TmtParser_parser_state state,
+  uint32_t base,
   uint32_t floor,
   uint32_t used
 );
@@ -284,9 +309,17 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
 typedef struct TmtParser_parameter_list_s
 {
   TmtParser_named_state names;
-  bool patterned;
+  bool non_simple;
 }
 TmtParser_parameter_list;
+
+TmtParser_parameter_list
+TmtParser_parameter_prefix(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t floor,
+  uint32_t used
+);
 
 TmtParser_parameter_list
 TmtParser_parameters(
@@ -295,7 +328,7 @@ TmtParser_parameters(
   uint32_t floor0,
   uint32_t used0,
   uint32_t fuel0,
-  bool patterned0
+  bool non_simple0
 );
 
 TmtParser_parser_state
@@ -310,7 +343,7 @@ TmtParser_parameter_list
 TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
-TmtParser_function_body(TmtParser_tape input, TmtParser_parser_state state, bool patterned);
+TmtParser_function_body(TmtParser_tape input, TmtParser_parser_state state, bool non_simple);
 
 bool TmtParser_proto_key(TmtParser_tape input, uint32_t first, uint32_t last);
 
@@ -542,6 +575,15 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
 TmtParser_cursor TmtParser_async_function(TmtParser_tape input, uint32_t start);
 
 uint32_t TmtParser_type_declaration_width(TmtParser_tape input, uint32_t start);
+
+TmtParser_parameter_list
+TmtParser_named_parameters(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t used0,
+  uint32_t remaining0,
+  bool non_simple0
+);
 
 TmtParser_named_state
 TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);

@@ -1,0 +1,13 @@
+Type	Binding	Suffix
+Function	Object	Valid
+Grouped	Name	Valid
+Generic	Array	Valid
+Constrained	Object	Invalid
+Constrained	Name	Valid
+Grouped	Array	Invalid
+Generic	Name	Invalid
+Function	Name	Invalid
+Function	Array	Invalid
+Constrained	Array	Invalid
+Grouped	Object	Valid
+Generic	Object	Invalid
