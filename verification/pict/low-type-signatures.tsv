@@ -1,0 +1,16 @@
+Member	Type	Suffix
+Call	Interface	Valid
+GenericCall	Inline	Valid
+Construct	Interface	Valid
+Method	Alias	Valid
+Index	Alias	Valid
+Construct	Inline	Invalid
+Call	Inline	Invalid
+Index	Inline	Invalid
+Call	Alias	Invalid
+Method	Interface	Invalid
+Index	Interface	Invalid
+Construct	Alias	Invalid
+GenericCall	Alias	Invalid
+Method	Inline	Invalid
+GenericCall	Interface	Valid

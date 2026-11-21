@@ -1,0 +1,3 @@
+Member: Call, GenericCall, Construct, Method, Index
+Type: Interface, Alias, Inline
+Suffix: Valid, Invalid

@@ -346,6 +346,9 @@ TmtParser_type_list(
 );
 
 TmtParser_parser_state
+TmtParser_object_type_member(TmtParser_tape input, TmtParser_parser_state st, uint32_t fuel);
+
+TmtParser_parser_state
 TmtParser_object_type(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
@@ -399,6 +402,14 @@ TmtParser_type_terms(
 );
 
 TmtParser_parser_state
+TmtParser_type_parameters(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtParser_parser_state
 TmtParser_simple_annotation(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
@@ -406,13 +417,6 @@ TmtParser_result_annotation(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
 TmtParser_call_type_arguments(TmtParser_tape input, TmtParser_parser_state state);
-
-TmtParser_parser_state
-TmtParser_type_parameters(
-  TmtParser_tape input0,
-  TmtParser_parser_state state0,
-  uint32_t remaining0
-);
 
 TmtParser_parser_state
 TmtParser_optional_type_parameters(TmtParser_tape input, TmtParser_parser_state state);
