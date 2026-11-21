@@ -582,7 +582,9 @@ let bind_in_namespace (input:tape) (st:parser_state) (base:names_base) (floor us
   let st = from_cursor st end_name in
   let length = minus st.offset pos in
   if st.status <> 0ul || used = binding_region_width || U32.(length >^ 256ul) then { state = failed st 1ul; used }
-  else if name_seen input base floor used pos length namespace then { state = failed st 1ul; used }
+  else if name_seen input base floor used pos length namespace then
+    let status = if base = 0ul && namespace = ValueName then 5ul else 1ul in
+    { state = failed st status; used }
   else (
     B.upd input.bindings (U32.add base used) { span = { G.first = pos; G.last = st.offset }; namespace };
     { state = st; used = U32.add used 1ul }
@@ -830,7 +832,7 @@ let mapped_type_start (input:tape) (st:parser_state) : Read mapped_type_head inp
           if binding.ok then { tail with offset = plus tail.offset 2ul } else failed key 1ul in
         { constraint_start; mapped = true }
 
-#push-options "--split_queries always"
+#push-options "--split_queries always --z3rlimit 30"
 let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 1; 0]) =
   let st = skip input state in
@@ -2989,17 +2991,19 @@ private let parse_state (input:tape) (st:parser_state) (module_mode:bool) : Run 
       let semicolon = same input st.offset 59uy in
       if semicolon && st.status = 0ul then skip input { st with offset = next st.offset } else st
 
+let initial_state (jsx module_mode:bool) : parser_state = {
+  offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
+  await_allowed = module_mode; jsx_allowed = jsx; module_mode; in_allowed = true; for_initializer = false;
+  binding_mode = NoLocals; super_context = NoSuper
+}
+
 // Successful results consume the buffer and expose a bounded candidate count.
 let parse (input:tape) (jsx module_mode:bool)
   : Run (r:parser_state{
       (r.status = 0ul ==> r.offset = input.size /\ U32.v r.count <= U32.v input.capacity) /\
       (r.status <> 0ul ==> r.count = 0ul)
     }) input =
-  let initial = skip input {
-    offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
-    await_allowed = module_mode; jsx_allowed = jsx; module_mode; in_allowed = true; for_initializer = false;
-    binding_mode = NoLocals; super_context = NoSuper
-  } in
+  let initial = skip input (initial_state jsx module_mode) in
   let state = parse_state input initial module_mode in
   let state : parser_state =
     if module_mode && (state.status = 1ul || (state.status = 0ul && state.offset <> input.size)) then
@@ -3011,3 +3015,98 @@ let parse (input:tape) (jsx module_mode:bool)
   else if U32.(state.count >^ input.capacity) then
     { (failed state 4ul) with count = 0ul }
   else state
+
+type lexical_conflict = { first_name:G.span; repeated_name:G.span; checked:U32.t }
+
+let no_conflict : lexical_conflict = {
+  first_name = { G.first = 0ul; G.last = 0ul };
+  repeated_name = { G.first = 0ul; G.last = 0ul };
+  checked = 0ul
+}
+
+let rec previous_lexical_name (input:tape) (used:names_used) (key:G.span)
+  : Run G.span input (decreases U32.v used) =
+  if used = 0ul then start_range 0ul
+  else
+    let index = U32.sub used 1ul in
+    let saved = (B.index input.bindings index).span in
+    let width = minus key.G.last key.G.first in
+    let equal =
+      if width = minus saved.G.last saved.G.first then
+        same_bytes input key.G.first saved.G.first width
+      else false in
+    if equal then saved else previous_lexical_name input index key
+
+let lexical_operand (input:tape) (state:parser_state) : Read parser_state input =
+  let st = skip input state in
+  if st.status <> 0ul then st
+  else
+    let first = peek input st.offset in
+    if G.decimal_digit first then from_cursor st (number_end input st.offset)
+    else
+      let literal =
+        if first = 102uy then (if keyword input st.offset 5ul 0x66616c7365uL then 5ul else 0ul)
+        else if first = 116uy then (if keyword input st.offset 4ul 0x74727565uL then 4ul else 0ul)
+        else if first = 110uy then (if keyword input st.offset 4ul 0x6e756c6cuL then 4ul else 0ul)
+        else 0ul in
+      if literal = 0ul then from_cursor st (name input st.offset false false)
+      else { st with offset = plus st.offset literal }
+
+let lexical_declarator_end (input:tape) (named:parser_state) (allows_empty:bool) : Read parser_state input =
+  let st = skip input named in
+  let equal = same input st.offset 61uy in
+  if not equal then
+    if allows_empty then statement_end input named named.offset false else failed st 1ul
+  else
+    let left = lexical_operand input (consume input st 61uy) in
+    let boundary = skip input left in
+    let op = operator input boundary.offset true in
+    let end_ =
+      if op.boundary <> 0ul then lexical_operand input { boundary with offset = plus boundary.offset op.width }
+      else left in
+    statement_end input end_ end_.offset false
+
+let rec read_lexical_conflict (input:tape) (state:parser_state) (used:names_used)
+  (found:lexical_conflict) (fuel:U32.t)
+  : Run (r:lexical_conflict{r.repeated_name.G.first <> r.repeated_name.G.last ==> r.checked = input.size}) input
+    (decreases U32.v fuel) =
+  let st = skip input state in
+  if st.status <> 0ul then no_conflict
+  else if st.offset = input.size then { found with checked = st.offset }
+  else if fuel = 0ul || used = binding_region_width then no_conflict
+  else
+    let width = local_width input st.offset in
+    if width = 0ul then no_conflict
+    else
+      let start = skip input { st with offset = plus st.offset width } in
+      let key = from_cursor start (name input start.offset false true) in
+      let span = { G.first = start.offset; G.last = key.offset } in
+      let length = minus key.offset start.offset in
+      if key.status <> 0ul || U32.(length >^ 256ul) then no_conflict
+      else
+        let end_ = lexical_declarator_end input key (width = 3ul) in
+        if end_.status <> 0ul then no_conflict
+        else
+          let previous = previous_lexical_name input used span in
+          if previous.G.first = previous.G.last then (
+            B.upd input.bindings used { span; namespace = ValueName };
+            read_lexical_conflict input end_ (U32.add used 1ul) found (minus fuel 1ul)
+          ) else if found.repeated_name.G.first <> found.repeated_name.G.last then no_conflict
+          else read_lexical_conflict input end_ used { first_name = previous; repeated_name = span; checked = 0ul }
+            (minus fuel 1ul)
+
+let lexical_duplicate (input:tape)
+  : Run (r:lexical_conflict{
+      r.repeated_name.G.first <> r.repeated_name.G.last ==>
+      r.checked = input.size /\
+      U32.v r.first_name.G.first < U32.v r.first_name.G.last /\
+      U32.v r.first_name.G.last <= U32.v r.repeated_name.G.first /\
+      U32.v r.repeated_name.G.first < U32.v r.repeated_name.G.last /\
+      U32.v r.repeated_name.G.last <= U32.v input.size
+    }) input =
+  let conflict = read_lexical_conflict input (initial_state false true) 0ul no_conflict input.size in
+  let first = conflict.first_name in
+  let second = conflict.repeated_name in
+  if U32.(first.G.first <^ first.G.last && first.G.last <=^ second.G.first &&
+    second.G.first <^ second.G.last && second.G.last <=^ input.size) then conflict
+  else no_conflict

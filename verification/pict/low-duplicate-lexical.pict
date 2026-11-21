@@ -1,0 +1,3 @@
+Declaration: Const, Let, Mixed
+Suffix: Valid, Invalid, SecondConflict, Unsupported
+Repeated: First, Latest

@@ -1,0 +1,6 @@
+Declaration	Suffix	Repeated
+Const	Valid	First
+Let	Invalid	Latest
+Mixed	Valid	Latest
+Mixed	SecondConflict	First
+Const	Unsupported	Latest

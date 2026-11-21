@@ -25,6 +25,7 @@ const reports = projects.map(project => {
   const report = { project: basename(root), revision, files: files.length, bytes: 0, tsxFiles: 0, fastFiles: 0, fastBytes: 0,
     candidates: 0, candidateFiles: 0, fastCandidates: 0, nativeFiles: 0, nativeCandidates: 0,
     yukuFiles: 0, yukuCandidates: 0, yukuCandidateFiles: 0, tokenFiles: 0, tokenCandidates: 0, diagnostics: 0,
+    nativeDiagnosticFiles: 0,
     fastCandidateFiles: [], tokenCandidateFiles: [], fallbackReasons: {}, candidateBytes: 0, maxDepth: 0 };
   for (const { file, source } of files) {
     const options = { file, logical: values.logical, requireNative: true };
@@ -48,6 +49,8 @@ const reports = projects.map(project => {
       report.nativeFiles++;
       report.nativeCandidates += result.candidates.length;
       report.maxDepth = Math.max(report.maxDepth, result.metrics.maxDepth);
+    } else if (result.reason === 'duplicate-lexical') {
+      report.nativeDiagnosticFiles++;
     } else {
       if (result.reason !== 'invalid-utf8') {
         report.yukuFiles++;

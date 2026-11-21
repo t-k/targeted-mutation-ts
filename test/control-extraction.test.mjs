@@ -89,7 +89,8 @@ test('a complete control program does not load Yuku on initial extraction', () =
     const result = extract('for (let i = 0; i < list.length; i++) { if (this.size > 0) {} }', { requireNative: true });
     assert.equal(result.path, 'fast');
     assert.equal(result.candidates.length, 2);
-    assert.throws(() => extract('let x; let x;', { requireNative: true }), /Unexpected Yuku load/);
+    assert.equal(extract('let x; let x;', { requireNative: true }).reason, 'duplicate-lexical');
+    assert.throws(() => extract('let x; let x; const =', { requireNative: true }), /Unexpected Yuku load/);
   `;
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', program], { encoding: 'utf8', timeout: 10_000 });
   assert.equal(child.status, 0, child.error?.message ?? child.stderr);

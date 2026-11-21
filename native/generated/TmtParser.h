@@ -1349,7 +1349,43 @@ TmtParser_module_sequence(
   uint32_t exports0
 );
 
+TmtParser_parser_state TmtParser_initial_state(bool jsx, bool module_mode);
+
 TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool module_mode);
+
+typedef struct TmtParser_lexical_conflict_s
+{
+  TmtGrammar_span first_name;
+  TmtGrammar_span repeated_name;
+  uint32_t checked;
+}
+TmtParser_lexical_conflict;
+
+extern TmtParser_lexical_conflict TmtParser_no_conflict;
+
+TmtGrammar_span
+TmtParser_previous_lexical_name(TmtParser_tape input0, uint32_t used0, TmtGrammar_span key0);
+
+TmtParser_parser_state
+TmtParser_lexical_operand(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
+TmtParser_lexical_declarator_end(
+  TmtParser_tape input,
+  TmtParser_parser_state named,
+  bool allows_empty
+);
+
+TmtParser_lexical_conflict
+TmtParser_read_lexical_conflict(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t used0,
+  TmtParser_lexical_conflict found0,
+  uint32_t fuel0
+);
+
+TmtParser_lexical_conflict TmtParser_lexical_duplicate(TmtParser_tape input);
 
 
 #define TmtParser_H_DEFINED

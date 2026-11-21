@@ -22,7 +22,7 @@ static napi_value parse(napi_env env, napi_callback_info info) {
   NAPI(napi_get_value_bool(env, args[2], &module));
   uint32_t capacity = (uint32_t)(sizeof(initial) / sizeof(*initial));
   uint32_t heap_bytes = 0;
-  tmt_result result = size > TMT_SOURCE_MAX ? (tmt_result){ TMT_SOURCE_LIMIT, 0, 0 } :
+  tmt_result result = size > TMT_SOURCE_MAX ? (tmt_result){ .status = TMT_SOURCE_LIMIT } :
     tmt_parse(source, (uint32_t)size, tsx, module, initial, capacity);
   if (result.status == TMT_CANDIDATE_LIMIT) {
     capacity = (uint32_t)(size / 3);
@@ -43,7 +43,8 @@ static napi_value parse(napi_env env, napi_callback_info info) {
     offsetof(TmtGrammar_candidate, right) == 6 * sizeof(uint32_t) &&
     offsetof(TmtGrammar_span, first) == 0 && offsetof(TmtGrammar_span, last) == sizeof(uint32_t),
     "Unexpected candidate layout");
-  const size_t length = METRICS + (size_t)result.count * COLUMNS;
+  const bool duplicate = result.status == TMT_DUPLICATE_LEXICAL;
+  const size_t length = METRICS + (duplicate ? 4 : (size_t)result.count * COLUMNS);
   napi_value backing, packed;
   void *data;
   NAPI(napi_create_arraybuffer(env, length * sizeof(uint32_t), &data, &backing));
@@ -52,7 +53,14 @@ static napi_value parse(napi_env env, napi_callback_info info) {
   cells[1] = result.max_depth;
   cells[2] = 0;
   cells[3] = heap_bytes;
-  if (result.count) memcpy(cells + METRICS, records, (size_t)result.count * sizeof(*records));
+  if (duplicate) {
+    cells[4] = result.first_name.first;
+    cells[5] = result.first_name.last;
+    cells[6] = result.repeated_name.first;
+    cells[7] = result.repeated_name.last;
+  } else if (result.count) {
+    memcpy(cells + METRICS, records, (size_t)result.count * sizeof(*records));
+  }
   NAPI(napi_create_typedarray(env, napi_uint32_array, length, backing, 0, &packed));
   free(output);
   return packed;

@@ -1882,7 +1882,10 @@ TmtParser_bind_in_namespace(
   if (st1.status != 0U || used == TmtParser_binding_region_width || length > 256U)
     return ((TmtParser_named_state){ .state = TmtParser_failed(st1, 1U), .used = used });
   else if (TmtParser_name_seen(input, base, floor, used, pos, length, namespace0))
-    return ((TmtParser_named_state){ .state = TmtParser_failed(st1, 1U), .used = used });
+  {
+    uint32_t status = base == 0U && namespace0 == TmtParser_ValueName ? 5U : 1U;
+    return ((TmtParser_named_state){ .state = TmtParser_failed(st1, status), .used = used });
+  }
   else
   {
     input.bindings[base + used] =
@@ -11394,27 +11397,31 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
   }
 }
 
+TmtParser_parser_state TmtParser_initial_state(bool jsx, bool module_mode)
+{
+  return
+    (
+      (TmtParser_parser_state){
+        .offset = 0U,
+        .count = 0U,
+        .depth = 0U,
+        .status = 0U,
+        .local_names = 0U,
+        .await_allowed = module_mode,
+        .jsx_allowed = jsx,
+        .module_mode = module_mode,
+        .in_allowed = true,
+        .for_initializer = false,
+        .binding_mode = TmtParser_NoLocals,
+        .super_context = TmtParser_NoSuper
+      }
+    );
+}
+
 TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool module_mode)
 {
   TmtParser_parser_state
-  initial =
-    TmtParser_skip(input,
-      (
-        (TmtParser_parser_state){
-          .offset = 0U,
-          .count = 0U,
-          .depth = 0U,
-          .status = 0U,
-          .local_names = 0U,
-          .await_allowed = module_mode,
-          .jsx_allowed = jsx,
-          .module_mode = module_mode,
-          .in_allowed = true,
-          .for_initializer = false,
-          .binding_mode = TmtParser_NoLocals,
-          .super_context = TmtParser_NoSuper
-        }
-      ));
+  initial = TmtParser_skip(input, TmtParser_initial_state(jsx, module_mode));
   TmtParser_parser_state state = parse_state(input, initial, module_mode);
   TmtParser_parser_state state1;
   if (module_mode && (state.status == 1U || state.status == 0U && state.offset != input.size))
@@ -11469,4 +11476,277 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
   }
   else
     return state1;
+}
+
+TmtParser_lexical_conflict
+TmtParser_no_conflict =
+  {
+    .first_name = { .first = 0U, .last = 0U },
+    .repeated_name = { .first = 0U, .last = 0U },
+    .checked = 0U
+  };
+
+TmtGrammar_span
+TmtParser_previous_lexical_name(TmtParser_tape input0, uint32_t used0, TmtGrammar_span key0)
+{
+  TmtParser_tape input = input0;
+  uint32_t used = used0;
+  TmtGrammar_span key = key0;
+  while (true)
+    if (used == 0U)
+      return TmtParser_start_range(0U);
+    else
+    {
+      uint32_t index = used - 1U;
+      TmtGrammar_span saved = input.bindings[index].span;
+      uint32_t width = TmtParser_minus(key.last, key.first);
+      bool equal;
+      if (width == TmtParser_minus(saved.last, saved.first))
+        equal = TmtParser_same_bytes(input, key.first, saved.first, width);
+      else
+        equal = false;
+      if (equal)
+        return saved;
+      else
+      {
+        uint32_t tmp = index;
+        used = tmp;
+      }
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+TmtParser_parser_state
+TmtParser_lexical_operand(TmtParser_tape input, TmtParser_parser_state state)
+{
+  TmtParser_parser_state st = TmtParser_skip(input, state);
+  if (st.status != 0U)
+    return st;
+  else
+  {
+    uint8_t first = TmtParser_peek(input, st.offset);
+    if (TmtGrammar_decimal_digit(first))
+      return TmtParser_from_cursor(st, TmtParser_number_end(input, st.offset));
+    else
+    {
+      uint32_t literal;
+      if (first == 102U)
+      {
+        if (TmtParser_keyword(input, st.offset, 5U, 0x66616c7365ULL))
+          literal = 5U;
+        else
+          literal = 0U;
+      }
+      else if (first == 116U)
+      {
+        if (TmtParser_keyword(input, st.offset, 4U, 0x74727565ULL))
+          literal = 4U;
+        else
+          literal = 0U;
+      }
+      else if (first == 110U)
+      {
+        if (TmtParser_keyword(input, st.offset, 4U, 0x6e756c6cULL))
+          literal = 4U;
+        else
+          literal = 0U;
+      }
+      else
+        literal = 0U;
+      if (literal == 0U)
+        return TmtParser_from_cursor(st, TmtParser_name(input, st.offset, false, false));
+      else
+        return
+          (
+            (TmtParser_parser_state){
+              .offset = TmtParser_plus(st.offset, literal),
+              .count = st.count,
+              .depth = st.depth,
+              .status = st.status,
+              .local_names = st.local_names,
+              .await_allowed = st.await_allowed,
+              .jsx_allowed = st.jsx_allowed,
+              .module_mode = st.module_mode,
+              .in_allowed = st.in_allowed,
+              .for_initializer = st.for_initializer,
+              .binding_mode = st.binding_mode,
+              .super_context = st.super_context
+            }
+          );
+    }
+  }
+}
+
+TmtParser_parser_state
+TmtParser_lexical_declarator_end(
+  TmtParser_tape input,
+  TmtParser_parser_state named,
+  bool allows_empty
+)
+{
+  TmtParser_parser_state st = TmtParser_skip(input, named);
+  bool equal = TmtParser_same(input, st.offset, 61U);
+  if (!equal)
+  {
+    if (allows_empty)
+      return TmtParser_statement_end(input, named, named.offset, false);
+    else
+      return TmtParser_failed(st, 1U);
+  }
+  else
+  {
+    TmtParser_parser_state
+    left = TmtParser_lexical_operand(input, TmtParser_consume(input, st, 61U));
+    TmtParser_parser_state boundary = TmtParser_skip(input, left);
+    TmtParser_binary_operator op = TmtParser_operator(input, boundary.offset, true);
+    TmtParser_parser_state end_;
+    if (op.boundary != 0U)
+      end_ =
+        TmtParser_lexical_operand(input,
+          (
+            (TmtParser_parser_state){
+              .offset = TmtParser_plus(boundary.offset, op.width),
+              .count = boundary.count,
+              .depth = boundary.depth,
+              .status = boundary.status,
+              .local_names = boundary.local_names,
+              .await_allowed = boundary.await_allowed,
+              .jsx_allowed = boundary.jsx_allowed,
+              .module_mode = boundary.module_mode,
+              .in_allowed = boundary.in_allowed,
+              .for_initializer = boundary.for_initializer,
+              .binding_mode = boundary.binding_mode,
+              .super_context = boundary.super_context
+            }
+          ));
+    else
+      end_ = left;
+    return TmtParser_statement_end(input, end_, end_.offset, false);
+  }
+}
+
+TmtParser_lexical_conflict
+TmtParser_read_lexical_conflict(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t used0,
+  TmtParser_lexical_conflict found0,
+  uint32_t fuel0
+)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  uint32_t used = used0;
+  TmtParser_lexical_conflict found = found0;
+  uint32_t fuel = fuel0;
+  while (true)
+  {
+    TmtParser_parser_state st = TmtParser_skip(input, state);
+    if (st.status != 0U)
+      return TmtParser_no_conflict;
+    else if (st.offset == input.size)
+      return
+        (
+          (TmtParser_lexical_conflict){
+            .first_name = found.first_name,
+            .repeated_name = found.repeated_name,
+            .checked = st.offset
+          }
+        );
+    else if (fuel == 0U || used == TmtParser_binding_region_width)
+      return TmtParser_no_conflict;
+    else
+    {
+      uint32_t width = TmtParser_local_width(input, st.offset);
+      if (width == 0U)
+        return TmtParser_no_conflict;
+      else
+      {
+        TmtParser_parser_state
+        start =
+          TmtParser_skip(input,
+            (
+              (TmtParser_parser_state){
+                .offset = TmtParser_plus(st.offset, width),
+                .count = st.count,
+                .depth = st.depth,
+                .status = st.status,
+                .local_names = st.local_names,
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed,
+                .module_mode = st.module_mode,
+                .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
+                .binding_mode = st.binding_mode,
+                .super_context = st.super_context
+              }
+            ));
+        TmtParser_parser_state
+        key = TmtParser_from_cursor(start, TmtParser_name(input, start.offset, false, true));
+        TmtGrammar_span span = { .first = start.offset, .last = key.offset };
+        uint32_t length = TmtParser_minus(key.offset, start.offset);
+        if (key.status != 0U || length > 256U)
+          return TmtParser_no_conflict;
+        else
+        {
+          TmtParser_parser_state end_ = TmtParser_lexical_declarator_end(input, key, width == 3U);
+          if (end_.status != 0U)
+            return TmtParser_no_conflict;
+          else
+          {
+            TmtGrammar_span previous = TmtParser_previous_lexical_name(input, used, span);
+            if (previous.first == previous.last)
+            {
+              input.bindings[used] =
+                ((TmtParser_binding_name){ .span = span, .namespace0 = TmtParser_ValueName });
+              TmtParser_parser_state tmp0 = end_;
+              uint32_t tmp1 = used + 1U;
+              uint32_t tmp = TmtParser_minus(fuel, 1U);
+              state = tmp0;
+              used = tmp1;
+              fuel = tmp;
+            }
+            else if (found.repeated_name.first != found.repeated_name.last)
+              return TmtParser_no_conflict;
+            else
+            {
+              TmtParser_parser_state tmp0 = end_;
+              TmtParser_lexical_conflict
+              tmp1 = { .first_name = previous, .repeated_name = span, .checked = 0U };
+              uint32_t tmp = TmtParser_minus(fuel, 1U);
+              state = tmp0;
+              found = tmp1;
+              fuel = tmp;
+            }
+          }
+        }
+      }
+    }
+  }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+TmtParser_lexical_conflict TmtParser_lexical_duplicate(TmtParser_tape input)
+{
+  TmtParser_lexical_conflict
+  conflict =
+    TmtParser_read_lexical_conflict(input,
+      TmtParser_initial_state(false, true),
+      0U,
+      TmtParser_no_conflict,
+      input.size);
+  TmtGrammar_span first = conflict.first_name;
+  TmtGrammar_span second = conflict.repeated_name;
+  return
+    first.first < first.last && first.last <= second.first && second.first < second.last &&
+      second.last <= input.size ? conflict
+                                : TmtParser_no_conflict;
 }

@@ -11,13 +11,16 @@ typedef enum {
   TMT_UNSUPPORTED,
   TMT_SOURCE_LIMIT,
   TMT_DEPTH_LIMIT,
-  TMT_CANDIDATE_LIMIT
+  TMT_CANDIDATE_LIMIT,
+  TMT_DUPLICATE_LEXICAL
 } tmt_status;
 
 typedef struct {
   tmt_status status;
   uint32_t count;
   uint32_t max_depth;
+  TmtGrammar_span first_name;
+  TmtGrammar_span repeated_name;
 } tmt_result;
 
 enum { TMT_SOURCE_MAX = 1048576, TMT_CANDIDATES_MAX = 4096 };

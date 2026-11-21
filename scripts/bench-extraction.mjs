@@ -40,6 +40,7 @@ for (const input of inputs) {
   let fastCandidates = 0;
   let nativeFiles = 0;
   let nativeCandidates = 0;
+  let nativeDiagnosticFiles = 0;
   let yukuFiles = 0;
   let yukuCandidates = 0;
   let tokenFiles = 0;
@@ -54,6 +55,8 @@ for (const input of inputs) {
     } else if (optimized.path === 'native') {
       nativeFiles++;
       nativeCandidates += optimized.candidates.length;
+    } else if (optimized.reason === 'duplicate-lexical') {
+      nativeDiagnosticFiles++;
     } else if (optimized.reason !== 'invalid-utf8') {
       yukuFiles++;
       yukuCandidates += optimized.candidates.length;
@@ -90,7 +93,7 @@ for (const input of inputs) {
   };
   reports.push({
     workload: input.name, revision: input.revision, files: input.files.length, bytes, turnsPerRepetition: turns, fastFiles: fast,
-    fastCandidates, nativeFiles, nativeCandidates, yukuFiles, yukuCandidates, tokenFiles, tokenCandidates,
+    fastCandidates, nativeFiles, nativeCandidates, nativeDiagnosticFiles, yukuFiles, yukuCandidates, tokenFiles, tokenCandidates,
     baseline: stats(summaries[0]), optimized: stats(summaries[1]), samplesMs: summaries,
   });
 }

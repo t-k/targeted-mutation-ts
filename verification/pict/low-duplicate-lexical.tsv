@@ -1,0 +1,13 @@
+Declaration	Suffix	Repeated
+Const	Valid	First
+Let	Invalid	Latest
+Mixed	Valid	Latest
+Mixed	SecondConflict	First
+Const	Unsupported	Latest
+Let	Valid	First
+Let	SecondConflict	Latest
+Const	SecondConflict	First
+Let	Unsupported	First
+Mixed	Invalid	First
+Const	Invalid	Latest
+Mixed	Unsupported	Latest

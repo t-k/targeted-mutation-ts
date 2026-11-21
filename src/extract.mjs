@@ -12,7 +12,7 @@ const nativePath = new URL('../build/tmt.node', import.meta.url);
 const native = existsSync(nativePath) ? load('../build/tmt.node') : null;
 const replacements = new Map([['<', '<='], ['<=', '<'], ['>', '>='], ['>=', '>']]);
 const operators = ['', '<', '<=', '>', '>='];
-const reasons = ['', 'outside-l1', 'source-limit', 'depth-limit', 'candidate-limit'];
+const reasons = ['', 'outside-l1', 'source-limit', 'depth-limit', 'candidate-limit', 'duplicate-lexical'];
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 export const rule = 'comparison-boundary/v1';
 
@@ -65,6 +65,19 @@ function invalidEncoding() {
   return { path: 'diagnostic', reason: 'invalid-utf8', candidates: [], diagnostics: [
     { severity: 'error', message: 'Expected well-formed UTF-8', start: 0, end: 0 },
   ] };
+}
+
+function duplicateLexical(source, rows, file, metrics) {
+  const [, , , , first, firstEnd, start, end] = rows;
+  const name = source.toString('utf8', start, end);
+  return { path: 'diagnostic', reason: 'duplicate-lexical', metrics, candidates: [], diagnostics: [{
+    severity: 'error', message: `Identifier '${name}' has already been declared`, path: file ?? null, start, end,
+    labels: [
+      { start: first, end: firstEnd, message: `'${name}' was first declared as a variable here` },
+      { start, end, message: 'cannot be redeclared here' },
+    ],
+    help: `Consider removing or renaming this declaration of '${name}'`,
+  }] };
 }
 
 function operatorSpan(tokens, node) {
@@ -221,6 +234,7 @@ export function extract(input, options = {}) {
       return { path: 'fast', metrics, candidates };
     }
     reason = reasons[status];
+    if (status === 5) return duplicateLexical(source, rows, options.file, metrics);
     if (native.standalone) {
       return { path: 'diagnostic', reason, metrics, candidates: [], diagnostics: [{
         severity: 'error', message: 'Standalone Low* extraction declined the source', start: 0, end: 0,
