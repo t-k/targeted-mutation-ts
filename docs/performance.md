@@ -1,5 +1,11 @@
 # Performance measurements
 
+## Standalone Low★ extraction
+
+The [standalone extraction run](../evidence/m1/standalone-low-extraction.json) adds typed modules, generic type references, and method calls to the Low★ path. A clean build without npm dependencies, Cargo or Oxc sources extracted the comparison in mreact's `packages/router/src/navigation-history-cache.ts` directly from bytes. The macOS arm64 standalone addon was 86,776 bytes.
+
+The expanded Low★ path extracted one mreact candidate and three TypeScript compiler fixture candidates. The ordinary build still sends 67 mreact candidates and four tachyon-dom candidates through Yuku. Across 8,549 files, all comparison and diagnostic results agreed with Yuku in both logical-rule settings. Warm medians against `d7e6384` were 193.99 ms and 196.86 ms on mreact, and 55.61 ms and 54.98 ms on tachyon-dom, with overlapping interquartile ranges for each checkout.
+
 ## Native TS and TSX module extraction
 
 The addon tries the AST-free Low★ grammar first. Oxc handles broader module syntax with a native AST and returns only candidates to JavaScript. The extraction audit compares ordered candidate records and full diagnostics with Yuku 0.19.0, with the JSX logical rule both disabled and enabled.
