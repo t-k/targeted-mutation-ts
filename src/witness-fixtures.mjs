@@ -1,31 +1,35 @@
 import ts from 'typescript';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { bare, integer } from './witness-rules.mjs';
+import { orderProjection } from './witness-order.mjs';
 
 function literal(node, shape) {
   node = bare(node);
+  if (shape === 'string') return ts.isStringLiteral(node) ? { node, value: node.text } : null;
   if (shape === 'number') {
     const value = integer(node);
     return value === undefined ? null : { node, value };
   }
-  if (shape === 'array' && ts.isArrayLiteralExpression(node) && node.elements.length <= 256) {
-    const items = node.elements.map(item => literal(item, 'number'));
+  if ((shape === 'array' || shape.items) && ts.isArrayLiteralExpression(node) && node.elements.length <= 256) {
+    const items = node.elements.map(item => literal(item, shape.items ?? 'number'));
     return items.includes(null) ? null : { node, value: items.map(item => item.value), items };
   }
-  if (!Array.isArray(shape) || !ts.isObjectLiteralExpression(node)) return null;
+  if ((!Array.isArray(shape) && !shape.record) || !ts.isObjectLiteralExpression(node)) return null;
   const fields = new Map();
   for (const field of node.properties) {
     if (!ts.isPropertyAssignment(field) || !ts.isIdentifier(field.name) || fields.has(field.name.text) ||
         field.name.text === '__proto__') return null;
-    const datum = literal(field.initializer, 'number');
+    const type = shape.record ? Object.hasOwn(shape.record, field.name.text) && shape.record[field.name.text] : 'number';
+    if (!type) return null;
+    const datum = literal(field.initializer, type);
     if (!datum) return null;
     fields.set(field.name.text, datum);
   }
-  if (shape.some(field => !fields.has(field))) return null;
+  if ((shape.record ? Object.keys(shape.record) : shape).some(field => !fields.has(field))) return null;
   return { node, value: Object.fromEntries([...fields].map(([key, datum]) => [key, datum.value])), fields };
 }
 
-function importedBindings(tree) {
+export function importedBindings(tree) {
   const names = new Map();
   for (const declaration of tree.statements) {
     if (!ts.isImportDeclaration(declaration) || !ts.isStringLiteral(declaration.moduleSpecifier) ||
@@ -38,6 +42,13 @@ function importedBindings(tree) {
     }
   }
   return names;
+}
+
+export function importMatches(file, specifier, subject) {
+  if (!specifier.startsWith('.')) return false;
+  const path = relative('.', resolve(dirname(file), specifier)).split(sep).join('/');
+  const source = subject.split(sep).join('/');
+  return source === path || source === path + '.ts' || source === path.replace(/\.js$/, '.ts');
 }
 
 export function fixtureCalls(tree, file, candidate, subject) {
@@ -59,20 +70,22 @@ export function fixtureCalls(tree, file, candidate, subject) {
     if (!ts.isCallExpression(expect) || !ts.isIdentifier(expect.expression) || expect.arguments.length !== 1) continue;
     const match = imports.get(expect.expression.text);
     if (match?.module !== 'vitest' || match.name !== 'expect') continue;
-    const call = bare(expect.arguments[0]);
+    const root = bare(expect.arguments[0]);
+    const projection = candidate.order ? orderProjection(root) : null;
+    if (candidate.order && !projection) continue;
+    const call = projection?.call ?? root;
     if (!ts.isCallExpression(call) || !ts.isIdentifier(call.expression) || call.arguments.length !== candidate.parameters.length) continue;
     const binding = imports.get(call.expression.text);
-    if (binding?.name !== candidate.name || !binding.module.startsWith('.')) continue;
-    const imported = relative('.', resolve(dirname(file), binding.module)).split(sep).join('/');
-    const sourcePath = subject.split(sep).join('/');
-    if (sourcePath !== imported && sourcePath !== imported + '.ts' && sourcePath !== imported.replace(/\.js$/, '.ts')) continue;
+    if (binding?.name !== candidate.name || !importMatches(file, binding.module, subject)) continue;
     const arguments_ = call.arguments.map((arg, index) => literal(arg, candidate.parameters[index].shape));
     if (arguments_.includes(null)) continue;
     const expected = bare(assertion.arguments[0]);
     const value = expected.kind === ts.SyntaxKind.TrueKeyword ? true
-      : expected.kind === ts.SyntaxKind.FalseKeyword ? false : integer(expected);
+      : expected.kind === ts.SyntaxKind.FalseKeyword ? false : ts.isStringLiteral(expected) ? expected.text : integer(expected);
     if (value === undefined) continue;
-    results.push({ file, name: args[0].text, module: binding.module, bindingName: call.expression.text, expectEnd: expect.arguments[0].getEnd(), args: arguments_, expected: value });
+    results.push({ file, name: args[0].text, module: binding.module, bindingName: call.expression.text,
+      expectEnd: expect.arguments[0].getEnd(), args: arguments_, expected: value, projection,
+      suffix: projection ? `.map(row => row.${projection.field}).join(${JSON.stringify(projection.separator)})` : '' });
   }
   return results;
 }
@@ -80,20 +93,20 @@ export function fixtureCalls(tree, file, candidate, subject) {
 export function witnessProposals(candidate, fixtures) {
   return fixtures.flatMap(fixture => {
     const args = fixture.args.map(datum => datum.value);
-    return candidate.propose(args).flatMap(proposal => {
-      if (!Object.is(proposal.original, fixture.expected)) return [];
-      const [index, child] = proposal.path;
-      const datum = fixture.args[index];
-      const previous = child === undefined ? datum : datum.items?.[child] ?? datum.fields?.get(child);
+    return candidate.propose(args, fixture).flatMap(proposal => {
+      if (!proposal.append && !Object.is(proposal.original, fixture.expected)) return [];
+      const datum = fixture.args[proposal.path[0]];
+      const previous = proposal.path.slice(1).reduce((current, item) => current?.items?.[item] ?? current?.fields?.get(item), datum);
       const arguments_ = structuredClone(args);
-      if (child === undefined) arguments_[index] = proposal.next;
-      else arguments_[index][child] = proposal.next;
+      const parent = proposal.path.slice(0, -1).reduce((value, index) => value[index], arguments_);
+      parent[proposal.path.at(-1)] = proposal.next;
       const node = previous?.node;
       const pos = datum.node.getEnd() - 1;
-      const rewrite = node ? { start: node.getStart(), end: node.getEnd(), original: node.getText(), replacement: String(proposal.next) }
+      const rewrite = proposal.append ? null
+        : node ? { start: node.getStart(), end: node.getEnd(), original: node.getText(), replacement: JSON.stringify(proposal.next) }
         : proposal.insert && datum.items.length && !datum.node.elements.hasTrailingComma
           ? { start: pos, end: pos, original: '', replacement: ', ' + proposal.next } : null;
-      const distance = previous ? Math.abs(previous.value - proposal.next) : Infinity;
+      const distance = previous && typeof proposal.next === 'number' ? Math.abs(previous.value - proposal.next) : previous ? 1 : Infinity;
       return [{ ...proposal, fixture, arguments: arguments_, rewrite, distance }];
     });
   }).sort((a, b) => !!b.rewrite - !!a.rewrite || a.distance - b.distance);

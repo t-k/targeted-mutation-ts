@@ -1,4 +1,5 @@
 import ts from 'typescript';
+import { orderRules } from './witness-order.mjs';
 
 export const parseSource = (file, source) => ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
 
@@ -26,9 +27,20 @@ const ordered = new Map([
 ]);
 
 function parameterShape(type) {
+  if (type?.kind === ts.SyntaxKind.StringKeyword) return 'string';
   if (type?.kind === ts.SyntaxKind.NumberKeyword) return 'number';
   if (type && ts.isTypeOperatorNode(type) && type.operator === ts.SyntaxKind.ReadonlyKeyword) type = type.type;
   if (type && ts.isArrayTypeNode(type) && type.elementType.kind === ts.SyntaxKind.NumberKeyword) return 'array';
+  if (type && ts.isArrayTypeNode(type) && ts.isTypeLiteralNode(type.elementType)) {
+    const fields = [];
+    for (const member of type.elementType.members) {
+      if (!ts.isPropertySignature(member) || member.questionToken || !member.name || !ts.isIdentifier(member.name) ||
+          member.name.text === '__proto__' || ![ts.SyntaxKind.NumberKeyword, ts.SyntaxKind.StringKeyword].includes(member.type?.kind)) return null;
+      fields.push([member.name.text, member.type.kind === ts.SyntaxKind.NumberKeyword ? 'number' : 'string']);
+    }
+    return fields.length && new Set(fields.map(([name]) => name)).size === fields.length
+      ? { items: { record: Object.fromEntries(fields) } } : null;
+  }
   if (!type || !ts.isTypeLiteralNode(type)) return null;
   const fields = type.members.filter(member => ts.isPropertySignature(member) && !member.questionToken &&
     member.name && ts.isIdentifier(member.name) && member.type?.kind === ts.SyntaxKind.NumberKeyword)
@@ -36,7 +48,7 @@ function parameterShape(type) {
   return fields.length ? fields : null;
 }
 
-function functionParts(statement) {
+export function functionParts(statement) {
   if (!statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword) ||
       statement.modifiers.some(modifier => modifier.kind === ts.SyntaxKind.DefaultKeyword)) return [];
   if (ts.isFunctionDeclaration(statement) && statement.name) return [[statement.name, statement]];
@@ -178,7 +190,39 @@ function sumRule(parameters, expression) {
   };
 }
 
-export function discoverWitnessRules(tree) {
+function lengthRule(parameters, expression) {
+  if (!ts.isPropertyAccessExpression(expression) || expression.questionDotToken || expression.name.text !== 'length') return null;
+  const receiver = expression.expression;
+  let points = false;
+  let parameter = receiver;
+  if (ts.isCallExpression(receiver) && !receiver.questionDotToken && receiver.arguments.length === 1 &&
+      ts.isPropertyAccessExpression(receiver.expression) && !receiver.expression.questionDotToken &&
+      ts.isIdentifier(receiver.expression.expression) && receiver.expression.expression.text === 'Array' &&
+      receiver.expression.name.text === 'from') {
+    points = true;
+    parameter = receiver.arguments[0];
+  }
+  if (!ts.isIdentifier(parameter)) return null;
+  const index = parameters.findIndex(param => param.name === parameter.text && param.shape === 'string');
+  if (index < 0) return null;
+  const { text } = parameter;
+  return {
+    rule: points ? 'code-point-to-utf8-length/v1' : 'code-unit-to-code-point-length/v1',
+    node: expression,
+    replacement: points ? `Buffer.byteLength(${text}, 'utf8')` : `Array.from(${text}).length`,
+    propose(args, fixture) {
+      const value = args[index];
+      if (!/^[\x00-\x7f]*$/.test(value) || fixture.expected !== value.length) return [];
+      const next = (points ? 'é' : '😀') + value.slice(1);
+      const codePoints = [...next].length;
+      const original = points ? codePoints : next.length;
+      return [{ path: [index], next, original, mutant: points ? Buffer.byteLength(next) : codePoints,
+        append: original !== fixture.expected }];
+    },
+  };
+}
+
+export function discoverWitnessRules(tree, sortConstraints = []) {
   if (tree.parseDiagnostics.length) return [];
   const result = [];
   for (const statement of tree.statements) {
@@ -189,7 +233,9 @@ export function discoverWitnessRules(tree) {
       const expression = bodyExpression(fn);
       if (!expression) continue;
       const rules = ts.isBinaryExpression(expression) ? [...comparisonRules(parameters, expression), maskRule(parameters, expression)].filter(Boolean)
-        : ts.isCallExpression(expression) ? [indexRule(parameters, expression), sumRule(parameters, expression)].filter(Boolean) : [];
+        : ts.isCallExpression(expression) ? [indexRule(parameters, expression), sumRule(parameters, expression),
+          ...orderRules(parameters, expression, sortConstraints.filter(entry => entry.function === name.text))].filter(Boolean)
+          : [lengthRule(parameters, expression)].filter(Boolean);
       for (const rule of rules) result.push({ ...rule, name: name.text, parameters });
     }
   }

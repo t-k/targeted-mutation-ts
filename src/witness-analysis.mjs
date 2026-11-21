@@ -8,6 +8,8 @@ import { inside, runVitest, withCopy } from './vitest.mjs';
 import { parseSource, discoverWitnessRules } from './witness-rules.mjs';
 import { fixtureCalls, witnessProposals } from './witness-fixtures.mjs';
 import { prepareContracts, evaluateContracts } from './witness-contracts.mjs';
+import { parseSortConstraints } from './witness-order.mjs';
+import { discoverySources, discoverContracts } from './witness-discovery.mjs';
 
 const candidateLimit = 32;
 const proposalLimit = 4;
@@ -81,7 +83,7 @@ function verifyProposal(attempt, baseline, candidate, proposal, snapshots) {
   }
 
   const name = marker;
-  const expression = `__tmtCall_${suffix}(${proposal.arguments.map(value => JSON.stringify(value)).join(', ')})`;
+  const expression = `__tmtCall_${suffix}(${proposal.arguments.map(value => JSON.stringify(value)).join(', ')})${fixture.suffix}`;
   const append = { file: fixture.file, source: `
 import { expect as __tmtExpect_${suffix}, it as __tmtIt_${suffix} } from 'vitest';
 import { ${candidate.name} as __tmtCall_${suffix} } from ${JSON.stringify(fixture.module)};
@@ -102,8 +104,13 @@ function verifyAppend(attempt, baseline, edits, append, marker, original, mutant
 
 export function analyzeWitnesses(project, files, options) {
   const root = realpathSync(project);
+  const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
+  if (!specification || typeof specification !== 'object' || Array.isArray(specification)) throw new Error('Expected a witness specification object');
+  const constraints = parseSortConstraints(specification);
+  const boundConstraints = new Set();
   const snapshots = new Map();
   const candidates = [];
+  const sources = [];
   const extraction = [];
   const selectedFiles = selectScope(root, files, options);
   for (const { file, selected } of selectedFiles) {
@@ -115,13 +122,16 @@ export function analyzeWitnesses(project, files, options) {
     const source = input.toString();
     const tree = parseSource(file, source);
     snapshots.set(file, source);
-    const rules = discoverWitnessRules(tree);
+    const rules = discoverWitnessRules(tree, constraints.filter(entry => entry.file === file));
+    for (const rule of rules) for (const entry of rule.constraints ?? []) boundConstraints.add(entry);
+    sources.push(discoverySources(tree, selected));
     extraction.push({ file, path: tree.parseDiagnostics.length ? 'diagnostic' : 'typescript' });
     for (const rule of rules) {
       const start = rule.node.getStart(tree);
       const end = rule.node.getEnd();
       const pos = tree.getLineAndCharacterOfPosition(start);
-      if (!selected(pos.line + 1)) continue;
+      const last = tree.getLineAndCharacterOfPosition(end - 1).line;
+      if (Array.from({ length: last - pos.line + 1 }, (_, index) => pos.line + index + 1).some(line => !selected(line))) continue;
       const edit = { file, start, end, original: source.slice(start, end), replacement: rule.replacement };
       const location = { file, line: pos.line + 1, column: pos.character + 1,
         start: Buffer.byteLength(source.slice(0, start)), end: Buffer.byteLength(source.slice(0, end)) };
@@ -129,14 +139,18 @@ export function analyzeWitnesses(project, files, options) {
       candidates.push({ ...rule, id, edit, location });
     }
   }
+  const unmatched = constraints.find(entry => !boundConstraints.has(entry));
+  if (unmatched) throw new Error(`Sort constraints do not match a supported export: ${unmatched.file} / ${unmatched.function}`);
 
   const report = { schemaVersion: 1, runner: 'vitest', profile: 'witnesses', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
   if (options.config || options.test?.length || options['copy-exclude']?.length) {
     report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
   }
-  const plans = options.spec ? prepareContracts(JSON.parse(readFileSync(inside(root, options.spec), 'utf8')),
-    new Map(selectedFiles.map(({ file, selected }) => [file, selected])), snapshots) : [];
-  if ((!candidates.length && !plans.length) || extraction.some(entry => entry.path === 'diagnostic')) return report;
+  const selection = new Map(selectedFiles.map(({ file, selected }) => [file, selected]));
+  const plans = Object.hasOwn(specification, 'witnessPlans') ? prepareContracts(specification, selection, snapshots) : [];
+  const discoveryPossible = sources.some(source => source.stores.length) ||
+    ['encoder', 'decoder'].every(kind => sources.some(source => source.endpoints.some(endpoint => endpoint.kind === kind)));
+  if ((!candidates.length && !plans.length && !discoveryPossible) || extraction.some(entry => entry.path === 'diagnostic')) return report;
   const attempt = (edits, append) => runAttempt(root, options, snapshots, edits, append);
   const baseline = runAttempt(root, options, snapshots, [], undefined, true);
   if (baseline.status !== 'passed') return { ...report, evaluation: 'baseline_error',
@@ -176,12 +190,18 @@ export function analyzeWitnesses(project, files, options) {
         observedOutcomes: candidate.outcome ? [...new Set(fixtures
           .map(seed => candidate.outcome(seed.args.map(arg => arg.value), seed.expected)).filter(Boolean))].sort() : undefined,
         seed: { file: fixture.file, test: fixture.name },
-        suggestedTest: `expect(${fixture.bindingName}(${proposal.arguments.map(value => JSON.stringify(value)).join(', ')})).toBe(${JSON.stringify(original)})`,
+        suggestedTest: `expect(${fixture.bindingName}(${proposal.arguments.map(value => JSON.stringify(value)).join(', ')})${fixture.suffix}).toBe(${JSON.stringify(original)})`,
+        constraints: candidate.constraints,
         ...verified,
       });
       break;
     }
   }
-  evaluateContracts(plans, attempt, baseline, snapshots, verifyAppend, report);
+  const automatic = discoverContracts(fixtureSources, baseline, sources).filter(plan => !plans.some(explicit =>
+    explicit.testFile === plan.testFile && explicit.seedTest === plan.seedTest &&
+    explicit.edits.length === plan.edits.length && explicit.edits.every(edit => plan.edits.some(other =>
+      edit.file === other.file && edit.line === other.line && edit.original === other.original && edit.replacement === other.replacement))));
+  const discovered = prepareContracts({ witnessPlans: automatic }, selection, snapshots, { discovered: true });
+  evaluateContracts([...plans, ...discovered], attempt, baseline, snapshots, verifyAppend, report);
   return report;
 }

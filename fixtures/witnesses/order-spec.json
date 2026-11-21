@@ -1,0 +1,5 @@
+{
+  "sortConstraints": [
+    { "file": "src/text-order.ts", "function": "byCreated", "before": "createdAt", "after": "updatedAt" }
+  ]
+}

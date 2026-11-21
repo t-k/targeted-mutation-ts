@@ -1,0 +1,4 @@
+Rule: Unicode, Order, Pair, State
+Seed: Direct, Detached, Alias
+Scope: Full, Partial
+IF [Seed] = "Alias" THEN [Rule] = "Pair";

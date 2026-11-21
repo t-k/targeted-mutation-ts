@@ -43,6 +43,13 @@ try {
   const witness = JSON.parse(run(process.execPath, [entry, 'analyze', 'witnesses', 'src/queries.ts',
     '--witnesses', '--test', 'test/queries.test.ts', '--lines', 'src/queries.ts:5-5']));
   assert.ok(witness.diagnostics.some(gap => gap.rule === 'first-to-last-index/v1' && gap.verification.status === 'confirmed'));
+  const ordered = JSON.parse(run(process.execPath, [entry, 'analyze', 'witnesses', 'src/text-order.ts',
+    '--witnesses', '--test', 'test/text-order.test.ts', '--spec', 'order-spec.json']));
+  assert.ok(ordered.diagnostics.some(gap => gap.rule === 'substitute-sort-key/v1' && gap.verification.status === 'confirmed'));
+  const discovered = JSON.parse(run(process.execPath, [entry, 'analyze', 'witnesses', 'src/contracts.ts',
+    '--witnesses', '--test', 'test/contracts.test.ts']));
+  assert.ok(discovered.diagnostics.some(gap => gap.rule === 'paired-source/v1' && gap.verification.status === 'confirmed'));
+  assert.ok(discovered.diagnostics.some(gap => gap.borrowedFrom?.method === 'get' && gap.verification.status === 'confirmed'));
   const wrongArch = process.arch === 'arm64' ? 'x64' : 'arm64';
   const mismatch = mkdtempSync(join(cwd, 'mismatch-'));
   writeFileSync(join(mismatch, 'package.json'), JSON.stringify({

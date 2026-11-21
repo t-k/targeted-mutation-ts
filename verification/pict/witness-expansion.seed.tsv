@@ -1,0 +1,12 @@
+Rule	Seed	Scope
+Unicode	Direct	Full
+Order	Direct	Full
+Pair	Direct	Full
+Pair	Alias	Full
+Pair	Detached	Full
+Pair	Direct	Partial
+State	Direct	Full
+State	Detached	Full
+Unicode	Detached	Full
+Order	Detached	Full
+Order	Direct	Partial

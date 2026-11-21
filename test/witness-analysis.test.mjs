@@ -85,7 +85,7 @@ test('does not infer a paired gap from tests other than the named seed', () => i
   writeFileSync(file, JSON.stringify(specification));
   const result = runWitness(project, 'src/contracts.ts', 'test/contracts.test.ts', '--spec', 'witness-spec.json');
   assert.deepEqual(result.mutants[0].singletons, [{ status: 'killed', seedFailed: false }, { status: 'killed', seedFailed: false }]);
-  assert.deepEqual(result.diagnostics, []);
+  assert.ok(!result.diagnostics.some(gap => gap.site === result.mutants[0].id));
 }));
 
 test('reports a byte-accurate fixture edit and preserves the import alias', () => isolatedFixture(project => {

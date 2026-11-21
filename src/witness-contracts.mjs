@@ -4,7 +4,7 @@ import { verdict } from './analysis.mjs';
 const isValue = value => value === null || ['string', 'boolean'].includes(typeof value) || (Number.isFinite(value) && !Object.is(value, -0));
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
 
-export function prepareContracts(specification, selection, snapshots) {
+export function prepareContracts(specification, selection, snapshots, { discovered = false } = {}) {
   if (specification === null || typeof specification !== 'object' || !Array.isArray(specification.witnessPlans)) {
     throw new Error('Expected a specification with a witnessPlans array');
   }
@@ -30,11 +30,13 @@ export function prepareContracts(specification, selection, snapshots) {
       if (file === undefined) throw new Error(`Source unavailable for witness plan ${plan.name}: ${edit.file}`);
       const lines = file.split(/(\r\n|[\r\n\u2028\u2029])/);
       const line = lines[(edit.line - 1) * 2];
-      const first = line?.indexOf(edit.original) ?? -1;
-      if (first < 0 || first !== line.lastIndexOf(edit.original)) {
+      const lineStart = lines.slice(0, (edit.line - 1) * 2).join('').length;
+      const first = discovered ? edit.start - lineStart : line?.indexOf(edit.original) ?? -1;
+      if (first < 0 || (discovered ? !Number.isSafeInteger(first) || line?.slice(first, first + edit.original.length) !== edit.original
+        : first !== line.lastIndexOf(edit.original))) {
         throw new Error(`Expected one exact source edit match in ${edit.file}:${edit.line}`);
       }
-      const start = lines.slice(0, (edit.line - 1) * 2).join('').length + first;
+      const start = lineStart + first;
       return { ...edit, start, end: start + edit.original.length };
     });
     if (edits.length === 2 && edits[0].file === edits[1].file &&
@@ -53,7 +55,7 @@ export function confirmsContract(status, seedPassed, singletons, checked) {
 export function evaluateContracts(plans, attempt, baseline, snapshots, verifyAppend, report) {
   const testFiles = new Set(baseline.tests.map(test => test.file));
   for (const plan of plans) {
-    const { id, edits, name, seedTest, testFile, expected, alternate, requirement, observe } = plan;
+    const { id, edits, name, seedTest, testFile, expected, alternate, requirement, observe, expectation, borrowedFrom, observation, connection } = plan;
     const rule = edits.length === 2 ? 'paired-source/v1' : 'contract-source/v1';
     const scope = edits.map(edit => {
       const source = snapshots.get(edit.file);
@@ -95,7 +97,8 @@ __tmtIt_${suffix}(${JSON.stringify(marker)}, async () => {
     report.diagnostics.push({
       kind: edits.length === 2 ? 'PAIRED MUTATION GAP' : 'STATE ASSERTION GAP',
       site: id, rule, location: result.location, requirement, seed: { file: testFile, test: seedTest },
-      witness: { expression: observe, original: expected, mutant: alternate, expectation: 'specification' },
+      borrowedFrom, observation, connection,
+      witness: { expression: observe, original: expected, mutant: alternate, expectation: expectation === 'original' ? 'original' : 'specification' },
       suggestedTest: `expect(await (${observe})).toBe(${JSON.stringify(expected)})`,
       verification: { status: 'confirmed', original: 'passed', rewrite: 'failed' },
     });
