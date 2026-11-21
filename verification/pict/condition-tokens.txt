@@ -1,0 +1,4 @@
+Condition: If, While, For
+Operator: LT, LE, GT, GE
+Operand: Identifier, Property, Number
+Trivia: Plain, Comment, Unicode

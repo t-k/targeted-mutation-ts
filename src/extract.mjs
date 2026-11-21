@@ -2,6 +2,7 @@ import { isUtf8 } from 'node:buffer';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { types } from 'node:util';
+import { tokenComparisons } from './token-comparisons.mjs';
 
 const load = createRequire(import.meta.url);
 const nativePath = new URL('../build/tmt.node', import.meta.url);
@@ -81,7 +82,7 @@ function possibleOperator(tokens, kinds, logical) {
   return false;
 }
 
-export function extractFallback(input, options = {}) {
+function extractParsed(input, options = {}, allowTokens = false) {
   const source = normalize(input);
   if (source === null) return invalidEncoding();
   const { dialect, mode } = optionsFor(options);
@@ -103,6 +104,10 @@ export function extractFallback(input, options = {}) {
         ...relocate(diagnostic), labels: diagnostic.labels.map(relocate),
       })),
     };
+  }
+  if (allowTokens && dialect === 'ts' && tokens) {
+    const candidates = tokenComparisons(tokens, TokenKind, bytes);
+    if (candidates) return { path: 'fallback', fallback: 'tokens', candidates };
   }
   const missingOperator = node => ({
     path: 'diagnostic', candidates: [], diagnostics: [{
@@ -143,6 +148,10 @@ export function extractFallback(input, options = {}) {
   return { path: 'fallback', candidates };
 }
 
+export function extractFallback(input, options = {}) {
+  return extractParsed(input, options);
+}
+
 export function extract(input, options = {}) {
   if (!native && options.requireNative) throw new Error('Run npm run build:native to build the extractor');
   const { dialect, mode } = optionsFor(options);
@@ -176,5 +185,5 @@ export function extract(input, options = {}) {
     }
     reason = reasons[status];
   }
-  return { ...extractFallback(fallbackInput, options), reason, metrics };
+  return { ...extractParsed(fallbackInput, options, true), reason, metrics };
 }

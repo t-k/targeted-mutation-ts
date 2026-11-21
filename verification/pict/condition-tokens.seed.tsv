@@ -1,0 +1,3 @@
+Condition	Operator	Operand	Trivia
+For	LT	Property	Plain
+If	GE	Identifier	Unicode
