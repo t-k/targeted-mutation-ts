@@ -1,0 +1,3 @@
+Accessor: Getter, Setter
+Key: Named, Quoted, Numeric, Computed
+Parameters: Correct, EmptyOrExtra, Rest, MissingBody

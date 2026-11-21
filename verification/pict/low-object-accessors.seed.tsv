@@ -1,0 +1,7 @@
+Accessor	Key	Parameters
+Getter	Named	Correct
+Setter	Computed	Correct
+Getter	Computed	MissingBody
+Setter	Named	Rest
+Setter	Quoted	EmptyOrExtra
+Getter	Numeric	EmptyOrExtra

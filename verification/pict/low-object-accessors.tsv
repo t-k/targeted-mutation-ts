@@ -1,0 +1,17 @@
+Accessor	Key	Parameters
+Getter	Named	Correct
+Setter	Computed	Correct
+Getter	Computed	MissingBody
+Setter	Named	Rest
+Setter	Quoted	EmptyOrExtra
+Getter	Numeric	EmptyOrExtra
+Getter	Quoted	Correct
+Setter	Named	MissingBody
+Setter	Numeric	Correct
+Getter	Numeric	Rest
+Setter	Quoted	MissingBody
+Setter	Computed	EmptyOrExtra
+Setter	Computed	Rest
+Getter	Quoted	Rest
+Setter	Named	EmptyOrExtra
+Setter	Numeric	MissingBody

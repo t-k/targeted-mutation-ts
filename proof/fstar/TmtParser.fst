@@ -1217,6 +1217,10 @@ let collection_head (input:tape) (state:parser_state) (allow_in:bool) : Run pars
 
 type parameter_list = { names:named_state; non_simple:bool }
 type function_shape = { after_function:parser_state; signature_only:bool }
+type parameter_arity =
+  | OrdinaryParameters
+  | GetterParameters
+  | SetterParameters
 
 let parameter_prefix (input:tape) (state:parser_state) (floor used:names_used) : Run parameter_list input =
   let first = peek input state.offset in
@@ -1310,6 +1314,26 @@ let async_modifier (input:tape) (start:U32.t) : Read cursor input =
       { after with ok = after.ok && not after.newline }
     else { at = start; ok = false; newline = false }
   else { at = start; ok = false; newline = false }
+
+type accessor_head = { arity:parameter_arity; key_start:parser_state }
+
+let accessor_modifier (input:tape) (st:parser_state) : Read accessor_head input =
+  let first = peek input st.offset in
+  let kind =
+    if first = 103uy then
+      if keyword input st.offset 3ul 0x676574uL then GetterParameters else OrdinaryParameters
+    else if first = 115uy then
+      if keyword input st.offset 3ul 0x736574uL then SetterParameters else OrdinaryParameters
+    else OrdinaryParameters in
+  let ordinary = { arity = OrdinaryParameters; key_start = st } in
+  if kind = OrdinaryParameters then ordinary
+  else
+    let key = skip input { st with offset = plus st.offset 3ul } in
+    let byte = peek input key.offset in
+    let decimal = if byte = 46uy then G.decimal_digit (peek input (next key.offset)) else G.decimal_digit byte in
+    if G.identifier_start byte || byte = 34uy || byte = 39uy || byte = 91uy || decimal then
+      { arity = kind; key_start = key }
+    else ordinary
 
 let async_function (input:tape) (start:U32.t) : Read cursor input =
   let after = async_modifier input start in
@@ -1926,16 +1950,18 @@ and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (cl
       else consume input st close
 and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bool)
   : Run parsed input (decreases %[U32.v fuel; 26; 0]) =
-  let byte = peek input st.offset in
   let spread = spread_at input st.offset in
   if spread && not colon_required then comparison input { st with offset = plus st.offset 3ul } fuel
   else
+    let head = accessor_modifier input st in
+    let arity = head.arity in
+    let accessor = arity <> OrdinaryParameters in
     let modifier = async_modifier input st.offset in
     let method_byte = if modifier.ok then peek input modifier.at else 0uy in
     let async_method = modifier.ok && (G.identifier_start method_byte || method_byte = 34uy ||
       method_byte = 39uy || method_byte = 91uy) in
-    let key_start = if async_method then { st with offset = modifier.at } else st in
-    let byte = if async_method then method_byte else byte in
+    let key_start = if async_method then { st with offset = modifier.at } else head.key_start in
+    let byte = peek input key_start.offset in
     let quoted = byte = 34uy || byte = 39uy in
     let computed = byte = 91uy in
     let end_key =
@@ -1944,21 +1970,25 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bo
         let closed = consume input (skip input key.parser) 93uy in
         { closed with in_allowed = st.in_allowed }
       else
-        let key = property_name input key_start in
+        let key =
+          if accessor && (G.decimal_digit byte || byte = 46uy) then number_end input key_start.offset
+          else property_name input key_start in
         let first = if quoted then next key_start.offset else key_start.offset in
         let last = if quoted then minus key.at 1ul else key.at in
-        let prototype = if key.ok then proto_key input first last else false in
+        let prototype = if key.ok && not accessor then proto_key input first last else false in
         if prototype then failed st 1ul else from_cursor key_start key in
     let after_key = skip input end_key in
     let colon = same input after_key.offset 58uy in
     if after_key.status <> 0ul then empty_range after_key
-    else if colon && not async_method then comparison input (consume input after_key 58uy) fuel
+    else if colon && not async_method && not accessor then comparison input (consume input after_key 58uy) fuel
     else
       let next_token = peek input after_key.offset in
       if not colon_required && (next_token = 40uy || next_token = 60uy) then
         if fuel = 0ul then empty_range (failed after_key 3ul)
+        else if accessor then
+          empty_range (function_form input after_key (minus fuel 1ul) false MethodSuper false arity).after_function
         else empty_range (function_tail input after_key (minus fuel 1ul) async_method NoSuper)
-      else if computed || quoted || colon_required || async_method then empty_range (failed st 1ul)
+      else if computed || quoted || colon_required || async_method || accessor then empty_range (failed st 1ul)
       else
         let shorthand = name input st.offset false false in
         if shorthand.ok then empty_range after_key else empty_range (failed st 1ul)
@@ -2445,17 +2475,26 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
       else { names = { prefix.names with state = consume input end_ 41uy }; non_simple }
 and function_tail (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (super_:super_context)
   : Run parser_state input (decreases %[U32.v fuel; 54; 0]) =
-  (function_form input state fuel async_ super_ false).after_function
+  (function_form input state fuel async_ super_ false OrdinaryParameters).after_function
 
 and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (super_:super_context) (overload:bool)
+  (arity:parameter_arity)
   : Run function_shape input (decreases %[U32.v fuel; 53; 0]) =
   let depth = minus 64ul fuel in
   let start = if U32.(depth >^ state.depth) then { state with depth } else state in
   let start = { start with super_context = NoSuper } in
   let start = skip input (optional_type_parameters input (skip input start)) in
   let opening = consume input start 40uy in
+  let opening, limit =
+    if arity = OrdinaryParameters then (opening, 64ul)
+    else
+      let first = skip input opening in
+      let close = same input first.offset 41uy in
+      if arity = GetterParameters then (first, 0ul)
+      else if (if close then true else spread_at input first.offset) then (failed first 1ul, 1ul)
+      else (first, 1ul) in
   let floor = state.local_names in
-  let params = function_parameters input opening floor floor fuel 64ul false in
+  let params = function_parameters input opening floor floor fuel limit false in
   let constructor = super_ = BaseConstructor || super_ = DerivedConstructor in
   let annotation = if constructor then params.names.state else result_annotation input params.names.state in
   let st = skip input annotation in
@@ -2659,7 +2698,7 @@ let declaration_start (input:tape) (state:parser_state) : Read declaration_head 
 let module_function (input:tape) (state:parser_state) (used:names_used) (async_:bool)
   : Run named_state input =
   let named = from_cursor state (name input state.offset false true) in
-  let function_ = function_form input named 64ul async_ NoSuper true in
+  let function_ = function_form input named 64ul async_ NoSuper true OrdinaryParameters in
   let after = function_.after_function in
   if after.status <> 0ul then { state = after; used }
   else

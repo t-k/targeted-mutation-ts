@@ -660,6 +660,18 @@ typedef struct TmtParser_function_shape_s
 }
 TmtParser_function_shape;
 
+#define TmtParser_OrdinaryParameters 0
+#define TmtParser_GetterParameters 1
+#define TmtParser_SetterParameters 2
+
+typedef uint8_t TmtParser_parameter_arity;
+
+bool TmtParser_uu___is_OrdinaryParameters(TmtParser_parameter_arity projectee);
+
+bool TmtParser_uu___is_GetterParameters(TmtParser_parameter_arity projectee);
+
+bool TmtParser_uu___is_SetterParameters(TmtParser_parameter_arity projectee);
+
 TmtParser_parameter_list
 TmtParser_parameter_prefix(
   TmtParser_tape input,
@@ -696,6 +708,16 @@ TmtParser_parameter_list
 TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_cursor TmtParser_async_modifier(TmtParser_tape input, uint32_t start);
+
+typedef struct TmtParser_accessor_head_s
+{
+  TmtParser_parameter_arity arity;
+  TmtParser_parser_state key_start;
+}
+TmtParser_accessor_head;
+
+TmtParser_accessor_head
+TmtParser_accessor_modifier(TmtParser_tape input, TmtParser_parser_state st);
 
 TmtParser_cursor TmtParser_async_function(TmtParser_tape input, uint32_t start);
 
@@ -1175,7 +1197,8 @@ TmtParser_function_form(
   uint32_t fuel,
   bool async_,
   TmtParser_super_context super_,
-  bool overload
+  bool overload,
+  TmtParser_parameter_arity arity
 );
 
 TmtParser_parser_state
