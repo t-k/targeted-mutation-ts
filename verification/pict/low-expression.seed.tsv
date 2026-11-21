@@ -1,0 +1,6 @@
+Expression	Wrapper	Suffix
+Precedence	Function	Valid
+Conditional	Block	Valid
+Regex	Function	Valid
+Nested	ModuleConst	Valid
+Precedence	Block	Invalid
