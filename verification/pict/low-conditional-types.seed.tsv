@@ -1,0 +1,6 @@
+Condition	Context	Suffix
+Simple	Alias	Valid
+Nested	Call	Valid
+Relation	Assertion	Valid
+LineAfter	Annotation	Valid
+Relation	Call	Invalid

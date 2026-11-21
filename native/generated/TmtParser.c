@@ -2379,6 +2379,23 @@ TmtParser_read_bracket_type_key(TmtParser_tape input, TmtParser_parser_state sta
   }
 }
 
+K___TmtParser_parser_state_bool
+TmtParser_type_chain_start(TmtParser_tape input, TmtParser_parser_state state)
+{
+  TmtParser_parser_state st = TmtParser_skip(input, state);
+  uint8_t first = TmtParser_peek(input, st.offset);
+  if (first == 124U || first == 38U)
+    return
+      (
+        (K___TmtParser_parser_state_bool){
+          .fst = TmtParser_consume(input, st, first),
+          .snd = false
+        }
+      );
+  else
+    return ((K___TmtParser_parser_state_bool){ .fst = st, .snd = true });
+}
+
 TmtParser_parser_state
 TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel)
 {
@@ -3214,15 +3231,59 @@ TmtParser_annotation_type(
   uint32_t remaining
 )
 {
-  TmtParser_parser_state st = TmtParser_skip(input, state);
-  uint8_t first = TmtParser_peek(input, st.offset);
-  bool leading = first == 124U || first == 38U;
-  TmtParser_parser_state start;
-  if (leading)
-    start = TmtParser_consume(input, st, first);
+  K___TmtParser_parser_state_bool scrut0 = TmtParser_type_chain_start(input, state);
+  TmtParser_parser_state start = scrut0.fst;
+  bool allow_signature = scrut0.snd;
+  TmtParser_parser_state
+  check = TmtParser_type_terms(input, start, fuel, remaining, allow_signature);
+  TmtParser_cursor boundary = TmtParser_trivia(input, check.offset);
+  TmtParser_parser_state tail = TmtParser_from_cursor(check, boundary);
+  bool extends;
+  if (tail.status == 0U && !boundary.newline)
+    extends = TmtParser_keyword(input, tail.offset, 7U, 0x657874656e6473ULL);
   else
-    start = st;
-  return TmtParser_type_terms(input, start, fuel, remaining, !leading);
+    extends = false;
+  if (!extends)
+    return check;
+  else if (fuel == 0U)
+    return TmtParser_failed(tail, 1U);
+  else
+  {
+    uint32_t inner = TmtParser_minus(fuel, 1U);
+    K___TmtParser_parser_state_bool
+    scrut =
+      TmtParser_type_chain_start(input,
+        (
+          (TmtParser_parser_state){
+            .offset = TmtParser_plus(tail.offset, 7U),
+            .count = tail.count,
+            .depth = tail.depth,
+            .status = tail.status,
+            .local_names = tail.local_names,
+            .await_allowed = tail.await_allowed,
+            .jsx_allowed = tail.jsx_allowed,
+            .module_mode = tail.module_mode,
+            .in_allowed = tail.in_allowed,
+            .binding_mode = tail.binding_mode,
+            .super_context = tail.super_context
+          }
+        ));
+    TmtParser_parser_state start1 = scrut.fst;
+    bool allow_signature1 = scrut.snd;
+    TmtParser_parser_state
+    constraint = TmtParser_type_terms(input, start1, inner, remaining, allow_signature1);
+    TmtParser_parser_state
+    yes =
+      TmtParser_annotation_type(input,
+        TmtParser_consume(input, TmtParser_skip(input, constraint), 63U),
+        inner,
+        remaining);
+    return
+      TmtParser_annotation_type(input,
+        TmtParser_consume(input, TmtParser_skip(input, yes), 58U),
+        inner,
+        remaining);
+  }
 }
 
 TmtParser_parser_state

@@ -767,6 +767,11 @@ let read_bracket_type_key (input:tape) (state:parser_state) : Read bracket_type_
         qualified_name input key 64ul in
     { key_end = skip input (consume input (skip input key) 93uy); index_signature = false }
 
+let type_chain_start (input:tape) (state:parser_state) : Read (parser_state & bool) input =
+  let st = skip input state in
+  let first = peek input st.offset in
+  if first = 124uy || first = 38uy then consume input st first, false else st, true
+
 #push-options "--split_queries always"
 let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 1; 0]) =
@@ -994,11 +999,21 @@ and type_suffixes (input:tape) (state:parser_state) (fuel remaining:U32.t) (inde
   else state
 and annotation_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 4; 0]) =
-  let st = skip input state in
-  let first = peek input st.offset in
-  let leading = first = 124uy || first = 38uy in
-  let start = if leading then consume input st first else st in
-  type_terms input start fuel remaining (not leading)
+  let start, allow_signature = type_chain_start input state in
+  let check = type_terms input start fuel remaining allow_signature in
+  let boundary = trivia input check.offset in
+  let tail = from_cursor check boundary in
+  let extends = if tail.status = 0ul && not boundary.newline then
+      keyword input tail.offset 7ul 0x657874656e6473uL
+    else false in
+  if not extends then check
+  else if fuel = 0ul then failed tail 1ul
+  else
+    let inner = minus fuel 1ul in
+    let start, allow_signature = type_chain_start input { tail with offset = plus tail.offset 7ul } in
+    let constraint = type_terms input start inner remaining allow_signature in
+    let yes = annotation_type input (consume input (skip input constraint) 63uy) inner remaining in
+    annotation_type input (consume input (skip input yes) 58uy) inner remaining
 and result_type (input:tape) (state:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 5; 0]) =
   let st = skip input state in

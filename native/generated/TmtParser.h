@@ -469,6 +469,16 @@ TmtParser_bracket_type_key;
 TmtParser_bracket_type_key
 TmtParser_read_bracket_type_key(TmtParser_tape input, TmtParser_parser_state state);
 
+typedef struct K___TmtParser_parser_state_bool_s
+{
+  TmtParser_parser_state fst;
+  bool snd;
+}
+K___TmtParser_parser_state_bool;
+
+K___TmtParser_parser_state_bool
+TmtParser_type_chain_start(TmtParser_tape input, TmtParser_parser_state state);
+
 TmtParser_parser_state
 TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
