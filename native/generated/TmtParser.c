@@ -3499,6 +3499,105 @@ uint32_t TmtParser_local_width(TmtParser_tape input, uint32_t start)
     return 0U;
 }
 
+uint32_t TmtParser_type_declaration_width(TmtParser_tape input, uint32_t start)
+{
+  uint8_t first = TmtParser_peek(input, start);
+  uint32_t width;
+  if (first == 105U)
+  {
+    if (TmtParser_keyword(input, start, 9U, 0x6e74657266616365ULL))
+      width = 9U;
+    else
+      width = 0U;
+  }
+  else if (first == 116U)
+  {
+    if (TmtParser_keyword(input, start, 4U, 0x74797065ULL))
+      width = 4U;
+    else
+      width = 0U;
+  }
+  else
+    width = 0U;
+  if (width == 0U)
+    return width;
+  else
+  {
+    TmtParser_cursor named = TmtParser_trivia(input, TmtParser_plus(start, width));
+    uint8_t byte = TmtParser_peek(input, named.at);
+    if (named.ok && !named.newline && TmtGrammar_identifier_start(byte))
+      return width;
+    else
+      return 0U;
+  }
+}
+
+bool TmtParser_admissible_type_binding(TmtParser_tape input, uint32_t first, uint32_t last)
+{
+  uint64_t packed = TmtParser_packed_type(input, first, last);
+  bool undefined = TmtParser_undefined_type(input, first, last);
+  return !(TmtParser_builtin_type(packed) || undefined || TmtParser_type_operator(packed));
+}
+
+TmtParser_parser_state
+TmtParser_type_alias_tail(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  bool before_brace
+)
+{
+  TmtParser_parser_state
+  st = TmtParser_skip(input, TmtParser_optional_type_parameters(input, state));
+  TmtParser_parser_state
+  alias = TmtParser_annotation_type(input, TmtParser_consume(input, st, 61U), 16U, 64U);
+  return TmtParser_statement_end(input, alias, alias.offset, before_brace);
+}
+
+TmtParser_named_state
+TmtParser_local_type_alias(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t floor,
+  uint32_t used
+)
+{
+  TmtParser_parser_state
+  start =
+    TmtParser_skip(input,
+      (
+        (TmtParser_parser_state){
+          .offset = TmtParser_plus(state.offset, 4U),
+          .count = state.count,
+          .depth = state.depth,
+          .status = state.status,
+          .local_names = state.local_names,
+          .await_allowed = state.await_allowed,
+          .jsx_allowed = state.jsx_allowed,
+          .module_mode = state.module_mode,
+          .in_allowed = state.in_allowed
+        }
+      ));
+  TmtParser_named_state
+  decl = TmtParser_bind_since(input, start, 64U, floor, used, start.offset);
+  bool valid = TmtParser_admissible_type_binding(input, start.offset, decl.state.offset);
+  TmtParser_parser_state st;
+  if (valid)
+    st = TmtParser_type_alias_tail(input, decl.state, true);
+  else
+    st = TmtParser_failed(decl.state, 1U);
+  return
+    (
+      (TmtParser_named_state){
+        .state = {
+          .offset = st.offset, .count = st.count, .depth = st.depth, .status = st.status,
+          .local_names = decl.used, .await_allowed = st.await_allowed, .jsx_allowed = st.jsx_allowed,
+          .module_mode = st.module_mode, .in_allowed = st.in_allowed
+        },
+        .used = decl.used
+      }
+    );
+}
+
 TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parser_state state)
 {
   uint32_t at = TmtParser_scan_class(input, state.offset, TmtGrammar_Space);
@@ -5859,18 +5958,14 @@ TmtParser_scope_statement(
   }
   else
     return
-      (
-        (TmtParser_named_state){
-          .state = TmtParser_control_statement(input,
-            st,
-            fuel,
-            in_function,
-            jumps,
-            used,
-            root_control),
-          .used = used
-        }
-      );
+      TmtParser_control_statement(input,
+        st,
+        fuel,
+        in_function,
+        jumps,
+        floor,
+        used,
+        root_control);
 }
 
 TmtParser_parser_state
@@ -6153,24 +6248,41 @@ TmtParser_control_block(
       125U);
 }
 
-TmtParser_parser_state
+TmtParser_named_state
 TmtParser_control_statement(
   TmtParser_tape input,
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
   TmtParser_jump_context jumps,
+  uint32_t floor,
   uint32_t used,
   bool allow_var
 )
 {
   uint32_t kind = TmtParser_statement_kind(input, state.offset);
   if (state.status != 0U)
-    return state;
+    return ((TmtParser_named_state){ .state = state, .used = used });
   else if (kind == 0U)
-    return TmtParser_simple_statement(input, state, in_function, jumps, fuel);
+  {
+    bool alias;
+    if (in_function && state.module_mode)
+      alias = TmtParser_type_declaration_width(input, state.offset) == 4U;
+    else
+      alias = false;
+    if (alias)
+      return TmtParser_local_type_alias(input, state, floor, used);
+    else
+      return
+        (
+          (TmtParser_named_state){
+            .state = TmtParser_simple_statement(input, state, in_function, jumps, fuel),
+            .used = used
+          }
+        );
+  }
   else if (fuel == 0U)
-    return TmtParser_failed(state, 3U);
+    return ((TmtParser_named_state){ .state = TmtParser_failed(state, 3U), .used = used });
   else
   {
     uint32_t inner = TmtParser_minus(fuel, 1U);
@@ -6212,10 +6324,9 @@ TmtParser_control_statement(
           ),
           fuel);
       TmtParser_jump_context body_jumps = kind == 2U ? TmtParser_LoopJump : jumps;
-      TmtParser_parser_state
-      st =
-        TmtParser_skip(input,
-          TmtParser_control_body(input, tested, inner, in_function, body_jumps, used));
+      TmtParser_named_state
+      body = TmtParser_control_body(input, tested, inner, in_function, body_jumps, floor, used);
+      TmtParser_parser_state st = TmtParser_skip(input, body.state);
       bool has_else;
       if (kind == 1U)
         has_else = TmtParser_keyword(input, st.offset, 4U, 0x656c7365ULL);
@@ -6240,36 +6351,39 @@ TmtParser_control_statement(
             inner,
             in_function,
             jumps,
-            used);
+            floor,
+            body.used);
       else
-        return st;
+        return ((TmtParser_named_state){ .state = st, .used = body.used });
     }
     else if (kind == 3U)
     {
-      TmtParser_parser_state
-      st =
-        TmtParser_skip(input,
-          TmtParser_control_body(input,
-            (
-              (TmtParser_parser_state){
-                .offset = TmtParser_plus(state1.offset, 2U),
-                .count = state1.count,
-                .depth = state1.depth,
-                .status = state1.status,
-                .local_names = state1.local_names,
-                .await_allowed = state1.await_allowed,
-                .jsx_allowed = state1.jsx_allowed,
-                .module_mode = state1.module_mode,
-                .in_allowed = state1.in_allowed
-              }
-            ),
-            inner,
-            in_function,
-            TmtParser_LoopJump,
-            used));
+      TmtParser_named_state
+      body =
+        TmtParser_control_body(input,
+          (
+            (TmtParser_parser_state){
+              .offset = TmtParser_plus(state1.offset, 2U),
+              .count = state1.count,
+              .depth = state1.depth,
+              .status = state1.status,
+              .local_names = state1.local_names,
+              .await_allowed = state1.await_allowed,
+              .jsx_allowed = state1.jsx_allowed,
+              .module_mode = state1.module_mode,
+              .in_allowed = state1.in_allowed
+            }
+          ),
+          inner,
+          in_function,
+          TmtParser_LoopJump,
+          floor,
+          used);
+      TmtParser_parser_state st = TmtParser_skip(input, body.state);
       bool tested = TmtParser_keyword(input, st.offset, 5U, 0x7768696c65ULL);
+      TmtParser_parser_state st10;
       if (!tested)
-        return TmtParser_failed(st, 1U);
+        st10 = TmtParser_failed(st, 1U);
       else
       {
         TmtParser_parser_state
@@ -6291,126 +6405,163 @@ TmtParser_control_statement(
               ),
               fuel));
         if (TmtParser_same(input, st1.offset, 59U))
-          return TmtParser_consume(input, st1, 59U);
+          st10 = TmtParser_consume(input, st1, 59U);
         else
-          return st1;
+          st10 = st1;
       }
+      return ((TmtParser_named_state){ .state = st10, .used = body.used });
     }
-    else if (kind == 4U)
-    {
-      TmtParser_parser_state
-      tested =
-        TmtParser_for_header(input,
-          (
-            (TmtParser_parser_state){
-              .offset = TmtParser_plus(state1.offset, 3U),
-              .count = state1.count,
-              .depth = state1.depth,
-              .status = state1.status,
-              .local_names = state1.local_names,
-              .await_allowed = state1.await_allowed,
-              .jsx_allowed = state1.jsx_allowed,
-              .module_mode = state1.module_mode,
-              .in_allowed = state1.in_allowed
-            }
-          ),
-          allow_var,
-          fuel);
-      return TmtParser_control_body(input, tested, inner, in_function, TmtParser_LoopJump, used);
-    }
-    else if (kind == 5U)
-      return
-        TmtParser_try_statement(input,
-          (
-            (TmtParser_parser_state){
-              .offset = TmtParser_plus(state1.offset, 3U),
-              .count = state1.count,
-              .depth = state1.depth,
-              .status = state1.status,
-              .local_names = state1.local_names,
-              .await_allowed = state1.await_allowed,
-              .jsx_allowed = state1.jsx_allowed,
-              .module_mode = state1.module_mode,
-              .in_allowed = state1.in_allowed
-            }
-          ),
-          inner,
-          in_function,
-          jumps,
-          used);
-    else if (kind == 6U)
-      return TmtParser_control_block(input, state1, inner, in_function, jumps, used, used);
     else
     {
-      TmtParser_parser_state
-      tested =
-        TmtParser_condition(input,
+      TmtParser_parser_state result;
+      if (kind == 4U)
+      {
+        TmtParser_parser_state
+        tested =
+          TmtParser_for_header(input,
+            (
+              (TmtParser_parser_state){
+                .offset = TmtParser_plus(state1.offset, 3U),
+                .count = state1.count,
+                .depth = state1.depth,
+                .status = state1.status,
+                .local_names = state1.local_names,
+                .await_allowed = state1.await_allowed,
+                .jsx_allowed = state1.jsx_allowed,
+                .module_mode = state1.module_mode,
+                .in_allowed = state1.in_allowed
+              }
+            ),
+            allow_var,
+            fuel);
+        TmtParser_named_state
+        body =
+          TmtParser_control_body(input,
+            tested,
+            inner,
+            in_function,
+            TmtParser_LoopJump,
+            used,
+            used);
+        TmtParser_parser_state uu____0 = body.state;
+        result =
           (
             (TmtParser_parser_state){
-              .offset = TmtParser_plus(state1.offset, 6U),
-              .count = state1.count,
-              .depth = state1.depth,
-              .status = state1.status,
+              .offset = uu____0.offset,
+              .count = uu____0.count,
+              .depth = uu____0.depth,
+              .status = uu____0.status,
               .local_names = state1.local_names,
-              .await_allowed = state1.await_allowed,
-              .jsx_allowed = state1.jsx_allowed,
-              .module_mode = state1.module_mode,
-              .in_allowed = state1.in_allowed
+              .await_allowed = uu____0.await_allowed,
+              .jsx_allowed = uu____0.jsx_allowed,
+              .module_mode = uu____0.module_mode,
+              .in_allowed = uu____0.in_allowed
             }
-          ),
-          fuel);
-      TmtParser_parser_state start = TmtParser_consume(input, TmtParser_skip(input, tested), 123U);
-      TmtParser_jump_context
-      case_jumps = jumps == TmtParser_LoopJump ? TmtParser_LoopJump : TmtParser_BreakOnly;
-      TmtParser_parser_state
-      st =
-        TmtParser_switch_sequence(input,
-          start,
-          inner,
-          input.size,
-          in_function,
-          case_jumps,
-          used,
-          used,
-          false,
-          false);
-      return
-        TmtParser_consume(input,
-          (
-            (TmtParser_parser_state){
-              .offset = st.offset,
-              .count = st.count,
-              .depth = st.depth,
-              .status = st.status,
-              .local_names = state1.local_names,
-              .await_allowed = st.await_allowed,
-              .jsx_allowed = st.jsx_allowed,
-              .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed
-            }
-          ),
-          125U);
+          );
+      }
+      else if (kind == 5U)
+        result =
+          TmtParser_try_statement(input,
+            (
+              (TmtParser_parser_state){
+                .offset = TmtParser_plus(state1.offset, 3U),
+                .count = state1.count,
+                .depth = state1.depth,
+                .status = state1.status,
+                .local_names = state1.local_names,
+                .await_allowed = state1.await_allowed,
+                .jsx_allowed = state1.jsx_allowed,
+                .module_mode = state1.module_mode,
+                .in_allowed = state1.in_allowed
+              }
+            ),
+            inner,
+            in_function,
+            jumps,
+            used);
+      else if (kind == 6U)
+        result = TmtParser_control_block(input, state1, inner, in_function, jumps, used, used);
+      else
+      {
+        TmtParser_parser_state
+        tested =
+          TmtParser_condition(input,
+            (
+              (TmtParser_parser_state){
+                .offset = TmtParser_plus(state1.offset, 6U),
+                .count = state1.count,
+                .depth = state1.depth,
+                .status = state1.status,
+                .local_names = state1.local_names,
+                .await_allowed = state1.await_allowed,
+                .jsx_allowed = state1.jsx_allowed,
+                .module_mode = state1.module_mode,
+                .in_allowed = state1.in_allowed
+              }
+            ),
+            fuel);
+        TmtParser_parser_state
+        start = TmtParser_consume(input, TmtParser_skip(input, tested), 123U);
+        TmtParser_jump_context
+        case_jumps = jumps == TmtParser_LoopJump ? TmtParser_LoopJump : TmtParser_BreakOnly;
+        TmtParser_parser_state
+        st =
+          TmtParser_switch_sequence(input,
+            start,
+            inner,
+            input.size,
+            in_function,
+            case_jumps,
+            used,
+            used,
+            false,
+            false);
+        result =
+          TmtParser_consume(input,
+            (
+              (TmtParser_parser_state){
+                .offset = st.offset,
+                .count = st.count,
+                .depth = st.depth,
+                .status = st.status,
+                .local_names = state1.local_names,
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed,
+                .module_mode = st.module_mode,
+                .in_allowed = st.in_allowed
+              }
+            ),
+            125U);
+      }
+      return ((TmtParser_named_state){ .state = result, .used = used });
     }
   }
 }
 
-TmtParser_parser_state
+TmtParser_named_state
 TmtParser_control_body(
   TmtParser_tape input,
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
   TmtParser_jump_context jumps,
+  uint32_t floor,
   uint32_t used
 )
 {
   TmtParser_parser_state st = TmtParser_skip(input, state);
   if (st.status != 0U)
-    return st;
+    return ((TmtParser_named_state){ .state = st, .used = used });
   else if (TmtParser_same(input, st.offset, 123U))
-    return TmtParser_control_block(input, st, fuel, in_function, jumps, used, used);
+    return
+      (
+        (TmtParser_named_state){
+          .state = TmtParser_control_block(input, st, fuel, in_function, jumps, used, used),
+          .used = used
+        }
+      );
   else
-    return TmtParser_control_statement(input, st, fuel, in_function, jumps, used, false);
+    return TmtParser_control_statement(input, st, fuel, in_function, jumps, floor, used, false);
 }
 
 TmtParser_parser_state
@@ -7110,39 +7261,6 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
   }
 }
 
-uint32_t TmtParser_type_declaration_width(TmtParser_tape input, uint32_t start)
-{
-  uint8_t first = TmtParser_peek(input, start);
-  uint32_t width;
-  if (first == 105U)
-  {
-    if (TmtParser_keyword(input, start, 9U, 0x6e74657266616365ULL))
-      width = 9U;
-    else
-      width = 0U;
-  }
-  else if (first == 116U)
-  {
-    if (TmtParser_keyword(input, start, 4U, 0x74797065ULL))
-      width = 4U;
-    else
-      width = 0U;
-  }
-  else
-    width = 0U;
-  if (width == 0U)
-    return width;
-  else
-  {
-    TmtParser_cursor named = TmtParser_trivia(input, TmtParser_plus(start, width));
-    uint8_t byte = TmtParser_peek(input, named.at);
-    if (named.ok && !named.newline && TmtGrammar_identifier_start(byte))
-      return width;
-    else
-      return 0U;
-  }
-}
-
 TmtParser_cursor TmtParser_ambient_modifier(TmtParser_tape input, uint32_t start)
 {
   if (TmtParser_keyword(input, start, 7U, 0x6465636c617265ULL))
@@ -7319,50 +7437,38 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
     TmtParser_parser_state result;
     if (width == 4U || width == 9U)
     {
-      uint64_t packed = TmtParser_packed_type(input, start.offset, decl.state.offset);
-      bool undefined = TmtParser_undefined_type(input, start.offset, decl.state.offset);
-      if (TmtParser_builtin_type(packed) || undefined || TmtParser_type_operator(packed))
+      bool valid = TmtParser_admissible_type_binding(input, start.offset, decl.state.offset);
+      if (!valid)
         result = TmtParser_failed(st1, 1U);
-      else
+      else if (width == 9U)
       {
         TmtParser_parser_state
         st2 = TmtParser_skip(input, TmtParser_optional_type_parameters(input, st1));
-        if (width == 9U)
-        {
-          bool extends = TmtParser_keyword(input, st2.offset, 7U, 0x657874656e6473ULL);
-          TmtParser_parser_state st3;
-          if (extends)
-            st3 =
-              TmtParser_interface_bases(input,
-                (
-                  (TmtParser_parser_state){
-                    .offset = TmtParser_plus(st2.offset, 7U),
-                    .count = st2.count,
-                    .depth = st2.depth,
-                    .status = st2.status,
-                    .local_names = st2.local_names,
-                    .await_allowed = st2.await_allowed,
-                    .jsx_allowed = st2.jsx_allowed,
-                    .module_mode = st2.module_mode,
-                    .in_allowed = st2.in_allowed
-                  }
-                ),
-                64U);
-          else
-            st3 = st2;
-          result =
-            TmtParser_object_type(input,
-              TmtParser_consume(input, st3, 123U),
-              15U,
-              input.size);
-        }
+        bool extends = TmtParser_keyword(input, st2.offset, 7U, 0x657874656e6473ULL);
+        TmtParser_parser_state st3;
+        if (extends)
+          st3 =
+            TmtParser_interface_bases(input,
+              (
+                (TmtParser_parser_state){
+                  .offset = TmtParser_plus(st2.offset, 7U),
+                  .count = st2.count,
+                  .depth = st2.depth,
+                  .status = st2.status,
+                  .local_names = st2.local_names,
+                  .await_allowed = st2.await_allowed,
+                  .jsx_allowed = st2.jsx_allowed,
+                  .module_mode = st2.module_mode,
+                  .in_allowed = st2.in_allowed
+                }
+              ),
+              64U);
         else
-        {
-          TmtParser_parser_state
-          alias = TmtParser_annotation_type(input, TmtParser_consume(input, st2, 61U), 16U, 64U);
-          result = TmtParser_statement_end(input, alias, alias.offset, false);
-        }
+          st3 = st2;
+        result = TmtParser_object_type(input, TmtParser_consume(input, st3, 123U), 15U, input.size);
       }
+      else
+        result = TmtParser_type_alias_tail(input, st1, false);
     }
     else if (width == 8U)
       result = TmtParser_function_tail(input, st1, 64U, head.async_declaration);
@@ -7608,7 +7714,8 @@ TmtParser_module_sequence(
                   false,
                   TmtParser_NoJump,
                   0U,
-                  false),
+                  0U,
+                  false).state,
                 .used = used
               }
             );
@@ -7649,7 +7756,8 @@ TmtParser_module_sequence(
                   false,
                   TmtParser_NoJump,
                   0U,
-                  false),
+                  0U,
+                  false).state,
                 .used = used
               }
             );

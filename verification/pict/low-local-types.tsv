@@ -1,0 +1,15 @@
+Place	Following	Suffix
+Direct	Return	Valid
+If	Expression	Valid
+For	Return	Valid
+While	Return	Valid
+Do	Expression	Valid
+Switch	Expression	Valid
+Block	Return	Valid
+If	Return	Invalid
+While	Expression	Invalid
+Switch	Return	Invalid
+Direct	Expression	Invalid
+For	Expression	Invalid
+Do	Return	Invalid
+Block	Expression	Invalid

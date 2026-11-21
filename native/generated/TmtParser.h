@@ -526,6 +526,25 @@ TmtParser_statement_end(
 
 uint32_t TmtParser_local_width(TmtParser_tape input, uint32_t start);
 
+uint32_t TmtParser_type_declaration_width(TmtParser_tape input, uint32_t start);
+
+bool TmtParser_admissible_type_binding(TmtParser_tape input, uint32_t first, uint32_t last);
+
+TmtParser_parser_state
+TmtParser_type_alias_tail(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  bool before_brace
+);
+
+TmtParser_named_state
+TmtParser_local_type_alias(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t floor,
+  uint32_t used
+);
+
 TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parser_state state);
 
 uint32_t
@@ -755,24 +774,26 @@ TmtParser_control_block(
   uint32_t used
 );
 
-TmtParser_parser_state
+TmtParser_named_state
 TmtParser_control_statement(
   TmtParser_tape input,
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
   TmtParser_jump_context jumps,
+  uint32_t floor,
   uint32_t used,
   bool allow_var
 );
 
-TmtParser_parser_state
+TmtParser_named_state
 TmtParser_control_body(
   TmtParser_tape input,
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_function,
   TmtParser_jump_context jumps,
+  uint32_t floor,
   uint32_t used
 );
 
@@ -840,8 +861,6 @@ TmtParser_import_bindings(
 
 TmtParser_named_state
 TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);
-
-uint32_t TmtParser_type_declaration_width(TmtParser_tape input, uint32_t start);
 
 TmtParser_cursor TmtParser_ambient_modifier(TmtParser_tape input, uint32_t start);
 
