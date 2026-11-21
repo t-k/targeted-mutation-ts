@@ -18,13 +18,14 @@ type binding_namespace =
 type binding_name = { span:G.span; namespace:binding_namespace }
 
 let binding_region_width : U32.t = 512ul
+let export_region_base : U32.t = 1024ul
 
 noeq type tape = {
   source : C.const_buffer U8.t;
   size : n:U32.t { U32.v n == C.length source /\ U32.v n <= 1048576 };
   output : B.buffer G.candidate;
   capacity : n:U32.t { U32.v n == B.length output };
-  bindings : b:B.buffer binding_name { B.length b == U32.v binding_region_width + U32.v binding_region_width }
+  bindings : b:B.buffer binding_name { B.length b == 1536 }
 }
 
 let live (input:tape) h = C.live h input.source /\ B.live h input.output /\ B.live h input.bindings
@@ -532,7 +533,7 @@ let unary_width (input:tape) (at:U32.t) (byte:U8.t) : Read U32.t input =
     if keyword input at 4ul 0x766f6964uL then 4ul else 0ul
   else 0ul
 
-type names_base = base:U32.t{base = 0ul \/ base = binding_region_width}
+type names_base = base:U32.t{base = 0ul \/ base = binding_region_width \/ base = export_region_base}
 type named_state = { state:parser_state; used:names_used }
 
 let rec same_bytes (input:tape) (left right length:U32.t)
@@ -730,6 +731,21 @@ let predicate_name (input:tape) (at:U32.t) : Read cursor input =
 
 type tuple_item = { item_end:parser_state; optional_item:bool; rest_item:bool }
 
+type type_term_head = {
+  term_state:parser_state; term_readonly:bool; term_byte:U8.t;
+  term_keyof:bool; term_queried:bool; term_imported:bool
+}
+
+let read_type_term_head (input:tape) (state:parser_state) : Read type_term_head input =
+  let readonly = keyword input state.offset 8ul 0x726561646f6e6c79uL in
+  let st = if readonly then skip input { state with offset = plus state.offset 8ul } else state in
+  let byte = peek input st.offset in
+  let keyof = if byte = 107uy then keyword input st.offset 5ul 0x6b65796f66uL else false in
+  let queried = if byte = 116uy then keyword input st.offset 6ul 0x747970656f66uL else false in
+  let imported = if byte = 105uy then keyword input st.offset 6ul 0x696d706f7274uL else false in
+  { term_state = st; term_readonly = readonly; term_byte = byte;
+    term_keyof = keyof; term_queried = queried; term_imported = imported }
+
 #push-options "--split_queries always"
 let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 1; 0]) =
@@ -879,12 +895,13 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature:bo
   let st = skip input state in
   if st.status <> 0ul then st
   else
-    let readonly = keyword input st.offset 8ul 0x726561646f6e6c79uL in
-    let st = if readonly then skip input { st with offset = plus st.offset 8ul } else st in
-    let byte = peek input st.offset in
-    let keyof = if byte = 107uy then keyword input st.offset 5ul 0x6b65796f66uL else false in
-    let queried = if byte = 116uy then keyword input st.offset 6ul 0x747970656f66uL else false in
-    let imported = if byte = 105uy then keyword input st.offset 6ul 0x696d706f7274uL else false in
+    let head = read_type_term_head input st in
+    let st = head.term_state in
+    let readonly = head.term_readonly in
+    let byte = head.term_byte in
+    let keyof = head.term_keyof in
+    let queried = head.term_queried in
+    let imported = head.term_imported in
     let primary =
       if keyof then
         if readonly || fuel = 0ul then failed st 1ul
@@ -2518,22 +2535,86 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
     { decl with state = { result with await_allowed = state.await_allowed } }
 #pop-options
 
-type export_prefix = { after_export:parser_state; export_kind:U32.t }
+let reserve_export (input:tape) (state:parser_state) (used:names_used) (first last:U32.t)
+  : Run named_state input =
+  let length = minus last first in
+  if state.status <> 0ul then { state; used }
+  else if used = binding_region_width || length = 0ul || U32.(length >^ 256ul) then
+    { state = failed state 1ul; used }
+  else if name_seen input export_region_base 0ul used first length BothNames then
+    { state = failed state 1ul; used }
+  else (
+    B.upd input.bindings (U32.add export_region_base used) { span = { G.first = first; G.last = last }; namespace = BothNames };
+    { state; used = U32.add used 1ul }
+  )
+
+let rec reserve_direct_exports (input:tape) (state:parser_state) (used previous current:names_used)
+  : Run named_state input (decreases U32.v current) =
+  if state.status <> 0ul || U32.(current <=^ previous) then { state; used }
+  else
+    let index = U32.sub current 1ul in
+    let binding = B.index input.bindings index in
+    let named = if binding.namespace = TypeName then { state; used }
+      else reserve_export input state used binding.span.G.first binding.span.G.last in
+    reserve_direct_exports input named.state named.used previous index
+
+let export_identifier (input:tape) (state:parser_state) : Read parser_state input =
+  let first = peek input state.offset in
+  if G.identifier_start first then { state with offset = scan_class input state.offset G.Identifier }
+  else failed state 1ul
+
+let rec reexport_members (input:tape) (state:parser_state) (used:names_used) (remaining:U32.t)
+  : Run named_state input (decreases U32.v remaining) =
+  let st = skip input state in
+  if st.status <> 0ul then { state = st; used }
+  else if same input st.offset 125uy then { state = consume input st 125uy; used }
+  else if remaining = 0ul then { state = failed st 1ul; used }
+  else
+    let first = export_identifier input st in
+    let tail = skip input first in
+    let type_ = keyword input st.offset 4ul 0x74797065uL in
+    let type_alias = if type_ then keyword input tail.offset 2ul 0x6173uL else false in
+    let second = peek input tail.offset in
+    let source, source_end =
+      if type_ && not type_alias && G.identifier_start second then tail, export_identifier input tail
+      else st, first in
+    let after_source = skip input source_end in
+    let as_ = keyword input after_source.offset 2ul 0x6173uL in
+    let first = if as_ then skip input { after_source with offset = plus after_source.offset 2ul } else source in
+    let last = if as_ then export_identifier input first else source_end in
+    let named = reserve_export input last used first.offset last.offset in
+    let tail = skip input named.state in
+    if same input tail.offset 44uy then
+      reexport_members input (consume input tail 44uy) named.used (minus remaining 1ul)
+    else { named with state = consume input tail 125uy }
+
+let named_reexport (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
+  let named = reexport_members input (consume input state 123uy) used 64ul in
+  let tail = skip input named.state in
+  let from = keyword input tail.offset 4ul 0x66726f6duL in
+  let result =
+    if from then import_source input { tail with offset = plus tail.offset 4ul }
+    else if named.used = used then statement_end input named.state named.state.offset false
+    else failed tail 1ul in
+  { named with state = result }
+
+type export_prefix = { after_export:parser_state; export_kind:U32.t; direct:bool }
 
 let module_export (input:tape) (state:parser_state) : Read export_prefix input =
   let start = peek input state.offset in
   let exported = if start = 101uy then keyword input state.offset 6ul 0x6578706f7274uL else false in
-  if not exported then { after_export = state; export_kind = 0ul }
+  if not exported then { after_export = state; export_kind = 0ul; direct = false }
   else
     let tail = skip input { state with offset = plus state.offset 6ul } in
     if keyword input tail.offset 7ul 0x64656661756c74uL then
-      { after_export = skip input { tail with offset = plus tail.offset 7ul }; export_kind = 1ul }
+      { after_export = tail; export_kind = 1ul; direct = false }
     else
       let type_only = keyword input tail.offset 4ul 0x74797065uL in
-      let star = if type_only then skip input { tail with offset = plus tail.offset 4ul } else tail in
-      if same input star.offset 42uy then
-        { after_export = skip input (consume input star 42uy); export_kind = 2ul }
-      else { after_export = state; export_kind = 0ul }
+      let start = if type_only then skip input { tail with offset = plus tail.offset 4ul } else tail in
+      let byte = peek input start.offset in
+      if byte = 42uy then { after_export = skip input (consume input start 42uy); export_kind = 2ul; direct = false }
+      else if byte = 123uy then { after_export = start; export_kind = 3ul; direct = false }
+      else { after_export = state; export_kind = 0ul; direct = true }
 
 let default_declaration (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
   let fn = function_start input state.offset in
@@ -2554,29 +2635,35 @@ let default_declaration (input:tape) (state:parser_state) (used:names_used) : Ru
     let value = comparison input state 64ul in
     { state = statement_end input value.parser value.range.G.last false; used }
 
-let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (default_seen:bool)
+let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (exports:names_used)
   : Run parser_state input (decreases U32.v fuel) =
   let st = skip input state in
   if st.status <> 0ul || st.offset = input.size then st
   else if fuel = 0ul then failed st 1ul
   else if same input st.offset 59uy then
-    module_sequence input (consume input st 59uy) used (minus fuel 1ul) default_seen
+    module_sequence input (consume input st 59uy) used (minus fuel 1ul) exports
   else
     let exported = module_export input st in
-    let decl =
+    let decl, exports =
       if exported.export_kind = 1ul then
-        if default_seen then { state = failed st 1ul; used }
-        else default_declaration input exported.after_export used
+        let name = exported.after_export in
+        let end_ = plus name.offset 7ul in
+        let reserved = reserve_export input name exports name.offset end_ in
+        let body = skip input { reserved.state with offset = end_ } in
+        default_declaration input body used, reserved.used
       else if exported.export_kind = 2ul then
         let tail = exported.after_export in
         let source = if keyword input tail.offset 4ul 0x66726f6duL then
           import_source input { tail with offset = plus tail.offset 4ul }
           else failed tail 1ul in
-        { state = source; used }
+        { state = source; used }, exports
+      else if exported.export_kind = 3ul then
+        let imported = named_reexport input exported.after_export exports in
+        { state = imported.state; used }, imported.used
       else if keyword input st.offset 6ul 0x696d706f7274uL then
         if import_expression_start input st then
-          { state = (control_statement input st 64ul false NoJump 0ul 0ul false).state; used }
-        else import_declaration input st used
+          { state = (control_statement input st 64ul false NoJump 0ul 0ul false).state; used }, exports
+        else import_declaration input st used, exports
       else
         let first = peek input st.offset in
         let declared =
@@ -2591,9 +2678,11 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
             let width = type_declaration_width input st.offset in width <> 0ul
           else
             let width = local_width input st.offset in width <> 0ul in
-        if declared then module_declaration input st used
-        else { state = (control_statement input st 64ul false NoJump 0ul 0ul false).state; used } in
-    module_sequence input decl.state decl.used (minus fuel 1ul) (default_seen || exported.export_kind = 1ul)
+        if declared then module_declaration input st used, exports
+        else { state = (control_statement input st 64ul false NoJump 0ul 0ul false).state; used }, exports in
+    let reserved = if exported.direct then reserve_direct_exports input decl.state exports used decl.used
+      else { state = decl.state; used = exports } in
+    module_sequence input reserved.state decl.used (minus fuel 1ul) reserved.used
 
 private let parse_state (input:tape) (st:parser_state) (module_mode:bool) : Run parser_state input =
   if st.status <> 0ul || st.offset = input.size then st
@@ -2633,7 +2722,7 @@ let parse (input:tape) (jsx module_mode:bool)
   let state = parse_state input initial module_mode in
   let state : parser_state =
     if module_mode && (state.status = 1ul || (state.status = 0ul && state.offset <> input.size)) then
-      let expanded = module_sequence input initial 0ul input.size false in
+      let expanded = module_sequence input initial 0ul input.size 0ul in
       if expanded.status = 1ul then state else expanded
     else state in
   if state.status <> 0ul || state.offset <> input.size then

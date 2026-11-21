@@ -23,9 +23,11 @@ for (const row of rows) {
   });
 }
 
-test('the native addon can fill the module and local binding regions at once', () => {
+test('the native addon can fill the export, module, and local binding regions at once', () => {
   const declarations = count => Array.from({ length: count }, (_, index) => 'const name' + index + ' = 0;').join('\n');
-  const source = declarations(511) + '\nfunction check() {\n' + declarations(512) + '\nreturn x < y; }';
+  const exports = Array.from({ length: 8 }, (_, index) =>
+    `export { ${Array.from({ length: 64 }, (_, offset) => `item${index * 64 + offset}`).join(', ')} } from "lib";`).join('\n');
+  const source = exports + '\n' + declarations(511) + '\nfunction check() {\n' + declarations(512) + '\nreturn x < y; }';
   const actual = extract(source, { requireNative: true });
   const reference = extractFallback(source);
   assert.equal(actual.path, 'fast');

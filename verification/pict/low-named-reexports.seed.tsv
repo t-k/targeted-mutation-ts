@@ -1,0 +1,7 @@
+Export	Collision	Comparison
+Named	None	Before
+Alias	Previous	After
+TypeList	Following	Before
+InlineType	SameList	After
+DefaultAlias	Previous	Before
+DefaultAlias	Following	After

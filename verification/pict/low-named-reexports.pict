@@ -1,0 +1,3 @@
+Export: Named, Alias, TypeList, InlineType, DefaultAlias
+Collision: None, Previous, Following, SameList
+Comparison: Before, After

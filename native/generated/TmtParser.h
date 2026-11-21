@@ -32,6 +32,8 @@ TmtParser_binding_name;
 
 extern uint32_t TmtParser_binding_region_width;
 
+extern uint32_t TmtParser_export_region_base;
+
 typedef struct TmtParser_tape_s
 {
   const uint8_t *source;
@@ -442,6 +444,20 @@ typedef struct TmtParser_tuple_item_s
   bool rest_item;
 }
 TmtParser_tuple_item;
+
+typedef struct TmtParser_type_term_head_s
+{
+  TmtParser_parser_state term_state;
+  bool term_readonly;
+  uint8_t term_byte;
+  bool term_keyof;
+  bool term_queried;
+  bool term_imported;
+}
+TmtParser_type_term_head;
+
+TmtParser_type_term_head
+TmtParser_read_type_term_head(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
 TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
@@ -1125,10 +1141,43 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state);
 TmtParser_named_state
 TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);
 
+TmtParser_named_state
+TmtParser_reserve_export(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t used,
+  uint32_t first,
+  uint32_t last
+);
+
+TmtParser_named_state
+TmtParser_reserve_direct_exports(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t used0,
+  uint32_t previous0,
+  uint32_t current0
+);
+
+TmtParser_parser_state
+TmtParser_export_identifier(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_named_state
+TmtParser_reexport_members(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t used0,
+  uint32_t remaining0
+);
+
+TmtParser_named_state
+TmtParser_named_reexport(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);
+
 typedef struct TmtParser_export_prefix_s
 {
   TmtParser_parser_state after_export;
   uint32_t export_kind;
+  bool direct;
 }
 TmtParser_export_prefix;
 
@@ -1148,7 +1197,7 @@ TmtParser_module_sequence(
   TmtParser_parser_state state0,
   uint32_t used0,
   uint32_t fuel0,
-  bool default_seen0
+  uint32_t exports0
 );
 
 TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool module_mode);
