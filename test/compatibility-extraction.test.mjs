@@ -99,14 +99,14 @@ test('a syntax refusal discards the Low* prefix and extracts the entire file', (
   assert.deepEqual(result.candidates, extractFallback(source).candidates);
 });
 
-test('directly exported overload declarations preserve exact fallback candidates', () => {
+test('directly exported overload declarations preserve exact candidates', () => {
   const source = [
     'export function ready(value: number): boolean;',
     'export function ready(value: string): boolean;',
     'export function ready(value: number | string) { return Number(value) < 5; }',
   ].join('\n');
   const result = extract(source, { requireNative: true });
-  assert.equal(result.path, 'fallback');
+  assert.equal(result.path, 'fast');
   assert.equal(result.candidates.length, 1);
   assert.deepEqual(result.candidates, extractFallback(source).candidates);
 });

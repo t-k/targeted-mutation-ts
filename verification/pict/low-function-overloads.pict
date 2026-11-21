@@ -1,0 +1,3 @@
+Signature: Ordinary, Exported, Generic, Rest
+Following: SignatureOnly, OneBody, TwoBodies, ValueCollision
+Candidate: Before, After

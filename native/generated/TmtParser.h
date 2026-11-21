@@ -14,6 +14,8 @@
 #define TmtParser_TypeName 0
 #define TmtParser_ValueName 1
 #define TmtParser_BothNames 2
+#define TmtParser_FunctionSignature 3
+#define TmtParser_FunctionImplementation 4
 
 typedef uint8_t TmtParser_binding_namespace;
 
@@ -22,6 +24,10 @@ bool TmtParser_uu___is_TypeName(TmtParser_binding_namespace projectee);
 bool TmtParser_uu___is_ValueName(TmtParser_binding_namespace projectee);
 
 bool TmtParser_uu___is_BothNames(TmtParser_binding_namespace projectee);
+
+bool TmtParser_uu___is_FunctionSignature(TmtParser_binding_namespace projectee);
+
+bool TmtParser_uu___is_FunctionImplementation(TmtParser_binding_namespace projectee);
 
 typedef struct TmtParser_binding_name_s
 {
@@ -352,6 +358,11 @@ TmtParser_named_state;
 bool
 TmtParser_same_bytes(TmtParser_tape input0, uint32_t left0, uint32_t right0, uint32_t length0);
 
+bool TmtParser_is_function_binding(TmtParser_binding_namespace namespace0);
+
+bool
+TmtParser_names_overlap(TmtParser_binding_namespace left, TmtParser_binding_namespace right);
+
 bool
 TmtParser_name_seen(
   TmtParser_tape input0,
@@ -642,6 +653,13 @@ typedef struct TmtParser_parameter_list_s
 }
 TmtParser_parameter_list;
 
+typedef struct TmtParser_function_shape_s
+{
+  TmtParser_parser_state after_function;
+  bool signature_only;
+}
+TmtParser_function_shape;
+
 TmtParser_parameter_list
 TmtParser_parameter_prefix(
   TmtParser_tape input,
@@ -834,6 +852,16 @@ TmtParser_combine_binary(
   TmtParser_parser_state st,
   TmtParser_binary_operator op,
   uint8_t first
+);
+
+TmtParser_parser_state
+TmtParser_signature_end(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  TmtParser_parser_state opening,
+  TmtParser_parameter_list params,
+  TmtParser_parser_state annotation,
+  TmtParser_parser_state st
 );
 
 TmtParser_parsed
@@ -1140,6 +1168,16 @@ TmtParser_function_tail(
   TmtParser_super_context super_
 );
 
+TmtParser_function_shape
+TmtParser_function_form(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  bool async_,
+  TmtParser_super_context super_,
+  bool overload
+);
+
 TmtParser_parser_state
 TmtParser_class_members(
   TmtParser_tape input0,
@@ -1195,6 +1233,14 @@ TmtParser_declaration_head;
 
 TmtParser_declaration_head
 TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_named_state
+TmtParser_module_function(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t used,
+  bool async_
+);
 
 TmtParser_named_state
 TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);

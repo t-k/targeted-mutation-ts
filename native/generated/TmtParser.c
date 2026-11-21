@@ -54,6 +54,36 @@ bool TmtParser_uu___is_BothNames(TmtParser_binding_namespace projectee)
   }
 }
 
+bool TmtParser_uu___is_FunctionSignature(TmtParser_binding_namespace projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_FunctionSignature:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
+bool TmtParser_uu___is_FunctionImplementation(TmtParser_binding_namespace projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_FunctionImplementation:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
 uint32_t TmtParser_binding_region_width = 512U;
 
 uint32_t TmtParser_export_region_base = 1024U;
@@ -1758,6 +1788,33 @@ TmtParser_same_bytes(TmtParser_tape input0, uint32_t left0, uint32_t right0, uin
   KRML_HOST_EXIT(255U);
 }
 
+bool TmtParser_is_function_binding(TmtParser_binding_namespace namespace0)
+{
+  return
+    namespace0 == TmtParser_FunctionSignature || namespace0 == TmtParser_FunctionImplementation;
+}
+
+bool
+TmtParser_names_overlap(TmtParser_binding_namespace left, TmtParser_binding_namespace right)
+{
+  if (TmtParser_is_function_binding(left) && TmtParser_is_function_binding(right))
+    return left == TmtParser_FunctionImplementation && right == TmtParser_FunctionImplementation;
+  else
+  {
+    TmtParser_binding_namespace left1;
+    if (TmtParser_is_function_binding(left))
+      left1 = TmtParser_ValueName;
+    else
+      left1 = left;
+    TmtParser_binding_namespace right1;
+    if (TmtParser_is_function_binding(right))
+      right1 = TmtParser_ValueName;
+    else
+      right1 = right;
+    return left1 == TmtParser_BothNames || right1 == TmtParser_BothNames || left1 == right1;
+  }
+}
+
 bool
 TmtParser_name_seen(
   TmtParser_tape input0,
@@ -1783,12 +1840,13 @@ TmtParser_name_seen(
     {
       uint32_t previous = used - 1U;
       TmtParser_binding_name saved = input.bindings[base + previous];
-      bool
-      overlaps =
-        namespace1 == TmtParser_BothNames || saved.namespace0 == TmtParser_BothNames ||
-          namespace1 == saved.namespace0;
       bool equal;
-      if (overlaps && len == TmtParser_minus(saved.span.last, saved.span.first))
+      if
+      (
+        len == TmtParser_minus(saved.span.last, saved.span.first) &&
+          TmtParser_names_overlap(namespace1,
+            saved.namespace0)
+      )
         equal = TmtParser_same_bytes(input, pos, saved.span.first, len);
       else
         equal = false;
@@ -5157,6 +5215,34 @@ TmtParser_combine_binary(
           }
         );
     }
+  }
+}
+
+TmtParser_parser_state
+TmtParser_signature_end(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  TmtParser_parser_state opening,
+  TmtParser_parameter_list params,
+  TmtParser_parser_state annotation,
+  TmtParser_parser_state st
+)
+{
+  TmtParser_parser_state typed = TmtParser_skip(input, params.names1.state);
+  bool annotated_return = TmtParser_same(input, typed.offset, 58U);
+  if (!annotated_return || st.count != state.count)
+    return TmtParser_failed(st, 1U);
+  else
+  {
+    TmtParser_parser_state checked;
+    if (params.non_simple)
+      checked = TmtParser_signature_parameters(input, opening, 15U, 64U);
+    else
+      checked = params.names1.state;
+    if (checked.status != 0U || checked.offset != params.names1.state.offset)
+      return TmtParser_failed(st, 1U);
+    else
+      return TmtParser_statement_end(input, annotation, annotation.offset, false);
   }
 }
 
@@ -9089,6 +9175,19 @@ TmtParser_function_tail(
   TmtParser_super_context super_
 )
 {
+  return TmtParser_function_form(input, state, fuel, async_, super_, false).after_function;
+}
+
+TmtParser_function_shape
+TmtParser_function_form(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  bool async_,
+  TmtParser_super_context super_,
+  bool overload
+)
+{
   uint32_t depth = TmtParser_minus(64U, fuel);
   TmtParser_parser_state
   start =
@@ -9122,55 +9221,57 @@ TmtParser_function_tail(
   start2 =
     TmtParser_skip(input,
       TmtParser_optional_type_parameters(input, TmtParser_skip(input, start1)));
+  TmtParser_parser_state opening = TmtParser_consume(input, start2, 40U);
   uint32_t floor = state.local_names;
   TmtParser_parameter_list
-  params =
-    TmtParser_function_parameters(input,
-      TmtParser_consume(input, start2, 40U),
-      floor,
-      floor,
-      fuel,
-      64U,
-      false);
+  params = TmtParser_function_parameters(input, opening, floor, floor, fuel, 64U, false);
   bool
   constructor = super_ == TmtParser_BaseConstructor || super_ == TmtParser_DerivedConstructor;
-  TmtParser_parser_state st;
+  TmtParser_parser_state annotation;
   if (constructor)
-    st = TmtParser_skip(input, params.names1.state);
+    annotation = params.names1.state;
   else
-    st = TmtParser_skip(input, TmtParser_result_annotation(input, params.names1.state));
-  TmtParser_parser_state
-  st1 =
-    {
-      .offset = st.offset, .count = st.count, .depth = st.depth, .status = st.status,
-      .local_names = st.local_names, .await_allowed = async_, .jsx_allowed = st.jsx_allowed,
-      .module_mode = st.module_mode, .in_allowed = true, .for_initializer = st.for_initializer,
-      .binding_mode = TmtParser_NoLocals, .super_context = super_
-    };
-  TmtParser_parser_state
-  closed =
-    TmtParser_control_block(input,
-      TmtParser_function_body(input, st1, params.non_simple),
-      fuel,
-      true,
-      TmtParser_NoJump,
-      floor,
-      params.names1.used);
+    annotation = TmtParser_result_annotation(input, params.names1.state);
+  TmtParser_parser_state st = TmtParser_skip(input, annotation);
+  bool signature_only;
+  if (overload && st.status == 0U)
+    signature_only = !TmtParser_same(input, st.offset, 123U);
+  else
+    signature_only = false;
+  TmtParser_parser_state closed;
+  if (signature_only)
+    closed = TmtParser_signature_end(input, state, opening, params, annotation, st);
+  else
+  {
+    TmtParser_parser_state
+    st1 =
+      {
+        .offset = st.offset, .count = st.count, .depth = st.depth, .status = st.status,
+        .local_names = st.local_names, .await_allowed = async_, .jsx_allowed = st.jsx_allowed,
+        .module_mode = st.module_mode, .in_allowed = true, .for_initializer = st.for_initializer,
+        .binding_mode = TmtParser_NoLocals, .super_context = super_
+      };
+    closed =
+      TmtParser_control_block(input,
+        TmtParser_function_body(input, st1, params.non_simple),
+        fuel,
+        true,
+        TmtParser_NoJump,
+        floor,
+        params.names1.used);
+  }
   return
     (
-      (TmtParser_parser_state){
-        .offset = closed.offset,
-        .count = closed.count,
-        .depth = closed.depth,
-        .status = closed.status,
-        .local_names = closed.local_names,
-        .await_allowed = state.await_allowed,
-        .jsx_allowed = closed.jsx_allowed,
-        .module_mode = closed.module_mode,
-        .in_allowed = state.in_allowed,
-        .for_initializer = closed.for_initializer,
-        .binding_mode = state.binding_mode,
-        .super_context = state.super_context
+      (TmtParser_function_shape){
+        .after_function = {
+          .offset = closed.offset, .count = closed.count, .depth = closed.depth,
+          .status = closed.status, .local_names = closed.local_names,
+          .await_allowed = state.await_allowed, .jsx_allowed = closed.jsx_allowed,
+          .module_mode = closed.module_mode, .in_allowed = state.in_allowed,
+          .for_initializer = closed.for_initializer, .binding_mode = state.binding_mode,
+          .super_context = state.super_context
+        },
+        .signature_only = signature_only
       }
     );
 }
@@ -9902,6 +10003,38 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
 }
 
 TmtParser_named_state
+TmtParser_module_function(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t used,
+  bool async_
+)
+{
+  TmtParser_parser_state
+  named = TmtParser_from_cursor(state, TmtParser_name(input, state.offset, false, true));
+  TmtParser_function_shape
+  function_ = TmtParser_function_form(input, named, 64U, async_, TmtParser_NoSuper, true);
+  TmtParser_parser_state after = function_.after_function;
+  if (after.status != 0U)
+    return ((TmtParser_named_state){ .state = after, .used = used });
+  else
+  {
+    TmtParser_binding_namespace
+    namespace0 =
+      function_.signature_only ? TmtParser_FunctionSignature
+                               : TmtParser_FunctionImplementation;
+    TmtParser_named_state
+    binding1 = TmtParser_bind_in_namespace(input, state, 0U, 0U, used, state.offset, namespace0);
+    TmtParser_parser_state ite;
+    if (binding1.state.status == 0U)
+      ite = after;
+    else
+      ite = TmtParser_failed(after, 1U);
+    return ((TmtParser_named_state){ .state = ite, .used = binding1.used });
+  }
+}
+
+TmtParser_named_state
 TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used)
 {
   TmtParser_declaration_head head = TmtParser_declaration_start(input, state);
@@ -9930,93 +10063,100 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
             .super_context = st.super_context
           }
         ));
-    uint8_t first = TmtParser_peek(input, start.offset);
-    bool type_only = width == 4U || width == 9U;
-    TmtParser_named_state decl;
-    if (head.class_declaration)
-      decl = TmtParser_bind_at(input, start, 0U, used, start.offset);
-    else if ((width == 3U || width == 5U) && !head.ambient_declaration)
-      decl = TmtParser_pattern_binding(input, start, 0U, 0U, used);
+    if (width == 8U)
+      return TmtParser_module_function(input, start, used, head.async_declaration);
     else
-      decl =
-        TmtParser_bind_in_namespace(input,
-          start,
-          0U,
-          0U,
-          used,
-          start.offset,
-          type_only ? TmtParser_TypeName : TmtParser_ValueName);
-    TmtParser_parser_state st1 = TmtParser_skip(input, decl.state);
-    TmtParser_parser_state result;
-    if (head.class_declaration)
-      result = TmtParser_class_tail(input, st1, 64U);
-    else if (type_only)
     {
-      bool valid = TmtParser_admissible_type_binding(input, start.offset, decl.state.offset);
-      if (!valid)
-        result = TmtParser_failed(st1, 1U);
-      else if (width == 9U)
+      uint8_t first = TmtParser_peek(input, start.offset);
+      bool type_only = width == 4U || width == 9U;
+      TmtParser_named_state decl;
+      if (head.class_declaration)
+        decl = TmtParser_bind_at(input, start, 0U, used, start.offset);
+      else if ((width == 3U || width == 5U) && !head.ambient_declaration)
+        decl = TmtParser_pattern_binding(input, start, 0U, 0U, used);
+      else
+        decl =
+          TmtParser_bind_in_namespace(input,
+            start,
+            0U,
+            0U,
+            used,
+            start.offset,
+            type_only ? TmtParser_TypeName : TmtParser_ValueName);
+      TmtParser_parser_state st1 = TmtParser_skip(input, decl.state);
+      TmtParser_parser_state result;
+      if (head.class_declaration)
+        result = TmtParser_class_tail(input, st1, 64U);
+      else if (type_only)
+      {
+        bool valid = TmtParser_admissible_type_binding(input, start.offset, decl.state.offset);
+        if (!valid)
+          result = TmtParser_failed(st1, 1U);
+        else if (width == 9U)
+        {
+          TmtParser_parser_state
+          st2 = TmtParser_skip(input, TmtParser_optional_type_parameters(input, st1));
+          bool extends = TmtParser_keyword(input, st2.offset, 7U, 0x657874656e6473ULL);
+          TmtParser_parser_state st3;
+          if (extends)
+            st3 =
+              TmtParser_interface_bases(input,
+                (
+                  (TmtParser_parser_state){
+                    .offset = TmtParser_plus(st2.offset, 7U),
+                    .count = st2.count,
+                    .depth = st2.depth,
+                    .status = st2.status,
+                    .local_names = st2.local_names,
+                    .await_allowed = st2.await_allowed,
+                    .jsx_allowed = st2.jsx_allowed,
+                    .module_mode = st2.module_mode,
+                    .in_allowed = st2.in_allowed,
+                    .for_initializer = st2.for_initializer,
+                    .binding_mode = st2.binding_mode,
+                    .super_context = st2.super_context
+                  }
+                ),
+                64U);
+          else
+            st3 = st2;
+          result =
+            TmtParser_object_type(input,
+              TmtParser_consume(input, st3, 123U),
+              15U,
+              input.size);
+        }
+        else
+          result = TmtParser_type_alias_tail(input, st1, false);
+      }
+      else if (head.ambient_declaration)
       {
         TmtParser_parser_state
-        st2 = TmtParser_skip(input, TmtParser_optional_type_parameters(input, st1));
-        bool extends = TmtParser_keyword(input, st2.offset, 7U, 0x657874656e6473ULL);
-        TmtParser_parser_state st3;
-        if (extends)
-          st3 =
-            TmtParser_interface_bases(input,
-              (
-                (TmtParser_parser_state){
-                  .offset = TmtParser_plus(st2.offset, 7U),
-                  .count = st2.count,
-                  .depth = st2.depth,
-                  .status = st2.status,
-                  .local_names = st2.local_names,
-                  .await_allowed = st2.await_allowed,
-                  .jsx_allowed = st2.jsx_allowed,
-                  .module_mode = st2.module_mode,
-                  .in_allowed = st2.in_allowed,
-                  .for_initializer = st2.for_initializer,
-                  .binding_mode = st2.binding_mode,
-                  .super_context = st2.super_context
-                }
-              ),
-              64U);
-        else
-          st3 = st2;
-        result = TmtParser_object_type(input, TmtParser_consume(input, st3, 123U), 15U, input.size);
+        annotation = TmtParser_annotation_type(input, TmtParser_consume(input, st1, 58U), 16U, 64U);
+        result = TmtParser_statement_end(input, annotation, annotation.offset, false);
       }
       else
-        result = TmtParser_type_alias_tail(input, st1, false);
+        result =
+          TmtParser_variable_initializer(input,
+            decl.state,
+            64U,
+            width == 3U && TmtGrammar_identifier_start(first),
+            false);
+      return
+        (
+          (TmtParser_named_state){
+            .state = {
+              .offset = result.offset, .count = result.count, .depth = result.depth,
+              .status = result.status, .local_names = result.local_names,
+              .await_allowed = state.await_allowed, .jsx_allowed = result.jsx_allowed,
+              .module_mode = result.module_mode, .in_allowed = result.in_allowed,
+              .for_initializer = result.for_initializer, .binding_mode = result.binding_mode,
+              .super_context = result.super_context
+            },
+            .used = decl.used
+          }
+        );
     }
-    else if (width == 8U)
-      result = TmtParser_function_tail(input, st1, 64U, head.async_declaration, TmtParser_NoSuper);
-    else if (head.ambient_declaration)
-    {
-      TmtParser_parser_state
-      annotation = TmtParser_annotation_type(input, TmtParser_consume(input, st1, 58U), 16U, 64U);
-      result = TmtParser_statement_end(input, annotation, annotation.offset, false);
-    }
-    else
-      result =
-        TmtParser_variable_initializer(input,
-          decl.state,
-          64U,
-          width == 3U && TmtGrammar_identifier_start(first),
-          false);
-    return
-      (
-        (TmtParser_named_state){
-          .state = {
-            .offset = result.offset, .count = result.count, .depth = result.depth,
-            .status = result.status, .local_names = result.local_names,
-            .await_allowed = state.await_allowed, .jsx_allowed = result.jsx_allowed,
-            .module_mode = result.module_mode, .in_allowed = result.in_allowed,
-            .for_initializer = result.for_initializer, .binding_mode = result.binding_mode,
-            .super_context = result.super_context
-          },
-          .used = decl.used
-        }
-      );
   }
 }
 
@@ -10080,7 +10220,11 @@ TmtParser_reserve_direct_exports(
       uint32_t index = current - 1U;
       TmtParser_binding_name binding1 = input.bindings[index];
       TmtParser_named_state named;
-      if (binding1.namespace0 == TmtParser_TypeName)
+      if
+      (
+        binding1.namespace0 == TmtParser_TypeName ||
+          binding1.namespace0 == TmtParser_FunctionSignature
+      )
         named = ((TmtParser_named_state){ .state = state, .used = used });
       else
         named =

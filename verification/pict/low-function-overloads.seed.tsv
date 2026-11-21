@@ -1,0 +1,6 @@
+Signature	Following	Candidate
+Ordinary	SignatureOnly	Before
+Exported	TwoBodies	After
+Generic	OneBody	Before
+Rest	SignatureOnly	After
+Exported	ValueCollision	Before

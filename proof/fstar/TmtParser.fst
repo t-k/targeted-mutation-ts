@@ -14,6 +14,8 @@ type binding_namespace =
   | TypeName
   | ValueName
   | BothNames
+  | FunctionSignature
+  | FunctionImplementation
 
 type binding_name = { span:G.span; namespace:binding_namespace }
 
@@ -552,14 +554,24 @@ let rec same_bytes (input:tape) (left right length:U32.t)
     let r = peek input right in
     if l = r then same_bytes input (next left) (next right) (minus length 1ul) else false
 
+let is_function_binding (namespace:binding_namespace) : bool =
+  namespace = FunctionSignature || namespace = FunctionImplementation
+
+let names_overlap (left right:binding_namespace) : bool =
+  if is_function_binding left && is_function_binding right then
+    left = FunctionImplementation && right = FunctionImplementation
+  else
+    let left = if is_function_binding left then ValueName else left in
+    let right = if is_function_binding right then ValueName else right in
+    left = BothNames || right = BothNames || left = right
+
 let rec name_seen (input:tape) (base:names_base) (floor used:names_used) (pos len:U32.t) (namespace:binding_namespace)
   : Run bool input (decreases U32.v used) =
   if U32.(used <=^ floor) then false
   else
     let previous = U32.sub used 1ul in
     let saved = B.index input.bindings (U32.add base previous) in
-    let overlaps = namespace = BothNames || saved.namespace = BothNames || namespace = saved.namespace in
-    let equal = if overlaps && len = minus saved.span.G.last saved.span.G.first then
+    let equal = if len = minus saved.span.G.last saved.span.G.first && names_overlap namespace saved.namespace then
       same_bytes input pos saved.span.G.first len else false in
     if equal then true else name_seen input base floor previous pos len namespace
 
@@ -1204,6 +1216,7 @@ let collection_head (input:tape) (state:parser_state) (allow_in:bool) : Run pars
     else failed state 1ul
 
 type parameter_list = { names:named_state; non_simple:bool }
+type function_shape = { after_function:parser_state; signature_only:bool }
 
 let parameter_prefix (input:tape) (state:parser_state) (floor used:names_used) : Run parameter_list input =
   let first = peek input state.offset in
@@ -1572,6 +1585,16 @@ let combine_binary (input:tape) (lhs rhs:parsed) (st:parser_state) (op:binary_op
         open_angle = lhs.open_angle || rhs.open_angle || op.boundary = 1ul;
         right_shift = lhs.right_shift || rhs.right_shift || (op.strength = 8ul && first = 62uy);
         outer_or = op.strength = 1ul && not op.nullish; target = NotAssignable }
+
+let signature_end (input:tape) (state opening:parser_state) (params:parameter_list) (annotation st:parser_state)
+  : Read parser_state input =
+  let typed = skip input params.names.state in
+  let annotated_return = same input typed.offset 58uy in
+  if not annotated_return || st.count <> state.count then failed st 1ul
+  else
+    let checked = if params.non_simple then signature_parameters input opening 15ul 64ul else params.names.state in
+    if checked.status <> 0ul || checked.offset <> params.names.state.offset then failed st 1ul
+    else statement_end input annotation annotation.offset false
 
 #push-options "--split_queries always"
 let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
@@ -2422,18 +2445,29 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
       else { names = { prefix.names with state = consume input end_ 41uy }; non_simple }
 and function_tail (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (super_:super_context)
   : Run parser_state input (decreases %[U32.v fuel; 54; 0]) =
+  (function_form input state fuel async_ super_ false).after_function
+
+and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (super_:super_context) (overload:bool)
+  : Run function_shape input (decreases %[U32.v fuel; 53; 0]) =
   let depth = minus 64ul fuel in
   let start = if U32.(depth >^ state.depth) then { state with depth } else state in
   let start = { start with super_context = NoSuper } in
   let start = skip input (optional_type_parameters input (skip input start)) in
+  let opening = consume input start 40uy in
   let floor = state.local_names in
-  let params = function_parameters input (consume input start 40uy) floor floor fuel 64ul false in
+  let params = function_parameters input opening floor floor fuel 64ul false in
   let constructor = super_ = BaseConstructor || super_ = DerivedConstructor in
-  let st = if constructor then skip input params.names.state else skip input (result_annotation input params.names.state) in
-  let st = { st with await_allowed = async_; in_allowed = true; binding_mode = NoLocals; super_context = super_ } in
-  let closed = control_block input (function_body input st params.non_simple) fuel true NoJump floor params.names.used in
-  { closed with await_allowed = state.await_allowed; in_allowed = state.in_allowed; binding_mode = state.binding_mode;
-    super_context = state.super_context }
+  let annotation = if constructor then params.names.state else result_annotation input params.names.state in
+  let st = skip input annotation in
+  let signature_only = if overload && st.status = 0ul then not (same input st.offset 123uy) else false in
+  let closed =
+    if signature_only then
+      signature_end input state opening params annotation st
+    else
+      let st = { st with await_allowed = async_; in_allowed = true; binding_mode = NoLocals; super_context = super_ } in
+      control_block input (function_body input st params.non_simple) fuel true NoJump floor params.names.used in
+  { after_function = { closed with await_allowed = state.await_allowed; in_allowed = state.in_allowed;
+      binding_mode = state.binding_mode; super_context = state.super_context }; signature_only }
 
 and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (derived seen_constructor:bool)
   : Run parser_state input (decreases %[U32.v fuel; 56; U32.v remaining]) =
@@ -2622,6 +2656,17 @@ let declaration_start (input:tape) (state:parser_state) : Read declaration_head 
       else local_width input st.offset in
   { after_modifiers = st; width; async_declaration = async_.ok; ambient_declaration = ambient.ok; class_declaration = class_ }
 
+let module_function (input:tape) (state:parser_state) (used:names_used) (async_:bool)
+  : Run named_state input =
+  let named = from_cursor state (name input state.offset false true) in
+  let function_ = function_form input named 64ul async_ NoSuper true in
+  let after = function_.after_function in
+  if after.status <> 0ul then { state = after; used }
+  else
+    let namespace = if function_.signature_only then FunctionSignature else FunctionImplementation in
+    let binding = bind_in_namespace input state 0ul 0ul used state.offset namespace in
+    { binding with state = if binding.state.status = 0ul then after else failed after 1ul }
+
 #push-options "--split_queries always"
 let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
   let head = declaration_start input state in
@@ -2630,30 +2675,31 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
   if width = 0ul then { state = failed st 1ul; used }
   else
     let start = skip input { st with offset = plus st.offset width } in
-    let first = peek input start.offset in
-    let type_only = width = 4ul || width = 9ul in
-    let decl =
-      if head.class_declaration then bind_at input start 0ul used start.offset
-      else if (width = 3ul || width = 5ul) && not head.ambient_declaration then pattern_binding input start 0ul 0ul used
-      else bind_in_namespace input start 0ul 0ul used start.offset (if type_only then TypeName else ValueName) in
-    let st = skip input decl.state in
-    let result =
-      if head.class_declaration then class_tail input st 64ul
-      else if type_only then
-        let valid = admissible_type_binding input start.offset decl.state.offset in
-        if not valid then failed st 1ul
-        else if width = 9ul then
-          let st = skip input (optional_type_parameters input st) in
-          let extends = keyword input st.offset 7ul 0x657874656e6473uL in
-          let st = if extends then interface_bases input { st with offset = plus st.offset 7ul } 64ul else st in
-          object_type input (consume input st 123uy) 15ul input.size
-        else type_alias_tail input st false
-      else if width = 8ul then function_tail input st 64ul head.async_declaration NoSuper
-      else if head.ambient_declaration then
-        let annotation = annotation_type input (consume input st 58uy) 16ul 64ul in
-        statement_end input annotation annotation.offset false
-      else variable_initializer input decl.state 64ul (width = 3ul && G.identifier_start first) false in
-    { decl with state = { result with await_allowed = state.await_allowed } }
+    if width = 8ul then module_function input start used head.async_declaration
+    else
+      let first = peek input start.offset in
+      let type_only = width = 4ul || width = 9ul in
+      let decl =
+        if head.class_declaration then bind_at input start 0ul used start.offset
+        else if (width = 3ul || width = 5ul) && not head.ambient_declaration then pattern_binding input start 0ul 0ul used
+        else bind_in_namespace input start 0ul 0ul used start.offset (if type_only then TypeName else ValueName) in
+      let st = skip input decl.state in
+      let result =
+        if head.class_declaration then class_tail input st 64ul
+        else if type_only then
+          let valid = admissible_type_binding input start.offset decl.state.offset in
+          if not valid then failed st 1ul
+          else if width = 9ul then
+            let st = skip input (optional_type_parameters input st) in
+            let extends = keyword input st.offset 7ul 0x657874656e6473uL in
+            let st = if extends then interface_bases input { st with offset = plus st.offset 7ul } 64ul else st in
+            object_type input (consume input st 123uy) 15ul input.size
+          else type_alias_tail input st false
+        else if head.ambient_declaration then
+          let annotation = annotation_type input (consume input st 58uy) 16ul 64ul in
+          statement_end input annotation annotation.offset false
+        else variable_initializer input decl.state 64ul (width = 3ul && G.identifier_start first) false in
+      { decl with state = { result with await_allowed = state.await_allowed } }
 #pop-options
 
 let reserve_export (input:tape) (state:parser_state) (used:names_used) (first last:U32.t)
@@ -2675,7 +2721,7 @@ let rec reserve_direct_exports (input:tape) (state:parser_state) (used previous 
   else
     let index = U32.sub current 1ul in
     let binding = B.index input.bindings index in
-    let named = if binding.namespace = TypeName then { state; used }
+    let named = if binding.namespace = TypeName || binding.namespace = FunctionSignature then { state; used }
       else reserve_export input state used binding.span.G.first binding.span.G.last in
     reserve_direct_exports input named.state named.used previous index
 
