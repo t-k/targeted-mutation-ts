@@ -1,5 +1,28 @@
 # Performance measurements
 
+## Typed modules, callbacks, and collection loops in Low★
+
+The Low★ path accepts 554 of 8,549 tracked TS/TSX files and extracts 40 of 2,968 candidates. At baseline `54649cb` it accepted 321 files and extracted 16 candidates. Both settings of the JSX logical rule matched Yuku on every ordered candidate field and the full diagnostic output.
+
+| Checkout | Baseline Low★ files | Current Low★ files | Baseline Low★ candidates | Current Low★ candidates |
+| --- | ---: | ---: | ---: | ---: |
+| Vite | 57 | 70 | 2 | 6 |
+| Preact | 1 | 1 | 0 | 0 |
+| TypeScript compiler fixtures | 232 | 339 | 3 | 12 |
+| mreact | 27 | 122 | 8 | 17 |
+| tachyon-dom | 4 | 22 | 3 | 5 |
+
+A clean standalone build extracted all 40 candidates in 25 files without Cargo, Oxc sources, or npm dependencies. The transferred candidates previously used Oxc. The ordinary build still uses Yuku for 67 mreact candidates and four tachyon-dom candidates. Among Vite production sources under `packages/vite/src/`, Low★ accepted three files with zero comparison candidates, and Oxc handled the remaining 115 files and all 160 candidates.
+
+| Warm extraction workload | Baseline median | Current median |
+| --- | ---: | ---: |
+| Vite | 34.67 ms | 34.65 ms |
+| Vite production source | 15.66 ms | 16.27 ms |
+| mreact | 270.43 ms | 273.68 ms |
+| tachyon-dom | 49.79 ms | 50.47 ms |
+
+The benchmark alternates nine runs on the same input buffers. These medians range from approximately flat to 3.9% slower. The [audit and benchmark data](../evidence/m1/low-typed-expansion.json) record revisions, every standalone candidate span, and all timing samples.
+
 ## Expanded Low★ expression and module grammar
 
 The expanded Low★ path handled 321 of 8,549 tracked TS/TSX files, up from 81 at `ca1bc93`. It produced 16 candidates, up from four. All candidate fields and diagnostics in the five checkouts matched Yuku with the JSX logical rule disabled and enabled.
