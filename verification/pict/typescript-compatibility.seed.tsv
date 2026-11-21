@@ -1,0 +1,6 @@
+Dialect	Mode	Source
+TS	Module	Comparison
+TSX	Module	Logical
+TS	Script	BadBinding
+TSX	Script	ModuleExport
+TS	Module	BadBinding

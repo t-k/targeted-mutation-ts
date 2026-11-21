@@ -6,6 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { types } from 'node:util';
 import { isMainThread } from 'node:worker_threads';
 import { tokenComparisons } from './token-comparisons.mjs';
+import { byteOffsets, sourceDialect } from './source-text.mjs';
+
+export { byteOffsets, sourceDialect } from './source-text.mjs';
 
 const load = createRequire(import.meta.url);
 const nativePath = new URL('../build/tmt.node', import.meta.url);
@@ -16,19 +19,6 @@ const reasons = ['', 'outside-l1', 'source-limit', 'depth-limit', 'candidate-lim
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 export const rule = 'comparison-boundary/v1';
 
-export function byteOffsets(source) {
-  const offsets = new Uint32Array(source.length + 1);
-  let unit = 0;
-  let byte = 0;
-  for (const char of source) {
-    offsets[unit] = byte;
-    unit += char.length;
-    byte += Buffer.byteLength(char);
-  }
-  offsets[unit] = byte;
-  return offsets;
-}
-
 // Extracted operator starts are in byte order and lie on UTF-8 code-point boundaries.
 export function byteLocations(source, offsets) {
   if (!offsets.length) return [];
@@ -37,10 +27,6 @@ export function byteLocations(source, offsets) {
     const lines = source.toString('utf8', 0, offset).split(/\r\n|[\n\r\u2028\u2029]/);
     return [lines.length, lines.at(-1).length + 1];
   });
-}
-
-export function sourceDialect(file) {
-  return /\.[jt]sx$/.test(file) ? 'tsx' : 'ts';
 }
 
 function optionsFor(options) {

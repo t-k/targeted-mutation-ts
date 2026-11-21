@@ -1,0 +1,3 @@
+Dialect: TS, TSX
+Mode: Module, Script
+Source: Comparison, BadStatement, BadBinding, ModuleExport, Logical
