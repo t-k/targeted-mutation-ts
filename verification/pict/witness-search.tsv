@@ -1,0 +1,14 @@
+Rule	Seed	Shape
+Compare	Inside	Argument
+Compare	Boundary	Field
+Position	Inside	Array
+Position	Outside	Array
+Bitset	Inside	Argument
+Sum	Boundary	Array
+Sum	Inside	Array
+Position	Boundary	Array
+Bitset	Outside	Argument
+Compare	Outside	Field
+Bitset	Boundary	Argument
+Sum	Outside	Array
+Compare	Inside	Field

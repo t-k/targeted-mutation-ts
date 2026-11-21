@@ -39,6 +39,10 @@ try {
   assert.equal(combined.evaluation, 'evaluated');
   assert.ok(combined.mutants.some(mutant => mutant.evidence === 'predicted'));
   assert.ok(combined.mutants.some(mutant => mutant.rule === 'comparison-tighten/v1' && mutant.status === 'survived'));
+  cpSync(resolve('fixtures/witnesses'), join(cwd, 'witnesses'), { recursive: true });
+  const witness = JSON.parse(run(process.execPath, [entry, 'analyze', 'witnesses', 'src/queries.ts',
+    '--witnesses', '--test', 'test/queries.test.ts', '--lines', 'src/queries.ts:5-5']));
+  assert.ok(witness.diagnostics.some(gap => gap.rule === 'first-to-last-index/v1' && gap.verification.status === 'confirmed'));
   const wrongArch = process.arch === 'arm64' ? 'x64' : 'arm64';
   const mismatch = mkdtempSync(join(cwd, 'mismatch-'));
   writeFileSync(join(mismatch, 'package.json'), JSON.stringify({

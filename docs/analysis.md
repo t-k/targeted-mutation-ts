@@ -56,3 +56,18 @@ The fixture accepts a loopback port from `PORT`. The integration tests and the e
 Playwright needs a loopback `webServer` command rooted in each trial copy. If `use.baseURL` is set, its origin must match a managed server. The tool resolves Playwright from the target workspace. Server commands and tests must exercise the copied sources, including any paths they construct dynamically. A witness can set `witnessDirectory` when the relevant project collects tests outside the directory of the first passing baseline test.
 
 For the pending Save fixture, StrykerJS 10.1.1's command runner killed its five generated mutants with both suites. Its replacement list did not include dropping the saving operand to get `!valid`. TMT ran that source rewrite against both suites, and the added pending-request test killed it. This comparison uses the StrykerJS command runner with coverage disabled, so it does not establish a relative runtime for StrykerJS with per-test runner coverage. The [JSON evidence](../evidence/m3) records both experiments.
+
+## Distinguishing witnesses
+
+`--witnesses` runs the Vitest witness profile. It searches for a source rewrite that survives the selected tests, then checks an input edit or assertion that distinguishes it. It runs each trial in a fresh copy and reports a confirmed gap when the original passes and the attributed assertion fails with the expected alternate value. Source and fixture edit offsets are half-open UTF-8 byte ranges.
+
+```sh
+node bin/tmt.mjs analyze fixtures/witnesses src/queries.ts --witnesses --test test/queries.test.ts
+node bin/tmt.mjs analyze fixtures/witnesses src/contracts.ts --witnesses --test test/contracts.test.ts --spec witness-spec.json
+```
+
+The automatic rules handle same-type safe integer arguments and numeric fields of an inline object type in an ordered comparison, `indexOf` versus `lastIndexOf` on numeric arrays, any versus all bits in a nonnegative 31-bit mask, and one extra element in a `slice(0, count).reduce(...)` sum. They use direct, top-level Vitest calls with literal arguments and a scalar `toBe` assertion as seeds. A finding includes a minimized single-literal edit where the observed assertion still holds for the original implementation. Otherwise it can verify a separate assertion in the selected test file. Automatic expectations come from the original implementation. The automatic search evaluates up to 32 eligible rewrites and four one-edit proposals per surviving rewrite.
+
+With `--spec`, `witnessPlans` adds up to 32 explicit plans. Each plan supplies a name, requirement, project-relative test file, uniquely named existing seed test, one or two source edits, and a public observation. Each edit includes a project-relative source file, a one-based line, and exact original and replacement text. Every edit must be in scope and match exactly once on its line. The `observe` expression runs in the seed test module and can use its local imports. Supply distinct scalar `expected` and `alternate` values from a specification. A paired finding requires the same seed test to fail on each source edit alone, the original suite to pass with both edits applied, and the new assertion to distinguish the pair.
+
+The [witness fixture](../fixtures/witnesses/witness-spec.json) checks an atomic batch through a public read and a little-endian wire format through a fixed byte assertion. The runner executes project test code and the supplied witness expression. Reports can include fixture values, paths, and the supplied expression. The witness profile uses the project scope and Vitest test/config selection flags. Use its reexecuted verdicts to inspect candidate source edits and the separately confirmed diagnostics to identify executable tests.

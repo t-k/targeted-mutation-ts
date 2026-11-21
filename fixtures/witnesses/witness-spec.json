@@ -1,0 +1,29 @@
+{
+  "witnessPlans": [
+    {
+      "name": "little-endian wire representation",
+      "requirement": "The external 16-bit wire representation is little endian.",
+      "testFile": "test/contracts.test.ts",
+      "seedTest": "round-trips a nonpalindromic value",
+      "edits": [
+        { "file": "src/contracts.ts", "line": 3, "original": "setUint16(0, value, true)", "replacement": "setUint16(0, value, false)" },
+        { "file": "src/contracts.ts", "line": 8, "original": "getUint16(0, true)", "replacement": "getUint16(0, false)" }
+      ],
+      "observe": "encode(0x0102).join(',')",
+      "expected": "2,1",
+      "alternate": "1,2"
+    },
+    {
+      "name": "atomic rejected batch",
+      "requirement": "A rejected batch leaves every key unchanged.",
+      "testFile": "test/contracts.test.ts",
+      "seedTest": "rejects an invalid batch",
+      "edits": [
+        { "file": "src/contracts.ts", "line": 15, "original": "if (entries.some(([, value]) => value === '')) return false;", "replacement": "" }
+      ],
+      "observe": "(() => { const store = new Store(); store.apply([['a', '1'], ['b', '']]); return store.get('a') ?? null; })()",
+      "expected": null,
+      "alternate": "1"
+    }
+  ]
+}

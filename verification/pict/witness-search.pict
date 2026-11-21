@@ -1,0 +1,6 @@
+Rule: Compare, Position, Bitset, Sum
+Seed: Inside, Boundary, Outside
+Shape: Argument, Field, Array
+IF [Rule] IN {"Position","Sum"} THEN [Shape] = "Array";
+IF [Rule] = "Bitset" THEN [Shape] = "Argument";
+IF [Rule] = "Compare" THEN [Shape] <> "Array";

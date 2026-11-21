@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util';
 import { runPrototype } from '../src/prototype.mjs';
 
 const usage = 'Usage: tmt-ts extract FILE [--mode script|module] [--dialect ts|tsx]\n' +
-  '       tmt-ts analyze [PROJECT] [FILE...] [--lines FILE:FROM-TO] [--since REV] [--mutators focused|standard|all] [--spec FILE] [--deterministic] [--audit] [--displace-thresholds] [--runner vitest|playwright] [--project NAME] [--config FILE] [--test FILE] [--copy-exclude PATH]\n' +
+  '       tmt-ts analyze [PROJECT] [FILE...] [--lines FILE:FROM-TO] [--since REV] [--mutators focused|standard|all] [--spec FILE] [--deterministic] [--audit] [--displace-thresholds] [--witnesses] [--runner vitest|playwright] [--project NAME] [--config FILE] [--test FILE] [--copy-exclude PATH]\n' +
   '       tmt-ts prototype PROJECT FILE [--spec FILE]';
 
 try {
@@ -16,7 +16,7 @@ try {
       spec: { type: 'string' }, mode: { type: 'string' }, dialect: { type: 'string' },
       lines: { type: 'string', multiple: true }, since: { type: 'string' },
       deterministic: { type: 'boolean' }, audit: { type: 'boolean' },
-      'displace-thresholds': { type: 'boolean' },
+      'displace-thresholds': { type: 'boolean' }, witnesses: { type: 'boolean' },
       mutators: { type: 'string' },
       help: { type: 'boolean', short: 'h' }, runner: { type: 'string' }, project: { type: 'string', multiple: true }, config: { type: 'string' },
       test: { type: 'string', multiple: true }, 'copy-exclude': { type: 'string', multiple: true },
@@ -36,7 +36,12 @@ try {
     if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
     if (values.mutators && !['focused', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|standard|all');
     let result;
-    if (['standard', 'all'].includes(values.mutators)) {
+    if (values.witnesses) {
+      if (values.runner === 'playwright' || ['standard', 'all'].includes(values.mutators) ||
+          values.deterministic || values.project || values.audit || values['displace-thresholds']) throw new Error('--witnesses runs its own Vitest source trials');
+      const { analyzeWitnesses } = await import('../src/witness-analysis.mjs');
+      result = analyzeWitnesses(project, files, values);
+    } else if (['standard', 'all'].includes(values.mutators)) {
       if (values.runner === 'playwright' || values.audit || values.spec || values['displace-thresholds'] ||
           values.mutators === 'standard' && values.deterministic) {
         throw new Error(`--mutators ${values.mutators} requires Vitest and excludes focused diagnostic options`);

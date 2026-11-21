@@ -32,6 +32,8 @@ The [L1 grammar and trust boundary](docs/l1.md) define how candidates and fallba
 
 See the [analysis guide](docs/analysis.md) for project scope, Lean-backed replay, and source rewrite auditing.
 
+The `--witnesses` profile finds source edits that survive the current suite and verifies a distinguishing test. Run `node bin/tmt.mjs analyze fixtures/witnesses src/queries.ts --witnesses` to see a first-versus-last index gap and the one-literal edit that exposes it.
+
 ```sh
 npm run build:lean
 node bin/tmt.mjs analyze fixtures/eligibility src/eligibility.ts --spec spec.json --deterministic --audit

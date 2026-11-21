@@ -1,0 +1,8 @@
+Edits	Full	Witness
+Single	Survived	Confirmed
+Pair	Survived	Confirmed
+Pair	Survived	WrongAssertion
+Pair	Rejected	Confirmed
+Single	Rejected	Rejected
+Pair	Survived	Rejected
+Single	Rejected	WrongAssertion
