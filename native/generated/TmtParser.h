@@ -96,12 +96,17 @@ TmtParser_from_cursor(TmtParser_parser_state state, TmtParser_cursor read);
 
 TmtParser_parser_state TmtParser_skip(TmtParser_tape input, TmtParser_parser_state state);
 
+uint32_t TmtParser_operator_end(uint32_t start, uint32_t op);
+
 TmtParser_parser_state
-TmtParser_emit(
+TmtParser_emit_comparison(
   TmtParser_tape input,
   TmtParser_parser_state state,
   uint32_t slot,
-  TmtGrammar_candidate value
+  uint32_t op,
+  uint32_t start,
+  TmtGrammar_span left,
+  TmtGrammar_span right
 );
 
 TmtParser_parsed

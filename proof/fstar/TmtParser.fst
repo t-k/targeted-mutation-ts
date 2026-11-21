@@ -169,9 +169,21 @@ let skip (input:tape) (state:parser_state) : Read parser_state input =
   let next = trivia input state.offset in
   from_cursor state next
 
-let emit (input:tape) (state:parser_state) (slot:U32.t) (value:G.candidate) : Run parser_state input =
+let operator_end (start:U32.t) (op:U32.t) : U32.t =
+  plus start (if op = 2ul || op = 4ul then 2ul else 1ul)
+
+let emit_comparison (input:tape) (state:parser_state) (slot op start:U32.t) (left right:G.span)
+  : Stack parser_state
+    (requires fun h -> live input h)
+    (ensures fun h0 result h1 -> live input h1 /\
+      (if U32.v slot < U32.v input.capacity then
+        let edit = { G.first = start; G.last = operator_end start op } in
+        result == state /\ B.as_seq h1 input.output == FStar.Seq.upd (B.as_seq h0 input.output)
+          (U32.v slot) (G.make_candidate op edit left right)
+       else h1 == h0 /\ result == failed state 4ul)) =
   if U32.(slot <^ input.capacity) then (
-    S.save_candidate input.output input.capacity slot value;
+    let edit = { G.first = start; G.last = operator_end start op } in
+    S.save_candidate input.output input.capacity slot (G.make_candidate op edit left right);
     state
   ) else failed state 4ul
 
@@ -210,12 +222,11 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
     else if U32.(st.count >=^ input.capacity) then empty_range (failed st 4ul)
     else
       let start_op = st.offset in
-      let end_op = plus start_op (if op = 2ul || op = 4ul then 2ul else 1ul) in
+      let end_op = operator_end start_op op in
       let rhs = atom input { st with offset = end_op; count = next st.count } fuel in
       if rhs.parser.status <> 0ul then rhs
       else
-        let edit = { G.first = start_op; G.last = end_op } in
-        let done_ = emit input rhs.parser st.count (G.make_candidate op edit lhs.range rhs.range) in
+        let done_ = emit_comparison input rhs.parser st.count op start_op lhs.range rhs.range in
         { parser = done_; range = { G.first = lhs.range.G.first; G.last = rhs.range.G.last } }
 
 let tag_space (input:tape) (state:parser_state) : Read parser_state input =

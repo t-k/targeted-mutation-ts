@@ -53,5 +53,5 @@ let save_candidate (records:B.buffer G.candidate)
     (requires fun h -> B.live h records)
     (ensures fun h0 _ h1 ->
       B.modifies (B.loc_buffer records) h0 h1 /\
-      Seq.index (B.as_seq h1 records) (U32.v slot) == value)
+      B.as_seq h1 records == Seq.upd (B.as_seq h0 records) (U32.v slot) value)
   = B.upd records slot value

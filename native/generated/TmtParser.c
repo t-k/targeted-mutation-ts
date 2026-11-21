@@ -432,17 +432,29 @@ TmtParser_parser_state TmtParser_skip(TmtParser_tape input, TmtParser_parser_sta
   return TmtParser_from_cursor(state, next1);
 }
 
+uint32_t TmtParser_operator_end(uint32_t start, uint32_t op)
+{
+  return TmtParser_plus(start, op == 2U || op == 4U ? 2U : 1U);
+}
+
 TmtParser_parser_state
-TmtParser_emit(
+TmtParser_emit_comparison(
   TmtParser_tape input,
   TmtParser_parser_state state,
   uint32_t slot,
-  TmtGrammar_candidate value
+  uint32_t op,
+  uint32_t start,
+  TmtGrammar_span left,
+  TmtGrammar_span right
 )
 {
   if (slot < input.capacity)
   {
-    TmtScan_save_candidate(input.output, input.capacity, slot, value);
+    TmtGrammar_span edit = { .first = start, .last = TmtParser_operator_end(start, op) };
+    TmtScan_save_candidate(input.output,
+      input.capacity,
+      slot,
+      TmtGrammar_make_candidate(op, edit, left, right));
     return state;
   }
   else
@@ -536,7 +548,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
     else
     {
       uint32_t start_op = st.offset;
-      uint32_t end_op = TmtParser_plus(start_op, op == 2U || op == 4U ? 2U : 1U);
+      uint32_t end_op = TmtParser_operator_end(start_op, op);
       TmtParser_parsed
       rhs =
         TmtParser_atom(input,
@@ -553,13 +565,15 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
         return rhs;
       else
       {
-        TmtGrammar_span edit = { .first = start_op, .last = end_op };
         TmtParser_parser_state
         done_ =
-          TmtParser_emit(input,
+          TmtParser_emit_comparison(input,
             rhs.parser,
             st.count,
-            TmtGrammar_make_candidate(op, edit, lhs.range, rhs.range));
+            op,
+            start_op,
+            lhs.range,
+            rhs.range);
         return
           (
             (TmtParser_parsed){

@@ -495,3 +495,114 @@ let grammar_coverage (cfg:config) (tree:file) (semicolon:bool) : Lemma
       extraction_equivalence cfg (print_file tree semicolon)
 
 #pop-options
+
+// Match a reference candidate list against a consecutive interval of a native buffer.
+module Seq = FStar.Seq
+module B = LowStar.Buffer
+module P = TmtParser
+module ST = FStar.HyperStack.ST
+
+let rec matches_at (records:Seq.seq candidate) (base:nat) (values:list candidate)
+  : Tot prop (decreases values) =
+  match values with
+  | [] -> base <= Seq.length records
+  | head::tail -> base < Seq.length records /\ Seq.index records base == head /\
+      matches_at records (base + 1) tail
+
+let rec matches_after_update (before:Seq.seq candidate) (base:nat) (values:list candidate)
+  (slot:nat{slot < Seq.length before /\ slot < base}) (middle:candidate)
+  : Lemma (requires matches_at before base values)
+          (ensures matches_at (Seq.upd before slot middle) base values)
+          (decreases values) =
+  match values with
+  | [] -> ()
+  | _::tail -> matches_after_update before (base + 1) tail slot middle
+
+let rec backpatch_order (before:Seq.seq candidate) (base:nat) (left:list candidate)
+  (middle:candidate) (right:list candidate) (slot:nat{slot < Seq.length before})
+  : Lemma (requires slot == base + length left /\ matches_at before base left /\
+                    matches_at before (slot + 1) right)
+          (ensures matches_at (Seq.upd before slot middle) base (left @ [middle] @ right))
+          (decreases left) =
+  match left with
+  | [] -> matches_after_update before (slot + 1) right slot middle
+  | head::tail -> backpatch_order before (base + 1) tail middle right slot
+
+// The executable parser calls this same writer after both operands have returned.
+// The child intervals and spans are premises supplied by an operand refinement.
+let native_comparison_backpatch (input:P.tape) (state:P.parser_state)
+  (slot op start:U32.t) (left right:expression) (base:nat)
+  : ST.Stack P.parser_state
+    (requires fun h -> P.live input h /\ U32.v slot < U32.v input.capacity /\
+      U32.v slot == base + length (collect_expression left) /\
+      matches_at (B.as_seq h input.output) base (collect_expression left) /\
+      matches_at (B.as_seq h input.output) (U32.v slot + 1) (collect_expression right))
+    (ensures fun _ result h ->
+      let edit = { first = start; last = P.operator_end start op } in
+      result == state /\ matches_at (B.as_seq h input.output) base
+        (collect_expression (Compare left op edit right))) =
+  let before = ST.get () in
+  let result = P.emit_comparison input state slot op start (expression_span left) (expression_span right) in
+  let after = ST.get () in
+  let edit = { first = start; last = P.operator_end start op } in
+  assert (B.as_seq after input.output == Seq.upd (B.as_seq before input.output) (U32.v slot)
+    (make_candidate op edit (expression_span left) (expression_span right)));
+  assert (collect_expression (Compare left op edit right) ==
+    collect_expression left @ [make_candidate op edit (expression_span left) (expression_span right)] @ collect_expression right);
+  backpatch_order (B.as_seq before input.output) base (collect_expression left)
+    (make_candidate op edit (expression_span left) (expression_span right)) (collect_expression right) (U32.v slot);
+  result
+
+// Decode only a comparison operator at the supplied byte offset. Operand
+// tokenization and the choice of this offset are separate parser obligations.
+module C = LowStar.ConstBuffer
+module U8 = FStar.UInt8
+
+let operator_lexeme_at (bytes:Seq.seq U8.t) (start:U32.t)
+  : option lexeme =
+  let i = U32.v start in
+  if i >= Seq.length bytes then None else
+  let first = Seq.index bytes i in
+  let equals = i + 1 < Seq.length bytes && Seq.index bytes (i + 1) = 61uy in
+  let pos = { first = start; last = U32.add_mod start (if equals then 2ul else 1ul) } in
+  if first = 60uy then Some (if equals then LE pos else LT pos)
+  else if first = 62uy then Some (if equals then GE pos else GT pos)
+  else None
+
+let decoded_operator (token:option lexeme) =
+  match token with | None -> None | Some t -> as_operator t
+
+let recognised_lexeme (bytes:Seq.seq U8.t) (start op:U32.t)
+  : Lemma
+    (requires Some? (operator_lexeme_at bytes start) /\
+      (let i = U32.v start in i < Seq.length bytes /\ op == boundary (Seq.index bytes i)
+        (if i + 1 < Seq.length bytes then Seq.index bytes (i + 1) else 0uy)))
+    (ensures decoded_operator (operator_lexeme_at bytes start) ==
+      Some (op, { first = start; last = P.operator_end start op })) =
+  let i = U32.v start in
+  let ch = Seq.index bytes i in
+  let second = if i + 1 < Seq.length bytes then Seq.index bytes (i + 1) else 0uy in
+  assert (ch = 60uy || ch = 62uy);
+  if ch = 60uy then (if second = 61uy then () else ())
+  else (if second = 61uy then () else ())
+
+// Compose the two routines used on opposite sides of the native RHS parse.
+// The buffer already contains the child intervals when this proof starts.
+let native_operator_backpatch (input:P.tape) (state:P.parser_state)
+  (slot start:U32.t) (left right:expression) (base:nat)
+  : ST.Stack P.parser_state
+    (requires fun h -> P.live input h /\ U32.v slot < U32.v input.capacity /\
+      Some? (operator_lexeme_at (C.as_seq h input.source) start) /\
+      U32.v slot == base + length (collect_expression left) /\
+      matches_at (B.as_seq h input.output) base (collect_expression left) /\
+      matches_at (B.as_seq h input.output) (U32.v slot + 1) (collect_expression right))
+    (ensures fun h0 result h1 -> result == state /\
+      (match decoded_operator (operator_lexeme_at (C.as_seq h0 input.source) start) with
+       | Some (op, edit) -> matches_at (B.as_seq h1 input.output) base
+           (collect_expression (Compare left op edit right))
+       | None -> False)) =
+  let before = ST.get () in
+  let op = TmtScan.source_boundary input.source input.size start in
+  assert (U32.v start < Seq.length (C.as_seq before input.source));
+  recognised_lexeme (C.as_seq before input.source) start op;
+  native_comparison_backpatch input state slot op start left right base
