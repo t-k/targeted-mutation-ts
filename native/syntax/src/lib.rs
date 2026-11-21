@@ -4,12 +4,12 @@ use std::{ptr, slice, str};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    BinaryExpression, BindingIdentifier, Declaration, Expression, Function, Ident,
-    IdentifierReference, JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
-    JSXExpression, JSXOpeningElement, MethodDefinition, MethodDefinitionKind, ModuleDeclaration,
-    NewExpression, NumericLiteral, PropertyDefinition, Statement, StringLiteral, TSClassImplements,
-    TSExportAssignment, TSImportType, TSMethodSignature, TSMethodSignatureKind, TSModuleBlock,
-    UnaryExpression,
+    AccessorProperty, BinaryExpression, BindingIdentifier, Declaration, Expression, Function,
+    Ident, IdentifierReference, JSXAttribute, JSXAttributeItem, JSXAttributeName,
+    JSXAttributeValue, JSXExpression, JSXOpeningElement, MethodDefinition, MethodDefinitionKind,
+    ModuleDeclaration, NewExpression, NumericLiteral, PropertyDefinition, PropertyKey, Statement,
+    StringLiteral, TSClassImplements, TSExportAssignment, TSImportType, TSIndexSignature,
+    TSMethodSignature, TSMethodSignatureKind, TSModuleBlock, UnaryExpression,
 };
 use oxc_ast::ast_kind::AstKind;
 use oxc_ast_visit::{Visit, walk};
@@ -92,6 +92,10 @@ impl Collector<'_> {
             expression: bounds(expression),
         });
     }
+}
+
+fn static_prototype(is_static: bool, computed: bool, key: &PropertyKey<'_>) -> bool {
+    is_static && !computed && key.is_specific_static_name("prototype")
 }
 
 fn restricted_identifier(name: &str) -> bool {
@@ -202,6 +206,12 @@ impl<'a> Visit<'a> for Collector<'_> {
         walk::walk_ts_class_implements(self, node);
     }
 
+    fn visit_ts_index_signature(&mut self, node: &TSIndexSignature<'a>) {
+        let kind = Kind::match_keyword(node.parameter.name.as_str());
+        self.rejected |= kind != Kind::Yield && kind.is_reserved_keyword();
+        walk::walk_ts_index_signature(self, node);
+    }
+
     fn visit_ts_method_signature(&mut self, node: &TSMethodSignature<'a>) {
         if node.kind != TSMethodSignatureKind::Method {
             self.rejected |= self.has_modifier(node.span.start, node.key.span(), &[Kind::Readonly]);
@@ -222,6 +232,7 @@ impl<'a> Visit<'a> for Collector<'_> {
             MethodDefinitionKind::Method => &[Kind::Default],
         };
         self.rejected |= self.has_modifier(start, node.key.span(), invalid);
+        self.rejected |= static_prototype(node.r#static, node.computed, &node.key);
         walk::walk_method_definition(self, node);
     }
 
@@ -231,7 +242,13 @@ impl<'a> Visit<'a> for Collector<'_> {
             .last()
             .map_or(node.span.start, |decorator| decorator.span.end);
         self.rejected |= self.has_modifier(start, node.key.span(), &[Kind::Default]);
+        self.rejected |= static_prototype(node.r#static, node.computed, &node.key);
         walk::walk_property_definition(self, node);
+    }
+
+    fn visit_accessor_property(&mut self, node: &AccessorProperty<'a>) {
+        self.rejected |= static_prototype(node.r#static, node.computed, &node.key);
+        walk::walk_accessor_property(self, node);
     }
 
     fn visit_function(&mut self, node: &Function<'a>, flags: ScopeFlags) {

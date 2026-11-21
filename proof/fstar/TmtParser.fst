@@ -1131,6 +1131,16 @@ let update_width (input:tape) (at:U32.t) (byte:U8.t) : Read U32.t input =
     if same input (next at) byte then 2ul else 0ul
   else 0ul
 
+let ambiguous_assertion_update (input:tape) (state:parser_state) : Read bool input =
+  let question = skip input state in
+  let marker = same input question.offset 63uy in
+  if question.status <> 0ul || not marker then false
+  else
+    let body = skip input (consume input question 63uy) in
+    let first = peek input body.offset in
+    let update = update_width input body.offset first in
+    body.status = 0ul && update <> 0ul
+
 let assignment_width (input:tape) (at:U32.t) (byte follower:U8.t) : Read U32.t input =
   if byte = 61uy && follower <> 61uy && follower <> 62uy then 1ul
   else if (byte = 38uy || byte = 124uy || byte = 63uy) && follower = byte then
@@ -1435,9 +1445,11 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
       if remaining = 0ul then empty_range (failed st 3ul)
       else
         let asserted = annotation_type input { st with offset = plus st.offset type_width } 16ul 64ul in
-        let value = { lhs with parser = asserted; range = { lhs.range with G.last = asserted.offset };
-          outer_or = false; target = NotAssignable } in
-        binary_tail input value fuel minimum (minus remaining 1ul)
+        if ambiguous_assertion_update input asserted then empty_range (failed asserted 1ul)
+        else
+          let value = { lhs with parser = asserted; range = { lhs.range with G.last = asserted.offset };
+            outer_or = false; target = NotAssignable } in
+          binary_tail input value fuel minimum (minus remaining 1ul)
     else
       let op = operator input st.offset st.in_allowed in
       if op.width = 0ul || U32.(op.strength <^ minimum) then { lhs with parser = st }

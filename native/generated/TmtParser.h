@@ -569,6 +569,8 @@ uint32_t TmtParser_statement_kind(TmtParser_tape input, uint32_t at);
 
 uint32_t TmtParser_update_width(TmtParser_tape input, uint32_t at, uint8_t byte);
 
+bool TmtParser_ambiguous_assertion_update(TmtParser_tape input, TmtParser_parser_state state);
+
 uint32_t
 TmtParser_assignment_width(TmtParser_tape input, uint32_t at, uint8_t byte, uint8_t follower);
 

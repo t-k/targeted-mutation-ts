@@ -1,0 +1,10 @@
+Assertion	Grouping	Update
+As	None	Inc
+As	Assertion	Inc
+Satisfies	None	Dec
+Satisfies	Consequent	Dec
+As	None	Unary
+Satisfies	Assertion	Unary
+As	Consequent	Unary
+As	Assertion	Dec
+Satisfies	Consequent	Inc

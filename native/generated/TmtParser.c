@@ -3640,6 +3640,21 @@ uint32_t TmtParser_update_width(TmtParser_tape input, uint32_t at, uint8_t byte)
     return 0U;
 }
 
+bool TmtParser_ambiguous_assertion_update(TmtParser_tape input, TmtParser_parser_state state)
+{
+  TmtParser_parser_state question = TmtParser_skip(input, state);
+  bool marker = TmtParser_same(input, question.offset, 63U);
+  if (question.status != 0U || !marker)
+    return false;
+  else
+  {
+    TmtParser_parser_state body = TmtParser_skip(input, TmtParser_consume(input, question, 63U));
+    uint8_t first = TmtParser_peek(input, body.offset);
+    uint32_t update = TmtParser_update_width(input, body.offset, first);
+    return body.status == 0U && update != 0U;
+  }
+}
+
 uint32_t
 TmtParser_assignment_width(TmtParser_tape input, uint32_t at, uint8_t byte, uint8_t follower)
 {
@@ -4758,17 +4773,22 @@ TmtParser_binary_tail(
               ),
               16U,
               64U);
-          TmtParser_parsed
-          value =
-            {
-              .parser = asserted, .range = { .first = lhs.range.first, .last = asserted.offset },
-              .open_angle = lhs.open_angle, .outer_or = false, .shortcut = lhs.shortcut,
-              .target = TmtParser_NotAssignable
-            };
-          TmtParser_parsed tmp0 = value;
-          uint32_t tmp = TmtParser_minus(remaining, 1U);
-          lhs = tmp0;
-          remaining = tmp;
+          if (TmtParser_ambiguous_assertion_update(input, asserted))
+            return TmtParser_empty_range(TmtParser_failed(asserted, 1U));
+          else
+          {
+            TmtParser_parsed
+            value =
+              {
+                .parser = asserted, .range = { .first = lhs.range.first, .last = asserted.offset },
+                .open_angle = lhs.open_angle, .outer_or = false, .shortcut = lhs.shortcut,
+                .target = TmtParser_NotAssignable
+              };
+            TmtParser_parsed tmp0 = value;
+            uint32_t tmp = TmtParser_minus(remaining, 1U);
+            lhs = tmp0;
+            remaining = tmp;
+          }
         }
       }
       else
