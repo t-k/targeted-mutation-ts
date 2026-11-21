@@ -498,6 +498,16 @@ TmtParser_type_chain_start(TmtParser_tape input, TmtParser_parser_state state);
 TmtParser_parser_state
 TmtParser_constructor_type_start(TmtParser_tape input, TmtParser_parser_state st, uint8_t byte);
 
+typedef struct TmtParser_mapped_type_head_s
+{
+  TmtParser_parser_state constraint_start;
+  bool mapped;
+}
+TmtParser_mapped_type_head;
+
+TmtParser_mapped_type_head
+TmtParser_mapped_type_start(TmtParser_tape input, TmtParser_parser_state st);
+
 TmtParser_parser_state
 TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
@@ -536,6 +546,12 @@ TmtParser_object_type(
   uint32_t fuel0,
   uint32_t remaining0
 );
+
+TmtParser_parser_state
+TmtParser_mapped_type(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+
+TmtParser_parser_state
+TmtParser_braced_type(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
 TmtParser_signature_parameters(

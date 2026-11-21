@@ -802,6 +802,34 @@ let constructor_type_start (input:tape) (st:parser_state) (byte:U8.t) : Read par
   let new_ = if start.status = 0ul then keyword input start.offset 3ul 0x6e6577uL else false in
   if new_ then skip input { start with offset = plus start.offset 3ul } else st
 
+type mapped_type_head = { constraint_start:parser_state; mapped:bool }
+
+let mapped_type_start (input:tape) (st:parser_state) : Read mapped_type_head input =
+  let ordinary = { constraint_start = st; mapped = false } in
+  let byte = peek input st.offset in
+  let signed = byte = 43uy || byte = 45uy in
+  let start = if signed then skip input (consume input st byte) else st in
+  let first = peek input start.offset in
+  let readonly = if first = 114uy then keyword input start.offset 8ul 0x726561646f6e6c79uL else false in
+  let bracket =
+    if readonly then skip input { start with offset = plus start.offset 8ul } else start in
+  let opening = same input bracket.offset 91uy in
+  if not opening || (signed && not readonly) then ordinary
+  else
+    let key = skip input (consume input bracket 91uy) in
+    let first = peek input key.offset in
+    if not (G.identifier_start first) then ordinary
+    else
+      let stop = scan_class input key.offset G.Identifier in
+      let tail = skip input { key with offset = stop } in
+      let in_ = keyword input tail.offset 2ul 0x696euL in
+      if not in_ || tail.status <> 0ul then ordinary
+      else
+        let binding = name input key.offset false true in
+        let constraint_start =
+          if binding.ok then { tail with offset = plus tail.offset 2ul } else failed key 1ul in
+        { constraint_start; mapped = true }
+
 #push-options "--split_queries always"
 let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 1; 0]) =
@@ -928,6 +956,30 @@ and object_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
     else if next_byte = 125uy then consume input end_ 125uy
     else if boundary.newline then object_type input end_ fuel (minus remaining 1ul)
     else failed end_ 1ul
+and mapped_type (input:tape) (state:parser_state) (fuel:U32.t)
+  : Read parser_state input (decreases %[U32.v fuel; 7; 0]) =
+  let source = annotation_type input state fuel 64ul in
+  let st = skip input source in
+  let as_ = keyword input st.offset 2ul 0x6173uL in
+  let remapped = if as_ then annotation_type input { st with offset = plus st.offset 2ul } fuel 64ul else st in
+  let after = skip input (consume input (skip input remapped) 93uy) in
+  let byte = peek input after.offset in
+  let optional =
+    if byte = 43uy || byte = 45uy then consume input (skip input (consume input after byte)) 63uy
+    else if byte = 63uy then consume input after 63uy
+    else after in
+  let st = skip input optional in
+  let colon = same input st.offset 58uy in
+  let value = if colon then skip input (annotation_type input (consume input st 58uy) fuel 64ul) else st in
+  let byte = peek input value.offset in
+  let end_ = if byte = 59uy || byte = 44uy then skip input (consume input value byte) else value in
+  consume input end_ 125uy
+and braced_type (input:tape) (state:parser_state) (fuel:U32.t)
+  : Read parser_state input (decreases %[U32.v fuel; 8; 0]) =
+  let start = skip input state in
+  let head = mapped_type_start input start in
+  if head.mapped then mapped_type input head.constraint_start fuel
+  else object_type input start fuel input.size
 and signature_parameters (input:tape) (state:parser_state) (fuel remaining:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 5; U32.v remaining]) =
   let st = skip input state in
@@ -998,7 +1050,7 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature al
           let inside = { st with offset = next st.offset } in
           let inner = minus fuel 1ul in
           if byte = 91uy then tuple_list input inside inner 64ul false
-          else if byte = 123uy then object_type input inside inner input.size
+          else if byte = 123uy then braced_type input inside inner
           else
             let params = if allow_signature then signature_parameters input inside inner 64ul
               else failed inside 1ul in

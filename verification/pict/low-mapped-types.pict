@@ -1,0 +1,3 @@
+Modifier: Plain, ReadonlyOptional, RemoveReadonly, SetReadonly
+Use: Alias, Assertion, Nested, Annotation
+Member: Basic, Remapped, NoValue, ExtraMember, MissingSource

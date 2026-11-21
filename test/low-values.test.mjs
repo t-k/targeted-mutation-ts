@@ -29,6 +29,7 @@ test('mixed imports, compound values and simple type annotations are parsed as a
   const source = [
     'import { build, type Mode } from "./values";',
     'const items: Route[] = [{ path: "/", render: () => "🐈" }];',
+    'const updated: { [K in keyof Route]: boolean } = ready;',
     'let mode: "short" | "long" = Math.random() > 0.5 ? "short" : "long";',
     'if (Math.random() >= 0.25) mode = "long";',
     'build({ items, mode });',
@@ -47,7 +48,6 @@ test('compound syntax keeps unsupported cases on the reference route', () => {
     'const x = (a, a) => a < b;',
     'const x = a\n=> a < b;',
     'const x = (...[arg]) => arg < 2;',
-    'const x: { [K in keyof A]: boolean } = a < b;',
     'const x = [tag<T>`>`, a < b];',
     '{ a: b < c }',
   ]) {

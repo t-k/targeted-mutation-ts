@@ -1,0 +1,6 @@
+Modifier	Use	Member
+Plain	Alias	Basic
+RemoveReadonly	Nested	Remapped
+ReadonlyOptional	Assertion	ExtraMember
+SetReadonly	Annotation	NoValue
+RemoveReadonly	Alias	MissingSource
