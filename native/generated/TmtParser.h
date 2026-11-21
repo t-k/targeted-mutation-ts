@@ -78,6 +78,8 @@ typedef struct TmtParser_parser_state_s
   uint32_t local_names;
   bool await_allowed;
   bool jsx_allowed;
+  bool module_mode;
+  bool in_allowed;
 }
 TmtParser_parser_state;
 
@@ -156,7 +158,8 @@ typedef struct TmtParser_binary_operator_s
 }
 TmtParser_binary_operator;
 
-TmtParser_binary_operator TmtParser_operator(TmtParser_tape input, uint32_t at);
+TmtParser_binary_operator
+TmtParser_operator(TmtParser_tape input, uint32_t at, bool in_allowed);
 
 uint32_t TmtParser_unary_width(TmtParser_tape input, uint32_t at, uint8_t byte);
 
@@ -393,6 +396,8 @@ TmtParser_assignment_width(TmtParser_tape input, uint32_t at, uint8_t byte, uint
 TmtParser_assignment_target
 TmtParser_identifier_target(TmtParser_tape input, uint32_t pos, uint8_t ch);
 
+bool TmtParser_import_expression_start(TmtParser_tape input, TmtParser_parser_state state);
+
 TmtParser_parser_state
 TmtParser_statement_end(
   TmtParser_tape input,
@@ -448,6 +453,9 @@ TmtParser_postfix(
   uint32_t fuel0,
   uint32_t remaining0
 );
+
+TmtParser_parser_state
+TmtParser_dynamic_import(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
 TmtParser_expression_list(
@@ -511,7 +519,12 @@ TmtParser_variable_initializer(
 );
 
 TmtParser_parser_state
-TmtParser_binding(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+TmtParser_binding(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  bool in_allowed
+);
 
 TmtParser_parser_state
 TmtParser_for_step(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);

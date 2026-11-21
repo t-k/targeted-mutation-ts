@@ -1,0 +1,10 @@
+Form	Mode	Suffix
+Call	Script	Valid
+Meta	Module	Valid
+In	Script	Valid
+TypeDefault	Module	Valid
+Call	Module	Invalid
+Meta	Module	Invalid
+TypeDefault	Module	Invalid
+In	Module	Invalid
+In	Script	Invalid

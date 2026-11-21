@@ -7,7 +7,7 @@ use oxc_ast::ast::{
     BinaryExpression, BindingIdentifier, Declaration, Expression, Function, Ident,
     IdentifierReference, JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
     JSXExpression, JSXOpeningElement, MethodDefinition, MethodDefinitionKind, ModuleDeclaration,
-    NumericLiteral, PropertyDefinition, Statement, StringLiteral, TSClassImplements,
+    NewExpression, NumericLiteral, PropertyDefinition, Statement, StringLiteral, TSClassImplements,
     TSExportAssignment, TSImportType, TSMethodSignature, TSMethodSignatureKind, TSModuleBlock,
     UnaryExpression,
 };
@@ -258,6 +258,15 @@ impl<'a> Visit<'a> for Collector<'_> {
                     token.is_on_new_line() && matches!(token.kind(), Kind::LAngle | Kind::ShiftLeft)
                 });
         walk::walk_ts_import_type(self, node);
+    }
+
+    fn visit_new_expression(&mut self, node: &NewExpression<'a>) {
+        // Yuku requires parentheses before using an import expression as a constructor.
+        self.rejected |= self
+            .tokens_from(node.span.start)
+            .get(1)
+            .is_some_and(|token| token.kind() == Kind::Import);
+        walk::walk_new_expression(self, node);
     }
 
     fn visit_binary_expression(&mut self, node: &BinaryExpression<'a>) {

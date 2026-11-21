@@ -1,0 +1,4 @@
+Form: Call, Meta, In, TypeDefault
+Mode: Script, Module
+Suffix: Valid, Invalid
+IF [Form] IN {"Meta", "TypeDefault"} THEN [Mode] = "Module";
