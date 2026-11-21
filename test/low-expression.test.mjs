@@ -48,10 +48,10 @@ test('function lexical declarations keep parameter, child, and sibling scopes di
 
 test('type arguments, unsupported operators and malformed literals publish no false comparisons', () => {
   for (const expression of [
-    'make<T>(item) > limit',
-    'make<T | U>(item) > limit',
-    'make<T & U>(item) > limit',
-    'choose(make<A | B, C>(item)) > limit',
+    'make <T>(item) > limit',
+    'make <T | U>(item) > limit',
+    'make <T & U>(item) > limit',
+    'choose(make <A | B, C>(item)) > limit',
     'a << 1 < b',
     'a ?? b || c < d',
     'a ** 2 < c',

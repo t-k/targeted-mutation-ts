@@ -1,0 +1,5 @@
+Callee	Type	Suffix
+Plain	Union	Valid
+Member	Simple	Valid
+Constructor	Nested	Valid
+Plain	Nested	Invalid

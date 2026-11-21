@@ -356,7 +356,7 @@ let undefined_type (input:tape) (start finish:U32.t) : Read bool input =
     let last = peek input (plus start 8ul) in
     prefix = 0x756e646566696e65uL && last = 100uy
 
-let rec qualified_type (input:tape) (state:parser_state) (fuel:U32.t)
+let rec qualified_name (input:tape) (state:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases U32.v fuel) =
   let after = trivia input state.offset in
   let st = from_cursor state after in
@@ -369,7 +369,7 @@ let rec qualified_type (input:tape) (state:parser_state) (fuel:U32.t)
       if property.status <> 0ul || not (G.identifier_start byte) then failed property 1ul
       else
         let end_at = scan_class input property.offset G.Identifier in
-        qualified_type input { property with offset = end_at } (minus fuel 1ul)
+        qualified_name input { property with offset = end_at } (minus fuel 1ul)
   else state
 
 let rec array_type_suffixes (input:tape) (state:parser_state) (fuel:U32.t)
@@ -464,7 +464,7 @@ let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
     let undefined = undefined_type input st.offset named.at in
     let primitive = builtin_type packed || undefined in
     let named = from_cursor st named in
-    let reference = if primitive then named else qualified_type input named 64ul in
+    let reference = if primitive then named else qualified_name input named 64ul in
     let after = trivia input reference.offset in
     let tail = from_cursor reference after in
     if type_operator packed then failed tail 1ul
@@ -590,6 +590,11 @@ let simple_annotation (input:tape) (state:parser_state) : Read parser_state inpu
   if st.status <> 0ul then st
   else if not annotation then state
   else annotation_type input { st with offset = next st.offset } 16ul 64ul
+
+let call_type_arguments (input:tape) (state:parser_state) : Read parser_state input =
+  let types = type_list input (consume input state 60uy) 16ul 64ul 62uy false in
+  let arguments = skip input types in
+  if same input arguments.offset 40uy then arguments else failed arguments 1ul
 
 let rec type_parameters (input:tape) (state:parser_state) (remaining:U32.t) : Read parser_state input (decreases U32.v remaining) =
   let st = skip input state in
@@ -880,7 +885,11 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           if constructor then
             let target = skip input { st with offset = plus start_pos 3ul } in
             let named = from_cursor target (name input target.offset false false) in
-            let args = consume input (skip input named) 40uy in
+            let named = qualified_name input named 64ul in
+            let tail = skip input named in
+            let typed = same input tail.offset 60uy in
+            let tail = if typed && tail.offset = named.offset then call_type_arguments input tail else tail in
+            let args = consume input tail 40uy in
             expression_list input args inner input.size 41uy
           else
             let inside = { st with offset = next start_pos } in
@@ -1022,6 +1031,11 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
     let after = trivia input base.parser.offset in
     let st = from_cursor base.parser after in
     let byte = peek input st.offset in
+    let generic =
+      if byte = 60uy && st.offset = base.range.G.last && base.target = Assignable then
+        call_type_arguments input st
+      else failed st 1ul in
+    let typed = generic.status = 0ul in
     let optional =
       if byte = 63uy then
         let dot = same input (next st.offset) 46uy in
@@ -1034,11 +1048,14 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
     if st.status <> 0ul then { base with parser = st }
     // A tagged template continues the left operand even across a line break.
     else if byte = 96uy then empty_range (failed st 1ul)
-    else if byte <> 46uy && byte <> 40uy && byte <> 91uy && not bang && not optional then { base with parser = st }
+    else if byte <> 46uy && byte <> 40uy && byte <> 91uy && not bang && not optional && not typed then { base with parser = st }
     else if remaining = 0ul then empty_range (failed st 3ul)
     else
-      let operand = if optional then skip input { st with offset = plus st.offset 2ul } else st in
-      let kind = if optional then peek input operand.offset else byte in
+      let operand =
+        if typed then generic
+        else if optional then skip input { st with offset = plus st.offset 2ul }
+        else st in
+      let kind = if typed then 40uy else if optional then peek input operand.offset else byte in
       let next_st =
         if kind = 40uy || kind = 91uy then
           if fuel = 0ul then failed st 3ul

@@ -4,11 +4,11 @@ use std::{ptr, slice, str};
 
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    BinaryExpression, BindingIdentifier, Declaration, Expression, Ident, IdentifierReference,
-    JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue, JSXExpression,
-    JSXOpeningElement, MethodDefinition, MethodDefinitionKind, ModuleDeclaration, NumericLiteral,
-    PropertyDefinition, Statement, StringLiteral, TSClassImplements, TSExportAssignment,
-    TSMethodSignature, TSMethodSignatureKind, TSModuleBlock, UnaryExpression,
+    BinaryExpression, BindingIdentifier, Declaration, Expression, Function, Ident,
+    IdentifierReference, JSXAttribute, JSXAttributeItem, JSXAttributeName, JSXAttributeValue,
+    JSXExpression, JSXOpeningElement, MethodDefinition, MethodDefinitionKind, ModuleDeclaration,
+    NumericLiteral, PropertyDefinition, Statement, StringLiteral, TSClassImplements,
+    TSExportAssignment, TSMethodSignature, TSMethodSignatureKind, TSModuleBlock, UnaryExpression,
 };
 use oxc_ast::ast_kind::AstKind;
 use oxc_ast_visit::{Visit, walk};
@@ -17,6 +17,7 @@ use oxc_semantic::{Scoping, SemanticBuilder};
 use oxc_span::{GetSpan, SourceType, Span};
 use oxc_syntax::module_record::{ExportExportName, ExportLocalName};
 use oxc_syntax::operator::{BinaryOperator, LogicalOperator, UnaryOperator};
+use oxc_syntax::scope::ScopeFlags;
 
 #[repr(C)]
 pub struct Candidate {
@@ -230,6 +231,20 @@ impl<'a> Visit<'a> for Collector<'_> {
             .map_or(node.span.start, |decorator| decorator.span.end);
         self.rejected |= self.has_modifier(start, node.key.span(), &[Kind::Default]);
         walk::walk_property_definition(self, node);
+    }
+
+    fn visit_function(&mut self, node: &Function<'a>, flags: ScopeFlags) {
+        // Yuku requires the ambient modifier to precede async.
+        if node.declare
+            && node.r#async
+            && let [first, second, ..] = self.tokens_from(node.span.start)
+            && first.kind() == Kind::Async
+            && second.kind() == Kind::Declare
+            && !second.is_on_new_line()
+        {
+            self.rejected = true;
+        }
+        walk::walk_function(self, node, flags);
     }
 
     fn visit_binary_expression(&mut self, node: &BinaryExpression<'a>) {

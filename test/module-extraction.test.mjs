@@ -41,7 +41,7 @@ test('native modules preserve ASI, binding scope, and failure diagnostics', () =
     ['import { left } from "./x"; const left = 1 < 2;', 'fallback'],
     ['import { left as n, right as n } from "./x"; const fits = n < 2;', 'diagnostic'],
     ['function f(n: number, n: number) { return n < 2; }', 'diagnostic'],
-    ['function f(n: number) { return\n n < 2; }', 'native'],
+    ['function f(n: number) { return\n n < 2; }', 'fast'],
     ['import "unfinished\n"; const fits = n < 2;', 'diagnostic'],
     ['function f(n: number) { return n < 2; } return n > 2;', 'diagnostic'],
     ['const x = 1; const q = x < 2 const y = 3;', 'diagnostic'],

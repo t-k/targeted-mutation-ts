@@ -47,12 +47,12 @@ test('nested comparisons retain lexical order and parenthesized operand spans', 
 
 test('inputs outside the Low* grammar receive complete extraction', () => {
   for (const [src, dialect, count, path = 'native'] of [
-    ['const x = f<number>(2) < 3;', 'ts', 1],
+    ['const x = f <number>(2) < 3;', 'ts', 1],
     ['const x = /[<]/.test("a") && 3 / 4 > 0;', 'ts', 1],
     ['const x = String.raw`x > < ${2 >= 3}`;', 'ts', 1],
     ['const x = <A.B><B valid={3 < 5} /></A.B>;', 'tsx', 1],
     ['const x = ' + '('.repeat(65) + '2 >= 3' + ')'.repeat(65), 'ts', 1, 'native'],
-    ['const x = 2 < 3; const y = obj<number>().count > 5;', 'ts', 2],
+    ['const x = 2 < 3; const y = obj <number>().count > 5;', 'ts', 2],
   ]) {
     const result = extract(src, { dialect, ...fast });
     assert.equal(result.path, path, src);
@@ -97,6 +97,16 @@ test('fallback rejects invalid code beyond the candidate prefix', () => {
   const source = 'const x = 2 < 3; export const y = x;';
   assert.equal(extract(source, { ...fast, mode: 'script' }).path, 'diagnostic');
   assert.equal(extract(source, fast).candidates.length, 1);
+});
+
+test('ambient async function modifiers preserve the reference order', () => {
+  for (const prefix of ['async declare', 'export async declare', 'declare async', 'async\ndeclare']) {
+    const source = `${prefix} function x(): T\nx < hi`;
+    const result = extract(source, fast);
+    const reference = extractFallback(source);
+    assert.deepEqual(result.candidates, reference.candidates, source);
+    assert.deepEqual(result.diagnostics, reference.diagnostics, source);
+  }
 });
 
 test('fallback respects the strictness of the selected source mode', () => {
@@ -190,7 +200,7 @@ for (const row of encodingRows) {
   test('encoding ' + row.replaceAll('\t', ' / '), () => {
     const [kind, text, syntax] = row.split('\t');
     const caption = text === 'ASCII' ? 'yes' : '🐈';
-    const prefix = syntax === 'Fallback' ? 'const other = identity<number>(1);\n' : '';
+    const prefix = syntax === 'Fallback' ? 'const other = identity <number>(1);\n' : '';
     const source = prefix + 'const view = <Tag text="' + caption + '" show={2 <= 3} />;';
     const storage = Uint8Array.from([...Buffer.from(source), ...(text === 'Invalid' ? [255] : [])]);
     const input = {

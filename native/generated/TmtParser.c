@@ -1021,7 +1021,7 @@ bool TmtParser_undefined_type(TmtParser_tape input, uint32_t start, uint32_t fin
 }
 
 TmtParser_parser_state
-TmtParser_qualified_type(TmtParser_tape input0, TmtParser_parser_state state0, uint32_t fuel0)
+TmtParser_qualified_name(TmtParser_tape input0, TmtParser_parser_state state0, uint32_t fuel0)
 {
   TmtParser_tape input = input0;
   TmtParser_parser_state state = state0;
@@ -1330,7 +1330,7 @@ TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uin
     if (primitive)
       reference = named1;
     else
-      reference = TmtParser_qualified_type(input, named1, 64U);
+      reference = TmtParser_qualified_name(input, named1, 64U);
     TmtParser_cursor after = TmtParser_trivia(input, reference.offset);
     TmtParser_parser_state tail = TmtParser_from_cursor(reference, after);
     if (TmtParser_type_operator(packed))
@@ -1765,6 +1765,18 @@ TmtParser_simple_annotation(TmtParser_tape input, TmtParser_parser_state state)
         ),
         16U,
         64U);
+}
+
+TmtParser_parser_state
+TmtParser_call_type_arguments(TmtParser_tape input, TmtParser_parser_state state)
+{
+  TmtParser_parser_state
+  types = TmtParser_type_list(input, TmtParser_consume(input, state, 60U), 16U, 64U, 62U, false);
+  TmtParser_parser_state arguments = TmtParser_skip(input, types);
+  if (TmtParser_same(input, arguments.offset, 40U))
+    return arguments;
+  else
+    return TmtParser_failed(arguments, 1U);
 }
 
 TmtParser_parser_state
@@ -2661,7 +2673,15 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               ));
           TmtParser_parser_state
           named = TmtParser_from_cursor(target, TmtParser_name(input, target.offset, false, false));
-          TmtParser_parser_state args = TmtParser_consume(input, TmtParser_skip(input, named), 40U);
+          TmtParser_parser_state named1 = TmtParser_qualified_name(input, named, 64U);
+          TmtParser_parser_state tail = TmtParser_skip(input, named1);
+          bool typed = TmtParser_same(input, tail.offset, 60U);
+          TmtParser_parser_state tail1;
+          if (typed && tail.offset == named1.offset)
+            tail1 = TmtParser_call_type_arguments(input, tail);
+          else
+            tail1 = tail;
+          TmtParser_parser_state args = TmtParser_consume(input, tail1, 40U);
           completed = TmtParser_expression_list(input, args, inner, input.size, 41U);
         }
         else
@@ -3213,6 +3233,12 @@ TmtParser_postfix(
       TmtParser_cursor after = TmtParser_trivia(input, base.parser.offset);
       TmtParser_parser_state st = TmtParser_from_cursor(base.parser, after);
       uint8_t byte = TmtParser_peek(input, st.offset);
+      TmtParser_parser_state generic;
+      if (byte == 60U && st.offset == base.range.last && base.target == TmtParser_Assignable)
+        generic = TmtParser_call_type_arguments(input, st);
+      else
+        generic = TmtParser_failed(st, 1U);
+      bool typed = generic.status == 0U;
       bool optional;
       if (byte == 63U)
       {
@@ -3244,7 +3270,7 @@ TmtParser_postfix(
           );
       else if (byte == 96U)
         return TmtParser_empty_range(TmtParser_failed(st, 1U));
-      else if (byte != 46U && byte != 40U && byte != 91U && !bang && !optional)
+      else if (byte != 46U && byte != 40U && byte != 91U && !bang && !optional && !typed)
         return
           (
             (TmtParser_parsed){
@@ -3261,7 +3287,9 @@ TmtParser_postfix(
       else
       {
         TmtParser_parser_state operand;
-        if (optional)
+        if (typed)
+          operand = generic;
+        else if (optional)
           operand =
             TmtParser_skip(input,
               (
@@ -3278,7 +3306,9 @@ TmtParser_postfix(
         else
           operand = st;
         uint8_t kind;
-        if (optional)
+        if (typed)
+          kind = 40U;
+        else if (optional)
           kind = TmtParser_peek(input, operand.offset);
         else
           kind = byte;

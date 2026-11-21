@@ -212,7 +212,7 @@ uint64_t TmtParser_packed_type(TmtParser_tape input, uint32_t start, uint32_t fi
 bool TmtParser_undefined_type(TmtParser_tape input, uint32_t start, uint32_t finish);
 
 TmtParser_parser_state
-TmtParser_qualified_type(TmtParser_tape input0, TmtParser_parser_state state0, uint32_t fuel0);
+TmtParser_qualified_name(TmtParser_tape input0, TmtParser_parser_state state0, uint32_t fuel0);
 
 TmtParser_parser_state
 TmtParser_array_type_suffixes(
@@ -292,6 +292,9 @@ TmtParser_type_terms(
 
 TmtParser_parser_state
 TmtParser_simple_annotation(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
+TmtParser_call_type_arguments(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
 TmtParser_type_parameters(
