@@ -1,0 +1,6 @@
+Parameters	Body	Suffix
+Multi	Expression	Valid
+Typed	Block	Valid
+Record	Nested	Valid
+Array	Block	Invalid
+Array	Expression	Valid

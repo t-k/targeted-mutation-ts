@@ -1,0 +1,13 @@
+Parameters	Body	Suffix
+Multi	Expression	Valid
+Typed	Block	Valid
+Record	Nested	Valid
+Array	Block	Invalid
+Array	Expression	Valid
+Typed	Expression	Invalid
+Array	Nested	Invalid
+Multi	Block	Invalid
+Multi	Nested	Invalid
+Record	Block	Invalid
+Record	Expression	Invalid
+Typed	Nested	Valid
