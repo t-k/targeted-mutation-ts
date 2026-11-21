@@ -76,6 +76,7 @@ typedef struct TmtParser_parser_state_s
   uint32_t depth;
   uint32_t status;
   uint32_t local_names;
+  bool await_allowed;
 }
 TmtParser_parser_state;
 
@@ -278,7 +279,7 @@ TmtParser_parameter_binding(
 );
 
 TmtParser_parser_state
-TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state);
+TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bool allow_in);
 
 typedef struct TmtParser_parameter_list_s
 {
@@ -299,6 +300,11 @@ TmtParser_parameters(
 
 TmtParser_parser_state
 TmtParser_arrow_token(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parameter_list
+TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_cursor TmtParser_async_modifier(TmtParser_tape input, uint32_t start);
 
 TmtParser_parameter_list
 TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state);

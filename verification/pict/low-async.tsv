@@ -1,0 +1,11 @@
+Entry	Use	Suffix
+Module	Operand	Valid
+Named	Collection	Valid
+BlockArrow	Collection	Invalid
+BareArrow	Operand	Valid
+Script	Operand	Invalid
+BlockArrow	Operand	Valid
+BareArrow	Operand	Invalid
+Module	Collection	Invalid
+Script	Collection	Valid
+Named	Operand	Invalid

@@ -1,0 +1,6 @@
+Entry	Use	Suffix
+Module	Operand	Valid
+Named	Collection	Valid
+BlockArrow	Collection	Invalid
+BareArrow	Operand	Valid
+Script	Operand	Invalid

@@ -1,0 +1,4 @@
+Entry: Module, Named, BlockArrow, BareArrow, Script
+Use: Operand, Collection
+Suffix: Valid, Invalid
+IF [Entry] = "BareArrow" THEN [Use] <> "Collection";
