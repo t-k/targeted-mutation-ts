@@ -1,5 +1,36 @@
 # Performance measurements
 
+
+## Native runtime without Oxc
+
+At `5078acc`, the default build and packaged addon use the generated C parser without Rust or Cargo. Low★ accepts 2,946 of 8,549 tracked TS/TSX files in the pinned corpora. Complete candidate records and diagnostics match Yuku with the JSX logical rule enabled and disabled.
+
+| Checkout | Candidates | Low★ | Yuku fallback |
+| --- | ---: | ---: | ---: |
+| Vite | 201 | 99 | 102 |
+| Preact | 1 | 0 | 1 |
+| TypeScript corpus | 562 | 56 | 506 |
+| mreact | 1,550 | 883 | 667 |
+| tachyon-dom | 654 | 174 | 480 |
+
+The macOS ARM64 addon shrank from 2,113,064 to 170,344 bytes. Routing every Low★ refusal to Yuku increased warm extraction time in the three measured workloads. The median uses nine alternating samples over the same inputs and includes parsing and candidate conversion.
+
+| Workload | Oxc build | C-only build with Yuku fallback |
+| --- | ---: | ---: |
+| Vite | 19.42 ms | 34.74 ms |
+| mreact | 83.11 ms | 165.83 ms |
+| tachyon-dom | 35.43 ms | 86.19 ms |
+
+The standalone `--low-only` build also runs without Yuku for files within the Low★ grammar. The standard build still needs Yuku for the other files. See the [corpus audits and samples](../evidence/m1/oxc-removal.json).
+
+## macOS link-time optimization and symbol visibility
+
+On an Apple M5 Max with Node 24.14.0, full LTO and hidden visibility shortened the median standard extraction time from 31.34 to 26.30ms for Vite and from 171.33 to 137.94ms for mreact. This experiment used the same source and Oxc-linked addon before removal. The native API and candidate results matched across builds. The build probes whether the selected compiler can link a bundle with LTO and keeps hidden visibility if LTO is unavailable. See the [nine-sample measurements](../evidence/m1/oxc-removal.json).
+
+## Earlier Oxc-linked measurements
+
+The rest of this page records the extraction routes in earlier revisions with Oxc in the addon.
+
 ## Low★ classes, binding scopes, and tagged templates
 
 Against `91b9af3`, Low★ accepted 2,893 of 8,549 tracked TS/TSX files, up from 2,401. It extracted 1,090 of 2,968 comparison candidates, up from 1,020. The byte spans, candidate order and diagnostics matched Yuku in both settings of the JSX logical rule.
