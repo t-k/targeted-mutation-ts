@@ -1,0 +1,3 @@
+Arrow: Plain, Async, TypedGeneric, Destructured
+Default: MemberCall, Construction, Comparison, JSX
+Outcome: Valid, BrokenSuffix, Directive

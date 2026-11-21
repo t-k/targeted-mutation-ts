@@ -40,6 +40,6 @@ test('arrow defaults are non-simple for directives and do not initialize a rest 
 test('speculative arrows preserve the surrounding comparison spans when the arrow is absent', () => {
   compare('const out = (arg = 0) < limit; const ok = async(arg = {}) >= limit;', 'fast');
   compare('const out = (arg = [a < b]) < limit;', 'fast');
-  compare('const check = (arg = [a < b]) => arg >= limit;', 'fallback');
+  compare('const check = (arg = [a < b]) => arg >= limit;', 'fast');
   compare('const view = (arg = {}) => <Tag value={arg.count < limit} />;', 'fast', { dialect: 'tsx' });
 });

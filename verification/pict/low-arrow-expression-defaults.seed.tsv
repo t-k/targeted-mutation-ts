@@ -1,0 +1,7 @@
+Arrow	Default	Outcome
+Plain	Comparison	Valid
+Async	Construction	Valid
+TypedGeneric	MemberCall	Valid
+Destructured	JSX	Valid
+Plain	Comparison	Directive
+Async	JSX	BrokenSuffix

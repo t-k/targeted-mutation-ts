@@ -674,6 +674,7 @@ TmtParser_parser_state TmtParser_failed(TmtParser_parser_state state, uint32_t e
                            .module_mode = state.module_mode,
                            .in_allowed = state.in_allowed,
                            .for_initializer = state.for_initializer,
+                           .arrow_defaults_allowed = state.arrow_defaults_allowed,
                            .binding_mode = state.binding_mode,
                            .super_context = state.super_context
                          }
@@ -698,6 +699,7 @@ TmtParser_record_binding_mode(TmtParser_parser_state state, TmtParser_binding_mo
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
+          .arrow_defaults_allowed = state.arrow_defaults_allowed,
           .binding_mode = kind,
           .super_context = state.super_context
         }
@@ -749,6 +751,7 @@ TmtParser_consume(TmtParser_tape input, TmtParser_parser_state state, uint8_t by
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -777,6 +780,7 @@ TmtParser_from_cursor(TmtParser_parser_state state, TmtParser_cursor read)
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
+          .arrow_defaults_allowed = state.arrow_defaults_allowed,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -2045,6 +2049,7 @@ TmtParser_qualified_name(TmtParser_tape input0, TmtParser_parser_state state0, u
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -2062,8 +2067,9 @@ TmtParser_qualified_name(TmtParser_tape input0, TmtParser_parser_state state0, u
               .status = property.status, .local_names = property.local_names,
               .await_allowed = property.await_allowed, .jsx_allowed = property.jsx_allowed,
               .module_mode = property.module_mode, .in_allowed = property.in_allowed,
-              .for_initializer = property.for_initializer, .binding_mode = property.binding_mode,
-              .super_context = property.super_context
+              .for_initializer = property.for_initializer,
+              .arrow_defaults_allowed = property.arrow_defaults_allowed,
+              .binding_mode = property.binding_mode, .super_context = property.super_context
             };
           uint32_t tmp = TmtParser_minus(fuel, 1U);
           state = tmp0;
@@ -2277,6 +2283,7 @@ TmtParser_import_type(TmtParser_tape input, TmtParser_parser_state state)
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
+          .arrow_defaults_allowed = state.arrow_defaults_allowed,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -2313,6 +2320,7 @@ TmtParser_parser_state TmtParser_type_query(TmtParser_tape input, TmtParser_pars
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
+          .arrow_defaults_allowed = state.arrow_defaults_allowed,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -2368,6 +2376,7 @@ TmtParser_read_type_term_head(TmtParser_tape input, TmtParser_parser_state state
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -2458,6 +2467,7 @@ TmtParser_read_bracket_type_key(TmtParser_tape input, TmtParser_parser_state sta
               .module_mode = start.module_mode,
               .in_allowed = start.in_allowed,
               .for_initializer = start.for_initializer,
+              .arrow_defaults_allowed = start.arrow_defaults_allowed,
               .binding_mode = start.binding_mode,
               .super_context = start.super_context
             }
@@ -2515,6 +2525,7 @@ TmtParser_constructor_type_start(TmtParser_tape input, TmtParser_parser_state st
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
               .for_initializer = st.for_initializer,
+              .arrow_defaults_allowed = st.arrow_defaults_allowed,
               .binding_mode = st.binding_mode,
               .super_context = st.super_context
             }
@@ -2544,6 +2555,7 @@ TmtParser_constructor_type_start(TmtParser_tape input, TmtParser_parser_state st
             .module_mode = start.module_mode,
             .in_allowed = start.in_allowed,
             .for_initializer = start.for_initializer,
+            .arrow_defaults_allowed = start.arrow_defaults_allowed,
             .binding_mode = start.binding_mode,
             .super_context = start.super_context
           }
@@ -2585,6 +2597,7 @@ TmtParser_mapped_type_start(TmtParser_tape input, TmtParser_parser_state st)
             .module_mode = start.module_mode,
             .in_allowed = start.in_allowed,
             .for_initializer = start.for_initializer,
+            .arrow_defaults_allowed = start.arrow_defaults_allowed,
             .binding_mode = start.binding_mode,
             .super_context = start.super_context
           }
@@ -2618,6 +2631,7 @@ TmtParser_mapped_type_start(TmtParser_tape input, TmtParser_parser_state st)
               .module_mode = key.module_mode,
               .in_allowed = key.in_allowed,
               .for_initializer = key.for_initializer,
+              .arrow_defaults_allowed = key.arrow_defaults_allowed,
               .binding_mode = key.binding_mode,
               .super_context = key.super_context
             }
@@ -2643,6 +2657,7 @@ TmtParser_mapped_type_start(TmtParser_tape input, TmtParser_parser_state st)
                 .module_mode = tail.module_mode,
                 .in_allowed = tail.in_allowed,
                 .for_initializer = tail.for_initializer,
+                .arrow_defaults_allowed = tail.arrow_defaults_allowed,
                 .binding_mode = tail.binding_mode,
                 .super_context = tail.super_context
               }
@@ -2745,7 +2760,8 @@ TmtParser_type_list(
             .status = st1.status, .local_names = st1.local_names, .await_allowed = st1.await_allowed,
             .jsx_allowed = st1.jsx_allowed, .module_mode = st1.module_mode,
             .in_allowed = st1.in_allowed, .for_initializer = st1.for_initializer,
-            .binding_mode = st1.binding_mode, .super_context = st1.super_context
+            .arrow_defaults_allowed = st1.arrow_defaults_allowed, .binding_mode = st1.binding_mode,
+            .super_context = st1.super_context
           };
         uint32_t tmp1 = TmtParser_minus(remaining, 1U);
         bool tmp = true;
@@ -2784,6 +2800,7 @@ TmtParser_tuple_element(TmtParser_tape input, TmtParser_parser_state state, uint
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -2814,6 +2831,7 @@ TmtParser_tuple_element(TmtParser_tape input, TmtParser_parser_state state, uint
             .module_mode = start.module_mode,
             .in_allowed = start.in_allowed,
             .for_initializer = start.for_initializer,
+            .arrow_defaults_allowed = start.arrow_defaults_allowed,
             .binding_mode = start.binding_mode,
             .super_context = start.super_context
           }
@@ -2949,6 +2967,7 @@ TmtParser_object_type_member(TmtParser_tape input, TmtParser_parser_state st, ui
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
+            .arrow_defaults_allowed = st.arrow_defaults_allowed,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -3114,6 +3133,7 @@ TmtParser_mapped_type(TmtParser_tape input, TmtParser_parser_state state, uint32
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
+            .arrow_defaults_allowed = st.arrow_defaults_allowed,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -3204,6 +3224,7 @@ TmtParser_signature_parameters(
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -3230,6 +3251,7 @@ TmtParser_signature_parameters(
               .module_mode = st1.module_mode,
               .in_allowed = st1.in_allowed,
               .for_initializer = st1.for_initializer,
+              .arrow_defaults_allowed = st1.arrow_defaults_allowed,
               .binding_mode = st1.binding_mode,
               .super_context = st1.super_context
             }
@@ -3311,6 +3333,7 @@ TmtParser_type_term(
                 .module_mode = st1.module_mode,
                 .in_allowed = st1.in_allowed,
                 .for_initializer = st1.for_initializer,
+                .arrow_defaults_allowed = st1.arrow_defaults_allowed,
                 .binding_mode = st1.binding_mode,
                 .super_context = st1.super_context
               }
@@ -3340,6 +3363,7 @@ TmtParser_type_term(
               .module_mode = st1.module_mode,
               .in_allowed = st1.in_allowed,
               .for_initializer = st1.for_initializer,
+              .arrow_defaults_allowed = st1.arrow_defaults_allowed,
               .binding_mode = st1.binding_mode,
               .super_context = st1.super_context
             }
@@ -3374,6 +3398,7 @@ TmtParser_type_term(
                 .module_mode = tail.module_mode,
                 .in_allowed = tail.in_allowed,
                 .for_initializer = tail.for_initializer,
+                .arrow_defaults_allowed = tail.arrow_defaults_allowed,
                 .binding_mode = tail.binding_mode,
                 .super_context = tail.super_context
               }
@@ -3412,6 +3437,7 @@ TmtParser_type_term(
                 .module_mode = st1.module_mode,
                 .in_allowed = st1.in_allowed,
                 .for_initializer = st1.for_initializer,
+                .arrow_defaults_allowed = st1.arrow_defaults_allowed,
                 .binding_mode = st1.binding_mode,
                 .super_context = st1.super_context
               }
@@ -3448,7 +3474,8 @@ TmtParser_type_term(
             .status = st1.status, .local_names = st1.local_names, .await_allowed = st1.await_allowed,
             .jsx_allowed = st1.jsx_allowed, .module_mode = st1.module_mode,
             .in_allowed = st1.in_allowed, .for_initializer = st1.for_initializer,
-            .binding_mode = st1.binding_mode, .super_context = st1.super_context
+            .arrow_defaults_allowed = st1.arrow_defaults_allowed, .binding_mode = st1.binding_mode,
+            .super_context = st1.super_context
           };
         uint32_t inner = TmtParser_minus(fuel, 1U);
         if (byte == 91U)
@@ -3540,6 +3567,7 @@ TmtParser_template_type(
               .module_mode = state.module_mode,
               .in_allowed = state.in_allowed,
               .for_initializer = state.for_initializer,
+              .arrow_defaults_allowed = state.arrow_defaults_allowed,
               .binding_mode = state.binding_mode,
               .super_context = state.super_context
             }
@@ -3569,6 +3597,7 @@ TmtParser_template_type(
                   .module_mode = state.module_mode,
                   .in_allowed = state.in_allowed,
                   .for_initializer = state.for_initializer,
+                  .arrow_defaults_allowed = state.arrow_defaults_allowed,
                   .binding_mode = state.binding_mode,
                   .super_context = state.super_context
                 }
@@ -3593,6 +3622,7 @@ TmtParser_template_type(
                 .module_mode = state.module_mode,
                 .in_allowed = state.in_allowed,
                 .for_initializer = state.for_initializer,
+                .arrow_defaults_allowed = state.arrow_defaults_allowed,
                 .binding_mode = state.binding_mode,
                 .super_context = state.super_context
               }
@@ -3706,6 +3736,7 @@ TmtParser_annotation_type(
             .module_mode = tail.module_mode,
             .in_allowed = tail.in_allowed,
             .for_initializer = tail.for_initializer,
+            .arrow_defaults_allowed = tail.arrow_defaults_allowed,
             .binding_mode = tail.binding_mode,
             .super_context = tail.super_context
           }
@@ -3771,6 +3802,7 @@ TmtParser_result_type(TmtParser_tape input, TmtParser_parser_state state, uint32
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
               .for_initializer = st.for_initializer,
+              .arrow_defaults_allowed = st.arrow_defaults_allowed,
               .binding_mode = st.binding_mode,
               .super_context = st.super_context
             }
@@ -3791,6 +3823,7 @@ TmtParser_result_type(TmtParser_tape input, TmtParser_parser_state state, uint32
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
+            .arrow_defaults_allowed = st.arrow_defaults_allowed,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -3846,7 +3879,8 @@ TmtParser_type_terms(
               .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed,
               .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
               .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
-              .binding_mode = st.binding_mode, .super_context = st.super_context
+              .arrow_defaults_allowed = st.arrow_defaults_allowed, .binding_mode = st.binding_mode,
+              .super_context = st.super_context
             };
           uint32_t tmp1 = TmtParser_minus(remaining, 1U);
           bool tmp = false;
@@ -3910,6 +3944,7 @@ TmtParser_type_parameters(
                     .module_mode = st1.module_mode,
                     .in_allowed = st1.in_allowed,
                     .for_initializer = st1.for_initializer,
+                    .arrow_defaults_allowed = st1.arrow_defaults_allowed,
                     .binding_mode = st1.binding_mode,
                     .super_context = st1.super_context
                   }
@@ -3976,6 +4011,7 @@ TmtParser_simple_annotation(TmtParser_tape input, TmtParser_parser_state state)
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
+            .arrow_defaults_allowed = st.arrow_defaults_allowed,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -4086,6 +4122,7 @@ TmtParser_simple_default(TmtParser_tape input, TmtParser_parser_state state)
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
               .for_initializer = st.for_initializer,
+              .arrow_defaults_allowed = st.arrow_defaults_allowed,
               .binding_mode = st.binding_mode,
               .super_context = st.super_context
             }
@@ -4152,6 +4189,7 @@ TmtParser_pattern_names(
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -4293,6 +4331,7 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -4317,6 +4356,7 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
             .module_mode = next_token.module_mode,
             .in_allowed = next_token.in_allowed,
             .for_initializer = next_token.for_initializer,
+            .arrow_defaults_allowed = next_token.arrow_defaults_allowed,
             .binding_mode = next_token.binding_mode,
             .super_context = next_token.super_context
           }
@@ -4419,6 +4459,7 @@ TmtParser_rest_parameter(
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
+          .arrow_defaults_allowed = state.arrow_defaults_allowed,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -4443,88 +4484,6 @@ TmtParser_rest_parameter(
         .non_simple = true
       }
     );
-}
-
-TmtParser_parameter_list
-TmtParser_parameters(
-  TmtParser_tape input0,
-  TmtParser_parser_state state0,
-  uint32_t floor0,
-  uint32_t used0,
-  uint32_t fuel0,
-  bool non_simple0
-)
-{
-  TmtParser_tape input = input0;
-  TmtParser_parser_state state = state0;
-  uint32_t floor = floor0;
-  uint32_t used = used0;
-  uint32_t fuel = fuel0;
-  bool non_simple = non_simple0;
-  while (true)
-  {
-    TmtParser_parser_state st = TmtParser_skip(input, state);
-    if (st.status != 0U)
-      return
-        (
-          (TmtParser_parameter_list){
-            .names1 = { .state = st, .used = used },
-            .non_simple = non_simple
-          }
-        );
-    else if (TmtParser_same(input, st.offset, 41U))
-      return
-        (
-          (TmtParser_parameter_list){
-            .names1 = { .state = TmtParser_consume(input, st, 41U), .used = used },
-            .non_simple = non_simple
-          }
-        );
-    else if (fuel == 0U)
-      return
-        (
-          (TmtParser_parameter_list){
-            .names1 = { .state = TmtParser_failed(st, 1U), .used = used },
-            .non_simple = non_simple
-          }
-        );
-    else if (TmtParser_spread_at(input, st.offset))
-      return TmtParser_rest_parameter(input, st, floor, used);
-    else
-    {
-      TmtParser_parameter_list prefix = TmtParser_parameter_prefix(input, st, floor, used);
-      bool initialized = TmtParser_same(input, prefix.names1.state.offset, 61U);
-      bool non_simple1 = non_simple || prefix.non_simple || initialized;
-      TmtParser_parser_state st1 = TmtParser_simple_default(input, prefix.names1.state);
-      if (TmtParser_same(input, st1.offset, 44U))
-      {
-        TmtParser_parser_state tmp0 = TmtParser_consume(input, st1, 44U);
-        uint32_t tmp1 = prefix.names1.used;
-        uint32_t tmp2 = TmtParser_minus(fuel, 1U);
-        bool tmp = non_simple1;
-        state = tmp0;
-        used = tmp1;
-        fuel = tmp2;
-        non_simple = tmp;
-      }
-      else
-      {
-        TmtParser_named_state uu____0 = prefix.names1;
-        return
-          (
-            (TmtParser_parameter_list){
-              .names1 = { .state = TmtParser_consume(input, st1, 41U), .used = uu____0.used },
-              .non_simple = non_simple1
-            }
-          );
-      }
-    }
-  }
-  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
-    __FILE__,
-    __LINE__,
-    "unreachable, returns inserted above");
-  KRML_HOST_EXIT(255U);
 }
 
 TmtParser_parser_state
@@ -4552,6 +4511,7 @@ TmtParser_arrow_token(TmtParser_tape input, TmtParser_parser_state state)
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
+            .arrow_defaults_allowed = st.arrow_defaults_allowed,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -4587,95 +4547,6 @@ TmtParser_generic_arrow_head(TmtParser_tape input, TmtParser_parser_state state)
     return TmtParser_skip(input, TmtParser_type_parameters(input, head, 16U, 64U));
   else
     return TmtParser_failed(head, 1U);
-}
-
-TmtParser_parameter_list
-TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
-{
-  uint32_t used = state.local_names;
-  TmtParser_parameter_list
-  missed =
-    { .names1 = { .state = TmtParser_failed(state, 1U), .used = used }, .non_simple = false };
-  if (state.status != 0U)
-    return missed;
-  else
-  {
-    uint8_t byte = TmtParser_peek(input, state.offset);
-    TmtParser_parser_state opening;
-    if (byte == 60U)
-      opening = TmtParser_generic_arrow_head(input, state);
-    else
-      opening = state;
-    bool parenthesized = TmtParser_same(input, opening.offset, 40U);
-    if (opening.status != 0U)
-      return missed;
-    else if (parenthesized)
-    {
-      TmtParser_parameter_list
-      params =
-        TmtParser_parameters(input,
-          TmtParser_consume(input, opening, 40U),
-          used,
-          used,
-          64U,
-          false);
-      TmtParser_cursor after = TmtParser_trivia(input, params.names1.state.offset);
-      TmtParser_parser_state st = TmtParser_from_cursor(params.names1.state, after);
-      bool colon = TmtParser_same(input, st.offset, 58U);
-      TmtParser_parser_state result;
-      if (colon && !after.newline)
-        result = TmtParser_result_type(input, TmtParser_consume(input, st, 58U), 16U);
-      else
-        result = params.names1.state;
-      TmtParser_named_state uu____0 = params.names1;
-      return
-        (
-          (TmtParser_parameter_list){
-            .names1 = { .state = TmtParser_arrow_token(input, result), .used = uu____0.used },
-            .non_simple = params.non_simple
-          }
-        );
-    }
-    else if (TmtGrammar_identifier_start(byte))
-    {
-      TmtParser_cursor named = TmtParser_name(input, state.offset, false, true);
-      TmtParser_parser_state
-      body = TmtParser_arrow_token(input, TmtParser_from_cursor(state, named));
-      if (body.status != 0U)
-        return missed;
-      else
-      {
-        TmtParser_named_state
-        param =
-          TmtParser_bind_since(input,
-            state,
-            TmtParser_binding_region_width,
-            used,
-            used,
-            state.offset);
-        TmtParser_parser_state uu____1 = param.state;
-        return
-          (
-            (TmtParser_parameter_list){
-              .names1 = {
-                .state = {
-                  .offset = body.offset, .count = uu____1.count, .depth = uu____1.depth,
-                  .status = uu____1.status, .local_names = uu____1.local_names,
-                  .await_allowed = uu____1.await_allowed, .jsx_allowed = uu____1.jsx_allowed,
-                  .module_mode = uu____1.module_mode, .in_allowed = uu____1.in_allowed,
-                  .for_initializer = uu____1.for_initializer, .binding_mode = uu____1.binding_mode,
-                  .super_context = uu____1.super_context
-                },
-                .used = param.used
-              },
-              .non_simple = missed.non_simple
-            }
-          );
-      }
-    }
-    else
-      return missed;
-  }
 }
 
 TmtParser_cursor TmtParser_async_modifier(TmtParser_tape input, uint32_t start)
@@ -4742,6 +4613,7 @@ TmtParser_accessor_modifier(TmtParser_tape input, TmtParser_parser_state st)
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
+            .arrow_defaults_allowed = st.arrow_defaults_allowed,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -4783,74 +4655,6 @@ TmtParser_cursor TmtParser_function_start(TmtParser_tape input, uint32_t start)
     return TmtParser_async_function(input, start);
   else
     return ((TmtParser_cursor){ .at = start, .ok = false, .newline = false });
-}
-
-TmtParser_parameter_list
-TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
-{
-  TmtParser_cursor modifier = TmtParser_async_modifier(input, state.offset);
-  if (modifier.ok && state.status == 0U)
-  {
-    TmtParser_parameter_list
-    async_ =
-      TmtParser_plain_arrow_parameters(input,
-        (
-          (TmtParser_parser_state){
-            .offset = modifier.at,
-            .count = state.count,
-            .depth = state.depth,
-            .status = state.status,
-            .local_names = state.local_names,
-            .await_allowed = true,
-            .jsx_allowed = state.jsx_allowed,
-            .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed,
-            .for_initializer = state.for_initializer,
-            .binding_mode = state.binding_mode,
-            .super_context = state.super_context
-          }
-        ));
-    if (async_.names1.state.status == 0U)
-      return async_;
-    else
-      return
-        TmtParser_plain_arrow_parameters(input,
-          (
-            (TmtParser_parser_state){
-              .offset = state.offset,
-              .count = state.count,
-              .depth = state.depth,
-              .status = state.status,
-              .local_names = state.local_names,
-              .await_allowed = false,
-              .jsx_allowed = state.jsx_allowed,
-              .module_mode = state.module_mode,
-              .in_allowed = state.in_allowed,
-              .for_initializer = state.for_initializer,
-              .binding_mode = state.binding_mode,
-              .super_context = state.super_context
-            }
-          ));
-  }
-  else
-    return
-      TmtParser_plain_arrow_parameters(input,
-        (
-          (TmtParser_parser_state){
-            .offset = state.offset,
-            .count = state.count,
-            .depth = state.depth,
-            .status = state.status,
-            .local_names = state.local_names,
-            .await_allowed = false,
-            .jsx_allowed = state.jsx_allowed,
-            .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed,
-            .for_initializer = state.for_initializer,
-            .binding_mode = state.binding_mode,
-            .super_context = state.super_context
-          }
-        ));
 }
 
 TmtParser_parser_state
@@ -5132,6 +4936,7 @@ TmtParser_local_type_alias(
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
+          .arrow_defaults_allowed = state.arrow_defaults_allowed,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -5157,8 +4962,8 @@ TmtParser_local_type_alias(
           .offset = st.offset, .count = st.count, .depth = st.depth, .status = st.status,
           .local_names = decl.used, .await_allowed = st.await_allowed, .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode, .in_allowed = st.in_allowed,
-          .for_initializer = st.for_initializer, .binding_mode = st.binding_mode,
-          .super_context = st.super_context
+          .for_initializer = st.for_initializer, .arrow_defaults_allowed = st.arrow_defaults_allowed,
+          .binding_mode = st.binding_mode, .super_context = st.super_context
         },
         .used = decl.used
       }
@@ -5181,6 +4986,7 @@ TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parse
         .module_mode = state.module_mode,
         .in_allowed = state.in_allowed,
         .for_initializer = state.for_initializer,
+        .arrow_defaults_allowed = state.arrow_defaults_allowed,
         .binding_mode = state.binding_mode,
         .super_context = state.super_context
       }
@@ -5299,6 +5105,7 @@ TmtParser_class_member_key(TmtParser_tape input, TmtParser_parser_state state)
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -5326,6 +5133,7 @@ TmtParser_class_member_key(TmtParser_tape input, TmtParser_parser_state state)
                     .module_mode = start.module_mode,
                     .in_allowed = start.in_allowed,
                     .for_initializer = start.for_initializer,
+                    .arrow_defaults_allowed = start.arrow_defaults_allowed,
                     .binding_mode = start.binding_mode,
                     .super_context = start.super_context
                   }
@@ -5663,6 +5471,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -5711,6 +5520,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -5764,6 +5574,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
               .for_initializer = st.for_initializer,
+              .arrow_defaults_allowed = st.arrow_defaults_allowed,
               .binding_mode = st.binding_mode,
               .super_context = st.super_context
             }
@@ -5791,6 +5602,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                                     .module_mode = after.module_mode,
                                     .in_allowed = after.in_allowed,
                                     .for_initializer = after.for_initializer,
+                                    .arrow_defaults_allowed = after.arrow_defaults_allowed,
                                     .binding_mode = after.binding_mode,
                                     .super_context = after.super_context
                                   }
@@ -5817,6 +5629,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .module_mode = meta.module_mode,
                 .in_allowed = meta.in_allowed,
                 .for_initializer = meta.for_initializer,
+                .arrow_defaults_allowed = meta.arrow_defaults_allowed,
                 .binding_mode = meta.binding_mode,
                 .super_context = meta.super_context
               }
@@ -5881,7 +5694,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
             .local_names = st.local_names, .await_allowed = st.await_allowed,
             .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
             .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
-            .binding_mode = st.binding_mode, .super_context = st.super_context
+            .arrow_defaults_allowed = st.arrow_defaults_allowed, .binding_mode = st.binding_mode,
+            .super_context = st.super_context
           };
         uint32_t inner = TmtParser_minus(fuel, 1U);
         TmtParser_parser_state completed;
@@ -5902,6 +5716,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                   .module_mode = st1.module_mode,
                   .in_allowed = st1.in_allowed,
                   .for_initializer = st1.for_initializer,
+                  .arrow_defaults_allowed = st1.arrow_defaults_allowed,
                   .binding_mode = st1.binding_mode,
                   .super_context = st1.super_context
                 }
@@ -5928,7 +5743,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               .status = st1.status, .local_names = st1.local_names,
               .await_allowed = st1.await_allowed, .jsx_allowed = st1.jsx_allowed,
               .module_mode = st1.module_mode, .in_allowed = st1.in_allowed,
-              .for_initializer = st1.for_initializer, .binding_mode = st1.binding_mode,
+              .for_initializer = st1.for_initializer,
+              .arrow_defaults_allowed = st1.arrow_defaults_allowed, .binding_mode = st1.binding_mode,
               .super_context = st1.super_context
             };
           if (ch == 96U)
@@ -5983,6 +5799,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .module_mode = st.module_mode,
                 .in_allowed = true,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -6004,6 +5821,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .module_mode = consumed.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = consumed.for_initializer,
+                .arrow_defaults_allowed = consumed.arrow_defaults_allowed,
                 .binding_mode = consumed.binding_mode,
                 .super_context = consumed.super_context
               }
@@ -6104,8 +5922,9 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                   .status = st.status, .local_names = st.local_names,
                   .await_allowed = st.await_allowed, .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode, .in_allowed = st.in_allowed,
-                  .for_initializer = st.for_initializer, .binding_mode = st.binding_mode,
-                  .super_context = st.super_context
+                  .for_initializer = st.for_initializer,
+                  .arrow_defaults_allowed = st.arrow_defaults_allowed,
+                  .binding_mode = st.binding_mode, .super_context = st.super_context
                 },
                 .snd = TmtParser_NotAssignable
               }
@@ -6156,6 +5975,7 @@ TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint
           .module_mode = st.module_mode,
           .in_allowed = st.in_allowed,
           .for_initializer = st.for_initializer,
+          .arrow_defaults_allowed = st.arrow_defaults_allowed,
           .binding_mode = st.binding_mode,
           .super_context = st.super_context
         }
@@ -6183,6 +6003,7 @@ TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint
                                 .module_mode = after.module_mode,
                                 .in_allowed = after.in_allowed,
                                 .for_initializer = after.for_initializer,
+                                .arrow_defaults_allowed = after.arrow_defaults_allowed,
                                 .binding_mode = after.binding_mode,
                                 .super_context = after.super_context
                               }
@@ -6211,6 +6032,7 @@ TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint
           .module_mode = st.module_mode,
           .in_allowed = st.in_allowed,
           .for_initializer = st.for_initializer,
+          .arrow_defaults_allowed = st.arrow_defaults_allowed,
           .binding_mode = st.binding_mode,
           .super_context = st.super_context
         }
@@ -6234,11 +6056,328 @@ TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint
       input.size);
 }
 
+TmtParser_parameter_list
+TmtParser_arrow_parameter_list(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool non_simple0
+)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  uint32_t floor = floor0;
+  uint32_t used = used0;
+  uint32_t fuel = fuel0;
+  uint32_t remaining = remaining0;
+  bool non_simple = non_simple0;
+  while (true)
+  {
+    TmtParser_parser_state st = TmtParser_skip(input, state);
+    if (st.status != 0U)
+      return
+        (
+          (TmtParser_parameter_list){
+            .names1 = { .state = st, .used = used },
+            .non_simple = non_simple
+          }
+        );
+    else if (TmtParser_same(input, st.offset, 41U))
+      return
+        (
+          (TmtParser_parameter_list){
+            .names1 = { .state = TmtParser_consume(input, st, 41U), .used = used },
+            .non_simple = non_simple
+          }
+        );
+    else if (remaining == 0U)
+      return
+        (
+          (TmtParser_parameter_list){
+            .names1 = { .state = TmtParser_failed(st, 1U), .used = used },
+            .non_simple = non_simple
+          }
+        );
+    else if (TmtParser_spread_at(input, st.offset))
+      return TmtParser_rest_parameter(input, st, floor, used);
+    else
+    {
+      TmtParser_parameter_list prefix = TmtParser_parameter_prefix(input, st, floor, used);
+      TmtParser_parser_state equal = prefix.names1.state;
+      bool initialized = TmtParser_same(input, equal.offset, 61U);
+      bool non_simple1 = non_simple || prefix.non_simple || initialized;
+      TmtParser_parser_state st1 = TmtParser_simple_default(input, equal);
+      uint8_t delimiter = TmtParser_peek(input, st1.offset);
+      TmtParser_parser_state st20;
+      if
+      (
+        initialized && equal.status == 0U && equal.arrow_defaults_allowed &&
+          (st1.status != 0U || delimiter != 44U && delimiter != 41U)
+      )
+      {
+        if (fuel == 0U)
+          st20 = TmtParser_failed(equal, 3U);
+        else
+        {
+          TmtParser_parser_state
+          start =
+            TmtParser_consume(input,
+              (
+                (TmtParser_parser_state){
+                  .offset = equal.offset,
+                  .count = equal.count,
+                  .depth = equal.depth,
+                  .status = equal.status,
+                  .local_names = prefix.names1.used,
+                  .await_allowed = false,
+                  .jsx_allowed = equal.jsx_allowed,
+                  .module_mode = equal.module_mode,
+                  .in_allowed = true,
+                  .for_initializer = equal.for_initializer,
+                  .arrow_defaults_allowed = false,
+                  .binding_mode = equal.binding_mode,
+                  .super_context = equal.super_context
+                }
+              ),
+              61U);
+          TmtParser_parsed value = TmtParser_comparison(input, start, TmtParser_minus(fuel, 1U));
+          TmtParser_parser_state st2 = TmtParser_skip(input, value.parser);
+          bool comma = TmtParser_same(input, st2.offset, 44U);
+          TmtParser_parser_state st3;
+          if (value.open_angle && comma)
+            st3 = TmtParser_failed(st2, 1U);
+          else
+            st3 = st2;
+          st20 =
+            (
+              (TmtParser_parser_state){
+                .offset = st3.offset,
+                .count = st3.count,
+                .depth = st3.depth,
+                .status = st3.status,
+                .local_names = equal.local_names,
+                .await_allowed = equal.await_allowed,
+                .jsx_allowed = st3.jsx_allowed,
+                .module_mode = st3.module_mode,
+                .in_allowed = equal.in_allowed,
+                .for_initializer = st3.for_initializer,
+                .arrow_defaults_allowed = equal.arrow_defaults_allowed,
+                .binding_mode = st3.binding_mode,
+                .super_context = st3.super_context
+              }
+            );
+        }
+      }
+      else
+        st20 = st1;
+      if (TmtParser_same(input, st20.offset, 44U))
+      {
+        TmtParser_parser_state tmp0 = TmtParser_consume(input, st20, 44U);
+        uint32_t tmp1 = prefix.names1.used;
+        uint32_t tmp2 = TmtParser_minus(remaining, 1U);
+        bool tmp = non_simple1;
+        state = tmp0;
+        used = tmp1;
+        remaining = tmp2;
+        non_simple = tmp;
+      }
+      else
+      {
+        TmtParser_named_state uu____0 = prefix.names1;
+        return
+          (
+            (TmtParser_parameter_list){
+              .names1 = { .state = TmtParser_consume(input, st20, 41U), .used = uu____0.used },
+              .non_simple = non_simple1
+            }
+          );
+      }
+    }
+  }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+TmtParser_parameter_list
+TmtParser_plain_arrow_parameters(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel
+)
+{
+  uint32_t used = state.local_names;
+  TmtParser_parameter_list
+  missed =
+    { .names1 = { .state = TmtParser_failed(state, 1U), .used = used }, .non_simple = false };
+  if (state.status != 0U)
+    return missed;
+  else
+  {
+    uint8_t byte = TmtParser_peek(input, state.offset);
+    TmtParser_parser_state opening;
+    if (byte == 60U)
+      opening = TmtParser_generic_arrow_head(input, state);
+    else
+      opening = state;
+    bool parenthesized = TmtParser_same(input, opening.offset, 40U);
+    if (opening.status != 0U)
+      return missed;
+    else if (parenthesized)
+    {
+      TmtParser_parameter_list
+      params =
+        TmtParser_arrow_parameter_list(input,
+          TmtParser_consume(input, opening, 40U),
+          used,
+          used,
+          fuel,
+          64U,
+          false);
+      TmtParser_cursor after = TmtParser_trivia(input, params.names1.state.offset);
+      TmtParser_parser_state st = TmtParser_from_cursor(params.names1.state, after);
+      bool colon = TmtParser_same(input, st.offset, 58U);
+      TmtParser_parser_state result;
+      if (colon && !after.newline)
+        result = TmtParser_result_type(input, TmtParser_consume(input, st, 58U), 16U);
+      else
+        result = params.names1.state;
+      TmtParser_named_state uu____0 = params.names1;
+      return
+        (
+          (TmtParser_parameter_list){
+            .names1 = { .state = TmtParser_arrow_token(input, result), .used = uu____0.used },
+            .non_simple = params.non_simple
+          }
+        );
+    }
+    else if (TmtGrammar_identifier_start(byte))
+    {
+      TmtParser_cursor named = TmtParser_name(input, state.offset, false, true);
+      TmtParser_parser_state
+      body = TmtParser_arrow_token(input, TmtParser_from_cursor(state, named));
+      if (body.status != 0U)
+        return missed;
+      else
+      {
+        TmtParser_named_state
+        param =
+          TmtParser_bind_since(input,
+            state,
+            TmtParser_binding_region_width,
+            used,
+            used,
+            state.offset);
+        TmtParser_parser_state uu____1 = param.state;
+        return
+          (
+            (TmtParser_parameter_list){
+              .names1 = {
+                .state = {
+                  .offset = body.offset, .count = uu____1.count, .depth = uu____1.depth,
+                  .status = uu____1.status, .local_names = uu____1.local_names,
+                  .await_allowed = uu____1.await_allowed, .jsx_allowed = uu____1.jsx_allowed,
+                  .module_mode = uu____1.module_mode, .in_allowed = uu____1.in_allowed,
+                  .for_initializer = uu____1.for_initializer,
+                  .arrow_defaults_allowed = uu____1.arrow_defaults_allowed,
+                  .binding_mode = uu____1.binding_mode, .super_context = uu____1.super_context
+                },
+                .used = param.used
+              },
+              .non_simple = missed.non_simple
+            }
+          );
+      }
+    }
+    else
+      return missed;
+  }
+}
+
+TmtParser_parameter_list
+TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel)
+{
+  TmtParser_cursor modifier = TmtParser_async_modifier(input, state.offset);
+  if (modifier.ok && state.status == 0U)
+  {
+    TmtParser_parameter_list
+    async_ =
+      TmtParser_plain_arrow_parameters(input,
+        (
+          (TmtParser_parser_state){
+            .offset = modifier.at,
+            .count = state.count,
+            .depth = state.depth,
+            .status = state.status,
+            .local_names = state.local_names,
+            .await_allowed = true,
+            .jsx_allowed = state.jsx_allowed,
+            .module_mode = state.module_mode,
+            .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
+            .binding_mode = state.binding_mode,
+            .super_context = state.super_context
+          }
+        ),
+        fuel);
+    if (async_.names1.state.status == 0U || async_.names1.state.status == 4U)
+      return async_;
+    else
+      return
+        TmtParser_plain_arrow_parameters(input,
+          (
+            (TmtParser_parser_state){
+              .offset = state.offset,
+              .count = state.count,
+              .depth = state.depth,
+              .status = state.status,
+              .local_names = state.local_names,
+              .await_allowed = false,
+              .jsx_allowed = state.jsx_allowed,
+              .module_mode = state.module_mode,
+              .in_allowed = state.in_allowed,
+              .for_initializer = state.for_initializer,
+              .arrow_defaults_allowed = state.arrow_defaults_allowed,
+              .binding_mode = state.binding_mode,
+              .super_context = state.super_context
+            }
+          ),
+          fuel);
+  }
+  else
+    return
+      TmtParser_plain_arrow_parameters(input,
+        (
+          (TmtParser_parser_state){
+            .offset = state.offset,
+            .count = state.count,
+            .depth = state.depth,
+            .status = state.status,
+            .local_names = state.local_names,
+            .await_allowed = false,
+            .jsx_allowed = state.jsx_allowed,
+            .module_mode = state.module_mode,
+            .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
+            .binding_mode = state.binding_mode,
+            .super_context = state.super_context
+          }
+        ),
+        fuel);
+}
+
 TmtParser_parsed
 TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel)
 {
   TmtParser_parser_state start = TmtParser_skip(input, current);
-  TmtParser_parameter_list arrow = TmtParser_arrow_parameters(input, start);
+  TmtParser_parameter_list arrow = TmtParser_arrow_parameters(input, start, fuel);
   if (arrow.names1.state.status == 0U)
   {
     TmtParser_parser_state uu____0 = arrow.names1.state;
@@ -6257,6 +6396,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             .module_mode = uu____0.module_mode,
             .in_allowed = uu____0.in_allowed,
             .for_initializer = uu____0.for_initializer,
+            .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
             .binding_mode = TmtParser_NoLocals,
             .super_context = uu____0.super_context
           }
@@ -6274,7 +6414,8 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
           .local_names = body.local_names, .await_allowed = body.await_allowed,
           .jsx_allowed = body.jsx_allowed, .module_mode = body.module_mode,
           .in_allowed = body.in_allowed, .for_initializer = body.for_initializer,
-          .binding_mode = body.binding_mode, .super_context = body.super_context
+          .arrow_defaults_allowed = body.arrow_defaults_allowed, .binding_mode = body.binding_mode,
+          .super_context = body.super_context
         };
       uint32_t inner = TmtParser_minus(fuel, 1U);
       bool block = TmtParser_same(input, body1.offset, 123U);
@@ -6288,8 +6429,9 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             .status = body1.status, .local_names = body1.local_names,
             .await_allowed = body1.await_allowed, .jsx_allowed = body1.jsx_allowed,
             .module_mode = body1.module_mode, .in_allowed = true,
-            .for_initializer = body1.for_initializer, .binding_mode = body1.binding_mode,
-            .super_context = body1.super_context
+            .for_initializer = body1.for_initializer,
+            .arrow_defaults_allowed = body1.arrow_defaults_allowed,
+            .binding_mode = body1.binding_mode, .super_context = body1.super_context
           };
         TmtParser_parser_state
         stop =
@@ -6319,6 +6461,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                 .module_mode = body1.module_mode,
                 .in_allowed = in_allowed,
                 .for_initializer = body1.for_initializer,
+                .arrow_defaults_allowed = body1.arrow_defaults_allowed,
                 .binding_mode = body1.binding_mode,
                 .super_context = body1.super_context
               }
@@ -6334,8 +6477,9 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
               .status = uu____1.status, .local_names = start.local_names,
               .await_allowed = start.await_allowed, .jsx_allowed = uu____1.jsx_allowed,
               .module_mode = uu____1.module_mode, .in_allowed = start.in_allowed,
-              .for_initializer = uu____1.for_initializer, .binding_mode = start.binding_mode,
-              .super_context = uu____1.super_context
+              .for_initializer = uu____1.for_initializer,
+              .arrow_defaults_allowed = uu____1.arrow_defaults_allowed,
+              .binding_mode = start.binding_mode, .super_context = uu____1.super_context
             },
             .range = { .first = start.offset, .last = result.range.last },
             .open_angle = result.open_angle,
@@ -6351,7 +6495,26 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
   {
     TmtParser_parsed lhs = TmtParser_binary(input, start, fuel, 1U);
     TmtParser_parser_state st = lhs.parser;
-    if (st.status != 0U)
+    if (st.status == 1U && arrow.names1.state.status == 4U)
+      return
+        TmtParser_empty_range((
+            (TmtParser_parser_state){
+              .offset = st.offset,
+              .count = st.count,
+              .depth = st.depth,
+              .status = 4U,
+              .local_names = st.local_names,
+              .await_allowed = st.await_allowed,
+              .jsx_allowed = st.jsx_allowed,
+              .module_mode = st.module_mode,
+              .in_allowed = st.in_allowed,
+              .for_initializer = st.for_initializer,
+              .arrow_defaults_allowed = st.arrow_defaults_allowed,
+              .binding_mode = st.binding_mode,
+              .super_context = st.super_context
+            }
+          ));
+    else if (st.status != 0U)
       return lhs;
     else
     {
@@ -6383,6 +6546,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
                   .for_initializer = st.for_initializer,
+                  .arrow_defaults_allowed = st.arrow_defaults_allowed,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -6424,6 +6588,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                 .module_mode = st.module_mode,
                 .in_allowed = true,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -6446,6 +6611,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                   .module_mode = uu____2.module_mode,
                   .in_allowed = st.in_allowed,
                   .for_initializer = uu____2.for_initializer,
+                  .arrow_defaults_allowed = uu____2.arrow_defaults_allowed,
                   .binding_mode = uu____2.binding_mode,
                   .super_context = uu____2.super_context
                 }
@@ -6551,6 +6717,7 @@ TmtParser_binary_tail(
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
                   .for_initializer = st.for_initializer,
+                  .arrow_defaults_allowed = st.arrow_defaults_allowed,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -6618,7 +6785,8 @@ TmtParser_binary_tail(
               .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed,
               .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
               .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
-              .binding_mode = st.binding_mode, .super_context = st.super_context
+              .arrow_defaults_allowed = st.arrow_defaults_allowed, .binding_mode = st.binding_mode,
+              .super_context = st.super_context
             };
           TmtParser_parsed rhs = TmtParser_binary(input, after, fuel, op.strength + 1U);
           TmtParser_parsed combined = TmtParser_combine_binary(input, lhs, rhs, st, op, first);
@@ -6694,6 +6862,7 @@ TmtParser_postfix(
                   .local_names = st.local_names, .await_allowed = st.await_allowed,
                   .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
+                  .arrow_defaults_allowed = st.arrow_defaults_allowed,
                   .binding_mode = st.binding_mode, .super_context = st.super_context
                 },
                 .range = { .first = base.range.first, .last = end_at },
@@ -6744,6 +6913,7 @@ TmtParser_postfix(
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
                   .for_initializer = st.for_initializer,
+                  .arrow_defaults_allowed = st.arrow_defaults_allowed,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -6780,8 +6950,9 @@ TmtParser_postfix(
                 .status = operand.status, .local_names = operand.local_names,
                 .await_allowed = operand.await_allowed, .jsx_allowed = operand.jsx_allowed,
                 .module_mode = operand.module_mode, .in_allowed = operand.in_allowed,
-                .for_initializer = operand.for_initializer, .binding_mode = operand.binding_mode,
-                .super_context = operand.super_context
+                .for_initializer = operand.for_initializer,
+                .arrow_defaults_allowed = operand.arrow_defaults_allowed,
+                .binding_mode = operand.binding_mode, .super_context = operand.super_context
               };
             if (kind == 40U)
               next_st =
@@ -6825,6 +6996,7 @@ TmtParser_postfix(
                     .module_mode = st.module_mode,
                     .in_allowed = st.in_allowed,
                     .for_initializer = st.for_initializer,
+                    .arrow_defaults_allowed = st.arrow_defaults_allowed,
                     .binding_mode = st.binding_mode,
                     .super_context = st.super_context
                   }
@@ -6846,6 +7018,7 @@ TmtParser_postfix(
                   .module_mode = property.module_mode,
                   .in_allowed = property.in_allowed,
                   .for_initializer = property.for_initializer,
+                  .arrow_defaults_allowed = property.arrow_defaults_allowed,
                   .binding_mode = property.binding_mode,
                   .super_context = property.super_context
                 }
@@ -6865,6 +7038,7 @@ TmtParser_postfix(
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -6949,6 +7123,7 @@ TmtParser_deep_array_literal(
             .module_mode = uu____0.module_mode,
             .in_allowed = uu____0.in_allowed,
             .for_initializer = uu____0.for_initializer,
+            .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
             .binding_mode = uu____0.binding_mode,
             .super_context = uu____0.super_context
           }
@@ -6975,6 +7150,7 @@ TmtParser_deep_array_literal(
             .module_mode = closed.module_mode,
             .in_allowed = closed.in_allowed,
             .for_initializer = closed.for_initializer,
+            .arrow_defaults_allowed = closed.arrow_defaults_allowed,
             .binding_mode = closed.binding_mode,
             .super_context = closed.super_context
           }
@@ -7037,6 +7213,7 @@ TmtParser_expression_list(
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -7102,6 +7279,7 @@ TmtParser_object_member(
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
+            .arrow_defaults_allowed = st.arrow_defaults_allowed,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -7137,6 +7315,7 @@ TmtParser_object_member(
                        .module_mode = st.module_mode,
                        .in_allowed = st.in_allowed,
                        .for_initializer = st.for_initializer,
+                       .arrow_defaults_allowed = st.arrow_defaults_allowed,
                        .binding_mode = st.binding_mode,
                        .super_context = st.super_context
                      }
@@ -7163,6 +7342,7 @@ TmtParser_object_member(
               .module_mode = key_start.module_mode,
               .in_allowed = true,
               .for_initializer = key_start.for_initializer,
+              .arrow_defaults_allowed = key_start.arrow_defaults_allowed,
               .binding_mode = key_start.binding_mode,
               .super_context = key_start.super_context
             }
@@ -7183,6 +7363,7 @@ TmtParser_object_member(
             .module_mode = closed.module_mode,
             .in_allowed = st.in_allowed,
             .for_initializer = closed.for_initializer,
+            .arrow_defaults_allowed = closed.arrow_defaults_allowed,
             .binding_mode = closed.binding_mode,
             .super_context = closed.super_context
           }
@@ -7345,6 +7526,7 @@ TmtParser_template_body(
               .module_mode = state.module_mode,
               .in_allowed = state.in_allowed,
               .for_initializer = state.for_initializer,
+              .arrow_defaults_allowed = state.arrow_defaults_allowed,
               .binding_mode = state.binding_mode,
               .super_context = state.super_context
             }
@@ -7369,6 +7551,7 @@ TmtParser_template_body(
                   .module_mode = state.module_mode,
                   .in_allowed = true,
                   .for_initializer = state.for_initializer,
+                  .arrow_defaults_allowed = state.arrow_defaults_allowed,
                   .binding_mode = state.binding_mode,
                   .super_context = state.super_context
                 }
@@ -7389,6 +7572,7 @@ TmtParser_template_body(
                   .module_mode = uu____0.module_mode,
                   .in_allowed = state.in_allowed,
                   .for_initializer = uu____0.for_initializer,
+                  .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
                   .binding_mode = uu____0.binding_mode,
                   .super_context = uu____0.super_context
                 }
@@ -7411,6 +7595,7 @@ TmtParser_template_body(
                   .module_mode = state.module_mode,
                   .in_allowed = state.in_allowed,
                   .for_initializer = state.for_initializer,
+                  .arrow_defaults_allowed = state.arrow_defaults_allowed,
                   .binding_mode = state.binding_mode,
                   .super_context = state.super_context
                 }
@@ -7432,6 +7617,7 @@ TmtParser_template_body(
                 .module_mode = state.module_mode,
                 .in_allowed = state.in_allowed,
                 .for_initializer = state.for_initializer,
+                .arrow_defaults_allowed = state.arrow_defaults_allowed,
                 .binding_mode = state.binding_mode,
                 .super_context = state.super_context
               }
@@ -7476,6 +7662,7 @@ TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint
               .module_mode = inner.module_mode,
               .in_allowed = inner.in_allowed,
               .for_initializer = inner.for_initializer,
+              .arrow_defaults_allowed = inner.arrow_defaults_allowed,
               .binding_mode = inner.binding_mode,
               .super_context = inner.super_context
             }
@@ -7513,6 +7700,7 @@ TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -7540,6 +7728,7 @@ TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
                   .for_initializer = st.for_initializer,
+                  .arrow_defaults_allowed = st.arrow_defaults_allowed,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -7674,6 +7863,7 @@ TmtParser_jsx_children(
                   .module_mode = state.module_mode,
                   .in_allowed = state.in_allowed,
                   .for_initializer = state.for_initializer,
+                  .arrow_defaults_allowed = state.arrow_defaults_allowed,
                   .binding_mode = state.binding_mode,
                   .super_context = state.super_context
                 }
@@ -7737,8 +7927,9 @@ TmtParser_jsx_children(
             .status = state.status, .local_names = state.local_names,
             .await_allowed = state.await_allowed, .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode, .in_allowed = state.in_allowed,
-            .for_initializer = state.for_initializer, .binding_mode = state.binding_mode,
-            .super_context = state.super_context
+            .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
+            .binding_mode = state.binding_mode, .super_context = state.super_context
           };
         uint32_t tmp = TmtParser_minus(remaining, 1U);
         state = tmp0;
@@ -7770,6 +7961,7 @@ TmtParser_jsx_element(TmtParser_tape input, TmtParser_parser_state state, uint32
                             .module_mode = state.module_mode,
                             .in_allowed = state.in_allowed,
                             .for_initializer = state.for_initializer,
+                            .arrow_defaults_allowed = state.arrow_defaults_allowed,
                             .binding_mode = state.binding_mode,
                             .super_context = state.super_context
                           }
@@ -7897,6 +8089,7 @@ TmtParser_binding(
           .module_mode = st2.module_mode,
           .in_allowed = in_allowed,
           .for_initializer = for_initializer,
+          .arrow_defaults_allowed = st2.arrow_defaults_allowed,
           .binding_mode = st2.binding_mode,
           .super_context = st2.super_context
         }
@@ -7916,6 +8109,7 @@ TmtParser_binding(
         .module_mode = uu____0.module_mode,
         .in_allowed = state.in_allowed,
         .for_initializer = state.for_initializer,
+        .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
         .binding_mode = uu____0.binding_mode,
         .super_context = uu____0.super_context
       }
@@ -7971,6 +8165,7 @@ TmtParser_for_bindings(
               .module_mode = uu____0.module_mode,
               .in_allowed = uu____0.in_allowed,
               .for_initializer = uu____0.for_initializer,
+              .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
               .binding_mode = uu____0.binding_mode,
               .super_context = uu____0.super_context
             }
@@ -7996,6 +8191,7 @@ TmtParser_for_bindings(
                   .module_mode = tail.module_mode,
                   .in_allowed = false,
                   .for_initializer = true,
+                  .arrow_defaults_allowed = tail.arrow_defaults_allowed,
                   .binding_mode = tail.binding_mode,
                   .super_context = tail.super_context
                 }
@@ -8016,6 +8212,7 @@ TmtParser_for_bindings(
               .module_mode = uu____1.module_mode,
               .in_allowed = state.in_allowed,
               .for_initializer = state.for_initializer,
+              .arrow_defaults_allowed = uu____1.arrow_defaults_allowed,
               .binding_mode = uu____1.binding_mode,
               .super_context = uu____1.super_context
             }
@@ -8081,6 +8278,7 @@ TmtParser_for_expressions(
               .module_mode = state.module_mode,
               .in_allowed = in_allowed,
               .for_initializer = for_initializer,
+              .arrow_defaults_allowed = state.arrow_defaults_allowed,
               .binding_mode = state.binding_mode,
               .super_context = state.super_context
             }
@@ -8102,6 +8300,7 @@ TmtParser_for_expressions(
               .module_mode = uu____0.module_mode,
               .in_allowed = state.in_allowed,
               .for_initializer = state.for_initializer,
+              .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
               .binding_mode = uu____0.binding_mode,
               .super_context = uu____0.super_context
             }
@@ -8162,6 +8361,7 @@ TmtParser_classic_for_header(
             .module_mode = st1.module_mode,
             .in_allowed = st1.in_allowed,
             .for_initializer = st1.for_initializer,
+            .arrow_defaults_allowed = st1.arrow_defaults_allowed,
             .binding_mode = st1.binding_mode,
             .super_context = st1.super_context
           }
@@ -8192,6 +8392,7 @@ TmtParser_classic_for_header(
             .module_mode = st1.module_mode,
             .in_allowed = st1.in_allowed,
             .for_initializer = st1.for_initializer,
+            .arrow_defaults_allowed = st1.arrow_defaults_allowed,
             .binding_mode = st1.binding_mode,
             .super_context = st1.super_context
           }
@@ -8249,6 +8450,7 @@ TmtParser_for_header(
             .module_mode = head.module_mode,
             .in_allowed = head.in_allowed,
             .for_initializer = head.for_initializer,
+            .arrow_defaults_allowed = head.arrow_defaults_allowed,
             .binding_mode = head.binding_mode,
             .super_context = head.super_context
           }
@@ -8390,6 +8592,7 @@ TmtParser_local_var_declaration(
           .module_mode = st.module_mode,
           .in_allowed = st.in_allowed,
           .for_initializer = st.for_initializer,
+          .arrow_defaults_allowed = st.arrow_defaults_allowed,
           .binding_mode = st.binding_mode,
           .super_context = st.super_context
         }
@@ -8425,6 +8628,7 @@ TmtParser_local_declaration(
           .module_mode = state1.module_mode,
           .in_allowed = state1.in_allowed,
           .for_initializer = state1.for_initializer,
+          .arrow_defaults_allowed = state1.arrow_defaults_allowed,
           .binding_mode = state1.binding_mode,
           .super_context = state1.super_context
         }
@@ -8441,7 +8645,8 @@ TmtParser_local_declaration(
       .status = uu____0.status, .local_names = decl.used, .await_allowed = uu____0.await_allowed,
       .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
       .in_allowed = uu____0.in_allowed, .for_initializer = uu____0.for_initializer,
-      .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context
+      .arrow_defaults_allowed = uu____0.arrow_defaults_allowed, .binding_mode = uu____0.binding_mode,
+      .super_context = uu____0.super_context
     };
   return
     (
@@ -8509,6 +8714,7 @@ TmtParser_scope_statement(
               .module_mode = declared.module_mode,
               .in_allowed = declared.in_allowed,
               .for_initializer = declared.for_initializer,
+              .arrow_defaults_allowed = declared.arrow_defaults_allowed,
               .binding_mode = declared.binding_mode,
               .super_context = declared.super_context
             }
@@ -8529,6 +8735,7 @@ TmtParser_scope_statement(
           .status = uu____0.status, .local_names = decl.used, .await_allowed = uu____0.await_allowed,
           .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
           .in_allowed = uu____0.in_allowed, .for_initializer = uu____0.for_initializer,
+          .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
           .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context
         };
       return
@@ -8566,6 +8773,7 @@ TmtParser_scope_statement(
               .module_mode = declared.module_mode,
               .in_allowed = declared.in_allowed,
               .for_initializer = declared.for_initializer,
+              .arrow_defaults_allowed = declared.arrow_defaults_allowed,
               .binding_mode = declared.binding_mode,
               .super_context = declared.super_context
             }
@@ -8586,6 +8794,7 @@ TmtParser_scope_statement(
           .status = uu____1.status, .local_names = decl.used, .await_allowed = uu____1.await_allowed,
           .jsx_allowed = uu____1.jsx_allowed, .module_mode = uu____1.module_mode,
           .in_allowed = uu____1.in_allowed, .for_initializer = uu____1.for_initializer,
+          .arrow_defaults_allowed = uu____1.arrow_defaults_allowed,
           .binding_mode = uu____1.binding_mode, .super_context = uu____1.super_context
         };
       return
@@ -8648,6 +8857,7 @@ TmtParser_control_sequence(
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -8725,6 +8935,7 @@ TmtParser_switch_sequence(
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -8765,6 +8976,7 @@ TmtParser_switch_sequence(
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -8801,6 +9013,7 @@ TmtParser_switch_sequence(
                     .module_mode = st.module_mode,
                     .in_allowed = st.in_allowed,
                     .for_initializer = st.for_initializer,
+                    .arrow_defaults_allowed = st.arrow_defaults_allowed,
                     .binding_mode = st.binding_mode,
                     .super_context = st.super_context
                   }
@@ -8875,6 +9088,7 @@ TmtParser_control_block(
           .module_mode = st.module_mode,
           .in_allowed = st.in_allowed,
           .for_initializer = st.for_initializer,
+          .arrow_defaults_allowed = st.arrow_defaults_allowed,
           .binding_mode = st.binding_mode,
           .super_context = st.super_context
         }
@@ -8900,6 +9114,7 @@ TmtParser_control_block(
           .module_mode = st1.module_mode,
           .in_allowed = st1.in_allowed,
           .for_initializer = st1.for_initializer,
+          .arrow_defaults_allowed = st1.arrow_defaults_allowed,
           .binding_mode = st1.binding_mode,
           .super_context = st1.super_context
         }
@@ -8975,6 +9190,7 @@ TmtParser_control_statement(
                               .module_mode = state.module_mode,
                               .in_allowed = state.in_allowed,
                               .for_initializer = state.for_initializer,
+                              .arrow_defaults_allowed = state.arrow_defaults_allowed,
                               .binding_mode = state.binding_mode,
                               .super_context = state.super_context
                             }
@@ -8998,6 +9214,7 @@ TmtParser_control_statement(
               .module_mode = state1.module_mode,
               .in_allowed = state1.in_allowed,
               .for_initializer = state1.for_initializer,
+              .arrow_defaults_allowed = state1.arrow_defaults_allowed,
               .binding_mode = state1.binding_mode,
               .super_context = state1.super_context
             }
@@ -9027,6 +9244,7 @@ TmtParser_control_statement(
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -9056,6 +9274,7 @@ TmtParser_control_statement(
               .module_mode = state1.module_mode,
               .in_allowed = state1.in_allowed,
               .for_initializer = state1.for_initializer,
+              .arrow_defaults_allowed = state1.arrow_defaults_allowed,
               .binding_mode = state1.binding_mode,
               .super_context = state1.super_context
             }
@@ -9088,6 +9307,7 @@ TmtParser_control_statement(
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
                   .for_initializer = st.for_initializer,
+                  .arrow_defaults_allowed = st.arrow_defaults_allowed,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -9120,6 +9340,7 @@ TmtParser_control_statement(
                 .module_mode = state1.module_mode,
                 .in_allowed = state1.in_allowed,
                 .for_initializer = state1.for_initializer,
+                .arrow_defaults_allowed = state1.arrow_defaults_allowed,
                 .binding_mode = state1.binding_mode,
                 .super_context = state1.super_context
               }
@@ -9150,6 +9371,7 @@ TmtParser_control_statement(
               .module_mode = uu____0.module_mode,
               .in_allowed = uu____0.in_allowed,
               .for_initializer = uu____0.for_initializer,
+              .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
               .binding_mode = uu____0.binding_mode,
               .super_context = uu____0.super_context
             }
@@ -9170,6 +9392,7 @@ TmtParser_control_statement(
                 .module_mode = state1.module_mode,
                 .in_allowed = state1.in_allowed,
                 .for_initializer = state1.for_initializer,
+                .arrow_defaults_allowed = state1.arrow_defaults_allowed,
                 .binding_mode = state1.binding_mode,
                 .super_context = state1.super_context
               }
@@ -9197,6 +9420,7 @@ TmtParser_control_statement(
                 .module_mode = state1.module_mode,
                 .in_allowed = state1.in_allowed,
                 .for_initializer = state1.for_initializer,
+                .arrow_defaults_allowed = state1.arrow_defaults_allowed,
                 .binding_mode = state1.binding_mode,
                 .super_context = state1.super_context
               }
@@ -9232,6 +9456,7 @@ TmtParser_control_statement(
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -9331,6 +9556,7 @@ TmtParser_try_statement(
                 .module_mode = after.module_mode,
                 .in_allowed = after.in_allowed,
                 .for_initializer = after.for_initializer,
+                .arrow_defaults_allowed = after.arrow_defaults_allowed,
                 .binding_mode = after.binding_mode,
                 .super_context = after.super_context
               }
@@ -9357,6 +9583,7 @@ TmtParser_try_statement(
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
               .for_initializer = st.for_initializer,
+              .arrow_defaults_allowed = st.arrow_defaults_allowed,
               .binding_mode = st.binding_mode,
               .super_context = st.super_context
             }
@@ -9443,6 +9670,7 @@ TmtParser_function_parameters(
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -9492,6 +9720,7 @@ TmtParser_function_parameters(
                   .module_mode = st1.module_mode,
                   .in_allowed = st1.in_allowed,
                   .for_initializer = st1.for_initializer,
+                  .arrow_defaults_allowed = st1.arrow_defaults_allowed,
                   .binding_mode = st1.binding_mode,
                   .super_context = st1.super_context
                 }
@@ -9512,6 +9741,7 @@ TmtParser_function_parameters(
                 .module_mode = uu____0.module_mode,
                 .in_allowed = uu____0.in_allowed,
                 .for_initializer = uu____0.for_initializer,
+                .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
                 .binding_mode = uu____0.binding_mode,
                 .super_context = uu____0.super_context
               }
@@ -9604,6 +9834,7 @@ TmtParser_function_form(
                             .module_mode = state.module_mode,
                             .in_allowed = state.in_allowed,
                             .for_initializer = state.for_initializer,
+                            .arrow_defaults_allowed = state.arrow_defaults_allowed,
                             .binding_mode = state.binding_mode,
                             .super_context = state.super_context
                           }
@@ -9616,7 +9847,8 @@ TmtParser_function_form(
       .local_names = start.local_names, .await_allowed = start.await_allowed,
       .jsx_allowed = start.jsx_allowed, .module_mode = start.module_mode,
       .in_allowed = start.in_allowed, .for_initializer = start.for_initializer,
-      .binding_mode = start.binding_mode, .super_context = TmtParser_NoSuper
+      .arrow_defaults_allowed = start.arrow_defaults_allowed, .binding_mode = start.binding_mode,
+      .super_context = TmtParser_NoSuper
     };
   TmtParser_parser_state
   start2 =
@@ -9675,7 +9907,8 @@ TmtParser_function_form(
         .offset = st.offset, .count = st.count, .depth = st.depth, .status = st.status,
         .local_names = st.local_names, .await_allowed = async_, .jsx_allowed = st.jsx_allowed,
         .module_mode = st.module_mode, .in_allowed = true, .for_initializer = st.for_initializer,
-        .binding_mode = TmtParser_NoLocals, .super_context = super_
+        .arrow_defaults_allowed = st.arrow_defaults_allowed, .binding_mode = TmtParser_NoLocals,
+        .super_context = super_
       };
     closed =
       TmtParser_control_block(input,
@@ -9694,8 +9927,9 @@ TmtParser_function_form(
           .status = closed.status, .local_names = closed.local_names,
           .await_allowed = state.await_allowed, .jsx_allowed = closed.jsx_allowed,
           .module_mode = closed.module_mode, .in_allowed = state.in_allowed,
-          .for_initializer = closed.for_initializer, .binding_mode = state.binding_mode,
-          .super_context = state.super_context
+          .for_initializer = closed.for_initializer,
+          .arrow_defaults_allowed = closed.arrow_defaults_allowed,
+          .binding_mode = state.binding_mode, .super_context = state.super_context
         },
         .signature_only = signature_only
       }
@@ -9849,6 +10083,7 @@ TmtParser_class_tail(TmtParser_tape input, TmtParser_parser_state state, uint32_
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
+            .arrow_defaults_allowed = st.arrow_defaults_allowed,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -9881,6 +10116,7 @@ TmtParser_class_tail(TmtParser_tape input, TmtParser_parser_state state, uint32_
             .module_mode = inherited.module_mode,
             .in_allowed = inherited.in_allowed,
             .for_initializer = inherited.for_initializer,
+            .arrow_defaults_allowed = inherited.arrow_defaults_allowed,
             .binding_mode = inherited.binding_mode,
             .super_context = inherited.super_context
           }
@@ -9903,6 +10139,7 @@ TmtParser_class_tail(TmtParser_tape input, TmtParser_parser_state state, uint32_
                             .module_mode = ready.module_mode,
                             .in_allowed = ready.in_allowed,
                             .for_initializer = ready.for_initializer,
+                            .arrow_defaults_allowed = ready.arrow_defaults_allowed,
                             .binding_mode = ready.binding_mode,
                             .super_context = ready.super_context
                           }
@@ -9940,6 +10177,7 @@ TmtParser_declaration(TmtParser_tape input, TmtParser_parser_state state)
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -10012,6 +10250,7 @@ TmtParser_import_members(
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -10046,6 +10285,7 @@ TmtParser_import_members(
                 .module_mode = st1.module_mode,
                 .in_allowed = st1.in_allowed,
                 .for_initializer = st1.for_initializer,
+                .arrow_defaults_allowed = st1.arrow_defaults_allowed,
                 .binding_mode = st1.binding_mode,
                 .super_context = st1.super_context
               }
@@ -10068,6 +10308,7 @@ TmtParser_import_members(
                   .module_mode = tail.module_mode,
                   .in_allowed = tail.in_allowed,
                   .for_initializer = tail.for_initializer,
+                  .arrow_defaults_allowed = tail.arrow_defaults_allowed,
                   .binding_mode = tail.binding_mode,
                   .super_context = tail.super_context
                 }
@@ -10140,6 +10381,7 @@ TmtParser_import_bindings(
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
+            .arrow_defaults_allowed = st.arrow_defaults_allowed,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -10161,6 +10403,7 @@ TmtParser_import_bindings(
               .module_mode = as_.module_mode,
               .in_allowed = as_.in_allowed,
               .for_initializer = as_.for_initializer,
+              .arrow_defaults_allowed = as_.arrow_defaults_allowed,
               .binding_mode = as_.binding_mode,
               .super_context = as_.super_context
             }
@@ -10192,6 +10435,7 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
+          .arrow_defaults_allowed = state.arrow_defaults_allowed,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -10217,6 +10461,7 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
               .for_initializer = st.for_initializer,
+              .arrow_defaults_allowed = st.arrow_defaults_allowed,
               .binding_mode = st.binding_mode,
               .super_context = st.super_context
             }
@@ -10245,6 +10490,7 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .module_mode = after_type.module_mode,
               .in_allowed = after_type.in_allowed,
               .for_initializer = after_type.for_initializer,
+              .arrow_defaults_allowed = after_type.arrow_defaults_allowed,
               .binding_mode = after_type.binding_mode,
               .super_context = after_type.super_context
             }
@@ -10295,6 +10541,7 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .module_mode = st1.module_mode,
               .in_allowed = st1.in_allowed,
               .for_initializer = st1.for_initializer,
+              .arrow_defaults_allowed = st1.arrow_defaults_allowed,
               .binding_mode = st1.binding_mode,
               .super_context = st1.super_context
             }
@@ -10354,6 +10601,7 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -10375,6 +10623,7 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
                   .for_initializer = st.for_initializer,
+                  .arrow_defaults_allowed = st.arrow_defaults_allowed,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -10395,6 +10644,7 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
                    .module_mode = st1.module_mode,
                    .in_allowed = st1.in_allowed,
                    .for_initializer = st1.for_initializer,
+                   .arrow_defaults_allowed = st1.arrow_defaults_allowed,
                    .binding_mode = st1.binding_mode,
                    .super_context = st1.super_context
                  }
@@ -10492,6 +10742,7 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
+            .arrow_defaults_allowed = st.arrow_defaults_allowed,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -10546,6 +10797,7 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
                     .module_mode = st2.module_mode,
                     .in_allowed = st2.in_allowed,
                     .for_initializer = st2.for_initializer,
+                    .arrow_defaults_allowed = st2.arrow_defaults_allowed,
                     .binding_mode = st2.binding_mode,
                     .super_context = st2.super_context
                   }
@@ -10583,8 +10835,9 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .status = result.status, .local_names = result.local_names,
               .await_allowed = state.await_allowed, .jsx_allowed = result.jsx_allowed,
               .module_mode = result.module_mode, .in_allowed = result.in_allowed,
-              .for_initializer = result.for_initializer, .binding_mode = result.binding_mode,
-              .super_context = result.super_context
+              .for_initializer = result.for_initializer,
+              .arrow_defaults_allowed = result.arrow_defaults_allowed,
+              .binding_mode = result.binding_mode, .super_context = result.super_context
             },
             .used = decl.used
           }
@@ -10698,6 +10951,7 @@ TmtParser_export_identifier(TmtParser_tape input, TmtParser_parser_state state)
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
+          .arrow_defaults_allowed = state.arrow_defaults_allowed,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -10776,6 +11030,7 @@ TmtParser_reexport_members(
                 .module_mode = after_source.module_mode,
                 .in_allowed = after_source.in_allowed,
                 .for_initializer = after_source.for_initializer,
+                .arrow_defaults_allowed = after_source.arrow_defaults_allowed,
                 .binding_mode = after_source.binding_mode,
                 .super_context = after_source.super_context
               }
@@ -10839,6 +11094,7 @@ TmtParser_named_reexport(TmtParser_tape input, TmtParser_parser_state state, uin
             .module_mode = tail.module_mode,
             .in_allowed = tail.in_allowed,
             .for_initializer = tail.for_initializer,
+            .arrow_defaults_allowed = tail.arrow_defaults_allowed,
             .binding_mode = tail.binding_mode,
             .super_context = tail.super_context
           }
@@ -10879,6 +11135,7 @@ TmtParser_module_export(TmtParser_tape input, TmtParser_parser_state state)
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -10905,6 +11162,7 @@ TmtParser_module_export(TmtParser_tape input, TmtParser_parser_state state)
                 .module_mode = tail.module_mode,
                 .in_allowed = tail.in_allowed,
                 .for_initializer = tail.for_initializer,
+                .arrow_defaults_allowed = tail.arrow_defaults_allowed,
                 .binding_mode = tail.binding_mode,
                 .super_context = tail.super_context
               }
@@ -10966,6 +11224,7 @@ TmtParser_default_declaration(
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -11002,6 +11261,7 @@ TmtParser_default_declaration(
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -11105,6 +11365,7 @@ TmtParser_module_sequence(
                 .module_mode = uu____0.module_mode,
                 .in_allowed = uu____0.in_allowed,
                 .for_initializer = uu____0.for_initializer,
+                .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
                 .binding_mode = uu____0.binding_mode,
                 .super_context = uu____0.super_context
               }
@@ -11136,6 +11397,7 @@ TmtParser_module_sequence(
                   .module_mode = tail.module_mode,
                   .in_allowed = tail.in_allowed,
                   .for_initializer = tail.for_initializer,
+                  .arrow_defaults_allowed = tail.arrow_defaults_allowed,
                   .binding_mode = tail.binding_mode,
                   .super_context = tail.super_context
                 }
@@ -11311,6 +11573,7 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -11360,6 +11623,7 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
                   .for_initializer = st.for_initializer,
+                  .arrow_defaults_allowed = st.arrow_defaults_allowed,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -11387,6 +11651,7 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
                 .module_mode = st3.module_mode,
                 .in_allowed = st3.in_allowed,
                 .for_initializer = st3.for_initializer,
+                .arrow_defaults_allowed = st3.arrow_defaults_allowed,
                 .binding_mode = st3.binding_mode,
                 .super_context = st3.super_context
               }
@@ -11412,6 +11677,7 @@ TmtParser_parser_state TmtParser_initial_state(bool jsx, bool module_mode)
         .module_mode = module_mode,
         .in_allowed = true,
         .for_initializer = false,
+        .arrow_defaults_allowed = true,
         .binding_mode = TmtParser_NoLocals,
         .super_context = TmtParser_NoSuper
       }
@@ -11448,6 +11714,7 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .module_mode = uu____0.module_mode,
           .in_allowed = uu____0.in_allowed,
           .for_initializer = uu____0.for_initializer,
+          .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
           .binding_mode = uu____0.binding_mode,
           .super_context = uu____0.super_context
         }
@@ -11469,6 +11736,7 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .module_mode = uu____1.module_mode,
           .in_allowed = uu____1.in_allowed,
           .for_initializer = uu____1.for_initializer,
+          .arrow_defaults_allowed = uu____1.arrow_defaults_allowed,
           .binding_mode = uu____1.binding_mode,
           .super_context = uu____1.super_context
         }
@@ -11573,6 +11841,7 @@ TmtParser_lexical_operand(TmtParser_tape input, TmtParser_parser_state state)
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
               .for_initializer = st.for_initializer,
+              .arrow_defaults_allowed = st.arrow_defaults_allowed,
               .binding_mode = st.binding_mode,
               .super_context = st.super_context
             }
@@ -11619,6 +11888,7 @@ TmtParser_lexical_declarator_end(
               .module_mode = boundary.module_mode,
               .in_allowed = boundary.in_allowed,
               .for_initializer = boundary.for_initializer,
+              .arrow_defaults_allowed = boundary.arrow_defaults_allowed,
               .binding_mode = boundary.binding_mode,
               .super_context = boundary.super_context
             }
@@ -11681,6 +11951,7 @@ TmtParser_read_lexical_conflict(
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
+                .arrow_defaults_allowed = st.arrow_defaults_allowed,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }

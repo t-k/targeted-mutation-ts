@@ -172,7 +172,7 @@ type super_context =
 type parser_state = {
   offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used;
   await_allowed:bool; jsx_allowed:bool; module_mode:bool; in_allowed:bool; for_initializer:bool;
-  binding_mode:binding_mode; super_context:super_context
+  arrow_defaults_allowed:bool; binding_mode:binding_mode; super_context:super_context
 }
 type assignment_target =
   | NotAssignable
@@ -1314,22 +1314,6 @@ let rest_parameter (input:tape) (state:parser_state) (floor used:names_used) : R
   let end_ = consume input (skip input (simple_annotation input rest.state)) 41uy in
   { names = { rest with state = end_ }; non_simple = true }
 
-let rec parameters (input:tape) (state:parser_state) (floor used:names_used) (fuel:U32.t) (non_simple:bool)
-  : Run parameter_list input (decreases U32.v fuel) =
-  let st = skip input state in
-  if st.status <> 0ul then { names = { state = st; used }; non_simple }
-  else if same input st.offset 41uy then { names = { state = consume input st 41uy; used }; non_simple }
-  else if fuel = 0ul then { names = { state = failed st 1ul; used }; non_simple }
-  else if spread_at input st.offset then rest_parameter input st floor used
-  else
-    let prefix = parameter_prefix input st floor used in
-    let initialized = same input prefix.names.state.offset 61uy in
-    let non_simple = non_simple || prefix.non_simple || initialized in
-    let st = simple_default input prefix.names.state in
-    if same input st.offset 44uy then
-      parameters input (consume input st 44uy) floor prefix.names.used (minus fuel 1ul) non_simple
-    else { names = { prefix.names with state = consume input st 41uy }; non_simple }
-
 let arrow_token (input:tape) (state:parser_state) : Read parser_state input =
   if state.status <> 0ul then state
   else
@@ -1354,34 +1338,6 @@ let generic_arrow_head (input:tape) (state:parser_state) : Read parser_state inp
       else if byte = 101uy then keyword input tail.offset 7ul 0x657874656e6473uL
       else false in
   if eligible then skip input (type_parameters input head 16ul 64ul) else failed head 1ul
-
-let plain_arrow_parameters (input:tape) (state:parser_state) : Run parameter_list input =
-  let used = state.local_names in
-  let missed = { names = { state = failed state 1ul; used }; non_simple = false } in
-  if state.status <> 0ul then missed
-  else
-    let byte = peek input state.offset in
-    let opening = if byte = 60uy then generic_arrow_head input state else state in
-    let parenthesized = same input opening.offset 40uy in
-    if opening.status <> 0ul then missed
-    else if parenthesized then
-      let params = parameters input (consume input opening 40uy) used used 64ul false in
-      let after = trivia input params.names.state.offset in
-      let st = from_cursor params.names.state after in
-      let colon = same input st.offset 58uy in
-      let result =
-        if colon && not after.newline then
-          result_type input (consume input st 58uy) 16ul
-        else params.names.state in
-      { params with names = { params.names with state = arrow_token input result } }
-    else if G.identifier_start byte then
-      let named = name input state.offset false true in
-      let body = arrow_token input (from_cursor state named) in
-      if body.status <> 0ul then missed
-      else
-        let param = bind_since input state binding_region_width used used state.offset in
-        { missed with names = { param with state = { param.state with offset = body.offset } } }
-    else missed
 
 let async_modifier (input:tape) (start:U32.t) : Read cursor input =
   if same input start 97uy then
@@ -1425,14 +1381,6 @@ let function_start (input:tape) (start:U32.t) : Read cursor input =
     { at = start; ok; newline = false }
   else if byte = 97uy then async_function input start
   else { at = start; ok = false; newline = false }
-
-let arrow_parameters (input:tape) (state:parser_state) : Run parameter_list input =
-  let modifier = async_modifier input state.offset in
-  if modifier.ok && state.status = 0ul then
-    let async_ = plain_arrow_parameters input { state with offset = modifier.at; await_allowed = true } in
-    if async_.names.state.status = 0ul then async_
-    else plain_arrow_parameters input { state with await_allowed = false }
-  else plain_arrow_parameters input { state with await_allowed = false }
 
 let function_body (input:tape) (state:parser_state) (non_simple:bool) : Read parser_state input =
   if not non_simple || state.status <> 0ul then state
@@ -1828,10 +1776,82 @@ and super_expression (input:tape) (st:parser_state) (fuel:U32.t)
     else failed after 1ul in
   postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset };
     open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
+and arrow_parameter_list (input:tape) (state:parser_state) (floor used:names_used)
+  (fuel remaining:U32.t) (non_simple:bool)
+  : Run parameter_list input (decreases %[U32.v fuel; 22; U32.v remaining]) =
+  let st = skip input state in
+  if st.status <> 0ul then { names = { state = st; used }; non_simple }
+  else if same input st.offset 41uy then { names = { state = consume input st 41uy; used }; non_simple }
+  else if remaining = 0ul then { names = { state = failed st 1ul; used }; non_simple }
+  else if spread_at input st.offset then rest_parameter input st floor used
+  else
+    let prefix = parameter_prefix input st floor used in
+    let equal = prefix.names.state in
+    let initialized = same input equal.offset 61uy in
+    let non_simple = non_simple || prefix.non_simple || initialized in
+    let st = simple_default input equal in
+    let delimiter = peek input st.offset in
+    let st =
+      if initialized && equal.status = 0ul && equal.arrow_defaults_allowed &&
+          (st.status <> 0ul || (delimiter <> 44uy && delimiter <> 41uy)) then
+        if fuel = 0ul then failed equal 3ul
+        else
+          // Speculation starts after the live names and candidates. Disable recursive speculation into defaults.
+          let start = consume input { equal with await_allowed = false; in_allowed = true;
+            local_names = prefix.names.used; arrow_defaults_allowed = false } 61uy in
+          let value = comparison input start (minus fuel 1ul) in
+          let st = skip input value.parser in
+          let comma = same input st.offset 44uy in
+          let st = if value.open_angle && comma then failed st 1ul else st in
+          { st with await_allowed = equal.await_allowed; in_allowed = equal.in_allowed;
+            local_names = equal.local_names; arrow_defaults_allowed = equal.arrow_defaults_allowed }
+      else st in
+    if same input st.offset 44uy then
+      arrow_parameter_list input (consume input st 44uy) floor prefix.names.used fuel (minus remaining 1ul) non_simple
+    else { names = { prefix.names with state = consume input st 41uy }; non_simple }
+
+and plain_arrow_parameters (input:tape) (state:parser_state) (fuel:U32.t)
+  : Run parameter_list input (decreases %[U32.v fuel; 23; 0]) =
+  let used = state.local_names in
+  let missed = { names = { state = failed state 1ul; used }; non_simple = false } in
+  if state.status <> 0ul then missed
+  else
+    let byte = peek input state.offset in
+    let opening = if byte = 60uy then generic_arrow_head input state else state in
+    let parenthesized = same input opening.offset 40uy in
+    if opening.status <> 0ul then missed
+    else if parenthesized then
+      let params = arrow_parameter_list input (consume input opening 40uy) used used fuel 64ul false in
+      let after = trivia input params.names.state.offset in
+      let st = from_cursor params.names.state after in
+      let colon = same input st.offset 58uy in
+      let result =
+        if colon && not after.newline then
+          result_type input (consume input st 58uy) 16ul
+        else params.names.state in
+      { params with names = { params.names with state = arrow_token input result } }
+    else if G.identifier_start byte then
+      let named = name input state.offset false true in
+      let body = arrow_token input (from_cursor state named) in
+      if body.status <> 0ul then missed
+      else
+        let param = bind_since input state binding_region_width used used state.offset in
+        { missed with names = { param with state = { param.state with offset = body.offset } } }
+    else missed
+
+and arrow_parameters (input:tape) (state:parser_state) (fuel:U32.t)
+  : Run parameter_list input (decreases %[U32.v fuel; 24; 0]) =
+  let modifier = async_modifier input state.offset in
+  if modifier.ok && state.status = 0ul then
+    let async_ = plain_arrow_parameters input { state with offset = modifier.at; await_allowed = true } fuel in
+    if async_.names.state.status = 0ul || async_.names.state.status = 4ul then async_
+    else plain_arrow_parameters input { state with await_allowed = false } fuel
+  else plain_arrow_parameters input { state with await_allowed = false } fuel
+
 and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 25; 0]) =
   let start = skip input current in
-  let arrow = arrow_parameters input start in
+  let arrow = arrow_parameters input start fuel in
   if arrow.names.state.status = 0ul then
     let body = skip input { arrow.names.state with local_names = arrow.names.used; binding_mode = NoLocals } in
     if fuel = 0ul then empty_range (failed body 3ul)
@@ -1855,7 +1875,8 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   else
   let lhs = binary input start fuel 1ul in
   let st = lhs.parser in
-  if st.status <> 0ul then lhs
+  if st.status = 1ul && arrow.names.state.status = 4ul then empty_range { st with status = 4ul }
+  else if st.status <> 0ul then lhs
   else
     let byte = peek input st.offset in
     let follower = peek input (next st.offset) in
@@ -2994,7 +3015,7 @@ private let parse_state (input:tape) (st:parser_state) (module_mode:bool) : Run 
 let initial_state (jsx module_mode:bool) : parser_state = {
   offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
   await_allowed = module_mode; jsx_allowed = jsx; module_mode; in_allowed = true; for_initializer = false;
-  binding_mode = NoLocals; super_context = NoSuper
+  arrow_defaults_allowed = true; binding_mode = NoLocals; super_context = NoSuper
 }
 
 // Successful results consume the buffer and expose a bounded candidate count.

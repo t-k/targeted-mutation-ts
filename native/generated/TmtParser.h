@@ -137,6 +137,7 @@ typedef struct TmtParser_parser_state_s
   bool module_mode;
   bool in_allowed;
   bool for_initializer;
+  bool arrow_defaults_allowed;
   TmtParser_binding_mode binding_mode;
   TmtParser_super_context super_context;
 }
@@ -710,24 +711,11 @@ TmtParser_rest_parameter(
   uint32_t used
 );
 
-TmtParser_parameter_list
-TmtParser_parameters(
-  TmtParser_tape input0,
-  TmtParser_parser_state state0,
-  uint32_t floor0,
-  uint32_t used0,
-  uint32_t fuel0,
-  bool non_simple0
-);
-
 TmtParser_parser_state
 TmtParser_arrow_token(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
 TmtParser_generic_arrow_head(TmtParser_tape input, TmtParser_parser_state state);
-
-TmtParser_parameter_list
-TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_cursor TmtParser_async_modifier(TmtParser_tape input, uint32_t start);
 
@@ -744,9 +732,6 @@ TmtParser_accessor_modifier(TmtParser_tape input, TmtParser_parser_state st);
 TmtParser_cursor TmtParser_async_function(TmtParser_tape input, uint32_t start);
 
 TmtParser_cursor TmtParser_function_start(TmtParser_tape input, uint32_t start);
-
-TmtParser_parameter_list
-TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
 TmtParser_function_body(TmtParser_tape input, TmtParser_parser_state state, bool non_simple);
@@ -913,6 +898,27 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
 
 TmtParser_parsed
 TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint32_t fuel);
+
+TmtParser_parameter_list
+TmtParser_arrow_parameter_list(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool non_simple0
+);
+
+TmtParser_parameter_list
+TmtParser_plain_arrow_parameters(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel
+);
+
+TmtParser_parameter_list
+TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parsed
 TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel);
