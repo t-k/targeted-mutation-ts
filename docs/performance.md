@@ -1,5 +1,30 @@
 # Performance measurements
 
+## Low★ binding, module, and statement coverage
+
+Against `3589d6e`, the AST-free route grew from 1,934 to 2,401 of 8,549 tracked TS/TSX files and from 808 to 1,020 of 2,968 comparison candidates. Both logical-rule settings matched Yuku on the complete diagnostics and ordered candidate records, including exact byte spans.
+
+| Checkout | Baseline Low★ files | Current Low★ files | Baseline Low★ candidates | Current Low★ candidates |
+| --- | ---: | ---: | ---: | ---: |
+| Vite | 300 | 382 | 45 | 85 |
+| Preact | 5 | 5 | 0 | 0 |
+| TypeScript corpus | 767 | 866 | 47 | 47 |
+| mreact | 704 | 931 | 591 | 720 |
+| tachyon-dom | 158 | 217 | 125 | 168 |
+
+In Vite's 118-file production scope, Low★ accepted 64 files and extracted 52 of 160 candidates, up from 53 files and 24 candidates. The newly covered sources include the five comparisons in `packages/vite/src/node/plugins/manifest.ts` and eleven in `packages/vite/src/node/plugins/importMetaGlob.ts`. The standard addon still routes 1,863 candidates through Oxc and 85 through Yuku. The Yuku total includes 67 mreact candidates, four tachyon-dom candidates, and fourteen TypeScript fixture candidates.
+
+A standalone build with only the generated C and Node-API adapter reproduced all 1,020 candidates across 312 files. The build omitted Cargo, Oxc sources, and npm dependencies.
+
+| Warm extraction workload | Baseline median | Current median |
+| --- | ---: | ---: |
+| Vite | 188.32 ms | 145.65 ms |
+| Vite production source | 64.20 ms | 62.92 ms |
+| mreact | 525.89 ms | 436.98 ms |
+| tachyon-dom | 155.05 ms | 129.39 ms |
+
+The benchmark alternated the two builds over the same source buffers for nine warm samples on an Apple M5 Max. The interquartile ranges overlap for Vite production source, mreact, and tachyon-dom. The measurements cover extraction with the standard runtime, including its fallback paths. The [audit and benchmark data](../evidence/m1/low-frontier-expansion.json) include exact standalone candidate records, corpus revisions, and all samples.
+
 ## Low★ exceptions, function forms, and regular expressions
 
 Against `acc4149`, the AST-free route increased from 1,139 to 1,934 of 8,549 tracked TS/TSX files and from 196 to 808 of 2,968 comparison candidates. Both logical-rule settings matched Yuku on complete ordered candidate records and diagnostics.
