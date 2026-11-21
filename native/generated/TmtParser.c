@@ -643,6 +643,7 @@ TmtParser_parser_state TmtParser_failed(TmtParser_parser_state state, uint32_t e
                            .jsx_allowed = state.jsx_allowed,
                            .module_mode = state.module_mode,
                            .in_allowed = state.in_allowed,
+                           .for_initializer = state.for_initializer,
                            .binding_mode = state.binding_mode,
                            .super_context = state.super_context
                          }
@@ -666,6 +667,7 @@ TmtParser_record_binding_mode(TmtParser_parser_state state, TmtParser_binding_mo
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
+          .for_initializer = state.for_initializer,
           .binding_mode = kind,
           .super_context = state.super_context
         }
@@ -716,6 +718,7 @@ TmtParser_consume(TmtParser_tape input, TmtParser_parser_state state, uint8_t by
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -743,6 +746,7 @@ TmtParser_from_cursor(TmtParser_parser_state state, TmtParser_cursor read)
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
+          .for_initializer = state.for_initializer,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -1979,6 +1983,7 @@ TmtParser_qualified_name(TmtParser_tape input0, TmtParser_parser_state state0, u
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -1996,7 +2001,8 @@ TmtParser_qualified_name(TmtParser_tape input0, TmtParser_parser_state state0, u
               .status = property.status, .local_names = property.local_names,
               .await_allowed = property.await_allowed, .jsx_allowed = property.jsx_allowed,
               .module_mode = property.module_mode, .in_allowed = property.in_allowed,
-              .binding_mode = property.binding_mode, .super_context = property.super_context
+              .for_initializer = property.for_initializer, .binding_mode = property.binding_mode,
+              .super_context = property.super_context
             };
           uint32_t tmp = TmtParser_minus(fuel, 1U);
           state = tmp0;
@@ -2209,6 +2215,7 @@ TmtParser_import_type(TmtParser_tape input, TmtParser_parser_state state)
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
+          .for_initializer = state.for_initializer,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -2244,6 +2251,7 @@ TmtParser_parser_state TmtParser_type_query(TmtParser_tape input, TmtParser_pars
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
+          .for_initializer = state.for_initializer,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -2298,6 +2306,7 @@ TmtParser_read_type_term_head(TmtParser_tape input, TmtParser_parser_state state
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -2387,6 +2396,7 @@ TmtParser_read_bracket_type_key(TmtParser_tape input, TmtParser_parser_state sta
               .jsx_allowed = start.jsx_allowed,
               .module_mode = start.module_mode,
               .in_allowed = start.in_allowed,
+              .for_initializer = start.for_initializer,
               .binding_mode = start.binding_mode,
               .super_context = start.super_context
             }
@@ -2511,8 +2521,8 @@ TmtParser_type_list(
             .offset = TmtParser_next(st1.offset), .count = st1.count, .depth = st1.depth,
             .status = st1.status, .local_names = st1.local_names, .await_allowed = st1.await_allowed,
             .jsx_allowed = st1.jsx_allowed, .module_mode = st1.module_mode,
-            .in_allowed = st1.in_allowed, .binding_mode = st1.binding_mode,
-            .super_context = st1.super_context
+            .in_allowed = st1.in_allowed, .for_initializer = st1.for_initializer,
+            .binding_mode = st1.binding_mode, .super_context = st1.super_context
           };
         uint32_t tmp1 = TmtParser_minus(remaining, 1U);
         bool tmp = true;
@@ -2550,6 +2560,7 @@ TmtParser_tuple_element(TmtParser_tape input, TmtParser_parser_state state, uint
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -2579,6 +2590,7 @@ TmtParser_tuple_element(TmtParser_tape input, TmtParser_parser_state state, uint
             .jsx_allowed = start.jsx_allowed,
             .module_mode = start.module_mode,
             .in_allowed = start.in_allowed,
+            .for_initializer = start.for_initializer,
             .binding_mode = start.binding_mode,
             .super_context = start.super_context
           }
@@ -2713,6 +2725,7 @@ TmtParser_object_type_member(TmtParser_tape input, TmtParser_parser_state st, ui
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
+            .for_initializer = st.for_initializer,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -2895,6 +2908,7 @@ TmtParser_signature_parameters(
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -2920,6 +2934,7 @@ TmtParser_signature_parameters(
               .jsx_allowed = st1.jsx_allowed,
               .module_mode = st1.module_mode,
               .in_allowed = st1.in_allowed,
+              .for_initializer = st1.for_initializer,
               .binding_mode = st1.binding_mode,
               .super_context = st1.super_context
             }
@@ -2995,6 +3010,7 @@ TmtParser_type_term(
                 .jsx_allowed = st1.jsx_allowed,
                 .module_mode = st1.module_mode,
                 .in_allowed = st1.in_allowed,
+                .for_initializer = st1.for_initializer,
                 .binding_mode = st1.binding_mode,
                 .super_context = st1.super_context
               }
@@ -3023,6 +3039,7 @@ TmtParser_type_term(
               .jsx_allowed = st1.jsx_allowed,
               .module_mode = st1.module_mode,
               .in_allowed = st1.in_allowed,
+              .for_initializer = st1.for_initializer,
               .binding_mode = st1.binding_mode,
               .super_context = st1.super_context
             }
@@ -3056,6 +3073,7 @@ TmtParser_type_term(
                 .jsx_allowed = tail.jsx_allowed,
                 .module_mode = tail.module_mode,
                 .in_allowed = tail.in_allowed,
+                .for_initializer = tail.for_initializer,
                 .binding_mode = tail.binding_mode,
                 .super_context = tail.super_context
               }
@@ -3093,6 +3111,7 @@ TmtParser_type_term(
                 .jsx_allowed = st1.jsx_allowed,
                 .module_mode = st1.module_mode,
                 .in_allowed = st1.in_allowed,
+                .for_initializer = st1.for_initializer,
                 .binding_mode = st1.binding_mode,
                 .super_context = st1.super_context
               }
@@ -3121,8 +3140,8 @@ TmtParser_type_term(
             .offset = TmtParser_next(st1.offset), .count = st1.count, .depth = st1.depth,
             .status = st1.status, .local_names = st1.local_names, .await_allowed = st1.await_allowed,
             .jsx_allowed = st1.jsx_allowed, .module_mode = st1.module_mode,
-            .in_allowed = st1.in_allowed, .binding_mode = st1.binding_mode,
-            .super_context = st1.super_context
+            .in_allowed = st1.in_allowed, .for_initializer = st1.for_initializer,
+            .binding_mode = st1.binding_mode, .super_context = st1.super_context
           };
         uint32_t inner = TmtParser_minus(fuel, 1U);
         if (byte == 91U)
@@ -3194,6 +3213,7 @@ TmtParser_template_type(
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
               .in_allowed = state.in_allowed,
+              .for_initializer = state.for_initializer,
               .binding_mode = state.binding_mode,
               .super_context = state.super_context
             }
@@ -3222,6 +3242,7 @@ TmtParser_template_type(
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
                   .in_allowed = state.in_allowed,
+                  .for_initializer = state.for_initializer,
                   .binding_mode = state.binding_mode,
                   .super_context = state.super_context
                 }
@@ -3245,6 +3266,7 @@ TmtParser_template_type(
                 .jsx_allowed = state.jsx_allowed,
                 .module_mode = state.module_mode,
                 .in_allowed = state.in_allowed,
+                .for_initializer = state.for_initializer,
                 .binding_mode = state.binding_mode,
                 .super_context = state.super_context
               }
@@ -3357,6 +3379,7 @@ TmtParser_annotation_type(
             .jsx_allowed = tail.jsx_allowed,
             .module_mode = tail.module_mode,
             .in_allowed = tail.in_allowed,
+            .for_initializer = tail.for_initializer,
             .binding_mode = tail.binding_mode,
             .super_context = tail.super_context
           }
@@ -3421,6 +3444,7 @@ TmtParser_result_type(TmtParser_tape input, TmtParser_parser_state state, uint32
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
+              .for_initializer = st.for_initializer,
               .binding_mode = st.binding_mode,
               .super_context = st.super_context
             }
@@ -3440,6 +3464,7 @@ TmtParser_result_type(TmtParser_tape input, TmtParser_parser_state state, uint32
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
+            .for_initializer = st.for_initializer,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -3494,8 +3519,8 @@ TmtParser_type_terms(
               .offset = TmtParser_next(st.offset), .count = st.count, .depth = st.depth,
               .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed,
               .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed, .binding_mode = st.binding_mode,
-              .super_context = st.super_context
+              .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
+              .binding_mode = st.binding_mode, .super_context = st.super_context
             };
           uint32_t tmp1 = TmtParser_minus(remaining, 1U);
           bool tmp = false;
@@ -3558,6 +3583,7 @@ TmtParser_type_parameters(
                     .jsx_allowed = st1.jsx_allowed,
                     .module_mode = st1.module_mode,
                     .in_allowed = st1.in_allowed,
+                    .for_initializer = st1.for_initializer,
                     .binding_mode = st1.binding_mode,
                     .super_context = st1.super_context
                   }
@@ -3623,6 +3649,7 @@ TmtParser_simple_annotation(TmtParser_tape input, TmtParser_parser_state state)
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
+            .for_initializer = st.for_initializer,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -3732,6 +3759,7 @@ TmtParser_simple_default(TmtParser_tape input, TmtParser_parser_state state)
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
+              .for_initializer = st.for_initializer,
               .binding_mode = st.binding_mode,
               .super_context = st.super_context
             }
@@ -3797,6 +3825,7 @@ TmtParser_pattern_names(
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -3937,6 +3966,7 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -3960,6 +3990,7 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
             .jsx_allowed = next_token.jsx_allowed,
             .module_mode = next_token.module_mode,
             .in_allowed = next_token.in_allowed,
+            .for_initializer = next_token.for_initializer,
             .binding_mode = next_token.binding_mode,
             .super_context = next_token.super_context
           }
@@ -4016,6 +4047,7 @@ TmtParser_rest_parameter(
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
+          .for_initializer = state.for_initializer,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -4148,6 +4180,7 @@ TmtParser_arrow_token(TmtParser_tape input, TmtParser_parser_state state)
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
+            .for_initializer = st.for_initializer,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -4259,7 +4292,8 @@ TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state st
                   .status = uu____1.status, .local_names = uu____1.local_names,
                   .await_allowed = uu____1.await_allowed, .jsx_allowed = uu____1.jsx_allowed,
                   .module_mode = uu____1.module_mode, .in_allowed = uu____1.in_allowed,
-                  .binding_mode = uu____1.binding_mode, .super_context = uu____1.super_context
+                  .for_initializer = uu____1.for_initializer, .binding_mode = uu____1.binding_mode,
+                  .super_context = uu____1.super_context
                 },
                 .used = param.used
               },
@@ -4342,6 +4376,7 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -4362,6 +4397,7 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
               .in_allowed = state.in_allowed,
+              .for_initializer = state.for_initializer,
               .binding_mode = state.binding_mode,
               .super_context = state.super_context
             }
@@ -4381,6 +4417,7 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -4665,6 +4702,7 @@ TmtParser_local_type_alias(
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
+          .for_initializer = state.for_initializer,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -4690,7 +4728,8 @@ TmtParser_local_type_alias(
           .offset = st.offset, .count = st.count, .depth = st.depth, .status = st.status,
           .local_names = decl.used, .await_allowed = st.await_allowed, .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode, .in_allowed = st.in_allowed,
-          .binding_mode = st.binding_mode, .super_context = st.super_context
+          .for_initializer = st.for_initializer, .binding_mode = st.binding_mode,
+          .super_context = st.super_context
         },
         .used = decl.used
       }
@@ -4712,6 +4751,7 @@ TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parse
         .jsx_allowed = state.jsx_allowed,
         .module_mode = state.module_mode,
         .in_allowed = state.in_allowed,
+        .for_initializer = state.for_initializer,
         .binding_mode = state.binding_mode,
         .super_context = state.super_context
       }
@@ -4829,6 +4869,7 @@ TmtParser_class_member_key(TmtParser_tape input, TmtParser_parser_state state)
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -4855,6 +4896,7 @@ TmtParser_class_member_key(TmtParser_tape input, TmtParser_parser_state state)
                     .jsx_allowed = start.jsx_allowed,
                     .module_mode = start.module_mode,
                     .in_allowed = start.in_allowed,
+                    .for_initializer = start.for_initializer,
                     .binding_mode = start.binding_mode,
                     .super_context = start.super_context
                   }
@@ -5163,6 +5205,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -5210,6 +5253,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -5262,6 +5306,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
+              .for_initializer = st.for_initializer,
               .binding_mode = st.binding_mode,
               .super_context = st.super_context
             }
@@ -5288,6 +5333,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                                     .jsx_allowed = after.jsx_allowed,
                                     .module_mode = after.module_mode,
                                     .in_allowed = after.in_allowed,
+                                    .for_initializer = after.for_initializer,
                                     .binding_mode = after.binding_mode,
                                     .super_context = after.super_context
                                   }
@@ -5313,6 +5359,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .jsx_allowed = meta.jsx_allowed,
                 .module_mode = meta.module_mode,
                 .in_allowed = meta.in_allowed,
+                .for_initializer = meta.for_initializer,
                 .binding_mode = meta.binding_mode,
                 .super_context = meta.super_context
               }
@@ -5376,8 +5423,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
             .offset = st.offset, .count = st.count, .depth = depth1, .status = st.status,
             .local_names = st.local_names, .await_allowed = st.await_allowed,
             .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
-            .in_allowed = st.in_allowed, .binding_mode = st.binding_mode,
-            .super_context = st.super_context
+            .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
+            .binding_mode = st.binding_mode, .super_context = st.super_context
           };
         uint32_t inner = TmtParser_minus(fuel, 1U);
         TmtParser_parser_state completed;
@@ -5397,6 +5444,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                   .jsx_allowed = st1.jsx_allowed,
                   .module_mode = st1.module_mode,
                   .in_allowed = st1.in_allowed,
+                  .for_initializer = st1.for_initializer,
                   .binding_mode = st1.binding_mode,
                   .super_context = st1.super_context
                 }
@@ -5423,7 +5471,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               .status = st1.status, .local_names = st1.local_names,
               .await_allowed = st1.await_allowed, .jsx_allowed = st1.jsx_allowed,
               .module_mode = st1.module_mode, .in_allowed = st1.in_allowed,
-              .binding_mode = st1.binding_mode, .super_context = st1.super_context
+              .for_initializer = st1.for_initializer, .binding_mode = st1.binding_mode,
+              .super_context = st1.super_context
             };
           if (ch == 96U)
             completed = TmtParser_template_body(input, inside, inner, input.size, false);
@@ -5476,6 +5525,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = true,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -5496,6 +5546,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .jsx_allowed = consumed.jsx_allowed,
                 .module_mode = consumed.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = consumed.for_initializer,
                 .binding_mode = consumed.binding_mode,
                 .super_context = consumed.super_context
               }
@@ -5596,7 +5647,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                   .status = st.status, .local_names = st.local_names,
                   .await_allowed = st.await_allowed, .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode, .in_allowed = st.in_allowed,
-                  .binding_mode = st.binding_mode, .super_context = st.super_context
+                  .for_initializer = st.for_initializer, .binding_mode = st.binding_mode,
+                  .super_context = st.super_context
                 },
                 .snd = TmtParser_NotAssignable
               }
@@ -5646,6 +5698,7 @@ TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
           .in_allowed = st.in_allowed,
+          .for_initializer = st.for_initializer,
           .binding_mode = st.binding_mode,
           .super_context = st.super_context
         }
@@ -5672,6 +5725,7 @@ TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint
                                 .jsx_allowed = after.jsx_allowed,
                                 .module_mode = after.module_mode,
                                 .in_allowed = after.in_allowed,
+                                .for_initializer = after.for_initializer,
                                 .binding_mode = after.binding_mode,
                                 .super_context = after.super_context
                               }
@@ -5699,6 +5753,7 @@ TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
           .in_allowed = st.in_allowed,
+          .for_initializer = st.for_initializer,
           .binding_mode = st.binding_mode,
           .super_context = st.super_context
         }
@@ -5744,6 +5799,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             .jsx_allowed = uu____0.jsx_allowed,
             .module_mode = uu____0.module_mode,
             .in_allowed = uu____0.in_allowed,
+            .for_initializer = uu____0.for_initializer,
             .binding_mode = TmtParser_NoLocals,
             .super_context = uu____0.super_context
           }
@@ -5760,8 +5816,8 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
           .offset = body.offset, .count = body.count, .depth = depth1, .status = body.status,
           .local_names = body.local_names, .await_allowed = body.await_allowed,
           .jsx_allowed = body.jsx_allowed, .module_mode = body.module_mode,
-          .in_allowed = body.in_allowed, .binding_mode = body.binding_mode,
-          .super_context = body.super_context
+          .in_allowed = body.in_allowed, .for_initializer = body.for_initializer,
+          .binding_mode = body.binding_mode, .super_context = body.super_context
         };
       uint32_t inner = TmtParser_minus(fuel, 1U);
       bool block = TmtParser_same(input, body1.offset, 123U);
@@ -5769,9 +5825,19 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
       if (block)
       {
         TmtParser_parser_state
+        block_start =
+          {
+            .offset = body1.offset, .count = body1.count, .depth = body1.depth,
+            .status = body1.status, .local_names = body1.local_names,
+            .await_allowed = body1.await_allowed, .jsx_allowed = body1.jsx_allowed,
+            .module_mode = body1.module_mode, .in_allowed = true,
+            .for_initializer = body1.for_initializer, .binding_mode = body1.binding_mode,
+            .super_context = body1.super_context
+          };
+        TmtParser_parser_state
         stop =
           TmtParser_control_block(input,
-            TmtParser_function_body(input, body1, arrow.non_simple),
+            TmtParser_function_body(input, block_start, arrow.non_simple),
             inner,
             true,
             TmtParser_NoJump,
@@ -5780,7 +5846,28 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
         result = TmtParser_empty_range(stop);
       }
       else
-        result = TmtParser_comparison(input, body1, inner);
+      {
+        bool in_allowed = body1.in_allowed && !body1.for_initializer;
+        result =
+          TmtParser_comparison(input,
+            (
+              (TmtParser_parser_state){
+                .offset = body1.offset,
+                .count = body1.count,
+                .depth = body1.depth,
+                .status = body1.status,
+                .local_names = body1.local_names,
+                .await_allowed = body1.await_allowed,
+                .jsx_allowed = body1.jsx_allowed,
+                .module_mode = body1.module_mode,
+                .in_allowed = in_allowed,
+                .for_initializer = body1.for_initializer,
+                .binding_mode = body1.binding_mode,
+                .super_context = body1.super_context
+              }
+            ),
+            inner);
+      }
       TmtParser_parser_state uu____1 = result.parser;
       return
         (
@@ -5789,8 +5876,9 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
               .offset = uu____1.offset, .count = uu____1.count, .depth = uu____1.depth,
               .status = uu____1.status, .local_names = start.local_names,
               .await_allowed = start.await_allowed, .jsx_allowed = uu____1.jsx_allowed,
-              .module_mode = uu____1.module_mode, .in_allowed = uu____1.in_allowed,
-              .binding_mode = start.binding_mode, .super_context = uu____1.super_context
+              .module_mode = uu____1.module_mode, .in_allowed = start.in_allowed,
+              .for_initializer = uu____1.for_initializer, .binding_mode = start.binding_mode,
+              .super_context = uu____1.super_context
             },
             .range = { .first = start.offset, .last = result.range.last },
             .open_angle = result.open_angle,
@@ -5837,6 +5925,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
+                  .for_initializer = st.for_initializer,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -5876,16 +5965,35 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                 .await_allowed = st.await_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed,
+                .in_allowed = true,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
             ),
             inner);
+        TmtParser_parser_state uu____2 = consequent.parser;
         TmtParser_parsed
         alternate =
           TmtParser_comparison(input,
-            TmtParser_consume(input, consequent.parser, 58U),
+            TmtParser_consume(input,
+              (
+                (TmtParser_parser_state){
+                  .offset = uu____2.offset,
+                  .count = uu____2.count,
+                  .depth = uu____2.depth,
+                  .status = uu____2.status,
+                  .local_names = uu____2.local_names,
+                  .await_allowed = uu____2.await_allowed,
+                  .jsx_allowed = uu____2.jsx_allowed,
+                  .module_mode = uu____2.module_mode,
+                  .in_allowed = st.in_allowed,
+                  .for_initializer = uu____2.for_initializer,
+                  .binding_mode = uu____2.binding_mode,
+                  .super_context = uu____2.super_context
+                }
+              ),
+              58U),
             inner);
         return
           (
@@ -5985,6 +6093,7 @@ TmtParser_binary_tail(
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
+                  .for_initializer = st.for_initializer,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -6051,8 +6160,8 @@ TmtParser_binary_tail(
               .offset = TmtParser_plus(st.offset, op.width), .count = count, .depth = st.depth,
               .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed,
               .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed, .binding_mode = st.binding_mode,
-              .super_context = st.super_context
+              .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
+              .binding_mode = st.binding_mode, .super_context = st.super_context
             };
           TmtParser_parsed rhs = TmtParser_binary(input, after, fuel, op.strength + 1U);
           TmtParser_parsed combined = TmtParser_combine_binary(input, lhs, rhs, st, op, first);
@@ -6127,8 +6236,8 @@ TmtParser_postfix(
                   .offset = end_at, .count = st.count, .depth = st.depth, .status = st.status,
                   .local_names = st.local_names, .await_allowed = st.await_allowed,
                   .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
-                  .in_allowed = st.in_allowed, .binding_mode = st.binding_mode,
-                  .super_context = st.super_context
+                  .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
+                  .binding_mode = st.binding_mode, .super_context = st.super_context
                 },
                 .range = { .first = base.range.first, .last = end_at },
                 .open_angle = base.open_angle,
@@ -6177,6 +6286,7 @@ TmtParser_postfix(
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
+                  .for_initializer = st.for_initializer,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -6213,7 +6323,8 @@ TmtParser_postfix(
                 .status = operand.status, .local_names = operand.local_names,
                 .await_allowed = operand.await_allowed, .jsx_allowed = operand.jsx_allowed,
                 .module_mode = operand.module_mode, .in_allowed = operand.in_allowed,
-                .binding_mode = operand.binding_mode, .super_context = operand.super_context
+                .for_initializer = operand.for_initializer, .binding_mode = operand.binding_mode,
+                .super_context = operand.super_context
               };
             if (kind == 40U)
               next_st =
@@ -6256,6 +6367,7 @@ TmtParser_postfix(
                     .jsx_allowed = st.jsx_allowed,
                     .module_mode = st.module_mode,
                     .in_allowed = st.in_allowed,
+                    .for_initializer = st.for_initializer,
                     .binding_mode = st.binding_mode,
                     .super_context = st.super_context
                   }
@@ -6276,6 +6388,7 @@ TmtParser_postfix(
                   .jsx_allowed = property.jsx_allowed,
                   .module_mode = property.module_mode,
                   .in_allowed = property.in_allowed,
+                  .for_initializer = property.for_initializer,
                   .binding_mode = property.binding_mode,
                   .super_context = property.super_context
                 }
@@ -6294,6 +6407,7 @@ TmtParser_postfix(
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -6377,6 +6491,7 @@ TmtParser_deep_array_literal(
             .jsx_allowed = uu____0.jsx_allowed,
             .module_mode = uu____0.module_mode,
             .in_allowed = uu____0.in_allowed,
+            .for_initializer = uu____0.for_initializer,
             .binding_mode = uu____0.binding_mode,
             .super_context = uu____0.super_context
           }
@@ -6402,6 +6517,7 @@ TmtParser_deep_array_literal(
             .jsx_allowed = closed.jsx_allowed,
             .module_mode = closed.module_mode,
             .in_allowed = closed.in_allowed,
+            .for_initializer = closed.for_initializer,
             .binding_mode = closed.binding_mode,
             .super_context = closed.super_context
           }
@@ -6463,6 +6579,7 @@ TmtParser_expression_list(
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -6528,6 +6645,7 @@ TmtParser_object_member(
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
+            .for_initializer = st.for_initializer,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -6559,6 +6677,7 @@ TmtParser_object_member(
                        .jsx_allowed = st.jsx_allowed,
                        .module_mode = st.module_mode,
                        .in_allowed = st.in_allowed,
+                       .for_initializer = st.for_initializer,
                        .binding_mode = st.binding_mode,
                        .super_context = st.super_context
                      }
@@ -6584,6 +6703,7 @@ TmtParser_object_member(
               .jsx_allowed = key_start.jsx_allowed,
               .module_mode = key_start.module_mode,
               .in_allowed = true,
+              .for_initializer = key_start.for_initializer,
               .binding_mode = key_start.binding_mode,
               .super_context = key_start.super_context
             }
@@ -6603,6 +6723,7 @@ TmtParser_object_member(
             .jsx_allowed = closed.jsx_allowed,
             .module_mode = closed.module_mode,
             .in_allowed = st.in_allowed,
+            .for_initializer = closed.for_initializer,
             .binding_mode = closed.binding_mode,
             .super_context = closed.super_context
           }
@@ -6751,6 +6872,7 @@ TmtParser_template_body(
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
               .in_allowed = state.in_allowed,
+              .for_initializer = state.for_initializer,
               .binding_mode = state.binding_mode,
               .super_context = state.super_context
             }
@@ -6774,6 +6896,7 @@ TmtParser_template_body(
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
                   .in_allowed = true,
+                  .for_initializer = state.for_initializer,
                   .binding_mode = state.binding_mode,
                   .super_context = state.super_context
                 }
@@ -6793,6 +6916,7 @@ TmtParser_template_body(
                   .jsx_allowed = uu____0.jsx_allowed,
                   .module_mode = uu____0.module_mode,
                   .in_allowed = state.in_allowed,
+                  .for_initializer = uu____0.for_initializer,
                   .binding_mode = uu____0.binding_mode,
                   .super_context = uu____0.super_context
                 }
@@ -6814,6 +6938,7 @@ TmtParser_template_body(
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
                   .in_allowed = state.in_allowed,
+                  .for_initializer = state.for_initializer,
                   .binding_mode = state.binding_mode,
                   .super_context = state.super_context
                 }
@@ -6834,6 +6959,7 @@ TmtParser_template_body(
                 .jsx_allowed = state.jsx_allowed,
                 .module_mode = state.module_mode,
                 .in_allowed = state.in_allowed,
+                .for_initializer = state.for_initializer,
                 .binding_mode = state.binding_mode,
                 .super_context = state.super_context
               }
@@ -6877,6 +7003,7 @@ TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint
               .jsx_allowed = inner.jsx_allowed,
               .module_mode = inner.module_mode,
               .in_allowed = inner.in_allowed,
+              .for_initializer = inner.for_initializer,
               .binding_mode = inner.binding_mode,
               .super_context = inner.super_context
             }
@@ -6913,6 +7040,7 @@ TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -6939,6 +7067,7 @@ TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
+                  .for_initializer = st.for_initializer,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -7072,6 +7201,7 @@ TmtParser_jsx_children(
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
                   .in_allowed = state.in_allowed,
+                  .for_initializer = state.for_initializer,
                   .binding_mode = state.binding_mode,
                   .super_context = state.super_context
                 }
@@ -7135,7 +7265,8 @@ TmtParser_jsx_children(
             .status = state.status, .local_names = state.local_names,
             .await_allowed = state.await_allowed, .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode, .in_allowed = state.in_allowed,
-            .binding_mode = state.binding_mode, .super_context = state.super_context
+            .for_initializer = state.for_initializer, .binding_mode = state.binding_mode,
+            .super_context = state.super_context
           };
         uint32_t tmp = TmtParser_minus(remaining, 1U);
         state = tmp0;
@@ -7166,6 +7297,7 @@ TmtParser_jsx_element(TmtParser_tape input, TmtParser_parser_state state, uint32
                             .jsx_allowed = state.jsx_allowed,
                             .module_mode = state.module_mode,
                             .in_allowed = state.in_allowed,
+                            .for_initializer = state.for_initializer,
                             .binding_mode = state.binding_mode,
                             .super_context = state.super_context
                           }
@@ -7277,6 +7409,7 @@ TmtParser_binding(
   TmtParser_parser_state
   st1 = TmtParser_from_cursor(st, TmtParser_name(input, st.offset, false, true));
   TmtParser_parser_state st2 = TmtParser_consume(input, TmtParser_skip(input, st1), 61U);
+  bool for_initializer = state.for_initializer || !in_allowed;
   TmtParser_parsed
   value =
     TmtParser_comparison(input,
@@ -7291,6 +7424,7 @@ TmtParser_binding(
           .jsx_allowed = st2.jsx_allowed,
           .module_mode = st2.module_mode,
           .in_allowed = in_allowed,
+          .for_initializer = for_initializer,
           .binding_mode = st2.binding_mode,
           .super_context = st2.super_context
         }
@@ -7309,10 +7443,212 @@ TmtParser_binding(
         .jsx_allowed = uu____0.jsx_allowed,
         .module_mode = uu____0.module_mode,
         .in_allowed = state.in_allowed,
+        .for_initializer = state.for_initializer,
         .binding_mode = uu____0.binding_mode,
         .super_context = uu____0.super_context
       }
     );
+}
+
+TmtParser_parser_state
+TmtParser_for_bindings(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  uint32_t floor0,
+  bool constant0
+)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  uint32_t fuel = fuel0;
+  uint32_t remaining = remaining0;
+  uint32_t floor = floor0;
+  bool constant = constant0;
+  while (true)
+  {
+    TmtParser_parser_state st = TmtParser_skip(input, state);
+    if (st.status != 0U)
+      return st;
+    else if (remaining == 0U)
+      return TmtParser_failed(st, 1U);
+    else
+    {
+      uint8_t first = TmtParser_peek(input, st.offset);
+      TmtParser_named_state
+      declared =
+        TmtParser_pattern_binding(input,
+          st,
+          TmtParser_binding_region_width,
+          floor,
+          st.local_names);
+      TmtParser_parser_state uu____0 = declared.state;
+      TmtParser_parser_state
+      annotated =
+        TmtParser_simple_annotation(input,
+          (
+            (TmtParser_parser_state){
+              .offset = uu____0.offset,
+              .count = uu____0.count,
+              .depth = uu____0.depth,
+              .status = uu____0.status,
+              .local_names = declared.used,
+              .await_allowed = uu____0.await_allowed,
+              .jsx_allowed = uu____0.jsx_allowed,
+              .module_mode = uu____0.module_mode,
+              .in_allowed = uu____0.in_allowed,
+              .for_initializer = uu____0.for_initializer,
+              .binding_mode = uu____0.binding_mode,
+              .super_context = uu____0.super_context
+            }
+          ));
+      TmtParser_parser_state tail = TmtParser_skip(input, annotated);
+      bool equal = TmtParser_same(input, tail.offset, 61U);
+      TmtParser_parser_state initialized;
+      if (equal)
+      {
+        TmtParser_parsed
+        value =
+          TmtParser_comparison(input,
+            TmtParser_consume(input,
+              (
+                (TmtParser_parser_state){
+                  .offset = tail.offset,
+                  .count = tail.count,
+                  .depth = tail.depth,
+                  .status = tail.status,
+                  .local_names = tail.local_names,
+                  .await_allowed = tail.await_allowed,
+                  .jsx_allowed = tail.jsx_allowed,
+                  .module_mode = tail.module_mode,
+                  .in_allowed = false,
+                  .for_initializer = true,
+                  .binding_mode = tail.binding_mode,
+                  .super_context = tail.super_context
+                }
+              ),
+              61U),
+            fuel);
+        TmtParser_parser_state uu____1 = value.parser;
+        initialized =
+          (
+            (TmtParser_parser_state){
+              .offset = uu____1.offset,
+              .count = uu____1.count,
+              .depth = uu____1.depth,
+              .status = uu____1.status,
+              .local_names = uu____1.local_names,
+              .await_allowed = uu____1.await_allowed,
+              .jsx_allowed = uu____1.jsx_allowed,
+              .module_mode = uu____1.module_mode,
+              .in_allowed = state.in_allowed,
+              .for_initializer = state.for_initializer,
+              .binding_mode = uu____1.binding_mode,
+              .super_context = uu____1.super_context
+            }
+          );
+      }
+      else if (constant || first == 91U || first == 123U)
+        initialized = TmtParser_failed(tail, 1U);
+      else
+        initialized = tail;
+      TmtParser_parser_state tail1 = TmtParser_skip(input, initialized);
+      if (TmtParser_same(input, tail1.offset, 44U))
+      {
+        TmtParser_parser_state tmp0 = TmtParser_consume(input, tail1, 44U);
+        uint32_t tmp = TmtParser_minus(remaining, 1U);
+        state = tmp0;
+        remaining = tmp;
+      }
+      else
+        return tail1;
+    }
+  }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+TmtParser_parser_state
+TmtParser_for_expressions(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool in_allowed0
+)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  uint32_t fuel = fuel0;
+  uint32_t remaining = remaining0;
+  bool in_allowed = in_allowed0;
+  while (true)
+    if (state.status != 0U)
+      return state;
+    else if (remaining == 0U)
+      return TmtParser_failed(state, 1U);
+    else
+    {
+      bool for_initializer = state.for_initializer || !in_allowed;
+      TmtParser_parsed
+      value =
+        TmtParser_comparison(input,
+          (
+            (TmtParser_parser_state){
+              .offset = state.offset,
+              .count = state.count,
+              .depth = state.depth,
+              .status = state.status,
+              .local_names = state.local_names,
+              .await_allowed = state.await_allowed,
+              .jsx_allowed = state.jsx_allowed,
+              .module_mode = state.module_mode,
+              .in_allowed = in_allowed,
+              .for_initializer = for_initializer,
+              .binding_mode = state.binding_mode,
+              .super_context = state.super_context
+            }
+          ),
+          fuel);
+      TmtParser_parser_state uu____0 = value.parser;
+      TmtParser_parser_state
+      tail =
+        TmtParser_skip(input,
+          (
+            (TmtParser_parser_state){
+              .offset = uu____0.offset,
+              .count = uu____0.count,
+              .depth = uu____0.depth,
+              .status = uu____0.status,
+              .local_names = uu____0.local_names,
+              .await_allowed = uu____0.await_allowed,
+              .jsx_allowed = uu____0.jsx_allowed,
+              .module_mode = uu____0.module_mode,
+              .in_allowed = state.in_allowed,
+              .for_initializer = state.for_initializer,
+              .binding_mode = uu____0.binding_mode,
+              .super_context = uu____0.super_context
+            }
+          ));
+      if (TmtParser_same(input, tail.offset, 44U))
+      {
+        TmtParser_parser_state tmp0 = TmtParser_consume(input, tail, 44U);
+        uint32_t tmp = TmtParser_minus(remaining, 1U);
+        state = tmp0;
+        remaining = tmp;
+      }
+      else
+        return tail;
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
 }
 
 TmtParser_parser_state
@@ -7324,20 +7660,50 @@ TmtParser_classic_for_header(
   uint32_t fuel
 )
 {
-  bool lexical = TmtParser_keyword(input, st.offset, 3U, 0x6c6574ULL);
+  uint32_t lexical = TmtParser_local_width(input, st.offset);
   bool var;
-  if (!lexical && (top_level || local_var))
+  if (lexical == 0U && (top_level || local_var))
     var = TmtParser_keyword(input, st.offset, 3U, 0x766172ULL);
   else
     var = false;
   TmtParser_parser_state st10;
   if (TmtParser_same(input, st.offset, 59U))
     st10 = st;
-  else if (lexical || var)
+  else if (lexical != 0U)
   {
     TmtParser_parser_state st1;
     if (local_var)
-      st1 = TmtParser_record_binding_mode(st, var ? TmtParser_VarLocals : TmtParser_LexicalLocals);
+      st1 = TmtParser_record_binding_mode(st, TmtParser_LexicalLocals);
+    else
+      st1 = st;
+    st10 =
+      TmtParser_for_bindings(input,
+        (
+          (TmtParser_parser_state){
+            .offset = TmtParser_plus(st1.offset, lexical),
+            .count = st1.count,
+            .depth = st1.depth,
+            .status = st1.status,
+            .local_names = st1.local_names,
+            .await_allowed = st1.await_allowed,
+            .jsx_allowed = st1.jsx_allowed,
+            .module_mode = st1.module_mode,
+            .in_allowed = st1.in_allowed,
+            .for_initializer = st1.for_initializer,
+            .binding_mode = st1.binding_mode,
+            .super_context = st1.super_context
+          }
+        ),
+        fuel,
+        64U,
+        st1.local_names,
+        lexical == 5U);
+  }
+  else if (var)
+  {
+    TmtParser_parser_state st1;
+    if (local_var)
+      st1 = TmtParser_record_binding_mode(st, TmtParser_VarLocals);
     else
       st1 = st;
     st10 =
@@ -7353,6 +7719,7 @@ TmtParser_classic_for_header(
             .jsx_allowed = st1.jsx_allowed,
             .module_mode = st1.module_mode,
             .in_allowed = st1.in_allowed,
+            .for_initializer = st1.for_initializer,
             .binding_mode = st1.binding_mode,
             .super_context = st1.super_context
           }
@@ -7361,21 +7728,21 @@ TmtParser_classic_for_header(
         false);
   }
   else
-    st10 = TmtParser_failed(st, 1U);
+    st10 = TmtParser_for_expressions(input, st, fuel, 64U, false);
   TmtParser_parser_state st2 = TmtParser_consume(input, TmtParser_skip(input, st10), 59U);
   TmtParser_parser_state st3 = TmtParser_skip(input, st2);
   TmtParser_parser_state st4;
   if (TmtParser_same(input, st3.offset, 59U))
     st4 = st3;
   else
-    st4 = TmtParser_comparison(input, st3, fuel).parser;
+    st4 = TmtParser_for_expressions(input, st3, fuel, 64U, true);
   TmtParser_parser_state st5 = TmtParser_consume(input, TmtParser_skip(input, st4), 59U);
   TmtParser_parser_state st6 = TmtParser_skip(input, st5);
   TmtParser_parser_state st7;
   if (TmtParser_same(input, st6.offset, 41U))
     st7 = st6;
   else
-    st7 = TmtParser_comparison(input, st6, fuel).parser;
+    st7 = TmtParser_for_expressions(input, st6, fuel, 64U, true);
   return TmtParser_consume(input, TmtParser_skip(input, st7), 41U);
 }
 
@@ -7409,6 +7776,7 @@ TmtParser_for_header(
             .jsx_allowed = head.jsx_allowed,
             .module_mode = head.module_mode,
             .in_allowed = head.in_allowed,
+            .for_initializer = head.for_initializer,
             .binding_mode = head.binding_mode,
             .super_context = head.super_context
           }
@@ -7549,6 +7917,7 @@ TmtParser_local_var_declaration(
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
           .in_allowed = st.in_allowed,
+          .for_initializer = st.for_initializer,
           .binding_mode = st.binding_mode,
           .super_context = st.super_context
         }
@@ -7583,6 +7952,7 @@ TmtParser_local_declaration(
           .jsx_allowed = state1.jsx_allowed,
           .module_mode = state1.module_mode,
           .in_allowed = state1.in_allowed,
+          .for_initializer = state1.for_initializer,
           .binding_mode = state1.binding_mode,
           .super_context = state1.super_context
         }
@@ -7598,8 +7968,8 @@ TmtParser_local_declaration(
       .offset = uu____0.offset, .count = uu____0.count, .depth = uu____0.depth,
       .status = uu____0.status, .local_names = decl.used, .await_allowed = uu____0.await_allowed,
       .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
-      .in_allowed = uu____0.in_allowed, .binding_mode = uu____0.binding_mode,
-      .super_context = uu____0.super_context
+      .in_allowed = uu____0.in_allowed, .for_initializer = uu____0.for_initializer,
+      .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context
     };
   return
     (
@@ -7666,6 +8036,7 @@ TmtParser_scope_statement(
               .jsx_allowed = declared.jsx_allowed,
               .module_mode = declared.module_mode,
               .in_allowed = declared.in_allowed,
+              .for_initializer = declared.for_initializer,
               .binding_mode = declared.binding_mode,
               .super_context = declared.super_context
             }
@@ -7685,8 +8056,8 @@ TmtParser_scope_statement(
           .offset = uu____0.offset, .count = uu____0.count, .depth = uu____0.depth,
           .status = uu____0.status, .local_names = decl.used, .await_allowed = uu____0.await_allowed,
           .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
-          .in_allowed = uu____0.in_allowed, .binding_mode = uu____0.binding_mode,
-          .super_context = uu____0.super_context
+          .in_allowed = uu____0.in_allowed, .for_initializer = uu____0.for_initializer,
+          .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context
         };
       return
         (
@@ -7722,6 +8093,7 @@ TmtParser_scope_statement(
               .jsx_allowed = declared.jsx_allowed,
               .module_mode = declared.module_mode,
               .in_allowed = declared.in_allowed,
+              .for_initializer = declared.for_initializer,
               .binding_mode = declared.binding_mode,
               .super_context = declared.super_context
             }
@@ -7741,8 +8113,8 @@ TmtParser_scope_statement(
           .offset = uu____1.offset, .count = uu____1.count, .depth = uu____1.depth,
           .status = uu____1.status, .local_names = decl.used, .await_allowed = uu____1.await_allowed,
           .jsx_allowed = uu____1.jsx_allowed, .module_mode = uu____1.module_mode,
-          .in_allowed = uu____1.in_allowed, .binding_mode = uu____1.binding_mode,
-          .super_context = uu____1.super_context
+          .in_allowed = uu____1.in_allowed, .for_initializer = uu____1.for_initializer,
+          .binding_mode = uu____1.binding_mode, .super_context = uu____1.super_context
         };
       return
         (
@@ -7803,6 +8175,7 @@ TmtParser_control_sequence(
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -7879,6 +8252,7 @@ TmtParser_switch_sequence(
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -7918,6 +8292,7 @@ TmtParser_switch_sequence(
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -7953,6 +8328,7 @@ TmtParser_switch_sequence(
                     .jsx_allowed = st.jsx_allowed,
                     .module_mode = st.module_mode,
                     .in_allowed = st.in_allowed,
+                    .for_initializer = st.for_initializer,
                     .binding_mode = st.binding_mode,
                     .super_context = st.super_context
                   }
@@ -8026,6 +8402,7 @@ TmtParser_control_block(
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
           .in_allowed = st.in_allowed,
+          .for_initializer = st.for_initializer,
           .binding_mode = st.binding_mode,
           .super_context = st.super_context
         }
@@ -8050,6 +8427,7 @@ TmtParser_control_block(
           .jsx_allowed = st1.jsx_allowed,
           .module_mode = st1.module_mode,
           .in_allowed = st1.in_allowed,
+          .for_initializer = st1.for_initializer,
           .binding_mode = st1.binding_mode,
           .super_context = st1.super_context
         }
@@ -8124,6 +8502,7 @@ TmtParser_control_statement(
                               .jsx_allowed = state.jsx_allowed,
                               .module_mode = state.module_mode,
                               .in_allowed = state.in_allowed,
+                              .for_initializer = state.for_initializer,
                               .binding_mode = state.binding_mode,
                               .super_context = state.super_context
                             }
@@ -8146,6 +8525,7 @@ TmtParser_control_statement(
               .jsx_allowed = state1.jsx_allowed,
               .module_mode = state1.module_mode,
               .in_allowed = state1.in_allowed,
+              .for_initializer = state1.for_initializer,
               .binding_mode = state1.binding_mode,
               .super_context = state1.super_context
             }
@@ -8174,6 +8554,7 @@ TmtParser_control_statement(
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -8202,6 +8583,7 @@ TmtParser_control_statement(
               .jsx_allowed = state1.jsx_allowed,
               .module_mode = state1.module_mode,
               .in_allowed = state1.in_allowed,
+              .for_initializer = state1.for_initializer,
               .binding_mode = state1.binding_mode,
               .super_context = state1.super_context
             }
@@ -8233,6 +8615,7 @@ TmtParser_control_statement(
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
+                  .for_initializer = st.for_initializer,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -8264,6 +8647,7 @@ TmtParser_control_statement(
                 .jsx_allowed = state1.jsx_allowed,
                 .module_mode = state1.module_mode,
                 .in_allowed = state1.in_allowed,
+                .for_initializer = state1.for_initializer,
                 .binding_mode = state1.binding_mode,
                 .super_context = state1.super_context
               }
@@ -8278,8 +8662,8 @@ TmtParser_control_statement(
             inner,
             in_function,
             TmtParser_LoopJump,
-            used,
-            used);
+            tested.local_names,
+            tested.local_names);
         TmtParser_parser_state uu____0 = body.state;
         result =
           (
@@ -8293,6 +8677,7 @@ TmtParser_control_statement(
               .jsx_allowed = uu____0.jsx_allowed,
               .module_mode = uu____0.module_mode,
               .in_allowed = uu____0.in_allowed,
+              .for_initializer = uu____0.for_initializer,
               .binding_mode = uu____0.binding_mode,
               .super_context = uu____0.super_context
             }
@@ -8312,6 +8697,7 @@ TmtParser_control_statement(
                 .jsx_allowed = state1.jsx_allowed,
                 .module_mode = state1.module_mode,
                 .in_allowed = state1.in_allowed,
+                .for_initializer = state1.for_initializer,
                 .binding_mode = state1.binding_mode,
                 .super_context = state1.super_context
               }
@@ -8338,6 +8724,7 @@ TmtParser_control_statement(
                 .jsx_allowed = state1.jsx_allowed,
                 .module_mode = state1.module_mode,
                 .in_allowed = state1.in_allowed,
+                .for_initializer = state1.for_initializer,
                 .binding_mode = state1.binding_mode,
                 .super_context = state1.super_context
               }
@@ -8372,6 +8759,7 @@ TmtParser_control_statement(
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -8470,6 +8858,7 @@ TmtParser_try_statement(
                 .jsx_allowed = after.jsx_allowed,
                 .module_mode = after.module_mode,
                 .in_allowed = after.in_allowed,
+                .for_initializer = after.for_initializer,
                 .binding_mode = after.binding_mode,
                 .super_context = after.super_context
               }
@@ -8495,6 +8884,7 @@ TmtParser_try_statement(
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
+              .for_initializer = st.for_initializer,
               .binding_mode = st.binding_mode,
               .super_context = st.super_context
             }
@@ -8580,6 +8970,7 @@ TmtParser_function_parameters(
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -8628,6 +9019,7 @@ TmtParser_function_parameters(
                   .jsx_allowed = st1.jsx_allowed,
                   .module_mode = st1.module_mode,
                   .in_allowed = st1.in_allowed,
+                  .for_initializer = st1.for_initializer,
                   .binding_mode = st1.binding_mode,
                   .super_context = st1.super_context
                 }
@@ -8647,6 +9039,7 @@ TmtParser_function_parameters(
                 .jsx_allowed = uu____0.jsx_allowed,
                 .module_mode = uu____0.module_mode,
                 .in_allowed = uu____0.in_allowed,
+                .for_initializer = uu____0.for_initializer,
                 .binding_mode = uu____0.binding_mode,
                 .super_context = uu____0.super_context
               }
@@ -8710,6 +9103,7 @@ TmtParser_function_tail(
                             .jsx_allowed = state.jsx_allowed,
                             .module_mode = state.module_mode,
                             .in_allowed = state.in_allowed,
+                            .for_initializer = state.for_initializer,
                             .binding_mode = state.binding_mode,
                             .super_context = state.super_context
                           }
@@ -8721,8 +9115,8 @@ TmtParser_function_tail(
       .offset = start.offset, .count = start.count, .depth = start.depth, .status = start.status,
       .local_names = start.local_names, .await_allowed = start.await_allowed,
       .jsx_allowed = start.jsx_allowed, .module_mode = start.module_mode,
-      .in_allowed = start.in_allowed, .binding_mode = start.binding_mode,
-      .super_context = TmtParser_NoSuper
+      .in_allowed = start.in_allowed, .for_initializer = start.for_initializer,
+      .binding_mode = start.binding_mode, .super_context = TmtParser_NoSuper
     };
   TmtParser_parser_state
   start2 =
@@ -8750,8 +9144,8 @@ TmtParser_function_tail(
     {
       .offset = st.offset, .count = st.count, .depth = st.depth, .status = st.status,
       .local_names = st.local_names, .await_allowed = async_, .jsx_allowed = st.jsx_allowed,
-      .module_mode = st.module_mode, .in_allowed = true, .binding_mode = TmtParser_NoLocals,
-      .super_context = super_
+      .module_mode = st.module_mode, .in_allowed = true, .for_initializer = st.for_initializer,
+      .binding_mode = TmtParser_NoLocals, .super_context = super_
     };
   TmtParser_parser_state
   closed =
@@ -8774,6 +9168,7 @@ TmtParser_function_tail(
         .jsx_allowed = closed.jsx_allowed,
         .module_mode = closed.module_mode,
         .in_allowed = state.in_allowed,
+        .for_initializer = closed.for_initializer,
         .binding_mode = state.binding_mode,
         .super_context = state.super_context
       }
@@ -8926,6 +9321,7 @@ TmtParser_class_tail(TmtParser_tape input, TmtParser_parser_state state, uint32_
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
+            .for_initializer = st.for_initializer,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -8957,6 +9353,7 @@ TmtParser_class_tail(TmtParser_tape input, TmtParser_parser_state state, uint32_
             .jsx_allowed = inherited.jsx_allowed,
             .module_mode = inherited.module_mode,
             .in_allowed = inherited.in_allowed,
+            .for_initializer = inherited.for_initializer,
             .binding_mode = inherited.binding_mode,
             .super_context = inherited.super_context
           }
@@ -8978,6 +9375,7 @@ TmtParser_class_tail(TmtParser_tape input, TmtParser_parser_state state, uint32_
                             .jsx_allowed = ready.jsx_allowed,
                             .module_mode = ready.module_mode,
                             .in_allowed = ready.in_allowed,
+                            .for_initializer = ready.for_initializer,
                             .binding_mode = ready.binding_mode,
                             .super_context = ready.super_context
                           }
@@ -9014,6 +9412,7 @@ TmtParser_declaration(TmtParser_tape input, TmtParser_parser_state state)
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -9085,6 +9484,7 @@ TmtParser_import_members(
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -9118,6 +9518,7 @@ TmtParser_import_members(
                 .jsx_allowed = st1.jsx_allowed,
                 .module_mode = st1.module_mode,
                 .in_allowed = st1.in_allowed,
+                .for_initializer = st1.for_initializer,
                 .binding_mode = st1.binding_mode,
                 .super_context = st1.super_context
               }
@@ -9139,6 +9540,7 @@ TmtParser_import_members(
                   .jsx_allowed = tail.jsx_allowed,
                   .module_mode = tail.module_mode,
                   .in_allowed = tail.in_allowed,
+                  .for_initializer = tail.for_initializer,
                   .binding_mode = tail.binding_mode,
                   .super_context = tail.super_context
                 }
@@ -9210,6 +9612,7 @@ TmtParser_import_bindings(
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
+            .for_initializer = st.for_initializer,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -9230,6 +9633,7 @@ TmtParser_import_bindings(
               .jsx_allowed = as_.jsx_allowed,
               .module_mode = as_.module_mode,
               .in_allowed = as_.in_allowed,
+              .for_initializer = as_.for_initializer,
               .binding_mode = as_.binding_mode,
               .super_context = as_.super_context
             }
@@ -9260,6 +9664,7 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
+          .for_initializer = state.for_initializer,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -9284,6 +9689,7 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
+              .for_initializer = st.for_initializer,
               .binding_mode = st.binding_mode,
               .super_context = st.super_context
             }
@@ -9311,6 +9717,7 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .jsx_allowed = after_type.jsx_allowed,
               .module_mode = after_type.module_mode,
               .in_allowed = after_type.in_allowed,
+              .for_initializer = after_type.for_initializer,
               .binding_mode = after_type.binding_mode,
               .super_context = after_type.super_context
             }
@@ -9360,6 +9767,7 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .jsx_allowed = st1.jsx_allowed,
               .module_mode = st1.module_mode,
               .in_allowed = st1.in_allowed,
+              .for_initializer = st1.for_initializer,
               .binding_mode = st1.binding_mode,
               .super_context = st1.super_context
             }
@@ -9418,6 +9826,7 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -9438,6 +9847,7 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
+                  .for_initializer = st.for_initializer,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -9457,6 +9867,7 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
                    .jsx_allowed = st1.jsx_allowed,
                    .module_mode = st1.module_mode,
                    .in_allowed = st1.in_allowed,
+                   .for_initializer = st1.for_initializer,
                    .binding_mode = st1.binding_mode,
                    .super_context = st1.super_context
                  }
@@ -9514,6 +9925,7 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
+            .for_initializer = st.for_initializer,
             .binding_mode = st.binding_mode,
             .super_context = st.super_context
           }
@@ -9563,6 +9975,7 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
                   .jsx_allowed = st2.jsx_allowed,
                   .module_mode = st2.module_mode,
                   .in_allowed = st2.in_allowed,
+                  .for_initializer = st2.for_initializer,
                   .binding_mode = st2.binding_mode,
                   .super_context = st2.super_context
                 }
@@ -9598,7 +10011,8 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
             .status = result.status, .local_names = result.local_names,
             .await_allowed = state.await_allowed, .jsx_allowed = result.jsx_allowed,
             .module_mode = result.module_mode, .in_allowed = result.in_allowed,
-            .binding_mode = result.binding_mode, .super_context = result.super_context
+            .for_initializer = result.for_initializer, .binding_mode = result.binding_mode,
+            .super_context = result.super_context
           },
           .used = decl.used
         }
@@ -9706,6 +10120,7 @@ TmtParser_export_identifier(TmtParser_tape input, TmtParser_parser_state state)
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
+          .for_initializer = state.for_initializer,
           .binding_mode = state.binding_mode,
           .super_context = state.super_context
         }
@@ -9783,6 +10198,7 @@ TmtParser_reexport_members(
                 .jsx_allowed = after_source.jsx_allowed,
                 .module_mode = after_source.module_mode,
                 .in_allowed = after_source.in_allowed,
+                .for_initializer = after_source.for_initializer,
                 .binding_mode = after_source.binding_mode,
                 .super_context = after_source.super_context
               }
@@ -9845,6 +10261,7 @@ TmtParser_named_reexport(TmtParser_tape input, TmtParser_parser_state state, uin
             .jsx_allowed = tail.jsx_allowed,
             .module_mode = tail.module_mode,
             .in_allowed = tail.in_allowed,
+            .for_initializer = tail.for_initializer,
             .binding_mode = tail.binding_mode,
             .super_context = tail.super_context
           }
@@ -9884,6 +10301,7 @@ TmtParser_module_export(TmtParser_tape input, TmtParser_parser_state state)
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -9909,6 +10327,7 @@ TmtParser_module_export(TmtParser_tape input, TmtParser_parser_state state)
                 .jsx_allowed = tail.jsx_allowed,
                 .module_mode = tail.module_mode,
                 .in_allowed = tail.in_allowed,
+                .for_initializer = tail.for_initializer,
                 .binding_mode = tail.binding_mode,
                 .super_context = tail.super_context
               }
@@ -9969,6 +10388,7 @@ TmtParser_default_declaration(
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -10004,6 +10424,7 @@ TmtParser_default_declaration(
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .binding_mode = state.binding_mode,
             .super_context = state.super_context
           }
@@ -10106,6 +10527,7 @@ TmtParser_module_sequence(
                 .jsx_allowed = uu____0.jsx_allowed,
                 .module_mode = uu____0.module_mode,
                 .in_allowed = uu____0.in_allowed,
+                .for_initializer = uu____0.for_initializer,
                 .binding_mode = uu____0.binding_mode,
                 .super_context = uu____0.super_context
               }
@@ -10136,6 +10558,7 @@ TmtParser_module_sequence(
                   .jsx_allowed = tail.jsx_allowed,
                   .module_mode = tail.module_mode,
                   .in_allowed = tail.in_allowed,
+                  .for_initializer = tail.for_initializer,
                   .binding_mode = tail.binding_mode,
                   .super_context = tail.super_context
                 }
@@ -10310,6 +10733,7 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
+                .for_initializer = st.for_initializer,
                 .binding_mode = st.binding_mode,
                 .super_context = st.super_context
               }
@@ -10358,6 +10782,7 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
+                  .for_initializer = st.for_initializer,
                   .binding_mode = st.binding_mode,
                   .super_context = st.super_context
                 }
@@ -10384,6 +10809,7 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
                 .jsx_allowed = st3.jsx_allowed,
                 .module_mode = st3.module_mode,
                 .in_allowed = st3.in_allowed,
+                .for_initializer = st3.for_initializer,
                 .binding_mode = st3.binding_mode,
                 .super_context = st3.super_context
               }
@@ -10410,6 +10836,7 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .jsx_allowed = jsx,
           .module_mode = module_mode,
           .in_allowed = true,
+          .for_initializer = false,
           .binding_mode = TmtParser_NoLocals,
           .super_context = TmtParser_NoSuper
         }
@@ -10439,6 +10866,7 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .jsx_allowed = uu____0.jsx_allowed,
           .module_mode = uu____0.module_mode,
           .in_allowed = uu____0.in_allowed,
+          .for_initializer = uu____0.for_initializer,
           .binding_mode = uu____0.binding_mode,
           .super_context = uu____0.super_context
         }
@@ -10459,6 +10887,7 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .jsx_allowed = uu____1.jsx_allowed,
           .module_mode = uu____1.module_mode,
           .in_allowed = uu____1.in_allowed,
+          .for_initializer = uu____1.for_initializer,
           .binding_mode = uu____1.binding_mode,
           .super_context = uu____1.super_context
         }

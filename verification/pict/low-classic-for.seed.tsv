@@ -1,0 +1,7 @@
+Initializer	Body	Suffix
+Assignment	Block	Valid
+Sequence	Single	Valid
+Typed	Block	Valid
+Destructured	Shadow	Valid
+Constant	Block	Valid
+Destructured	Block	Invalid

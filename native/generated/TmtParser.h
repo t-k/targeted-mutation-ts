@@ -130,6 +130,7 @@ typedef struct TmtParser_parser_state_s
   bool jsx_allowed;
   bool module_mode;
   bool in_allowed;
+  bool for_initializer;
   TmtParser_binding_mode binding_mode;
   TmtParser_super_context super_context;
 }
@@ -955,6 +956,25 @@ TmtParser_binding(
   TmtParser_parser_state state,
   uint32_t fuel,
   bool in_allowed
+);
+
+TmtParser_parser_state
+TmtParser_for_bindings(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  uint32_t floor0,
+  bool constant0
+);
+
+TmtParser_parser_state
+TmtParser_for_expressions(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool in_allowed0
 );
 
 TmtParser_parser_state

@@ -169,7 +169,8 @@ type super_context =
 
 type parser_state = {
   offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used;
-  await_allowed:bool; jsx_allowed:bool; module_mode:bool; in_allowed:bool; binding_mode:binding_mode; super_context:super_context
+  await_allowed:bool; jsx_allowed:bool; module_mode:bool; in_allowed:bool; for_initializer:bool;
+  binding_mode:binding_mode; super_context:super_context
 }
 type assignment_target =
   | NotAssignable
@@ -1719,10 +1720,14 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
       let block = same input body.offset 123uy in
       let result =
         if block then
-          let stop = control_block input (function_body input body arrow.non_simple) inner true NoJump start.local_names arrow.names.used in
+          let block_start = { body with in_allowed = true } in
+          let stop = control_block input (function_body input block_start arrow.non_simple) inner true NoJump start.local_names arrow.names.used in
           empty_range stop
-        else comparison input body inner in
-      { result with parser = { result.parser with local_names = start.local_names; await_allowed = start.await_allowed; binding_mode = start.binding_mode };
+        else
+          let in_allowed = body.in_allowed && not body.for_initializer in
+          comparison input { body with in_allowed } inner in
+      { result with parser = { result.parser with local_names = start.local_names; await_allowed = start.await_allowed;
+          in_allowed = start.in_allowed; binding_mode = start.binding_mode };
         range = { result.range with G.first = start.offset }; outer_or = false; shortcut = 0ul; target = NotAssignable }
   else
   let lhs = binary input start fuel 1ul in
@@ -1742,8 +1747,8 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
     else if fuel = 0ul then empty_range (failed st 3ul)
     else
       let inner = minus fuel 1ul in
-      let consequent = comparison input { st with offset = next st.offset } inner in
-      let alternate = comparison input (consume input consequent.parser 58uy) inner in
+      let consequent = comparison input { st with offset = next st.offset; in_allowed = true } inner in
+      let alternate = comparison input (consume input { consequent.parser with in_allowed = st.in_allowed } 58uy) inner in
       { alternate with range = { alternate.range with G.first = lhs.range.G.first };
         open_angle = lhs.open_angle || consequent.open_angle || alternate.open_angle;
         outer_or = false; shortcut = 0ul; target = NotAssignable }
@@ -2102,25 +2107,63 @@ and binding (input:tape) (state:parser_state) (fuel:U32.t) (in_allowed:bool) : R
   let st = skip input state in
   let st = from_cursor st (name input st.offset false true) in
   let st = consume input (skip input st) 61uy in
-  let value = comparison input { st with in_allowed } fuel in
-  { value.parser with in_allowed = state.in_allowed }
+  let for_initializer = state.for_initializer || not in_allowed in
+  let value = comparison input { st with in_allowed; for_initializer } fuel in
+  { value.parser with in_allowed = state.in_allowed; for_initializer = state.for_initializer }
+
+and for_bindings (input:tape) (state:parser_state) (fuel remaining:U32.t) (floor:names_used) (constant:bool)
+  : Run parser_state input (decreases %[U32.v fuel; 44; U32.v remaining]) =
+  let st = skip input state in
+  if st.status <> 0ul then st
+  else if remaining = 0ul then failed st 1ul
+  else
+    let first = peek input st.offset in
+    let declared = pattern_binding input st binding_region_width floor st.local_names in
+    let annotated = simple_annotation input { declared.state with local_names = declared.used } in
+    let tail = skip input annotated in
+    let equal = same input tail.offset 61uy in
+    let initialized =
+      if equal then
+        let value = comparison input (consume input { tail with in_allowed = false; for_initializer = true } 61uy) fuel in
+        { value.parser with in_allowed = state.in_allowed; for_initializer = state.for_initializer }
+      else if constant || first = 91uy || first = 123uy then failed tail 1ul
+      else tail in
+    let tail = skip input initialized in
+    if same input tail.offset 44uy then
+      for_bindings input (consume input tail 44uy) fuel (minus remaining 1ul) floor constant
+    else tail
+
+and for_expressions (input:tape) (state:parser_state) (fuel remaining:U32.t) (in_allowed:bool)
+  : Run parser_state input (decreases %[U32.v fuel; 44; U32.v remaining]) =
+  if state.status <> 0ul then state
+  else if remaining = 0ul then failed state 1ul
+  else
+    let for_initializer = state.for_initializer || not in_allowed in
+    let value = comparison input { state with in_allowed; for_initializer } fuel in
+    let tail = skip input { value.parser with in_allowed = state.in_allowed; for_initializer = state.for_initializer } in
+    if same input tail.offset 44uy then
+      for_expressions input (consume input tail 44uy) fuel (minus remaining 1ul) in_allowed
+    else tail
 
 and classic_for_header (input:tape) (st:parser_state) (top_level local_var:bool) (fuel:U32.t)
   : Run parser_state input (decreases %[U32.v fuel; 45; 0]) =
-  let lexical = keyword input st.offset 3ul 0x6c6574uL in
-  let var = if not lexical && (top_level || local_var) then keyword input st.offset 3ul 0x766172uL else false in
+  let lexical = local_width input st.offset in
+  let var = if lexical = 0ul && (top_level || local_var) then keyword input st.offset 3ul 0x766172uL else false in
   let st =
     if same input st.offset 59uy then st
-    else if lexical || var then
-      let st = if local_var then record_binding_mode st (if var then VarLocals else LexicalLocals) else st in
+    else if lexical <> 0ul then
+      let st = if local_var then record_binding_mode st LexicalLocals else st in
+      for_bindings input { st with offset = plus st.offset lexical } fuel 64ul st.local_names (lexical = 5ul)
+    else if var then
+      let st = if local_var then record_binding_mode st VarLocals else st in
       binding input { st with offset = plus st.offset 3ul } fuel false
-    else failed st 1ul in
+    else for_expressions input st fuel 64ul false in
   let st = consume input (skip input st) 59uy in
   let st = skip input st in
-  let st = if same input st.offset 59uy then st else (comparison input st fuel).parser in
+  let st = if same input st.offset 59uy then st else for_expressions input st fuel 64ul true in
   let st = consume input (skip input st) 59uy in
   let st = skip input st in
-  let st = if same input st.offset 41uy then st else (comparison input st fuel).parser in
+  let st = if same input st.offset 41uy then st else for_expressions input st fuel 64ul true in
   consume input (skip input st) 41uy
 
 and for_header (input:tape) (state:parser_state) (top_level local_var:bool) (fuel:U32.t)
@@ -2301,7 +2344,7 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
       let result =
         if kind = 4ul then
           let tested = for_header input { state with offset = plus state.offset 3ul } allow_var (in_function && state.module_mode) fuel in
-          let body = control_body input tested inner in_function LoopJump used used in
+          let body = control_body input tested inner in_function LoopJump tested.local_names tested.local_names in
           { body.state with local_names = state.local_names }
         else if kind = 5ul then
           try_statement input { state with offset = plus state.offset 3ul } inner in_function jumps used
@@ -2795,7 +2838,8 @@ let parse (input:tape) (jsx module_mode:bool)
     }) input =
   let initial = skip input {
     offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
-    await_allowed = module_mode; jsx_allowed = jsx; module_mode; in_allowed = true; binding_mode = NoLocals; super_context = NoSuper
+    await_allowed = module_mode; jsx_allowed = jsx; module_mode; in_allowed = true; for_initializer = false;
+    binding_mode = NoLocals; super_context = NoSuper
   } in
   let state = parse_state input initial module_mode in
   let state : parser_state =
