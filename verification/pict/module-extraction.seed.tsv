@@ -1,0 +1,7 @@
+Import	Declaration	Suffix
+SideEffect	Function	Valid
+Named	Const	Valid
+Aliased	Function	Valid
+TypeNamed	Function	Valid
+Named	Function	Duplicate
+SideEffect	Const	Syntax

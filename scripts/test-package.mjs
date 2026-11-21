@@ -36,11 +36,15 @@ try {
   mkdirSync(join(installed, 'node_modules/unrelated'), { recursive: true });
   const entry = join(installed, 'bin/tmt.mjs');
   assert.match(run(process.execPath, [entry, '--help']), /tmt-ts analyze/);
-  writeFileSync(join(cwd, 'broad.ts'), 'export const a = 1; export const b = a < 2;');
+  writeFileSync(join(cwd, 'broad.ts'), 'export const a = {}; export const b = a?.value < 2;');
   const broad = JSON.parse(run(process.execPath, [entry, 'extract', 'broad.ts']));
   assert.equal(broad.path, 'native');
   assert.ok(broad.metrics.astNodes > 0);
   assert.deepEqual(broad.candidates.map(candidate => candidate.operator), ['<']);
+  writeFileSync(join(cwd, 'module.ts'), 'import { limit } from "./settings"; export function ready(n: number): boolean { return n < limit; }');
+  const module = JSON.parse(run(process.execPath, [entry, 'extract', 'module.ts']));
+  assert.equal(module.path, 'fast');
+  assert.deepEqual(module.candidates.map(candidate => candidate.operator), ['<']);
   const condition = 'for (let i = 0; i < values.length; i++) {}';
   writeFileSync(join(cwd, 'control.ts'), condition);
   const nativeControl = JSON.parse(run(process.execPath, [entry, 'extract', 'control.ts']));

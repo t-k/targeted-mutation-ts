@@ -1,0 +1,16 @@
+Import	Declaration	Suffix
+SideEffect	Function	Valid
+Named	Const	Valid
+Aliased	Function	Valid
+TypeNamed	Function	Valid
+Named	Function	Duplicate
+SideEffect	Const	Syntax
+SideEffect	Const	Duplicate
+Aliased	Const	Syntax
+None	Function	Syntax
+Named	Function	Syntax
+None	Const	Duplicate
+Aliased	Function	Duplicate
+TypeNamed	Const	Duplicate
+None	Function	Valid
+TypeNamed	Const	Syntax
