@@ -2,7 +2,7 @@
 
 ## Production extraction without Yuku or Oxc
 
-The installed runtime uses Low★ first and uses its existing TypeScript dependency for declined files. Yuku is the development reference. Across 8,549 tracked TS/TSX files in the five pinned checkouts, both settings of the JSX logical rule produced the same source acceptance and ordered candidate fields as the reference. Low★ extracted 2,168 of 2,968 candidates across 3,786 valid files and reported five duplicate-declaration diagnostics. The compatibility parser retains source byte ranges and can use different diagnostic wording and recovery.
+The installed runtime uses Low★ first and uses its existing TypeScript dependency for declined files. Yuku is the development reference. Across 8,549 tracked TS/TSX files in the five pinned checkouts, both settings of the JSX logical rule produced the same source acceptance and ordered candidate fields as the reference. Low★ extracted 2,163 of 2,968 candidates across 3,786 valid files and reported five duplicate-declaration diagnostics. The compatibility parser retains source byte ranges and can use different diagnostic wording and recovery.
 
 | Checkout | All candidates | Low★ | TypeScript compatibility |
 | --- | ---: | ---: | ---: |
