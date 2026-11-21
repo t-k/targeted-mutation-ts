@@ -312,7 +312,8 @@ let bind_at (input:tape) (st:parser_state) (base:names_base) (used:names_used) (
 
 let type_operator (packed:U64.t) : bool =
   packed = 0x6b65796f66uL || packed = 0x696e666572uL ||
-  packed = 0x726561646f6e6c79uL || packed = 0x756e69717565uL
+  packed = 0x726561646f6e6c79uL || packed = 0x756e69717565uL ||
+  packed = 0x61737365727473uL
 
 let builtin_type (packed:U64.t) : bool =
   packed = 0x6e756d626572uL || packed = 0x737472696e67uL ||
@@ -395,8 +396,8 @@ let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
     else if tail.status <> 0ul then tail
     else
       let starts = same input tail.offset 60uy in
-      if not starts then reference
-      else if after.newline || fuel = 0ul || primitive then failed tail 1ul
+      if not starts || primitive then reference
+      else if after.newline || fuel = 0ul then failed tail 1ul
       else type_list input { tail with offset = next tail.offset } (minus fuel 1ul) 64ul 62uy false
 and type_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (close:U8.t) (allow_empty:bool)
   : Read parser_state input (decreases %[U32.v fuel; 3; U32.v remaining]) =
@@ -469,9 +470,12 @@ and annotation_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
     let st = skip input term in
     let byte = peek input st.offset in
     if st.status <> 0ul then st
-    else if byte = 124uy || byte = 38uy then
-      annotation_type input { st with offset = next st.offset } fuel (minus remaining 1ul)
-    else term
+    else
+      let union = if byte = 124uy || byte = 38uy then
+        let repeated = same input (next st.offset) byte in not repeated
+      else false in
+      if union then annotation_type input { st with offset = next st.offset } fuel (minus remaining 1ul)
+      else term
 
 let simple_annotation (input:tape) (state:parser_state) : Read parser_state input =
   let st = skip input state in
@@ -516,6 +520,26 @@ let parameter_binding (input:tape) (state:parser_state) (floor used:names_used) 
     let close = if byte = 123uy then 125uy else 93uy in
     pattern_names input (consume input state byte) floor used 64ul close
   else bind_since input state 64ul floor used state.offset
+
+let collection_head (input:tape) (state:parser_state) : Run parser_state input =
+  let byte = peek input state.offset in
+  let constant = if byte = 99uy then keyword input state.offset 5ul 0x636f6e7374uL else false in
+  let lexical = if byte = 108uy then keyword input state.offset 3ul 0x6c6574uL else false in
+  let width =
+    if constant then 5ul
+    else if lexical then 3ul
+    else 0ul in
+  if state.status <> 0ul || width = 0ul then failed state 1ul
+  else
+    let start = skip input { state with offset = plus state.offset width } in
+    let mark = state.local_names in
+    let bound = parameter_binding input start mark mark in
+    let next_token = skip input bound.state in
+    let of_token = keyword input next_token.offset 2ul 0x6f66uL in
+    let in_token = keyword input next_token.offset 2ul 0x696euL in
+    if next_token.status = 0ul && (of_token || in_token) then
+      { next_token with offset = plus next_token.offset 2ul }
+    else failed state 1ul
 
 type parameter_list = { names:named_state; patterned:bool }
 
@@ -785,29 +809,43 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
   let st = skip input lhs.parser in
   if st.status <> 0ul then empty_range st
   else
-    let op = operator input st.offset in
-    if op.width = 0ul || U32.(op.strength <^ minimum) then { lhs with parser = st }
-    else if remaining = 0ul then empty_range (failed st 3ul)
-    else if op.strength = 10ul then empty_range (failed st 1ul)
-    else if lhs.open_angle && (op.boundary = 3ul || op.boundary = 4ul ||
-        op.strength = 3ul || op.strength = 5ul) then empty_range (failed st 1ul)
-    else if op.boundary <> 0ul && U32.(st.count >=^ input.capacity) then empty_range (failed st 4ul)
-    else
-      let count = if op.boundary = 0ul then st.count else next st.count in
-      let after = { st with offset = plus st.offset op.width; count } in
-      let rhs = binary input after fuel (U32.add op.strength 1ul) in
-      if rhs.parser.status <> 0ul then rhs
+    let first = peek input st.offset in
+    let cast =
+      if U32.(minimum <=^ 7ul) && first = 97uy then
+        let word = keyword input st.offset 2ul 0x6173uL in
+        if not word then false
+        else let before = trivia input lhs.range.G.last in not before.newline
+      else false in
+    if cast then
+      if remaining = 0ul then empty_range (failed st 3ul)
       else
-        let logical = (U32.(op.strength <=^ 2ul) && not op.nullish) || lhs.shortcut = 1ul || rhs.shortcut = 1ul in
-        let nullish = op.nullish || lhs.shortcut = 2ul || rhs.shortcut = 2ul in
-        if logical && nullish then empty_range (failed rhs.parser 1ul)
+        let asserted = annotation_type input { st with offset = plus st.offset 2ul } 16ul 64ul in
+        let value = { lhs with parser = asserted; range = { lhs.range with G.last = asserted.offset }; outer_or = false } in
+        binary_tail input value fuel minimum (minus remaining 1ul)
+    else
+      let op = operator input st.offset in
+      if op.width = 0ul || U32.(op.strength <^ minimum) then { lhs with parser = st }
+      else if remaining = 0ul then empty_range (failed st 3ul)
+      else if op.strength = 10ul then empty_range (failed st 1ul)
+      else if lhs.open_angle && (op.boundary = 3ul || op.boundary = 4ul ||
+          op.strength = 3ul || op.strength = 5ul) then empty_range (failed st 1ul)
+      else if op.boundary <> 0ul && U32.(st.count >=^ input.capacity) then empty_range (failed st 4ul)
+      else
+        let count = if op.boundary = 0ul then st.count else next st.count in
+        let after = { st with offset = plus st.offset op.width; count } in
+        let rhs = binary input after fuel (U32.add op.strength 1ul) in
+        if rhs.parser.status <> 0ul then rhs
         else
-          let result = if op.boundary = 0ul then rhs.parser
-            else emit_comparison input rhs.parser st.count op.boundary st.offset lhs.range rhs.range in
-          let shortcut = if logical then 1ul else if nullish then 2ul else 0ul in
-          let combined = { parser = result; range = { lhs.range with G.last = rhs.range.G.last }; shortcut;
-            open_angle = lhs.open_angle || rhs.open_angle || op.boundary = 1ul; outer_or = op.strength = 1ul && not op.nullish } in
-          binary_tail input combined fuel minimum (minus remaining 1ul)
+          let logical = (U32.(op.strength <=^ 2ul) && not op.nullish) || lhs.shortcut = 1ul || rhs.shortcut = 1ul in
+          let nullish = op.nullish || lhs.shortcut = 2ul || rhs.shortcut = 2ul in
+          if logical && nullish then empty_range (failed rhs.parser 1ul)
+          else
+            let result = if op.boundary = 0ul then rhs.parser
+              else emit_comparison input rhs.parser st.count op.boundary st.offset lhs.range rhs.range in
+            let shortcut = if logical then 1ul else if nullish then 2ul else 0ul in
+            let combined = { parser = result; range = { lhs.range with G.last = rhs.range.G.last }; shortcut;
+              open_angle = lhs.open_angle || rhs.open_angle || op.boundary = 1ul; outer_or = op.strength = 1ul && not op.nullish } in
+            binary_tail input combined fuel minimum (minus remaining 1ul)
 
 and postfix (input:tape) (base:parsed) (fuel remaining:U32.t) (decimal:bool)
   : Run parsed input (decreases %[U32.v fuel; 1; U32.v remaining]) =
@@ -946,9 +984,7 @@ and for_step (input:tape) (state:parser_state) (fuel:U32.t) : Run parser_state i
     if not assignment.ok then simple
     else (comparison input { state with offset = assignment.at } fuel).parser
 
-and for_header (input:tape) (state:parser_state) (top_level:bool) (fuel:U32.t) : Run parser_state input (decreases %[U32.v fuel; 45; 0]) =
-  let st = consume input (skip input state) 40uy in
-  let st = skip input st in
+and classic_for_header (input:tape) (st:parser_state) (top_level:bool) (fuel:U32.t) : Run parser_state input (decreases %[U32.v fuel; 45; 0]) =
   let declared = keyword input st.offset 3ul 0x6c6574uL in
   let declared = if not declared && top_level then keyword input st.offset 3ul 0x766172uL else declared in
   let st =
@@ -963,6 +999,14 @@ and for_header (input:tape) (state:parser_state) (top_level:bool) (fuel:U32.t) :
   let st = skip input st in
   let st = if same input st.offset 41uy then st else for_step input st fuel in
   consume input (skip input st) 41uy
+
+and for_header (input:tape) (state:parser_state) (top_level:bool) (fuel:U32.t) : Run parser_state input (decreases %[U32.v fuel; 46; 0]) =
+  let st = skip input (consume input (skip input state) 40uy) in
+  let collection = collection_head input st in
+  if collection.status = 0ul then
+    let value = comparison input collection fuel in
+    consume input (skip input value.parser) 41uy
+  else classic_for_header input st top_level fuel
 
 and return_statement (input:tape) (state:parser_state) (fuel:U32.t) : Run parser_state input (decreases %[U32.v fuel; 44; 0]) =
   let after = plus state.offset 6ul in
@@ -1060,7 +1104,7 @@ and control_body (input:tape) (state:parser_state) (fuel:U32.t) (in_function:boo
   let st = skip input state in
   if st.status <> 0ul then st
   else if same input st.offset 123uy then control_block input st fuel in_function used used
-  else simple_statement input st in_function fuel
+  else control_statement input st fuel in_function used false
 
 let tag_space (input:tape) (state:parser_state) : Read parser_state input =
   let at = scan_class input state.offset G.Space in

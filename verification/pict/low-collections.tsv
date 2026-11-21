@@ -1,0 +1,8 @@
+Loop	Binding	Suffix
+Of	Array	Valid
+Of	Name	Valid
+In	Record	Valid
+Of	Array	Invalid
+In	Name	Invalid
+In	Array	Valid
+Of	Record	Invalid

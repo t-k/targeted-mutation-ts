@@ -54,7 +54,7 @@ test('type arguments, unsupported operators and malformed literals publish no fa
     'choose(make<A | B, C>(item)) > limit',
     'a << 1 < b',
     'a ?? b || c < d',
-    'a?.b as Count > c',
+    'a?.b satisfies Count ? c > d : false',
     'left < /++/',
     'left < /a++/',
     String.raw`left < "\08"`,

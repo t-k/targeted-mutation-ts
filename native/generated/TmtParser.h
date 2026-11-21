@@ -264,6 +264,9 @@ TmtParser_parameter_binding(
   uint32_t used
 );
 
+TmtParser_parser_state
+TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state);
+
 typedef struct TmtParser_parameter_list_s
 {
   TmtParser_named_state names;
@@ -386,6 +389,14 @@ TmtParser_binding(TmtParser_tape input, TmtParser_parser_state state, uint32_t f
 
 TmtParser_parser_state
 TmtParser_for_step(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+
+TmtParser_parser_state
+TmtParser_classic_for_header(
+  TmtParser_tape input,
+  TmtParser_parser_state st,
+  bool top_level,
+  uint32_t fuel
+);
 
 TmtParser_parser_state
 TmtParser_for_header(
