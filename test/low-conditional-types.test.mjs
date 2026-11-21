@@ -45,5 +45,5 @@ test('conditional type boundaries preserve runtime ternaries and invalid type di
   for (const type of ['A\n extends B ? C : D', 'A extends B extends C ? D : E ? F : G', 'A extends B ? C', 'A extends ? C : D', '[A?, B extends C ? D : E?]']) {
     compare(`const before = a < b; type View = ${type};`, 'diagnostic');
   }
-  compare('const before = a < b; type View<T> = T extends Array<infer Value> ? Value : never;', 'fallback');
+  compare('const before = a < b; type View<T> = T extends Array<infer Value> ? Value : never;', 'fast');
 });

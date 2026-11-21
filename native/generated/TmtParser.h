@@ -453,6 +453,7 @@ typedef struct TmtParser_type_term_head_s
   bool term_keyof;
   bool term_queried;
   bool term_imported;
+  bool term_inferred;
 }
 TmtParser_type_term_head;
 
@@ -531,7 +532,8 @@ TmtParser_type_term(
   TmtParser_tape input,
   TmtParser_parser_state state,
   uint32_t fuel,
-  bool allow_signature
+  bool allow_signature,
+  bool allow_constrained_infer
 );
 
 TmtParser_parser_state
@@ -568,7 +570,8 @@ TmtParser_type_terms(
   TmtParser_parser_state state0,
   uint32_t fuel0,
   uint32_t remaining0,
-  bool allow_signature0
+  bool allow_signature0,
+  bool allow_constrained_infer0
 );
 
 TmtParser_parser_state

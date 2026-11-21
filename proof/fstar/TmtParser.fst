@@ -733,7 +733,7 @@ type tuple_item = { item_end:parser_state; optional_item:bool; rest_item:bool }
 
 type type_term_head = {
   term_state:parser_state; term_readonly:bool; term_byte:U8.t;
-  term_keyof:bool; term_queried:bool; term_imported:bool
+  term_keyof:bool; term_queried:bool; term_imported:bool; term_inferred:bool
 }
 
 let read_type_term_head (input:tape) (state:parser_state) : Read type_term_head input =
@@ -743,8 +743,9 @@ let read_type_term_head (input:tape) (state:parser_state) : Read type_term_head 
   let keyof = if byte = 107uy then keyword input st.offset 5ul 0x6b65796f66uL else false in
   let queried = if byte = 116uy then keyword input st.offset 6ul 0x747970656f66uL else false in
   let imported = if byte = 105uy then keyword input st.offset 6ul 0x696d706f7274uL else false in
+  let inferred = if byte = 105uy then keyword input st.offset 5ul 0x696e666572uL else false in
   { term_state = st; term_readonly = readonly; term_byte = byte;
-    term_keyof = keyof; term_queried = queried; term_imported = imported }
+    term_keyof = keyof; term_queried = queried; term_imported = imported; term_inferred = inferred }
 
 type bracket_type_key = { key_end:parser_state; index_signature:bool }
 
@@ -919,7 +920,7 @@ and signature_parameters (input:tape) (state:parser_state) (fuel remaining:U32.t
     if comma && not spread then
       signature_parameters input (consume input end_ 44uy) fuel (minus remaining 1ul)
     else consume input end_ 41uy
-and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature:bool)
+and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature allow_constrained_infer:bool)
   : Read parser_state input (decreases %[U32.v fuel; 2; 0]) =
   let st = skip input state in
   if st.status <> 0ul then st
@@ -934,9 +935,22 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature:bo
     let primary =
       if keyof then
         if readonly || fuel = 0ul then failed st 1ul
-        else type_term input { st with offset = plus st.offset 5ul } (minus fuel 1ul) false
+        else type_term input { st with offset = plus st.offset 5ul } (minus fuel 1ul) false allow_constrained_infer
       else if queried then type_arguments input (type_query input st) fuel
       else if imported then type_arguments input (import_type input st) fuel
+      else if head.term_inferred then
+        let start = skip input { st with offset = plus st.offset 5ul } in
+        let binding = from_cursor start (name input start.offset false true) in
+        let gap = trivia input binding.offset in
+        let tail = from_cursor binding gap in
+        let constrained = if allow_constrained_infer && tail.status = 0ul && not gap.newline then
+            keyword input tail.offset 7ul 0x657874656e6473uL
+          else false in
+        if not constrained then binding
+        else if fuel = 0ul then failed tail 1ul
+        else
+          let start, allow_signature = type_chain_start input { tail with offset = plus tail.offset 7ul } in
+          type_terms input start (minus fuel 1ul) 64ul allow_signature true
       else if byte = 34uy || byte = 39uy then
         from_cursor st (string_end input (next st.offset) byte input.size true)
       else if byte = 96uy then
@@ -1000,7 +1014,7 @@ and type_suffixes (input:tape) (state:parser_state) (fuel remaining:U32.t) (inde
 and annotation_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 4; 0]) =
   let start, allow_signature = type_chain_start input state in
-  let check = type_terms input start fuel remaining allow_signature in
+  let check = type_terms input start fuel remaining allow_signature false in
   let boundary = trivia input check.offset in
   let tail = from_cursor check boundary in
   let extends = if tail.status = 0ul && not boundary.newline then
@@ -1011,7 +1025,7 @@ and annotation_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
   else
     let inner = minus fuel 1ul in
     let start, allow_signature = type_chain_start input { tail with offset = plus tail.offset 7ul } in
-    let constraint = type_terms input start inner remaining allow_signature in
+    let constraint = type_terms input start inner remaining allow_signature true in
     let yes = annotation_type input (consume input (skip input constraint) 63uy) inner remaining in
     annotation_type input (consume input (skip input yes) 58uy) inner remaining
 and result_type (input:tape) (state:parser_state) (fuel:U32.t)
@@ -1032,11 +1046,11 @@ and result_type (input:tape) (state:parser_state) (fuel:U32.t)
     else if is_ then annotation_type input { st with offset = plus tail.at 2ul } fuel 64ul
     else if asserts && target.ok && not target.newline && named.ok then { st with offset = named.at }
     else annotation_type input st fuel 64ul
-and type_terms (input:tape) (state:parser_state) (fuel remaining:U32.t) (allow_signature:bool)
+and type_terms (input:tape) (state:parser_state) (fuel remaining:U32.t) (allow_signature allow_constrained_infer:bool)
   : Read parser_state input (decreases %[U32.v fuel; 3; U32.v remaining]) =
   if remaining = 0ul then failed state 1ul
   else
-    let term = type_term input state fuel allow_signature in
+    let term = type_term input state fuel allow_signature allow_constrained_infer in
     let st = skip input term in
     let byte = peek input st.offset in
     if st.status <> 0ul then st
@@ -1044,7 +1058,7 @@ and type_terms (input:tape) (state:parser_state) (fuel remaining:U32.t) (allow_s
       let union = if byte = 124uy || byte = 38uy then
         let repeated = same input (next st.offset) byte in not repeated
       else false in
-      if union then type_terms input { st with offset = next st.offset } fuel (minus remaining 1ul) false
+      if union then type_terms input { st with offset = next st.offset } fuel (minus remaining 1ul) false allow_constrained_infer
       else term
 
 and type_parameters (input:tape) (state:parser_state) (fuel remaining:U32.t)

@@ -1,0 +1,6 @@
+Infer	Context	Suffix
+Plain	Alias	Valid
+Constraint	Call	Valid
+Tuple	Alias	Valid
+Generic	Assertion	Valid
+Plain	Call	Invalid

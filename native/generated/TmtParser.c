@@ -2299,6 +2299,11 @@ TmtParser_read_type_term_head(TmtParser_tape input, TmtParser_parser_state state
     imported = TmtParser_keyword(input, st.offset, 6U, 0x696d706f7274ULL);
   else
     imported = false;
+  bool inferred;
+  if (byte == 105U)
+    inferred = TmtParser_keyword(input, st.offset, 5U, 0x696e666572ULL);
+  else
+    inferred = false;
   return
     (
       (TmtParser_type_term_head){
@@ -2307,7 +2312,8 @@ TmtParser_read_type_term_head(TmtParser_tape input, TmtParser_parser_state state
         .term_byte = byte,
         .term_keyof = keyof,
         .term_queried = queried,
-        .term_imported = imported
+        .term_imported = imported,
+        .term_inferred = inferred
       }
     );
 }
@@ -2933,7 +2939,8 @@ TmtParser_type_term(
   TmtParser_tape input,
   TmtParser_parser_state state,
   uint32_t fuel,
-  bool allow_signature
+  bool allow_signature,
+  bool allow_constrained_infer
 )
 {
   TmtParser_parser_state st = TmtParser_skip(input, state);
@@ -2972,12 +2979,77 @@ TmtParser_type_term(
               }
             ),
             TmtParser_minus(fuel, 1U),
-            false);
+            false,
+            allow_constrained_infer);
     }
     else if (queried)
       primary = TmtParser_type_arguments(input, TmtParser_type_query(input, st1), fuel);
     else if (imported)
       primary = TmtParser_type_arguments(input, TmtParser_import_type(input, st1), fuel);
+    else if (head.term_inferred)
+    {
+      TmtParser_parser_state
+      start =
+        TmtParser_skip(input,
+          (
+            (TmtParser_parser_state){
+              .offset = TmtParser_plus(st1.offset, 5U),
+              .count = st1.count,
+              .depth = st1.depth,
+              .status = st1.status,
+              .local_names = st1.local_names,
+              .await_allowed = st1.await_allowed,
+              .jsx_allowed = st1.jsx_allowed,
+              .module_mode = st1.module_mode,
+              .in_allowed = st1.in_allowed,
+              .binding_mode = st1.binding_mode,
+              .super_context = st1.super_context
+            }
+          ));
+      TmtParser_parser_state
+      binding = TmtParser_from_cursor(start, TmtParser_name(input, start.offset, false, true));
+      TmtParser_cursor gap = TmtParser_trivia(input, binding.offset);
+      TmtParser_parser_state tail = TmtParser_from_cursor(binding, gap);
+      bool constrained;
+      if (allow_constrained_infer && tail.status == 0U && !gap.newline)
+        constrained = TmtParser_keyword(input, tail.offset, 7U, 0x657874656e6473ULL);
+      else
+        constrained = false;
+      if (!constrained)
+        primary = binding;
+      else if (fuel == 0U)
+        primary = TmtParser_failed(tail, 1U);
+      else
+      {
+        K___TmtParser_parser_state_bool
+        scrut =
+          TmtParser_type_chain_start(input,
+            (
+              (TmtParser_parser_state){
+                .offset = TmtParser_plus(tail.offset, 7U),
+                .count = tail.count,
+                .depth = tail.depth,
+                .status = tail.status,
+                .local_names = tail.local_names,
+                .await_allowed = tail.await_allowed,
+                .jsx_allowed = tail.jsx_allowed,
+                .module_mode = tail.module_mode,
+                .in_allowed = tail.in_allowed,
+                .binding_mode = tail.binding_mode,
+                .super_context = tail.super_context
+              }
+            ));
+        TmtParser_parser_state start1 = scrut.fst;
+        bool allow_signature1 = scrut.snd;
+        primary =
+          TmtParser_type_terms(input,
+            start1,
+            TmtParser_minus(fuel, 1U),
+            64U,
+            allow_signature1,
+            true);
+      }
+    }
     else if (byte == 34U || byte == 39U)
       primary =
         TmtParser_from_cursor(st1,
@@ -3235,7 +3307,7 @@ TmtParser_annotation_type(
   TmtParser_parser_state start = scrut0.fst;
   bool allow_signature = scrut0.snd;
   TmtParser_parser_state
-  check = TmtParser_type_terms(input, start, fuel, remaining, allow_signature);
+  check = TmtParser_type_terms(input, start, fuel, remaining, allow_signature, false);
   TmtParser_cursor boundary = TmtParser_trivia(input, check.offset);
   TmtParser_parser_state tail = TmtParser_from_cursor(check, boundary);
   bool extends;
@@ -3271,7 +3343,7 @@ TmtParser_annotation_type(
     TmtParser_parser_state start1 = scrut.fst;
     bool allow_signature1 = scrut.snd;
     TmtParser_parser_state
-    constraint = TmtParser_type_terms(input, start1, inner, remaining, allow_signature1);
+    constraint = TmtParser_type_terms(input, start1, inner, remaining, allow_signature1, true);
     TmtParser_parser_state
     yes =
       TmtParser_annotation_type(input,
@@ -3362,7 +3434,8 @@ TmtParser_type_terms(
   TmtParser_parser_state state0,
   uint32_t fuel0,
   uint32_t remaining0,
-  bool allow_signature0
+  bool allow_signature0,
+  bool allow_constrained_infer0
 )
 {
   TmtParser_tape input = input0;
@@ -3370,12 +3443,14 @@ TmtParser_type_terms(
   uint32_t fuel = fuel0;
   uint32_t remaining = remaining0;
   bool allow_signature = allow_signature0;
+  bool allow_constrained_infer = allow_constrained_infer0;
   while (true)
     if (remaining == 0U)
       return TmtParser_failed(state, 1U);
     else
     {
-      TmtParser_parser_state term = TmtParser_type_term(input, state, fuel, allow_signature);
+      TmtParser_parser_state
+      term = TmtParser_type_term(input, state, fuel, allow_signature, allow_constrained_infer);
       TmtParser_parser_state st = TmtParser_skip(input, term);
       uint8_t byte = TmtParser_peek(input, st.offset);
       if (st.status != 0U)
