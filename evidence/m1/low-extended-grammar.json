@@ -1,0 +1,6156 @@
+{
+  "baselineRevision": "3612949",
+  "parserRevision": "800b873",
+  "comparison": "Full ordered candidate fields and diagnostics against Yuku. Benchmark repetitions alternate revisions and use the same input buffers.",
+  "reference": "yuku-parser 0.19.0",
+  "runtime": "v24.14.0",
+  "system": "darwin 27.2.0 arm64",
+  "cpu": "Apple M5 Max",
+  "baselines": [
+    {
+      "project": "vite-corpus",
+      "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+      "files": 482,
+      "fastFiles": 70,
+      "fastCandidates": 6,
+      "nativeFiles": 411,
+      "nativeCandidates": 195,
+      "yukuFiles": 1,
+      "yukuCandidates": 0
+    },
+    {
+      "project": "preact-corpus",
+      "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+      "files": 22,
+      "fastFiles": 1,
+      "fastCandidates": 0,
+      "nativeFiles": 21,
+      "nativeCandidates": 1,
+      "yukuFiles": 0,
+      "yukuCandidates": 0
+    },
+    {
+      "project": "typescript-corpus",
+      "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+      "files": 6479,
+      "fastFiles": 339,
+      "fastCandidates": 12,
+      "nativeFiles": 4342,
+      "nativeCandidates": 535,
+      "yukuFiles": 1789,
+      "yukuCandidates": 15
+    },
+    {
+      "project": "mreact",
+      "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+      "files": 1193,
+      "fastFiles": 122,
+      "fastCandidates": 17,
+      "nativeFiles": 1063,
+      "nativeCandidates": 1466,
+      "yukuFiles": 8,
+      "yukuCandidates": 67
+    },
+    {
+      "project": "tachyon-dom",
+      "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+      "files": 373,
+      "fastFiles": 22,
+      "fastCandidates": 5,
+      "nativeFiles": 350,
+      "nativeCandidates": 645,
+      "yukuFiles": 1,
+      "yukuCandidates": 4
+    }
+  ],
+  "audits": [
+    {
+      "runtime": "v24.14.0",
+      "system": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "reference": "yuku-parser 0.19.0",
+      "scope": {
+        "prefix": "",
+        "sourceOnly": false,
+        "logical": false
+      },
+      "reports": [
+        {
+          "project": "vite-corpus",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 482,
+          "bytes": 2207415,
+          "tsxFiles": 14,
+          "fastFiles": 145,
+          "fastBytes": 138174,
+          "candidates": 201,
+          "candidateFiles": 65,
+          "fastCandidates": 11,
+          "nativeFiles": 336,
+          "nativeCandidates": 190,
+          "yukuFiles": 1,
+          "yukuCandidates": 0,
+          "yukuCandidateFiles": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 1,
+          "fastCandidateFiles": [
+            {
+              "file": "docs/.vitepress/theme/composables/useCardAnimation.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/plugin-legacy/src/__tests__/snippets.spec.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/client/env.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/pluginFilter.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/css-codesplit/__tests__/css-codesplit-consistent.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/css/__tests__/same-file-name/css-same-file-name.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/hmr-ssr/accept-exports/main-accepted/main-accepted.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/hmr/accept-exports/main-accepted/main-accepted.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/my-inline-shared-worker.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/my-shared-worker.ts",
+              "candidates": 1
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {
+            "outside-l1": 1
+          },
+          "candidateBytes": 6840,
+          "maxDepth": 40
+        },
+        {
+          "project": "preact-corpus",
+          "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+          "files": 22,
+          "bytes": 41760,
+          "tsxFiles": 19,
+          "fastFiles": 4,
+          "fastBytes": 3207,
+          "candidates": 1,
+          "candidateFiles": 1,
+          "fastCandidates": 0,
+          "nativeFiles": 18,
+          "nativeCandidates": 1,
+          "yukuFiles": 0,
+          "yukuCandidates": 0,
+          "yukuCandidateFiles": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {},
+          "candidateBytes": 36,
+          "maxDepth": 26
+        },
+        {
+          "project": "typescript-corpus",
+          "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+          "files": 6479,
+          "bytes": 4318704,
+          "tsxFiles": 116,
+          "fastFiles": 586,
+          "fastBytes": 417097,
+          "candidates": 562,
+          "candidateFiles": 151,
+          "fastCandidates": 41,
+          "nativeFiles": 4098,
+          "nativeCandidates": 507,
+          "yukuFiles": 1786,
+          "yukuCandidates": 14,
+          "yukuCandidateFiles": 7,
+          "tokenFiles": 5,
+          "tokenCandidates": 8,
+          "diagnostics": 952,
+          "fastCandidateFiles": [
+            {
+              "file": "tests/cases/compiler/arrayFrom.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/asyncAwaitWithCapturedBlockScopeVar.ts",
+              "candidates": 4
+            },
+            {
+              "file": "tests/cases/compiler/booleanLiteralsContextuallyTypedFromUnion.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/circularOptionalityRemoval.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/functionsWithImplicitReturnTypeAssignableToUndefined.ts",
+              "candidates": 6
+            },
+            {
+              "file": "tests/cases/compiler/jsFileCompilationLetBeingRenamed.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/jsFileFunctionOverloads.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/jsFileFunctionOverloads2.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/mapGroupBy.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/objectGroupBy.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/relationalOperatorComparable.ts",
+              "candidates": 11
+            },
+            {
+              "file": "tests/cases/compiler/simpleRecursionWithBaseCase2.ts",
+              "candidates": 6
+            },
+            {
+              "file": "tests/cases/compiler/simpleRecursionWithBaseCase3.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/sourceMapValidationDo.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/cases/compiler/strictNullLogicalAndOr.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/subtypeRelationForNever.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/typeGuardNarrowsIndexedAccessOfKnownProperty3.ts",
+              "candidates": 1
+            }
+          ],
+          "tokenCandidateFiles": [
+            {
+              "file": "tests/cases/compiler/duplicateLocalVariable2.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/duplicateVariablesByScope.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/cases/compiler/multivar.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/nestedLoopTypeGuards.ts",
+              "candidates": 3
+            },
+            {
+              "file": "tests/cases/compiler/typeAliasDeclarationEmit3.ts",
+              "candidates": 1
+            }
+          ],
+          "fallbackReasons": {
+            "outside-l1": 1786,
+            "invalid-utf8": 9
+          },
+          "candidateBytes": 18252,
+          "maxDepth": 4956
+        },
+        {
+          "project": "mreact",
+          "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+          "files": 1193,
+          "bytes": 12465294,
+          "tsxFiles": 100,
+          "fastFiles": 322,
+          "fastBytes": 1224696,
+          "candidates": 1550,
+          "candidateFiles": 336,
+          "fastCandidates": 105,
+          "nativeFiles": 863,
+          "nativeCandidates": 1378,
+          "yukuFiles": 8,
+          "yukuCandidates": 67,
+          "yukuCandidateFiles": 6,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [
+            {
+              "file": "benchmarks/compat-micro/review-entry.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact/src/main.tsx",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/primitive/adapters/framework-runtime-utils.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmarks/primitive/adapters/simple-dom.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/primitive/filter.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/fixtures/event-targets.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/memory.ts",
+              "candidates": 1
+            },
+            {
+              "file": "compat-lab/recharts/dom-summary.ts",
+              "candidates": 1
+            },
+            {
+              "file": "compat-lab/shared/assert-run-passed.ts",
+              "candidates": 1
+            },
+            {
+              "file": "examples/app-router/app/server-actions/actions.ts",
+              "candidates": 2
+            },
+            {
+              "file": "examples/docs-site/src/nav.config.ts",
+              "candidates": 2
+            },
+            {
+              "file": "examples/hacker-news/src/hn/feed.mreact.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "examples/hacker-news/src/hn/story-batches.ts",
+              "candidates": 1
+            },
+            {
+              "file": "examples/react-libraries/app/lib/db.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/oxc-bindings.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/oxc-node-utils.ts",
+              "candidates": 6
+            },
+            {
+              "file": "packages/compiler/src/static-reactivity.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/create-mreact-app/src/cli-args.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/react-compat/src/fiber-child.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/react-compat/src/fiber-work-loop.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/src/hydration.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/src/prehydration-form-state.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/reactive-core/src/writer-diagnostics.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-core/test/dormant-dependency-snapshot.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-core/test/more-edges.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-dom/src/bind-text.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/src/cache-config.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/cache-policy.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/module-preload-graph.ts",
+              "candidates": 9
+            },
+            {
+              "file": "packages/router/src/navigation-history-cache.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/navigation-marker.ts",
+              "candidates": 28
+            },
+            {
+              "file": "packages/router/src/route-module-loader.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/route-path.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/stream-list.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/navigation-history-cache.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/test/serve-unit.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/server/test/flight-depth-cap.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/shared/src/dom-prop-names.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/store/test/store-types.ts",
+              "candidates": 1
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {
+            "outside-l1": 8
+          },
+          "candidateBytes": 174120,
+          "maxDepth": 45
+        },
+        {
+          "project": "tachyon-dom",
+          "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+          "files": 373,
+          "bytes": 3429677,
+          "tsxFiles": 32,
+          "fastFiles": 82,
+          "fastBytes": 209369,
+          "candidates": 654,
+          "candidateFiles": 120,
+          "fastCandidates": 39,
+          "nativeFiles": 290,
+          "nativeCandidates": 611,
+          "yukuFiles": 1,
+          "yukuCandidates": 4,
+          "yukuCandidateFiles": 1,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [
+            {
+              "file": "benchmark/compiler/compare-expression-backends.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmark/compiler/compare-sfc-transform.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmark/raw-text-scan/candidate.ts",
+              "candidates": 10
+            },
+            {
+              "file": "benchmark/raw-text-scan/evaluation.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/raw-text-scan/run.ts",
+              "candidates": 7
+            },
+            {
+              "file": "benchmark/summary/ranking.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/virtual-list-update.ts",
+              "candidates": 1
+            },
+            {
+              "file": "src/compiler/html-tree.ts",
+              "candidates": 3
+            },
+            {
+              "file": "src/html-raw-text.ts",
+              "candidates": 5
+            },
+            {
+              "file": "tests/statistical-authority.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/whitespace-policy-types.ts",
+              "candidates": 3
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {
+            "outside-l1": 1
+          },
+          "candidateBytes": 21996,
+          "maxDepth": 38
+        }
+      ]
+    },
+    {
+      "runtime": "v24.14.0",
+      "system": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "reference": "yuku-parser 0.19.0",
+      "scope": {
+        "prefix": "",
+        "sourceOnly": false,
+        "logical": true
+      },
+      "reports": [
+        {
+          "project": "vite-corpus",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 482,
+          "bytes": 2207415,
+          "tsxFiles": 14,
+          "fastFiles": 145,
+          "fastBytes": 138174,
+          "candidates": 201,
+          "candidateFiles": 65,
+          "fastCandidates": 11,
+          "nativeFiles": 336,
+          "nativeCandidates": 190,
+          "yukuFiles": 1,
+          "yukuCandidates": 0,
+          "yukuCandidateFiles": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 1,
+          "fastCandidateFiles": [
+            {
+              "file": "docs/.vitepress/theme/composables/useCardAnimation.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/plugin-legacy/src/__tests__/snippets.spec.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/vite/src/client/env.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/pluginFilter.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/css-codesplit/__tests__/css-codesplit-consistent.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/css/__tests__/same-file-name/css-same-file-name.spec.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/hmr-ssr/accept-exports/main-accepted/main-accepted.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/hmr/accept-exports/main-accepted/main-accepted.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/my-inline-shared-worker.ts",
+              "candidates": 1
+            },
+            {
+              "file": "playground/worker/my-shared-worker.ts",
+              "candidates": 1
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {
+            "outside-l1": 1
+          },
+          "candidateBytes": 6840,
+          "maxDepth": 40
+        },
+        {
+          "project": "preact-corpus",
+          "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+          "files": 22,
+          "bytes": 41760,
+          "tsxFiles": 19,
+          "fastFiles": 4,
+          "fastBytes": 3207,
+          "candidates": 1,
+          "candidateFiles": 1,
+          "fastCandidates": 0,
+          "nativeFiles": 18,
+          "nativeCandidates": 1,
+          "yukuFiles": 0,
+          "yukuCandidates": 0,
+          "yukuCandidateFiles": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {},
+          "candidateBytes": 36,
+          "maxDepth": 26
+        },
+        {
+          "project": "typescript-corpus",
+          "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+          "files": 6479,
+          "bytes": 4318704,
+          "tsxFiles": 116,
+          "fastFiles": 586,
+          "fastBytes": 417097,
+          "candidates": 562,
+          "candidateFiles": 151,
+          "fastCandidates": 41,
+          "nativeFiles": 4098,
+          "nativeCandidates": 507,
+          "yukuFiles": 1786,
+          "yukuCandidates": 14,
+          "yukuCandidateFiles": 7,
+          "tokenFiles": 5,
+          "tokenCandidates": 8,
+          "diagnostics": 952,
+          "fastCandidateFiles": [
+            {
+              "file": "tests/cases/compiler/arrayFrom.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/asyncAwaitWithCapturedBlockScopeVar.ts",
+              "candidates": 4
+            },
+            {
+              "file": "tests/cases/compiler/booleanLiteralsContextuallyTypedFromUnion.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/circularOptionalityRemoval.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/functionsWithImplicitReturnTypeAssignableToUndefined.ts",
+              "candidates": 6
+            },
+            {
+              "file": "tests/cases/compiler/jsFileCompilationLetBeingRenamed.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/jsFileFunctionOverloads.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/jsFileFunctionOverloads2.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/mapGroupBy.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/objectGroupBy.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/relationalOperatorComparable.ts",
+              "candidates": 11
+            },
+            {
+              "file": "tests/cases/compiler/simpleRecursionWithBaseCase2.ts",
+              "candidates": 6
+            },
+            {
+              "file": "tests/cases/compiler/simpleRecursionWithBaseCase3.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/sourceMapValidationDo.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/cases/compiler/strictNullLogicalAndOr.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/subtypeRelationForNever.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/typeGuardNarrowsIndexedAccessOfKnownProperty3.ts",
+              "candidates": 1
+            }
+          ],
+          "tokenCandidateFiles": [
+            {
+              "file": "tests/cases/compiler/duplicateLocalVariable2.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/duplicateVariablesByScope.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/cases/compiler/multivar.ts",
+              "candidates": 1
+            },
+            {
+              "file": "tests/cases/compiler/nestedLoopTypeGuards.ts",
+              "candidates": 3
+            },
+            {
+              "file": "tests/cases/compiler/typeAliasDeclarationEmit3.ts",
+              "candidates": 1
+            }
+          ],
+          "fallbackReasons": {
+            "outside-l1": 1786,
+            "invalid-utf8": 9
+          },
+          "candidateBytes": 18252,
+          "maxDepth": 4956
+        },
+        {
+          "project": "mreact",
+          "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+          "files": 1193,
+          "bytes": 12465294,
+          "tsxFiles": 100,
+          "fastFiles": 322,
+          "fastBytes": 1224696,
+          "candidates": 1550,
+          "candidateFiles": 336,
+          "fastCandidates": 105,
+          "nativeFiles": 863,
+          "nativeCandidates": 1378,
+          "yukuFiles": 8,
+          "yukuCandidates": 67,
+          "yukuCandidateFiles": 6,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [
+            {
+              "file": "benchmarks/compat-micro/review-entry.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact/src/main.tsx",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/primitive/adapters/framework-runtime-utils.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmarks/primitive/adapters/simple-dom.ts",
+              "candidates": 3
+            },
+            {
+              "file": "benchmarks/primitive/filter.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/fixtures/event-targets.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmarks/primitive/memory.ts",
+              "candidates": 1
+            },
+            {
+              "file": "compat-lab/recharts/dom-summary.ts",
+              "candidates": 1
+            },
+            {
+              "file": "compat-lab/shared/assert-run-passed.ts",
+              "candidates": 1
+            },
+            {
+              "file": "examples/app-router/app/server-actions/actions.ts",
+              "candidates": 2
+            },
+            {
+              "file": "examples/docs-site/src/nav.config.ts",
+              "candidates": 2
+            },
+            {
+              "file": "examples/hacker-news/src/hn/feed.mreact.tsx",
+              "candidates": 1
+            },
+            {
+              "file": "examples/hacker-news/src/hn/story-batches.ts",
+              "candidates": 1
+            },
+            {
+              "file": "examples/react-libraries/app/lib/db.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/oxc-bindings.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/compiler/src/oxc-node-utils.ts",
+              "candidates": 6
+            },
+            {
+              "file": "packages/compiler/src/static-reactivity.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/create-mreact-app/src/cli-args.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/react-compat/src/fiber-child.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/react-compat/src/fiber-work-loop.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/src/hydration.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/react-compat/src/prehydration-form-state.ts",
+              "candidates": 4
+            },
+            {
+              "file": "packages/reactive-core/src/writer-diagnostics.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-core/test/dormant-dependency-snapshot.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/reactive-core/test/more-edges.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/reactive-dom/src/bind-text.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/src/cache-config.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/cache-policy.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/module-preload-graph.ts",
+              "candidates": 9
+            },
+            {
+              "file": "packages/router/src/navigation-history-cache.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/navigation-marker.ts",
+              "candidates": 28
+            },
+            {
+              "file": "packages/router/src/route-module-loader.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/route-path.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/src/stream-list.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/router/test/navigation-history-cache.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "packages/router/test/serve-unit.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/server/test/flight-depth-cap.test.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/shared/src/dom-prop-names.ts",
+              "candidates": 3
+            },
+            {
+              "file": "packages/store/test/store-types.ts",
+              "candidates": 1
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {
+            "outside-l1": 8
+          },
+          "candidateBytes": 174120,
+          "maxDepth": 45
+        },
+        {
+          "project": "tachyon-dom",
+          "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+          "files": 373,
+          "bytes": 3429677,
+          "tsxFiles": 32,
+          "fastFiles": 82,
+          "fastBytes": 209369,
+          "candidates": 654,
+          "candidateFiles": 120,
+          "fastCandidates": 39,
+          "nativeFiles": 290,
+          "nativeCandidates": 611,
+          "yukuFiles": 1,
+          "yukuCandidates": 4,
+          "yukuCandidateFiles": 1,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [
+            {
+              "file": "benchmark/compiler/compare-expression-backends.ts",
+              "candidates": 2
+            },
+            {
+              "file": "benchmark/compiler/compare-sfc-transform.ts",
+              "candidates": 4
+            },
+            {
+              "file": "benchmark/raw-text-scan/candidate.ts",
+              "candidates": 10
+            },
+            {
+              "file": "benchmark/raw-text-scan/evaluation.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/raw-text-scan/run.ts",
+              "candidates": 7
+            },
+            {
+              "file": "benchmark/summary/ranking.ts",
+              "candidates": 1
+            },
+            {
+              "file": "benchmark/virtual-list-update.ts",
+              "candidates": 1
+            },
+            {
+              "file": "src/compiler/html-tree.ts",
+              "candidates": 3
+            },
+            {
+              "file": "src/html-raw-text.ts",
+              "candidates": 5
+            },
+            {
+              "file": "tests/statistical-authority.test.ts",
+              "candidates": 2
+            },
+            {
+              "file": "tests/whitespace-policy-types.ts",
+              "candidates": 3
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {
+            "outside-l1": 1
+          },
+          "candidateBytes": 21996,
+          "maxDepth": 38
+        }
+      ]
+    },
+    {
+      "runtime": "v24.14.0",
+      "system": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "reference": "yuku-parser 0.19.0",
+      "scope": {
+        "prefix": "packages/vite/src/",
+        "sourceOnly": true,
+        "logical": false
+      },
+      "reports": [
+        {
+          "project": "vite-corpus",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 118,
+          "bytes": 1248759,
+          "tsxFiles": 0,
+          "fastFiles": 8,
+          "fastBytes": 12114,
+          "candidates": 160,
+          "candidateFiles": 39,
+          "fastCandidates": 2,
+          "nativeFiles": 110,
+          "nativeCandidates": 158,
+          "yukuFiles": 0,
+          "yukuCandidates": 0,
+          "yukuCandidateFiles": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "diagnostics": 0,
+          "fastCandidateFiles": [
+            {
+              "file": "packages/vite/src/client/env.ts",
+              "candidates": 1
+            },
+            {
+              "file": "packages/vite/src/node/plugins/pluginFilter.ts",
+              "candidates": 1
+            }
+          ],
+          "tokenCandidateFiles": [],
+          "fallbackReasons": {},
+          "candidateBytes": 5688,
+          "maxDepth": 40
+        }
+      ]
+    }
+  ],
+  "standalone": {
+    "addonBytes": 138344,
+    "cargoAbsent": true,
+    "npmDependenciesAbsent": true,
+    "rustSourcesOmitted": true,
+    "results": [
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "file": "docs/.vitepress/theme/composables/useCardAnimation.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 8,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2168,
+              2169
+            ],
+            "left": [
+              2150,
+              2167
+            ],
+            "right": [
+              2170,
+              2173
+            ]
+          }
+        ]
+      },
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "file": "packages/plugin-legacy/src/__tests__/snippets.spec.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 9,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              348,
+              350
+            ],
+            "left": [
+              346,
+              347
+            ],
+            "right": [
+              351,
+              355
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              477,
+              479
+            ],
+            "left": [
+              475,
+              476
+            ],
+            "right": [
+              480,
+              484
+            ]
+          }
+        ]
+      },
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "file": "packages/vite/src/client/env.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 8,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              483,
+              484
+            ],
+            "left": [
+              481,
+              482
+            ],
+            "right": [
+              485,
+              500
+            ]
+          }
+        ]
+      },
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "file": "packages/vite/src/node/plugins/pluginFilter.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 4,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              1930,
+              1931
+            ],
+            "left": [
+              1915,
+              1929
+            ],
+            "right": [
+              1932,
+              1933
+            ]
+          }
+        ]
+      },
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "file": "playground/css-codesplit/__tests__/css-codesplit-consistent.spec.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 7,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              203,
+              204
+            ],
+            "left": [
+              201,
+              202
+            ],
+            "right": [
+              205,
+              206
+            ]
+          }
+        ]
+      },
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "file": "playground/css/__tests__/same-file-name/css-same-file-name.spec.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 7,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              203,
+              204
+            ],
+            "left": [
+              201,
+              202
+            ],
+            "right": [
+              205,
+              206
+            ]
+          }
+        ]
+      },
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "file": "playground/hmr-ssr/accept-exports/main-accepted/main-accepted.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 2,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              122,
+              123
+            ],
+            "left": [
+              120,
+              121
+            ],
+            "right": [
+              124,
+              125
+            ]
+          }
+        ]
+      },
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "file": "playground/hmr/accept-exports/main-accepted/main-accepted.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 2,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              122,
+              123
+            ],
+            "left": [
+              120,
+              121
+            ],
+            "right": [
+              124,
+              125
+            ]
+          }
+        ]
+      },
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "file": "playground/worker/my-inline-shared-worker.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 4,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              198,
+              200
+            ],
+            "left": [
+              174,
+              197
+            ],
+            "right": [
+              201,
+              202
+            ]
+          }
+        ]
+      },
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "file": "playground/worker/my-shared-worker.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 4,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              180,
+              182
+            ],
+            "left": [
+              162,
+              179
+            ],
+            "right": [
+              183,
+              184
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/arrayFrom.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 4,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              1301,
+              1302
+            ],
+            "left": [
+              1287,
+              1300
+            ],
+            "right": [
+              1303,
+              1306
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/asyncAwaitWithCapturedBlockScopeVar.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 3,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              120,
+              121
+            ],
+            "left": [
+              118,
+              119
+            ],
+            "right": [
+              122,
+              123
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              254,
+              255
+            ],
+            "left": [
+              252,
+              253
+            ],
+            "right": [
+              256,
+              257
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              404,
+              405
+            ],
+            "left": [
+              402,
+              403
+            ],
+            "right": [
+              406,
+              407
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              574,
+              575
+            ],
+            "left": [
+              572,
+              573
+            ],
+            "right": [
+              576,
+              577
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/booleanLiteralsContextuallyTypedFromUnion.tsx",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 3,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              228,
+              229
+            ],
+            "left": [
+              214,
+              227
+            ],
+            "right": [
+              230,
+              233
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/circularOptionalityRemoval.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 0,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              91,
+              92
+            ],
+            "left": [
+              89,
+              90
+            ],
+            "right": [
+              93,
+              94
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/functionsWithImplicitReturnTypeAssignableToUndefined.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 2,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              115,
+              116
+            ],
+            "left": [
+              101,
+              114
+            ],
+            "right": [
+              117,
+              120
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              290,
+              291
+            ],
+            "left": [
+              276,
+              289
+            ],
+            "right": [
+              292,
+              295
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              625,
+              626
+            ],
+            "left": [
+              611,
+              624
+            ],
+            "right": [
+              627,
+              630
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              804,
+              805
+            ],
+            "left": [
+              790,
+              803
+            ],
+            "right": [
+              806,
+              809
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1021,
+              1022
+            ],
+            "left": [
+              1007,
+              1020
+            ],
+            "right": [
+              1023,
+              1026
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1194,
+              1195
+            ],
+            "left": [
+              1180,
+              1193
+            ],
+            "right": [
+              1196,
+              1199
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/jsFileCompilationLetBeingRenamed.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 1,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              103,
+              104
+            ],
+            "left": [
+              101,
+              102
+            ],
+            "right": [
+              105,
+              107
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/jsFileFunctionOverloads.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 5,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              907,
+              908
+            ],
+            "left": [
+              905,
+              906
+            ],
+            "right": [
+              909,
+              921
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/jsFileFunctionOverloads2.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 5,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              933,
+              934
+            ],
+            "left": [
+              931,
+              932
+            ],
+            "right": [
+              935,
+              947
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/mapGroupBy.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 2,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              64,
+              65
+            ],
+            "left": [
+              62,
+              63
+            ],
+            "right": [
+              66,
+              67
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/objectGroupBy.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 2,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              69,
+              70
+            ],
+            "left": [
+              67,
+              68
+            ],
+            "right": [
+              71,
+              72
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/relationalOperatorComparable.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 0,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              101,
+              102
+            ],
+            "left": [
+              92,
+              100
+            ],
+            "right": [
+              103,
+              106
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              136,
+              137
+            ],
+            "left": [
+              127,
+              135
+            ],
+            "right": [
+              138,
+              142
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              195,
+              197
+            ],
+            "left": [
+              186,
+              194
+            ],
+            "right": [
+              198,
+              203
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              256,
+              258
+            ],
+            "left": [
+              247,
+              255
+            ],
+            "right": [
+              259,
+              260
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              313,
+              314
+            ],
+            "left": [
+              304,
+              312
+            ],
+            "right": [
+              315,
+              316
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              365,
+              366
+            ],
+            "left": [
+              360,
+              364
+            ],
+            "right": [
+              367,
+              375
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              425,
+              426
+            ],
+            "left": [
+              419,
+              424
+            ],
+            "right": [
+              427,
+              430
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              480,
+              481
+            ],
+            "left": [
+              474,
+              479
+            ],
+            "right": [
+              482,
+              490
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              542,
+              543
+            ],
+            "left": [
+              533,
+              541
+            ],
+            "right": [
+              544,
+              545
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              569,
+              570
+            ],
+            "left": [
+              567,
+              568
+            ],
+            "right": [
+              571,
+              574
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              598,
+              599
+            ],
+            "left": [
+              596,
+              597
+            ],
+            "right": [
+              600,
+              601
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/simpleRecursionWithBaseCase2.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 5,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              119,
+              120
+            ],
+            "left": [
+              105,
+              118
+            ],
+            "right": [
+              121,
+              124
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              229,
+              230
+            ],
+            "left": [
+              215,
+              228
+            ],
+            "right": [
+              231,
+              234
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              439,
+              440
+            ],
+            "left": [
+              425,
+              438
+            ],
+            "right": [
+              441,
+              444
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              553,
+              554
+            ],
+            "left": [
+              539,
+              552
+            ],
+            "right": [
+              555,
+              558
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              718,
+              719
+            ],
+            "left": [
+              704,
+              717
+            ],
+            "right": [
+              720,
+              723
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              829,
+              830
+            ],
+            "left": [
+              815,
+              828
+            ],
+            "right": [
+              831,
+              834
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/simpleRecursionWithBaseCase3.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 3,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              115,
+              116
+            ],
+            "left": [
+              101,
+              114
+            ],
+            "right": [
+              117,
+              120
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/sourceMapValidationDo.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 1,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              61,
+              62
+            ],
+            "left": [
+              59,
+              60
+            ],
+            "right": [
+              63,
+              65
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              96,
+              97
+            ],
+            "left": [
+              94,
+              95
+            ],
+            "right": [
+              98,
+              100
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/strictNullLogicalAndOr.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 1,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              82,
+              83
+            ],
+            "left": [
+              68,
+              81
+            ],
+            "right": [
+              84,
+              86
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/subtypeRelationForNever.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 2,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              199,
+              200
+            ],
+            "left": [
+              185,
+              198
+            ],
+            "right": [
+              201,
+              202
+            ]
+          }
+        ]
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "file": "tests/cases/compiler/typeGuardNarrowsIndexedAccessOfKnownProperty3.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 2,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              176,
+              178
+            ],
+            "left": [
+              165,
+              175
+            ],
+            "right": [
+              179,
+              180
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "benchmarks/compat-micro/review-entry.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 7,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              693,
+              694
+            ],
+            "left": [
+              690,
+              692
+            ],
+            "right": [
+              695,
+              700
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "benchmarks/js-framework-benchmark/frameworks/keyed/mreact/src/main.tsx",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 13,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1075,
+              1076
+            ],
+            "left": [
+              1069,
+              1074
+            ],
+            "right": [
+              1077,
+              1082
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1599,
+              1600
+            ],
+            "left": [
+              1593,
+              1598
+            ],
+            "right": [
+              1601,
+              1612
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              1959,
+              1961
+            ],
+            "left": [
+              1944,
+              1958
+            ],
+            "right": [
+              1962,
+              1965
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "benchmarks/primitive/adapters/framework-runtime-utils.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 5,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              720,
+              721
+            ],
+            "left": [
+              714,
+              719
+            ],
+            "right": [
+              722,
+              734
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              1131,
+              1132
+            ],
+            "left": [
+              1114,
+              1130
+            ],
+            "right": [
+              1133,
+              1134
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "benchmarks/primitive/adapters/simple-dom.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 5,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2912,
+              2913
+            ],
+            "left": [
+              2906,
+              2911
+            ],
+            "right": [
+              2914,
+              2932
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              6159,
+              6160
+            ],
+            "left": [
+              6153,
+              6158
+            ],
+            "right": [
+              6161,
+              6166
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              8221,
+              8222
+            ],
+            "left": [
+              8215,
+              8220
+            ],
+            "right": [
+              8223,
+              8241
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "benchmarks/primitive/filter.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 4,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              925,
+              926
+            ],
+            "left": [
+              912,
+              924
+            ],
+            "right": [
+              927,
+              928
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "benchmarks/primitive/fixtures/event-targets.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 4,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              314,
+              315
+            ],
+            "left": [
+              308,
+              313
+            ],
+            "right": [
+              316,
+              329
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "benchmarks/primitive/memory.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 5,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              451,
+              452
+            ],
+            "left": [
+              445,
+              450
+            ],
+            "right": [
+              453,
+              454
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "compat-lab/recharts/dom-summary.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 3,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              421,
+              422
+            ],
+            "left": [
+              408,
+              420
+            ],
+            "right": [
+              423,
+              424
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "compat-lab/shared/assert-run-passed.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 4,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              369,
+              370
+            ],
+            "left": [
+              345,
+              368
+            ],
+            "right": [
+              371,
+              372
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "examples/app-router/app/server-actions/actions.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 2,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              297,
+              298
+            ],
+            "left": [
+              285,
+              296
+            ],
+            "right": [
+              299,
+              302
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              394,
+              395
+            ],
+            "left": [
+              382,
+              393
+            ],
+            "right": [
+              396,
+              397
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "examples/docs-site/src/nav.config.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 4,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              4716,
+              4717
+            ],
+            "left": [
+              4710,
+              4715
+            ],
+            "right": [
+              4718,
+              4719
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              4906,
+              4908
+            ],
+            "left": [
+              4900,
+              4905
+            ],
+            "right": [
+              4909,
+              4910
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "examples/hacker-news/src/hn/feed.mreact.tsx",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 18,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              3540,
+              3541
+            ],
+            "left": [
+              3513,
+              3539
+            ],
+            "right": [
+              3542,
+              3543
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "examples/hacker-news/src/hn/story-batches.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 4,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              282,
+              283
+            ],
+            "left": [
+              276,
+              281
+            ],
+            "right": [
+              284,
+              294
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "examples/react-libraries/app/lib/db.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 6,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1564,
+              1565
+            ],
+            "left": [
+              1562,
+              1563
+            ],
+            "right": [
+              1566,
+              1568
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/compiler/src/oxc-bindings.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 6,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              4070,
+              4071
+            ],
+            "left": [
+              4055,
+              4069
+            ],
+            "right": [
+              4072,
+              4073
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/compiler/src/oxc-node-utils.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 3,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1303,
+              1304
+            ],
+            "left": [
+              1297,
+              1302
+            ],
+            "right": [
+              1305,
+              1306
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              1316,
+              1317
+            ],
+            "left": [
+              1310,
+              1315
+            ],
+            "right": [
+              1318,
+              1329
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1767,
+              1768
+            ],
+            "left": [
+              1761,
+              1766
+            ],
+            "right": [
+              1769,
+              1780
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              2029,
+              2031
+            ],
+            "left": [
+              2009,
+              2028
+            ],
+            "right": [
+              2032,
+              2051
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              2377,
+              2379
+            ],
+            "left": [
+              2373,
+              2376
+            ],
+            "right": [
+              2380,
+              2384
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              2503,
+              2505
+            ],
+            "left": [
+              2493,
+              2502
+            ],
+            "right": [
+              2506,
+              2512
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/compiler/src/static-reactivity.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 7,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              935,
+              936
+            ],
+            "left": [
+              923,
+              934
+            ],
+            "right": [
+              937,
+              938
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              4861,
+              4862
+            ],
+            "left": [
+              4832,
+              4860
+            ],
+            "right": [
+              4863,
+              4864
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              6543,
+              6544
+            ],
+            "left": [
+              6529,
+              6542
+            ],
+            "right": [
+              6545,
+              6546
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              6565,
+              6566
+            ],
+            "left": [
+              6550,
+              6564
+            ],
+            "right": [
+              6567,
+              6578
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/create-mreact-app/src/cli-args.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 5,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1611,
+              1612
+            ],
+            "left": [
+              1605,
+              1610
+            ],
+            "right": [
+              1613,
+              1624
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              3286,
+              3287
+            ],
+            "left": [
+              3267,
+              3285
+            ],
+            "right": [
+              3288,
+              3289
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              6331,
+              6332
+            ],
+            "left": [
+              6325,
+              6330
+            ],
+            "right": [
+              6333,
+              6344
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              7456,
+              7457
+            ],
+            "left": [
+              7437,
+              7455
+            ],
+            "right": [
+              7458,
+              7459
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/react-compat/src/fiber-child.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 12,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2162,
+              2163
+            ],
+            "left": [
+              2153,
+              2161
+            ],
+            "right": [
+              2164,
+              2179
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              3630,
+              3631
+            ],
+            "left": [
+              3624,
+              3629
+            ],
+            "right": [
+              3632,
+              3647
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              3814,
+              3815
+            ],
+            "left": [
+              3808,
+              3813
+            ],
+            "right": [
+              3816,
+              3828
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              8381,
+              8382
+            ],
+            "left": [
+              8364,
+              8380
+            ],
+            "right": [
+              8383,
+              8410
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/react-compat/src/fiber-work-loop.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 4,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              1817,
+              1818
+            ],
+            "left": [
+              1811,
+              1816
+            ],
+            "right": [
+              1819,
+              1824
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              5156,
+              5157
+            ],
+            "left": [
+              5146,
+              5155
+            ],
+            "right": [
+              5158,
+              5170
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/react-compat/src/hydration.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 5,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              4625,
+              4627
+            ],
+            "left": [
+              4615,
+              4624
+            ],
+            "right": [
+              4628,
+              4629
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              9269,
+              9271
+            ],
+            "left": [
+              9260,
+              9268
+            ],
+            "right": [
+              9272,
+              9292
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/react-compat/src/prehydration-form-state.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 11,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2396,
+              2397
+            ],
+            "left": [
+              2390,
+              2395
+            ],
+            "right": [
+              2398,
+              2412
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2548,
+              2549
+            ],
+            "left": [
+              2536,
+              2547
+            ],
+            "right": [
+              2550,
+              2551
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              2619,
+              2620
+            ],
+            "left": [
+              2562,
+              2618
+            ],
+            "right": [
+              2621,
+              2622
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2810,
+              2811
+            ],
+            "left": [
+              2796,
+              2809
+            ],
+            "right": [
+              2812,
+              2813
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/reactive-core/src/writer-diagnostics.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 5,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              504,
+              505
+            ],
+            "left": [
+              491,
+              503
+            ],
+            "right": [
+              506,
+              507
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/reactive-core/test/dormant-dependency-snapshot.test.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 10,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              1158,
+              1160
+            ],
+            "left": [
+              1152,
+              1157
+            ],
+            "right": [
+              1161,
+              1162
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1305,
+              1306
+            ],
+            "left": [
+              1299,
+              1304
+            ],
+            "right": [
+              1307,
+              1312
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/reactive-core/test/more-edges.test.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 9,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              1796,
+              1797
+            ],
+            "left": [
+              1789,
+              1795
+            ],
+            "right": [
+              1798,
+              1799
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/reactive-dom/src/bind-text.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 8,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              603,
+              604
+            ],
+            "left": [
+              597,
+              602
+            ],
+            "right": [
+              605,
+              617
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              3584,
+              3585
+            ],
+            "left": [
+              3578,
+              3583
+            ],
+            "right": [
+              3586,
+              3598
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/router/src/cache-config.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 3,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              978,
+              979
+            ],
+            "left": [
+              971,
+              977
+            ],
+            "right": [
+              980,
+              981
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/router/src/cache-policy.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 3,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              3204,
+              3205
+            ],
+            "left": [
+              3198,
+              3203
+            ],
+            "right": [
+              3206,
+              3207
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/router/src/module-preload-graph.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 4,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              523,
+              524
+            ],
+            "left": [
+              508,
+              522
+            ],
+            "right": [
+              525,
+              526
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              1309,
+              1311
+            ],
+            "left": [
+              1303,
+              1308
+            ],
+            "right": [
+              1312,
+              1313
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1368,
+              1369
+            ],
+            "left": [
+              1362,
+              1367
+            ],
+            "right": [
+              1370,
+              1375
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              1458,
+              1460
+            ],
+            "left": [
+              1453,
+              1457
+            ],
+            "right": [
+              1461,
+              1463
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              1472,
+              1474
+            ],
+            "left": [
+              1467,
+              1471
+            ],
+            "right": [
+              1475,
+              1477
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              1488,
+              1490
+            ],
+            "left": [
+              1483,
+              1487
+            ],
+            "right": [
+              1491,
+              1493
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              1502,
+              1504
+            ],
+            "left": [
+              1497,
+              1501
+            ],
+            "right": [
+              1505,
+              1508
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              1534,
+              1536
+            ],
+            "left": [
+              1529,
+              1533
+            ],
+            "right": [
+              1537,
+              1539
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              1548,
+              1550
+            ],
+            "left": [
+              1543,
+              1547
+            ],
+            "right": [
+              1551,
+              1553
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/router/src/navigation-history-cache.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 3,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              306,
+              307
+            ],
+            "left": [
+              291,
+              305
+            ],
+            "right": [
+              308,
+              310
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/router/src/navigation-marker.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 6,
+          "astNodes": 0,
+          "candidateBytes": 124512
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              547,
+              548
+            ],
+            "left": [
+              540,
+              546
+            ],
+            "right": [
+              549,
+              560
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              641,
+              642
+            ],
+            "left": [
+              626,
+              640
+            ],
+            "right": [
+              643,
+              644
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              902,
+              903
+            ],
+            "left": [
+              882,
+              901
+            ],
+            "right": [
+              904,
+              905
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              1235,
+              1236
+            ],
+            "left": [
+              1221,
+              1234
+            ],
+            "right": [
+              1237,
+              1238
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              1377,
+              1378
+            ],
+            "left": [
+              1357,
+              1376
+            ],
+            "right": [
+              1379,
+              1380
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2760,
+              2761
+            ],
+            "left": [
+              2753,
+              2759
+            ],
+            "right": [
+              2762,
+              2773
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              3188,
+              3190
+            ],
+            "left": [
+              3181,
+              3187
+            ],
+            "right": [
+              3191,
+              3202
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              3824,
+              3825
+            ],
+            "left": [
+              3817,
+              3823
+            ],
+            "right": [
+              3826,
+              3837
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              4574,
+              4575
+            ],
+            "left": [
+              4565,
+              4573
+            ],
+            "right": [
+              4576,
+              4577
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              4709,
+              4710
+            ],
+            "left": [
+              4700,
+              4708
+            ],
+            "right": [
+              4711,
+              4721
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              4826,
+              4827
+            ],
+            "left": [
+              4819,
+              4825
+            ],
+            "right": [
+              4828,
+              4839
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              5848,
+              5849
+            ],
+            "left": [
+              5836,
+              5847
+            ],
+            "right": [
+              5850,
+              5851
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              5876,
+              5877
+            ],
+            "left": [
+              5866,
+              5875
+            ],
+            "right": [
+              5878,
+              5879
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              5943,
+              5944
+            ],
+            "left": [
+              5939,
+              5942
+            ],
+            "right": [
+              5945,
+              5946
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              6121,
+              6122
+            ],
+            "left": [
+              6117,
+              6120
+            ],
+            "right": [
+              6123,
+              6124
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              6603,
+              6604
+            ],
+            "left": [
+              6599,
+              6602
+            ],
+            "right": [
+              6605,
+              6606
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              6757,
+              6758
+            ],
+            "left": [
+              6753,
+              6756
+            ],
+            "right": [
+              6759,
+              6760
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              6902,
+              6903
+            ],
+            "left": [
+              6895,
+              6901
+            ],
+            "right": [
+              6904,
+              6915
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              7485,
+              7486
+            ],
+            "left": [
+              7472,
+              7484
+            ],
+            "right": [
+              7487,
+              7488
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              7929,
+              7930
+            ],
+            "left": [
+              7922,
+              7928
+            ],
+            "right": [
+              7931,
+              7942
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              9136,
+              9137
+            ],
+            "left": [
+              9114,
+              9135
+            ],
+            "right": [
+              9138,
+              9149
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              9205,
+              9206
+            ],
+            "left": [
+              9198,
+              9204
+            ],
+            "right": [
+              9207,
+              9220
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              9537,
+              9539
+            ],
+            "left": [
+              9531,
+              9536
+            ],
+            "right": [
+              9540,
+              9549
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              9610,
+              9611
+            ],
+            "left": [
+              9603,
+              9609
+            ],
+            "right": [
+              9612,
+              9625
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              10361,
+              10363
+            ],
+            "left": [
+              10356,
+              10360
+            ],
+            "right": [
+              10364,
+              10366
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              10375,
+              10377
+            ],
+            "left": [
+              10370,
+              10374
+            ],
+            "right": [
+              10378,
+              10380
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              10391,
+              10393
+            ],
+            "left": [
+              10386,
+              10390
+            ],
+            "right": [
+              10394,
+              10396
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              10405,
+              10407
+            ],
+            "left": [
+              10400,
+              10404
+            ],
+            "right": [
+              10408,
+              10411
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/router/src/route-module-loader.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 5,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              804,
+              806
+            ],
+            "left": [
+              785,
+              803
+            ],
+            "right": [
+              807,
+              828
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/router/src/route-path.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 2,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              105,
+              106
+            ],
+            "left": [
+              89,
+              104
+            ],
+            "right": [
+              107,
+              108
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/router/src/stream-list.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 8,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1206,
+              1207
+            ],
+            "left": [
+              1200,
+              1205
+            ],
+            "right": [
+              1208,
+              1220
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/router/test/navigation-history-cache.test.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 7,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              698,
+              699
+            ],
+            "left": [
+              696,
+              697
+            ],
+            "right": [
+              700,
+              702
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1175,
+              1176
+            ],
+            "left": [
+              1173,
+              1174
+            ],
+            "right": [
+              1177,
+              1179
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/router/test/serve-unit.test.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 9,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              682,
+              683
+            ],
+            "left": [
+              676,
+              681
+            ],
+            "right": [
+              684,
+              688
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/server/test/flight-depth-cap.test.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 9,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              506,
+              507
+            ],
+            "left": [
+              504,
+              505
+            ],
+            "right": [
+              508,
+              513
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/shared/src/dom-prop-names.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 2,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              253,
+              255
+            ],
+            "left": [
+              247,
+              252
+            ],
+            "right": [
+              256,
+              258
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              268,
+              270
+            ],
+            "left": [
+              262,
+              267
+            ],
+            "right": [
+              271,
+              273
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              462,
+              463
+            ],
+            "left": [
+              450,
+              461
+            ],
+            "right": [
+              464,
+              465
+            ]
+          }
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "file": "packages/store/test/store-types.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 7,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              1439,
+              1440
+            ],
+            "left": [
+              1425,
+              1438
+            ],
+            "right": [
+              1441,
+              1443
+            ]
+          }
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+        "file": "benchmark/compiler/compare-expression-backends.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 7,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1418,
+              1419
+            ],
+            "left": [
+              1411,
+              1417
+            ],
+            "right": [
+              1420,
+              1425
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1673,
+              1674
+            ],
+            "left": [
+              1663,
+              1672
+            ],
+            "right": [
+              1675,
+              1685
+            ]
+          }
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+        "file": "benchmark/compiler/compare-sfc-transform.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 7,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2453,
+              2454
+            ],
+            "left": [
+              2446,
+              2452
+            ],
+            "right": [
+              2455,
+              2458
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2566,
+              2567
+            ],
+            "left": [
+              2556,
+              2565
+            ],
+            "right": [
+              2568,
+              2578
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              3395,
+              3396
+            ],
+            "left": [
+              3378,
+              3394
+            ],
+            "right": [
+              3397,
+              3398
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              3420,
+              3421
+            ],
+            "left": [
+              3402,
+              3419
+            ],
+            "right": [
+              3422,
+              3438
+            ]
+          }
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+        "file": "benchmark/raw-text-scan/candidate.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 6,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              143,
+              145
+            ],
+            "left": [
+              138,
+              142
+            ],
+            "right": [
+              146,
+              148
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              157,
+              159
+            ],
+            "left": [
+              152,
+              156
+            ],
+            "right": [
+              160,
+              162
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              315,
+              316
+            ],
+            "left": [
+              290,
+              314
+            ],
+            "right": [
+              317,
+              329
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              373,
+              374
+            ],
+            "left": [
+              367,
+              372
+            ],
+            "right": [
+              375,
+              390
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              990,
+              991
+            ],
+            "left": [
+              985,
+              989
+            ],
+            "right": [
+              992,
+              993
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1021,
+              1022
+            ],
+            "left": [
+              1015,
+              1020
+            ],
+            "right": [
+              1023,
+              1024
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1351,
+              1352
+            ],
+            "left": [
+              1345,
+              1350
+            ],
+            "right": [
+              1353,
+              1365
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1484,
+              1485
+            ],
+            "left": [
+              1474,
+              1483
+            ],
+            "right": [
+              1486,
+              1487
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1810,
+              1811
+            ],
+            "left": [
+              1800,
+              1809
+            ],
+            "right": [
+              1812,
+              1813
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2377,
+              2378
+            ],
+            "left": [
+              2367,
+              2376
+            ],
+            "right": [
+              2379,
+              2380
+            ]
+          }
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+        "file": "benchmark/raw-text-scan/evaluation.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 3,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              681,
+              683
+            ],
+            "left": [
+              669,
+              680
+            ],
+            "right": [
+              684,
+              691
+            ]
+          }
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+        "file": "benchmark/raw-text-scan/run.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 9,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1984,
+              1985
+            ],
+            "left": [
+              1977,
+              1983
+            ],
+            "right": [
+              1986,
+              1987
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              1997,
+              1999
+            ],
+            "left": [
+              1990,
+              1996
+            ],
+            "right": [
+              2000,
+              2001
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2370,
+              2371
+            ],
+            "left": [
+              2364,
+              2369
+            ],
+            "right": [
+              2372,
+              2383
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              3597,
+              3599
+            ],
+            "left": [
+              3587,
+              3596
+            ],
+            "right": [
+              3600,
+              3620
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              4515,
+              4516
+            ],
+            "left": [
+              4505,
+              4514
+            ],
+            "right": [
+              4517,
+              4536
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              5234,
+              5235
+            ],
+            "left": [
+              5227,
+              5233
+            ],
+            "right": [
+              5236,
+              5251
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              7381,
+              7383
+            ],
+            "left": [
+              7374,
+              7380
+            ],
+            "right": [
+              7384,
+              7404
+            ]
+          }
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+        "file": "benchmark/summary/ranking.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 5,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              562,
+              563
+            ],
+            "left": [
+              551,
+              561
+            ],
+            "right": [
+              564,
+              565
+            ]
+          }
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+        "file": "benchmark/virtual-list-update.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 6,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1073,
+              1074
+            ],
+            "left": [
+              1063,
+              1072
+            ],
+            "right": [
+              1075,
+              1078
+            ]
+          }
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+        "file": "src/compiler/html-tree.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 8,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2634,
+              2635
+            ],
+            "left": [
+              2628,
+              2633
+            ],
+            "right": [
+              2636,
+              2651
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              2859,
+              2860
+            ],
+            "left": [
+              2853,
+              2858
+            ],
+            "right": [
+              2861,
+              2876
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              3136,
+              3137
+            ],
+            "left": [
+              3126,
+              3135
+            ],
+            "right": [
+              3138,
+              3153
+            ]
+          }
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+        "file": "src/html-raw-text.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 7,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">=",
+            "replacement": ">",
+            "edit": [
+              354,
+              356
+            ],
+            "left": [
+              349,
+              353
+            ],
+            "right": [
+              357,
+              359
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<=",
+            "replacement": "<",
+            "edit": [
+              368,
+              370
+            ],
+            "left": [
+              363,
+              367
+            ],
+            "right": [
+              371,
+              373
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              526,
+              527
+            ],
+            "left": [
+              501,
+              525
+            ],
+            "right": [
+              528,
+              540
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              584,
+              585
+            ],
+            "left": [
+              578,
+              583
+            ],
+            "right": [
+              586,
+              601
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              1370,
+              1371
+            ],
+            "left": [
+              1364,
+              1369
+            ],
+            "right": [
+              1372,
+              1384
+            ]
+          }
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+        "file": "tests/statistical-authority.test.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 11,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": "<",
+            "replacement": "<=",
+            "edit": [
+              4506,
+              4507
+            ],
+            "left": [
+              4497,
+              4505
+            ],
+            "right": [
+              4508,
+              4509
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              4578,
+              4579
+            ],
+            "left": [
+              4569,
+              4577
+            ],
+            "right": [
+              4580,
+              4581
+            ]
+          }
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+        "file": "tests/whitespace-policy-types.ts",
+        "path": "fast",
+        "metrics": {
+          "maxDepth": 5,
+          "astNodes": 0,
+          "candidateBytes": 0
+        },
+        "candidates": [
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              719,
+              720
+            ],
+            "left": [
+              705,
+              718
+            ],
+            "right": [
+              721,
+              724
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              915,
+              916
+            ],
+            "left": [
+              901,
+              914
+            ],
+            "right": [
+              917,
+              920
+            ]
+          },
+          {
+            "rule": "comparison-boundary/v1",
+            "operator": ">",
+            "replacement": ">=",
+            "edit": [
+              1024,
+              1025
+            ],
+            "left": [
+              1010,
+              1023
+            ],
+            "right": [
+              1026,
+              1029
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "benchmarks": {
+    "mreact": {
+      "node": "v24.14.0",
+      "os": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "repetitions": 9,
+      "collectBetweenSamples": true,
+      "temperature": "warm",
+      "scope": {
+        "prefix": "",
+        "sourceOnly": false
+      },
+      "reports": [
+        {
+          "workload": "repository",
+          "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+          "files": 1193,
+          "bytes": 12465294,
+          "turnsPerRepetition": 7,
+          "fastFiles": 322,
+          "fastCandidates": 105,
+          "nativeFiles": 863,
+          "nativeCandidates": 1378,
+          "yukuFiles": 8,
+          "yukuCandidates": 67,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "baseline": {
+            "medianMs": 304.803732142857,
+            "p25Ms": 300.98433328571474,
+            "p75Ms": 308.41515471428545
+          },
+          "optimized": {
+            "medianMs": 287.67348799999985,
+            "p25Ms": 279.2313511428573,
+            "p75Ms": 289.5674464285715
+          },
+          "samplesMs": [
+            [
+              311.09223214285714,
+              306.6312857142857,
+              302.5366368571428,
+              309.0764107142859,
+              308.41515471428545,
+              304.803732142857,
+              283.60096428571444,
+              300.98433328571474,
+              299.1019821428573
+            ],
+            [
+              289.5674464285715,
+              284.21340485714296,
+              290.60805357142846,
+              287.67348799999985,
+              292.76258928571406,
+              288.83794042857124,
+              267.9929345714284,
+              276.49388100000004,
+              279.2313511428573
+            ]
+          ]
+        },
+        {
+          "workload": "L1 TSX",
+          "files": 120,
+          "bytes": 262380,
+          "turnsPerRepetition": 7,
+          "fastFiles": 120,
+          "fastCandidates": 120,
+          "nativeFiles": 0,
+          "nativeCandidates": 0,
+          "yukuFiles": 0,
+          "yukuCandidates": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "baseline": {
+            "medianMs": 1.0071785714286048,
+            "p25Ms": 0.9711488571431671,
+            "p75Ms": 1.0389761428575315
+          },
+          "optimized": {
+            "medianMs": 1.0377975714280703,
+            "p25Ms": 0.9735000000000582,
+            "p75Ms": 1.0759761428572736
+          },
+          "samplesMs": [
+            [
+              1.0064761428574067,
+              0.9711488571431671,
+              1.0071785714286048,
+              0.9043332857140091,
+              1.020720142857629,
+              0.9184285714291036,
+              1.0560714285706385,
+              1.0608750000007734,
+              1.0389761428575315
+            ],
+            [
+              1.1081487142853024,
+              1.0792261428567664,
+              1.0759761428572736,
+              0.9422678571427241,
+              0.9735000000000582,
+              1.0377975714280703,
+              1.0686308571426448,
+              0.9147500000004324,
+              1.024749999999975
+            ]
+          ]
+        }
+      ]
+    },
+    "tachyon-dom": {
+      "node": "v24.14.0",
+      "os": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "repetitions": 9,
+      "collectBetweenSamples": true,
+      "temperature": "warm",
+      "scope": {
+        "prefix": "",
+        "sourceOnly": false
+      },
+      "reports": [
+        {
+          "workload": "repository",
+          "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+          "files": 373,
+          "bytes": 3429677,
+          "turnsPerRepetition": 7,
+          "fastFiles": 82,
+          "fastCandidates": 39,
+          "nativeFiles": 290,
+          "nativeCandidates": 611,
+          "yukuFiles": 1,
+          "yukuCandidates": 4,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "baseline": {
+            "medianMs": 79.4239702857142,
+            "p25Ms": 76.50800000000007,
+            "p75Ms": 81.15477971428572
+          },
+          "optimized": {
+            "medianMs": 76.46821428571431,
+            "p25Ms": 75.1746904285714,
+            "p75Ms": 77.04948800000004
+          },
+          "samplesMs": [
+            [
+              81.34533928571429,
+              81.15477971428572,
+              82.28494042857145,
+              76.50800000000007,
+              78.87189285714287,
+              70.61989885714294,
+              75.64985114285719,
+              79.4239702857142,
+              81.03191671428587
+            ],
+            [
+              79.90435714285715,
+              75.7836428571429,
+              77.68126199999993,
+              76.46821428571431,
+              74.46877985714283,
+              63.73208928571421,
+              75.1746904285714,
+              76.55376200000008,
+              77.04948800000004
+            ]
+          ]
+        },
+        {
+          "workload": "L1 TSX",
+          "files": 120,
+          "bytes": 262380,
+          "turnsPerRepetition": 7,
+          "fastFiles": 120,
+          "fastCandidates": 120,
+          "nativeFiles": 0,
+          "nativeCandidates": 0,
+          "yukuFiles": 0,
+          "yukuCandidates": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "baseline": {
+            "medianMs": 1.0554642857142815,
+            "p25Ms": 1.033577428571464,
+            "p75Ms": 1.1109762857143193
+          },
+          "optimized": {
+            "medianMs": 1.0711727142858893,
+            "p25Ms": 1.0308750000001186,
+            "p75Ms": 1.0780655714284617
+          },
+          "samplesMs": [
+            [
+              1.1137798571427473,
+              1.0554642857142815,
+              1.0836964285712642,
+              0.9329225714287271,
+              1.033577428571464,
+              1.113636999999861,
+              1.1109762857143193,
+              1.055220285714313,
+              1.0205892857143877
+            ],
+            [
+              1.1289761428571572,
+              1.0590417142858704,
+              0.9854821428572385,
+              1.0783928571428467,
+              1.0711727142858893,
+              1.0780655714284617,
+              1.0726904285714096,
+              1.0243691428570725,
+              1.0308750000001186
+            ]
+          ]
+        }
+      ]
+    },
+    "vite": {
+      "node": "v24.14.0",
+      "os": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "repetitions": 9,
+      "collectBetweenSamples": true,
+      "temperature": "warm",
+      "scope": {
+        "prefix": "",
+        "sourceOnly": false
+      },
+      "reports": [
+        {
+          "workload": "repository",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 482,
+          "bytes": 2207415,
+          "turnsPerRepetition": 7,
+          "fastFiles": 145,
+          "fastCandidates": 11,
+          "nativeFiles": 336,
+          "nativeCandidates": 190,
+          "yukuFiles": 1,
+          "yukuCandidates": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "baseline": {
+            "medianMs": 54.91434514285714,
+            "p25Ms": 53.567047571428574,
+            "p75Ms": 55.46602385714284
+          },
+          "optimized": {
+            "medianMs": 50.30593457142858,
+            "p25Ms": 47.12489871428573,
+            "p75Ms": 51.63852971428566
+          },
+          "samplesMs": [
+            [
+              55.027410714285715,
+              42.28498800000001,
+              42.8207797142857,
+              54.91434514285714,
+              56.80866671428573,
+              55.46602385714284,
+              56.93514885714285,
+              54.57999999999993,
+              53.567047571428574
+            ],
+            [
+              50.30593457142858,
+              46.54677971428571,
+              46.131232142857115,
+              49.54047014285717,
+              51.37528571428571,
+              51.822857142857174,
+              51.63852971428566,
+              51.72172028571432,
+              47.12489871428573
+            ]
+          ]
+        },
+        {
+          "workload": "L1 TSX",
+          "files": 120,
+          "bytes": 262380,
+          "turnsPerRepetition": 7,
+          "fastFiles": 120,
+          "fastCandidates": 120,
+          "nativeFiles": 0,
+          "nativeCandidates": 0,
+          "yukuFiles": 0,
+          "yukuCandidates": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "baseline": {
+            "medianMs": 0.9437618571429474,
+            "p25Ms": 0.9269761428570616,
+            "p75Ms": 0.9766785714284977
+          },
+          "optimized": {
+            "medianMs": 0.9691548571428419,
+            "p25Ms": 0.9448511428572601,
+            "p75Ms": 0.9888987142856942
+          },
+          "samplesMs": [
+            [
+              0.9437618571429474,
+              0.9269761428570616,
+              0.8763810000000376,
+              0.9719702857142433,
+              0.987869000000111,
+              0.9766785714284977,
+              0.9947084285713572,
+              0.7890238571428979,
+              0.9423511428571406
+            ],
+            [
+              0.9276904285713629,
+              0.9735595714286579,
+              0.9448511428572601,
+              0.9888987142856942,
+              1.0516131428572149,
+              1.0251011428571084,
+              0.957368999999874,
+              0.9272560000000729,
+              0.9691548571428419
+            ]
+          ]
+        }
+      ]
+    },
+    "vite-source": {
+      "node": "v24.14.0",
+      "os": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "repetitions": 9,
+      "collectBetweenSamples": true,
+      "temperature": "warm",
+      "scope": {
+        "prefix": "packages/vite/src/",
+        "sourceOnly": true
+      },
+      "reports": [
+        {
+          "workload": "repository",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 118,
+          "bytes": 1248759,
+          "turnsPerRepetition": 7,
+          "fastFiles": 8,
+          "fastCandidates": 2,
+          "nativeFiles": 110,
+          "nativeCandidates": 158,
+          "yukuFiles": 0,
+          "yukuCandidates": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "baseline": {
+            "medianMs": 24.278809571428578,
+            "p25Ms": 24.09968457142856,
+            "p75Ms": 25.173744
+          },
+          "optimized": {
+            "medianMs": 23.431922714285715,
+            "p25Ms": 23.404279714285718,
+            "p75Ms": 23.819279714285717
+          },
+          "samplesMs": [
+            [
+              25.173744,
+              22.798702428571442,
+              23.503452428571432,
+              24.151327428571417,
+              24.278809571428578,
+              24.28410114285712,
+              24.09968457142856,
+              27.34011899999996,
+              25.607666714285706
+            ],
+            [
+              23.426523714285704,
+              22.57292857142857,
+              24.103255857142845,
+              23.404279714285718,
+              23.24201185714287,
+              23.431922714285715,
+              23.554226142857196,
+              23.819279714285717,
+              25.666083285714326
+            ]
+          ]
+        },
+        {
+          "workload": "L1 TSX",
+          "files": 120,
+          "bytes": 262380,
+          "turnsPerRepetition": 7,
+          "fastFiles": 120,
+          "fastCandidates": 120,
+          "nativeFiles": 0,
+          "nativeCandidates": 0,
+          "yukuFiles": 0,
+          "yukuCandidates": 0,
+          "tokenFiles": 0,
+          "tokenCandidates": 0,
+          "baseline": {
+            "medianMs": 1.0223928571428718,
+            "p25Ms": 0.9937915714285737,
+            "p75Ms": 1.028380857142825
+          },
+          "optimized": {
+            "medianMs": 1.0765475714285588,
+            "p25Ms": 0.9880298571428544,
+            "p75Ms": 1.1050535714286005
+          },
+          "samplesMs": [
+            [
+              1.113821428571425,
+              1.0314642857142644,
+              0.9520714285714088,
+              1.0223928571428718,
+              0.9937915714285737,
+              1.0236725714285708,
+              1.0040298571428659,
+              1.028380857142825,
+              0.9214522857142973
+            ],
+            [
+              0.9880298571428544,
+              1.0241310000000599,
+              1.1244165714286152,
+              1.1050535714286005,
+              0.8608512857142939,
+              0.9087202857142854,
+              1.0765475714285588,
+              1.0885774285714303,
+              1.119523857142862
+            ]
+          ]
+        }
+      ]
+    }
+  },
+  "verification": {
+    "fstar": "All checked modules verified; KaRaMeL regeneration matches the committed output.",
+    "nodeTestsPassed": 619,
+    "playwrightTestsPassed": 1,
+    "pict": [
+      {
+        "model": "low-jumps",
+        "rows": 12,
+        "pairs": 26,
+        "seeds": 4
+      },
+      {
+        "model": "low-numeric",
+        "rows": 14,
+        "pairs": 32,
+        "seeds": 4
+      },
+      {
+        "model": "low-async",
+        "rows": 10,
+        "pairs": 23,
+        "seeds": 5
+      },
+      {
+        "model": "low-declarations",
+        "rows": 12,
+        "pairs": 26,
+        "seeds": 4
+      },
+      {
+        "model": "low-jsx-tree",
+        "rows": 9,
+        "pairs": 21,
+        "seeds": 4
+      },
+      {
+        "model": "low-assignment",
+        "rows": 11,
+        "pairs": 27,
+        "seeds": 4
+      },
+      {
+        "model": "low-calls",
+        "rows": 9,
+        "pairs": 21,
+        "seeds": 4
+      },
+      {
+        "model": "low-type-access",
+        "rows": 12,
+        "pairs": 26,
+        "seeds": 4
+      }
+    ],
+    "tlcDistinctStates": {
+      "LoopContexts": 2730,
+      "CallbackScopes": 90,
+      "LowModulePublication": 288,
+      "BroadExtraction": 332
+    },
+    "generatedCMutationProbes": [
+      {
+        "name": "decline-loop-jump",
+        "source": "for (const item of data) { if (item < limit) break; }",
+        "baseline": {
+          "path": "fast",
+          "candidates": [
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": "<",
+              "replacement": "<=",
+              "edit": [
+                36,
+                37
+              ],
+              "left": [
+                31,
+                35
+              ],
+              "right": [
+                38,
+                43
+              ]
+            }
+          ]
+        },
+        "mutant": {
+          "path": "diagnostic",
+          "candidates": []
+        }
+      },
+      {
+        "name": "disable-module-await",
+        "source": "await read() < limit;",
+        "baseline": {
+          "path": "fast",
+          "candidates": [
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": "<",
+              "replacement": "<=",
+              "edit": [
+                13,
+                14
+              ],
+              "left": [
+                0,
+                12
+              ],
+              "right": [
+                15,
+                20
+              ]
+            }
+          ]
+        },
+        "mutant": {
+          "path": "diagnostic",
+          "candidates": []
+        }
+      },
+      {
+        "name": "decline-named-closing-tag",
+        "source": "const view = <A>{item < limit}</A>;",
+        "baseline": {
+          "path": "fast",
+          "candidates": [
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": "<",
+              "replacement": "<=",
+              "edit": [
+                22,
+                23
+              ],
+              "left": [
+                17,
+                21
+              ],
+              "right": [
+                24,
+                29
+              ]
+            }
+          ]
+        },
+        "mutant": {
+          "path": "diagnostic",
+          "candidates": []
+        }
+      },
+      {
+        "name": "discard-assignment-target",
+        "source": "const ok = (items[index < limit] = count >= bound) < max;",
+        "baseline": {
+          "path": "fast",
+          "candidates": [
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": "<",
+              "replacement": "<=",
+              "edit": [
+                24,
+                25
+              ],
+              "left": [
+                18,
+                23
+              ],
+              "right": [
+                26,
+                31
+              ]
+            },
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": ">=",
+              "replacement": ">",
+              "edit": [
+                41,
+                43
+              ],
+              "left": [
+                35,
+                40
+              ],
+              "right": [
+                44,
+                49
+              ]
+            },
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": "<",
+              "replacement": "<=",
+              "edit": [
+                51,
+                52
+              ],
+              "left": [
+                11,
+                50
+              ],
+              "right": [
+                53,
+                56
+              ]
+            }
+          ]
+        },
+        "mutant": {
+          "path": "diagnostic",
+          "candidates": []
+        }
+      },
+      {
+        "name": "decline-type-arguments",
+        "source": "const ok = check<Item>(a < b).count >= limit;",
+        "baseline": {
+          "path": "fast",
+          "candidates": [
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": "<",
+              "replacement": "<=",
+              "edit": [
+                25,
+                26
+              ],
+              "left": [
+                23,
+                24
+              ],
+              "right": [
+                27,
+                28
+              ]
+            },
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": ">=",
+              "replacement": ">",
+              "edit": [
+                36,
+                38
+              ],
+              "left": [
+                11,
+                35
+              ],
+              "right": [
+                39,
+                44
+              ]
+            }
+          ]
+        },
+        "mutant": {
+          "path": "diagnostic",
+          "candidates": []
+        }
+      },
+      {
+        "name": "decline-index-type",
+        "source": "type Item = RecordType[\"item\"]; const ok = value < limit;",
+        "baseline": {
+          "path": "fast",
+          "candidates": [
+            {
+              "rule": "comparison-boundary/v1",
+              "operator": "<",
+              "replacement": "<=",
+              "edit": [
+                49,
+                50
+              ],
+              "left": [
+                43,
+                48
+              ],
+              "right": [
+                51,
+                56
+              ]
+            }
+          ]
+        },
+        "mutant": {
+          "path": "diagnostic",
+          "candidates": []
+        }
+      }
+    ]
+  }
+}

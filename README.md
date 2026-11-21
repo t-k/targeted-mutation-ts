@@ -28,7 +28,7 @@ The native build uses the checked-in KaRaMeL C files, Node-API headers, and Rust
 
 The [L1 grammar and trust boundary](docs/l1.md) describe the AST-free Low★ parser, native module extraction, and Yuku fallback. The [recorded differential run](evidence/m1/broad-native-extraction.json) covers Vite, Preact, TypeScript compiler fixtures, mreact, and tachyon-dom.
 
-To build the standalone comparison extractor, run `npm run build:native -- --low-only` and then `node bin/tmt.mjs extract source.ts`. This build uses Node and a C compiler and writes `build/tmt.node`. Supported files use the generated Low★ parser directly. The grammar includes imports, type aliases, property-only interfaces, typed block arrows, collection loops, optional chains, and type assertions. Outside its grammar or resource limits, the standalone CLI exits with a diagnostic and no candidates. Run `npm run build:native` to restore the normal build with broader syntax support.
+To build the standalone comparison extractor, run `npm run build:native -- --low-only` and then `node bin/tmt.mjs extract source.ts`. This build uses Node and a C compiler and writes `build/tmt.node`. Supported files use the generated Low★ parser directly, including typed modules, generic calls, async callbacks, collection loops, and nested TSX. Outside its grammar or resource limits, the standalone CLI exits with a diagnostic and no candidates. Run `npm run build:native` to restore the normal build with broader syntax support.
 
 ## Analyze a Vitest project
 

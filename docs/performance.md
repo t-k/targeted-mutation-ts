@@ -1,5 +1,28 @@
 # Performance measurements
 
+## Low★ control, TSX, and type syntax expansion
+
+Against `3612949`, the AST-free route increased from 554 to 1,139 of 8,549 tracked TS/TSX files and from 40 to 196 of 2,968 comparison candidates. Both logical-rule settings agreed with Yuku on ordered candidates, all byte spans, and complete diagnostic output.
+
+| Checkout | Baseline Low★ files | Current Low★ files | Baseline Low★ candidates | Current Low★ candidates |
+| --- | ---: | ---: | ---: | ---: |
+| Vite | 70 | 145 | 6 | 11 |
+| Preact | 1 | 4 | 0 | 0 |
+| TypeScript compiler fixtures | 339 | 586 | 12 | 41 |
+| mreact | 122 | 322 | 17 | 105 |
+| tachyon-dom | 22 | 82 | 5 | 39 |
+
+The newly covered files include Vite's `client/env.ts` and `node/plugins/pluginFilter.ts` under `packages/vite/src/`, mreact's `packages/router/src/navigation-marker.ts` with 28 candidates, and tachyon-dom's `src/html-raw-text.ts` with five. Low★ extracted two of the 160 candidates in the Vite production-source scope. A clean standalone build reproduced all 196 candidates in 77 files without Cargo, Oxc sources, or npm dependencies. The compiler fixture `circularOptionalityRemoval.ts` moved one candidate from Yuku to Low★. The ordinary build routes 67 mreact candidates, four tachyon-dom candidates, and fourteen TypeScript compiler fixture candidates through Yuku.
+
+| Warm extraction workload | Baseline median | Current median |
+| --- | ---: | ---: |
+| Vite | 54.91 ms | 50.31 ms |
+| Vite production source | 24.28 ms | 23.43 ms |
+| mreact | 304.80 ms | 287.67 ms |
+| tachyon-dom | 79.42 ms | 76.47 ms |
+
+Nine alternating samples used the same source buffers on an Apple M5 Max with Node.js 24.14.0. These measurements cover extraction. The paired samples and standalone candidate spans are in the [audit and benchmark data](../evidence/m1/low-extended-grammar.json).
+
 ## Typed modules, callbacks, and collection loops in Low★
 
 The Low★ path accepts 554 of 8,549 tracked TS/TSX files and extracts 40 of 2,968 candidates. At baseline `54649cb` it accepted 321 files and extracted 16 candidates. Both settings of the JSX logical rule matched Yuku on every ordered candidate field and the full diagnostic output.
