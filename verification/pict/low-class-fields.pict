@@ -1,0 +1,3 @@
+Modifier: Ordinary, Public, PrivateReadonly, StaticProtected, ReadonlyStatic
+Initializer: Comparison, SuperProperty, FunctionArguments, ArrowSuper
+Outcome: Valid, InvalidSuffix, MissingValue

@@ -1,0 +1,7 @@
+Modifier	Initializer	Outcome
+Ordinary	Comparison	Valid
+PrivateReadonly	FunctionArguments	Valid
+StaticProtected	SuperProperty	Valid
+ReadonlyStatic	ArrowSuper	Valid
+Public	Comparison	MissingValue
+Ordinary	SuperProperty	InvalidSuffix

@@ -168,6 +168,7 @@ type super_context =
   | MethodSuper
   | BaseConstructor
   | DerivedConstructor
+  | ClassField
 
 type parser_state = {
   offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used;
@@ -1206,6 +1207,11 @@ let optional_type_parameters (input:tape) (state:parser_state) : Read parser_sta
   else if same input state.offset 60uy then type_parameters input (consume input state 60uy) 16ul 64ul
   else state
 
+let forbidden_field_arguments (input:tape) (st:parser_state) : Read bool input =
+  if st.super_context <> ClassField then false
+  else if same input st.offset 97uy then keyword input (next st.offset) 8ul 0x7267756d656e7473uL
+  else false
+
 let simple_default (input:tape) (state:parser_state) : Read parser_state input =
   let equal = same input state.offset 61uy in
   if state.status <> 0ul || not equal then state
@@ -1213,7 +1219,8 @@ let simple_default (input:tape) (state:parser_state) : Read parser_state input =
     let st = skip input (consume input state 61uy) in
     let first = peek input st.offset in
     let value =
-      if first = 34uy || first = 39uy then from_cursor st (string_end input (next st.offset) first input.size true)
+      if forbidden_field_arguments input st then failed st 1ul
+      else if first = 34uy || first = 39uy then from_cursor st (string_end input (next st.offset) first input.size true)
       else if G.decimal_digit first || first = 46uy then from_cursor st (number_end input st.offset)
       else if first = 45uy then from_cursor st (number_end input (next st.offset))
       else if first = 123uy || first = 91uy then
@@ -1535,17 +1542,47 @@ let postfix_start (input:tape) (base:parsed) : Read postfix_head input =
 let class_keyword (input:tape) (offset:U32.t) : Read bool input =
   keyword input offset 5ul 0x636c617373uL
 
-type class_key = { after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool }
+type class_key = { after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool; readonly_:bool }
 
 let class_key_start (input:tape) (state:parser_state) : Read bool input =
   let byte = peek input state.offset in
   G.identifier_start byte || byte = 34uy || byte = 39uy
 
+type class_prefix = { key_state:parser_state; flags:U32.t }
+
+let class_modifier_width (input:tape) (at:U32.t) (first:U8.t) : Read U32.t input =
+  if first = 115uy then (if keyword input at 6ul 0x737461746963uL then 6ul else 0ul)
+  else if first = 114uy then (if keyword input at 8ul 0x726561646f6e6c79uL then 8ul else 0ul)
+  else if first <> 112uy then 0ul
+  else if keyword input at 6ul 0x7075626c6963uL then 6ul
+  else if keyword input at 7ul 0x70726976617465uL then 7ul
+  else
+    let prefix = word input at 8ul 0uL in
+    if prefix = 0x70726f7465637465uL then
+      if keyword input (plus at 8ul) 1ul 0x64uL then 9ul else 0ul
+    else 0ul
+
+let rec class_modifiers (input:tape) (st:parser_state) (flags fuel:U32.t)
+  : Read class_prefix input (decreases U32.v fuel) =
+  let ordinary = { key_state = st; flags } in
+  if st.status <> 0ul then ordinary
+  else
+    let first = peek input st.offset in
+    let width = class_modifier_width input st.offset first in
+    if width = 0ul then ordinary
+    else
+      let gap = trivia input (plus st.offset width) in
+      let after = from_cursor st gap in
+      let modifier = class_key_start input after in
+      if not modifier || (gap.newline && first <> 115uy) then ordinary
+      else
+        let bit = if first = 115uy then 1ul else if first = 114uy then 2ul else 4ul in
+        if fuel = 0ul || U32.logand bit flags <> 0ul then { ordinary with key_state = failed st 1ul }
+        else class_modifiers input after (U32.logor bit flags) (minus fuel 1ul)
+
 let class_member_key (input:tape) (state:parser_state) : Read class_key input =
-  let static_keyword = keyword input state.offset 6ul 0x737461746963uL in
-  let after_static = if static_keyword then skip input { state with offset = plus state.offset 6ul } else state in
-  let static_ = if static_keyword then class_key_start input after_static else false in
-  let start = if static_ then after_static else state in
+  let prefix = class_modifiers input state 0ul 3ul in
+  let start = prefix.key_state in
   let modifier = async_modifier input start.offset in
   let after_async = if modifier.ok then { start with offset = modifier.at } else start in
   let async_ = if modifier.ok then class_key_start input after_async else false in
@@ -1553,9 +1590,13 @@ let class_member_key (input:tape) (state:parser_state) : Read class_key input =
   let byte = peek input key_start.offset in
   let quoted = byte = 34uy || byte = 39uy in
   let key = property_name input key_start in
+  let accessor = accessor_modifier input key_start in
+  let key_end = from_cursor key_start key in
+  let key_end = if accessor.arity = OrdinaryParameters then key_end else failed key_end 1ul in
   let first = if quoted then next key_start.offset else key_start.offset in
   let last = if quoted then minus key.at 1ul else key.at in
-  { after_key = from_cursor key_start key; first; last; static_; async_ }
+  { after_key = key_end; first; last; async_;
+    static_ = U32.logand prefix.flags 1ul <> 0ul; readonly_ = U32.logand prefix.flags 2ul <> 0ul }
 
 let wide_key_matches (input:tape) (key:class_key) (suffix_size:U32.t) (prefix suffix:U64.t) : Read bool input =
   if minus key.last key.first <> plus 8ul suffix_size then false
@@ -1650,6 +1691,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
   let st = skip input current in
   let start_pos = st.offset in
   if st.status <> 0ul then empty_range st
+  else if forbidden_field_arguments input st then empty_range (failed st 1ul)
   else
     let head = read_atom_head input st in
     let ch = head.token_ in
@@ -1713,7 +1755,9 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         let completed =
           if constructor then
             let target = skip input { st with offset = plus start_pos 3ul } in
-            let named = from_cursor target (name input target.offset false false) in
+            let named =
+              if forbidden_field_arguments input target then failed target 1ul
+              else from_cursor target (name input target.offset false false) in
             let named = qualified_name input named 64ul in
             let tail = skip input named in
             let typed = same input tail.offset 60uy in
@@ -2088,7 +2132,8 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bo
       else if computed || quoted || colon_required || async_method || accessor then empty_range (failed st 1ul)
       else
         let shorthand = name input st.offset false false in
-        if shorthand.ok then empty_range after_key else empty_range (failed st 1ul)
+        let forbidden = forbidden_field_arguments input st in
+        if shorthand.ok && not forbidden then empty_range after_key else empty_range (failed st 1ul)
 and object_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (colon_required:bool)
   : Run parser_state input (decreases %[U32.v fuel; 27; U32.v remaining]) =
   let st = skip input state in
@@ -2609,6 +2654,25 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
   { after_function = { closed with await_allowed = state.await_allowed; in_allowed = state.in_allowed;
       binding_mode = state.binding_mode; super_context = state.super_context }; signature_only }
 
+and class_field_tail (input:tape) (state:parser_state) (fuel:U32.t)
+  : Run parser_state input (decreases %[U32.v fuel; 55; 0]) =
+  let gap = trivia input state.offset in
+  let st = from_cursor state gap in
+  let byte = peek input st.offset in
+  let definite = byte = 33uy && not gap.newline in
+  let optional = byte = 63uy && not gap.newline in
+  let head = if optional || definite then consume input st byte else state in
+  let typed = simple_annotation input head in
+  let after = skip input typed in
+  let equal = same input after.offset 61uy in
+  if definite && (equal || typed.offset = head.offset) then failed after 1ul
+  else if not equal then statement_end input typed typed.offset true
+  else
+    let start = consume input { after with await_allowed = false; super_context = ClassField; in_allowed = true } 61uy in
+    let value = comparison input start fuel in
+    let closed = statement_end input value.parser value.range.G.last true in
+    { closed with await_allowed = state.await_allowed; super_context = state.super_context; in_allowed = state.in_allowed }
+
 and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (derived seen_constructor:bool)
   : Run parser_state input (decreases %[U32.v fuel; 56; U32.v remaining]) =
   let st = skip input state in
@@ -2628,7 +2692,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
       let prototype = if key.static_ then wide_key_matches input key 1ul 0x70726f746f747970uL 0x65uL else false in
       let next_byte = peek input tail.offset in
       let method = next_byte = 40uy || next_byte = 60uy in
-      if prototype || (constructor_name && not method) ||
+      if prototype || (constructor_name && not method) || (key.readonly_ && method) ||
         (constructor && (seen_constructor || key.async_ || next_byte <> 40uy)) then failed tail 1ul
       else
         let after =
@@ -2638,13 +2702,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
               let mode = if not constructor then MethodSuper else if derived then DerivedConstructor else BaseConstructor in
               function_tail input tail (minus fuel 1ul) key.async_ mode
           else if key.async_ then failed tail 1ul
-          else
-            let field =
-              if next_byte = 63uy then
-                let annotation = skip input (consume input tail 63uy) in
-                annotation_type input (consume input annotation 58uy) 16ul 64ul
-              else simple_annotation input key.after_key in
-            statement_end input field field.offset true in
+          else class_field_tail input key.after_key fuel in
         class_members input after fuel (minus remaining 1ul) derived (seen_constructor || constructor)
 and class_tail (input:tape) (state:parser_state) (fuel:U32.t)
   : Run parser_state input (decreases %[U32.v fuel; 57; 0]) =
@@ -2655,7 +2713,8 @@ and class_tail (input:tape) (state:parser_state) (fuel:U32.t)
     else
       let base = skip input { st with offset = plus st.offset 7ul } in
       let named = name input base.offset false false in
-      if named.ok then skip input (type_reference input base 16ul) else failed base 1ul in
+      let forbidden = forbidden_field_arguments input base in
+      if named.ok && not forbidden then skip input (type_reference input base 16ul) else failed base 1ul in
   let word_ = word input inherited.offset 8ul 0uL in
   let implements = if word_ = 0x696d706c656d656euL then keyword input (plus inherited.offset 8ul) 2ul 0x7473uL
     else false in

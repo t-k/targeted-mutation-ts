@@ -114,6 +114,7 @@ bool TmtParser_uu___is_VarLocals(TmtParser_binding_mode projectee);
 #define TmtParser_MethodSuper 1
 #define TmtParser_BaseConstructor 2
 #define TmtParser_DerivedConstructor 3
+#define TmtParser_ClassField 4
 
 typedef uint8_t TmtParser_super_context;
 
@@ -124,6 +125,8 @@ bool TmtParser_uu___is_MethodSuper(TmtParser_super_context projectee);
 bool TmtParser_uu___is_BaseConstructor(TmtParser_super_context projectee);
 
 bool TmtParser_uu___is_DerivedConstructor(TmtParser_super_context projectee);
+
+bool TmtParser_uu___is_ClassField(TmtParser_super_context projectee);
 
 typedef struct TmtParser_parser_state_s
 {
@@ -632,6 +635,8 @@ TmtParser_call_type_arguments(TmtParser_tape input, TmtParser_parser_state state
 TmtParser_parser_state
 TmtParser_optional_type_parameters(TmtParser_tape input, TmtParser_parser_state state);
 
+bool TmtParser_forbidden_field_arguments(TmtParser_tape input, TmtParser_parser_state st);
+
 TmtParser_parser_state
 TmtParser_simple_default(TmtParser_tape input, TmtParser_parser_state state);
 
@@ -816,10 +821,28 @@ typedef struct TmtParser_class_key_s
   uint32_t last;
   bool static_;
   bool async_;
+  bool readonly_;
 }
 TmtParser_class_key;
 
 bool TmtParser_class_key_start(TmtParser_tape input, TmtParser_parser_state state);
+
+typedef struct TmtParser_class_prefix_s
+{
+  TmtParser_parser_state key_state;
+  uint32_t flags;
+}
+TmtParser_class_prefix;
+
+uint32_t TmtParser_class_modifier_width(TmtParser_tape input, uint32_t at, uint8_t first);
+
+TmtParser_class_prefix
+TmtParser_class_modifiers(
+  TmtParser_tape input0,
+  TmtParser_parser_state st0,
+  uint32_t flags0,
+  uint32_t fuel0
+);
 
 TmtParser_class_key
 TmtParser_class_member_key(TmtParser_tape input, TmtParser_parser_state state);
@@ -1236,6 +1259,9 @@ TmtParser_function_form(
   bool overload,
   TmtParser_parameter_arity arity
 );
+
+TmtParser_parser_state
+TmtParser_class_field_tail(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
 TmtParser_class_members(
