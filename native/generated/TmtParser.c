@@ -410,6 +410,8 @@ TmtParser_cursor TmtParser_name(TmtParser_tape input, uint32_t at, bool jsx, boo
   }
 }
 
+uint32_t TmtParser_binding_region_width = 256U;
+
 bool TmtParser_uu___is_NoLocals(TmtParser_binding_mode projectee)
 {
   switch (projectee)
@@ -1710,7 +1712,7 @@ TmtParser_bind_in_namespace(
   TmtParser_cursor end_name = TmtParser_name(input, pos, false, true);
   TmtParser_parser_state st1 = TmtParser_from_cursor(st, end_name);
   uint32_t length = TmtParser_minus(st1.offset, pos);
-  if (st1.status != 0U || used == 64U || length > 256U)
+  if (st1.status != 0U || used == TmtParser_binding_region_width || length > 256U)
     return ((TmtParser_named_state){ .state = TmtParser_failed(st1, 1U), .used = used });
   else if (TmtParser_name_seen(input, base, floor, used, pos, length, namespace0))
     return ((TmtParser_named_state){ .state = TmtParser_failed(st1, 1U), .used = used });
@@ -3241,7 +3243,8 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
           }
         ));
     uint32_t mark = state.local_names;
-    TmtParser_named_state bound = TmtParser_pattern_binding(input, start, 64U, mark, mark);
+    TmtParser_named_state
+    bound = TmtParser_pattern_binding(input, start, TmtParser_binding_region_width, mark, mark);
     TmtParser_parser_state next_token = TmtParser_skip(input, bound.state);
     bool of_token = TmtParser_keyword(input, next_token.offset, 2U, 0x6f66ULL);
     bool in_token = TmtParser_keyword(input, next_token.offset, 2U, 0x696eULL);
@@ -3276,7 +3279,8 @@ TmtParser_parameter_prefix(
 )
 {
   uint8_t first = TmtParser_peek(input, state.offset);
-  TmtParser_named_state bound = TmtParser_pattern_binding(input, state, 64U, floor, used);
+  TmtParser_named_state
+  bound = TmtParser_pattern_binding(input, state, TmtParser_binding_region_width, floor, used);
   TmtParser_parser_state tail = TmtParser_skip(input, bound.state);
   TmtParser_parser_state typed;
   if (TmtParser_same(input, tail.offset, 63U))
@@ -3318,7 +3322,13 @@ TmtParser_rest_parameter(
         }
       ));
   TmtParser_named_state
-  rest = TmtParser_bind_since(input, named, 64U, floor, used, named.offset);
+  rest =
+    TmtParser_bind_since(input,
+      named,
+      TmtParser_binding_region_width,
+      floor,
+      used,
+      named.offset);
   TmtParser_parser_state
   end_ =
     TmtParser_consume(input,
@@ -3496,7 +3506,13 @@ TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state st
       else
       {
         TmtParser_named_state
-        param = TmtParser_bind_since(input, state, 64U, used, used, state.offset);
+        param =
+          TmtParser_bind_since(input,
+            state,
+            TmtParser_binding_region_width,
+            used,
+            used,
+            state.offset);
         TmtParser_parser_state uu____1 = param.state;
         return
           (
@@ -3910,7 +3926,13 @@ TmtParser_local_type_alias(
         }
       ));
   TmtParser_named_state
-  decl = TmtParser_bind_since(input, start, 64U, floor, used, start.offset);
+  decl =
+    TmtParser_bind_since(input,
+      start,
+      TmtParser_binding_region_width,
+      floor,
+      used,
+      start.offset);
   bool valid = TmtParser_admissible_type_binding(input, start.offset, decl.state.offset);
   TmtParser_parser_state st;
   if (valid)
@@ -6740,7 +6762,8 @@ TmtParser_local_declaration(
         }
       ));
   uint8_t first = TmtParser_peek(input, start.offset);
-  TmtParser_named_state decl = TmtParser_pattern_binding(input, start, 64U, floor, used);
+  TmtParser_named_state
+  decl = TmtParser_pattern_binding(input, start, TmtParser_binding_region_width, floor, used);
   bool optional = width == 3U && TmtGrammar_identifier_start(first);
   TmtParser_parser_state uu____0 = decl.state;
   TmtParser_parser_state
@@ -6822,7 +6845,13 @@ TmtParser_scope_statement(
             }
           ));
       TmtParser_named_state
-      decl = TmtParser_bind_since(input, named, 64U, floor, used, named.offset);
+      decl =
+        TmtParser_bind_since(input,
+          named,
+          TmtParser_binding_region_width,
+          floor,
+          used,
+          named.offset);
       TmtParser_parser_state uu____0 = decl.state;
       TmtParser_parser_state
       start =
@@ -6872,7 +6901,13 @@ TmtParser_scope_statement(
             }
           ));
       TmtParser_named_state
-      decl = TmtParser_bind_since(input, named, 64U, floor, used, named.offset);
+      decl =
+        TmtParser_bind_since(input,
+          named,
+          TmtParser_binding_region_width,
+          floor,
+          used,
+          named.offset);
       TmtParser_parser_state uu____1 = decl.state;
       TmtParser_parser_state
       start =
@@ -7563,7 +7598,8 @@ TmtParser_catch_block(
   {
     TmtParser_parser_state st1 = TmtParser_record_binding_mode(st, TmtParser_LexicalLocals);
     TmtParser_parser_state start = TmtParser_skip(input, TmtParser_consume(input, st1, 40U));
-    TmtParser_named_state bound = TmtParser_pattern_binding(input, start, 64U, used, used);
+    TmtParser_named_state
+    bound = TmtParser_pattern_binding(input, start, TmtParser_binding_region_width, used, used);
     TmtParser_parser_state
     annotated = TmtParser_skip(input, TmtParser_simple_annotation(input, bound.state));
     TmtParser_parser_state body = TmtParser_consume(input, annotated, 41U);

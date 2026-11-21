@@ -86,6 +86,8 @@ bool TmtParser_long_reserved(uint64_t first, uint64_t rest);
 
 TmtParser_cursor TmtParser_name(TmtParser_tape input, uint32_t at, bool jsx, bool binding);
 
+extern uint32_t TmtParser_binding_region_width;
+
 typedef uint32_t TmtParser_names_used;
 
 #define TmtParser_NoLocals 0

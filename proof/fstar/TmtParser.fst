@@ -22,7 +22,7 @@ noeq type tape = {
   size : n:U32.t { U32.v n == C.length source /\ U32.v n <= 1048576 };
   output : B.buffer G.candidate;
   capacity : n:U32.t { U32.v n == B.length output };
-  bindings : b:B.buffer binding_name { B.length b == 128 }
+  bindings : b:B.buffer binding_name { B.length b == 512 }
 }
 
 let live (input:tape) h = C.live h input.source /\ B.live h input.output /\ B.live h input.bindings
@@ -152,7 +152,9 @@ let name (input:tape) (at:U32.t) (jsx binding:bool) : Read cursor input =
       let invalid_binding = binding && (head = 0x6576616cuL || (head = 0x617267756d656e74uL && rest = 0x73uL)) in
       { at = stop; ok = not (reserved || invalid_binding); newline = false }
 
-type names_used = used:U32.t{U32.v used <= 64}
+let binding_region_width : U32.t = 256ul
+
+type names_used = used:U32.t{U32.v used <= U32.v binding_region_width}
 type binding_mode =
   | NoLocals
   | LexicalLocals
@@ -496,7 +498,7 @@ let unary_width (input:tape) (at:U32.t) (byte:U8.t) : Read U32.t input =
     if keyword input at 4ul 0x766f6964uL then 4ul else 0ul
   else 0ul
 
-type names_base = base:U32.t{base = 0ul \/ base = 64ul}
+type names_base = base:U32.t{base = 0ul \/ base = binding_region_width}
 type named_state = { state:parser_state; used:names_used }
 
 let rec same_bytes (input:tape) (left right length:U32.t)
@@ -524,7 +526,7 @@ let bind_in_namespace (input:tape) (st:parser_state) (base:names_base) (floor us
   let end_name = name input pos false true in
   let st = from_cursor st end_name in
   let length = minus st.offset pos in
-  if st.status <> 0ul || used = 64ul || U32.(length >^ 256ul) then { state = failed st 1ul; used }
+  if st.status <> 0ul || used = binding_region_width || U32.(length >^ 256ul) then { state = failed st 1ul; used }
   else if name_seen input base floor used pos length namespace then { state = failed st 1ul; used }
   else (
     B.upd input.bindings (U32.add base used) { span = { G.first = pos; G.last = st.offset }; namespace };
@@ -999,7 +1001,7 @@ let collection_head (input:tape) (state:parser_state) (allow_in:bool) : Run pars
   else
     let start = skip input { state with offset = plus state.offset width } in
     let mark = state.local_names in
-    let bound = pattern_binding input start 64ul mark mark in
+    let bound = pattern_binding input start binding_region_width mark mark in
     let next_token = skip input bound.state in
     let of_token = keyword input next_token.offset 2ul 0x6f66uL in
     let in_token = keyword input next_token.offset 2ul 0x696euL in
@@ -1011,7 +1013,7 @@ type parameter_list = { names:named_state; non_simple:bool }
 
 let parameter_prefix (input:tape) (state:parser_state) (floor used:names_used) : Run parameter_list input =
   let first = peek input state.offset in
-  let bound = pattern_binding input state 64ul floor used in
+  let bound = pattern_binding input state binding_region_width floor used in
   let tail = skip input bound.state in
   let typed = if same input tail.offset 63uy then
       let colon = skip input (consume input tail 63uy) in
@@ -1021,7 +1023,7 @@ let parameter_prefix (input:tape) (state:parser_state) (floor used:names_used) :
 
 let rest_parameter (input:tape) (state:parser_state) (floor used:names_used) : Run parameter_list input =
   let named = skip input { state with offset = plus state.offset 3ul } in
-  let rest = bind_since input named 64ul floor used named.offset in
+  let rest = bind_since input named binding_region_width floor used named.offset in
   let end_ = consume input (skip input (simple_annotation input rest.state)) 41uy in
   { names = { rest with state = end_ }; non_simple = true }
 
@@ -1071,7 +1073,7 @@ let plain_arrow_parameters (input:tape) (state:parser_state) : Run parameter_lis
       let body = arrow_token input (from_cursor state named) in
       if body.status <> 0ul then missed
       else
-        let param = bind_since input state 64ul used used state.offset in
+        let param = bind_since input state binding_region_width used used state.offset in
         { missed with names = { param with state = { param.state with offset = body.offset } } }
     else missed
 
@@ -1209,7 +1211,7 @@ let type_alias_tail (input:tape) (state:parser_state) (before_brace:bool) : Read
 
 let local_type_alias (input:tape) (state:parser_state) (floor used:names_used) : Run named_state input =
   let start = skip input { state with offset = plus state.offset 4ul } in
-  let decl = bind_since input start 64ul floor used start.offset in
+  let decl = bind_since input start binding_region_width floor used start.offset in
   let valid = admissible_type_binding input start.offset decl.state.offset in
   let st = if valid then type_alias_tail input decl.state true else failed decl.state 1ul in
   { decl with state = { st with local_names = decl.used } }
@@ -1951,7 +1953,7 @@ and local_declaration (input:tape) (state:parser_state) (width:U32.t) (floor use
   let state = record_binding_mode state LexicalLocals in
   let start = skip input { state with offset = plus state.offset width } in
   let first = peek input start.offset in
-  let decl = pattern_binding input start 64ul floor used in
+  let decl = pattern_binding input start binding_region_width floor used in
   let optional = width = 3ul && G.identifier_start first in
   let st = { decl.state with local_names = decl.used } in
   { decl with state = variable_initializer input st fuel optional true }
@@ -1970,7 +1972,7 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
     else
       let declared = record_binding_mode st LexicalLocals in
       let named = skip input { declared with offset = plus fn.at 8ul } in
-      let decl = bind_since input named 64ul floor used named.offset in
+      let decl = bind_since input named binding_region_width floor used named.offset in
       let start = { decl.state with local_names = decl.used } in
       { decl with state = function_tail input start (minus fuel 1ul) (st.offset <> fn.at) NoSuper }
   else if class_ then
@@ -1978,7 +1980,7 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
     else
       let declared = record_binding_mode st LexicalLocals in
       let named = skip input { declared with offset = plus st.offset 5ul } in
-      let decl = bind_since input named 64ul floor used named.offset in
+      let decl = bind_since input named binding_region_width floor used named.offset in
       let start = { decl.state with local_names = decl.used } in
       { decl with state = class_tail input start (minus fuel 1ul) }
   else control_statement input st fuel in_function jumps floor used root_control
@@ -2086,7 +2088,7 @@ and catch_block (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bool
   if same input st.offset 40uy then
     let st = record_binding_mode st LexicalLocals in
     let start = skip input (consume input st 40uy) in
-    let bound = pattern_binding input start 64ul used used in
+    let bound = pattern_binding input start binding_region_width used used in
     let annotated = skip input (simple_annotation input bound.state) in
     let body = consume input annotated 41uy in
     control_block input body fuel in_function jumps used bound.used

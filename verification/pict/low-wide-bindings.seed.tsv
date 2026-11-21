@@ -1,0 +1,8 @@
+Region	Count	Names
+Module	High	Unique
+Local	High	Unique
+Module	Capacity	Unique
+Local	Over	Unique
+Module	High	Duplicate
+Local	Capacity	Unique
+Module	Over	Unique

@@ -194,16 +194,12 @@ test('the standalone CLI extracts without Cargo, Oxc, or installed npm dependenc
   }
 });
 
-test('module binding and parameter limits preserve the complete extraction', () => {
+test('function parameter list limits preserve the complete extraction', () => {
   for (const count of [64, 65]) {
-    const module = Array.from({ length: count - 1 }, (_, index) => `const local${index} = 0;`).join('\n') +
-      '\nexport const result = local0 < limit;';
     const params = Array.from({ length: count }, (_, index) => `p${index}: number`).join(', ');
-    const fn = `export function result(${params}) { return p0 < limit; }`;
-    for (const source of [module, fn]) {
-      const actual = extract(source, { requireNative: true });
-      assert.equal(actual.path, count === 64 ? 'fast' : 'native');
-      assert.deepEqual(actual.candidates, extractFallback(source).candidates);
-    }
+    const source = `export function result(${params}) { return p0 < limit; }`;
+    const actual = extract(source, { requireNative: true });
+    assert.equal(actual.path, count === 64 ? 'fast' : 'native');
+    assert.deepEqual(actual.candidates, extractFallback(source).candidates);
   }
 });
