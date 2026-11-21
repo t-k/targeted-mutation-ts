@@ -404,6 +404,14 @@ bool TmtParser_spread_at(TmtParser_tape input, uint32_t at);
 
 TmtParser_cursor TmtParser_predicate_name(TmtParser_tape input, uint32_t at);
 
+typedef struct TmtParser_tuple_item_s
+{
+  TmtParser_parser_state item_end;
+  bool optional_item;
+  bool rest_item;
+}
+TmtParser_tuple_item;
+
 TmtParser_parser_state
 TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
@@ -418,6 +426,18 @@ TmtParser_type_list(
   uint32_t remaining0,
   uint8_t close0,
   bool allow_empty0
+);
+
+TmtParser_tuple_item
+TmtParser_tuple_element(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+
+TmtParser_parser_state
+TmtParser_tuple_list(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool seen_optional0
 );
 
 TmtParser_parser_state

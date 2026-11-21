@@ -694,6 +694,8 @@ let predicate_name (input:tape) (at:U32.t) : Read cursor input =
   if keyword input at 4ul 0x74686973uL then { at = plus at 4ul; ok = true; newline = false }
   else name input at false false
 
+type tuple_item = { item_end:parser_state; optional_item:bool; rest_item:bool }
+
 #push-options "--split_queries always"
 let rec type_reference (input:tape) (state:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 1; 0]) =
@@ -731,6 +733,44 @@ and type_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (close:U8
     else if same input st.offset 44uy then
       type_list input { st with offset = next st.offset } fuel (minus remaining 1ul) close true
     else consume input st close
+and tuple_element (input:tape) (state:parser_state) (fuel:U32.t)
+  : Read tuple_item input (decreases %[U32.v fuel; 5; 0]) =
+  let rest_item = spread_at input state.offset in
+  let start = if rest_item then skip input { state with offset = plus state.offset 3ul } else state in
+  let first = peek input start.offset in
+  let label = if G.identifier_start first then scan_class input start.offset G.Identifier else start.offset in
+  let after_label = if label = start.offset then start else skip input { start with offset = label } in
+  let optional_label = if label = start.offset then false else same input after_label.offset 63uy in
+  let colon = if optional_label then skip input (consume input after_label 63uy) else after_label in
+  let named = if label = start.offset then false else same input colon.offset 58uy in
+  let start = if named then consume input colon 58uy else start in
+  let value = annotation_type input start fuel 64ul in
+  let after_value = trivia input value.offset in
+  let annotated = from_cursor value after_value in
+  let optional_suffix = if named then false else same input annotated.offset 63uy in
+  let optional_item = (named && optional_label) || optional_suffix in
+  let item_end = if rest_item && optional_item then failed annotated 1ul
+    else if optional_suffix then
+      // A question mark after a composite type may belong to its final operand.
+      let primary = type_suffixes input (type_reference input start 0ul) 0ul 16ul false in
+      if after_value.newline || primary.status <> 0ul || primary.offset <> value.offset then failed annotated 1ul
+      else skip input (consume input annotated 63uy)
+    else annotated in
+  { item_end; optional_item; rest_item }
+and tuple_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (seen_optional:bool)
+  : Read parser_state input (decreases %[U32.v fuel; 6; U32.v remaining]) =
+  let st = skip input state in
+  if st.status <> 0ul then st
+  else if same input st.offset 93uy then consume input st 93uy
+  else if remaining = 0ul then failed st 1ul
+  else
+    let item = tuple_element input st fuel in
+    let end_ = item.item_end in
+    if end_.status <> 0ul then end_
+    else if seen_optional && not item.optional_item && not item.rest_item then failed end_ 1ul
+    else if same input end_.offset 44uy then
+      tuple_list input (consume input end_ 44uy) fuel (minus remaining 1ul) (seen_optional || item.optional_item)
+    else consume input end_ 93uy
 and object_type_member (input:tape) (st:parser_state) (fuel:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 6; 0]) =
   let is_readonly = keyword input st.offset 8ul 0x726561646f6e6c79uL in
@@ -827,7 +867,7 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature:bo
         else
           let inside = { st with offset = next st.offset } in
           let inner = minus fuel 1ul in
-          if byte = 91uy then type_list input inside inner 64ul 93uy true
+          if byte = 91uy then tuple_list input inside inner 64ul false
           else if byte = 123uy then object_type input inside inner input.size
           else
             let params = if allow_signature then signature_parameters input inside inner 64ul

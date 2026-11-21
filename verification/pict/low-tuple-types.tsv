@@ -1,0 +1,13 @@
+Tuple	Context	Suffix
+Named	Alias	Valid
+Optional	Interface	Valid
+Rest	Call	Valid
+Unnamed	Alias	Valid
+Optional	Call	Invalid
+Optional	Alias	Invalid
+Unnamed	Call	Invalid
+Named	Interface	Invalid
+Unnamed	Interface	Invalid
+Rest	Interface	Invalid
+Rest	Alias	Invalid
+Named	Call	Valid
