@@ -1,0 +1,5 @@
+Shape	Context	Suffix
+Nested	Module	Valid
+Holes	Arrow	Valid
+Rest	Collection	Valid
+Nested	Arrow	Invalid

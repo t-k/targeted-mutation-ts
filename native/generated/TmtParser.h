@@ -412,8 +412,19 @@ TmtParser_pattern_names(
   uint32_t base0,
   uint32_t floor0,
   uint32_t used0,
-  uint32_t fuel0,
+  uint32_t depth0,
+  uint32_t remaining0,
   uint8_t close0
+);
+
+TmtParser_named_state
+TmtParser_pattern_binding_at(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t base,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t depth
 );
 
 TmtParser_named_state

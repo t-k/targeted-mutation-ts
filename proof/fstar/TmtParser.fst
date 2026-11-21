@@ -891,32 +891,48 @@ let optional_type_parameters (input:tape) (state:parser_state) : Read parser_sta
   else if same input state.offset 60uy then type_parameters input (consume input state 60uy) 64ul
   else state
 
-let rec pattern_names (input:tape) (state:parser_state) (base:names_base) (floor used:names_used) (fuel:U32.t) (close:U8.t)
-  : Run named_state input (decreases U32.v fuel) =
+let rec pattern_names (input:tape) (state:parser_state) (base:names_base) (floor used:names_used)
+  (depth remaining:U32.t) (close:U8.t)
+  : Run named_state input (decreases %[U32.v depth; 1; U32.v remaining]) =
   let st = skip input state in
   if st.status <> 0ul then { state = st; used }
   else if same input st.offset close then { state = consume input st close; used }
-  else if fuel = 0ul then { state = failed st 1ul; used }
+  else if remaining = 0ul then { state = failed st 1ul; used }
   else
-    let start =
-      if close = 125uy then
-        let key = property_name input st in
-        let after = skip input (from_cursor st key) in
-        if same input after.offset 58uy then skip input (consume input after 58uy)
-        else st
-      else st in
-    let bound = bind_since input start base floor used start.offset in
-    let st = skip input bound.state in
-    if same input st.offset 44uy then
-      pattern_names input (consume input st 44uy) base floor bound.used (minus fuel 1ul) close
-    else { bound with state = consume input st close }
+    let byte = peek input st.offset in
+    if close = 93uy && byte = 44uy then
+      pattern_names input (consume input st 44uy) base floor used depth (minus remaining 1ul) close
+    else if spread_at input st.offset then
+      let target = skip input { st with offset = plus st.offset 3ul } in
+      let rest = bind_since input target base floor used target.offset in
+      { rest with state = consume input (skip input rest.state) close }
+    else
+      let bound =
+        if close = 93uy then pattern_binding_at input st base floor used depth
+        else
+          let key = property_name input st in
+          let after = skip input (from_cursor st key) in
+          if same input after.offset 58uy then
+            let target = skip input (consume input after 58uy) in
+            pattern_binding_at input target base floor used depth
+          else bind_since input st base floor used st.offset in
+      let st = skip input bound.state in
+      if same input st.offset 44uy then
+        pattern_names input (consume input st 44uy) base floor bound.used depth (minus remaining 1ul) close
+      else { bound with state = consume input st close }
 
-let pattern_binding (input:tape) (state:parser_state) (base:names_base) (floor used:names_used) : Run named_state input =
+and pattern_binding_at (input:tape) (state:parser_state) (base:names_base) (floor used:names_used) (depth:U32.t)
+  : Run named_state input (decreases %[U32.v depth; 0; 0]) =
   let byte = peek input state.offset in
   if byte = 123uy || byte = 91uy then
-    let close = if byte = 123uy then 125uy else 93uy in
-    pattern_names input (consume input state byte) base floor used 64ul close
+    if depth = 0ul then { state = failed state 1ul; used }
+    else
+      let close = if byte = 123uy then 125uy else 93uy in
+      pattern_names input (consume input state byte) base floor used (minus depth 1ul) 64ul close
   else bind_since input state base floor used state.offset
+
+let pattern_binding (input:tape) (state:parser_state) (base:names_base) (floor used:names_used) : Run named_state input =
+  pattern_binding_at input state base floor used 16ul
 
 let collection_head (input:tape) (state:parser_state) (allow_in:bool) : Run parser_state input =
   let byte = peek input state.offset in
@@ -1426,15 +1442,22 @@ and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (cl
   else if same input st.offset close then consume input st close
   else if remaining = 0ul then failed st 3ul
   else
-    let spread = spread_at input st.offset in
-    let start = if spread then { st with offset = plus st.offset 3ul } else st in
-    let arg = comparison input start fuel in
-    let st = skip input arg.parser in
-    if same input st.offset 44uy then
-      // An ungrouped less-than can open a generic call spanning this comma.
-      if arg.open_angle then failed st 1ul
-      else expression_list input (consume input st 44uy) fuel (minus remaining 1ul) close
-    else consume input st close
+    let hole = if close = 93uy then same input st.offset 44uy else false in
+    if hole then expression_list input (consume input st 44uy) fuel (minus remaining 1ul) close
+    else
+      let spread = spread_at input st.offset in
+      let start = if spread then { st with offset = plus st.offset 3ul } else st in
+      let arg = comparison input start fuel in
+      let st = skip input arg.parser in
+      if same input st.offset 44uy then
+        let next_item = consume input st 44uy in
+        let next_hole = if arg.open_angle && close = 93uy then
+          let next_item = skip input next_item in same input next_item.offset 44uy
+          else false in
+        // A generic argument list cannot continue across an array elision.
+        if arg.open_angle && not next_hole then failed st 1ul
+        else expression_list input next_item fuel (minus remaining 1ul) close
+      else consume input st close
 and object_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (colon_required:bool)
   : Run parser_state input (decreases %[U32.v fuel; 26; U32.v remaining]) =
   let st = skip input state in
