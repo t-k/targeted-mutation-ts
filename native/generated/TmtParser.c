@@ -3839,6 +3839,65 @@ TmtParser_postfix_head TmtParser_postfix_start(TmtParser_tape input, TmtParser_p
     );
 }
 
+TmtParser_array_run
+TmtParser_array_openers(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t count0,
+  uint32_t remaining0
+)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  uint32_t count = count0;
+  uint32_t remaining = remaining0;
+  while (true)
+  {
+    TmtParser_parser_state st = TmtParser_skip(input, state);
+    bool opening = TmtParser_same(input, st.offset, 91U);
+    if (st.status != 0U || !opening || remaining == 0U)
+      return ((TmtParser_array_run){ .inside = st, .openers = count });
+    else
+    {
+      TmtParser_parser_state tmp0 = TmtParser_consume(input, st, 91U);
+      uint32_t tmp1 = TmtParser_next(count);
+      uint32_t tmp = TmtParser_minus(remaining, 1U);
+      state = tmp0;
+      count = tmp1;
+      remaining = tmp;
+    }
+  }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+TmtParser_parser_state
+TmtParser_array_closers(TmtParser_tape input0, TmtParser_parser_state state0, uint32_t count0)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  uint32_t count = count0;
+  while (true)
+    if (state.status != 0U || count == 0U)
+      return state;
+    else
+    {
+      TmtParser_parser_state st = TmtParser_consume(input, TmtParser_skip(input, state), 93U);
+      TmtParser_parser_state tmp0 = st;
+      uint32_t tmp = TmtParser_minus(count, 1U);
+      state = tmp0;
+      count = tmp;
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
 typedef struct __TmtParser_parser_state_TmtParser_assignment_target_s
 {
   TmtParser_parser_state fst;
@@ -4158,7 +4217,12 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
           if (ch == 96U)
             completed = TmtParser_template_body(input, inside, inner, input.size, false);
           else if (ch == 91U)
-            completed = TmtParser_expression_list(input, inside, inner, input.size, 93U);
+          {
+            if (inner <= 8U)
+              completed = TmtParser_deep_array_literal(input, inside, inner);
+            else
+              completed = TmtParser_expression_list(input, inside, inner, input.size, 93U);
+          }
           else
             completed = TmtParser_object_members(input, inside, inner, input.size, false);
         }
@@ -4969,6 +5033,63 @@ TmtParser_dynamic_import(TmtParser_tape input, TmtParser_parser_state state, uin
         tail2 = tail1;
       return TmtParser_consume(input, tail2, 41U);
     }
+  }
+}
+
+TmtParser_parser_state
+TmtParser_deep_array_literal(
+  TmtParser_tape input,
+  TmtParser_parser_state inside,
+  uint32_t fuel
+)
+{
+  TmtParser_array_run run = TmtParser_array_openers(input, inside, 0U, input.size);
+  if (run.openers <= fuel)
+    return TmtParser_expression_list(input, inside, fuel, input.size, 93U);
+  else
+  {
+    TmtParser_parser_state uu____0 = run.inside;
+    TmtParser_parser_state
+    deepest =
+      TmtParser_expression_list(input,
+        (
+          (TmtParser_parser_state){
+            .offset = uu____0.offset,
+            .count = uu____0.count,
+            .depth = TmtParser_minus(64U, fuel),
+            .status = uu____0.status,
+            .local_names = uu____0.local_names,
+            .await_allowed = uu____0.await_allowed,
+            .jsx_allowed = uu____0.jsx_allowed,
+            .module_mode = uu____0.module_mode,
+            .in_allowed = uu____0.in_allowed,
+            .binding_mode = uu____0.binding_mode
+          }
+        ),
+        fuel,
+        input.size,
+        93U);
+    TmtParser_parser_state closed = TmtParser_array_closers(input, deepest, run.openers);
+    uint32_t depth = TmtParser_plus(closed.depth, run.openers);
+    uint32_t depth1 = depth > inside.depth ? depth : inside.depth;
+    if (closed.status != 0U)
+      return TmtParser_failed(inside, 3U);
+    else
+      return
+        (
+          (TmtParser_parser_state){
+            .offset = closed.offset,
+            .count = closed.count,
+            .depth = depth1,
+            .status = closed.status,
+            .local_names = closed.local_names,
+            .await_allowed = closed.await_allowed,
+            .jsx_allowed = closed.jsx_allowed,
+            .module_mode = closed.module_mode,
+            .in_allowed = closed.in_allowed,
+            .binding_mode = closed.binding_mode
+          }
+        );
   }
 }
 

@@ -591,6 +591,24 @@ TmtParser_postfix_head;
 
 TmtParser_postfix_head TmtParser_postfix_start(TmtParser_tape input, TmtParser_parsed base);
 
+typedef struct TmtParser_array_run_s
+{
+  TmtParser_parser_state inside;
+  uint32_t openers;
+}
+TmtParser_array_run;
+
+TmtParser_array_run
+TmtParser_array_openers(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t count0,
+  uint32_t remaining0
+);
+
+TmtParser_parser_state
+TmtParser_array_closers(TmtParser_tape input0, TmtParser_parser_state state0, uint32_t count0);
+
 TmtParser_parsed
 TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel);
 
@@ -624,6 +642,13 @@ TmtParser_postfix(
 
 TmtParser_parser_state
 TmtParser_dynamic_import(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+
+TmtParser_parser_state
+TmtParser_deep_array_literal(
+  TmtParser_tape input,
+  TmtParser_parser_state inside,
+  uint32_t fuel
+);
 
 TmtParser_parser_state
 TmtParser_expression_list(

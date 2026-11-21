@@ -118,7 +118,7 @@ test('the broad parser has enough stack even when called from a short-stack work
     const worker = new Worker(\`
       import assert from 'node:assert/strict';
       import { extract } from ${JSON.stringify(module)};
-      const source = 'const x = ' + '['.repeat(1000) + 'a < b' + ']'.repeat(1000) + ';';
+      const source = 'const x = ' + '['.repeat(1000) + 'a < b], 2' + ']'.repeat(999) + ';';
       const result = extract(source, { requireNative: true });
       assert.equal(result.path, 'native');
       assert.equal(result.reason, 'depth-limit');

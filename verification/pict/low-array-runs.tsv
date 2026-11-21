@@ -1,0 +1,10 @@
+Depth	Element	Suffix
+Shallow	Wide	Valid
+Deep	Trivia	Valid
+Worker	Single	Valid
+Worker	Wide	Invalid
+Deep	Single	Invalid
+Deep	Wide	Invalid
+Worker	Trivia	Invalid
+Shallow	Single	Invalid
+Shallow	Trivia	Invalid

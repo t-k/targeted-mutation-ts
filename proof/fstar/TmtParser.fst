@@ -1219,6 +1219,22 @@ let postfix_start (input:tape) (base:parsed) : Read postfix_head input =
   { after_trivia = st; after_types = generic; token = byte; update = increment;
     type_call = typed; optional_chain = optional; non_null = bang }
 
+type array_run = { inside:parser_state; openers:U32.t }
+
+let rec array_openers (input:tape) (state:parser_state) (count remaining:U32.t)
+  : Read array_run input (decreases U32.v remaining) =
+  let st = skip input state in
+  let opening = same input st.offset 91uy in
+  if st.status <> 0ul || not opening || remaining = 0ul then { inside = st; openers = count }
+  else array_openers input (consume input st 91uy) (next count) (minus remaining 1ul)
+
+let rec array_closers (input:tape) (state:parser_state) (count:U32.t)
+  : Read parser_state input (decreases U32.v count) =
+  if state.status <> 0ul || count = 0ul then state
+  else
+    let st = consume input (skip input state) 93uy in
+    array_closers input st (minus count 1ul)
+
 let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 2; 0]) =
   let st = skip input current in
@@ -1298,7 +1314,9 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           else
             let inside = { st with offset = next start_pos } in
             if ch = 96uy then template_body input inside inner input.size false
-            else if ch = 91uy then expression_list input inside inner input.size 93uy
+            else if ch = 91uy then
+              if U32.(inner <=^ 8ul) then deep_array_literal input inside inner
+              else expression_list input inside inner input.size 93uy
             else object_members input inside inner input.size false in
         postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset }; open_angle = false; outer_or = false; shortcut = 0ul; target = NotAssignable }
           fuel input.size
@@ -1495,6 +1513,19 @@ and dynamic_import (input:tape) (state:parser_state) (fuel:U32.t)
       let tail = skip input value.parser in
       let tail = if same input tail.offset 44uy then skip input (consume input tail 44uy) else tail in
       consume input tail 41uy
+and deep_array_literal (input:tape) (inside:parser_state) (fuel:U32.t)
+  : Run parser_state input (decreases %[U32.v fuel; 27; 0]) =
+  let run = array_openers input inside 0ul input.size in
+  if U32.(run.openers <=^ fuel) then expression_list input inside fuel input.size 93uy
+  else
+    // The leading wrappers cannot fit in the remaining recursive stack.
+    // Read the innermost array once and accept only uninterrupted closing wrappers.
+    let deepest = expression_list input { run.inside with depth = minus 64ul fuel } fuel input.size 93uy in
+    let closed = array_closers input deepest run.openers in
+    let depth = plus closed.depth run.openers in
+    let depth = if U32.(depth >^ inside.depth) then depth else inside.depth in
+    if closed.status <> 0ul then failed inside 3ul else { closed with depth }
+
 and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (close:U8.t)
   : Run parser_state input (decreases %[U32.v fuel; 26; U32.v remaining]) =
   let st = skip input state in
