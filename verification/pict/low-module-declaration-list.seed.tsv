@@ -1,0 +1,7 @@
+Declaration	Binding	Outcome
+Const	Plain	Complete
+Let	Typed	Complete
+Exported	Pattern	Complete
+Exported	Typed	Duplicate
+Const	Pattern	MissingValue
+Let	Plain	BadSuffix

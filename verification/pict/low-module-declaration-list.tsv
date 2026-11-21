@@ -1,0 +1,14 @@
+Declaration	Binding	Outcome
+Const	Plain	Complete
+Let	Typed	Complete
+Exported	Pattern	Complete
+Exported	Typed	Duplicate
+Const	Pattern	MissingValue
+Let	Plain	BadSuffix
+Exported	Plain	MissingValue
+Const	Typed	MissingValue
+Let	Pattern	Duplicate
+Const	Pattern	BadSuffix
+Let	Typed	MissingValue
+Const	Plain	Duplicate
+Exported	Typed	BadSuffix

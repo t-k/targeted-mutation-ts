@@ -8017,10 +8017,22 @@ TmtParser_variable_initializer(
   bool before_brace
 )
 {
+  TmtParser_parsed value = TmtParser_declarator_value(input, state, fuel, optional);
+  return TmtParser_statement_end(input, value.parser, value.range.last, before_brace);
+}
+
+TmtParser_parsed
+TmtParser_declarator_value(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  bool optional
+)
+{
   TmtParser_cursor after_name = TmtParser_trivia(input, state.offset);
   TmtParser_parser_state tail = TmtParser_from_cursor(state, after_name);
   if (tail.status != 0U)
-    return tail;
+    return TmtParser_empty_range(tail);
   else
   {
     uint8_t byte = TmtParser_peek(input, tail.offset);
@@ -8031,9 +8043,9 @@ TmtParser_variable_initializer(
       annotation = TmtParser_annotation_type(input, TmtParser_consume(input, colon, 58U), 16U, 64U);
       TmtParser_parser_state next_token = TmtParser_skip(input, annotation);
       if (TmtParser_same(input, next_token.offset, 61U))
-        return TmtParser_failed(next_token, 1U);
+        return TmtParser_empty_range(TmtParser_failed(next_token, 1U));
       else
-        return TmtParser_statement_end(input, annotation, annotation.offset, before_brace);
+        return TmtParser_empty_range(annotation);
     }
     else
     {
@@ -8048,15 +8060,11 @@ TmtParser_variable_initializer(
       else
         st = tail;
       if (TmtParser_same(input, st.offset, 61U))
-      {
-        TmtParser_parsed
-        value = TmtParser_comparison(input, TmtParser_consume(input, st, 61U), fuel);
-        return TmtParser_statement_end(input, value.parser, value.range.last, before_brace);
-      }
+        return TmtParser_comparison(input, TmtParser_consume(input, st, 61U), fuel);
       else if (optional)
-        return TmtParser_statement_end(input, annotation, annotation.offset, before_brace);
+        return TmtParser_empty_range(annotation);
       else
-        return TmtParser_failed(st, 1U);
+        return TmtParser_empty_range(TmtParser_failed(st, 1U));
     }
   }
 }
@@ -10718,6 +10726,67 @@ TmtParser_module_function(
 }
 
 TmtParser_named_state
+TmtParser_module_lexical_list(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t used0,
+  bool constant0,
+  uint32_t remaining0
+)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  uint32_t used = used0;
+  bool constant = constant0;
+  uint32_t remaining = remaining0;
+  while (true)
+  {
+    TmtParser_parser_state start = TmtParser_skip(input, state);
+    if (start.status != 0U || remaining == 0U)
+      return ((TmtParser_named_state){ .state = TmtParser_failed(start, 1U), .used = used });
+    else
+    {
+      uint8_t first = TmtParser_peek(input, start.offset);
+      TmtParser_named_state decl = TmtParser_pattern_binding(input, start, 0U, 0U, used);
+      TmtParser_parsed
+      value =
+        TmtParser_declarator_value(input,
+          decl.state,
+          64U,
+          !constant && TmtGrammar_identifier_start(first));
+      TmtParser_parser_state tail = TmtParser_skip(input, value.parser);
+      bool comma = TmtParser_same(input, tail.offset, 44U);
+      if (tail.status != 0U)
+        return ((TmtParser_named_state){ .state = tail, .used = decl.used });
+      else if (!comma)
+        return
+          (
+            (TmtParser_named_state){
+              .state = TmtParser_statement_end(input, value.parser, value.range.last, false),
+              .used = decl.used
+            }
+          );
+      else if (value.open_angle)
+        return ((TmtParser_named_state){ .state = TmtParser_failed(tail, 1U), .used = decl.used });
+      else
+      {
+        TmtParser_parser_state tmp0 = TmtParser_consume(input, tail, 44U);
+        uint32_t tmp1 = decl.used;
+        uint32_t tmp = TmtParser_minus(remaining, 1U);
+        state = tmp0;
+        used = tmp1;
+        remaining = tmp;
+      }
+    }
+  }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+TmtParser_named_state
 TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used)
 {
   TmtParser_declaration_head head = TmtParser_declaration_start(input, state);
@@ -10749,15 +10818,14 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
         ));
     if (width == 8U)
       return TmtParser_module_function(input, start, used, head.async_declaration);
+    else if ((width == 3U || width == 5U) && !head.ambient_declaration && !head.class_declaration)
+      return TmtParser_module_lexical_list(input, start, used, width == 5U, input.size);
     else
     {
-      uint8_t first = TmtParser_peek(input, start.offset);
       bool type_only = width == 4U || width == 9U;
       TmtParser_named_state decl;
       if (head.class_declaration)
         decl = TmtParser_bind_at(input, start, 0U, used, start.offset);
-      else if ((width == 3U || width == 5U) && !head.ambient_declaration)
-        decl = TmtParser_pattern_binding(input, start, 0U, 0U, used);
       else
         decl =
           TmtParser_bind_in_namespace(input,
@@ -10814,19 +10882,12 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
         else
           result = TmtParser_type_alias_tail(input, st1, false);
       }
-      else if (head.ambient_declaration)
+      else
       {
         TmtParser_parser_state
         annotation = TmtParser_annotation_type(input, TmtParser_consume(input, st1, 58U), 16U, 64U);
         result = TmtParser_statement_end(input, annotation, annotation.offset, false);
       }
-      else
-        result =
-          TmtParser_variable_initializer(input,
-            decl.state,
-            64U,
-            width == 3U && TmtGrammar_identifier_start(first),
-            false);
       return
         (
           (TmtParser_named_state){

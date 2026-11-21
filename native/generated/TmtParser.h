@@ -1028,6 +1028,14 @@ TmtParser_variable_initializer(
   bool before_brace
 );
 
+TmtParser_parsed
+TmtParser_declarator_value(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  bool optional
+);
+
 TmtParser_parser_state
 TmtParser_binding(
   TmtParser_tape input,
@@ -1291,6 +1299,15 @@ TmtParser_module_function(
   TmtParser_parser_state state,
   uint32_t used,
   bool async_
+);
+
+TmtParser_named_state
+TmtParser_module_lexical_list(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t used0,
+  bool constant0,
+  uint32_t remaining0
 );
 
 TmtParser_named_state

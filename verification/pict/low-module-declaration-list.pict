@@ -1,0 +1,3 @@
+Declaration: Const, Let, Exported
+Binding: Plain, Typed, Pattern
+Outcome: Complete, Duplicate, MissingValue, BadSuffix

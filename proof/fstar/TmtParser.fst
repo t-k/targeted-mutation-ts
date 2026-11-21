@@ -2233,25 +2233,29 @@ and condition (input:tape) (state:parser_state) (fuel:U32.t) : Run parser_state 
 
 and variable_initializer (input:tape) (state:parser_state) (fuel:U32.t) (optional before_brace:bool)
   : Run parser_state input (decreases %[U32.v fuel; 43; 0]) =
+  let value = declarator_value input state fuel optional in
+  statement_end input value.parser value.range.G.last before_brace
+
+and declarator_value (input:tape) (state:parser_state) (fuel:U32.t) (optional:bool)
+  : Run parsed input (decreases %[U32.v fuel; 42; 0]) =
   let after_name = trivia input state.offset in
   let tail = from_cursor state after_name in
-  if tail.status <> 0ul then tail
+  if tail.status <> 0ul then empty_range tail
   else
     let byte = peek input tail.offset in
     if optional && not after_name.newline && byte = 33uy then
       let colon = skip input (consume input tail 33uy) in
       let annotation = annotation_type input (consume input colon 58uy) 16ul 64ul in
       let next_token = skip input annotation in
-      if same input next_token.offset 61uy then failed next_token 1ul
-      else statement_end input annotation annotation.offset before_brace
+      if same input next_token.offset 61uy then empty_range (failed next_token 1ul)
+      else empty_range annotation
     else
       let annotation = if byte = 58uy then annotation_type input (consume input tail 58uy) 16ul 64ul else state in
       let st = if byte = 58uy then skip input annotation else tail in
       if same input st.offset 61uy then
-        let value = comparison input (consume input st 61uy) fuel in
-        statement_end input value.parser value.range.G.last before_brace
-      else if optional then statement_end input annotation annotation.offset before_brace
-      else failed st 1ul
+        comparison input (consume input st 61uy) fuel
+      else if optional then empty_range annotation
+      else empty_range (failed st 1ul)
 
 and binding (input:tape) (state:parser_state) (fuel:U32.t) (in_allowed:bool) : Run parser_state input (decreases %[U32.v fuel; 43; 0]) =
   let st = skip input state in
@@ -2804,6 +2808,21 @@ let module_function (input:tape) (state:parser_state) (used:names_used) (async_:
     { binding with state = if binding.state.status = 0ul then after else failed after 1ul }
 
 #push-options "--split_queries always"
+let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) (constant:bool) (remaining:U32.t)
+  : Run named_state input (decreases U32.v remaining) =
+  let start = skip input state in
+  if start.status <> 0ul || remaining = 0ul then { state = failed start 1ul; used }
+  else
+    let first = peek input start.offset in
+    let decl = pattern_binding input start 0ul 0ul used in
+    let value = declarator_value input decl.state 64ul (not constant && G.identifier_start first) in
+    let tail = skip input value.parser in
+    let comma = same input tail.offset 44uy in
+    if tail.status <> 0ul then { decl with state = tail }
+    else if not comma then { decl with state = statement_end input value.parser value.range.G.last false }
+    else if value.open_angle then { decl with state = failed tail 1ul }
+    else module_lexical_list input (consume input tail 44uy) decl.used constant (minus remaining 1ul)
+
 let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
   let head = declaration_start input state in
   let st = head.after_modifiers in
@@ -2812,12 +2831,12 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
   else
     let start = skip input { st with offset = plus st.offset width } in
     if width = 8ul then module_function input start used head.async_declaration
+    else if (width = 3ul || width = 5ul) && not head.ambient_declaration && not head.class_declaration then
+      module_lexical_list input start used (width = 5ul) input.size
     else
-      let first = peek input start.offset in
       let type_only = width = 4ul || width = 9ul in
       let decl =
         if head.class_declaration then bind_at input start 0ul used start.offset
-        else if (width = 3ul || width = 5ul) && not head.ambient_declaration then pattern_binding input start 0ul 0ul used
         else bind_in_namespace input start 0ul 0ul used start.offset (if type_only then TypeName else ValueName) in
       let st = skip input decl.state in
       let result =
@@ -2831,10 +2850,9 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
             let st = if extends then interface_bases input { st with offset = plus st.offset 7ul } 64ul else st in
             object_type input (consume input st 123uy) 15ul input.size
           else type_alias_tail input st false
-        else if head.ambient_declaration then
+        else
           let annotation = annotation_type input (consume input st 58uy) 16ul 64ul in
-          statement_end input annotation annotation.offset false
-        else variable_initializer input decl.state 64ul (width = 3ul && G.identifier_start first) false in
+          statement_end input annotation annotation.offset false in
       { decl with state = { result with await_allowed = state.await_allowed } }
 #pop-options
 
