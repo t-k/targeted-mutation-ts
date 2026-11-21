@@ -80,6 +80,7 @@ typedef struct TmtParser_parsed_s
 {
   TmtParser_parser_state parser;
   TmtGrammar_span range;
+  uint32_t top_operator;
 }
 TmtParser_parsed;
 
@@ -96,9 +97,6 @@ TmtParser_parser_state
 TmtParser_from_cursor(TmtParser_parser_state state, TmtParser_cursor read);
 
 TmtParser_parser_state TmtParser_skip(TmtParser_tape input, TmtParser_parser_state state);
-
-TmtParser_parsed
-TmtParser_member_tail(TmtParser_tape input0, TmtParser_parsed base0, uint32_t fuel0);
 
 uint32_t TmtParser_operator_end(uint32_t start, uint32_t op);
 
@@ -118,6 +116,23 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
 
 TmtParser_parsed
 TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel);
+
+TmtParser_parsed
+TmtParser_postfix(
+  TmtParser_tape input0,
+  TmtParser_parsed base0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool decimal0
+);
+
+TmtParser_parser_state
+TmtParser_call_arguments(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
 
 TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parser_state state);
 
@@ -162,6 +177,13 @@ TmtParser_statement_end(
 
 TmtParser_parser_state
 TmtParser_return_statement(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
+TmtParser_ordinary_statement(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  bool in_function
+);
 
 TmtParser_parser_state
 TmtParser_control_block(
@@ -220,8 +242,32 @@ TmtParser_bind_at(
   uint32_t pos
 );
 
+bool TmtParser_type_operator(uint64_t packed);
+
+bool TmtParser_builtin_type(uint64_t packed);
+
+TmtParser_cursor TmtParser_type_name(TmtParser_tape input, TmtParser_parser_state state);
+
+uint64_t TmtParser_packed_type(TmtParser_tape input, uint32_t start, uint32_t finish);
+
+bool TmtParser_undefined_type(TmtParser_tape input, uint32_t start, uint32_t finish);
+
+TmtParser_parser_state
+TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+
+TmtParser_parser_state
+TmtParser_type_arguments(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
 TmtParser_parser_state
 TmtParser_simple_annotation(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
+TmtParser_function_type_parameter(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
 TmtParser_parameters(

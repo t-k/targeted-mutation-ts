@@ -214,6 +214,11 @@ export function extract(input, options = {}) {
       })) };
     }
     reason = reasons[status];
+    if (native.standalone) {
+      return { path: 'diagnostic', reason, metrics, candidates: [], diagnostics: [{
+        severity: 'error', message: 'Standalone Low* extraction declined the source', start: 0, end: 0,
+      }] };
+    }
     if (status === 1 && mode === 'module') {
       const broad = extractNativeSyntax(source, dialect, options.logical);
       if (broad) return broad;

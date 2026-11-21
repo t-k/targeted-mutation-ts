@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
 import { extract, extractFallback } from '../src/extract.mjs';
 
@@ -78,4 +80,129 @@ test('a complete typed module is extracted without either grammar fallback', () 
   `;
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8', timeout: 20_000 });
   assert.equal(child.status, 0, child.error?.message ?? child.stderr);
+});
+
+const signatures = {
+  Simple: '(queue: Queue): void',
+  Generic: '<Item>(queue: Map<string, Item>): void',
+  Nested: '<Item>(queue: Map<string, Map<number, Item>>): void',
+};
+const expressions = {
+  Call: 'queue.peek().size < limit',
+  Arguments: 'queue.pick((left < right), value).size >= 0',
+  NonNull: 'queue.keys().next().value! > limit',
+};
+const expressionRows = readFileSync(new URL('../verification/pict/module-expressions.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of expressionRows) {
+  const [signature, expression, suffix] = row.split('\t');
+  test(`Low* module expressions: ${signature} ${expression} ${suffix}`, () => {
+    const source = `export function scan${signatures[signature]} { return ${expressions[expression]};${suffix === 'Valid' ? ' }' : ''}`;
+    const result = extract(source, { requireNative: true });
+    const reference = extractFallback(source);
+    assert.equal(result.path, suffix === 'Valid' ? 'fast' : 'diagnostic');
+    assert.deepEqual(result.candidates, reference.candidates);
+    assert.deepEqual(result.diagnostics, reference.diagnostics);
+  });
+}
+
+test('native extracts from a bounded map update with a generic signature and nested methods', () => {
+  const source = [
+    'export function remember<T>(entries: Map<string, T>, key: string, value: T): void {',
+    '  entries.set(key, value);',
+    '  while (entries.size > 32) { entries.delete(entries.keys().next().value!); }',
+    '}',
+  ].join('\n');
+  const result = extract(source, { requireNative: true });
+  assert.equal(result.path, 'fast');
+  assert.equal(result.candidates.length, 1);
+  assert.deepEqual(result.candidates, extractFallback(source).candidates);
+});
+
+test('a generic call is never exposed as two relational arguments', () => {
+  const source = 'function f() { return foo(make < T, U > (value)) < cap; }';
+  const reference = extractFallback(source);
+  const result = extract(source, { requireNative: true });
+  assert.equal(reference.candidates.length, 1);
+  assert.deepEqual(result.candidates, reference.candidates);
+  assert.deepEqual(result.diagnostics, reference.diagnostics);
+});
+
+test('a type keyword cannot take generic arguments', () => {
+  const source = 'export function f(x: undefined<T>) { return x < y; }';
+  const result = extract(source, { requireNative: true });
+  assert.equal(result.path, 'diagnostic');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.diagnostics, extractFallback(source).diagnostics);
+});
+
+test('a call following a numeric atom on a new line still owns the complete operand span', () => {
+  for (const start of ['return ', '']) {
+    const source = `export function f() { ${start}1\n(value) < cap; }`;
+    const result = extract(source, { requireNative: true });
+    assert.equal(result.path, 'fast');
+    assert.deepEqual(result.candidates, extractFallback(source).candidates);
+  }
+});
+
+test('call depth and candidate allocation preserve complete results at their limits', () => {
+  for (const depth of [64, 65]) {
+    const source = 'const result = ' + 'pick('.repeat(depth) + 'a < b' + ')'.repeat(depth) + ';';
+    const result = extract(source, { requireNative: true });
+    assert.equal(result.path, depth === 64 ? 'fast' : 'fallback');
+    assert.deepEqual(result.candidates, extractFallback(source).candidates);
+  }
+  for (const count of [16, 17, 4_096, 4_097]) {
+    const args = Array(count).fill('(a < b)').join(', ');
+    const result = extract(`const result = pick(${args});`, { requireNative: true });
+    assert.equal(result.path, count <= 4_096 ? 'fast' : 'fallback');
+    assert.equal(result.candidates.length, count);
+    assert.deepEqual(result.candidates, extractFallback(`const result = pick(${args});`).candidates);
+  }
+});
+
+test('the standalone CLI extracts without Cargo, Oxc, or installed npm dependencies', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tmt-standalone-'));
+  try {
+    for (const dir of ['bin', 'src']) cpSync(new URL(`../${dir}/`, import.meta.url), join(root, dir), { recursive: true });
+    mkdirSync(join(root, 'scripts'));
+    cpSync(new URL('../scripts/build-native.mjs', import.meta.url), join(root, 'scripts/build-native.mjs'));
+    cpSync(new URL('../native/', import.meta.url), join(root, 'native'), {
+      recursive: true, filter: path => !path.endsWith('/syntax') && !path.endsWith('/syntax.h'),
+    });
+    const built = spawnSync(process.execPath, ['scripts/build-native.mjs', '--low-only'], {
+      cwd: root, encoding: 'utf8', timeout: 30_000, env: { ...process.env, TMT_CARGO: join(root, 'absent-cargo') },
+    });
+    assert.equal(built.status, 0, built.error?.message ?? built.stderr);
+    const source = 'import { limit } from "./settings"; export function ready(n: number) { return n < limit; }';
+    writeFileSync(join(root, 'source.ts'), source);
+    const native = spawnSync(process.execPath, ['bin/tmt.mjs', 'extract', 'source.ts'], { cwd: root, encoding: 'utf8' });
+    assert.equal(native.status, 0, native.stderr);
+    const result = JSON.parse(native.stdout);
+    assert.equal(result.path, 'fast');
+    assert.deepEqual(result.candidates, extractFallback(source).candidates);
+    writeFileSync(join(root, 'source.ts'), source + '\ninterface Shape { size: number; }');
+    const unsupported = spawnSync(process.execPath, ['bin/tmt.mjs', 'extract', 'source.ts'], { cwd: root, encoding: 'utf8' });
+    assert.equal(unsupported.status, 1, unsupported.stderr);
+    const refusal = JSON.parse(unsupported.stdout);
+    assert.equal(refusal.path, 'diagnostic');
+    assert.equal(refusal.reason, 'outside-l1');
+    assert.deepEqual(refusal.candidates, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('module binding and parameter limits preserve the complete extraction', () => {
+  for (const count of [64, 65]) {
+    const module = Array.from({ length: count - 1 }, (_, index) => `const local${index} = 0;`).join('\n') +
+      '\nexport const result = local0 < limit;';
+    const params = Array.from({ length: count }, (_, index) => `p${index}: number`).join(', ');
+    const fn = `export function result(${params}) { return p0 < limit; }`;
+    for (const source of [module, fn]) {
+      const actual = extract(source, { requireNative: true });
+      assert.equal(actual.path, count === 64 ? 'fast' : 'native');
+      assert.deepEqual(actual.candidates, extractFallback(source).candidates);
+    }
+  }
 });

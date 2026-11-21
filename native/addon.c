@@ -3,8 +3,10 @@
 #include <string.h>
 
 #include "parser.h"
+#ifdef TMT_WITH_OXC
 #include "syntax.h"
 #include "TmtScan.h"
+#endif
 
 #define NAPI(call) do { if ((call) != napi_ok) goto error; } while (0)
 
@@ -85,6 +87,7 @@ error:
   return NULL;
 }
 
+#ifdef TMT_WITH_OXC
 static bool syntax_candidate_valid(const uint8_t *source, uint32_t size, const tmt_syntax_candidate *candidate) {
   const uint32_t start = candidate->edit[0];
   const uint32_t end = candidate->edit[1];
@@ -139,6 +142,7 @@ error:
   napi_throw_error(env, NULL, "Native syntax extractor arguments or allocation failed");
   return NULL;
 }
+#endif
 
 static napi_value init(napi_env env, napi_value exports) {
   napi_value entry;
@@ -146,8 +150,13 @@ static napi_value init(napi_env env, napi_value exports) {
       napi_set_named_property(env, exports, "parse", entry) != napi_ok ||
       napi_create_function(env, "locations", NAPI_AUTO_LENGTH, locations, NULL, &entry) != napi_ok ||
       napi_set_named_property(env, exports, "locations", entry) != napi_ok ||
+#ifdef TMT_WITH_OXC
       napi_create_function(env, "syntax", NAPI_AUTO_LENGTH, syntax, NULL, &entry) != napi_ok ||
       napi_set_named_property(env, exports, "syntax", entry) != napi_ok) {
+#else
+      napi_get_boolean(env, true, &entry) != napi_ok ||
+      napi_set_named_property(env, exports, "standalone", entry) != napi_ok) {
+#endif
     napi_throw_error(env, NULL, "Unable to register the native parser");
     return NULL;
   }

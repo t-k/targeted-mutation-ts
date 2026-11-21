@@ -1,0 +1,10 @@
+Signature	Expression	Suffix
+Generic	NonNull	Valid
+Nested	Call	Valid
+Simple	Arguments	Valid
+Nested	Arguments	Broken
+Generic	Call	Broken
+Generic	Arguments	Broken
+Nested	NonNull	Broken
+Simple	Call	Broken
+Simple	NonNull	Broken

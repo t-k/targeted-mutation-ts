@@ -20,7 +20,7 @@ for (const row of rows) {
   const [wrapper, operand, suffix] = row.split('\t');
   test(`control extraction: ${wrapper} ${operand} ${suffix}`, () => {
     const input = wrappers[wrapper](operands[operand]) + {
-      Complete: '', Invalid: '\nconst =', Unsupported: '\nfunction other() { return Number(5) < 7; }',
+      Complete: '', Invalid: '\nconst =', Unsupported: '\nfunction other() { return values?.length < 7; }',
     }[suffix];
     const result = extract(input, { requireNative: true });
     const reference = extractFallback(input);
