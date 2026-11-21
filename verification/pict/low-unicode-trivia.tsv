@@ -1,0 +1,16 @@
+Contents	End	Position
+ASCII	LF	Before
+CJK	LS	Between
+Emoji	PS	After
+Emoji	CRLF	Before
+CJK	CR	Before
+Emoji	LF	Between
+ASCII	CR	Between
+ASCII	LS	After
+ASCII	CRLF	After
+CJK	PS	Before
+Emoji	CR	After
+ASCII	PS	Between
+CJK	CRLF	Between
+Emoji	LS	Before
+CJK	LF	After

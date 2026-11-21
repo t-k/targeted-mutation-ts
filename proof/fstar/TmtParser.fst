@@ -52,10 +52,7 @@ let rec line_comment (input:tape) (at:U32.t) (fuel:U32.t)
   else
     let stop = line_break input at in
     if stop then { at; ok = true; newline = false }
-    else
-      let ch = peek input at in
-      if U8.(ch >=^ 128uy) then { at; ok = false; newline = false }
-      else line_comment input (next at) (minus fuel 1ul)
+    else line_comment input (next at) (minus fuel 1ul)
 
 let rec block_comment (input:tape) (at:U32.t) (newline:bool) (fuel:U32.t)
   : Read cursor input (decreases U32.v fuel) =
@@ -76,6 +73,10 @@ let rec trivia_from (input:tape) (at:U32.t) (newline:bool) (fuel:U32.t)
     let ch = peek input at in
     if G.whitespace ch then
       trivia_from input (next at) (newline || ch = 13uy || ch = 10uy) (minus fuel 1ul)
+    else if ch = 226uy then
+      let separator = S.unicode_line_separator input.source input.size at in
+      if separator then trivia_from input (plus at 3ul) true (minus fuel 1ul)
+      else { at; ok = true; newline }
     else if ch = 47uy then
       let follower = peek input (next at) in
       if follower = 47uy || follower = 42uy then

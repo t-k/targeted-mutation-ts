@@ -63,16 +63,10 @@ TmtParser_cursor TmtParser_line_comment(TmtParser_tape input0, uint32_t at0, uin
         return ((TmtParser_cursor){ .at = at, .ok = true, .newline = false });
       else
       {
-        uint8_t ch = TmtParser_peek(input, at);
-        if (ch >= 128U)
-          return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
-        else
-        {
-          uint32_t tmp0 = TmtParser_next(at);
-          uint32_t tmp = TmtParser_minus(fuel, 1U);
-          at = tmp0;
-          fuel = tmp;
-        }
+        uint32_t tmp0 = TmtParser_next(at);
+        uint32_t tmp = TmtParser_minus(fuel, 1U);
+        at = tmp0;
+        fuel = tmp;
       }
     }
   KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
@@ -139,6 +133,21 @@ TmtParser_trivia_from(TmtParser_tape input0, uint32_t at0, bool newline0, uint32
         at = tmp0;
         newline = tmp1;
         fuel = tmp;
+      }
+      else if (ch == 226U)
+      {
+        bool separator = TmtScan_unicode_line_separator(input.source, input.size, at);
+        if (separator)
+        {
+          uint32_t tmp0 = TmtParser_plus(at, 3U);
+          bool tmp1 = true;
+          uint32_t tmp = TmtParser_minus(fuel, 1U);
+          at = tmp0;
+          newline = tmp1;
+          fuel = tmp;
+        }
+        else
+          return ((TmtParser_cursor){ .at = at, .ok = true, .newline = newline });
       }
       else if (ch == 47U)
       {
