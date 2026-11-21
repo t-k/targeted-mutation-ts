@@ -37,6 +37,11 @@ test('nested arrows preserve surrounding declarations and allow lexical shadowin
     ['const f = (x: number, x: number) => x < y;', 'diagnostic'],
     ['const f = (x: number)\n=> x < y;', 'diagnostic'],
     ['const f = (x: number): boolean\n=> x < y;', 'diagnostic'],
+    ['const f = eval => eval < limit;', 'diagnostic'],
+    ['const f = arguments => arguments < limit;', 'diagnostic'],
+    ['const f = return => a < b;', 'diagnostic'],
+    ['const f = value /* note */ => value < limit;', 'fast'],
+    ['const f = value /*\n*/ => value < limit;', 'diagnostic'],
     ['function f(p: number) { (x < y); const x = p; return x > 1; }', 'fast'],
   ]) {
     const result = extract(source, { requireNative: true });
