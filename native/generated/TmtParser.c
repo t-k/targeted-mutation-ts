@@ -3905,7 +3905,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               .module_mode = st1.module_mode, .in_allowed = st1.in_allowed
             };
           if (ch == 96U)
-            completed = TmtParser_template_body(input, inside, inner, input.size);
+            completed = TmtParser_template_body(input, inside, inner, input.size, false);
           else if (ch == 91U)
             completed = TmtParser_expression_list(input, inside, inner, input.size, 93U);
           else
@@ -4515,9 +4515,8 @@ TmtParser_postfix(
             );
         }
       }
-      else if (byte == 96U)
-        return TmtParser_empty_range(TmtParser_failed(st, 1U));
-      else if (byte != 46U && byte != 40U && byte != 91U && !bang && !optional && !typed)
+      else if
+      (byte != 46U && byte != 40U && byte != 91U && byte != 96U && !bang && !optional && !typed)
         return
           (
             (TmtParser_parsed){
@@ -4562,9 +4561,11 @@ TmtParser_postfix(
         else
           kind = byte;
         TmtParser_parser_state next_st;
-        if (kind == 40U || kind == 91U)
+        if (kind == 40U || kind == 91U || kind == 96U)
         {
-          if (fuel == 0U)
+          if (kind == 96U && (optional || base.target == TmtParser_OptionalChain))
+            next_st = TmtParser_failed(st, 1U);
+          else if (fuel == 0U)
             next_st = TmtParser_failed(st, 3U);
           else
           {
@@ -4585,6 +4586,13 @@ TmtParser_postfix(
                   TmtParser_minus(fuel, 1U),
                   input.size,
                   41U);
+            else if (kind == 96U)
+              next_st =
+                TmtParser_template_body(input,
+                  inside,
+                  TmtParser_minus(fuel, 1U),
+                  input.size,
+                  true);
             else
             {
               TmtParser_parsed
@@ -4999,13 +5007,15 @@ TmtParser_template_body(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
   uint32_t fuel0,
-  uint32_t remaining0
+  uint32_t remaining0,
+  bool tagged0
 )
 {
   TmtParser_tape input = input0;
   TmtParser_parser_state state = state0;
   uint32_t fuel = fuel0;
   uint32_t remaining = remaining0;
+  bool tagged = tagged0;
   while (true)
     if (state.status != 0U)
       return state;
@@ -5049,14 +5059,48 @@ TmtParser_template_body(
                   .await_allowed = state.await_allowed,
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
-                  .in_allowed = state.in_allowed
+                  .in_allowed = true
                 }
               ),
               fuel);
-          st = TmtParser_consume(input, value.parser, 125U);
+          TmtParser_parser_state uu____0 = value.parser;
+          st =
+            TmtParser_consume(input,
+              (
+                (TmtParser_parser_state){
+                  .offset = uu____0.offset,
+                  .count = uu____0.count,
+                  .depth = uu____0.depth,
+                  .status = uu____0.status,
+                  .local_names = uu____0.local_names,
+                  .await_allowed = uu____0.await_allowed,
+                  .jsx_allowed = uu____0.jsx_allowed,
+                  .module_mode = uu____0.module_mode,
+                  .in_allowed = state.in_allowed
+                }
+              ),
+              125U);
         }
         else if (byte == 92U)
-          st = TmtParser_from_cursor(state, TmtParser_escape_end(input, at, true, true));
+        {
+          if (tagged)
+            st =
+              (
+                (TmtParser_parser_state){
+                  .offset = TmtParser_plus(at, 2U),
+                  .count = state.count,
+                  .depth = state.depth,
+                  .status = state.status,
+                  .local_names = state.local_names,
+                  .await_allowed = state.await_allowed,
+                  .jsx_allowed = state.jsx_allowed,
+                  .module_mode = state.module_mode,
+                  .in_allowed = state.in_allowed
+                }
+              );
+          else
+            st = TmtParser_from_cursor(state, TmtParser_escape_end(input, at, true, true));
+        }
         else
           st =
             (

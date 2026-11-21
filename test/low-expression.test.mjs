@@ -125,7 +125,7 @@ test('an import and local binding with the same name stay on the reference route
 test('a line break before a tagged template keeps the full left operand', () => {
   for (const source of ['tag\n`x` < limit;', 'const a = tag\n`x` < limit;', 'if (check) tag\n`x` < limit;']) {
     const result = extract(source, { requireNative: true });
-    assert.notEqual(result.path, 'fast', source);
+    assert.equal(result.path, 'fast', source);
     assert.deepEqual(result.candidates, extractFallback(source).candidates, source);
   }
 });

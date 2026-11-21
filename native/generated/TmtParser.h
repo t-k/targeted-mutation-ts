@@ -617,7 +617,8 @@ TmtParser_template_body(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
   uint32_t fuel0,
-  uint32_t remaining0
+  uint32_t remaining0,
+  bool tagged0
 );
 
 TmtParser_parser_state

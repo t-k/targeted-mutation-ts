@@ -1,0 +1,13 @@
+Tag	Content	Suffix
+Name	Plain	Valid
+Member	RawEscape	Valid
+Call	Substitution	Valid
+LineBreak	Substitution	Valid
+Name	RawEscape	Invalid
+Member	Plain	Invalid
+LineBreak	RawEscape	Invalid
+LineBreak	Plain	Valid
+Name	Substitution	Invalid
+Call	RawEscape	Invalid
+Call	Plain	Invalid
+Member	Substitution	Invalid

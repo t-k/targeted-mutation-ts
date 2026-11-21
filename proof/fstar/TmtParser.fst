@@ -1245,7 +1245,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
             expression_list input args inner input.size 41uy
           else
             let inside = { st with offset = next start_pos } in
-            if ch = 96uy then template_body input inside inner input.size
+            if ch = 96uy then template_body input inside inner input.size false
             else if ch = 91uy then expression_list input inside inner input.size 93uy
             else object_members input inside inner input.size false in
         postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset }; open_angle = false; outer_or = false; shortcut = 0ul; target = NotAssignable }
@@ -1394,9 +1394,8 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
         let end_at = plus st.offset increment in
         { base with parser = { st with offset = end_at }; range = { base.range with G.last = end_at };
           target = NotAssignable }
-    // A tagged template continues the left operand even across a line break.
-    else if byte = 96uy then empty_range (failed st 1ul)
-    else if byte <> 46uy && byte <> 40uy && byte <> 91uy && not bang && not optional && not typed then { base with parser = st }
+    else if byte <> 46uy && byte <> 40uy && byte <> 91uy && byte <> 96uy &&
+      not bang && not optional && not typed then { base with parser = st }
     else if remaining = 0ul then empty_range (failed st 3ul)
     else
       let operand =
@@ -1405,13 +1404,15 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
         else st in
       let kind = if typed then 40uy else if optional then peek input operand.offset else byte in
       let next_st =
-        if kind = 40uy || kind = 91uy then
-          if fuel = 0ul then failed st 3ul
+        if kind = 40uy || kind = 91uy || kind = 96uy then
+          if kind = 96uy && (optional || base.target = OptionalChain) then failed st 1ul
+          else if fuel = 0ul then failed st 3ul
           else
             let depth = minus 65ul fuel in
             let depth = if U32.(depth >^ st.depth) then depth else st.depth in
             let inside = { operand with offset = next operand.offset; depth } in
             if kind = 40uy then expression_list input inside (minus fuel 1ul) input.size 41uy
+            else if kind = 96uy then template_body input inside (minus fuel 1ul) input.size true
             else
               let index = comparison input inside (minus fuel 1ul) in
               consume input index.parser 93uy
@@ -1517,7 +1518,7 @@ and object_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (col
       // A colon in the next property rules out a generic argument list across the comma.
       object_members input (consume input st 44uy) fuel (minus remaining 1ul) value.open_angle
     else consume input st 125uy
-and template_body (input:tape) (state:parser_state) (fuel remaining:U32.t)
+and template_body (input:tape) (state:parser_state) (fuel remaining:U32.t) (tagged:bool)
   : Run parser_state input (decreases %[U32.v fuel; 26; U32.v remaining]) =
   if state.status <> 0ul then state
   else if remaining = 0ul || U32.(state.offset >=^ input.size) then failed state 1ul
@@ -1529,12 +1530,15 @@ and template_body (input:tape) (state:parser_state) (fuel remaining:U32.t)
     else
       let st =
         if byte = 36uy && following = 123uy then
-          let value = comparison input { state with offset = plus at 2ul } fuel in
-          consume input value.parser 125uy
+          let value = comparison input { state with offset = plus at 2ul; in_allowed = true } fuel in
+          consume input { value.parser with in_allowed = state.in_allowed } 125uy
         else if byte = 92uy then
-          from_cursor state (escape_end input at true true)
+          // Tagged templates may contain invalid cooked escapes. Only the next
+          // byte can escape a template delimiter, regardless of cooked value.
+          if tagged then { state with offset = plus at 2ul }
+          else from_cursor state (escape_end input at true true)
         else { state with offset = next at } in
-      template_body input st fuel (minus remaining 1ul)
+      template_body input st fuel (minus remaining 1ul) tagged
 
 and jsx_attribute (input:tape) (state:parser_state) (fuel:U32.t)
   : Run parser_state input (decreases %[U32.v fuel; 30; 0]) =
