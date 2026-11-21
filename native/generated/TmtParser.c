@@ -1268,11 +1268,15 @@ TmtParser_regex_flags(TmtParser_tape input0, uint32_t at0, uint32_t seen0, uint3
   KRML_HOST_EXIT(255U);
 }
 
-TmtParser_regex_result TmtParser_regex_result_at(uint32_t at, bool ok, uint64_t names)
+TmtParser_regex_result
+TmtParser_regex_result_at(uint32_t at, bool ok, TmtParser_regex_captures captures)
 {
   return
     (
-      (TmtParser_regex_result){ .ending = { .at = at, .ok = ok, .newline = false }, .names = names }
+      (TmtParser_regex_result){
+        .ending = { .at = at, .ok = ok, .newline = false },
+        .captures = captures
+      }
     );
 }
 
@@ -1284,7 +1288,7 @@ TmtParser_regex_pattern(
   uint32_t fuel0,
   bool nested0,
   bool can_repeat0,
-  uint64_t names0
+  TmtParser_regex_captures captures0
 )
 {
   TmtParser_tape input = input0;
@@ -1293,10 +1297,10 @@ TmtParser_regex_pattern(
   uint32_t fuel = fuel0;
   bool nested = nested0;
   bool can_repeat = can_repeat0;
-  uint64_t names = names0;
+  TmtParser_regex_captures captures = captures0;
   while (true)
     if (fuel == 0U || at >= input.size)
-      return TmtParser_regex_result_at(at, false, names);
+      return TmtParser_regex_result_at(at, false, captures);
     else
     {
       uint8_t byte = TmtParser_peek(input, at);
@@ -1304,13 +1308,14 @@ TmtParser_regex_pattern(
       if (byte == 47U && !nested)
       {
         TmtParser_cursor ending = TmtParser_regex_flags(input, TmtParser_next(at), 0U, 7U);
-        return ((TmtParser_regex_result){ .ending = ending, .names = names });
+        return ((TmtParser_regex_result){ .ending = ending, .captures = captures });
       }
       else if (byte == 41U && nested)
-        return TmtParser_regex_result_at(TmtParser_next(at), true, names);
+        return TmtParser_regex_result_at(TmtParser_next(at), true, captures);
       else if (byte == 40U)
       {
-        TmtParser_regex_group_result group = TmtParser_regex_group(input, at, depth, rest, names);
+        TmtParser_regex_group_result
+        group = TmtParser_regex_group(input, at, depth, rest, captures);
         TmtParser_regex_result parsed1 = group.pattern;
         if (!parsed1.ending.ok)
           return parsed1;
@@ -1319,11 +1324,11 @@ TmtParser_regex_pattern(
           uint32_t tmp0 = parsed1.ending.at;
           uint32_t tmp1 = rest;
           bool tmp2 = group.repeatable_group;
-          uint64_t tmp = parsed1.names;
+          TmtParser_regex_captures tmp = parsed1.captures;
           at = tmp0;
           fuel = tmp1;
           can_repeat = tmp2;
-          names = tmp;
+          captures = tmp;
         }
       }
       else if (byte == 91U)
@@ -1332,7 +1337,7 @@ TmtParser_regex_pattern(
         TmtParser_cursor
         class_ = TmtParser_regex_class(input, TmtParser_plus(at, negated ? 2U : 1U), rest);
         if (!class_.ok)
-          return ((TmtParser_regex_result){ .ending = class_, .names = names });
+          return ((TmtParser_regex_result){ .ending = class_, .captures = captures });
         else
         {
           uint32_t tmp0 = class_.at;
@@ -1345,17 +1350,36 @@ TmtParser_regex_pattern(
       }
       else if (byte == 92U)
       {
-        TmtParser_regex_unit escaped = TmtParser_regex_escape(input, at, false);
-        if (!escaped.unit_ok)
-          return TmtParser_regex_result_at(at, false, names);
+        uint8_t first = TmtParser_peek(input, TmtParser_next(at));
+        if (first >= 49U && first <= 57U)
+        {
+          TmtParser_regex_count index = TmtParser_regex_decimal(input, TmtParser_next(at), 0U, 6U);
+          if (index.count_ok && index.count_value <= captures.count1)
+          {
+            uint32_t tmp0 = index.count_end;
+            uint32_t tmp1 = rest;
+            bool tmp = true;
+            at = tmp0;
+            fuel = tmp1;
+            can_repeat = tmp;
+          }
+          else
+            return TmtParser_regex_result_at(at, false, captures);
+        }
         else
         {
-          uint32_t tmp0 = escaped.unit_end;
-          uint32_t tmp1 = rest;
-          bool tmp = escaped.repeatable;
-          at = tmp0;
-          fuel = tmp1;
-          can_repeat = tmp;
+          TmtParser_regex_unit escaped = TmtParser_regex_escape(input, at, false);
+          if (!escaped.unit_ok)
+            return TmtParser_regex_result_at(at, false, captures);
+          else
+          {
+            uint32_t tmp0 = escaped.unit_end;
+            uint32_t tmp1 = rest;
+            bool tmp = escaped.repeatable;
+            at = tmp0;
+            fuel = tmp1;
+            can_repeat = tmp;
+          }
         }
       }
       else if (byte == 124U || byte == 94U || byte == 36U)
@@ -1370,7 +1394,7 @@ TmtParser_regex_pattern(
       else if (byte == 43U || byte == 42U || byte == 63U || byte == 123U)
       {
         if (!can_repeat)
-          return TmtParser_regex_result_at(at, false, names);
+          return TmtParser_regex_result_at(at, false, captures);
         else
         {
           TmtParser_cursor quantifier;
@@ -1380,7 +1404,7 @@ TmtParser_regex_pattern(
             quantifier =
               ((TmtParser_cursor){ .at = TmtParser_next(at), .ok = true, .newline = false });
           if (!quantifier.ok)
-            return ((TmtParser_regex_result){ .ending = quantifier, .names = names });
+            return ((TmtParser_regex_result){ .ending = quantifier, .captures = captures });
           else
           {
             bool lazy_ = TmtParser_same(input, quantifier.at, 63U);
@@ -1409,7 +1433,7 @@ TmtParser_regex_pattern(
         can_repeat = tmp;
       }
       else
-        return TmtParser_regex_result_at(at, false, names);
+        return TmtParser_regex_result_at(at, false, captures);
     }
   KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
     __FILE__,
@@ -1432,12 +1456,13 @@ TmtParser_regex_group(
   uint32_t at,
   uint32_t depth,
   uint32_t fuel,
-  uint64_t names
+  TmtParser_regex_captures captures
 )
 {
   bool question = TmtParser_same(input, TmtParser_next(at), 63U);
   uint8_t marker = TmtParser_peek(input, TmtParser_plus(at, 2U));
   uint32_t prefix = TmtParser_plus(at, 3U);
+  uint64_t names = captures.names;
   __uint32_t_uint64_t_bool scrut;
   if (!question)
     scrut = ((__uint32_t_uint64_t_bool){ .fst = TmtParser_next(at), .snd = names, .thd = true });
@@ -1479,10 +1504,13 @@ TmtParser_regex_group(
   uint32_t start = scrut.fst;
   uint64_t names1 = scrut.snd;
   bool repeatable_group = scrut.thd;
+  bool capturing = !question || marker == 60U && repeatable_group;
   TmtParser_regex_result pattern;
-  if (start == at || depth == 0U)
-    pattern = TmtParser_regex_result_at(at, false, names1);
+  if (start == at || depth == 0U || captures.count1 >= input.size)
+    pattern = TmtParser_regex_result_at(at, false, captures);
   else
+  {
+    uint32_t count = capturing ? captures.count1 + 1U : captures.count1;
     pattern =
       TmtParser_regex_pattern(input,
         start,
@@ -1490,7 +1518,8 @@ TmtParser_regex_group(
         fuel,
         true,
         false,
-        names1);
+        ((TmtParser_regex_captures){ .names = names1, .count1 = count }));
+  }
   return
     ((TmtParser_regex_group_result){ .pattern = pattern, .repeatable_group = repeatable_group });
 }
@@ -1498,7 +1527,14 @@ TmtParser_regex_group(
 TmtParser_cursor TmtParser_regex_end(TmtParser_tape input, uint32_t at)
 {
   TmtParser_regex_result
-  parsed1 = TmtParser_regex_pattern(input, at, 32U, input.size, false, false, 0ULL);
+  parsed1 =
+    TmtParser_regex_pattern(input,
+      at,
+      32U,
+      input.size,
+      false,
+      false,
+      ((TmtParser_regex_captures){ .names = 0ULL, .count1 = 0U }));
   return parsed1.ending;
 }
 

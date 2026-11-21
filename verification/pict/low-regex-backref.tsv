@@ -1,0 +1,13 @@
+Capture	Flag	Reference
+Ordinary	None	Valid
+Named	Unicode	Valid
+Nested	Unicode	Missing
+Alternation	None	Valid
+Ordinary	Unicode	Forward
+Nested	None	Valid
+Ordinary	None	Missing
+Named	None	Forward
+Nested	None	Forward
+Named	Unicode	Missing
+Alternation	Unicode	Missing
+Alternation	Unicode	Forward

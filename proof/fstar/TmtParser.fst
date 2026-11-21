@@ -396,56 +396,65 @@ let rec regex_flags (input:tape) (at seen fuel:U32.t) : Read cursor input (decre
   else if fuel = 0ul || U32.logand bit seen <> 0ul then { at; ok = false; newline = false }
   else regex_flags input (next at) (U32.logor bit seen) (minus fuel 1ul)
 
-type regex_result = { ending:cursor; names:U64.t }
+type regex_captures = { names:U64.t; count:U32.t }
+type regex_result = { ending:cursor; captures:regex_captures }
 type regex_group_result = { pattern:regex_result; repeatable_group:bool }
 
-let regex_result_at (at:U32.t) (ok:bool) (names:U64.t) : regex_result =
-  { ending = { at; ok; newline = false }; names }
+let regex_result_at (at:U32.t) (ok:bool) (captures:regex_captures) : regex_result =
+  { ending = { at; ok; newline = false }; captures }
 
-let rec regex_pattern (input:tape) (at depth fuel:U32.t) (nested can_repeat:bool) (names:U64.t)
+let rec regex_pattern (input:tape) (at depth fuel:U32.t) (nested can_repeat:bool) (captures:regex_captures)
   : Read regex_result input (decreases %[U32.v depth; 1; U32.v fuel]) =
-  if fuel = 0ul || U32.(at >=^ input.size) then regex_result_at at false names
+  if fuel = 0ul || U32.(at >=^ input.size) then regex_result_at at false captures
   else
     let byte = peek input at in
     let rest = minus fuel 1ul in
     if byte = 47uy && not nested then
-      let ending = regex_flags input (next at) 0ul 7ul in { ending; names }
-    else if byte = 41uy && nested then regex_result_at (next at) true names
+      let ending = regex_flags input (next at) 0ul 7ul in { ending; captures }
+    else if byte = 41uy && nested then regex_result_at (next at) true captures
     else if byte = 40uy then
-      let group = regex_group input at depth rest names in
+      let group = regex_group input at depth rest captures in
       let parsed = group.pattern in
       if not parsed.ending.ok then parsed
-      else regex_pattern input parsed.ending.at depth rest nested group.repeatable_group parsed.names
+      else regex_pattern input parsed.ending.at depth rest nested group.repeatable_group parsed.captures
     else if byte = 91uy then
       let negated = same input (next at) 94uy in
       let class_ = regex_class input (plus at (if negated then 2ul else 1ul)) rest in
-      if not class_.ok then { ending = class_; names }
-      else regex_pattern input class_.at depth rest nested true names
+      if not class_.ok then { ending = class_; captures }
+      else regex_pattern input class_.at depth rest nested true captures
     else if byte = 92uy then
-      let escaped = regex_escape input at false in
-      if not escaped.unit_ok then regex_result_at at false names
-      else regex_pattern input escaped.unit_end depth rest nested escaped.repeatable names
+      let first = peek input (next at) in
+      if U8.(first >=^ 49uy && first <=^ 57uy) then
+        let index = regex_decimal input (next at) 0ul 6ul in
+        if index.count_ok && U32.(index.count_value <=^ captures.count) then
+          regex_pattern input index.count_end depth rest nested true captures
+        else regex_result_at at false captures
+      else
+        let escaped = regex_escape input at false in
+        if not escaped.unit_ok then regex_result_at at false captures
+        else regex_pattern input escaped.unit_end depth rest nested escaped.repeatable captures
     else if byte = 124uy || byte = 94uy || byte = 36uy then
-      regex_pattern input (next at) depth rest nested false names
+      regex_pattern input (next at) depth rest nested false captures
     else if byte = 43uy || byte = 42uy || byte = 63uy || byte = 123uy then
-      if not can_repeat then regex_result_at at false names
+      if not can_repeat then regex_result_at at false captures
       else
         let quantifier = if byte = 123uy then regex_counted input at
           else { at = next at; ok = true; newline = false } in
-        if not quantifier.ok then { ending = quantifier; names }
+        if not quantifier.ok then { ending = quantifier; captures }
         else
           let lazy_ = same input quantifier.at 63uy in
           let after = if lazy_ then next quantifier.at else quantifier.at in
-          regex_pattern input after depth rest nested false names
+          regex_pattern input after depth rest nested false captures
     else if regex_printable byte && byte <> 47uy && byte <> 41uy && byte <> 93uy && byte <> 125uy then
-      regex_pattern input (next at) depth rest nested true names
-    else regex_result_at at false names
-and regex_group (input:tape) (at depth fuel:U32.t) (names:U64.t)
+      regex_pattern input (next at) depth rest nested true captures
+    else regex_result_at at false captures
+and regex_group (input:tape) (at depth fuel:U32.t) (captures:regex_captures)
   : Read regex_group_result input (decreases %[U32.v depth; 0; U32.v fuel]) =
   // Only a group descent uses a native stack frame. The flat scanner is tail-recursive.
   let question = same input (next at) 63uy in
   let marker = peek input (plus at 2ul) in
   let prefix = plus at 3ul in
+  let names = captures.names in
   let start, names, repeatable_group =
     if not question then next at, names, true
     else if marker = 58uy then prefix, names, true
@@ -465,12 +474,16 @@ and regex_group (input:tape) (at depth fuel:U32.t) (names:U64.t)
         if closed && U64.logand names bit = 0uL then next limit, U64.logor names bit, true
         else at, names, false
     else at, names, false in
-  let pattern = if start = at || depth = 0ul then regex_result_at at false names
-    else regex_pattern input start (minus depth 1ul) fuel true false names in
+  let capturing = not question || (marker = 60uy && repeatable_group) in
+  let pattern =
+    if start = at || depth = 0ul || U32.(captures.count >=^ input.size) then regex_result_at at false captures
+    else
+      let count = if capturing then U32.add captures.count 1ul else captures.count in
+      regex_pattern input start (minus depth 1ul) fuel true false { names; count } in
   { pattern; repeatable_group }
 
 let regex_end (input:tape) (at:U32.t) : Read cursor input =
-  let parsed = regex_pattern input at 32ul input.size false false 0uL in
+  let parsed = regex_pattern input at 32ul input.size false false { names = 0uL; count = 0ul } in
   parsed.ending
 
 type precedence = p:U32.t{1 <= U32.v p /\ U32.v p <= 10}
