@@ -1,0 +1,6 @@
+Feature	Context	Suffix
+Template	Module	Valid
+Index	Function	Valid
+Constructor	Async	Valid
+Update	Module	Valid
+Index	Async	Invalid
