@@ -1,0 +1,3 @@
+Form: Declaration, NamedExpression, AnonymousExpression, Method
+Async: Ordinary, Async
+Suffix: Valid, Invalid

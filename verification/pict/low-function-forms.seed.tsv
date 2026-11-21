@@ -1,0 +1,6 @@
+Form	Async	Suffix
+Declaration	Ordinary	Valid
+NamedExpression	Async	Valid
+AnonymousExpression	Async	Invalid
+Method	Async	Valid
+Method	Ordinary	Valid
