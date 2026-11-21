@@ -158,9 +158,15 @@ type binding_mode =
   | LexicalLocals
   | VarLocals
 
+type super_context =
+  | NoSuper
+  | MethodSuper
+  | BaseConstructor
+  | DerivedConstructor
+
 type parser_state = {
   offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used;
-  await_allowed:bool; jsx_allowed:bool; module_mode:bool; in_allowed:bool; binding_mode:binding_mode
+  await_allowed:bool; jsx_allowed:bool; module_mode:bool; in_allowed:bool; binding_mode:binding_mode; super_context:super_context
 }
 type assignment_target =
   | NotAssignable
@@ -1247,6 +1253,38 @@ let postfix_start (input:tape) (base:parsed) : Read postfix_head input =
   { after_trivia = st; after_types = generic; token = byte; update = increment;
     type_call = typed; optional_chain = optional; non_null = bang }
 
+let class_keyword (input:tape) (offset:U32.t) : Read bool input =
+  keyword input offset 5ul 0x636c617373uL
+
+type class_key = { after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool }
+
+let class_key_start (input:tape) (state:parser_state) : Read bool input =
+  let byte = peek input state.offset in
+  G.identifier_start byte || byte = 34uy || byte = 39uy
+
+let class_member_key (input:tape) (state:parser_state) : Read class_key input =
+  let static_keyword = keyword input state.offset 6ul 0x737461746963uL in
+  let after_static = if static_keyword then skip input { state with offset = plus state.offset 6ul } else state in
+  let static_ = if static_keyword then class_key_start input after_static else false in
+  let start = if static_ then after_static else state in
+  let modifier = async_modifier input start.offset in
+  let after_async = if modifier.ok then { start with offset = modifier.at } else start in
+  let async_ = if modifier.ok then class_key_start input after_async else false in
+  let key_start = if async_ then after_async else start in
+  let byte = peek input key_start.offset in
+  let quoted = byte = 34uy || byte = 39uy in
+  let key = property_name input key_start in
+  let first = if quoted then next key_start.offset else key_start.offset in
+  let last = if quoted then minus key.at 1ul else key.at in
+  { after_key = from_cursor key_start key; first; last; static_; async_ }
+
+let wide_key_matches (input:tape) (key:class_key) (suffix_size:U32.t) (prefix suffix:U64.t) : Read bool input =
+  if minus key.last key.first <> plus 8ul suffix_size then false
+  else
+    let a = word input key.first 8ul 0uL in
+    let b = word input (plus key.first 8ul) suffix_size 0uL in
+    a = prefix && b = suffix
+
 type array_run = { inside:parser_state; openers:U32.t }
 
 let rec array_openers (input:tape) (state:parser_state) (count remaining:U32.t)
@@ -1263,23 +1301,58 @@ let rec array_closers (input:tape) (state:parser_state) (count:U32.t)
     let st = consume input (skip input state) 93uy in
     array_closers input st (minus count 1ul)
 
+let rec interface_bases (input:tape) (state:parser_state) (remaining:U32.t)
+  : Read parser_state input (decreases U32.v remaining) =
+  let st = skip input state in
+  if st.status <> 0ul || remaining = 0ul then failed st 1ul
+  else
+    let named = name input st.offset false false in
+    if not named.ok then failed st 1ul
+    else
+      let ending = skip input (type_reference input st 16ul) in
+      if same input ending.offset 44uy then
+        interface_bases input (consume input ending 44uy) (minus remaining 1ul)
+      else ending
+
+type atom_head = {
+  token_:U8.t; imported_:bool; super_:bool; fn_:cursor;
+  increment_:U32.t; deleting_:bool; prefix_:U32.t; constructor_:bool
+}
+
+let read_atom_head (input:tape) (st:parser_state) : Read atom_head input =
+  let start_pos = st.offset in
+  let ch = peek input start_pos in
+  let imported = if ch = 105uy then keyword input start_pos 6ul 0x696d706f7274uL else false in
+  let super_ = if ch = 115uy && st.super_context <> NoSuper then
+    keyword input start_pos 5ul 0x7375706572uL else false in
+  let fn = function_start input start_pos in
+  let increment = update_width input start_pos ch in
+  let await_ =
+    if st.await_allowed && ch = 97uy then keyword input start_pos 5ul 0x6177616974uL
+    else false in
+  let deleting = if ch = 100uy then keyword input start_pos 6ul 0x64656c657465uL else false in
+  let prefix = if deleting then 6ul else if await_ then 5ul
+    else if increment <> 0ul then increment else unary_width input start_pos ch in
+  let constructor = if ch = 110uy then keyword input start_pos 3ul 0x6e6577uL else false in
+  { token_ = ch; imported_ = imported; super_; fn_ = fn; increment_ = increment; deleting_ = deleting; prefix_ = prefix;
+    constructor_ = constructor }
+
+#push-options "--split_queries always"
 let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 2; 0]) =
   let st = skip input current in
   let start_pos = st.offset in
   if st.status <> 0ul then empty_range st
   else
-    let ch = peek input start_pos in
-    let imported = if ch = 105uy then keyword input start_pos 6ul 0x696d706f7274uL else false in
-    let fn = function_start input start_pos in
-    let increment = update_width input start_pos ch in
-    let await_ =
-      if st.await_allowed && ch = 97uy then keyword input start_pos 5ul 0x6177616974uL
-      else false in
-    let deleting = if ch = 100uy then keyword input start_pos 6ul 0x64656c657465uL else false in
-    let prefix = if deleting then 6ul else if await_ then 5ul
-      else if increment <> 0ul then increment else unary_width input start_pos ch in
-    let constructor = if ch = 110uy then keyword input start_pos 3ul 0x6e6577uL else false in
+    let head = read_atom_head input st in
+    let ch = head.token_ in
+    let imported = head.imported_ in
+    let super_ = head.super_ in
+    let fn = head.fn_ in
+    let increment = head.increment_ in
+    let deleting = head.deleting_ in
+    let prefix = head.prefix_ in
+    let constructor = head.constructor_ in
     if prefix <> 0ul then
       if fuel = 0ul then empty_range (failed st 3ul)
       else
@@ -1296,9 +1369,10 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         let named =
           if byte = 40uy || byte = 60uy then first
           else from_cursor first (name input first.offset false true) in
-        let closed = function_tail input named (minus fuel 1ul) (start_pos <> fn.at) in
+        let closed = function_tail input named (minus fuel 1ul) (start_pos <> fn.at) NoSuper in
         postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
           open_angle = false; outer_or = false; shortcut = 0ul; target = NotAssignable } fuel input.size
+    else if super_ then super_expression input st fuel
     else if imported then
       let after = skip input { st with offset = plus start_pos 6ul } in
       let byte = peek input after.offset in
@@ -1379,6 +1453,22 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
       let base = { parser = named; range = { G.first = start_pos; G.last = named.offset };
         open_angle = false; outer_or = false; shortcut = 0ul; target } in
       postfix input base fuel input.size
+and super_expression (input:tape) (st:parser_state) (fuel:U32.t)
+  : Run parsed input (decreases %[U32.v fuel; 1; U32.v input.size + 1]) =
+  let start_pos = st.offset in
+  let after = skip input { st with offset = plus start_pos 5ul } in
+  let byte = peek input after.offset in
+  let completed =
+    if byte = 40uy && st.super_context = DerivedConstructor then
+      if fuel = 0ul then failed after 3ul
+      else
+        let depth = minus 65ul fuel in
+        let after = if U32.(depth >^ after.depth) then { after with depth } else after in
+        expression_list input (consume input after 40uy) (minus fuel 1ul) input.size 41uy
+    else if byte = 46uy || byte = 91uy then { st with offset = plus start_pos 5ul }
+    else failed after 1ul in
+  postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset };
+    open_angle = false; outer_or = false; shortcut = 0ul; target = NotAssignable } fuel input.size
 and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 25; 0]) =
   let start = skip input current in
@@ -1612,7 +1702,7 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bo
       let next_token = peek input after_key.offset in
       if not colon_required && (next_token = 40uy || next_token = 60uy) then
         if fuel = 0ul then empty_range (failed after_key 3ul)
-        else empty_range (function_tail input after_key (minus fuel 1ul) async_method)
+        else empty_range (function_tail input after_key (minus fuel 1ul) async_method NoSuper)
       else if computed || quoted || colon_required || async_method then empty_range (failed st 1ul)
       else
         let shorthand = name input st.offset false false in
@@ -1872,6 +1962,8 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
   let width = if root_control then 0ul else local_width input st.offset in
   let fn = if root_control || not st.module_mode then { at = st.offset; ok = false; newline = false }
     else function_start input st.offset in
+  let class_ = if root_control || not st.module_mode then false else
+    let first = peek input st.offset in if first = 99uy then class_keyword input st.offset else false in
   if width <> 0ul then local_declaration input st width floor used fuel
   else if fn.ok then
     if fuel = 0ul then { state = failed st 3ul; used }
@@ -1880,7 +1972,15 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       let named = skip input { declared with offset = plus fn.at 8ul } in
       let decl = bind_since input named 64ul floor used named.offset in
       let start = { decl.state with local_names = decl.used } in
-      { decl with state = function_tail input start (minus fuel 1ul) (st.offset <> fn.at) }
+      { decl with state = function_tail input start (minus fuel 1ul) (st.offset <> fn.at) NoSuper }
+  else if class_ then
+    if fuel = 0ul then { state = failed st 3ul; used }
+    else
+      let declared = record_binding_mode st LexicalLocals in
+      let named = skip input { declared with offset = plus st.offset 5ul } in
+      let decl = bind_since input named 64ul floor used named.offset in
+      let start = { decl.state with local_names = decl.used } in
+      { decl with state = class_tail input start (minus fuel 1ul) }
   else control_statement input st fuel in_function jumps floor used root_control
 and control_sequence (input:tape) (state:parser_state) (fuel remaining:U32.t) (in_function:bool) (jumps:jump_context)
   (floor used:names_used) (root_control:bool)
@@ -2038,17 +2138,77 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
       if same input end_.offset 44uy then
         function_parameters input (consume input end_ 44uy) floor prefix.names.used fuel (minus remaining 1ul) non_simple
       else { names = { prefix.names with state = consume input end_ 41uy }; non_simple }
-and function_tail (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool)
+and function_tail (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (super_:super_context)
   : Run parser_state input (decreases %[U32.v fuel; 54; 0]) =
   let depth = minus 64ul fuel in
-  let state = if U32.(depth >^ state.depth) then { state with depth } else state in
-  let start = skip input (optional_type_parameters input (skip input state)) in
+  let start = if U32.(depth >^ state.depth) then { state with depth } else state in
+  let start = { start with super_context = NoSuper } in
+  let start = skip input (optional_type_parameters input (skip input start)) in
   let floor = state.local_names in
   let params = function_parameters input (consume input start 40uy) floor floor fuel 64ul false in
-  let st = skip input (result_annotation input params.names.state) in
-  let st = { st with await_allowed = async_; in_allowed = true; binding_mode = NoLocals } in
+  let constructor = super_ = BaseConstructor || super_ = DerivedConstructor in
+  let st = if constructor then skip input params.names.state else skip input (result_annotation input params.names.state) in
+  let st = { st with await_allowed = async_; in_allowed = true; binding_mode = NoLocals; super_context = super_ } in
   let closed = control_block input (function_body input st params.non_simple) fuel true NoJump floor params.names.used in
-  { closed with await_allowed = state.await_allowed; in_allowed = state.in_allowed; binding_mode = state.binding_mode }
+  { closed with await_allowed = state.await_allowed; in_allowed = state.in_allowed; binding_mode = state.binding_mode;
+    super_context = state.super_context }
+
+and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (derived seen_constructor:bool)
+  : Run parser_state input (decreases %[U32.v fuel; 56; U32.v remaining]) =
+  let st = skip input state in
+  let byte = peek input st.offset in
+  if st.status <> 0ul then st
+  else if byte = 125uy then consume input st 125uy
+  else if remaining = 0ul then failed st 1ul
+  else if byte = 59uy then
+    class_members input (consume input st 59uy) fuel (minus remaining 1ul) derived seen_constructor
+  else
+    let key = class_member_key input st in
+    let tail = skip input key.after_key in
+    if tail.status <> 0ul then tail
+    else
+      let constructor_name = wide_key_matches input key 3ul 0x636f6e7374727563uL 0x746f72uL in
+      let constructor = constructor_name && not key.static_ in
+      let prototype = if key.static_ then wide_key_matches input key 1ul 0x70726f746f747970uL 0x65uL else false in
+      let next_byte = peek input tail.offset in
+      let method = next_byte = 40uy || next_byte = 60uy in
+      if prototype || (constructor_name && not method) ||
+        (constructor && (seen_constructor || key.async_ || next_byte <> 40uy)) then failed tail 1ul
+      else
+        let after =
+          if method then
+            if fuel = 0ul then failed tail 3ul
+            else
+              let mode = if not constructor then MethodSuper else if derived then DerivedConstructor else BaseConstructor in
+              function_tail input tail (minus fuel 1ul) key.async_ mode
+          else if key.async_ then failed tail 1ul
+          else
+            let field =
+              if next_byte = 63uy then
+                let annotation = skip input (consume input tail 63uy) in
+                annotation_type input (consume input annotation 58uy) 16ul 64ul
+              else simple_annotation input key.after_key in
+            statement_end input field field.offset true in
+        class_members input after fuel (minus remaining 1ul) derived (seen_constructor || constructor)
+and class_tail (input:tape) (state:parser_state) (fuel:U32.t)
+  : Run parser_state input (decreases %[U32.v fuel; 57; 0]) =
+  let st = skip input (optional_type_parameters input (skip input state)) in
+  let derived = keyword input st.offset 7ul 0x657874656e6473uL in
+  let inherited =
+    if not derived then st
+    else
+      let base = skip input { st with offset = plus st.offset 7ul } in
+      let named = name input base.offset false false in
+      if named.ok then skip input (type_reference input base 16ul) else failed base 1ul in
+  let word_ = word input inherited.offset 8ul 0uL in
+  let implements = if word_ = 0x696d706c656d656euL then keyword input (plus inherited.offset 8ul) 2ul 0x7473uL
+    else false in
+  let ready = if implements then interface_bases input { inherited with offset = plus inherited.offset 10ul } 64ul else inherited in
+  let depth = minus 65ul fuel in
+  let ready = if U32.(depth >^ ready.depth) then { ready with depth } else ready in
+  class_members input (consume input ready 123uy) fuel input.size derived false
+
+#pop-options
 
 let declaration (input:tape) (state:parser_state) : Run parser_state input =
   let has_const = keyword input state.offset 5ul 0x636f6e7374uL in
@@ -2153,7 +2313,7 @@ let ambient_modifier (input:tape) (start:U32.t) : Read cursor input =
   else { at = start; ok = false; newline = false }
 
 type declaration_head = {
-  after_modifiers:parser_state; width:U32.t; async_declaration:bool; ambient_declaration:bool
+  after_modifiers:parser_state; width:U32.t; async_declaration:bool; ambient_declaration:bool; class_declaration:bool
 }
 
 let declaration_start (input:tape) (state:parser_state) : Read declaration_head input =
@@ -2164,25 +2324,14 @@ let declaration_start (input:tape) (state:parser_state) : Read declaration_head 
   let st = if async_.ok then { st with offset = async_.at } else st in
   let ambient = ambient_modifier input st.offset in
   let st = if ambient.ok then { st with offset = ambient.at } else st in
+  let class_ = class_keyword input st.offset in
   let width =
-    if keyword input st.offset 8ul 0x66756e6374696f6euL then 8ul
+    if class_ then 5ul
+    else if keyword input st.offset 8ul 0x66756e6374696f6euL then 8ul
     else
       let declared = type_declaration_width input st.offset in
       if declared <> 0ul then declared else local_width input st.offset in
-  { after_modifiers = st; width; async_declaration = async_.ok; ambient_declaration = ambient.ok }
-
-let rec interface_bases (input:tape) (state:parser_state) (remaining:U32.t)
-  : Read parser_state input (decreases U32.v remaining) =
-  let st = skip input state in
-  if st.status <> 0ul || remaining = 0ul then failed st 1ul
-  else
-    let named = name input st.offset false false in
-    if not named.ok then failed st 1ul
-    else
-      let ending = skip input (type_reference input st 16ul) in
-      if same input ending.offset 44uy then
-        interface_bases input (consume input ending 44uy) (minus remaining 1ul)
-      else ending
+  { after_modifiers = st; width; async_declaration = async_.ok; ambient_declaration = ambient.ok; class_declaration = class_ }
 
 #push-options "--split_queries always"
 let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
@@ -2194,11 +2343,14 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
     let start = skip input { st with offset = plus st.offset width } in
     let first = peek input start.offset in
     let type_only = width = 4ul || width = 9ul in
-    let decl = if (width = 3ul || width = 5ul) && not head.ambient_declaration then pattern_binding input start 0ul 0ul used
+    let decl =
+      if head.class_declaration then bind_at input start 0ul used start.offset
+      else if (width = 3ul || width = 5ul) && not head.ambient_declaration then pattern_binding input start 0ul 0ul used
       else bind_in_namespace input start 0ul 0ul used start.offset (if type_only then TypeName else ValueName) in
     let st = skip input decl.state in
     let result =
-      if type_only then
+      if head.class_declaration then class_tail input st 64ul
+      else if type_only then
         let valid = admissible_type_binding input start.offset decl.state.offset in
         if not valid then failed st 1ul
         else if width = 9ul then
@@ -2207,7 +2359,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
           let st = if extends then interface_bases input { st with offset = plus st.offset 7ul } 64ul else st in
           object_type input (consume input st 123uy) 15ul input.size
         else type_alias_tail input st false
-      else if width = 8ul then function_tail input st 64ul head.async_declaration
+      else if width = 8ul then function_tail input st 64ul head.async_declaration NoSuper
       else if head.ambient_declaration then
         let annotation = annotation_type input (consume input st 58uy) 16ul 64ul in
         statement_end input annotation annotation.offset false
@@ -2234,12 +2386,19 @@ let module_export (input:tape) (state:parser_state) : Read export_prefix input =
 
 let default_declaration (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
   let fn = function_start input state.offset in
-  if fn.ok then
+  if class_keyword input state.offset then
+    let start = skip input { state with offset = plus state.offset 5ul } in
+    let byte = peek input start.offset in
+    let derives = keyword input start.offset 7ul 0x657874656e6473uL in
+    let named = if byte = 123uy || byte = 60uy || derives then { state = start; used }
+      else bind_at input start 0ul used start.offset in
+    { named with state = class_tail input named.state 64ul }
+  else if fn.ok then
     let start = skip input { state with offset = plus fn.at 8ul } in
     let byte = peek input start.offset in
     let name = if byte = 40uy || byte = 60uy then { state = start; used }
       else bind_in_namespace input start 0ul 0ul used start.offset ValueName in
-    { name with state = function_tail input name.state 64ul (state.offset <> fn.at) }
+    { name with state = function_tail input name.state 64ul (state.offset <> fn.at) NoSuper }
   else
     let value = comparison input state 64ul in
     { state = statement_end input value.parser value.range.G.last false; used }
@@ -2274,6 +2433,9 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
           else if first = 102uy then keyword input st.offset 8ul 0x66756e6374696f6euL
           else if first = 97uy then (async_function input st.offset).ok
           else if first = 100uy then (ambient_modifier input st.offset).ok
+          else if first = 99uy then
+            let class_ = class_keyword input st.offset in
+            if class_ then true else local_width input st.offset <> 0ul
           else if first = 105uy || first = 116uy then
             let width = type_declaration_width input st.offset in width <> 0ul
           else
@@ -2315,7 +2477,7 @@ let parse (input:tape) (jsx module_mode:bool)
     }) input =
   let initial = skip input {
     offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
-    await_allowed = module_mode; jsx_allowed = jsx; module_mode; in_allowed = true; binding_mode = NoLocals
+    await_allowed = module_mode; jsx_allowed = jsx; module_mode; in_allowed = true; binding_mode = NoLocals; super_context = NoSuper
   } in
   let state = parse_state input initial module_mode in
   let state : parser_state =

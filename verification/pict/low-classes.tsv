@@ -1,0 +1,13 @@
+Member	Placement	Suffix
+Plain	Module	Valid
+Derived	Function	Valid
+Static	Default	Valid
+Field	Function	Valid
+Derived	Module	Invalid
+Static	Module	Invalid
+Derived	Default	Invalid
+Plain	Function	Invalid
+Static	Function	Valid
+Plain	Default	Invalid
+Field	Module	Invalid
+Field	Default	Valid

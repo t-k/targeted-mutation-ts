@@ -100,6 +100,21 @@ bool TmtParser_uu___is_LexicalLocals(TmtParser_binding_mode projectee);
 
 bool TmtParser_uu___is_VarLocals(TmtParser_binding_mode projectee);
 
+#define TmtParser_NoSuper 0
+#define TmtParser_MethodSuper 1
+#define TmtParser_BaseConstructor 2
+#define TmtParser_DerivedConstructor 3
+
+typedef uint8_t TmtParser_super_context;
+
+bool TmtParser_uu___is_NoSuper(TmtParser_super_context projectee);
+
+bool TmtParser_uu___is_MethodSuper(TmtParser_super_context projectee);
+
+bool TmtParser_uu___is_BaseConstructor(TmtParser_super_context projectee);
+
+bool TmtParser_uu___is_DerivedConstructor(TmtParser_super_context projectee);
+
 typedef struct TmtParser_parser_state_s
 {
   uint32_t offset;
@@ -112,6 +127,7 @@ typedef struct TmtParser_parser_state_s
   bool module_mode;
   bool in_allowed;
   TmtParser_binding_mode binding_mode;
+  TmtParser_super_context super_context;
 }
 TmtParser_parser_state;
 
@@ -634,6 +650,32 @@ TmtParser_postfix_head;
 
 TmtParser_postfix_head TmtParser_postfix_start(TmtParser_tape input, TmtParser_parsed base);
 
+bool TmtParser_class_keyword(TmtParser_tape input, uint32_t offset);
+
+typedef struct TmtParser_class_key_s
+{
+  TmtParser_parser_state after_key;
+  uint32_t first;
+  uint32_t last;
+  bool static_;
+  bool async_;
+}
+TmtParser_class_key;
+
+bool TmtParser_class_key_start(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_class_key
+TmtParser_class_member_key(TmtParser_tape input, TmtParser_parser_state state);
+
+bool
+TmtParser_wide_key_matches(
+  TmtParser_tape input,
+  TmtParser_class_key key,
+  uint32_t suffix_size,
+  uint64_t prefix,
+  uint64_t suffix
+);
+
 typedef struct TmtParser_array_run_s
 {
   TmtParser_parser_state inside;
@@ -652,8 +694,33 @@ TmtParser_array_openers(
 TmtParser_parser_state
 TmtParser_array_closers(TmtParser_tape input0, TmtParser_parser_state state0, uint32_t count0);
 
+TmtParser_parser_state
+TmtParser_interface_bases(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t remaining0
+);
+
+typedef struct TmtParser_atom_head_s
+{
+  uint8_t token_;
+  bool imported_;
+  bool super_;
+  TmtParser_cursor fn_;
+  uint32_t increment_;
+  bool deleting_;
+  uint32_t prefix_;
+  bool constructor_;
+}
+TmtParser_atom_head;
+
+TmtParser_atom_head TmtParser_read_atom_head(TmtParser_tape input, TmtParser_parser_state st);
+
 TmtParser_parsed
 TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel);
+
+TmtParser_parsed
+TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint32_t fuel);
 
 TmtParser_parsed
 TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel);
@@ -930,8 +997,22 @@ TmtParser_function_tail(
   TmtParser_tape input,
   TmtParser_parser_state state,
   uint32_t fuel,
-  bool async_
+  bool async_,
+  TmtParser_super_context super_
 );
+
+TmtParser_parser_state
+TmtParser_class_members(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool derived0,
+  bool seen_constructor0
+);
+
+TmtParser_parser_state
+TmtParser_class_tail(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
 TmtParser_declaration(TmtParser_tape input, TmtParser_parser_state state);
@@ -967,18 +1048,12 @@ typedef struct TmtParser_declaration_head_s
   uint32_t width1;
   bool async_declaration;
   bool ambient_declaration;
+  bool class_declaration;
 }
 TmtParser_declaration_head;
 
 TmtParser_declaration_head
 TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state);
-
-TmtParser_parser_state
-TmtParser_interface_bases(
-  TmtParser_tape input0,
-  TmtParser_parser_state state0,
-  uint32_t remaining0
-);
 
 TmtParser_named_state
 TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);
