@@ -2035,16 +2035,53 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
     { decl with state = { result with await_allowed = state.await_allowed } }
 #pop-options
 
-let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t)
+let module_export (input:tape) (state:parser_state) : Read export_prefix input =
+  let start = peek input state.offset in
+  let exported = if start = 101uy then keyword input state.offset 6ul 0x6578706f7274uL else false in
+  if not exported then { after_export = state; export_kind = 0ul }
+  else
+    let tail = skip input { state with offset = plus state.offset 6ul } in
+    if keyword input tail.offset 7ul 0x64656661756c74uL then
+      { after_export = skip input { tail with offset = plus tail.offset 7ul }; export_kind = 1ul }
+    else
+      let type_only = keyword input tail.offset 4ul 0x74797065uL in
+      let star = if type_only then skip input { tail with offset = plus tail.offset 4ul } else tail in
+      if same input star.offset 42uy then
+        { after_export = skip input (consume input star 42uy); export_kind = 2ul }
+      else { after_export = state; export_kind = 0ul }
+
+let default_declaration (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
+  let fn = function_start input state.offset in
+  if fn.ok then
+    let start = skip input { state with offset = plus fn.at 8ul } in
+    let byte = peek input start.offset in
+    let name = if byte = 40uy || byte = 60uy then { state = start; used }
+      else bind_at input start 0ul used start.offset in
+    { name with state = function_tail input name.state 64ul (state.offset <> fn.at) }
+  else
+    let value = comparison input state 64ul in
+    { state = statement_end input value.parser value.range.G.last false; used }
+
+let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (default_seen:bool)
   : Run parser_state input (decreases U32.v fuel) =
   let st = skip input state in
   if st.status <> 0ul || st.offset = input.size then st
   else if fuel = 0ul then failed st 1ul
   else if same input st.offset 59uy then
-    module_sequence input (consume input st 59uy) used (minus fuel 1ul)
+    module_sequence input (consume input st 59uy) used (minus fuel 1ul) default_seen
   else
+    let exported = module_export input st in
     let decl =
-      if keyword input st.offset 6ul 0x696d706f7274uL then
+      if exported.export_kind = 1ul then
+        if default_seen then { state = failed st 1ul; used }
+        else default_declaration input exported.after_export used
+      else if exported.export_kind = 2ul then
+        let tail = exported.after_export in
+        let source = if keyword input tail.offset 4ul 0x66726f6duL then
+          import_source input { tail with offset = plus tail.offset 4ul }
+          else failed tail 1ul in
+        { state = source; used }
+      else if keyword input st.offset 6ul 0x696d706f7274uL then
         if import_expression_start input st then
           { state = control_statement input st 64ul false false 0ul false; used }
         else import_declaration input st used
@@ -2061,7 +2098,7 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
             let width = local_width input st.offset in width <> 0ul in
         if declared then module_declaration input st used
         else { state = control_statement input st 64ul false false 0ul false; used } in
-    module_sequence input decl.state decl.used (minus fuel 1ul)
+    module_sequence input decl.state decl.used (minus fuel 1ul) (default_seen || exported.export_kind = 1ul)
 
 private let parse_state (input:tape) (st:parser_state) (module_mode:bool) : Run parser_state input =
   if st.status <> 0ul || st.offset = input.size then st
@@ -2101,7 +2138,7 @@ let parse (input:tape) (jsx module_mode:bool)
   let state = parse_state input initial module_mode in
   let state : parser_state =
     if module_mode && (state.status = 1ul || (state.status = 0ul && state.offset <> input.size)) then
-      let expanded = module_sequence input initial 0ul input.size in
+      let expanded = module_sequence input initial 0ul input.size false in
       if expanded.status = 1ul then state else expanded
     else state in
   if state.status <> 0ul || state.offset <> input.size then

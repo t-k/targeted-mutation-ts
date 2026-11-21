@@ -820,12 +820,30 @@ TmtParser_interface_bases(
 TmtParser_named_state
 TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);
 
+typedef struct TmtParser_export_prefix_s
+{
+  TmtParser_parser_state after_export;
+  uint32_t export_kind;
+}
+TmtParser_export_prefix;
+
+TmtParser_export_prefix
+TmtParser_module_export(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_named_state
+TmtParser_default_declaration(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t used
+);
+
 TmtParser_parser_state
 TmtParser_module_sequence(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
   uint32_t used0,
-  uint32_t fuel0
+  uint32_t fuel0,
+  bool default_seen0
 );
 
 TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool module_mode);

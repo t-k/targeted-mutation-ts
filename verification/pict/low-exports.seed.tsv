@@ -1,0 +1,6 @@
+Form	Position	Suffix
+Value	First	Valid
+Named	AfterBinding	Valid
+Anonymous	First	Valid
+Star	AfterBinding	Valid
+TypeStar	First	Invalid
