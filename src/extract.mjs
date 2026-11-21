@@ -219,9 +219,9 @@ export function extract(input, options = {}) {
         severity: 'error', message: 'Standalone Low* extraction declined the source', start: 0, end: 0,
       }] };
     }
-    if (status === 1 && mode === 'module') {
+    if ((status === 1 || status === 3) && mode === 'module') {
       const broad = extractNativeSyntax(source, dialect, options.logical);
-      if (broad) return broad;
+      if (broad) return status === 3 ? { ...broad, reason } : broad;
     }
   }
   return { ...extractParsed(fallbackInput, options, true), reason, metrics };

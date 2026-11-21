@@ -1,0 +1,6 @@
+Value	Dialect	Suffix
+Array	TS	Valid
+Object	TSX	Valid
+Arrow	TS	Valid
+Fraction	TSX	Valid
+Arrow	TSX	Invalid

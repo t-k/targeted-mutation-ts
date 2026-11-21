@@ -81,6 +81,7 @@ typedef struct TmtParser_parsed_s
   TmtParser_parser_state parser;
   TmtGrammar_span range;
   bool open_angle;
+  bool outer_or;
 }
 TmtParser_parsed;
 
@@ -139,6 +140,10 @@ TmtParser_binary_operator TmtParser_operator(TmtParser_tape input, uint32_t at);
 
 uint32_t TmtParser_unary_width(TmtParser_tape input, uint32_t at, uint8_t byte);
 
+TmtParser_cursor TmtParser_arrow_head(TmtParser_tape input, TmtParser_parser_state state);
+
+bool TmtParser_proto_key(TmtParser_tape input, uint32_t first, uint32_t last);
+
 TmtParser_parsed
 TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel);
 
@@ -172,11 +177,21 @@ TmtParser_postfix(
 );
 
 TmtParser_parser_state
-TmtParser_call_arguments(
+TmtParser_expression_list(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
   uint32_t fuel0,
-  uint32_t remaining0
+  uint32_t remaining0,
+  uint8_t close0
+);
+
+TmtParser_parser_state
+TmtParser_object_members(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool colon_required0
 );
 
 TmtParser_parser_state
@@ -216,6 +231,8 @@ TmtParser_parser_state TmtParser_condition(TmtParser_tape input, TmtParser_parse
 TmtParser_parser_state TmtParser_binding(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state TmtParser_update(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_cursor TmtParser_assignment_head(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state TmtParser_for_step(TmtParser_tape input, TmtParser_parser_state state);
 
@@ -308,6 +325,16 @@ TmtParser_type_arguments(
 );
 
 TmtParser_parser_state
+TmtParser_array_type_suffixes(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0
+);
+
+TmtParser_parser_state
+TmtParser_annotation_type(TmtParser_tape input0, TmtParser_parser_state state0, uint32_t fuel0);
+
+TmtParser_parser_state
 TmtParser_simple_annotation(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
@@ -381,11 +408,17 @@ TmtParser_import_members(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
   uint32_t used0,
-  uint32_t fuel0
+  uint32_t fuel0,
+  bool allow_type0
 );
 
 TmtParser_named_state
-TmtParser_import_bindings(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);
+TmtParser_import_bindings(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t used,
+  bool allow_type
+);
 
 TmtParser_named_state
 TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);

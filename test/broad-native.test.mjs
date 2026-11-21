@@ -121,6 +121,7 @@ test('the broad parser has enough stack even when called from a short-stack work
       const source = 'const x = ' + '['.repeat(1000) + 'a < b' + ']'.repeat(1000) + ';';
       const result = extract(source, { requireNative: true });
       assert.equal(result.path, 'native');
+      assert.equal(result.reason, 'depth-limit');
       assert.equal(result.candidates.length, 1);
     \`, { eval: true, resourceLimits: { stackSizeMb: 0.5 } });
     const exit = await new Promise((resolve, reject) => {

@@ -51,7 +51,7 @@ test('inputs outside the Low* grammar receive complete extraction', () => {
     ['const x = /[<]/.test("a") && 3 / 4 > 0;', 'ts', 1],
     ['const x = String.raw`x > < ${2 >= 3}`;', 'ts', 1],
     ['const x = <A><B valid={3 < 5} /></A>;', 'tsx', 1],
-    ['const x = ' + '('.repeat(65) + '2 >= 3' + ')'.repeat(65), 'ts', 1, 'fallback'],
+    ['const x = ' + '('.repeat(65) + '2 >= 3' + ')'.repeat(65), 'ts', 1, 'native'],
     ['const x = 2 < 3; const y = obj?.count > 5;', 'ts', 2],
   ]) {
     const result = extract(src, { dialect, ...fast });

@@ -1,0 +1,3 @@
+Value: Array, Object, Arrow, Fraction
+Dialect: TS, TSX
+Suffix: Valid, Invalid

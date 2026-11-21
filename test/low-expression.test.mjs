@@ -129,3 +129,19 @@ test('a line break before a tagged template keeps the full left operand', () => 
     assert.deepEqual(result.candidates, extractFallback(source).candidates, source);
   }
 });
+
+test('wider precedence preserves the direct JSX disabled disjunction rule', () => {
+  for (const [attribute, path] of [
+    ['disabled={x > n || count >= 2}', 'native'],
+    ['disabled={(x > n || count >= 2)}', 'fast'],
+    ['hidden={x > n || count >= 2}', 'fast'],
+  ]) {
+    const source = `const view = <button ${attribute}/>;`;
+    for (const logical of [false, true]) {
+      const options = { dialect: 'tsx', logical, requireNative: true };
+      const result = extract(source, options);
+      assert.equal(result.path, path, source);
+      assert.deepEqual(result.candidates, extractFallback(source, options).candidates);
+    }
+  }
+});

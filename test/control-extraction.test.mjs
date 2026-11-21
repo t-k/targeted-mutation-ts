@@ -61,9 +61,10 @@ test('rejects restricted bindings, malformed postfix updates, and excess stateme
   }
   const deep = 'if (a < b) { '.repeat(70) + '}'.repeat(70);
   const result = extract(deep, { requireNative: true });
-  assert.equal(result.path, 'fallback');
-  assert.equal(result.metrics.maxDepth, 64);
+  assert.equal(result.path, 'native');
+  assert.equal(result.reason, 'depth-limit');
   assert.equal(result.candidates.length, 70);
+  assert.deepEqual(result.candidates, extractFallback(deep).candidates);
 });
 
 test('an unterminated comment rejects a deep prefix without publishing native candidates', () => {
