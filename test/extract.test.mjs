@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { extract, extractYuku } from '../src/extract.mjs';
+import { extract, extractFallback } from '../src/extract.mjs';
 
 const badge = 'export const Badge = (n: number) => <Tag title="🐈 > 2" hi={n /* < */ >= 3} />';
 const fast = { requireNative: true };
@@ -14,7 +14,7 @@ test('the badge uses the generated native path and returns the exact UTF-8 spans
     edit: [72, 74], left: [62, 63], right: [75, 76],
   }]);
   assert.equal(result.metrics.astNodes, 0);
-  assert.deepEqual(result.candidates, extractYuku(badge, { dialect: 'tsx' }).candidates);
+  assert.deepEqual(result.candidates, extractFallback(badge, { dialect: 'tsx' }).candidates);
 });
 
 const rows = readFileSync(new URL('../verification/pict/m1-extraction.tsv', import.meta.url), 'utf8').trim().split(/\r?\n/).slice(1);
@@ -33,7 +33,7 @@ for (const row of rows) {
     assert.equal(result.path, 'fast');
     assert.equal(result.candidates.length, 1);
     assert.equal(result.candidates[0].operator, operator);
-    assert.deepEqual(result.candidates, extractYuku(source, options).candidates);
+    assert.deepEqual(result.candidates, extractFallback(source, options).candidates);
   });
 }
 
@@ -42,10 +42,10 @@ test('nested comparisons retain lexical order and parenthesized operand spans', 
   const result = extract(src, fast);
   assert.equal(result.path, 'fast');
   assert.deepEqual(result.candidates.map(site => site.operator), ['<', '<=', '>']);
-  assert.deepEqual(result.candidates, extractYuku(src).candidates);
+  assert.deepEqual(result.candidates, extractFallback(src).candidates);
 });
 
-test('unsupported constructs fall back to Yuku for complete analysis', () => {
+test('unsupported constructs fall back to the grammar parser for complete analysis', () => {
   for (const [src, dialect, count] of [
     ['const x = f<number>(2) < 3;', 'ts', 1],
     ['const x = /[<]/.test("a") && 3 / 4 > 0;', 'ts', 1],
@@ -57,6 +57,72 @@ test('unsupported constructs fall back to Yuku for complete analysis', () => {
     const result = extract(src, { dialect, ...fast });
     assert.equal(result.path, 'fallback', src);
     assert.equal(result.candidates.length, count);
+  }
+});
+
+test('fallback can report the exact JSX operand and rewrite spans without the reference parser', () => {
+  const source = 'const status = "🐈"; const view = <button disabled={pending /* comment */ || (!valid)} />;';
+  const input = Buffer.from(source);
+  const result = extract(input, { dialect: 'tsx', logical: true, ...fast });
+  assert.equal(result.path, 'fallback');
+  assert.deepEqual(result.candidates, extractFallback(input, { dialect: 'tsx', logical: true }).candidates);
+  const [site] = result.candidates;
+  assert.equal(site.rule, 'jsx-disabled-drop-left/v1');
+  assert.equal(input.subarray(...site.edit).toString(), 'pending /* comment */ || (!valid)');
+  assert.equal(input.subarray(...site.operatorEdit).toString(), '||');
+  assert.equal(input.subarray(...site.left).toString(), 'pending');
+  assert.equal(input.subarray(...site.right).toString(), '(!valid)');
+  assert.equal(site.replacement, '((!valid))');
+});
+
+test('fallback rejects invalid code beyond the candidate prefix', () => {
+  for (const source of [
+    'const x = 2 < 3; return x;',
+    'const x = 2 < 3; break;',
+    'const x = 2 < 3; for (;;) { continue missing; }',
+    'const x = 2 < 3; const eval = x;',
+    'const x = 2 < 3; let y; let y;',
+    'const x = 2 < 3; const y;',
+    'const x = 2 < 3; a ?? b || c;',
+    'const x = 2 < 3; throw\nnew Error();',
+    'const x = 2 < 3; label: label: {}',
+    'const x = 2 < 3; export { missing };',
+  ]) {
+    const result = extract(source, fast);
+    assert.equal(result.path, 'diagnostic', source);
+    assert.deepEqual(result.candidates, []);
+    assert.ok(result.diagnostics.length);
+  }
+  const source = 'const x = 2 < 3; export const y = x;';
+  assert.equal(extract(source, { ...fast, mode: 'script' }).path, 'diagnostic');
+  assert.equal(extract(source, fast).candidates.length, 1);
+});
+
+test('fallback respects the strictness of the selected source mode', () => {
+  for (const source of ['with (obj) { a < b; }', 'function f(a, a) { return a < b; }']) {
+    const script = extract(source, { ...fast, mode: 'script' });
+    assert.equal(script.path, 'fallback');
+    assert.equal(script.candidates.length, 1);
+    for (const [input, mode] of [[source, 'module'], ['"use strict"; ' + source, 'script']]) {
+      const strict = extract(input, { ...fast, mode });
+      assert.equal(strict.path, 'diagnostic');
+      assert.deepEqual(strict.candidates, []);
+    }
+  }
+});
+
+test('fallback supports TypeScript decorators, auto-accessors and both import attribute spellings', () => {
+  for (const source of [
+    'export class C { accessor x = 1; cmp() { return this.x < 3; } }',
+    'export @dec class C { cmp() { return x < 3; } }',
+    'class C { constructor(@inject a: number) {} cmp() { return x < 3; } }',
+    'import data from "./data.json" assert { type: "json" }; export const cmp = data.x < 3;',
+    'import data from "./data.json" with { type: "json" }; export const cmp = data.x < 3;',
+  ]) {
+    const result = extract(source, fast);
+    assert.equal(result.path, 'fallback', source);
+    assert.equal(result.candidates.length, 1);
+    assert.deepEqual(result.candidates[0].edit, [source.indexOf('<'), source.indexOf('<') + 1]);
   }
 });
 
@@ -83,7 +149,7 @@ test('legal identifier reads and ArrayBuffer inputs use the native parser', () =
     for (const input of [Buffer.from(encoded), encoded, encoded.buffer]) {
       const result = extract(input, fast);
       assert.equal(result.path, 'fast');
-      assert.deepEqual(result.candidates, extractYuku(input).candidates);
+      assert.deepEqual(result.candidates, extractFallback(input).candidates);
     }
   }
   assert.equal(extract('const eval = 2 < 3', fast).path, 'diagnostic');
@@ -93,7 +159,7 @@ test('native grammar recognizes web-standard hyphenated JSX attribute names', ()
   const source = 'export const button = (age: number) => <button aria-label="Continue" disabled={age < 18} />;';
   const result = extract(source, { dialect: 'tsx', ...fast });
   assert.equal(result.path, 'fast');
-  assert.deepEqual(result.candidates, extractYuku(source, { dialect: 'tsx' }).candidates);
+  assert.deepEqual(result.candidates, extractFallback(source, { dialect: 'tsx' }).candidates);
 });
 
 const encodingRows = readFileSync(new URL('../verification/pict/extraction-bytes.tsv', import.meta.url), 'utf8')
@@ -113,7 +179,7 @@ for (const row of encodingRows) {
       ArrayBuffer: storage.buffer,
     }[kind];
     const result = extract(input, { dialect: 'tsx', ...fast });
-    const reference = extractYuku(input, { dialect: 'tsx' });
+    const reference = extractFallback(input, { dialect: 'tsx' });
     assert.deepEqual(result.candidates, reference.candidates);
     assert.equal(result.path, text === 'Invalid' ? 'diagnostic' : syntax === 'L1' ? 'fast' : 'fallback');
   });
@@ -140,6 +206,6 @@ test('candidate capacity grows once while preserving order and never leaks a par
     assert.equal(result.path, count === 4097 ? 'fallback' : 'fast');
     if (count === 4097) assert.equal(result.reason, 'candidate-limit');
     assert.equal(result.candidates.length, count);
-    assert.deepEqual(result.candidates, extractYuku(source, options).candidates);
+    assert.deepEqual(result.candidates, extractFallback(source, options).candidates);
   }
 });

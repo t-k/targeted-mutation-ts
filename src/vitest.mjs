@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -13,6 +13,25 @@ const toolDependencies = [
   { name: 'typescript' },
 ];
 const excluded = new Set(['.git', '.worktree', '.worktrees', 'docs.local', 'node_modules', 'reports', '.stryker-tmp']);
+const toolRequire = createRequire(import.meta.url);
+
+export function resolveOptional(require, id) {
+  try {
+    return require.resolve(id);
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') throw error;
+  }
+}
+
+export function runnerPackage(root, runner) {
+  const name = runner === 'vitest' ? 'vitest' : '@playwright/test';
+  const manifest = resolveOptional(createRequire(resolve(root, 'package.json')), name + '/package.json');
+  if (!manifest) {
+    const label = runner === 'vitest' ? 'Vitest' : 'Playwright';
+    throw new Error(`Install ${label} in the project or its workspace: npm install -D ${name}`);
+  }
+  return manifest;
+}
 
 export function inside(root, path) {
   const target = realpathSync(resolve(root, path));
@@ -48,9 +67,10 @@ export function copyPathIsExcluded(source, path, exclusions) {
     exclusions.some(exclusion => path === exclusion || path.startsWith(exclusion + sep));
 }
 
-function linkInstalledModules(source, root, projectModules, installed) {
+function linkInstalledModules(source, root, projectModules, installed, tools) {
+  const mergedDirectories = new Set(tools.map(({ name }) => dirname(name)));
   const entries = readdirSync(projectModules, { withFileTypes: true }).flatMap(entry =>
-    entry.isDirectory() && entry.name.startsWith('@')
+    (entry.isDirectory() && entry.name.startsWith('@') || mergedDirectories.has(entry.name))
       ? readdirSync(resolve(projectModules, entry.name), { withFileTypes: true })
         .map(child => ({ entry: child, name: join(entry.name, child.name) }))
       : [{ entry, name: entry.name }]);
@@ -62,16 +82,42 @@ function linkInstalledModules(source, root, projectModules, installed) {
       !within.split(sep).includes('node_modules');
     return { name, target: local ? resolve(root, within) : original, local };
   });
-  if (!modules.some(module => module.local)) {
+  if (!tools.length && !modules.some(module => module.local)) {
     symlinkSync(projectModules, installed, 'dir');
     return;
   }
-  mkdirSync(installed);
-  for (const { name, target } of modules) {
+  linkModules(installed, [...modules, ...tools]);
+}
+
+function linkModules(installed, modules) {
+  for (const { name, target, type } of modules) {
     const destination = resolve(installed, name);
     mkdirSync(dirname(destination), { recursive: true });
-    symlinkSync(target, destination);
+    symlinkSync(target, destination, type);
   }
+}
+
+function toolLinks(source, projectModules, hasLocalModules) {
+  const projectRequire = createRequire(resolve(source, 'package.json'));
+  const links = [];
+  const canLink = name => {
+    const destination = resolve(projectModules, name);
+    const parent = dirname(destination);
+    return (!lstatSync(parent, { throwIfNoEntry: false }) || statSync(parent, { throwIfNoEntry: false })?.isDirectory()) &&
+      !lstatSync(destination, { throwIfNoEntry: false });
+  };
+  for (const { name, bin, command } of toolDependencies) {
+    if (!canLink(name)) continue;
+    const id = name + '/package.json';
+    const manifest = resolveOptional(projectRequire, id) ?? (!hasLocalModules ? resolveOptional(toolRequire, id) : undefined);
+    if (!manifest) continue;
+    const target = dirname(manifest);
+    links.push({ name, target, type: 'dir' });
+    if (bin && canLink(join('.bin', command))) {
+      links.push({ name: join('.bin', command), target: resolve(target, bin), type: 'file' });
+    }
+  }
+  return links;
 }
 
 function rebaseCopiedLinks(source, workspace) {
@@ -105,20 +151,13 @@ export function withCopy(project, action, { exclude = [] } = {}) {
       },
     });
     rebaseCopiedLinks(source, root);
-    for (const modules of moduleTrees) linkInstalledModules(source, root, modules, resolve(root, relative(source, modules)));
     const projectModules = resolve(source, 'node_modules');
-    const installed = resolve(root, 'node_modules');
-    if (!moduleTrees.includes(projectModules)) {
-      const binDir = resolve(installed, '.bin');
-      mkdirSync(binDir, { recursive: true });
-      for (const { name, bin, command } of toolDependencies) {
-        const dependency = dirname(fileURLToPath(import.meta.resolve(name + '/package.json')));
-        const link = resolve(installed, name);
-        mkdirSync(dirname(link), { recursive: true });
-        symlinkSync(dependency, link, 'dir');
-        if (bin) symlinkSync(resolve(dependency, bin), resolve(binDir, command), 'file');
-      }
+    const hasLocalModules = moduleTrees.includes(projectModules);
+    const tools = toolLinks(source, projectModules, hasLocalModules);
+    for (const modules of moduleTrees) {
+      linkInstalledModules(source, root, modules, resolve(root, relative(source, modules)), modules === projectModules ? tools : []);
     }
+    if (!hasLocalModules) linkModules(resolve(root, 'node_modules'), tools);
     return action(root, temp);
   } finally {
     rmSync(temp, { recursive: true, force: true });
@@ -126,8 +165,7 @@ export function withCopy(project, action, { exclude = [] } = {}) {
 }
 
 export function runVitest(root, temp, { trace, config, testFiles = [], product = false, active, timeout = 60_000 } = {}) {
-  const projectRequire = createRequire(resolve(root, 'package.json'));
-  const vitest = projectRequire.resolve('vitest/package.json').replace(/package\.json$/, 'vitest.mjs');
+  const vitest = resolve(dirname(runnerPackage(root, 'vitest')), 'vitest.mjs');
   const testsToRun = [...new Set(testFiles.map(file => inside(root, file)))];
   const configuration = config === undefined ? [] : ['--config', inside(root, config)];
   const report = resolve(temp, 'vitest.json');

@@ -22,6 +22,8 @@ node bin/tmt.mjs analyze . packages/example/src/ranges.ts --since HEAD^ \
 
 Project-internal symbolic links resolve inside each trial copy. Installed dependency directories remain available at their original positions relative to the project root, including workspace package directories. A copy exclusion can omit an entire package-local dependency directory. External links and installed dependencies are shared inputs. On POSIX, Vitest watchdog timeouts terminate the runner's process group.
 
+Install Vitest or `@playwright/test` in the target project or its workspace before running the corresponding profile. TMT uses that runner's installed version and the target project's configuration. If the suite imports other dependencies hoisted above the target directory, analyze from the workspace root and scope the source and tests to the package.
+
 The Vitest path runs an original baseline, a disabled-instrumentation baseline, and one isolated source rewrite for each trial. Instrumentation passes both evaluated operands to a comparison with the original operator. It records only JavaScript safe-integer pairs for prediction. The report identifies a Vitest test by project, relative file and task ID. Unattributed, unsupported or inconsistent observations keep the trial on the full-suite path. The product produces threshold replacements for directly callable exported unary arrows with a safe integer literal. It groups adjacent alternatives that agree on the safe integer domain. A matching specification entry with a rationale can supply the expected result and domain for the proposed test.
 
 `--deterministic` declares that tests run from the same initial state and external inputs, and that a comparison influences execution only through its outcome. Tests that inspect source text or compare elapsed time are outside that contract. The runner compares two disabled traces and requires a complete, attributed observation from every passing test for the selected comparison. The compiled Lean executable validates the batch; missing tools, malformed data, retries, overlapping test options, or any rejected decision require a real run. `evidence: "predicted"` is a Lean-backed replay decision. `evidence: "reexecuted"` describes a source trial. The `--audit` option runs a full source rewrite and, where available, an independently activated probe, recording the agreement. For a callable threshold witness, audit also runs the generated Vitest assertion against original and rewritten source and checks both test inventories. The Lean theorem models deterministic comparison-driven executions, with JS instrumentation and run identity in the trusted runtime boundary.
@@ -34,7 +36,13 @@ Pass `--displace-thresholds` to try tightening strict comparisons by one integer
 
 `--mutators standard` enables the pinned StrykerJS instrumenter's default TypeScript and TSX mutation families, including source comments that disable mutation. The profile applies a line range to complete mutable syntax nodes. It runs a disabled-switch baseline and trials in a disposable project workspace with isolated Vitest workers. On Vitest 4.1, covered tests are selected by task ID. Import-time hits run the selected suite with the mutation active at module load. An unreached mutation uses baseline coverage evidence. A partial session reports any remaining trials as unevaluated and exits with an error.
 
-Use Node.js 24.11 or later for the standard profile's dependencies. This profile uses Vitest worker pools. The `focused` profile uses the native extractor, Lean replay decisions and threshold diagnostics, and supports Playwright.
+This profile uses Vitest 4 worker pools. Install the compatibility instrumenter in the project or its workspace before using `standard` or `all`.
+
+```sh
+npm install -D @stryker-mutator/instrumenter@10.1.1
+```
+
+The `focused` profile uses the native extractor, Lean replay decisions and threshold diagnostics, and supports Playwright.
 
 ### Combined mutations and verified replay
 

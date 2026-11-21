@@ -1,0 +1,9 @@
+Profile	Runner	Instrumenter
+Focused	Hoisted	Missing
+Witnesses	Hoisted	Missing
+Standard	Hoisted	Missing
+All	Hoisted	Incompatible
+Standard	Hoisted	Compatible
+All	Hoisted	Compatible
+Focused	HoistedWithLocalModules	Missing
+Standard	HoistedWithLocalModules	Compatible

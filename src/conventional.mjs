@@ -2,19 +2,35 @@ import { isUtf8 } from 'node:buffer';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { Instrumenter } from '@stryker-mutator/instrumenter';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { byteOffsets } from './extract.mjs';
 import { collectComparisons } from './analysis.mjs';
 import { selectScope } from './scope.mjs';
-import { inside, withCopy } from './vitest.mjs';
+import { inside, resolveOptional, runnerPackage, withCopy } from './vitest.mjs';
 
 const logger = { debug() {}, info() {}, warn() {}, isDebugEnabled: () => false };
 const supervisor = fileURLToPath(new URL('./runner-process.mjs', import.meta.url));
 const session = fileURLToPath(new URL('./standard-session.mjs', import.meta.url));
 const setupSource = new URL('./standard-setup.mjs', import.meta.url);
 const runnerSource = new URL('./standard-runner.mjs', import.meta.url);
+const compatibilityPackage = '@stryker-mutator/instrumenter';
+const compatibilityVersion = '10.1.1';
+const toolRequire = createRequire(import.meta.url);
+
+function compatibilityEntry(root) {
+  const id = compatibilityPackage + '/package.json';
+  const projectRequire = root === undefined ? null : createRequire(resolve(root, 'package.json'));
+  const projectManifest = projectRequire && resolveOptional(projectRequire, id);
+  const manifest = projectManifest ?? resolveOptional(toolRequire, id);
+  const version = manifest && JSON.parse(readFileSync(manifest, 'utf8')).version;
+  if (version !== compatibilityVersion) {
+    const found = version ? ` (found ${version})` : '';
+    throw new Error(`Standard and all profiles require ${compatibilityPackage}@${compatibilityVersion}${found}. Install it in the project or its workspace.`);
+  }
+  return (projectManifest ? projectRequire : toolRequire).resolve(compatibilityPackage);
+}
 
 function lineOffsets(text) {
   const starts = [0];
@@ -39,7 +55,7 @@ function readEvents(path) {
   return input.split('\n').slice(0, -1).filter(Boolean).map(line => JSON.parse(line));
 }
 
-export async function prepareConventional(subjects, print) {
+export async function prepareConventional(subjects, print, entry = compatibilityEntry()) {
   const inputs = new Map();
   const sources = [];
   for (const { file, input, selected } of subjects) {
@@ -53,6 +69,7 @@ export async function prepareConventional(subjects, print) {
   }
 
   const printSource = print ? source => print(source, inputs.get(source.originFileName)) : undefined;
+  const { Instrumenter } = await import(pathToFileURL(entry).href);
   const instrumented = await new Instrumenter(logger, undefined, printSource).instrument(sources, {
     excludedMutations: [], ignorers: [], plugins: null,
   });
@@ -76,6 +93,7 @@ export async function prepareConventional(subjects, print) {
 export async function analyzeConventional(project, files, options) {
   const root = realpathSync(project);
   const combined = options.mutators === 'all';
+  const entry = compatibilityEntry(root);
   const prefix = '.tmt-session-' + randomUUID();
   const runtime = prefix + '-focus.mjs';
   const targets = selectScope(root, files, options).map(subject => ({
@@ -86,10 +104,12 @@ export async function analyzeConventional(project, files, options) {
   const comparison = combined ? collectComparisons(root, files, options) : null;
   const byFile = new Map(comparison?.subjects.map(({ file, sites }) => [file, sites]));
   const focus = combined ? await import('./focused-switch.mjs') : null;
+  const require = combined ? createRequire(entry) : null;
+  const babel = require && { types: require('@babel/core').types, generate: require('@babel/generator').generate };
   const { sources, mutants } = await prepareConventional(targets, focus &&
     ((source, { starts, bytes }) => focus.printWithFocusedSwitches(
-      source, starts, bytes, byFile.get(source.originFileName) ?? [], runtime, preparedFocused,
-    )));
+      source, starts, bytes, byFile.get(source.originFileName) ?? [], runtime, preparedFocused, babel,
+    )), entry);
   const report = {
     schemaVersion: 1, runner: 'vitest', mutators: options.mutators,
     extraction: comparison?.extraction ?? [], mutants: [], diagnostics: [], evaluation: 'no_sites',
@@ -101,6 +121,7 @@ export async function analyzeConventional(project, files, options) {
   if (!runnable.length && !focused.length) return { ...report, evaluation: 'evaluated', mutants };
 
   return withCopy(root, (workspace, temp) => {
+    runnerPackage(workspace, 'vitest');
     for (const { file, output } of sources) {
       const path = inside(workspace, file);
       if (!readFileSync(path).equals(originals.get(file))) throw new Error(`Source changed during analysis: ${file}`);

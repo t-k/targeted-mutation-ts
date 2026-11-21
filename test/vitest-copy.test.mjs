@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import test from 'node:test';
-import { withCopy } from '../src/vitest.mjs';
+import { runnerPackage, withCopy } from '../src/vitest.mjs';
 
 const rows = readFileSync(new URL('../verification/pict/copy-links.tsv', import.meta.url), 'utf8')
   .trim().split('\n').slice(1).map(row => row.trim().split('\t'));
@@ -71,6 +71,39 @@ test('uses the nearest installed dependency inside a workspace package', () => p
     assert.equal(resolveFrom('tmt-copy-dependency'), 'local');
     assert.equal(existsSync(join(workspace, 'packages/excluded')), false);
   }, { exclude: ['packages/excluded'] });
+}));
+
+test('links hoisted runners alongside local packages and executable links', () => projectFixture(original => {
+  const child = join(original, 'packages/site');
+  const local = join(child, 'node_modules');
+  mkdirSync(join(local, 'local'), { recursive: true });
+  mkdirSync(join(local, '.bin'));
+  const scope = join(original, 'local-playwright-scope');
+  mkdirSync(join(scope, 'local'), { recursive: true });
+  writeFileSync(join(scope, 'local/index.js'), 'module.exports = 17;');
+  symlinkSync(scope, join(local, '@playwright'), 'dir');
+  writeFileSync(join(local, 'local/index.js'), 'module.exports = true;');
+  symlinkSync('../local/index.js', join(local, '.bin/local'));
+  const runners = [['vitest', 'vitest', 'vitest.mjs'], ['playwright', '@playwright/test', 'cli.js']];
+  for (const [, pkg, bin] of runners) {
+    const hoisted = join(original, 'node_modules', pkg);
+    mkdirSync(hoisted, { recursive: true });
+    writeFileSync(join(hoisted, 'package.json'), '{}');
+    writeFileSync(join(hoisted, bin), '');
+  }
+  withCopy(child, workspace => {
+    const resolveFrom = createRequire(join(workspace, 'package.json'));
+    assert.equal(resolveFrom('local'), true);
+    assert.equal(resolveFrom('@playwright/local'), 17);
+    assert.equal(readFileSync(join(workspace, 'node_modules/.bin/local'), 'utf8'), 'module.exports = true;');
+    for (const [runner, pkg, bin] of runners) {
+      const hoisted = join(original, 'node_modules', pkg);
+      assert.equal(runnerPackage(workspace, runner), join(hoisted, 'package.json'));
+      assert.equal(realpathSync(join(workspace, 'node_modules/.bin', runner)), join(hoisted, bin));
+      assert.equal(existsSync(join(local, pkg)), false);
+      assert.equal(existsSync(join(local, '.bin', runner)), false);
+    }
+  });
 }));
 
 test('honors explicit nested dependency-tree exclusions', () => projectFixture(original => {

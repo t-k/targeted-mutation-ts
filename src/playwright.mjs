@@ -1,10 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { inside } from './vitest.mjs';
+import { inside, runnerPackage } from './vitest.mjs';
 
 const supervisor = fileURLToPath(new URL('./runner-process.mjs', import.meta.url));
 const defaultConfigs = ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs'].map(ext => 'playwright.config.' + ext);
@@ -104,8 +103,7 @@ export function classifyPlaywright(report, exitCode, workspace) {
 }
 
 export function runPlaywright(root, temp, { config, projects = [], timeout = 60_000, original } = {}) {
-  const resolveProject = createRequire(resolve(root, 'package.json')).resolve;
-  const bin = resolveProject('@playwright/test/package.json').replace(/package\.json$/, 'cli.js');
+  const bin = resolve(dirname(runnerPackage(root, 'playwright')), 'cli.js');
   const wrapper = configuration(root, config);
   const report = resolve(temp, 'playwright.json');
   const pid = resolve(temp, 'playwright.pid');

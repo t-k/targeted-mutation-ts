@@ -25,17 +25,14 @@
     "test:package": "node scripts/test-package.mjs"
   },
   "dependencies": {
-    "@babel/generator": "8.0.10",
-    "@babel/types": "8.1.2",
-    "@playwright/test": "1.65.1",
-    "@stryker-mutator/instrumenter": "10.1.1",
-    "typescript": "5.9.3",
-    "vitest": "4.0.18",
-    "yuku-parser": "0.19.0"
+    "@babel/parser": "7.29.15",
+    "typescript": "6.0.3"
   },
   "devDependencies": {
+    "@playwright/test": "1.65.1",
     "@stryker-mutator/core": "10.1.1",
-    "@stryker-mutator/vitest-runner": "10.1.1"
+    "@stryker-mutator/instrumenter": "10.1.1",
+    "vitest": "4.0.18"
   },
   "files": [
     "bin/",

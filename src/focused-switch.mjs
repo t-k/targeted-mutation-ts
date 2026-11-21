@@ -1,5 +1,3 @@
-import { generate } from '@babel/generator';
-import { callExpression, identifier, importDeclaration, importSpecifier, stringLiteral, VISITOR_KEYS } from '@babel/types';
 import { dirname, posix, sep } from 'node:path';
 import { tighteningEdit } from './displacement.mjs';
 
@@ -12,7 +10,8 @@ function runtimeModuleSyntax(node) {
   return !node.specifiers?.length || node.specifiers.some(specifier => specifier.exportKind !== 'type');
 }
 
-export function printWithFocusedSwitches(file, starts, bytes, sites, runtime, focused) {
+export function printWithFocusedSwitches(file, starts, bytes, sites, runtime, focused, { types, generate }) {
+  const { callExpression, identifier, importDeclaration, importSpecifier, stringLiteral, VISITOR_KEYS } = types;
   const esm = /\.m(?:ts|js)$/.test(file.originFileName) ||
     !/\.c(?:ts|js)$/.test(file.originFileName) &&
       file.root.program.body.some(runtimeModuleSyntax);

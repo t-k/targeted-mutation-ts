@@ -55,3 +55,5 @@ npm run pack:runtime
 ```
 
 The archive written to `build/` has the OS and CPU in its filename and npm metadata. It contains the native parser and Lean decision executable for the build machine's OS and architecture. The installed `tmt-ts` command runs them directly. Building another platform's package requires its C toolchain and pinned Lean toolchain. See [performance measurements](docs/performance.md) for the evaluated workloads.
+
+The archive installs the Babel parser for TS/TSX syntax fallback and TypeScript for witness AST analysis. TMT uses the test runner installed in the target project or its workspace. The `standard` and `all` profiles also require `@stryker-mutator/instrumenter@10.1.1`.
