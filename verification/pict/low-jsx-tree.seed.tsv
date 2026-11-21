@@ -1,0 +1,5 @@
+Tag	Position	Suffix
+SelfClosing	Initializer	Valid
+Paired	Return	Valid
+Fragment	Arrow	Valid
+Paired	Initializer	Invalid

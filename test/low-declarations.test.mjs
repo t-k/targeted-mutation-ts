@@ -46,3 +46,11 @@ test('destructuring retains duplicate checks, ASI, and logical assignments', () 
   compare('type X = (value: string) => ; const x = a < b;', 'diagnostic');
   compare('type X = A | | B; const x = a < b;', 'diagnostic');
 });
+
+test('function types require parentheses inside unions and intersections', () => {
+  for (const prefix of ['|', '&', 'A |', 'A &']) {
+    compare(`type Shape = ${prefix} (value: Input) => Result; const x = a < b;`, 'diagnostic');
+    compare(`type Shape = ${prefix} ((value: Input) => Result); const x = a < b;`, 'fast');
+  }
+  compare('type Shape = (value: Input) => First | Second; const x = a < b;', 'fast');
+});

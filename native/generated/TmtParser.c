@@ -366,7 +366,8 @@ TmtParser_parser_state TmtParser_failed(TmtParser_parser_state state, uint32_t e
                            .depth = state.depth,
                            .status = error,
                            .local_names = state.local_names,
-                           .await_allowed = state.await_allowed
+                           .await_allowed = state.await_allowed,
+                           .jsx_allowed = state.jsx_allowed
                          }
                        )
                        : state;
@@ -408,7 +409,8 @@ TmtParser_consume(TmtParser_tape input, TmtParser_parser_state state, uint8_t by
             .depth = state.depth,
             .status = state.status,
             .local_names = state.local_names,
-            .await_allowed = state.await_allowed
+            .await_allowed = state.await_allowed,
+            .jsx_allowed = state.jsx_allowed
           }
         );
     else
@@ -430,7 +432,8 @@ TmtParser_from_cursor(TmtParser_parser_state state, TmtParser_cursor read)
           .depth = state.depth,
           .status = state.status,
           .local_names = state.local_names,
-          .await_allowed = state.await_allowed
+          .await_allowed = state.await_allowed,
+          .jsx_allowed = state.jsx_allowed
         }
       );
   else
@@ -999,7 +1002,8 @@ TmtParser_qualified_type(TmtParser_tape input0, TmtParser_parser_state state0, u
                 .depth = st.depth,
                 .status = st.status,
                 .local_names = st.local_names,
-                .await_allowed = st.await_allowed
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed
               }
             ));
         uint8_t byte = TmtParser_peek(input, property.offset);
@@ -1013,7 +1017,7 @@ TmtParser_qualified_type(TmtParser_tape input0, TmtParser_parser_state state0, u
             {
               .offset = end_at, .count = property.count, .depth = property.depth,
               .status = property.status, .local_names = property.local_names,
-              .await_allowed = property.await_allowed
+              .await_allowed = property.await_allowed, .jsx_allowed = property.jsx_allowed
             };
           uint32_t tmp = TmtParser_minus(fuel, 1U);
           state = tmp0;
@@ -1064,7 +1068,8 @@ TmtParser_array_type_suffixes(
                   .depth = st.depth,
                   .status = st.status,
                   .local_names = st.local_names,
-                  .await_allowed = st.await_allowed
+                  .await_allowed = st.await_allowed,
+                  .jsx_allowed = st.jsx_allowed
                 }
               )),
             93U);
@@ -1303,7 +1308,8 @@ TmtParser_type_reference(TmtParser_tape input, TmtParser_parser_state state, uin
                 .depth = tail.depth,
                 .status = tail.status,
                 .local_names = tail.local_names,
-                .await_allowed = tail.await_allowed
+                .await_allowed = tail.await_allowed,
+                .jsx_allowed = tail.jsx_allowed
               }
             ),
             TmtParser_minus(fuel, 1U),
@@ -1352,7 +1358,8 @@ TmtParser_type_list(
         tmp0 =
           {
             .offset = TmtParser_next(st1.offset), .count = st1.count, .depth = st1.depth,
-            .status = st1.status, .local_names = st1.local_names, .await_allowed = st1.await_allowed
+            .status = st1.status, .local_names = st1.local_names, .await_allowed = st1.await_allowed,
+            .jsx_allowed = st1.jsx_allowed
           };
         uint32_t tmp1 = TmtParser_minus(remaining, 1U);
         bool tmp = true;
@@ -1408,7 +1415,8 @@ TmtParser_object_type(
                 .depth = st.depth,
                 .status = st.status,
                 .local_names = st.local_names,
-                .await_allowed = st.await_allowed
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed
               }
             ));
         uint8_t next_key = TmtParser_peek(input, after.offset);
@@ -1514,7 +1522,12 @@ TmtParser_signature_parameters(
 }
 
 TmtParser_parser_state
-TmtParser_type_term(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel)
+TmtParser_type_term(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  bool allow_signature
+)
 {
   TmtParser_parser_state st = TmtParser_skip(input, state);
   if (st.status != 0U)
@@ -1533,7 +1546,8 @@ TmtParser_type_term(TmtParser_tape input, TmtParser_parser_state state, uint32_t
               .depth = st.depth,
               .status = st.status,
               .local_names = st.local_names,
-              .await_allowed = st.await_allowed
+              .await_allowed = st.await_allowed,
+              .jsx_allowed = st.jsx_allowed
             }
           ));
     else
@@ -1563,7 +1577,8 @@ TmtParser_type_term(TmtParser_tape input, TmtParser_parser_state state, uint32_t
         inside =
           {
             .offset = TmtParser_next(st1.offset), .count = st1.count, .depth = st1.depth,
-            .status = st1.status, .local_names = st1.local_names, .await_allowed = st1.await_allowed
+            .status = st1.status, .local_names = st1.local_names, .await_allowed = st1.await_allowed,
+            .jsx_allowed = st1.jsx_allowed
           };
         uint32_t inner = TmtParser_minus(fuel, 1U);
         if (byte == 91U)
@@ -1572,7 +1587,11 @@ TmtParser_type_term(TmtParser_tape input, TmtParser_parser_state state, uint32_t
           primary = TmtParser_object_type(input, inside, inner, input.size);
         else
         {
-          TmtParser_parser_state params = TmtParser_signature_parameters(input, inside, inner, 64U);
+          TmtParser_parser_state params;
+          if (allow_signature)
+            params = TmtParser_signature_parameters(input, inside, inner, 64U);
+          else
+            params = TmtParser_failed(inside, 1U);
           TmtParser_parser_state tail = TmtParser_skip(input, params);
           TmtParser_parser_state
           arrow = TmtParser_consume(input, TmtParser_consume(input, tail, 61U), 62U);
@@ -1606,12 +1625,13 @@ TmtParser_annotation_type(
 {
   TmtParser_parser_state st = TmtParser_skip(input, state);
   uint8_t first = TmtParser_peek(input, st.offset);
+  bool leading = first == 124U || first == 38U;
   TmtParser_parser_state start;
-  if (first == 124U || first == 38U)
+  if (leading)
     start = TmtParser_consume(input, st, first);
   else
     start = st;
-  return TmtParser_type_terms(input, start, fuel, remaining);
+  return TmtParser_type_terms(input, start, fuel, remaining, !leading);
 }
 
 TmtParser_parser_state
@@ -1619,19 +1639,21 @@ TmtParser_type_terms(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
   uint32_t fuel0,
-  uint32_t remaining0
+  uint32_t remaining0,
+  bool allow_signature0
 )
 {
   TmtParser_tape input = input0;
   TmtParser_parser_state state = state0;
   uint32_t fuel = fuel0;
   uint32_t remaining = remaining0;
+  bool allow_signature = allow_signature0;
   while (true)
     if (remaining == 0U)
       return TmtParser_failed(state, 1U);
     else
     {
-      TmtParser_parser_state term = TmtParser_type_term(input, state, fuel);
+      TmtParser_parser_state term = TmtParser_type_term(input, state, fuel, allow_signature);
       TmtParser_parser_state st = TmtParser_skip(input, term);
       uint8_t byte = TmtParser_peek(input, st.offset);
       if (st.status != 0U)
@@ -1652,11 +1674,14 @@ TmtParser_type_terms(
           tmp0 =
             {
               .offset = TmtParser_next(st.offset), .count = st.count, .depth = st.depth,
-              .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed
+              .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed,
+              .jsx_allowed = st.jsx_allowed
             };
-          uint32_t tmp = TmtParser_minus(remaining, 1U);
+          uint32_t tmp1 = TmtParser_minus(remaining, 1U);
+          bool tmp = false;
           state = tmp0;
-          remaining = tmp;
+          remaining = tmp1;
+          allow_signature = tmp;
         }
         else
           return term;
@@ -1686,7 +1711,8 @@ TmtParser_simple_annotation(TmtParser_tape input, TmtParser_parser_state state)
             .depth = st.depth,
             .status = st.status,
             .local_names = st.local_names,
-            .await_allowed = st.await_allowed
+            .await_allowed = st.await_allowed,
+            .jsx_allowed = st.jsx_allowed
           }
         ),
         16U,
@@ -1731,7 +1757,8 @@ TmtParser_type_parameters(
                     .depth = st1.depth,
                     .status = st1.status,
                     .local_names = st1.local_names,
-                    .await_allowed = st1.await_allowed
+                    .await_allowed = st1.await_allowed,
+                    .jsx_allowed = st1.jsx_allowed
                   }
                 ),
                 16U,
@@ -1909,7 +1936,8 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
             .depth = state.depth,
             .status = state.status,
             .local_names = state.local_names,
-            .await_allowed = state.await_allowed
+            .await_allowed = state.await_allowed,
+            .jsx_allowed = state.jsx_allowed
           }
         ));
     uint32_t mark = state.local_names;
@@ -1926,7 +1954,8 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
             .depth = next_token.depth,
             .status = next_token.status,
             .local_names = next_token.local_names,
-            .await_allowed = next_token.await_allowed
+            .await_allowed = next_token.await_allowed,
+            .jsx_allowed = next_token.jsx_allowed
           }
         );
     else
@@ -2057,7 +2086,8 @@ TmtParser_arrow_token(TmtParser_tape input, TmtParser_parser_state state)
             .depth = st.depth,
             .status = st.status,
             .local_names = st.local_names,
-            .await_allowed = st.await_allowed
+            .await_allowed = st.await_allowed,
+            .jsx_allowed = st.jsx_allowed
           }
         );
     else
@@ -2123,7 +2153,7 @@ TmtParser_plain_arrow_parameters(TmtParser_tape input, TmtParser_parser_state st
                 .state = {
                   .offset = body.offset, .count = uu____1.count, .depth = uu____1.depth,
                   .status = uu____1.status, .local_names = uu____1.local_names,
-                  .await_allowed = uu____1.await_allowed
+                  .await_allowed = uu____1.await_allowed, .jsx_allowed = uu____1.jsx_allowed
                 },
                 .used = param.used
               },
@@ -2176,7 +2206,8 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
             .depth = state.depth,
             .status = state.status,
             .local_names = state.local_names,
-            .await_allowed = true
+            .await_allowed = true,
+            .jsx_allowed = state.jsx_allowed
           }
         ));
     if (async_.names.state.status == 0U)
@@ -2191,7 +2222,8 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
               .depth = state.depth,
               .status = state.status,
               .local_names = state.local_names,
-              .await_allowed = false
+              .await_allowed = false,
+              .jsx_allowed = state.jsx_allowed
             }
           ));
   }
@@ -2205,7 +2237,8 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state)
             .depth = state.depth,
             .status = state.status,
             .local_names = state.local_names,
-            .await_allowed = false
+            .await_allowed = false,
+            .jsx_allowed = state.jsx_allowed
           }
         ));
 }
@@ -2332,7 +2365,7 @@ TmtParser_assignment_target(
             {
               .offset = end_at, .count = member.count, .depth = member.depth,
               .status = member.status, .local_names = member.local_names,
-              .await_allowed = member.await_allowed
+              .await_allowed = member.await_allowed, .jsx_allowed = member.jsx_allowed
             };
           uint32_t tmp = TmtParser_minus(fuel, 1U);
           state = tmp0;
@@ -2453,6 +2486,53 @@ TmtParser_update_statement_end(TmtParser_tape input, TmtParser_parser_state stat
   }
 }
 
+TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parser_state state)
+{
+  uint32_t at = TmtParser_scan_class(input, state.offset, TmtGrammar_Space);
+  return
+    (
+      (TmtParser_parser_state){
+        .offset = at,
+        .count = state.count,
+        .depth = state.depth,
+        .status = state.status,
+        .local_names = state.local_names,
+        .await_allowed = state.await_allowed,
+        .jsx_allowed = state.jsx_allowed
+      }
+    );
+}
+
+uint32_t
+TmtParser_quote_end(TmtParser_tape input0, uint32_t at0, uint8_t delimiter0, uint32_t fuel0)
+{
+  TmtParser_tape input = input0;
+  uint32_t at = at0;
+  uint8_t delimiter = delimiter0;
+  uint32_t fuel = fuel0;
+  while (true)
+    if (at >= input.size || fuel == 0U)
+      return at;
+    else
+    {
+      uint8_t byte = TmtParser_peek(input, at);
+      if (byte == delimiter)
+        return at;
+      else
+      {
+        uint32_t tmp0 = TmtParser_next(at);
+        uint32_t tmp = TmtParser_minus(fuel, 1U);
+        at = tmp0;
+        fuel = tmp;
+      }
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
 TmtParser_parsed
 TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel)
 {
@@ -2494,7 +2574,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .depth = st.depth,
                 .status = st.status,
                 .local_names = st.local_names,
-                .await_allowed = st.await_allowed
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed
               }
             ),
             TmtParser_minus(fuel, 1U));
@@ -2510,6 +2591,28 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
           );
       }
     }
+    else if (ch == 60U && st.jsx_allowed)
+    {
+      if (fuel == 0U)
+        return TmtParser_empty_range(TmtParser_failed(st, 3U));
+      else
+      {
+        TmtParser_parser_state closed = TmtParser_jsx_element(input, st, TmtParser_minus(fuel, 1U));
+        return
+          TmtParser_postfix(input,
+            (
+              (TmtParser_parsed){
+                .parser = closed,
+                .range = { .first = start_pos, .last = closed.offset },
+                .open_angle = false,
+                .outer_or = false,
+                .shortcut = 0U
+              }
+            ),
+            fuel,
+            input.size);
+      }
+    }
     else if (constructor || ch == 96U || ch == 91U || ch == 123U)
     {
       if (fuel == 0U)
@@ -2522,7 +2625,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
         st1 =
           {
             .offset = st.offset, .count = st.count, .depth = depth1, .status = st.status,
-            .local_names = st.local_names, .await_allowed = st.await_allowed
+            .local_names = st.local_names, .await_allowed = st.await_allowed,
+            .jsx_allowed = st.jsx_allowed
           };
         uint32_t inner = TmtParser_minus(fuel, 1U);
         TmtParser_parser_state completed;
@@ -2538,7 +2642,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                   .depth = st1.depth,
                   .status = st1.status,
                   .local_names = st1.local_names,
-                  .await_allowed = st1.await_allowed
+                  .await_allowed = st1.await_allowed,
+                  .jsx_allowed = st1.jsx_allowed
                 }
               ));
           TmtParser_parser_state
@@ -2553,7 +2658,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
             {
               .offset = TmtParser_next(start_pos), .count = st1.count, .depth = st1.depth,
               .status = st1.status, .local_names = st1.local_names,
-              .await_allowed = st1.await_allowed
+              .await_allowed = st1.await_allowed, .jsx_allowed = st1.jsx_allowed
             };
           if (ch == 96U)
             completed = TmtParser_template_body(input, inside, inner, input.size);
@@ -2595,7 +2700,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .depth = depth1,
                 .status = st.status,
                 .local_names = st.local_names,
-                .await_allowed = st.await_allowed
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed
               }
             ),
             TmtParser_minus(fuel, 1U));
@@ -2682,7 +2788,8 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .depth = st.depth,
                 .status = st.status,
                 .local_names = st.local_names,
-                .await_allowed = st.await_allowed
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed
               }
             );
         else
@@ -2717,7 +2824,8 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             .depth = uu____0.depth,
             .status = uu____0.status,
             .local_names = arrow.names.used,
-            .await_allowed = uu____0.await_allowed
+            .await_allowed = uu____0.await_allowed,
+            .jsx_allowed = uu____0.jsx_allowed
           }
         ));
     if (fuel == 0U)
@@ -2730,7 +2838,8 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
       body1 =
         {
           .offset = body.offset, .count = body.count, .depth = depth1, .status = body.status,
-          .local_names = body.local_names, .await_allowed = body.await_allowed
+          .local_names = body.local_names, .await_allowed = body.await_allowed,
+          .jsx_allowed = body.jsx_allowed
         };
       uint32_t inner = TmtParser_minus(fuel, 1U);
       bool block = TmtParser_same(input, body1.offset, 123U);
@@ -2757,7 +2866,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             .parser = {
               .offset = uu____1.offset, .count = uu____1.count, .depth = uu____1.depth,
               .status = uu____1.status, .local_names = start.local_names,
-              .await_allowed = start.await_allowed
+              .await_allowed = start.await_allowed, .jsx_allowed = uu____1.jsx_allowed
             },
             .range = { .first = start.offset, .last = result.range.last },
             .open_angle = result.open_angle,
@@ -2794,7 +2903,8 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                 .depth = st.depth,
                 .status = st.status,
                 .local_names = st.local_names,
-                .await_allowed = st.await_allowed
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed
               }
             ),
             inner);
@@ -2895,7 +3005,8 @@ TmtParser_binary_tail(
                   .depth = st.depth,
                   .status = st.status,
                   .local_names = st.local_names,
-                  .await_allowed = st.await_allowed
+                  .await_allowed = st.await_allowed,
+                  .jsx_allowed = st.jsx_allowed
                 }
               ),
               16U,
@@ -2949,7 +3060,8 @@ TmtParser_binary_tail(
           after =
             {
               .offset = TmtParser_plus(st.offset, op.width), .count = count, .depth = st.depth,
-              .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed
+              .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed,
+              .jsx_allowed = st.jsx_allowed
             };
           TmtParser_parsed rhs = TmtParser_binary(input, after, fuel, op.strength + 1U);
           if (rhs.parser.status != 0U)
@@ -3076,7 +3188,8 @@ TmtParser_postfix(
                   .depth = st.depth,
                   .status = st.status,
                   .local_names = st.local_names,
-                  .await_allowed = st.await_allowed
+                  .await_allowed = st.await_allowed,
+                  .jsx_allowed = st.jsx_allowed
                 }
               ));
         else
@@ -3100,7 +3213,7 @@ TmtParser_postfix(
               {
                 .offset = TmtParser_next(operand.offset), .count = operand.count, .depth = depth1,
                 .status = operand.status, .local_names = operand.local_names,
-                .await_allowed = operand.await_allowed
+                .await_allowed = operand.await_allowed, .jsx_allowed = operand.jsx_allowed
               };
             if (kind == 40U)
               next_st =
@@ -3132,7 +3245,8 @@ TmtParser_postfix(
                     .depth = st.depth,
                     .status = st.status,
                     .local_names = st.local_names,
-                    .await_allowed = st.await_allowed
+                    .await_allowed = st.await_allowed,
+                    .jsx_allowed = st.jsx_allowed
                   }
                 ));
           uint8_t first = TmtParser_peek(input, property.offset);
@@ -3147,7 +3261,8 @@ TmtParser_postfix(
                   .depth = property.depth,
                   .status = property.status,
                   .local_names = property.local_names,
-                  .await_allowed = property.await_allowed
+                  .await_allowed = property.await_allowed,
+                  .jsx_allowed = property.jsx_allowed
                 }
               );
         }
@@ -3160,7 +3275,8 @@ TmtParser_postfix(
                 .depth = st.depth,
                 .status = st.status,
                 .local_names = st.local_names,
-                .await_allowed = st.await_allowed
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed
               }
             );
         TmtParser_parsed
@@ -3217,7 +3333,8 @@ TmtParser_expression_list(
               .depth = st.depth,
               .status = st.status,
               .local_names = st.local_names,
-              .await_allowed = st.await_allowed
+              .await_allowed = st.await_allowed,
+              .jsx_allowed = st.jsx_allowed
             }
           );
       else
@@ -3285,7 +3402,8 @@ TmtParser_object_members(
                 .depth = st.depth,
                 .status = st.status,
                 .local_names = st.local_names,
-                .await_allowed = st.await_allowed
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed
               }
             ),
             fuel);
@@ -3331,7 +3449,8 @@ TmtParser_object_members(
                   .depth = st.depth,
                   .status = st.status,
                   .local_names = st.local_names,
-                  .await_allowed = st.await_allowed
+                  .await_allowed = st.await_allowed,
+                  .jsx_allowed = st.jsx_allowed
                 }
               ));
           bool colon = TmtParser_same(input, after_key.offset, 58U);
@@ -3403,7 +3522,8 @@ TmtParser_template_body(
               .depth = state.depth,
               .status = state.status,
               .local_names = state.local_names,
-              .await_allowed = state.await_allowed
+              .await_allowed = state.await_allowed,
+              .jsx_allowed = state.jsx_allowed
             }
           );
       else
@@ -3421,7 +3541,8 @@ TmtParser_template_body(
                   .depth = state.depth,
                   .status = state.status,
                   .local_names = state.local_names,
-                  .await_allowed = state.await_allowed
+                  .await_allowed = state.await_allowed,
+                  .jsx_allowed = state.jsx_allowed
                 }
               ),
               fuel);
@@ -3438,7 +3559,8 @@ TmtParser_template_body(
                   .depth = state.depth,
                   .status = state.status,
                   .local_names = state.local_names,
-                  .await_allowed = state.await_allowed
+                  .await_allowed = state.await_allowed,
+                  .jsx_allowed = state.jsx_allowed
                 }
               );
           else
@@ -3453,7 +3575,8 @@ TmtParser_template_body(
                 .depth = state.depth,
                 .status = state.status,
                 .local_names = state.local_names,
-                .await_allowed = state.await_allowed
+                .await_allowed = state.await_allowed,
+                .jsx_allowed = state.jsx_allowed
               }
             );
         TmtParser_parser_state tmp0 = st;
@@ -3467,6 +3590,313 @@ TmtParser_template_body(
     __LINE__,
     "unreachable, returns inserted above");
   KRML_HOST_EXIT(255U);
+}
+
+TmtParser_parser_state
+TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel)
+{
+  uint8_t first = TmtParser_peek(input, state.offset);
+  if (first == 123U)
+  {
+    TmtParser_parser_state inner = TmtParser_skip(input, TmtParser_consume(input, state, 123U));
+    bool spread = TmtParser_spread_at(input, inner.offset);
+    if (!spread)
+      return TmtParser_failed(inner, 1U);
+    else
+    {
+      TmtParser_parsed
+      value =
+        TmtParser_comparison(input,
+          (
+            (TmtParser_parser_state){
+              .offset = TmtParser_plus(inner.offset, 3U),
+              .count = inner.count,
+              .depth = inner.depth,
+              .status = inner.status,
+              .local_names = inner.local_names,
+              .await_allowed = inner.await_allowed,
+              .jsx_allowed = inner.jsx_allowed
+            }
+          ),
+          fuel);
+      return TmtParser_consume(input, TmtParser_skip(input, value.parser), 125U);
+    }
+  }
+  else
+  {
+    TmtParser_cursor named = TmtParser_name(input, state.offset, true, false);
+    TmtParser_parser_state named_state1 = TmtParser_from_cursor(state, named);
+    TmtParser_parser_state tail = TmtParser_tag_space(input, named_state1);
+    bool equal = TmtParser_same(input, tail.offset, 61U);
+    if (named_state1.status != 0U || !equal)
+      return named_state1;
+    else
+    {
+      TmtParser_parser_state st = TmtParser_tag_space(input, TmtParser_consume(input, tail, 61U));
+      uint8_t byte = TmtParser_peek(input, st.offset);
+      if (byte == 34U || byte == 39U)
+      {
+        uint32_t pos = TmtParser_quote_end(input, TmtParser_next(st.offset), byte, input.size);
+        return
+          TmtParser_consume(input,
+            (
+              (TmtParser_parser_state){
+                .offset = pos,
+                .count = st.count,
+                .depth = st.depth,
+                .status = st.status,
+                .local_names = st.local_names,
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed
+              }
+            ),
+            byte);
+      }
+      else if (byte == 60U)
+      {
+        if (fuel == 0U)
+          return TmtParser_failed(st, 3U);
+        else
+          return TmtParser_jsx_element(input, st, TmtParser_minus(fuel, 1U));
+      }
+      else
+      {
+        TmtParser_parsed
+        value = TmtParser_comparison(input, TmtParser_consume(input, st, 123U), fuel);
+        TmtParser_parser_state st1 = TmtParser_skip(input, value.parser);
+        bool disabled;
+        if (value.outer_or && TmtParser_minus(named.at, state.offset) == 8U)
+        {
+          uint64_t attr_name = TmtParser_word(input, state.offset, 8U, 0ULL);
+          disabled = attr_name == 0x64697361626c6564ULL;
+        }
+        else
+          disabled = false;
+        if (disabled)
+          return TmtParser_failed(st1, 1U);
+        else
+          return TmtParser_consume(input, st1, 125U);
+      }
+    }
+  }
+}
+
+TmtParser_jsx_opening
+TmtParser_jsx_attributes(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  uint32_t fuel = fuel0;
+  uint32_t remaining = remaining0;
+  while (true)
+  {
+    TmtParser_parser_state st = TmtParser_tag_space(input, state);
+    uint8_t byte = TmtParser_peek(input, st.offset);
+    if (st.status != 0U)
+      return ((TmtParser_jsx_opening){ .after_tag = st, .self_closing = false });
+    else if (byte == 62U)
+      return
+        (
+          (TmtParser_jsx_opening){
+            .after_tag = TmtParser_consume(input, st, 62U),
+            .self_closing = false
+          }
+        );
+    else if (byte == 47U)
+      return
+        (
+          (TmtParser_jsx_opening){
+            .after_tag = TmtParser_consume(input,
+              TmtParser_tag_space(input, TmtParser_consume(input, st, 47U)),
+              62U),
+            .self_closing = true
+          }
+        );
+    else if (remaining == 0U)
+      return
+        ((TmtParser_jsx_opening){ .after_tag = TmtParser_failed(st, 1U), .self_closing = false });
+    else
+    {
+      TmtParser_parser_state following = TmtParser_jsx_attribute(input, st, fuel);
+      TmtParser_parser_state tmp0 = following;
+      uint32_t tmp = TmtParser_minus(remaining, 1U);
+      state = tmp0;
+      remaining = tmp;
+    }
+  }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+TmtParser_parser_state
+TmtParser_jsx_children(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  TmtGrammar_span tag0,
+  uint32_t fuel0,
+  uint32_t remaining0
+)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  TmtGrammar_span tag = tag0;
+  uint32_t fuel = fuel0;
+  uint32_t remaining = remaining0;
+  while (true)
+    if (state.status != 0U)
+      return state;
+    else if (remaining == 0U || state.offset >= input.size)
+      return TmtParser_failed(state, 1U);
+    else
+    {
+      uint8_t byte = TmtParser_peek(input, state.offset);
+      if (byte == 60U)
+      {
+        bool slash = TmtParser_same(input, TmtParser_next(state.offset), 47U);
+        if (slash)
+        {
+          TmtParser_parser_state
+          closing =
+            TmtParser_tag_space(input,
+              (
+                (TmtParser_parser_state){
+                  .offset = TmtParser_plus(state.offset, 2U),
+                  .count = state.count,
+                  .depth = state.depth,
+                  .status = state.status,
+                  .local_names = state.local_names,
+                  .await_allowed = state.await_allowed,
+                  .jsx_allowed = state.jsx_allowed
+                }
+              ));
+          uint32_t length = TmtParser_minus(tag.last, tag.first);
+          if (length == 0U)
+            return TmtParser_consume(input, closing, 62U);
+          else
+          {
+            TmtParser_cursor named = TmtParser_name(input, closing.offset, true, false);
+            bool same_;
+            if (named.ok && TmtParser_minus(named.at, closing.offset) == length)
+              same_ = TmtParser_same_bytes(input, tag.first, closing.offset, length);
+            else
+              same_ = false;
+            if (same_)
+              return
+                TmtParser_consume(input,
+                  TmtParser_tag_space(input, TmtParser_from_cursor(closing, named)),
+                  62U);
+            else
+              return TmtParser_failed(closing, 1U);
+          }
+        }
+        else if (fuel == 0U)
+          return TmtParser_failed(state, 3U);
+        else
+        {
+          TmtParser_parser_state
+          child = TmtParser_jsx_element(input, state, TmtParser_minus(fuel, 1U));
+          TmtParser_parser_state tmp0 = child;
+          uint32_t tmp = TmtParser_minus(remaining, 1U);
+          state = tmp0;
+          remaining = tmp;
+        }
+      }
+      else if (byte == 123U)
+      {
+        TmtParser_parser_state st = TmtParser_skip(input, TmtParser_consume(input, state, 123U));
+        TmtParser_parser_state done_;
+        if (TmtParser_same(input, st.offset, 125U))
+          done_ = TmtParser_consume(input, st, 125U);
+        else
+        {
+          TmtParser_parsed value = TmtParser_comparison(input, st, fuel);
+          done_ = TmtParser_consume(input, TmtParser_skip(input, value.parser), 125U);
+        }
+        TmtParser_parser_state tmp0 = done_;
+        uint32_t tmp = TmtParser_minus(remaining, 1U);
+        state = tmp0;
+        remaining = tmp;
+      }
+      else if (byte == 0U || byte == 62U || byte == 125U)
+        return TmtParser_failed(state, 1U);
+      else
+      {
+        TmtParser_parser_state
+        tmp0 =
+          {
+            .offset = TmtParser_next(state.offset), .count = state.count, .depth = state.depth,
+            .status = state.status, .local_names = state.local_names,
+            .await_allowed = state.await_allowed, .jsx_allowed = state.jsx_allowed
+          };
+        uint32_t tmp = TmtParser_minus(remaining, 1U);
+        state = tmp0;
+        remaining = tmp;
+      }
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+TmtParser_parser_state
+TmtParser_jsx_element(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel)
+{
+  uint32_t depth = TmtParser_minus(64U, fuel);
+  TmtParser_parser_state
+  state1 =
+    depth > state.depth ? (
+                          (TmtParser_parser_state){
+                            .offset = state.offset,
+                            .count = state.count,
+                            .depth = depth,
+                            .status = state.status,
+                            .local_names = state.local_names,
+                            .await_allowed = state.await_allowed,
+                            .jsx_allowed = state.jsx_allowed
+                          }
+                        )
+                        : state;
+  TmtParser_parser_state
+  opening = TmtParser_tag_space(input, TmtParser_consume(input, state1, 60U));
+  if (TmtParser_same(input, opening.offset, 62U))
+  {
+    TmtParser_parser_state uu____0 = TmtParser_consume(input, opening, 62U);
+    return
+      TmtParser_jsx_children(input,
+        uu____0,
+        TmtParser_start_range(opening.offset),
+        fuel,
+        input.size);
+  }
+  else
+  {
+    TmtParser_cursor named = TmtParser_name(input, opening.offset, true, false);
+    TmtParser_jsx_opening
+    attrs =
+      TmtParser_jsx_attributes(input,
+        TmtParser_from_cursor(opening, named),
+        fuel,
+        input.size);
+    if (attrs.after_tag.status != 0U || attrs.self_closing)
+      return attrs.after_tag;
+    else
+      return
+        TmtParser_jsx_children(input,
+          attrs.after_tag,
+          ((TmtGrammar_span){ .first = opening.offset, .last = named.at }),
+          fuel,
+          input.size);
+  }
 }
 
 TmtParser_parser_state
@@ -3509,7 +3939,8 @@ TmtParser_for_step(TmtParser_tape input, TmtParser_parser_state state, uint32_t 
               .depth = state.depth,
               .status = state.status,
               .local_names = state.local_names,
-              .await_allowed = state.await_allowed
+              .await_allowed = state.await_allowed,
+              .jsx_allowed = state.jsx_allowed
             }
           ),
           fuel).parser;
@@ -3543,7 +3974,8 @@ TmtParser_classic_for_header(
             .depth = st.depth,
             .status = st.status,
             .local_names = st.local_names,
-            .await_allowed = st.await_allowed
+            .await_allowed = st.await_allowed,
+            .jsx_allowed = st.jsx_allowed
           }
         ),
         fuel);
@@ -3591,7 +4023,8 @@ TmtParser_for_header(
             .depth = head.depth,
             .status = head.status,
             .local_names = head.local_names,
-            .await_allowed = head.await_allowed
+            .await_allowed = head.await_allowed,
+            .jsx_allowed = head.jsx_allowed
           }
         ));
   else
@@ -3648,7 +4081,8 @@ TmtParser_ordinary_statement(TmtParser_tape input, TmtParser_parser_state state,
                           .depth = state.depth,
                           .status = state.status,
                           .local_names = state.local_names,
-                          .await_allowed = state.await_allowed
+                          .await_allowed = state.await_allowed,
+                          .jsx_allowed = state.jsx_allowed
                         }
                       )
                       : state;
@@ -3742,7 +4176,8 @@ TmtParser_local_declaration(
           .depth = state.depth,
           .status = state.status,
           .local_names = state.local_names,
-          .await_allowed = state.await_allowed
+          .await_allowed = state.await_allowed,
+          .jsx_allowed = state.jsx_allowed
         }
       ));
   TmtParser_named_state decl = TmtParser_pattern_binding(input, start, 64U, floor, used);
@@ -3758,7 +4193,8 @@ TmtParser_local_declaration(
             .depth = uu____0.depth,
             .status = uu____0.status,
             .local_names = decl.used,
-            .await_allowed = uu____0.await_allowed
+            .await_allowed = uu____0.await_allowed,
+            .jsx_allowed = uu____0.jsx_allowed
           }
         )));
   TmtParser_parsed value = TmtParser_comparison(input, TmtParser_consume(input, st, 61U), fuel);
@@ -3793,7 +4229,8 @@ TmtParser_control_block(
           .depth = st.depth,
           .status = st.status,
           .local_names = used,
-          .await_allowed = st.await_allowed
+          .await_allowed = st.await_allowed,
+          .jsx_allowed = st.jsx_allowed
         }
       ),
       fuel,
@@ -3812,7 +4249,8 @@ TmtParser_control_block(
           .depth = st1.depth,
           .status = st1.status,
           .local_names = state.local_names,
-          .await_allowed = st1.await_allowed
+          .await_allowed = st1.await_allowed,
+          .jsx_allowed = st1.jsx_allowed
         }
       ),
       125U);
@@ -3852,7 +4290,8 @@ TmtParser_control_sequence(
             .depth = state.depth,
             .status = state.status,
             .local_names = used,
-            .await_allowed = state.await_allowed
+            .await_allowed = state.await_allowed,
+            .jsx_allowed = state.jsx_allowed
           }
         ));
     bool closed = TmtParser_same(input, st.offset, 125U);
@@ -3930,7 +4369,8 @@ TmtParser_control_statement(
                               .depth = depth,
                               .status = state.status,
                               .local_names = state.local_names,
-                              .await_allowed = state.await_allowed
+                              .await_allowed = state.await_allowed,
+                              .jsx_allowed = state.jsx_allowed
                             }
                           )
                           : state;
@@ -3947,7 +4387,8 @@ TmtParser_control_statement(
               .depth = state1.depth,
               .status = state1.status,
               .local_names = state1.local_names,
-              .await_allowed = state1.await_allowed
+              .await_allowed = state1.await_allowed,
+              .jsx_allowed = state1.jsx_allowed
             }
           ),
           fuel);
@@ -3971,7 +4412,8 @@ TmtParser_control_statement(
                 .depth = st.depth,
                 .status = st.status,
                 .local_names = st.local_names,
-                .await_allowed = st.await_allowed
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed
               }
             ),
             inner,
@@ -3994,7 +4436,8 @@ TmtParser_control_statement(
                 .depth = state1.depth,
                 .status = state1.status,
                 .local_names = state1.local_names,
-                .await_allowed = state1.await_allowed
+                .await_allowed = state1.await_allowed,
+                .jsx_allowed = state1.jsx_allowed
               }
             ),
             inner,
@@ -4017,7 +4460,8 @@ TmtParser_control_statement(
                   .depth = st.depth,
                   .status = st.status,
                   .local_names = st.local_names,
-                  .await_allowed = st.await_allowed
+                  .await_allowed = st.await_allowed,
+                  .jsx_allowed = st.jsx_allowed
                 }
               ),
               fuel));
@@ -4039,7 +4483,8 @@ TmtParser_control_statement(
               .depth = state1.depth,
               .status = state1.status,
               .local_names = state1.local_names,
-              .await_allowed = state1.await_allowed
+              .await_allowed = state1.await_allowed,
+              .jsx_allowed = state1.jsx_allowed
             }
           ),
           allow_var,
@@ -4068,268 +4513,8 @@ TmtParser_control_body(
     return TmtParser_control_statement(input, st, fuel, in_function, in_loop, used, false);
 }
 
-TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parser_state state)
-{
-  uint32_t at = TmtParser_scan_class(input, state.offset, TmtGrammar_Space);
-  return
-    (
-      (TmtParser_parser_state){
-        .offset = at,
-        .count = state.count,
-        .depth = state.depth,
-        .status = state.status,
-        .local_names = state.local_names,
-        .await_allowed = state.await_allowed
-      }
-    );
-}
-
-uint32_t
-TmtParser_quote_end(TmtParser_tape input0, uint32_t at0, uint8_t delimiter0, uint32_t fuel0)
-{
-  TmtParser_tape input = input0;
-  uint32_t at = at0;
-  uint8_t delimiter = delimiter0;
-  uint32_t fuel = fuel0;
-  while (true)
-    if (at >= input.size || fuel == 0U)
-      return at;
-    else
-    {
-      uint8_t byte = TmtParser_peek(input, at);
-      if (byte == delimiter)
-        return at;
-      else
-      {
-        uint32_t tmp0 = TmtParser_next(at);
-        uint32_t tmp = TmtParser_minus(fuel, 1U);
-        at = tmp0;
-        fuel = tmp;
-      }
-    }
-  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
-    __FILE__,
-    __LINE__,
-    "unreachable, returns inserted above");
-  KRML_HOST_EXIT(255U);
-}
-
-TmtParser_parser_state TmtParser_attr(TmtParser_tape input, TmtParser_parser_state current)
-{
-  TmtParser_cursor named = TmtParser_name(input, current.offset, true, false);
-  TmtParser_parser_state st = TmtParser_from_cursor(current, named);
-  TmtParser_parser_state st1 = TmtParser_tag_space(input, st);
-  TmtParser_parser_state st2 = TmtParser_consume(input, st1, 61U);
-  TmtParser_parser_state st3 = TmtParser_tag_space(input, st2);
-  if (st3.status != 0U)
-    return st3;
-  else
-  {
-    uint8_t byte = TmtParser_peek(input, st3.offset);
-    if (byte == 34U || byte == 39U)
-    {
-      uint32_t pos = TmtParser_quote_end(input, TmtParser_next(st3.offset), byte, input.size);
-      return
-        TmtParser_consume(input,
-          (
-            (TmtParser_parser_state){
-              .offset = pos,
-              .count = st3.count,
-              .depth = st3.depth,
-              .status = st3.status,
-              .local_names = st3.local_names,
-              .await_allowed = st3.await_allowed
-            }
-          ),
-          byte);
-    }
-    else
-    {
-      TmtParser_parser_state st4 = TmtParser_consume(input, st3, 123U);
-      TmtParser_parsed value = TmtParser_comparison(input, st4, 64U);
-      TmtParser_parser_state st5 = TmtParser_skip(input, value.parser);
-      bool disabled;
-      if (value.outer_or && TmtParser_minus(named.at, current.offset) == 8U)
-      {
-        uint64_t attr_name = TmtParser_word(input, current.offset, 8U, 0ULL);
-        disabled = attr_name == 0x64697361626c6564ULL;
-      }
-      else
-        disabled = false;
-      if (disabled)
-        return TmtParser_failed(st5, 1U);
-      else
-        return TmtParser_consume(input, st5, 125U);
-    }
-  }
-}
-
 TmtParser_parser_state
-TmtParser_element_tail(TmtParser_tape input0, TmtParser_parser_state state0, uint32_t fuel0)
-{
-  TmtParser_tape input = input0;
-  TmtParser_parser_state state = state0;
-  uint32_t fuel = fuel0;
-  while (true)
-    if (state.status != 0U)
-      return state;
-    else if (fuel == 0U)
-      return TmtParser_failed(state, 1U);
-    else
-    {
-      TmtParser_parser_state st = TmtParser_tag_space(input, state);
-      bool closing = TmtParser_same(input, st.offset, 47U);
-      if (closing)
-        return
-          TmtParser_consume(input,
-            (
-              (TmtParser_parser_state){
-                .offset = TmtParser_next(st.offset),
-                .count = st.count,
-                .depth = st.depth,
-                .status = st.status,
-                .local_names = st.local_names,
-                .await_allowed = st.await_allowed
-              }
-            ),
-            62U);
-      else if (st.offset == state.offset)
-        return TmtParser_failed(st, 1U);
-      else
-      {
-        TmtParser_parser_state following = TmtParser_attr(input, st);
-        TmtParser_parser_state tmp0 = following;
-        uint32_t tmp = TmtParser_minus(fuel, 1U);
-        state = tmp0;
-        fuel = tmp;
-      }
-    }
-  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
-    __FILE__,
-    __LINE__,
-    "unreachable, returns inserted above");
-  KRML_HOST_EXIT(255U);
-}
-
-TmtParser_parser_state
-TmtParser_body(TmtParser_tape input, TmtParser_parser_state state, bool jsx)
-{
-  TmtParser_parser_state st = TmtParser_skip(input, state);
-  bool opener = TmtParser_same(input, st.offset, 60U);
-  if (st.status == 0U && jsx && opener)
-  {
-    TmtParser_cursor named = TmtParser_name(input, TmtParser_next(st.offset), true, false);
-    return TmtParser_element_tail(input, TmtParser_from_cursor(st, named), input.size);
-  }
-  else
-  {
-    TmtParser_parsed e = TmtParser_comparison(input, st, 64U);
-    return e.parser;
-  }
-}
-
-TmtParser_parser_state TmtParser_arrow_tail(TmtParser_tape input, TmtParser_parser_state state)
-{
-  TmtParser_parser_state
-  st =
-    TmtParser_skip(input,
-      (
-        (TmtParser_parser_state){
-          .offset = TmtParser_next(state.offset),
-          .count = state.count,
-          .depth = state.depth,
-          .status = state.status,
-          .local_names = state.local_names,
-          .await_allowed = state.await_allowed
-        }
-      ));
-  bool has_type = TmtParser_keyword(input, st.offset, 6U, 0x6e756d626572ULL);
-  if (st.status != 0U || !has_type)
-    return TmtParser_failed(st, 1U);
-  else
-  {
-    TmtParser_parser_state
-    st1 =
-      TmtParser_skip(input,
-        (
-          (TmtParser_parser_state){
-            .offset = TmtParser_plus(st.offset, 6U),
-            .count = st.count,
-            .depth = st.depth,
-            .status = st.status,
-            .local_names = st.local_names,
-            .await_allowed = st.await_allowed
-          }
-        ));
-    TmtParser_parser_state st2 = TmtParser_consume(input, st1, 41U);
-    TmtParser_cursor trivia_ = TmtParser_trivia(input, st2.offset);
-    TmtParser_parser_state st3 = TmtParser_from_cursor(st2, trivia_);
-    if (trivia_.newline)
-      return TmtParser_failed(st3, 1U);
-    else
-    {
-      TmtParser_parser_state st4 = TmtParser_consume(input, st3, 61U);
-      return TmtParser_consume(input, st4, 62U);
-    }
-  }
-}
-
-TmtParser_parser_state
-TmtParser_initializer(TmtParser_tape input, TmtParser_parser_state state, bool jsx)
-{
-  TmtParser_parser_state st = TmtParser_skip(input, state);
-  bool grouped = TmtParser_same(input, st.offset, 40U);
-  if (st.status != 0U)
-    return st;
-  else if (grouped)
-  {
-    TmtParser_cursor inner = TmtParser_trivia(input, TmtParser_next(st.offset));
-    TmtParser_cursor param = TmtParser_name(input, inner.at, false, true);
-    TmtParser_cursor t = TmtParser_trivia(input, param.at);
-    bool colon = TmtParser_same(input, t.at, 58U);
-    if (inner.ok && param.ok && t.ok && colon)
-    {
-      TmtParser_parser_state
-      after =
-        TmtParser_skip(input,
-          TmtParser_arrow_tail(input,
-            (
-              (TmtParser_parser_state){
-                .offset = t.at,
-                .count = st.count,
-                .depth = st.depth,
-                .status = st.status,
-                .local_names = st.local_names,
-                .await_allowed = st.await_allowed
-              }
-            )));
-      bool tag = TmtParser_same(input, after.offset, 60U);
-      if (after.status == 0U && tag && jsx)
-        return
-          TmtParser_body(input,
-            (
-              (TmtParser_parser_state){
-                .offset = after.offset,
-                .count = after.count,
-                .depth = after.depth,
-                .status = after.status,
-                .local_names = after.local_names,
-                .await_allowed = false
-              }
-            ),
-            jsx);
-      else
-        return TmtParser_body(input, st, jsx);
-    }
-    else
-      return TmtParser_body(input, st, jsx);
-  }
-  else
-    return TmtParser_body(input, st, jsx);
-}
-
-TmtParser_parser_state
-TmtParser_declaration(TmtParser_tape input, TmtParser_parser_state state, bool jsx)
+TmtParser_declaration(TmtParser_tape input, TmtParser_parser_state state)
 {
   bool has_const = TmtParser_keyword(input, state.offset, 5U, 0x636f6e7374ULL);
   if (state.status != 0U || !has_const)
@@ -4346,13 +4531,14 @@ TmtParser_declaration(TmtParser_tape input, TmtParser_parser_state state, bool j
             .depth = state.depth,
             .status = state.status,
             .local_names = state.local_names,
-            .await_allowed = state.await_allowed
+            .await_allowed = state.await_allowed,
+            .jsx_allowed = state.jsx_allowed
           }
         ));
     TmtParser_cursor named = TmtParser_name(input, st.offset, false, true);
     TmtParser_parser_state st1 = TmtParser_skip(input, TmtParser_from_cursor(st, named));
     TmtParser_parser_state st2 = TmtParser_consume(input, st1, 61U);
-    return TmtParser_initializer(input, st2, jsx);
+    return TmtParser_comparison(input, st2, 64U).parser;
   }
 }
 
@@ -4412,7 +4598,8 @@ TmtParser_import_members(
                 .depth = st.depth,
                 .status = st.status,
                 .local_names = st.local_names,
-                .await_allowed = st.await_allowed
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed
               }
             ));
         uint8_t first = TmtParser_peek(input, after.offset);
@@ -4440,7 +4627,8 @@ TmtParser_import_members(
                 .depth = st1.depth,
                 .status = st1.status,
                 .local_names = st1.local_names,
-                .await_allowed = st1.await_allowed
+                .await_allowed = st1.await_allowed,
+                .jsx_allowed = st1.jsx_allowed
               }
             ));
         TmtParser_named_state local;
@@ -4456,7 +4644,8 @@ TmtParser_import_members(
                   .depth = tail.depth,
                   .status = tail.status,
                   .local_names = tail.local_names,
-                  .await_allowed = tail.await_allowed
+                  .await_allowed = tail.await_allowed,
+                  .jsx_allowed = tail.jsx_allowed
                 }
               ));
           local = TmtParser_bind_at(input, start, 0U, used, start.offset);
@@ -4522,7 +4711,8 @@ TmtParser_import_bindings(
             .depth = st.depth,
             .status = st.status,
             .local_names = st.local_names,
-            .await_allowed = st.await_allowed
+            .await_allowed = st.await_allowed,
+            .jsx_allowed = st.jsx_allowed
           }
         ));
     if (TmtParser_keyword(input, as_.offset, 2U, 0x6173ULL))
@@ -4537,7 +4727,8 @@ TmtParser_import_bindings(
               .depth = as_.depth,
               .status = as_.status,
               .local_names = as_.local_names,
-              .await_allowed = as_.await_allowed
+              .await_allowed = as_.await_allowed,
+              .jsx_allowed = as_.jsx_allowed
             }
           ));
       return TmtParser_bind_at(input, local, 0U, used, local.offset);
@@ -4562,7 +4753,8 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
           .depth = state.depth,
           .status = state.status,
           .local_names = state.local_names,
-          .await_allowed = state.await_allowed
+          .await_allowed = state.await_allowed,
+          .jsx_allowed = state.jsx_allowed
         }
       ));
   uint8_t byte = TmtParser_peek(input, st.offset);
@@ -4583,7 +4775,8 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .depth = st.depth,
               .status = st.status,
               .local_names = st.local_names,
-              .await_allowed = st.await_allowed
+              .await_allowed = st.await_allowed,
+              .jsx_allowed = st.jsx_allowed
             }
           ),
           used,
@@ -4613,7 +4806,8 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .depth = st1.depth,
               .status = st1.status,
               .local_names = st1.local_names,
-              .await_allowed = st1.await_allowed
+              .await_allowed = st1.await_allowed,
+              .jsx_allowed = st1.jsx_allowed
             }
           ));
     else
@@ -4727,7 +4921,8 @@ TmtParser_named_parameters(
                 .depth = st1.depth,
                 .status = st1.status,
                 .local_names = prefix.names.used,
-                .await_allowed = false
+                .await_allowed = false,
+                .jsx_allowed = st1.jsx_allowed
               }
             ),
             61U);
@@ -4741,7 +4936,8 @@ TmtParser_named_parameters(
               .depth = uu____0.depth,
               .status = uu____0.status,
               .local_names = st1.local_names,
-              .await_allowed = st1.await_allowed
+              .await_allowed = st1.await_allowed,
+              .jsx_allowed = uu____0.jsx_allowed
             }
           );
       }
@@ -4793,7 +4989,8 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
             .depth = state.depth,
             .status = state.status,
             .local_names = state.local_names,
-            .await_allowed = state.await_allowed
+            .await_allowed = state.await_allowed,
+            .jsx_allowed = state.jsx_allowed
           }
         ));
   else
@@ -4808,7 +5005,8 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
                   .depth = st.depth,
                   .status = st.status,
                   .local_names = st.local_names,
-                  .await_allowed = st.await_allowed
+                  .await_allowed = st.await_allowed,
+                  .jsx_allowed = st.jsx_allowed
                 }
               )
               : st;
@@ -4837,7 +5035,8 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
             .depth = st1.depth,
             .status = st1.status,
             .local_names = st1.local_names,
-            .await_allowed = st1.await_allowed
+            .await_allowed = st1.await_allowed,
+            .jsx_allowed = st1.jsx_allowed
           }
         ));
     TmtParser_named_state decl;
@@ -4883,7 +5082,7 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
       st5 =
         {
           .offset = st4.offset, .count = st4.count, .depth = st4.depth, .status = st4.status,
-          .local_names = st4.local_names, .await_allowed = async_.ok
+          .local_names = st4.local_names, .await_allowed = async_.ok, .jsx_allowed = st4.jsx_allowed
         };
       result =
         TmtParser_control_block(input,
@@ -4906,7 +5105,7 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
           .state = {
             .offset = result.offset, .count = result.count, .depth = result.depth,
             .status = result.status, .local_names = result.local_names,
-            .await_allowed = state.await_allowed
+            .await_allowed = state.await_allowed, .jsx_allowed = result.jsx_allowed
           },
           .used = decl.used
         }
@@ -4992,7 +5191,7 @@ TmtParser_module_sequence(
 }
 
 static TmtParser_parser_state
-parse_state(TmtParser_tape input, TmtParser_parser_state st, bool jsx, bool module_mode)
+parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
 {
   if (st.status != 0U || st.offset == input.size)
     return st;
@@ -5016,7 +5215,8 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool jsx, bool modu
                 .depth = st.depth,
                 .status = st.status,
                 .local_names = st.local_names,
-                .await_allowed = st.await_allowed
+                .await_allowed = st.await_allowed,
+                .jsx_allowed = st.jsx_allowed
               }
             ),
             64U);
@@ -5049,7 +5249,8 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool jsx, bool modu
                   .depth = st.depth,
                   .status = st.status,
                   .local_names = st.local_names,
-                  .await_allowed = st.await_allowed
+                  .await_allowed = st.await_allowed,
+                  .jsx_allowed = st.jsx_allowed
                 }
               ));
         else
@@ -5057,7 +5258,7 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool jsx, bool modu
       }
       else
         st1 = st;
-      TmtParser_parser_state st2 = TmtParser_declaration(input, st1, jsx);
+      TmtParser_parser_state st2 = TmtParser_declaration(input, st1);
       TmtParser_parser_state st3 = TmtParser_skip(input, st2);
       bool semicolon = TmtParser_same(input, st3.offset, 59U);
       if (semicolon && st3.status == 0U)
@@ -5070,7 +5271,8 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool jsx, bool modu
                 .depth = st3.depth,
                 .status = st3.status,
                 .local_names = st3.local_names,
-                .await_allowed = st3.await_allowed
+                .await_allowed = st3.await_allowed,
+                .jsx_allowed = st3.jsx_allowed
               }
             ));
       else
@@ -5091,10 +5293,11 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .depth = 0U,
           .status = 0U,
           .local_names = 0U,
-          .await_allowed = module_mode
+          .await_allowed = module_mode,
+          .jsx_allowed = jsx
         }
       ));
-  TmtParser_parser_state state = parse_state(input, initial, jsx, module_mode);
+  TmtParser_parser_state state = parse_state(input, initial, module_mode);
   TmtParser_parser_state state1;
   if (module_mode && (state.status == 1U || state.status == 0U && state.offset != input.size))
   {
@@ -5114,7 +5317,8 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .depth = uu____0.depth,
           .status = uu____0.status,
           .local_names = uu____0.local_names,
-          .await_allowed = uu____0.await_allowed
+          .await_allowed = uu____0.await_allowed,
+          .jsx_allowed = uu____0.jsx_allowed
         }
       );
   }
@@ -5129,7 +5333,8 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .depth = uu____1.depth,
           .status = uu____1.status,
           .local_names = uu____1.local_names,
-          .await_allowed = uu____1.await_allowed
+          .await_allowed = uu____1.await_allowed,
+          .jsx_allowed = uu____1.jsx_allowed
         }
       );
   }

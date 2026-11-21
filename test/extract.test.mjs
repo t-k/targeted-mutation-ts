@@ -50,7 +50,7 @@ test('inputs outside the Low* grammar receive complete extraction', () => {
     ['const x = f<number>(2) < 3;', 'ts', 1],
     ['const x = /[<]/.test("a") && 3 / 4 > 0;', 'ts', 1],
     ['const x = String.raw`x > < ${2 >= 3}`;', 'ts', 1],
-    ['const x = <A><B valid={3 < 5} /></A>;', 'tsx', 1],
+    ['const x = <A.B><B valid={3 < 5} /></A.B>;', 'tsx', 1],
     ['const x = ' + '('.repeat(65) + '2 >= 3' + ')'.repeat(65), 'ts', 1, 'native'],
     ['const x = 2 < 3; const y = obj<number>().count > 5;', 'ts', 2],
   ]) {
@@ -190,7 +190,7 @@ for (const row of encodingRows) {
   test('encoding ' + row.replaceAll('\t', ' / '), () => {
     const [kind, text, syntax] = row.split('\t');
     const caption = text === 'ASCII' ? 'yes' : '🐈';
-    const prefix = syntax === 'Fallback' ? 'const other = 1;\n' : '';
+    const prefix = syntax === 'Fallback' ? 'const other = identity<number>(1);\n' : '';
     const source = prefix + 'const view = <Tag text="' + caption + '" show={2 <= 3} />;';
     const storage = Uint8Array.from([...Buffer.from(source), ...(text === 'Invalid' ? [255] : [])]);
     const input = {

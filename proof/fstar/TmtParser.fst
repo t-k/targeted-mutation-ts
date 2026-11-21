@@ -145,7 +145,10 @@ let name (input:tape) (at:U32.t) (jsx binding:bool) : Read cursor input =
       { at = stop; ok = not (reserved || invalid_binding); newline = false }
 
 type names_used = used:U32.t{U32.v used <= 64}
-type parser_state = { offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used; await_allowed:bool }
+type parser_state = {
+  offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used;
+  await_allowed:bool; jsx_allowed:bool
+}
 type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:bool; shortcut:U32.t }
 
 let failed (state:parser_state) (error:U32.t) : parser_state =
@@ -523,7 +526,7 @@ and signature_parameters (input:tape) (state:parser_state) (fuel remaining:U32.t
     if same input end_.offset 44uy then
       signature_parameters input (consume input end_ 44uy) fuel (minus remaining 1ul)
     else consume input end_ 41uy
-and type_term (input:tape) (state:parser_state) (fuel:U32.t)
+and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature:bool)
   : Read parser_state input (decreases %[U32.v fuel; 1; 0]) =
   let st = skip input state in
   if st.status <> 0ul then st
@@ -545,7 +548,8 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t)
           if byte = 91uy then type_list input inside inner 64ul 93uy true
           else if byte = 123uy then object_type input inside inner input.size
           else
-            let params = signature_parameters input inside inner 64ul in
+            let params = if allow_signature then signature_parameters input inside inner 64ul
+              else failed inside 1ul in
             let tail = skip input params in
             let arrow = consume input (consume input tail 61uy) 62uy in
             if arrow.status = 0ul then annotation_type input arrow inner 64ul
@@ -558,13 +562,14 @@ and annotation_type (input:tape) (state:parser_state) (fuel remaining:U32.t)
   : Read parser_state input (decreases %[U32.v fuel; 3; 0]) =
   let st = skip input state in
   let first = peek input st.offset in
-  let start = if first = 124uy || first = 38uy then consume input st first else st in
-  type_terms input start fuel remaining
-and type_terms (input:tape) (state:parser_state) (fuel remaining:U32.t)
+  let leading = first = 124uy || first = 38uy in
+  let start = if leading then consume input st first else st in
+  type_terms input start fuel remaining (not leading)
+and type_terms (input:tape) (state:parser_state) (fuel remaining:U32.t) (allow_signature:bool)
   : Read parser_state input (decreases %[U32.v fuel; 2; U32.v remaining]) =
   if remaining = 0ul then failed state 1ul
   else
-    let term = type_term input state fuel in
+    let term = type_term input state fuel allow_signature in
     let st = skip input term in
     let byte = peek input st.offset in
     if st.status <> 0ul then st
@@ -572,7 +577,7 @@ and type_terms (input:tape) (state:parser_state) (fuel remaining:U32.t)
       let union = if byte = 124uy || byte = 38uy then
         let repeated = same input (next st.offset) byte in not repeated
       else false in
-      if union then type_terms input { st with offset = next st.offset } fuel (minus remaining 1ul)
+      if union then type_terms input { st with offset = next st.offset } fuel (minus remaining 1ul) false
       else term
 
 let simple_annotation (input:tape) (state:parser_state) : Read parser_state input =
@@ -837,6 +842,18 @@ let update_statement_end (input:tape) (state:parser_state) : Read parser_state i
       if declaration <> 0ul || control <> 0ul || returned || thrown then st
       else failed st 1ul
 
+let tag_space (input:tape) (state:parser_state) : Read parser_state input =
+  let at = scan_class input state.offset G.Space in
+  { state with offset = at }
+
+let rec quote_end (input:tape) (at:U32.t) (delimiter:U8.t) (fuel:U32.t) : Read U32.t input (decreases U32.v fuel) =
+  if U32.(at >=^ input.size) || fuel = 0ul then at
+  else
+    let byte = peek input at in
+    if byte = delimiter then at else quote_end input (next at) delimiter (minus fuel 1ul)
+
+type jsx_opening = { after_tag:parser_state; self_closing:bool }
+
 let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 2; 0]) =
   let st = skip input current in
@@ -854,6 +871,12 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
       else
         let child = atom input { st with offset = plus start_pos prefix } (minus fuel 1ul) in
         { child with range = { child.range with G.first = start_pos } }
+    else if ch = 60uy && st.jsx_allowed then
+      if fuel = 0ul then empty_range (failed st 3ul)
+      else
+        let closed = jsx_element input st (minus fuel 1ul) in
+        postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
+          open_angle = false; outer_or = false; shortcut = 0ul } fuel input.size
     else if constructor || ch = 96uy || ch = 91uy || ch = 123uy then
       if fuel = 0ul then empty_range (failed st 3ul)
       else
@@ -1105,6 +1128,100 @@ and template_body (input:tape) (state:parser_state) (fuel remaining:U32.t)
         else { state with offset = next at } in
       template_body input st fuel (minus remaining 1ul)
 
+and jsx_attribute (input:tape) (state:parser_state) (fuel:U32.t)
+  : Run parser_state input (decreases %[U32.v fuel; 30; 0]) =
+  let first = peek input state.offset in
+  if first = 123uy then
+    let inner = skip input (consume input state 123uy) in
+    let spread = spread_at input inner.offset in
+    if not spread then failed inner 1ul
+    else
+      let value = comparison input { inner with offset = plus inner.offset 3ul } fuel in
+      consume input (skip input value.parser) 125uy
+  else
+    let named = name input state.offset true false in
+    let named_state = from_cursor state named in
+    let tail = tag_space input named_state in
+    let equal = same input tail.offset 61uy in
+    if named_state.status <> 0ul || not equal then named_state
+    else
+      let st = tag_space input (consume input tail 61uy) in
+      let byte = peek input st.offset in
+      if byte = 34uy || byte = 39uy then
+        let pos = quote_end input (next st.offset) byte input.size in
+        consume input { st with offset = pos } byte
+      else if byte = 60uy then
+        if fuel = 0ul then failed st 3ul else jsx_element input st (minus fuel 1ul)
+      else
+        let value = comparison input (consume input st 123uy) fuel in
+        let st = skip input value.parser in
+        // Delegate the focused rewrite for a direct disabled disjunction.
+        let disabled = if value.outer_or && minus named.at state.offset = 8ul then
+          let attr_name = word input state.offset 8ul 0uL in attr_name = 0x64697361626c6564uL
+          else false in
+        if disabled then failed st 1ul else consume input st 125uy
+
+and jsx_attributes (input:tape) (state:parser_state) (fuel remaining:U32.t)
+  : Run jsx_opening input (decreases %[U32.v fuel; 31; U32.v remaining]) =
+  let st = tag_space input state in
+  let byte = peek input st.offset in
+  if st.status <> 0ul then { after_tag = st; self_closing = false }
+  else if byte = 62uy then { after_tag = consume input st 62uy; self_closing = false }
+  else if byte = 47uy then
+    { after_tag = consume input (tag_space input (consume input st 47uy)) 62uy; self_closing = true }
+  else if remaining = 0ul then { after_tag = failed st 1ul; self_closing = false }
+  else
+    let following = jsx_attribute input st fuel in
+    jsx_attributes input following fuel (minus remaining 1ul)
+
+and jsx_children (input:tape) (state:parser_state) (tag:G.span) (fuel remaining:U32.t)
+  : Run parser_state input (decreases %[U32.v fuel; 32; U32.v remaining]) =
+  if state.status <> 0ul then state
+  else if remaining = 0ul || U32.(state.offset >=^ input.size) then failed state 1ul
+  else
+    let byte = peek input state.offset in
+    if byte = 60uy then
+      let slash = same input (next state.offset) 47uy in
+      if slash then
+        let closing = tag_space input { state with offset = plus state.offset 2ul } in
+        let length = minus tag.G.last tag.G.first in
+        if length = 0ul then consume input closing 62uy
+        else
+          let named = name input closing.offset true false in
+          let same_ =
+            if named.ok && minus named.at closing.offset = length then
+              same_bytes input tag.G.first closing.offset length
+            else false in
+          if same_ then consume input (tag_space input (from_cursor closing named)) 62uy
+          else failed closing 1ul
+      else if fuel = 0ul then failed state 3ul
+      else
+        let child = jsx_element input state (minus fuel 1ul) in
+        jsx_children input child tag fuel (minus remaining 1ul)
+    else if byte = 123uy then
+      let st = skip input (consume input state 123uy) in
+      let done_ =
+        if same input st.offset 125uy then consume input st 125uy
+        else
+          let value = comparison input st fuel in
+          consume input (skip input value.parser) 125uy in
+      jsx_children input done_ tag fuel (minus remaining 1ul)
+    else if byte = 0uy || byte = 62uy || byte = 125uy then failed state 1ul
+    else jsx_children input { state with offset = next state.offset } tag fuel (minus remaining 1ul)
+
+and jsx_element (input:tape) (state:parser_state) (fuel:U32.t)
+  : Run parser_state input (decreases %[U32.v fuel; 33; 0]) =
+  let depth = minus 64ul fuel in
+  let state = if U32.(depth >^ state.depth) then { state with depth } else state in
+  let opening = tag_space input (consume input state 60uy) in
+  if same input opening.offset 62uy then
+    jsx_children input (consume input opening 62uy) (start_range opening.offset) fuel input.size
+  else
+    let named = name input opening.offset true false in
+    let attrs = jsx_attributes input (from_cursor opening named) fuel input.size in
+    if attrs.after_tag.status <> 0ul || attrs.self_closing then attrs.after_tag
+    else jsx_children input attrs.after_tag { G.first = opening.offset; G.last = named.at } fuel input.size
+
 and condition (input:tape) (state:parser_state) (fuel:U32.t) : Run parser_state input (decreases %[U32.v fuel; 43; 0]) =
   let st = consume input (skip input state) 40uy in
   let tested = comparison input st fuel in
@@ -1258,92 +1375,7 @@ and control_body (input:tape) (state:parser_state) (fuel:U32.t) (in_function in_
   else if same input st.offset 123uy then control_block input st fuel in_function in_loop used used
   else control_statement input st fuel in_function in_loop used false
 
-let tag_space (input:tape) (state:parser_state) : Read parser_state input =
-  let at = scan_class input state.offset G.Space in
-  { state with offset = at }
-
-let rec quote_end (input:tape) (at:U32.t) (delimiter:U8.t) (fuel:U32.t) : Read U32.t input (decreases U32.v fuel) =
-  if U32.(at >=^ input.size) || fuel = 0ul then at
-  else
-    let byte = peek input at in
-    if byte = delimiter then at else quote_end input (next at) delimiter (minus fuel 1ul)
-
-let attr (input:tape) (current:parser_state) : Run parser_state input =
-  let named = name input current.offset true false in
-  let st = from_cursor current named in
-  let st = tag_space input st in
-  let st = consume input st 61uy in
-  let st = tag_space input st in
-  if st.status <> 0ul then st
-  else
-    let byte = peek input st.offset in
-    if byte = 34uy || byte = 39uy then
-      let pos = quote_end input (next st.offset) byte input.size in
-      consume input { st with offset = pos } byte
-    else
-      let st = consume input st 123uy in
-      let value = comparison input st 64ul in
-      let st = skip input value.parser in
-      // The broader parser supplies the focused rewrite for a direct disabled disjunction.
-      let disabled = if value.outer_or && minus named.at current.offset = 8ul then
-          let attr_name = word input current.offset 8ul 0uL in attr_name = 0x64697361626c6564uL
-        else false in
-      if disabled then failed st 1ul else consume input st 125uy
-
-let rec element_tail (input:tape) (state:parser_state) (fuel:U32.t) : Run parser_state input (decreases U32.v fuel) =
-  if state.status <> 0ul then state
-  else if fuel = 0ul then failed state 1ul
-  else
-    let st = tag_space input state in
-    let closing = same input st.offset 47uy in
-    if closing then consume input { st with offset = next st.offset } 62uy
-    else if st.offset = state.offset then failed st 1ul
-    else
-      let following = attr input st in
-      element_tail input following (minus fuel 1ul)
-
-let body (input:tape) (state:parser_state) (jsx:bool) : Run parser_state input =
-  let st = skip input state in
-  let opener = same input st.offset 60uy in
-  if st.status = 0ul && jsx && opener then
-    let named = name input (next st.offset) true false in
-    element_tail input (from_cursor st named) input.size
-  else
-    let e = comparison input st 64ul in
-    e.parser
-
-let arrow_tail (input:tape) (state:parser_state) : Read parser_state input =
-  let st = skip input { state with offset = next state.offset } in
-  let has_type = keyword input st.offset 6ul 0x6e756d626572uL in
-  if st.status <> 0ul || not has_type then failed st 1ul
-  else
-    let st = skip input { st with offset = plus st.offset 6ul } in
-    let st = consume input st 41uy in
-    let trivia_ = trivia input st.offset in
-    let st = from_cursor st trivia_ in
-    if trivia_.newline then failed st 1ul
-    else
-      let st = consume input st 61uy in
-      consume input st 62uy
-
-let initializer (input:tape) (state:parser_state) (jsx:bool) : Run parser_state input =
-  let st = skip input state in
-  let grouped = same input st.offset 40uy in
-  if st.status <> 0ul then st
-  else if grouped then
-    let inner = trivia input (next st.offset) in
-    let param = name input inner.at false true in
-    let t = trivia input param.at in
-    let colon = same input t.at 58uy in
-    if inner.ok && param.ok && t.ok && colon then
-      let after = skip input (arrow_tail input { st with offset = t.at }) in
-      let tag = same input after.offset 60uy in
-      if after.status = 0ul && tag && jsx then body input { after with await_allowed = false } jsx
-      else body input st jsx
-    else body input st jsx
-  else body input st jsx
-
-let declaration (input:tape) (state:parser_state) (jsx:bool) : Run parser_state input =
+let declaration (input:tape) (state:parser_state) : Run parser_state input =
   let has_const = keyword input state.offset 5ul 0x636f6e7374uL in
   if state.status <> 0ul || not has_const then failed state 1ul
   else
@@ -1351,7 +1383,7 @@ let declaration (input:tape) (state:parser_state) (jsx:bool) : Run parser_state 
     let named = name input st.offset false true in
     let st = skip input (from_cursor st named) in
     let st = consume input st 61uy in
-    initializer input st jsx
+    (comparison input st 64ul).parser
 
 let import_source (input:tape) (state:parser_state) : Read parser_state input =
   let st = skip input state in
@@ -1530,7 +1562,7 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
         else { state = control_statement input st 64ul false false 0ul false; used } in
     module_sequence input decl.state decl.used (minus fuel 1ul)
 
-private let parse_state (input:tape) (st:parser_state) (jsx module_mode:bool) : Run parser_state input =
+private let parse_state (input:tape) (st:parser_state) (module_mode:bool) : Run parser_state input =
   if st.status <> 0ul || st.offset = input.size then st
   else
     let first = peek input st.offset in
@@ -1550,7 +1582,7 @@ private let parse_state (input:tape) (st:parser_state) (jsx module_mode:bool) : 
           if module_mode then skip input { st with offset = plus st.offset 6ul }
           else failed st 1ul
         else st in
-      let st = declaration input st jsx in
+      let st = declaration input st in
       let st = skip input st in
       let semicolon = same input st.offset 59uy in
       if semicolon && st.status = 0ul then skip input { st with offset = next st.offset } else st
@@ -1562,9 +1594,10 @@ let parse (input:tape) (jsx module_mode:bool)
       (r.status <> 0ul ==> r.count = 0ul)
     }) input =
   let initial = skip input {
-    offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul; await_allowed = module_mode
+    offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
+    await_allowed = module_mode; jsx_allowed = jsx
   } in
-  let state = parse_state input initial jsx module_mode in
+  let state = parse_state input initial module_mode in
   let state : parser_state =
     if module_mode && (state.status = 1ul || (state.status = 0ul && state.offset <> input.size)) then
       let expanded = module_sequence input initial 0ul input.size in

@@ -77,6 +77,7 @@ typedef struct TmtParser_parser_state_s
   uint32_t status;
   uint32_t local_names;
   bool await_allowed;
+  bool jsx_allowed;
 }
 TmtParser_parser_state;
 
@@ -252,7 +253,12 @@ TmtParser_signature_parameters(
 );
 
 TmtParser_parser_state
-TmtParser_type_term(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+TmtParser_type_term(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t fuel,
+  bool allow_signature
+);
 
 TmtParser_parser_state
 TmtParser_annotation_type(
@@ -267,7 +273,8 @@ TmtParser_type_terms(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
   uint32_t fuel0,
-  uint32_t remaining0
+  uint32_t remaining0,
+  bool allow_signature0
 );
 
 TmtParser_parser_state
@@ -375,6 +382,18 @@ uint32_t TmtParser_local_width(TmtParser_tape input, uint32_t start);
 TmtParser_parser_state
 TmtParser_update_statement_end(TmtParser_tape input, TmtParser_parser_state state);
 
+TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parser_state state);
+
+uint32_t
+TmtParser_quote_end(TmtParser_tape input0, uint32_t at0, uint8_t delimiter0, uint32_t fuel0);
+
+typedef struct TmtParser_jsx_opening_s
+{
+  TmtParser_parser_state after_tag;
+  bool self_closing;
+}
+TmtParser_jsx_opening;
+
 TmtParser_parsed
 TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel);
 
@@ -431,6 +450,29 @@ TmtParser_template_body(
   uint32_t fuel0,
   uint32_t remaining0
 );
+
+TmtParser_parser_state
+TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+
+TmtParser_jsx_opening
+TmtParser_jsx_attributes(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtParser_parser_state
+TmtParser_jsx_children(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  TmtGrammar_span tag0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtParser_parser_state
+TmtParser_jsx_element(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
 TmtParser_condition(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
@@ -527,27 +569,8 @@ TmtParser_control_body(
   uint32_t used
 );
 
-TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parser_state state);
-
-uint32_t
-TmtParser_quote_end(TmtParser_tape input0, uint32_t at0, uint8_t delimiter0, uint32_t fuel0);
-
-TmtParser_parser_state TmtParser_attr(TmtParser_tape input, TmtParser_parser_state current);
-
 TmtParser_parser_state
-TmtParser_element_tail(TmtParser_tape input0, TmtParser_parser_state state0, uint32_t fuel0);
-
-TmtParser_parser_state
-TmtParser_body(TmtParser_tape input, TmtParser_parser_state state, bool jsx);
-
-TmtParser_parser_state
-TmtParser_arrow_tail(TmtParser_tape input, TmtParser_parser_state state);
-
-TmtParser_parser_state
-TmtParser_initializer(TmtParser_tape input, TmtParser_parser_state state, bool jsx);
-
-TmtParser_parser_state
-TmtParser_declaration(TmtParser_tape input, TmtParser_parser_state state, bool jsx);
+TmtParser_declaration(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
 TmtParser_import_source(TmtParser_tape input, TmtParser_parser_state state);
