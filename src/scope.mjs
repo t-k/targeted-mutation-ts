@@ -3,6 +3,9 @@ import { readdirSync } from 'node:fs';
 import { relative, resolve } from 'node:path';
 import { copyPathIsExcluded, inside, resolveCopyExclusions } from './vitest.mjs';
 
+const sourceName = /(?<!\.d|\.test|\.spec)\.(?:[cm]?[jt]s|[jt]sx)$/;
+const runnerConfig = /^(?:vite|vitest|playwright)(?:\.[^.]+)*\.config\.[cm]?[jt]s$/;
+
 function listSource(root, exclusions, dir = root) {
   const result = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -10,7 +13,7 @@ function listSource(root, exclusions, dir = root) {
     const path = resolve(dir, entry.name);
     if (copyPathIsExcluded(root, path, exclusions)) continue;
     if (entry.isDirectory()) result.push(...listSource(root, exclusions, path));
-    if (entry.isFile() && /(?<!\.d|\.test|\.spec)\.tsx?$/.test(entry.name)) result.push(relative(root, path));
+    if (entry.isFile() && sourceName.test(entry.name) && !runnerConfig.test(entry.name)) result.push(relative(root, path));
   }
   return result;
 }
@@ -44,19 +47,23 @@ export function selectScope(root, files, { lines = [], since, 'copy-exclude': co
   const selection = files.length ? files : lines.length ? [...ranges.keys()] : listSource(root, exclusions);
   const paths = [...new Set(selection.map(sourceFile))].sort();
   let revision;
+  let tracked;
+  let changedPaths;
   if (since !== undefined) {
     try {
       revision = git(root, ['rev-parse', '--verify', '--end-of-options', since + '^{commit}']).trim();
     } catch {
       throw new Error(`Cannot resolve Git revision: ${since}`);
     }
+    tracked = new Set(git(root, ['ls-files', '-z']).split('\0'));
+    changedPaths = new Set(git(root, ['diff', '--name-only', '-z', '--relative', '--no-ext-diff', '--no-renames', revision, '--']).split('\0'));
   }
   return paths.filter(file => !lines.length || ranges.has(file)).map(file => {
     let changed;
-    if (revision) {
-      const tracked = git(root, ['ls-files', '-z', '--', file]).length !== 0;
-      if (tracked) {
-        const patch = git(root, ['diff', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--unified=0', revision, '--', file]);
+    if (tracked?.has(file)) {
+      changed = [];
+      if (changedPaths.has(file)) {
+        const patch = git(root, ['diff', '--relative', '--no-ext-diff', '--no-textconv', '--no-color', '--no-renames', '--unified=0', revision, '--', file]);
         changed = [...patch.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)]
           .map(([, first, length]) => [+first, +first + (length === undefined ? 1 : +length) - 1])
           .filter(([first, last]) => first <= last);

@@ -19,6 +19,51 @@ function runWitness(project, target, selected, ...args) {
 
 const analyze = (...args) => runWitness(root, source, suite, ...args);
 
+const entryRows = readFileSync(new URL('../verification/pict/witness-entrypoint.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1).map(row => row.split('\t'));
+for (const [language, registration, assertion] of entryRows) {
+  test(`witness entry point: ${language} ${registration} ${assertion}`, () => {
+    const project = mkdtempSync(join(tmpdir(), 'tmt-witness-entry-'));
+    try {
+      const typed = language === 'TS';
+      const file = 'position.' + language.toLowerCase();
+      writeFileSync(join(project, 'package.json'), '{"type":"module"}');
+      writeFileSync(join(project, file), typed
+        ? 'export const positionOf = (items: number[], target: number) => items.indexOf(target);'
+        : 'export const positionOf = (items, target) => items.indexOf(target);');
+      const expected = assertion === 'Literal' ? '0' : 'expected';
+      const direct = `it('checks', () => expect(positionOf([5, 6], 5)).toBe(${expected}));`;
+      const entry = {
+        Top: direct,
+        Nested: `group('positions', () => { suite('duplicates', function () { ${direct} }); });
+suite('other', () => { it('checks', () => expect(1).toBe(1)); });`,
+        Dynamic: `it.each([[0]])('checks %d', () => expect(positionOf([5, 6], 5)).toBe(${expected}));`,
+      }[registration];
+      writeFileSync(join(project, 'position.test.js'), `
+import { describe as group, suite, it, expect } from 'vitest';
+import { positionOf } from './${file}';
+const expected = 0;
+${entry}
+`);
+      const run = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', project, '--witnesses', '--test', 'position.test.js'],
+        { encoding: 'utf8', timeout: 30_000 });
+      assert.equal(run.status, 0, run.stderr + run.stdout);
+      const report = JSON.parse(run.stdout);
+      const matched = Number(registration !== 'Dynamic' && assertion === 'Literal');
+      assert.deepEqual(report.witnessSearch, { candidates: 1, matched, unmatched: 1 - matched, evaluated: matched, omitted: 0 });
+      assert.equal(report.diagnostics.length, matched);
+      if (matched) {
+        const [gap] = report.diagnostics;
+        assert.equal(gap.verification.status, 'confirmed');
+        assert.equal(gap.seed.test, registration === 'Nested' ? 'positions > duplicates > checks' : 'checks');
+        assert.deepEqual([gap.fixtureEdit.original, gap.fixtureEdit.replacement], ['6', '5']);
+      }
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
+  });
+}
+
 function isolatedFixture(action) {
   const project = mkdtempSync(join(tmpdir(), 'tmt-witness-'));
   try {
@@ -28,6 +73,31 @@ function isolatedFixture(action) {
     rmSync(project, { recursive: true, force: true });
   }
 }
+
+test('a suite-local subject cannot seed an appended witness for an imported function', () => isolatedFixture(project => {
+  writeFileSync(join(project, suite), `
+import { describe, it, expect } from 'vitest';
+import { positionOf } from '../src/queries';
+describe('positions', () => {
+  if (true) { var positionOf = () => 0; }
+  it('checks', () => expect(positionOf([5,], 5)).toBe(0));
+});
+`);
+  const result = runWitness(project, source, suite, '--lines', `${source}:5-5`);
+  assert.equal(result.witnessSearch.candidates, 1);
+  assert.equal(result.witnessSearch.unmatched, 1);
+  assert.deepEqual(result.diagnostics, []);
+}));
+
+test('a failed baseline leaves fixture matching unknown', () => isolatedFixture(project => {
+  writeFileSync(join(project, suite), "import { it, expect } from 'vitest'; it('fails', () => expect(1).toBe(0));");
+  const run = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', project, source,
+    '--witnesses', '--test', suite, '--lines', `${source}:5-5`], { encoding: 'utf8', timeout: 30_000 });
+  assert.equal(run.status, 1, run.stderr);
+  const report = JSON.parse(run.stdout);
+  assert.equal(report.evaluation, 'baseline_error');
+  assert.deepEqual(report.witnessSearch, { candidates: 1, matched: 0, unmatched: null, evaluated: 0, omitted: 0 });
+}));
 
 test('verifies same-type substitutions and the first-versus-last duplicate witness', () => {
   const before = readFileSync(`${root}/${suite}`);

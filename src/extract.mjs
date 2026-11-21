@@ -25,8 +25,12 @@ export function byteOffsets(source) {
   return offsets;
 }
 
+export function sourceDialect(file) {
+  return /\.[jt]sx$/.test(file) ? 'tsx' : 'ts';
+}
+
 function optionsFor(options) {
-  const dialect = options.dialect ?? (options.file?.endsWith('.tsx') ? 'tsx' : 'ts');
+  const dialect = options.dialect ?? sourceDialect(options.file);
   const mode = options.mode ?? 'module';
   if (!['ts', 'tsx'].includes(dialect) || !['script', 'module'].includes(mode)) {
     throw new Error('Expected ts/tsx and script/module dialect options');

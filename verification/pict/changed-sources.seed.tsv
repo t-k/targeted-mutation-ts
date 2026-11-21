@@ -1,0 +1,8 @@
+Layout	Extension	State
+Root	TS	Clean
+Nested	JS	Changed
+Nested	JSX	Untracked
+Root	TS	Deletion
+Root	MJS	Staged
+Nested	Declaration	Untracked
+Root	Test	Changed

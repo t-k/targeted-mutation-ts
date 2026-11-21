@@ -1,0 +1,3 @@
+Layout: Root, Nested
+Extension: TS, TSX, JS, JSX, MJS, CTS, Declaration, Test
+State: Clean, Changed, Staged, Deletion, Untracked

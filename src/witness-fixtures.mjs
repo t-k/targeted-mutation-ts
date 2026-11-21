@@ -31,6 +31,7 @@ function literal(node, shape) {
 }
 
 export function importedBindings(tree) {
+  if (!tree.locals) ts.bindSourceFile(tree, {});
   const names = new Map();
   for (const declaration of tree.statements) {
     if (!ts.isImportDeclaration(declaration) || !ts.isStringLiteral(declaration.moduleSpecifier) ||
@@ -45,7 +46,7 @@ export function importedBindings(tree) {
   return names;
 }
 
-const moduleExtensions = ['.mjs', '.js', '.mts', '.ts', '.jsx', '.tsx', '.json'];
+const moduleExtensions = ['.mjs', '.js', '.cjs', '.mts', '.ts', '.cts', '.jsx', '.tsx', '.json'];
 
 export function importMatches(file, specifier, subject, project) {
   if (!specifier.startsWith('.')) return false;
@@ -57,7 +58,7 @@ export function importMatches(file, specifier, subject, project) {
   const substitutes = { '.js': ['.ts', '.tsx'], '.jsx': ['.tsx'], '.mjs': ['.mts'], '.cjs': ['.cts'] };
   const candidates = Object.hasOwn(substitutes, extension)
     ? substitutes[extension].map(ext => path.slice(0, -extension.length) + ext)
-    : moduleExtensions.includes(extension) || extension === '.cts' ? []
+    : moduleExtensions.includes(extension) ? []
       : [...moduleExtensions.map(ext => path + ext), ...moduleExtensions.map(ext => resolve(path, 'index' + ext))];
   if (!project) return source === path || candidates.includes(source);
   const existing = new Set(candidates.filter(candidate => statSync(candidate, { throwIfNoEntry: false })?.isFile())
@@ -65,17 +66,35 @@ export function importMatches(file, specifier, subject, project) {
   return existing.size === 1 && existing.has(source);
 }
 
-export function fixtureCalls(tree, file, candidate, subject, project) {
-  if (tree.parseDiagnostics.length) return [];
-  const imports = importedBindings(tree);
-  const results = [];
-  for (const statement of tree.statements) {
-    if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression)) continue;
+function callbackImports(callback, imports) {
+  return new Map([...imports].filter(([name]) => {
+    const local = callback.locals?.get(ts.escapeLeadingUnderscores(name));
+    return name !== callback.name?.text && !(local?.flags & ts.SymbolFlags.Value);
+  }));
+}
+
+export function* registeredTests(statements, imports, parents = []) {
+  for (const statement of statements) {
+    if (!ts.isExpressionStatement(statement) || !ts.isCallExpression(statement.expression) || statement.expression.questionDotToken) continue;
     const { expression, arguments: args } = statement.expression;
     const registration = ts.isIdentifier(expression) && imports.get(expression.text);
-    if (registration?.module !== 'vitest' || !['it', 'test'].includes(registration.name) || args.length !== 2 ||
-        !ts.isStringLiteral(args[0]) || !ts.isArrowFunction(args[1]) || args[1].parameters.length) continue;
-    const body = args[1].body;
+    if (registration?.module !== 'vitest' || args.length !== 2) continue;
+    const [title, callback] = args;
+    if (!ts.isStringLiteralLike(title) || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) ||
+        callback.parameters.length || callback.asteriskToken) continue;
+    const path = [...parents, title.text];
+    if (registration.name === 'it' || registration.name === 'test') {
+      yield { name: path.join(' > '), callback, imports: callbackImports(callback, imports) };
+    } else if ((registration.name === 'describe' || registration.name === 'suite') && ts.isBlock(callback.body)) {
+      yield* registeredTests(callback.body.statements, callbackImports(callback, imports), path);
+    }
+  }
+}
+
+export function fixtureCalls(tree, file, candidate, subject, project) {
+  if (tree.parseDiagnostics.length) return [];
+  const results = [];
+  for (const { name, callback: { body }, imports } of registeredTests(tree.statements, importedBindings(tree))) {
     const assertion = ts.isBlock(body) ? body.statements.length === 1 && ts.isExpressionStatement(body.statements[0])
       ? body.statements[0].expression : null : body;
     if (!assertion || !ts.isCallExpression(assertion) || assertion.arguments.length !== 1 ||
@@ -97,7 +116,7 @@ export function fixtureCalls(tree, file, candidate, subject, project) {
     const value = expected.kind === ts.SyntaxKind.TrueKeyword ? true
       : expected.kind === ts.SyntaxKind.FalseKeyword ? false : ts.isStringLiteral(expected) ? expected.text : integer(expected);
     if (value === undefined) continue;
-    results.push({ file, name: args[0].text, module: binding.module, bindingName: call.expression.text,
+    results.push({ file, name, module: binding.module, bindingName: call.expression.text,
       expectEnd: expect.arguments[0].getEnd(), args: arguments_, expected: value, projection,
       suffix: projection ? `.map(row => row.${projection.field}).join(${JSON.stringify(projection.separator)})` : '' });
   }

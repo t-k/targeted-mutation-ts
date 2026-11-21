@@ -1,0 +1,102 @@
+{
+  "runtime": "v24.14.0",
+  "projects": [
+    {
+      "project": "mreact",
+      "change": "c3f5655c6760b125950f2d6e5e66d39ec6b155fa",
+      "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+      "base": "779a4510bcf8ce32fa8f290e20a7c2704b6f3605",
+      "source": "packages/collection/src/index.ts",
+      "test": "packages/collection/test/collection.test.ts",
+      "selection": {
+        "since": "779a4510bcf8ce32fa8f290e20a7c2704b6f3605",
+        "config": "vitest.config.ts",
+        "test": [
+          "packages/collection/test/collection.test.ts"
+        ],
+        "copy-exclude": [
+          "benchmarks",
+          "packages/router-native/target"
+        ]
+      },
+      "comparisonExtraction": [
+        {
+          "file": "packages/collection/src/index.ts",
+          "path": "fallback"
+        }
+      ],
+      "comparisons": 1,
+      "nativeComparisonCandidates": 0,
+      "passingTests": 21,
+      "reports": {
+        "candidates": 0,
+        "matched": 0,
+        "unmatched": 0,
+        "evaluated": 0,
+        "omitted": 0
+      },
+      "witnessEvaluation": "no_sites",
+      "confirmedProposals": 0,
+      "adoptedProposals": 0
+    },
+    {
+      "project": "tachyon-dom",
+      "change": "6bbc45f46d696021635a5402045f9746bc22d58a",
+      "revision": "b669f9b59caa822846a6646eb542b298e7bb5134",
+      "base": "2534e3368df34f5ec7a58d8c62c3faf7a23ebe62",
+      "source": "src/router-query.ts",
+      "test": "tests/router-query.test.ts",
+      "selection": {
+        "since": "2534e3368df34f5ec7a58d8c62c3faf7a23ebe62",
+        "config": "vitest.config.ts",
+        "test": [
+          "tests/router-query.test.ts"
+        ],
+        "copy-exclude": [
+          "benchmark"
+        ]
+      },
+      "comparisonExtraction": [
+        {
+          "file": "src/router-query.ts",
+          "path": "fallback"
+        }
+      ],
+      "comparisons": 2,
+      "nativeComparisonCandidates": 0,
+      "passingTests": 20,
+      "reports": {
+        "candidates": 0,
+        "matched": 0,
+        "unmatched": 0,
+        "evaluated": 0,
+        "omitted": 0
+      },
+      "witnessEvaluation": "no_sites",
+      "confirmedProposals": 0,
+      "adoptedProposals": 0
+    }
+  ],
+  "positiveControl": {
+    "project": "targeted-mutation-ts",
+    "change": "6a1d865",
+    "base": "d76028852771ffae66350d12b95efb142f386b7d",
+    "source": "fixtures/witnesses/src/queries.ts",
+    "test": "fixtures/witnesses/test/queries.test.ts",
+    "lines": [
+      5,
+      5
+    ],
+    "passingTests": 7,
+    "reports": {
+      "candidates": 1,
+      "matched": 1,
+      "unmatched": 0,
+      "evaluated": 1,
+      "omitted": 0
+    },
+    "confirmedProposals": 1,
+    "suggestedTest": "expect(positionOf([5,5], 5)).toBe(0)",
+    "humanAdoption": "not evaluated"
+  }
+}

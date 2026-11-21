@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
-import { byteOffsets, extract } from './extract.mjs';
+import { byteOffsets, extract, sourceDialect } from './extract.mjs';
 import { thresholdSites } from './prototype.mjs';
 import { thresholdGaps } from './threshold.mjs';
 import { tightenComparison } from './displacement.mjs';
@@ -43,7 +43,7 @@ export function collectComparisons(root, files, options) {
       const location = { file, ...lineAt(input, start), start, end };
       if (!selected(location.line)) return [];
       return [{ ...candidate, location, id: sha(JSON.stringify([
-        file, digest, options.mode ?? 'module', options.dialect ?? (file.endsWith('.tsx') ? 'tsx' : 'ts'),
+        file, digest, options.mode ?? 'module', options.dialect ?? sourceDialect(file),
         candidate,
       ])) }];
     });

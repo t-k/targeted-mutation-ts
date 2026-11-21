@@ -150,7 +150,9 @@ export function analyzeWitnesses(project, files, options) {
   const unmatched = constraints.find(entry => selectedPaths.has(entry.file) && !boundConstraints.has(entry));
   if (unmatched) throw new Error(`Sort constraints do not match a supported export: ${unmatched.file} / ${unmatched.function}`);
 
-  const report = { schemaVersion: 1, runner: 'vitest', profile: 'witnesses', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
+  const witnessSearch = { candidates: candidates.length, matched: 0, unmatched: candidates.length ? null : 0, evaluated: 0, omitted: 0 };
+  const report = { schemaVersion: 1, runner: 'vitest', profile: 'witnesses', extraction, witnessSearch,
+    mutants: [], diagnostics: [], evaluation: 'no_sites' };
   if (options.config || options.test?.length || options['copy-exclude']?.length) {
     report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
   }
@@ -176,11 +178,14 @@ export function analyzeWitnesses(project, files, options) {
         const keys = distinct(baseline.tests, fixture.name, fixture.file);
         return keys.length === 1 && keys[0].status === 'passed' && !keys[0].retry && !keys[0].repeats;
       });
+    if (fixtures.length) witnessSearch.matched++;
     const proposals = witnessProposals(candidate, fixtures);
     return proposals.length ? [{ candidate, fixtures, proposals }] : [];
   });
   report.evaluation = 'evaluated';
-  report.witnessSearch = { evaluated: Math.min(prepared.length, candidateLimit), omitted: Math.max(0, prepared.length - candidateLimit) };
+  witnessSearch.unmatched = candidates.length - witnessSearch.matched;
+  witnessSearch.evaluated = Math.min(prepared.length, candidateLimit);
+  witnessSearch.omitted = Math.max(0, prepared.length - candidateLimit);
 
   for (const { candidate, fixtures, proposals } of prepared.slice(0, candidateLimit)) {
     const { id, location, rule, edit } = candidate;

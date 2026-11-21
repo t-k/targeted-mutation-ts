@@ -1,6 +1,6 @@
 import ts from 'typescript';
 import { bare, functionParts, integer } from './witness-rules.mjs';
-import { importedBindings, importMatches } from './witness-fixtures.mjs';
+import { importedBindings, importMatches, registeredTests } from './witness-fixtures.mjs';
 
 const named = (node, name) => !!node && ts.isIdentifier(node) && (name === undefined || node.text === name);
 const property = node => !!node && ts.isPropertyAccessExpression(node) && !node.questionDotToken;
@@ -125,18 +125,12 @@ function testCases(fixtures, baseline, project) {
   }
   for (const { file, tree } of fixtures) {
     if (tree.parseDiagnostics.length) continue;
-    const imports = importedBindings(tree);
-    for (const statement of tree.statements) {
-      const call = expression(statement);
-      if (!invoked(call) || !named(call.expression) || call.arguments.length !== 2) continue;
-      const binding = imports.get(call.expression.text);
-      const [title, callback] = call.arguments;
-      if (binding?.module !== 'vitest' || !['it', 'test'].includes(binding.name) ||
-          !ts.isStringLiteral(title) || !ts.isArrowFunction(callback) || callback.parameters.length || callback.modifiers?.length) continue;
-      const known = inventory.get(JSON.stringify([file, title.text]));
+    for (const { name, callback, imports } of registeredTests(tree.statements, importedBindings(tree))) {
+      if (callback.modifiers?.length) continue;
+      const known = inventory.get(JSON.stringify([file, name]));
       if (known?.status !== 'passed' || known.retry || known.repeats || known.concurrent) continue;
       const statements = ts.isBlock(callback.body) ? [...callback.body.statements] : null;
-      result.push({ file, title: title.text, imports, statements, concise: statements ? null : callback.body, project });
+      result.push({ file, title: name, imports, statements, concise: statements ? null : callback.body, project });
     }
   }
   return result;

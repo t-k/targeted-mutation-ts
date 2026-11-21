@@ -163,6 +163,13 @@ test('native grammar recognizes web-standard hyphenated JSX attribute names', ()
   assert.deepEqual(result.candidates, extractFallback(source, { dialect: 'tsx' }).candidates);
 });
 
+test('a JavaScript JSX filename selects the JSX dialect', () => {
+  const source = 'export const button = <button disabled={age >= 18} />;';
+  const result = extract(source, { file: 'button.jsx', ...fast });
+  assert.equal(result.path, 'fast');
+  assert.equal(result.candidates[0].operator, '>=');
+});
+
 const encodingRows = readFileSync(new URL('../verification/pict/extraction-bytes.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1);
 for (const row of encodingRows) {

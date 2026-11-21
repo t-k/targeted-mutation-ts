@@ -1,0 +1,8 @@
+Source	Registration	Assertion
+TS	Top	Literal
+TS	Nested	Literal
+JS	Nested	Literal
+TS	Nested	Indirect
+JS	Dynamic	Literal
+TS	Dynamic	Indirect
+JS	Top	Indirect

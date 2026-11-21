@@ -224,14 +224,23 @@ function lengthRule(parameters, expression) {
 
 export function discoverWitnessRules(tree, sortConstraints = []) {
   if (tree.parseDiagnostics.length) return [];
+  const javascript = tree.scriptKind === ts.ScriptKind.JS || tree.scriptKind === ts.ScriptKind.JSX;
   const result = [];
   for (const statement of tree.statements) {
     for (const [name, fn] of functionParts(statement)) {
       if (fn.parameters.some(param => !ts.isIdentifier(param.name) || param.initializer || param.dotDotDotToken || param.questionToken)) continue;
-      const parameters = fn.parameters.map(param => ({ name: param.name.text, shape: parameterShape(param.type) }));
-      if (parameters.some(param => !param.shape)) continue;
       const expression = bodyExpression(fn);
       if (!expression) continue;
+      const index = javascript && methodCall(expression, 'indexOf', 1) &&
+        ts.isIdentifier(expression.expression.expression) && ts.isIdentifier(expression.arguments[0])
+        ? new Map([[expression.expression.expression.text, 'array'], [expression.arguments[0].text, 'number']])
+        : null;
+      const parameters = fn.parameters.map(param => {
+        const name = param.name.text;
+        const type = param.type ?? (javascript ? ts.getJSDocType(param) : undefined);
+        return { name, shape: type ? parameterShape(type) : index?.get(name) };
+      });
+      if (parameters.some(param => !param.shape)) continue;
       const rules = ts.isBinaryExpression(expression) ? [...comparisonRules(parameters, expression), maskRule(parameters, expression)].filter(Boolean)
         : ts.isCallExpression(expression) ? [indexRule(parameters, expression), sumRule(parameters, expression),
           ...orderRules(parameters, expression, sortConstraints.filter(entry => entry.function === name.text))].filter(Boolean)

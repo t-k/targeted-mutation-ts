@@ -9,6 +9,16 @@ import { isExpectedFailure } from '../src/witness-analysis.mjs';
 const matrix = name => readFileSync(new URL(`../verification/pict/${name}.tsv`, import.meta.url), 'utf8')
   .trim().split('\n').slice(1).map(row => row.trim().split('\t'));
 
+test('uses JSDoc parameter shapes for a JavaScript witness rule', () => {
+  const tree = parseSource('flags.js', `
+/** @param {number} flags
+ * @param {number} mask
+ */
+export function enabled(flags, mask) { return (flags & mask) !== 0; }
+`);
+  assert.equal(discoverWitnessRules(tree)[0]?.rule, 'any-to-all-flags/v1');
+});
+
 const model = {
   Compare: {
     Argument: ['(a: number, b: number, limit: number) => a < limit', ['1, 1, 4', '4, 4, 4', '8, 8, 4'], [true, false, false]],
