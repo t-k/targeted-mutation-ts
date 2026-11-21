@@ -1,0 +1,6 @@
+Handler	Context	Suffix
+Bound	Module	Valid
+Pattern	Function	Valid
+Unbound	AsyncLoop	Valid
+Finally	Module	Valid
+Both	Function	Invalid
