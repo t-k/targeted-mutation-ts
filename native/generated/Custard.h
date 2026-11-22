@@ -922,6 +922,7 @@ typedef struct TmtPulseParser_class_key_s
   bool generator_;
   bool private_;
   bool quoted_;
+  bool computed;
   uint32_t modifier_flags;
 }
 TmtPulseParser_class_key;
@@ -938,6 +939,12 @@ TmtPulseParser_accessor_modifier(TmtPulseMemory_tape input, TmtPulseParser_parse
 
 TmtPulseParser_cursor
 TmtPulseParser_private_identifier(TmtPulseMemory_tape input, uint32_t start);
+
+TmtPulseParser_cursor
+TmtPulseParser_computed_method_key(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
 
 TmtPulseParser_class_key
 TmtPulseParser_class_member_key(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);

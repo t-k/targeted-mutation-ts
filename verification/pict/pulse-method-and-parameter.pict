@@ -1,0 +1,3 @@
+Modifier: None, Static, Async, Generator, Getter
+Key: Identifier, Qualified, BadExpression, MissingBracket
+Tail: Method, Field, Broken

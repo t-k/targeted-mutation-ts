@@ -1,0 +1,10 @@
+Modifier	Key	Tail
+None	Identifier	Method
+Static	Identifier	Method
+Async	Qualified	Method
+Generator	Qualified	Method
+Getter	Qualified	Method
+None	BadExpression	Method
+None	MissingBracket	Method
+None	Identifier	Field
+None	Qualified	Broken

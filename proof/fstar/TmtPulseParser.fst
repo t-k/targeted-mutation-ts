@@ -1777,7 +1777,7 @@ let abstract_class_start (input:tape) (#frame:slprop) (state:parser_state)
 
 type class_key = {
   after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool; readonly_:bool; arity:parameter_arity;
-  generator_:bool; private_:bool; quoted_:bool; modifier_flags:U32.t
+  generator_:bool; private_:bool; quoted_:bool; computed:bool; modifier_flags:U32.t
 }
 
 type pending_overload = { key_span:G.span; key_flags:U32.t; key_async:bool }
@@ -1786,7 +1786,7 @@ let no_overload : pending_overload = { key_span = { G.first = 0ul; G.last = 0ul 
 
 let class_key_start (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! byte = (fun () -> peek input #frame state.offset) in
-  read_ret input #frame (G.identifier_start byte || byte = 34uy || byte = 39uy || byte = 42uy || byte = 35uy)
+  read_ret input #frame (G.identifier_start byte || byte = 34uy || byte = 39uy || byte = 42uy || byte = 35uy || byte = 91uy)
 
 type class_prefix = { key_state:parser_state; flags:U32.t }
 
@@ -1821,6 +1821,15 @@ let rec class_modifiers (input:tape) (#frame:slprop) (st:parser_state) (flags fu
         if fuel = 0ul || U32.logand bit flags <> 0ul then read_ret input #frame ({ ordinary with key_state = failed st 1ul })
         else class_modifiers input #frame after (U32.logor bit flags) (minus fuel 1ul)
 
+let computed_method_key (input:tape) (#frame:slprop) (state:parser_state)
+  : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! start = (fun () -> skip input #frame { state with offset = next state.offset }) in
+  let! first = (fun () -> name input #frame start.offset false false) in
+  let! path = (fun () -> qualified_name input #frame (from_cursor start first) 16ul) in
+  let! after = (fun () -> skip input #frame path) in
+  let! end_ = (fun () -> consume input #frame after 93uy) in
+  read_ret input #frame { at = end_.offset; ok = end_.status = 0ul; newline = false }
+
 let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt class_key (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! prefix = (fun () -> class_modifiers input #frame state 0ul 4ul) in
   let start = prefix.key_state in
@@ -1834,13 +1843,16 @@ let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (st
   let! byte = (fun () -> peek input #frame key_start.offset) in
   let quoted = byte = 34uy || byte = 39uy in
   let private_ = byte = 35uy in
-  let! key = (fun () -> if private_ then private_identifier input #frame key_start.offset else property_name input #frame key_start) in
+  let computed = byte = 91uy in
+  let! key = (fun () -> if private_ then private_identifier input #frame key_start.offset
+    else if computed then computed_method_key input #frame key_start
+    else property_name input #frame key_start) in
   read_ret input #frame (let key_end = if private_ && U32.logand prefix.flags 12ul <> 0ul then failed key_start 1ul
     else from_cursor key_start key in
   let first = if quoted then next key_start.offset else key_start.offset in
   let last = if quoted then minus key.at 1ul else key.at in
   { after_key = key_end; first; last; async_; arity = accessor.arity; generator_ = generator.generator; private_;
-    quoted_ = quoted; modifier_flags = prefix.flags;
+    quoted_ = quoted; computed; modifier_flags = prefix.flags;
     static_ = U32.logand prefix.flags 1ul <> 0ul; readonly_ = U32.logand prefix.flags 2ul <> 0ul })
 
 let constructor_property (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
@@ -3077,7 +3089,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
       let accessor = key.arity <> OrdinaryParameters in
       let! public_ = (fun () -> if method && U32.logand key.modifier_flags 4ul <> 0ul then keyword input st.offset 6ul 0x7075626c6963uL
         else ret input true) in
-      let overload = method && public_ && U32.logand key.modifier_flags 10ul = 0ul && not member_head.ok &&
+      let overload = method && public_ && U32.logand key.modifier_flags 10ul = 0ul && not member_head.ok && not key.computed &&
         not constructor && not accessor && not key.private_ && not key.quoted_ && not key.generator_ in
       let! compatible = (fun () -> if not awaiting_body then ret input true else
           let length = minus key.last key.first in
@@ -3087,7 +3099,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
           else ret input false) in
       if member_head.ok then
         let! closed =
-          (fun () -> if awaiting_body || constructor_name || accessor || key.private_ || key.quoted_ ||
+          (fun () -> if awaiting_body || constructor_name || accessor || key.private_ || key.quoted_ || key.computed ||
             key.async_ || key.generator_ || U32.logand key.modifier_flags 13ul <> 0ul then ret input (failed tail 1ul)
           else if method then
             if fuel = 0ul || key.readonly_ then ret input (failed tail 1ul)
@@ -3102,7 +3114,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             if initializer then ret input (failed following 1ul)
             else statement_end input typed typed.offset true) in
         class_members input closed fuel (minus remaining 1ul) derived seen_constructor abstract_class no_overload
-      else if not compatible || (key.private_ && constructor_spelling) || prototype || (constructor_name && not method) || (key.readonly_ && method) ||
+      else if not compatible || (key.private_ && constructor_spelling) || prototype || ((constructor_name || key.computed) && not method) || (key.readonly_ && method) ||
         (accessor && (key.async_ || key.generator_ || constructor || next_byte <> 40uy)) ||
         (constructor && (seen_constructor || key.async_ || key.generator_ || next_byte <> 40uy)) then ret input (failed tail 1ul)
       else
@@ -3239,7 +3251,9 @@ and parameter_prefix (input:tape) (state:parser_state) (floor used:names_used) (
   let! tail = (fun () -> skip input { bound.state with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed }) in
   let! typed = (fun () -> (let! anf_value_1 = (fun () -> same input tail.offset 63uy) in if anf_value_1 then
       let! colon = (fun () -> (let! anf_value_2 = (fun () -> (consume input tail 63uy)) in skip input anf_value_2)) in
-      (let! anf_value_3 = (fun () -> (consume input colon 58uy)) in annotation_type input anf_value_3 16ul 64ul)
+      let! delimiter = (fun () -> peek input colon.offset) in
+      if G.identifier_start first && (delimiter = 44uy || delimiter = 41uy) then ret input colon
+      else (let! anf_value_3 = (fun () -> (consume input colon 58uy)) in annotation_type input anf_value_3 16ul 64ul)
     else simple_annotation input tail)) in
   (let! anf_value_4 = (fun () -> (let! anf_value_5 = (fun () -> skip input typed) in ret input ({ bound with state = anf_value_5 }))) in ret input ({ names = anf_value_4; non_simple = first = 123uy || first = 91uy }))
 
