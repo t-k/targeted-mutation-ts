@@ -2837,15 +2837,25 @@ and yield_statement (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt pa
     let! value = (fun () -> comparison input start fuel) in
     statement_end input value.parser value.range.G.last true
 
+and statement_expressions (input:tape) (state:parser_state) (fuel remaining:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 44; U32.v remaining]) =
+  if remaining = 0ul then ret input (failed state 1ul)
+  else
+    let! value = (fun () -> comparison input state fuel) in
+    let! comma = (fun () -> same input value.parser.offset 44uy) in
+    if value.parser.status <> 0ul || not comma then statement_end input value.parser value.range.G.last true
+    else if value.open_angle then ret input (failed value.parser 1ul)
+    else
+      let! next_value = (fun () -> consume input value.parser 44uy) in
+      statement_expressions input next_value fuel (minus remaining 1ul)
+
 and ordinary_statement (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 45; 0]) =
   let! function_head = (fun () -> function_start input state.offset) in
   let! block = (fun () -> same input state.offset 123uy) in
   let! first = (fun () -> peek input state.offset) in
   let! class_ = (fun () -> if first = 99uy then class_keyword input state.offset else ret input (false)) in
   if block || function_head.ok || class_ then ret input (failed state 1ul)
-  else
-    let! value = (fun () -> comparison input state fuel) in
-    statement_end input value.parser value.range.G.last true
+  else statement_expressions input state fuel input.size
 
 and simple_statement (input:tape) (state:parser_state) (in_function:bool) (jumps:jump_context) (fuel:U32.t) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 46; 0]) =
   let! byte = (fun () -> peek input state.offset) in
@@ -3268,7 +3278,9 @@ and pattern_names (input:tape) (state:parser_state) (base:names_base) (floor use
       let! bound =
         (fun () -> if close = 93uy then pattern_binding_at input st base floor used fuel depth
         else
-          let! key = (fun () -> if G.decimal_digit byte || byte = 46uy then number_end input st.offset else property_name input st) in
+          let! key = (fun () -> if G.decimal_digit byte || byte = 46uy then number_end input st.offset
+            else if byte = 91uy then computed_method_key input st
+            else property_name input st) in
           let! after = (fun () -> skip input (from_cursor st key)) in
           (let! anf_value_7 = (fun () -> same input after.offset 58uy) in if anf_value_7 then
             let! target = (fun () -> (let! anf_value_8 = (fun () -> (consume input after 58uy)) in skip input anf_value_8)) in

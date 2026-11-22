@@ -405,6 +405,19 @@ TmtPulseParser_bind_pattern_name(
   uint32_t pos
 );
 
+TmtPulseParser_parser_state
+TmtPulseParser_qualified_name(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0
+);
+
+TmtPulseParser_cursor
+TmtPulseParser_computed_method_key(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
 bool TmtPulseParser_simple_escape(TmtPulseMemory_tape input, uint32_t at, bool template0);
 
 uint32_t TmtPulseParser_hex_value(uint8_t ch);
@@ -531,13 +544,6 @@ typedef struct TmtPulseParser_type_query_target_s
   bool is_import;
 }
 TmtPulseParser_type_query_target;
-
-TmtPulseParser_parser_state
-TmtPulseParser_qualified_name(
-  TmtPulseMemory_tape input0,
-  TmtPulseParser_parser_state state0,
-  uint32_t fuel0
-);
 
 TmtPulseParser_parser_state
 TmtPulseParser_import_type(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
@@ -946,12 +952,6 @@ TmtPulseParser_accessor_modifier(TmtPulseMemory_tape input, TmtPulseParser_parse
 
 TmtPulseParser_cursor
 TmtPulseParser_private_identifier(TmtPulseMemory_tape input, uint32_t start);
-
-TmtPulseParser_cursor
-TmtPulseParser_computed_method_key(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state
-);
 
 TmtPulseParser_class_key
 TmtPulseParser_class_member_key(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
@@ -1723,6 +1723,14 @@ TmtPulseParser_yield_statement(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_statement_expressions(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
 );
 
 TmtPulseParser_parser_state

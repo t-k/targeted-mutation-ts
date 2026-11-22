@@ -1,0 +1,3 @@
+Key: Direct, Qualified, Literal, Bad, MissingColon
+Comma: Plain, Grouped, Ambiguous, MissingOperand
+Scope: Module, Block
