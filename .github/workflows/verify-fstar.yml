@@ -1,0 +1,59 @@
+name: Verify F*
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-fstar:
+    name: F* proofs and generated C
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Detect proof and extraction changes
+        id: changes
+        shell: bash
+        run: |
+          # The first parent of the checked-out PR merge commit is the base branch.
+          changed=$(git diff --name-only --no-renames HEAD^1 HEAD -- \
+            .github/workflows/verify-fstar.yml package.json \
+            scripts/verify-fstar.sh scripts/build-native.mjs proof/fstar/ \
+            native/generated/ native/pulse/ native/runtime/ native/parser.c native/parser.h \
+            'verification/pict/pulse-*' 'verification/pict/candidate-publication.*')
+          if [[ -n "$changed" ]]; then
+            echo 'relevant=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'relevant=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        if: steps.changes.outputs.relevant == 'true'
+        with:
+          node-version: 24.14.0
+          package-manager-cache: false
+
+      - name: Install the pinned F* and KaRaMeL release
+        if: steps.changes.outputs.relevant == 'true'
+        shell: bash
+        run: |
+          asset='https://github.com/FStarLang/FStar/releases/download/v2026.11.15/fstar-v2026.11.15-Linux-x86_64.tar.gz'
+          sha256='375b811af042d36c38641995799c4d4146a521b1db4014efc9d018c713e5177b'
+          archive="$RUNNER_TEMP/fstar.tar.gz"
+          curl --fail --silent --show-error --location --retry 3 --output "$archive" "$asset"
+          printf '%s  %s\n' "$sha256" "$archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP"
+
+      - name: Verify proofs and regenerate C
+        if: steps.changes.outputs.relevant == 'true'
+        env:
+          FSTAR_EXE: ${{ runner.temp }}/fstar/bin/fstar.exe
+          KARAMEL_EXE: ${{ runner.temp }}/fstar/bin/krml
+        run: npm run verify:fstar
