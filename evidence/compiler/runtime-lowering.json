@@ -1194,5 +1194,20 @@
       },
       "mismatches": []
     }
-  ]
+  ],
+  "normalizedTsxOutput": {
+    "scope": "Compare JS syntax, static dependency order and ASTs after normalizing JSX helper aliases, property spelling, generated import position, grouping parentheses and empty statements. Neither project output is executed.",
+    "reports": [
+      {
+        "name": "mreact",
+        "checked": 37,
+        "mismatches": []
+      },
+      {
+        "name": "tachyon-dom",
+        "checked": 2,
+        "mismatches": []
+      }
+    ]
+  }
 }
