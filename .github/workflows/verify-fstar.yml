@@ -26,7 +26,7 @@ jobs:
           changed=$(git diff --name-only --no-renames HEAD^1 HEAD -- \
             .github/workflows/verify-fstar.yml package.json \
             scripts/verify-fstar.sh scripts/build-native.mjs proof/fstar/ \
-            native/generated/ native/pulse/ native/runtime/ native/parser.c native/parser.h \
+            native/generated/ native/pulse/ native/runtime/ native/parser.c native/parser.h native/addon.c \
             'verification/pict/pulse-*' 'verification/pict/candidate-publication.*')
           if [[ -n "$changed" ]]; then
             echo 'relevant=true' >> "$GITHUB_OUTPUT"

@@ -8,7 +8,7 @@ mkdir -p "$build"
 scratch=$(mktemp -d "$build/.verify-XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 for module in TmtGrammar TmtPulseScan TmtPulseMemory TmtPulseParser TmtReference TmtReferenceExamples; do
-  "$fstar" --warn_error -288 --include proof/fstar --cache_checked_modules --cache_dir "$scratch" "proof/fstar/$module.fst"
+  "$fstar" --report_assumes error --warn_error -288 --include proof/fstar --cache_checked_modules --cache_dir "$scratch" "proof/fstar/$module.fst"
 done
 "$fstar" --include proof/fstar --cache_dir "$scratch" --codegen KrmlC \
   --custard_entry TmtPulseParser.parse --custard_entry TmtPulseParser.lexical_duplicate \

@@ -64,7 +64,11 @@ registerHooks({ load(url, context, next) {
   const nativeControl = JSON.parse(run(process.execPath, [entry, 'extract', 'control.ts']));
   assert.equal(nativeControl.path, 'fast');
   writeFileSync(join(cwd, 'ambient.ts'), 'declare const values: Array<number>;\n' + condition);
-  const compatibilityControl = JSON.parse(run(process.execPath, [entry, 'extract', 'ambient.ts', '--mode', 'script']));
+  const nativeScript = JSON.parse(run(process.execPath, [entry, 'extract', 'ambient.ts', '--mode', 'script']));
+  assert.equal(nativeScript.path, 'fast');
+  assert.deepEqual(nativeScript.candidates.map(candidate => candidate.operator), ['<']);
+  writeFileSync(join(cwd, 'compatibility.ts'), 'namespace Model { export type Value = number; }\n' + condition);
+  const compatibilityControl = JSON.parse(run(process.execPath, [entry, 'extract', 'compatibility.ts', '--mode', 'script']));
   assert.equal(compatibilityControl.fallback, 'typescript');
   assert.deepEqual(nativeControl.candidates.map(candidate => candidate.operator), ['<']);
   assert.deepEqual(compatibilityControl.candidates.map(candidate => candidate.operator), ['<']);
