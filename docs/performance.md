@@ -144,6 +144,21 @@ The table gives warm and first-extraction medians in milliseconds. The baseline 
 
 TMT kept the lowest median in both metrics on Hono, ESLint, Astro, Svelte and Vite. On tachyon-dom it also led both medians, with a 0.12 ms warm lead over Oxc lazy and four wins in seven warm rounds. SWC Next had the fastest first extraction on htmx and Alpine.js. Oxc lazy led both medians on Redux Toolkit and mreact. An independent audit compares the full TypeScript parser and Yuku against TMT with and without logical rules. The [pinned inputs, audit results and raw samples](../evidence/m1/ecosystem-expansion.json) include all compared engines and a separate macOS run.
 
+### Native script extraction and a shared compatibility walk
+
+Pulse now handles the full htmx implementation script and all 88 selected Alpine.js implementation files. Leading script `var` declarations start in the expanded reader. On htmx this avoids reading the long initializer twice to discover the automatic semicolon. The larger initial reserve also holds all 68 candidates in the first allocation. Native support for adjacent local overloads and typed global variables recovers the last 13 mreact comparison candidates. The remaining three mreact compatibility files contain no comparison candidates. Optional generic tuple elements and new type signature boundaries move five more Redux Toolkit files to the native path.
+
+The benchmark uses seven rotating warm runs and seven fresh-process runs on offline rootless Linux arm64 Podman with Node 24.14.0 on an Apple M5 Max. All compared engines agree on every ordered comparison candidate and UTF-8 span across the ten pinned corpora. Times are warm / first extraction in milliseconds. First extraction includes parser loading with the buffers already in memory and the compile cache disabled.
+
+| Workload | Native source files | Native candidates | TMT at `2cba9fe` | TMT | Oxc lazy |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| htmx | 1 / 1 | 68 / 68 | 19.13 / 76.54 | 1.31 / 2.72 | 1.57 / 22.28 |
+| Alpine.js | 88 / 88 | 51 / 51 | 4.72 / 31.75 | 2.62 / 4.11 | 2.89 / 25.09 |
+| Redux Toolkit | 101 / 106 | 31 / 34 | 17.69 / 65.33 | 12.15 / 52.40 | 4.56 / 29.08 |
+| mreact | 318 / 321 | 1,001 / 1,001 | 40.11 / 79.19 | 33.67 / 59.91 | 31.21 / 68.78 |
+
+TMT has the lowest first-extraction median on nine workloads and the lowest warm median on six. In this run Oxc lazy leads warm Hono and ESLint by 0.08 and 0.05 ms, respectively. The larger gaps are Redux Toolkit in both metrics and mreact in warm extraction. The shared TypeScript traversal reduced warm medians by 3.7–5.9% on the earlier Redux Toolkit, mreact and tachyon-dom compatibility inputs. It preserves the relative order of context and statement diagnostics at the same byte range. The [raw measurements and audit records](../evidence/m1/script-native-comparison.json) include parser versions, exact input fingerprints and the before-and-after candidate coverage.
+
 ## Analysis throughput
 
 Measurements on Apple M5 Max with Node 24.14.0 alternate baseline and current samples. The Git and CLI benchmarks use nine pairs. The coverage planner uses eleven pairs. CLI samples start a fresh Node process with the compile cache disabled.
