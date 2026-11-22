@@ -7,11 +7,12 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 const require = createRequire(import.meta.url);
+const supported = ['arm64', 'x64'].includes(process.arch) && ['darwin', 'linux'].includes(process.platform);
 const matrix = readFileSync(new URL('../verification/pict/native-neon-scans.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1);
 
 test('the native scanner and scalar build return identical packed rows at block boundaries', {
-  skip: process.arch !== 'arm64',
+  skip: !supported,
 }, () => {
   const scratch = mkdtempSync(join(tmpdir(), 'tmt-scalar-scanner-'));
   const destination = join(scratch, 'scalar.node');
@@ -49,8 +50,8 @@ test('the native scanner and scalar build return identical packed rows at block 
   }
 });
 
-test('NEON specialization declines an unfamiliar scalar function body', { skip: process.arch !== 'arm64' }, () => {
-  const scratch = mkdtempSync(join(tmpdir(), 'tmt-neon-shape-'));
+test('SIMD specialization declines an unfamiliar scalar function body', { skip: !supported }, () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'tmt-simd-shape-'));
   try {
     mkdirSync(join(scratch, 'scripts'));
     mkdirSync(join(scratch, 'native/generated'), { recursive: true });
@@ -60,7 +61,7 @@ test('NEON specialization declines an unfamiliar scalar function body', { skip: 
     writeFileSync(compiler, `#!/usr/bin/env node
 const { writeFileSync } = require('node:fs');
 const args = process.argv.slice(2);
-const source = args.find(arg => arg.endsWith('/Custard.c') || arg.endsWith('/Custard.neon.c'));
+const source = args.find(arg => arg.endsWith('/Custard.c') || arg.endsWith('/Custard.simd.c'));
 writeFileSync(args[args.lastIndexOf('-o') + 1], source ?? 'probe');
 `);
     chmodSync(compiler, 0o700);
@@ -69,7 +70,7 @@ writeFileSync(args[args.lastIndexOf('-o') + 1], source ?? 'probe');
     const anchor = '      bool value = TmtPulseParser_line_break(input, at);';
     const changed = original.replace(anchor, anchor + '\n      value = value || fuel == 3U;');
     assert.notEqual(changed, original);
-    for (const [source, expected] of [[original, /Custard\.neon\.c$/], [changed, /\/Custard\.c$/]]) {
+    for (const [source, expected] of [[original, /Custard\.simd\.c$/], [changed, /\/Custard\.c$/]]) {
       writeFileSync(file, source);
       const build = spawnSync(process.execPath, [script], { cwd: scratch, encoding: 'utf8', timeout: 10_000,
         env: { ...process.env, CC: compiler } });

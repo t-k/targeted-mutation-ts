@@ -47,7 +47,7 @@ const compiler = process.env.CC ?? (macOS ? '/usr/bin/clang' : 'cc');
 
 function parserSource(scratch) {
   const original = 'native/generated/Custard.c';
-  if (values['scalar-scans'] || process.arch !== 'arm64' || (!macOS && process.platform !== 'linux') ||
+  if (values['scalar-scans'] || !['arm64', 'x64'].includes(process.arch) || (!macOS && process.platform !== 'linux') ||
       !existsSync(resolve(root, original))) return original;
   const loops = [
     ['line_comment', 'cf6e07f63ffcc5d57ae9e50d9b68929ce6b9abee12c1d8ce0c30df4174ce353f',
@@ -59,6 +59,7 @@ function parserSource(scratch) {
   ];
   let source = readFileSync(resolve(root, original), 'utf8');
   const include = '#include "Custard.h"\n';
+  const simd = '#if defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))\n';
   if (!source.includes(include)) return original;
   for (const [loop, expected, scalar, sentinels] of loops) {
     const start = source.indexOf(`\nTmtPulseParser_${loop}(`);
@@ -71,17 +72,16 @@ function parserSource(scratch) {
     const at = body.indexOf(anchor);
     if (at < 0) return original;
     const position = start + at + anchor.length - scalar.length - 6;
-    const fast = `#if defined(__aarch64__)
-      if (at < input.size && fuel >= 16U && input.size - at >= 16U) {
-        const unsigned skipped = tmt_neon_scan(input.source + at, ${sentinels});
+    const fast = `${simd}      if (at < input.size && fuel >= 16U && input.size - at >= 16U) {
+        const unsigned skipped = tmt_simd_scan(input.source + at, ${sentinels});
         if (skipped != 0U) { at += skipped; fuel -= skipped; continue; }
       }
 #endif
 `;
     source = source.slice(0, position) + fast + source.slice(position);
   }
-  const output = resolve(scratch, 'Custard.neon.c');
-  const header = '#if defined(__aarch64__)\n#include "tmt_neon_scan.h"\n#endif\n';
+  const output = resolve(scratch, 'Custard.simd.c');
+  const header = simd + '#include "tmt_simd_scan.h"\n#endif\n';
   writeFileSync(output, source.replace(include, include + header));
   return output;
 }
