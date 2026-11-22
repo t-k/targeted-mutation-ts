@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -43,6 +43,38 @@ test('the native scanner and scalar build return identical packed rows at block 
     }
     for (let width = 0; width <= 48; width++) {
       for (const token of Object.keys(opening)) verify(Buffer.from(opening[token] + 'q'.repeat(width)));
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+});
+
+test('NEON specialization declines an unfamiliar scalar function body', { skip: process.arch !== 'arm64' }, () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'tmt-neon-shape-'));
+  try {
+    mkdirSync(join(scratch, 'scripts'));
+    mkdirSync(join(scratch, 'native/generated'), { recursive: true });
+    const script = join(scratch, 'scripts/build-native.mjs');
+    writeFileSync(script, readFileSync('scripts/build-native.mjs'));
+    const compiler = join(scratch, 'compiler');
+    writeFileSync(compiler, `#!/usr/bin/env node
+const { writeFileSync } = require('node:fs');
+const args = process.argv.slice(2);
+const source = args.find(arg => arg.endsWith('/Custard.c') || arg.endsWith('/Custard.neon.c'));
+writeFileSync(args[args.lastIndexOf('-o') + 1], source ?? 'probe');
+`);
+    chmodSync(compiler, 0o700);
+    const file = join(scratch, 'native/generated/Custard.c');
+    const original = readFileSync('native/generated/Custard.c', 'utf8');
+    const anchor = '      bool value = TmtPulseParser_line_break(input, at);';
+    const changed = original.replace(anchor, anchor + '\n      value = value || fuel == 3U;');
+    assert.notEqual(changed, original);
+    for (const [source, expected] of [[original, /Custard\.neon\.c$/], [changed, /\/Custard\.c$/]]) {
+      writeFileSync(file, source);
+      const build = spawnSync(process.execPath, [script], { cwd: scratch, encoding: 'utf8', timeout: 10_000,
+        env: { ...process.env, CC: compiler } });
+      assert.equal(build.status, 0, build.error?.message ?? build.stderr);
+      assert.match(readFileSync(join(scratch, 'build/tmt.node'), 'utf8'), expected);
     }
   } finally {
     rmSync(scratch, { recursive: true, force: true });
