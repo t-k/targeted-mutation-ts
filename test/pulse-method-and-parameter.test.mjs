@@ -17,7 +17,8 @@ for (const row of rows) {
     const reference = extractFallback(source, options);
     assert.deepEqual(result.candidates, reference.candidates, source);
     assert.deepEqual(result.diagnostics, reference.diagnostics, source);
-    const fast = tail === 'Method' && (key === 'Identifier' || key === 'Qualified');
+    const simple = key === 'Identifier' || key === 'Qualified';
+    const fast = simple && (tail === 'Method' || tail === 'Field' && (modifier === 'None' || modifier === 'Static'));
     assert.equal(result.path === 'fast', fast, source);
   });
 }

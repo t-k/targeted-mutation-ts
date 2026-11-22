@@ -34,7 +34,6 @@ for (const row of rows) {
 test('argumentless construction leaves optional and other ambiguous continuations to compatibility', () => {
   for (const source of [
     'const value = new C?.factory();',
-    'const value = new C[flag > limit];',
     'const value = new (C);',
     'const value = new C<T>;',
     'const value = new C < limit;',
@@ -42,6 +41,7 @@ test('argumentless construction leaves optional and other ambiguous continuation
     'const value = new C /* unterminated',
   ]) compare(source, false);
   compare('const value = (new C) < limit;', true);
+  compare('const value = new C[flag > limit];', true);
   compare('const value = new C\n(1 < limit);', true);
 });
 
