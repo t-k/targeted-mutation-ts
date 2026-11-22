@@ -5,6 +5,12 @@ const { existsSync } = require('node:fs');
 const { types } = require('node:util');
 const { basename, join } = require('node:path');
 const native = existsSync(join(__dirname, '../build/compiler.node')) ? require('../build/compiler.node') : null;
+let fullAddon;
+function loadModuleAddon() {
+  fullAddon ??= existsSync(join(__dirname, '../build/compiler-module.node')) ?
+    require('../build/compiler-module.node') : false;
+  return fullAddon;
+}
 const extensions = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
 const declarations = /\.d\.[cm]?ts$/i;
 const targets = new Set(['es6', 'esnext', ...Array.from({ length: 11 }, (_, index) => 'es' + (2015 + index))]);
@@ -105,6 +111,27 @@ function strip(source, file) {
   }
 }
 
+function eraseModule(addon, source, file, format) {
+  let result = strip(source, file);
+  const diagnostic = result.diagnostics[0];
+  if (result.code === null && diagnostic?.code === 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX' &&
+      /^(?:\s*x\s*)?TypeScript parameter property is not supported/.test(diagnostic.message) &&
+      !source.includes('enum') && !source.includes('namespace')) {
+    try {
+      const code = require('node:module').stripTypeScriptTypes(source, { mode: 'transform' });
+      result = { backend: 'node-transform', code, sourceMap: null, diagnostics: [] };
+    } catch (error) {
+      if (!['ERR_INVALID_ARG_VALUE', 'ERR_INVALID_TYPESCRIPT_SYNTAX', 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'].includes(error.code)) throw error;
+    }
+  }
+  if (result.code === null) return null;
+  const emitted = Buffer.from(result.code);
+  if (addon.moduleMarker(emitted, false)) return result;
+  if (!addon.triviaOnly(emitted)) return null;
+  if (format === 'esm') result.code += '\nexport {};\n';
+  return result;
+}
+
 function snapshot(input) {
   if (types.isSharedArrayBuffer(input)) return Buffer.from(new Uint8Array(input));
   if (ArrayBuffer.isView(input) && types.isSharedArrayBuffer(input.buffer)) {
@@ -129,34 +156,41 @@ function compile(input, options = {}) {
     return inputError(file, 'STRIP_DIALECT', 'strip mode requires a non-JSX TypeScript filename');
   }
   const stableInput = snapshot(input);
-  if (native && target === 'esnext' && outputFormat(file, module) !== 'cjs' && !sourceMap) {
+  const format = outputFormat(file, module);
+  if (native && target === 'esnext' && format !== 'cjs' && !sourceMap) {
     const typed = /\.(?:m?ts|tsx)$/i.test(file);
     const jsxFile = /\.[jt]sx$/i.test(file);
     const source = Buffer.isBuffer(stableInput) ? stableInput :
       typeof stableInput === 'string' && stableInput.isWellFormed() ? Buffer.from(stableInput) : null;
-    if (source && isUtf8(source) && (mode === 'strip' || !source.includes('///'))) {
-      if (typed && !jsxFile) {
-        const typeOnlyOutput = mode === 'strip' ? 0 : outputFormat(file, module) === 'esm' ? 2 : 1;
-        const code = native.compile(source, typeOnlyOutput);
-        if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
-      }
-      if (mode === 'transform' && (jsxFile ? jsx !== 'preserve' && (!source.includes('@') || !/@jsx/i.test(source.toString('latin1'))) &&
-          !source.includes('_tmt') : typed && source.includes('enum'))) {
+    if (source && isUtf8(source) && (mode === 'strip' || !source.includes('///') || !native.leadingDirective(source))) {
+      const simple = typed && !jsxFile ? native.compile(source, 0) : null;
+      if (simple !== null) return { backend: 'pulse', code: simple, sourceMap: null, diagnostics: [] };
+      const runtime = mode === 'transform' && (jsxFile ? jsx !== 'preserve' &&
+        (!source.includes('@') || !/@jsx/i.test(source.toString('latin1'))) && !source.includes('_tmt') :
+        typed && source.includes('enum'));
+      if (runtime) {
         const code = native.lower(source, jsxFile, typed, jsx === 'classic', false);
         if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
-        if (typed && (!jsxFile || !source.includes('\\u'))) {
-          const mixed = native.lower(source, jsxFile, true, jsx === 'classic', true);
-          if (mixed !== null) {
-            const result = strip(mixed, file);
-            if (result.code !== null && native.moduleMarker(Buffer.from(result.code), false)) {
-              return { ...result, backend: 'pulse+node-strip' };
+      }
+      if (mode === 'transform' && typed) {
+        const addon = loadModuleAddon();
+        if (addon) {
+          const empty = !jsxFile ? addon.compile(source, format === 'esm' ? 2 : 1) : null;
+          if (empty !== null) return { backend: 'pulse', code: empty, sourceMap: null, diagnostics: [] };
+          if (runtime && (!jsxFile || !source.includes('\\u'))) {
+            const mixed = addon.lower(source, jsxFile, true, jsx === 'classic', true);
+            if (mixed !== null) {
+              const result = strip(mixed, file);
+              if (result.code !== null && addon.moduleMarker(Buffer.from(result.code), false)) {
+                return { ...result, backend: 'pulse+node-strip' };
+              }
             }
           }
+          if (!jsxFile && addon.moduleMarker(source, true)) {
+            const result = eraseModule(addon, typeof stableInput === 'string' ? stableInput : source.toString(), file, format);
+            if (result) return result;
+          }
         }
-      }
-      if (mode === 'transform' && typed && !jsxFile && native.moduleMarker(source, true)) {
-        const result = strip(typeof stableInput === 'string' ? stableInput : source.toString(), file);
-        if (result.code !== null && native.moduleMarker(Buffer.from(result.code), false)) return result;
       }
     }
   }

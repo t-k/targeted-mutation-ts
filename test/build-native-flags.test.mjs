@@ -15,6 +15,7 @@ test('the native build only enables LTO when the selected compiler can link it',
     const log = join(root, 'arguments.jsonl');
     mkdirSync(join(root, 'scripts'));
     cpSync(new URL('../scripts/build-native.mjs', import.meta.url), build);
+    cpSync(new URL('../scripts/native-simd-source.mjs', import.meta.url), join(root, 'scripts/native-simd-source.mjs'));
     writeFileSync(join(root, 'node_api.h'), '');
     writeFileSync(compiler, `#!/usr/bin/env node
 const args = process.argv.slice(2);

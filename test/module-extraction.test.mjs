@@ -167,7 +167,9 @@ test('the standalone CLI extracts without Cargo, Oxc, or installed npm dependenc
   try {
     for (const dir of ['bin', 'src']) cpSync(new URL(`../${dir}/`, import.meta.url), join(root, dir), { recursive: true });
     mkdirSync(join(root, 'scripts'));
-    cpSync(new URL('../scripts/build-native.mjs', import.meta.url), join(root, 'scripts/build-native.mjs'));
+    for (const script of ['build-native.mjs', 'native-simd-source.mjs']) {
+      cpSync(new URL('../scripts/' + script, import.meta.url), join(root, 'scripts', script));
+    }
     cpSync(new URL('../native/', import.meta.url), join(root, 'native'), { recursive: true });
     const built = spawnSync(process.execPath, ['scripts/build-native.mjs', '--low-only'], {
       cwd: root, encoding: 'utf8', timeout: 30_000, env: { ...process.env, TMT_CARGO: join(root, 'absent-cargo') },

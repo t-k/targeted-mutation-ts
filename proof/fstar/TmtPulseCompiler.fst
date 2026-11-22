@@ -398,12 +398,21 @@ fn runtime_atom (input:tape) (#frame:slprop) (at:U32.t)
   atom input #frame at
 }
 
-fn runtime_module_marker (input:tape) (#frame:slprop)
+fn runtime_source_start (input:tape) (#frame:slprop)
+  requires input_ready input ** frame
+  returns start:P.cursor
+  ensures input_ready input ** frame
+{
+  let at = P.source_start input #frame;
+  P.trivia input #frame at
+}
+
+fn runtime_module_marker (input:tape) (#frame:slprop) (at:U32.t)
   requires input_ready input ** frame
   returns marked:bool
   ensures input_ready input ** frame
 {
-  let head = P.trivia input #frame 0ul;
+  let head = P.trivia input #frame at;
   if (not head.ok) { false } else {
     let exported = P.keyword input #frame head.at 6ul 0x6578706f7274uL;
     if (exported) { true } else {
@@ -417,18 +426,13 @@ fn runtime_module_marker (input:tape) (#frame:slprop)
   }
 }
 
-fn erasable_module (input:tape) (jsx:bool)
+fn supported_module (input:tape) (jsx:bool)
   requires heap input
   returns accepted:bool
   ensures heap input
 {
-  unfold heap;
-  let marked = runtime_module_marker input #(workspace_ready input);
-  fold heap;
-  if (marked) {
-    let result = P.parse_candidates input jsx true;
-    result.status = 0ul
-  } else { false }
+  let result = P.parse_candidates input jsx true;
+  result.status = 0ul
 }
 
 // The caller first validates the whole module. This pass recovers item boundaries

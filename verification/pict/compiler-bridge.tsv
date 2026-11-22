@@ -4,8 +4,10 @@ Script	Modern	Off
 Invalid	Modern	Off
 Runtime	Modern	Off
 Module	Older	On
-Script	Older	Off
-Invalid	Modern	On
-Script	Older	On
+Empty	Modern	Off
+Empty	Older	Off
+Script	Modern	On
 Runtime	Older	On
 Invalid	Older	On
+Script	Older	On
+Empty	Modern	On

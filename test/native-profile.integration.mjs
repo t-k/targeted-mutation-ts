@@ -36,7 +36,9 @@ test('fixture PGO preserves the normal and standalone native result records', t 
     cpSync(resolve('fixtures'), join(root, 'fixtures'), { recursive: true });
     const scripts = join(root, 'scripts');
     mkdirSync(scripts);
-    cpSync(resolve('scripts/build-native.mjs'), join(scripts, 'build-native.mjs'));
+    for (const script of ['build-native.mjs', 'native-simd-source.mjs']) {
+      cpSync(resolve('scripts', script), join(scripts, script));
+    }
     cpSync(resolve('scripts/train-native.mjs'), join(scripts, 'train-native.mjs'));
     const outputs = [];
     for (const [index, [profile, tool, mode]] of matrix.entries()) {
@@ -72,7 +74,9 @@ test('an interrupted compiler leaves the previous addon intact', () => {
   try {
     mkdirSync(scripts);
     mkdirSync(build);
-    cpSync(resolve('scripts/build-native.mjs'), join(scripts, 'build-native.mjs'));
+    for (const script of ['build-native.mjs', 'native-simd-source.mjs']) {
+      cpSync(resolve('scripts', script), join(scripts, script));
+    }
     const artifact = join(build, 'tmt.node');
     writeFileSync(artifact, 'last usable addon');
     const compiler = join(root, 'compiler');

@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "generated/Custard.h"
+#include "Custard.h"
 
 typedef struct {
   char *code;
@@ -90,8 +90,7 @@ static const char *entity(const uint8_t *bytes, size_t limit, size_t *length) {
   return NULL;
 }
 
-static bool quote(lowering *lower, TmtGrammar_span span, bool decode) {
-  put(&lower->output, "\"");
+static bool quote_contents(lowering *lower, TmtGrammar_span span, bool decode) {
   uint32_t run = span.first;
   for (uint32_t at = span.first; at < span.last; at++) {
     const uint8_t byte = lower->input.source[at];
@@ -115,6 +114,12 @@ static bool quote(lowering *lower, TmtGrammar_span span, bool decode) {
     run = at + 1;
   }
   source_bytes(lower, run, span.last);
+  return !lower->output.failed;
+}
+
+static bool quote(lowering *lower, TmtGrammar_span span, bool decode) {
+  put(&lower->output, "\"");
+  if (!quote_contents(lower, span, decode)) return false;
   put(&lower->output, "\"");
   return !lower->output.failed;
 }
@@ -298,6 +303,67 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, size_t *properties) 
   }
 }
 
+static bool jsx_newline(uint8_t byte) { return byte == '\r' || byte == '\n'; }
+
+static uint32_t jsx_space_width(const uint8_t *bytes, uint32_t remaining) {
+  if (*bytes == ' ' || *bytes == '\t' || *bytes == '\v' || *bytes == '\f') return 1;
+  if (remaining >= 2 && bytes[0] == 0xc2 && (bytes[1] == 0x85 || bytes[1] == 0xa0)) return 2;
+  if (remaining < 3) return 0;
+  const unsigned triplet = ((unsigned)bytes[0] << 16) | ((unsigned)bytes[1] << 8) | bytes[2];
+  return (triplet >= 0xe28080 && triplet <= 0xe2808b) || triplet == 0xe19a80 || triplet == 0xe280af ||
+    triplet == 0xe2819f || triplet == 0xe38080 || triplet == 0xefbbbf ? 3 : 0;
+}
+
+static bool jsx_text(lowering *lower, TmtGrammar_span *text, bool *multiline, bool *visible) {
+  *text = (TmtGrammar_span){ lower->at, lower->at };
+  const uint8_t *source = lower->input.source;
+  while (lower->at < lower->input.size && peek(lower) != '<' && peek(lower) != '{') {
+    const uint8_t byte = peek(lower);
+    if (byte == '}' || byte == '>') return false;
+    if (jsx_newline(byte)) {
+      *multiline = true;
+      lower->at++;
+    } else {
+      const uint32_t width = jsx_space_width(source + lower->at, lower->input.size - lower->at);
+      *visible |= !width;
+      lower->at += width ? width : 1;
+    }
+  }
+  text->last = lower->at;
+  return text->first != text->last;
+}
+
+static bool quote_jsx_lines(lowering *lower, TmtGrammar_span text) {
+  writer *out = &lower->output;
+  const uint8_t *source = lower->input.source;
+  bool first_line = true, written = false;
+  uint32_t start = text.first;
+  put(out, "\"");
+  while (start < text.last) {
+    uint32_t at = start, first = text.last, last = start;
+    while (at < text.last && !jsx_newline(source[at])) {
+      const uint32_t width = jsx_space_width(source + at, text.last - at);
+      if (width) at += width;
+      else {
+        if (first == text.last) first = at;
+        last = ++at;
+      }
+    }
+    if (first != text.last) {
+      if (written) put(out, " ");
+      if (!quote_contents(lower, (TmtGrammar_span){ first_line ? start : first, at == text.last ? at : last }, true)) {
+        return false;
+      }
+      written = true;
+    }
+    if (at == text.last) break;
+    first_line = false;
+    start = at + 1;
+  }
+  put(out, "\"");
+  return !out->failed;
+}
+
 static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, size_t props, size_t helper_offset) {
   writer *out = &lower->output;
   size_t children = 0, array_open = 0;
@@ -328,22 +394,14 @@ static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, s
       return !out->failed;
     }
     const bool expression = !element && consume(lower, '{');
-    TmtGrammar_span text = { lower->at, lower->at };
+    TmtGrammar_span text = {0};
+    bool multiline = false, visible = false;
     if (expression) {
       if (!trivia(lower)) return false;
       if (consume(lower, '}')) continue;
     } else if (!element) {
-      bool newline = false, content = false;
-      while (lower->at < lower->input.size && peek(lower) != '<' && peek(lower) != '{') {
-        const uint8_t byte = peek(lower);
-        if (byte == '}' || byte == '>') return false;
-        newline |= byte == '\r' || byte == '\n';
-        content |= !space(byte);
-        lower->at++;
-      }
-      if (newline && !content) continue;
-      if (newline || lower->at == text.first) return false;
-      text.last = lower->at;
+      if (!jsx_text(lower, &text, &multiline, &visible)) return false;
+      if (multiline && !visible) continue;
     }
     if (lower->classic || children) put(out, ",");
     else {
@@ -357,6 +415,8 @@ static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, s
       if (!jsx_element(lower, depth)) return false;
     } else if (expression) {
       if (!jsx_value(lower, depth)) return false;
+    } else if (multiline) {
+      if (!quote_jsx_lines(lower, text)) return false;
     } else if (!quote(lower, text, true)) return false;
   }
 }
@@ -465,16 +525,65 @@ static char *lower_one(uint8_t *source, uint32_t size, bool jsx, bool typescript
   return NULL;
 }
 
-static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic, size_t *length) {
-  TmtPulseMemory_binding_name bindings[2367] = {0};
+#ifndef TMT_DIRECT
+typedef struct {
+  TmtPulseMemory_binding_name bindings[2367];
   TmtGrammar_candidate comparisons[128];
-  uint8_t marks[128] = {0};
-  const TmtPulseMemory_tape input = {
+  uint8_t marks[128];
+} module_workspace;
+
+static TmtPulseMemory_tape with_workspace(uint8_t *source, uint32_t size, module_workspace *memory) {
+  return (TmtPulseMemory_tape){
     .source = source, .size = size, .private_possible = memchr(source, '#', size) != NULL,
-    .output = comparisons, .capacity = sizeof(comparisons) / sizeof(*comparisons), .bindings = bindings, .marks = marks,
+    .output = memory->comparisons, .capacity = sizeof(memory->comparisons) / sizeof(*memory->comparisons),
+    .bindings = memory->bindings, .marks = memory->marks,
   };
-  if (!TmtPulseCompiler_erasable_module(input, jsx)) return NULL;
-  const TmtPulseParser_cursor first = TmtPulseParser_trivia(input, 0);
+}
+
+static bool find_marker(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
+  while (at < input.size) {
+    if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
+    const uint32_t next = TmtPulseCompiler_next_module_item(input, jsx, at);
+    if (next <= at || next > input.size) return false;
+    at = next;
+  }
+  return false;
+}
+
+static bool module_after_prelude(uint8_t *source, uint32_t size, uint32_t at, bool first, bool validate) {
+  module_workspace memory = {0};
+  const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
+  return (!validate || TmtPulseCompiler_supported_module(input, false)) && (first || find_marker(input, at, false));
+}
+
+bool tmt_module_marker(uint8_t *source, uint32_t size, bool validate) {
+  const TmtPulseMemory_tape input = { .source = source, .size = size };
+  const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
+  if (!first.ok || first.at == size) return false;
+  const bool initial = TmtPulseCompiler_runtime_module_marker(input, first.at);
+  if (initial && !validate) return true;
+  return module_after_prelude(source, size, first.at, initial, validate);
+}
+
+#endif
+
+bool tmt_leading_directive(uint8_t *source, uint32_t size) {
+  const TmtPulseMemory_tape input = { .source = source, .size = size };
+  const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
+  if (!first.ok) return true;
+  for (uint32_t index = 0; index + 2 < first.at; index++) {
+    if (source[index] == '/' && source[index + 1] == '/' && source[index + 2] == '/') return true;
+  }
+  return false;
+}
+
+#ifndef TMT_DIRECT
+static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic, size_t *length) {
+  module_workspace memory = {0};
+  const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
+  const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
+  if (!first.ok || !TmtPulseCompiler_runtime_module_marker(input, first.at) ||
+      !TmtPulseCompiler_supported_module(input, jsx)) return NULL;
   lowering lower = { .input = input, .classic = classic, .output.limit = (size_t)size * 32 + 1024 };
   uint32_t keep = 0;
   for (uint32_t cursor = first.at; cursor < size;) {
@@ -506,10 +615,18 @@ decline:
   return NULL;
 }
 
+#endif
+
 char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescript, bool classic,
   bool mixed, size_t *length)
 {
   if (!size) return NULL;
-  return mixed ? lower_mixed(source, size, jsx, classic, length) :
-    lower_one(source, size, jsx, typescript, classic, length);
+  if (mixed) {
+#ifdef TMT_DIRECT
+    return NULL;
+#else
+    return lower_mixed(source, size, jsx, classic, length);
+#endif
+  }
+  return lower_one(source, size, jsx, typescript, classic, length);
 }

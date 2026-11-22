@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "generated/Custard.h"
+#include "Custard.h"
 #include "lowering.h"
 
 #define NAPI(call) do { if ((call) != napi_ok) goto error; } while (0)
@@ -15,6 +15,7 @@ static bool ordered(TmtGrammar_span span, uint32_t size, uint32_t *previous) {
   return true;
 }
 
+#ifndef TMT_DIRECT
 static bool contains_comment_marker(const uint8_t *source, uint32_t size) {
   for (uint32_t index = 0; index + 1 < size; index++) {
     if (source[index] == '/' && (source[index + 1] == '/' || source[index + 1] == '*')) return true;
@@ -31,6 +32,8 @@ static bool type_only_module(uint8_t *source, uint32_t size) {
   };
   return TmtPulseCompiler_type_only_module(input);
 }
+
+#endif
 
 static napi_value compile_source(napi_env env, napi_callback_info info) {
   napi_value args[2], result;
@@ -63,11 +66,13 @@ static napi_value compile_source(napi_env env, napi_callback_info info) {
       free(output);
       return result;
     }
+#ifndef TMT_DIRECT
     if (type_only_output != 0 && type_only_module(source, width) && !contains_comment_marker(source, width)) {
       const char *code = type_only_output == 2 ? "export {};\n" : "";
       NAPI(napi_create_string_utf8(env, code, NAPI_AUTO_LENGTH, &result));
       return result;
     }
+#endif
   }
   NAPI(napi_get_null(env, &result));
   return result;
@@ -104,18 +109,7 @@ error:
   return NULL;
 }
 
-static bool validate_erasable(uint8_t *source, uint32_t size) {
-  TmtPulseMemory_binding_name bindings[binding_capacity] = {0};
-  TmtGrammar_candidate candidates[128];
-  uint8_t marks[128] = {0};
-  const TmtPulseMemory_tape input = {
-    .source = source, .size = size, .private_possible = memchr(source, '#', size) != NULL,
-    .output = candidates, .capacity = sizeof(candidates) / sizeof(*candidates),
-    .bindings = bindings, .marks = marks,
-  };
-  return TmtPulseCompiler_erasable_module(input, false);
-}
-
+#ifndef TMT_DIRECT
 static napi_value module_marker(napi_env env, napi_callback_info info) {
   napi_value args[2], result;
   size_t argc = 2, size;
@@ -125,18 +119,48 @@ static napi_value module_marker(napi_env env, napi_callback_info info) {
   if (argc != 2) goto error;
   NAPI(napi_get_buffer_info(env, args[0], &source, &size));
   NAPI(napi_get_value_bool(env, args[1], &validate));
-  bool accepted = false;
-  if (size && size <= source_limit) {
-    if (validate) accepted = validate_erasable(source, (uint32_t)size);
-    else {
-      const TmtPulseMemory_tape input = { .source = source, .size = (uint32_t)size };
-      accepted = TmtPulseCompiler_runtime_module_marker(input);
-    }
-  }
+  const bool accepted = size && size <= source_limit && tmt_module_marker(source, (uint32_t)size, validate);
   NAPI(napi_get_boolean(env, accepted, &result));
   return result;
 error:
   napi_throw_type_error(env, NULL, "Expected a source buffer and validation flag");
+  return NULL;
+}
+
+static napi_value trivia_only(napi_env env, napi_callback_info info) {
+  napi_value arg, result;
+  size_t argc = 1, size;
+  void *source;
+  NAPI(napi_get_cb_info(env, info, &argc, &arg, NULL, NULL));
+  if (argc != 1) goto error;
+  NAPI(napi_get_buffer_info(env, arg, &source, &size));
+  bool empty = size == 0;
+  if (size && size <= source_limit) {
+    const TmtPulseMemory_tape input = { .source = source, .size = (uint32_t)size };
+    const TmtPulseParser_cursor end = TmtPulseCompiler_runtime_source_start(input);
+    empty = end.ok && end.at == size;
+  }
+  NAPI(napi_get_boolean(env, empty, &result));
+  return result;
+error:
+  napi_throw_type_error(env, NULL, "Expected a source buffer");
+  return NULL;
+}
+
+#endif
+
+static napi_value leading_directive(napi_env env, napi_callback_info info) {
+  napi_value arg, result;
+  size_t argc = 1, size;
+  void *source;
+  NAPI(napi_get_cb_info(env, info, &argc, &arg, NULL, NULL));
+  if (argc != 1) goto error;
+  NAPI(napi_get_buffer_info(env, arg, &source, &size));
+  const bool directive = size > source_limit || tmt_leading_directive(source, (uint32_t)size);
+  NAPI(napi_get_boolean(env, directive, &result));
+  return result;
+error:
+  napi_throw_type_error(env, NULL, "Expected a source buffer");
   return NULL;
 }
 
@@ -146,8 +170,14 @@ static napi_value init(napi_env env, napi_value exports) {
   NAPI(napi_set_named_property(env, exports, "compile", entry));
   NAPI(napi_create_function(env, "lower", NAPI_AUTO_LENGTH, lower_source, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "lower", entry));
+#ifndef TMT_DIRECT
   NAPI(napi_create_function(env, "moduleMarker", NAPI_AUTO_LENGTH, module_marker, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "moduleMarker", entry));
+  NAPI(napi_create_function(env, "triviaOnly", NAPI_AUTO_LENGTH, trivia_only, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "triviaOnly", entry));
+#endif
+  NAPI(napi_create_function(env, "leadingDirective", NAPI_AUTO_LENGTH, leading_directive, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "leadingDirective", entry));
   return exports;
 error:
   napi_throw_error(env, NULL, "Unable to register the native compiler");

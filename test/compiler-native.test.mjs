@@ -107,10 +107,10 @@ test('native compilation erases complete type-only modules and preserves ESM', a
   }
 });
 
-test('type-only files with comments use the comment-aware compatibility emitter', () => {
+test('type-only files preserve comments without TypeScript', () => {
   const source = 'export type Coordinate = number;\n/*! Copyright Example */\n';
   const result = compile(source);
-  assert.equal(result.backend, 'typescript');
+  assert.equal(result.backend, 'node-strip');
   assert.match(result.code, /Copyright Example/);
 });
 

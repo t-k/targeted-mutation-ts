@@ -25,8 +25,9 @@ jobs:
           # The first parent of the checked-out PR merge commit is the base branch.
           changed=$(git diff --name-only --no-renames HEAD^1 HEAD -- \
             .github/workflows/verify-fstar.yml package.json \
-            scripts/verify-fstar.sh scripts/build-native.mjs proof/fstar/ \
-            native/generated/ native/pulse/ native/runtime/ native/parser.c native/parser.h native/addon.c \
+            scripts/verify-fstar.sh scripts/verify-compiler.sh scripts/build-native.mjs scripts/build-compiler.mjs \
+            scripts/native-simd-source.mjs proof/fstar/ \
+            native/compiler/ native/generated/ native/pulse/ native/runtime/ native/parser.c native/parser.h native/addon.c \
             'verification/pict/pulse-*' 'verification/pict/candidate-publication.*')
           if [[ -n "$changed" ]]; then
             echo 'relevant=true' >> "$GITHUB_OUTPUT"
@@ -56,4 +57,4 @@ jobs:
         env:
           FSTAR_EXE: ${{ runner.temp }}/fstar/bin/fstar.exe
           KARAMEL_EXE: ${{ runner.temp }}/fstar/bin/krml
-        run: npm run verify:fstar
+        run: npm run verify:fstar && npm run verify:compiler

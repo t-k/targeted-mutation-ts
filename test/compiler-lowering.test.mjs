@@ -12,7 +12,7 @@ const fixtures = {
 };
 
 const data = source => 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
-const runtime = data('export const Fragment = "fragment"; export function jsx(type, props) { return {type, props}; } export const jsxs = jsx;');
+const runtime = data('export const Fragment = "fragment"; export function jsx(type, props) { return {type, props}; } export function jsxs(type, props) { return {type, props, multiple: true}; }');
 const classic = 'const React = {Fragment:"fragment", createElement(type, props, ...children) { return {type, props, children}; }};\n';
 async function load(code) {
   return import(data(classic + code.replace(/(["'])react\/jsx-runtime\1/g, JSON.stringify(runtime))));
@@ -25,7 +25,9 @@ for (const row of rows) {
   test('native runtime lowering ' + row.replaceAll('\t', ' '), async () => {
     const jsx = form === 'Classic' ? 'classic' : 'automatic';
     const file = form === 'Classic' ? 'input.jsx' : form === 'Automatic' ? 'input.tsx' : 'input.ts';
-    const source = (layout === 'Unicode' ? '/* 東京🧪 */\r\n' : '') + fixtures[form] +
+    const fixture = layout === 'Multiline' ?
+      'export const View = (x) => <i>  first \r\n\t東京 &amp; second \r\n  {x} <b/>\n final  </i>;' : fixtures[form];
+    const source = (layout === 'Unicode' ? '/* 東京🧪 */\r\n' : '') + fixture +
       (tail === 'Broken' ? ' export const x =' : '');
     const native = compile(source, { file, jsx });
     if (tail === 'Broken') {
@@ -128,4 +130,33 @@ test('mixed TSX modules lower multiple declarations and share one runtime import
 test('unsupported later items cannot publish a partially lowered module', () => {
   const source = 'export enum First { Value }\nexport enum Later { Value = lookup() }\nexport const calculate = () => Later.Value;';
   assert.equal(compile(source).backend, 'typescript');
+});
+
+test('direct lowering works with only the small native addon loaded', () => {
+  const source = `
+    import assert from 'node:assert/strict';
+    import { existsSync } from 'node:fs';
+    import { registerHooks } from 'node:module';
+    assert.equal(existsSync('./build/compiler-module.node'), true);
+    registerHooks({ resolve(specifier, context, next) {
+      if (/compiler-module\\.node$/.test(specifier)) throw new Error('Full module addon loaded');
+      return next(specifier, context);
+    } });
+    const { compile } = await import('./src/compiler.mjs');
+    assert.equal(compile('export const C = <i/>;', { file: 'input.tsx' }).backend, 'pulse');
+    assert.equal(compile('export enum State { Ready }').backend, 'pulse');
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', source], { encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('multiline JSX preserves significant leading, trailing and single-line whitespace', async () => {
+  for (const children of ['  a \n \t \n b  ', ' \n  ', '  ', ' \na\n  ', 'a\r  b',
+    'a\n &lt;\n b', '\u200b\n\u3000a', 'a\u00a0\n b\u202f', '{/* gap */}\n  a']) {
+    const source = 'export const X = <i>' + children + '</i>;';
+    const actual = compile(source, { file: 'layout.tsx' });
+    assert.equal(actual.backend, 'pulse', JSON.stringify(children));
+    const expected = compile(source, { file: 'layout.tsx', sourceMap: true });
+    assert.deepEqual((await load(actual.code)).X, (await load(expected.code)).X, JSON.stringify(children));
+  }
 });

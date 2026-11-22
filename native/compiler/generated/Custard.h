@@ -2359,8 +2359,6 @@ TmtPulseCompiler_next_module_boundary(TmtPulseMemory_tape input, bool jsx, uint3
 
 uint32_t TmtPulseCompiler_next_module_item(TmtPulseMemory_tape input, bool jsx, uint32_t at);
 
-bool TmtPulseCompiler_runtime_module_marker(TmtPulseMemory_tape input);
-
 uint32_t TmtPulseParser_source_start(TmtPulseMemory_tape input);
 
 TmtPulseParser_parser_state
@@ -2491,7 +2489,30 @@ extern uint16_t TmtPulseParser_inactive_locals;
 TmtPulseParser_parser_state
 TmtPulseParser_parse_candidates(TmtPulseMemory_tape input, bool jsx, bool module_mode);
 
-bool TmtPulseCompiler_erasable_module(TmtPulseMemory_tape input, bool jsx);
+bool TmtPulseCompiler_supported_module(TmtPulseMemory_tape input, bool jsx);
+
+bool TmtPulseCompiler_runtime_module_marker(TmtPulseMemory_tape input, uint32_t at);
+
+TmtPulseParser_named_state
+TmtPulseCompiler_type_declaration(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t used,
+  uint32_t width
+);
+
+bool
+TmtPulseCompiler_type_only_statements(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t used0,
+  bool module_seen0,
+  uint32_t fuel0
+);
+
+bool TmtPulseCompiler_type_only_module(TmtPulseMemory_tape input);
+
+TmtPulseParser_cursor TmtPulseCompiler_runtime_source_start(TmtPulseMemory_tape input);
 
 TmtPulseParser_cursor TmtPulseCompiler_plain_cursor(uint32_t at, bool ok);
 
@@ -2567,25 +2588,6 @@ TmtPulseCompiler_read_runtime_head(
   bool typescript,
   bool local
 );
-
-TmtPulseParser_named_state
-TmtPulseCompiler_type_declaration(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t used,
-  uint32_t width
-);
-
-bool
-TmtPulseCompiler_type_only_statements(
-  TmtPulseMemory_tape input0,
-  TmtPulseParser_parser_state state0,
-  uint32_t used0,
-  bool module_seen0,
-  uint32_t fuel0
-);
-
-bool TmtPulseCompiler_type_only_module(TmtPulseMemory_tape input);
 
 void TmtPulseCompiler_blank(uint8_t *output, uint32_t size, uint32_t first, uint32_t last);
 

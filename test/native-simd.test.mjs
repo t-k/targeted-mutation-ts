@@ -57,6 +57,7 @@ test('SIMD specialization declines an unfamiliar scalar function body', { skip: 
     mkdirSync(join(scratch, 'native/generated'), { recursive: true });
     const script = join(scratch, 'scripts/build-native.mjs');
     writeFileSync(script, readFileSync('scripts/build-native.mjs'));
+    writeFileSync(join(scratch, 'scripts/native-simd-source.mjs'), readFileSync('scripts/native-simd-source.mjs'));
     const compiler = join(scratch, 'compiler');
     writeFileSync(compiler, `#!/usr/bin/env node
 const { writeFileSync } = require('node:fs');
