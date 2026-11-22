@@ -4,10 +4,11 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-const { values } = parseArgs({ options: { 'low-only': { type: 'boolean' }, pgo: { type: 'boolean' } } });
+const { values } = parseArgs({ options: { 'low-only': { type: 'boolean' }, pgo: { type: 'boolean' }, output: { type: 'string' } } });
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const output = resolve(root, 'build/tmt.node');
+const output = resolve(root, values.output ?? 'build/tmt.node');
+const outputDirectory = dirname(output);
 const candidates = [
   process.env.TMT_NODE_INCLUDE,
   resolve(dirname(process.execPath), '../include/node'),
@@ -17,14 +18,14 @@ const candidates = [
 ].filter(Boolean);
 const headers = candidates.find(path => existsSync(resolve(path, 'node_api.h')));
 if (!headers) throw new Error('Set TMT_NODE_INCLUDE to the directory containing node_api.h');
-mkdirSync(dirname(output), { recursive: true });
+mkdirSync(outputDirectory, { recursive: true });
 
 const macOS = process.platform === 'darwin';
 
 function nativeOptimizationFlags(compiler) {
   if (!macOS && process.platform !== 'linux') return [];
   const flags = ['-fvisibility=hidden'];
-  const scratch = mkdtempSync(resolve(root, 'build/.lto-'));
+  const scratch = mkdtempSync(resolve(outputDirectory, '.lto-'));
   try {
     const probe = spawnSync(compiler, [...flags, '-flto', '-fPIC', macOS ? '-bundle' : '-shared', '-x', 'c',
       '-o', resolve(scratch, 'probe.so'), '-'], {
@@ -71,7 +72,7 @@ function buildProfiled() {
   const tool = profileTool();
   const probe = spawnSync(tool, ['--version'], { stdio: 'ignore', timeout: 10_000 });
   if (probe.status !== 0) return false;
-  const scratch = mkdtempSync(resolve(root, 'build/.profile-'));
+  const scratch = mkdtempSync(resolve(outputDirectory, '.profile-'));
   try {
     const instrumented = resolve(scratch, 'instrumented.node');
     if (compile(instrumented, ['-fprofile-instr-generate'], 'pipe').status !== 0) return false;
@@ -97,7 +98,7 @@ if (values.pgo && buildProfiled()) {
   process.exit(0);
 }
 if (values.pgo) console.warn('Fixture PGO unavailable. Building the regular native extractor.');
-const scratch = mkdtempSync(resolve(root, 'build/.native-'));
+const scratch = mkdtempSync(resolve(outputDirectory, '.native-'));
 try {
   const pending = resolve(scratch, 'tmt.node');
   const built = compile(pending);

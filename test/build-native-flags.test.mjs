@@ -20,11 +20,13 @@ test('the native build only enables LTO when the selected compiler can link it',
 const args = process.argv.slice(2);
 require('node:fs').appendFileSync(process.env.TMT_COMPILER_LOG, JSON.stringify(args) + '\\n');
 if (args.at(-1) === '-' && process.env.TMT_ACCEPT_LTO === 'no') process.exit(1);
+require('node:fs').writeFileSync(args[args.lastIndexOf('-o') + 1], 'compiled addon');
 `, { mode: 0o700 });
 
     for (const ltoAvailable of [true, false]) {
       writeFileSync(log, '');
-      const child = spawnSync(process.execPath, [build, '--low-only'], {
+      const target = join(root, 'isolated', 'tmt.node');
+      const child = spawnSync(process.execPath, [build, '--low-only', '--output', target], {
         encoding: 'utf8', timeout: 20_000,
         env: { ...process.env, CC: compiler, TMT_NODE_INCLUDE: root, TMT_COMPILER_LOG: log,
           TMT_ACCEPT_LTO: ltoAvailable ? 'yes' : 'no' },
@@ -37,7 +39,8 @@ if (args.at(-1) === '-' && process.env.TMT_ACCEPT_LTO === 'no') process.exit(1);
       assert.ok(probe.includes(mode) && probe.includes('-flto'));
       assert.ok(selected.includes(mode) && selected.includes('-fvisibility=hidden'));
       assert.equal(selected.includes('-flto'), ltoAvailable);
-      assert.ok(!readdirSync(join(root, 'build')).some(name => name.startsWith('.lto-')));
+      assert.equal(readFileSync(target, 'utf8'), 'compiled addon');
+      assert.deepEqual(readdirSync(join(root, 'isolated')), ['tmt.node']);
     }
   } finally {
     rmSync(root, { recursive: true, force: true });

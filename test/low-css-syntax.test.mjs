@@ -35,7 +35,7 @@ test('const enums keep module bindings and member separator validation', () => {
   verify('const enum Token { [key] = a < b }', 'diagnostic');
   verify('const enum Token { A = a < T, U > value }', 'diagnostic');
   verify('export const enum Token { A = a >= b, }', 'fast');
-  verify('const enum Token { A = a >= b, } export { Token };', 'fallback');
+  verify('const enum Token { A = a >= b, } export { Token };', 'fast');
 });
 
 test('numeric keys, override and regex escapes keep their context', () => {

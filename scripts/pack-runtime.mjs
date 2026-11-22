@@ -4,10 +4,16 @@ import { dirname, join, resolve } from 'node:path';
 
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
 const output = resolve('build');
+const addon = 'build/tmt.node';
 mkdirSync(output, { recursive: true });
 const staging = mkdtempSync(join(output, '.tmt-runtime-'));
 try {
+  const compiled = spawnSync(process.execPath, ['scripts/build-native.mjs', '--pgo', '--output', join(staging, addon)],
+    { encoding: 'utf8' });
+  if (compiled.status !== 0) throw new Error(compiled.error?.message ?? compiled.stderr + compiled.stdout);
+  process.stderr.write(compiled.stdout + compiled.stderr);
   for (const file of manifest.files) {
+    if (file === addon) continue;
     const target = join(staging, file);
     mkdirSync(dirname(target), { recursive: true });
     cpSync(resolve(file), target, { recursive: true });

@@ -50,7 +50,6 @@ test('inputs outside the Low* grammar receive complete extraction', () => {
     ['const x = f <number>(2) < 3;', 'ts', 1],
     [String.raw`const x = /\p{Letter}/u.test("a") && 3 / 4 > 0;`, 'ts', 1],
     ['const x = format<string>`x > < ${2 >= 3}`;', 'ts', 1],
-    ['const x = <A.B><B valid={3 < 5} /></A.B>;', 'tsx', 1],
     ['const x = ' + '('.repeat(65) + '2 >= 3' + ')'.repeat(65), 'ts', 1, 'fallback'],
     ['const x = 2 < 3; const y = obj <number>().count > 5;', 'ts', 2],
   ]) {

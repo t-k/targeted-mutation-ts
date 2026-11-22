@@ -10,15 +10,28 @@ const load = createRequire(import.meta.url);
 const matrix = readFileSync(new URL('../verification/pict/native-profile.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1).map(row => row.split('\t'));
 
-test('fixture PGO preserves the normal and standalone native result records', () => {
-  const profiler = process.platform === 'darwin' ?
-    spawnSync('/usr/bin/xcrun', ['--find', 'llvm-profdata'], { encoding: 'utf8' }).stdout?.trim() :
-    process.env.TMT_LLVM_PROFDATA;
-  assert.ok(profiler, 'Provide the matching llvm-profdata executable');
+function matchingProfileTools(root) {
+  const compiler = process.env.CC ?? (process.platform === 'darwin' ? '/usr/bin/clang' : 'clang');
+  const profiler = process.env.TMT_LLVM_PROFDATA || (process.platform === 'darwin' &&
+    spawnSync('/usr/bin/xcrun', ['--find', 'llvm-profdata'], { encoding: 'utf8', timeout: 10_000 }).stdout?.trim()) || 'llvm-profdata';
+  const probe = join(root, 'probe');
+  const raw = join(root, 'probe.profraw');
+  const data = join(root, 'probe.profdata');
+  const settings = { input: 'int main(void) { return 0; }', encoding: 'utf8', timeout: 10_000 };
+  if (spawnSync(compiler, ['-fprofile-instr-generate', '-x', 'c', '-', '-o', probe], settings).status !== 0 ||
+      spawnSync(probe, [], { env: { ...process.env, LLVM_PROFILE_FILE: raw }, timeout: 10_000 }).status !== 0 ||
+      spawnSync(profiler, ['merge', '-o', data, raw], { timeout: 10_000 }).status !== 0 ||
+      spawnSync(compiler, [`-fprofile-instr-use=${data}`, '-x', 'c', '-', '-o', probe], settings).status !== 0) return null;
+  return { compiler, profiler };
+}
+
+test('fixture PGO preserves the normal and standalone native result records', t => {
   const root = mkdtempSync(join(tmpdir(), 'tmt-native-profile-'));
   const source = Buffer.from('export const keep = a < b; export const view = <Item count={n >= min} />;');
   const invalid = Buffer.from('const before = a > b; const =');
   try {
+    const tools = matchingProfileTools(root);
+    if (!tools) t.diagnostic('Matching Clang and llvm-profdata unavailable. Verifying the regular-build rows.');
     cpSync(resolve('native'), join(root, 'native'), { recursive: true });
     cpSync(resolve('fixtures'), join(root, 'fixtures'), { recursive: true });
     const scripts = join(root, 'scripts');
@@ -27,16 +40,18 @@ test('fixture PGO preserves the normal and standalone native result records', ()
     cpSync(resolve('scripts/train-native.mjs'), join(scripts, 'train-native.mjs'));
     const outputs = [];
     for (const [index, [profile, tool, mode]] of matrix.entries()) {
+      const applied = profile === 'Enabled' && tool === 'Present';
+      if (applied && !tools) continue;
       const args = [
         join(scripts, 'build-native.mjs'), ...(profile === 'Enabled' ? ['--pgo'] : []),
         ...(mode === 'Standalone' ? ['--low-only'] : []),
       ];
       const result = spawnSync(process.execPath, args, {
         cwd: root, encoding: 'utf8', timeout: 30_000,
-        env: { ...process.env, TMT_LLVM_PROFDATA: tool === 'Present' ? profiler : join(root, 'missing-profiler') },
+        env: { ...process.env, ...(applied && { CC: tools.compiler }),
+          TMT_LLVM_PROFDATA: tool === 'Present' && tools ? tools.profiler : join(root, 'missing-profiler') },
       });
       assert.equal(result.status, 0, result.error?.message ?? result.stderr + result.stdout);
-      const applied = profile === 'Enabled' && tool === 'Present';
       assert.equal(result.stdout.includes('Built native extractor with fixture PGO'), applied);
       const target = join(root, 'build', `variant-${index}.node`);
       renameSync(join(root, 'build/tmt.node'), target);

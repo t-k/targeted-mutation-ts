@@ -41,11 +41,11 @@ test('identifier names, empty lists, and direct type declarations preserve refer
   ]) compare(`${source} const ok = a < b;`, 'fast');
 });
 
-test('only complete named re-exports use Low* and cross-list duplicates reject a prefix', () => {
+test('complete named export lists use Low* and cross-list duplicates reject a prefix', () => {
   compare('const ok = a < b; export { first as value } from "a"; export type { Second as value } from "b";', 'diagnostic');
   compare('const ok = a < b; export { source as value } from;', 'diagnostic');
   compare('const ok = a < b; export { absent };', 'diagnostic');
-  compare('const ok = a < b; export { ok };', 'fallback');
+  compare('const ok = a < b; export { ok };', 'fast');
   compare('const ok = a < b; export { source as "punctuation!" } from "a";', 'fallback');
 });
 
