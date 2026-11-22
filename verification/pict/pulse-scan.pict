@@ -1,0 +1,4 @@
+Class: Space, Identifier, DecimalDigits
+Start: Zero, Middle, End
+Run: Empty, Hit, Stop, NonAscii
+IF [Run] = "Empty" THEN [Start] <> "Middle";

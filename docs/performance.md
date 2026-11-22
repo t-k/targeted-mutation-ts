@@ -1,5 +1,17 @@
 # Performance measurements
 
+## Pulse byte-class scanner pilot
+
+The Pulse build replaces only the Low★ byte-class scanner. The scanner predicate, parser, compatibility route and Node-API interface are shared. Both variants use native LTO and fixture-trained PGO. Each column compares nine alternating samples on an Apple M5 Max with Node 24.14.0. First extraction starts a new process for each sample and disables the Node compile cache. Both measurements parse pre-read source buffers.
+
+| Workload | Warm, Low★ → Pulse | First extraction, Low★ → Pulse |
+| --- | ---: | ---: |
+| Vite | 15.64 → 15.49 ms | 54.09 → 53.60 ms |
+| mreact | 79.12 → 78.22 ms | 150.98 → 147.87 ms |
+| tachyon-dom | 31.92 → 31.55 ms | 79.79 → 79.59 ms |
+
+The pilot showed comparable throughput. An earlier run with a different C representation of the class parameter had up to a 3% increase in the median warm time. The final build removes that enum conversion and verifies the equivalence of its byte-code predicate in F★. Both variants produced identical complete extraction results, including diagnostics, for 8,549 tracked files across five corpora and 3,303 unique captured inputs, each with both logical-rule settings. The [raw paired samples and corpus revisions](../evidence/m1/pulse-scan.json) record the final variant. The [Pulse build commands](l1.md#pulse-scanner-pilot) leave the ordinary runtime build available.
+
 ## Cache-free first extraction compared with Yuku
 
 The runtime archive includes a 639,522-byte syntax-only build generated from the pinned TypeScript compiler. It handles compatibility extraction, while the installed full compiler supplies witness and other compiler APIs. Low★ also handles byte-zero hashbangs and interface bodies in quoted ambient modules, moving two previously declined Vite files into native extraction.

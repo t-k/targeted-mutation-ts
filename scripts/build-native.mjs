@@ -4,7 +4,9 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-const { values } = parseArgs({ options: { 'low-only': { type: 'boolean' }, pgo: { type: 'boolean' }, output: { type: 'string' } } });
+const { values } = parseArgs({ options: {
+  'low-only': { type: 'boolean' }, 'pulse-scan': { type: 'boolean' }, pgo: { type: 'boolean' }, output: { type: 'string' },
+} });
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const output = resolve(root, values.output ?? 'build/tmt.node');
@@ -41,6 +43,15 @@ function nativeOptimizationFlags(compiler) {
 }
 
 const compiler = process.env.CC ?? (macOS ? '/usr/bin/clang' : 'cc');
+const pulseScanner = 'build/pulse-scan/TmtPulseScan.c';
+const scanner = values['pulse-scan']
+  ? ['-I', 'build/pulse-scan', 'native/pulse/scan-adapter.c', pulseScanner]
+  : ['native/generated/TmtScan.c'];
+if (values['pulse-scan']) {
+  const verified = spawnSync('sh', ['scripts/verify-pulse-scan.sh'], { cwd: root, stdio: 'inherit' });
+  if (verified.error) throw verified.error;
+  if (verified.status !== 0) throw new Error('The experimental Pulse scanner did not verify and compile');
+}
 
 const args = [
   '-std=c11', '-O3', '-Wall', '-Wextra', '-Werror', '-Wno-parentheses', '-fPIC',
@@ -52,7 +63,7 @@ const args = [
   ...(values['low-only'] ? ['-DTMT_LOW_ONLY'] : []),
   '-I', headers, '-I', 'native/generated', '-I', 'native/runtime',
   'native/addon.c', 'native/parser.c', 'native/positions.c',
-  'native/generated/TmtGrammar.c', 'native/generated/TmtScan.c', 'native/generated/TmtParser.c',
+  'native/generated/TmtGrammar.c', ...scanner, 'native/generated/TmtParser.c',
 ];
 
 function compile(target, flags = [], stdio = 'inherit') {

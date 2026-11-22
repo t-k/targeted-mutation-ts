@@ -1,0 +1,14 @@
+Class	Start	Run
+Space	Zero	Hit
+Identifier	Middle	Stop
+DecimalDigits	End	Empty
+Identifier	Zero	NonAscii
+Identifier	End	Hit
+Space	Middle	NonAscii
+Space	End	Stop
+Space	Zero	Empty
+DecimalDigits	Middle	Hit
+DecimalDigits	Zero	NonAscii
+Identifier	End	Empty
+DecimalDigits	Zero	Stop
+DecimalDigits	End	NonAscii
