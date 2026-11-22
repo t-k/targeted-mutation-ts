@@ -1,5 +1,7 @@
-import ts from 'typescript';
+import { loadTypeScript } from './typescript-compiler.mjs';
 import { orderRules } from './witness-order.mjs';
+
+const ts = loadTypeScript();
 
 export const parseSource = (file, source) => ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
 

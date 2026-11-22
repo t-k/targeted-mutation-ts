@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, extname, relative, resolve, sep } from 'node:path';
+import { loadTypeScript } from './typescript-compiler.mjs';
 
 export function rewrite(source, edit, replacement) {
   const [start, end] = edit;
@@ -15,8 +15,6 @@ function sourceSpellings(source) {
       return code < 128 ? String.fromCharCode(code) : escape;
     }) : source;
 }
-
-const require = createRequire(import.meta.url);
 
 function explicitPackageType(root, file) {
   for (let directory = dirname(file); ; directory = dirname(directory)) {
@@ -45,7 +43,7 @@ function ambient(ts, node) {
 }
 
 function hasRuntimeModuleSyntax(file, source) {
-  const ts = require('typescript');
+  const ts = loadTypeScript();
   const parsed = ts.createSourceFile(file, source.toString(), ts.ScriptTarget.Latest, false);
   if (parsed.statements.some(statement => {
     if (ambient(ts, statement)) return false;

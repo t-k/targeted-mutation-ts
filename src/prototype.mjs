@@ -1,14 +1,12 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { dirname, relative, resolve } from 'node:path';
 import { thresholdGaps } from './threshold.mjs';
+import { loadTypeScript } from './typescript-compiler.mjs';
 import { inside, runVitest, withCopy } from './vitest.mjs';
 
-const require = createRequire(import.meta.url);
-
 export function thresholdSites(source, file, operator = '>=') {
-  const ts = require('typescript');
+  const ts = loadTypeScript();
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   if (tree.parseDiagnostics.length) throw new Error(ts.flattenDiagnosticMessageText(tree.parseDiagnostics[0].messageText, '\n'));
   const sites = [];
@@ -59,7 +57,7 @@ function moduleSpecifier(from, to) {
 }
 
 function instrument(source, sites, target, root) {
-  const ts = require('typescript');
+  const ts = loadTypeScript();
   const tree = ts.createSourceFile(target, source, ts.ScriptTarget.Latest, true);
   const identifiers = new Set();
   function visit(node) {

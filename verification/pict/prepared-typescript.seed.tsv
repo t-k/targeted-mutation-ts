@@ -1,0 +1,14 @@
+Artifact	Route	Policy
+Ready	Fallback	Enabled
+Ready	Fallback	Disabled
+Ready	Fallback	Library
+Ready	Fallback	Preloaded
+Ready	Native	Enabled
+Missing	Fallback	Enabled
+Truncated	Fallback	Enabled
+Corrupted	Fallback	Enabled
+StaleSource	Fallback	Enabled
+WrongEngine	Fallback	Enabled
+Rejected	Fallback	Enabled
+Ready	Fallback	Restricted
+Ready	Fallback	ExternalLoader

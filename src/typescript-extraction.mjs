@@ -1,12 +1,11 @@
-import { createRequire } from 'node:module';
 import { byteOffsets, sourceDialect } from './source-text.mjs';
 import { createTypeScriptBindings } from './typescript-bindings.mjs';
+import { loadTypeScript } from './typescript-compiler.mjs';
 import { createTypeScriptGrammar } from './typescript-grammar.mjs';
 
-const load = createRequire(import.meta.url);
 let extractWithCompiler;
 
-function createExtractor(ts) {
+export function createTypeScriptExtractor(ts) {
   const {
     LanguageVariant, ScriptKind, ScriptTarget, SyntaxKind, createScanner, createSourceFile,
     flattenDiagnosticMessageText, forEachChild, isArrowFunction, isAsExpression, isBinaryExpression, isIdentifier,
@@ -344,6 +343,6 @@ function createExtractor(ts) {
 }
 
 export function extractTypeScript(source, options = {}) {
-  extractWithCompiler ??= createExtractor(load('typescript'));
+  extractWithCompiler ??= createTypeScriptExtractor(loadTypeScript());
   return extractWithCompiler(source, options);
 }

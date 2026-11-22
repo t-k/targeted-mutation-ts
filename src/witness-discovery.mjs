@@ -1,6 +1,8 @@
-import ts from 'typescript';
+import { loadTypeScript } from './typescript-compiler.mjs';
 import { bare, functionParts, integer } from './witness-rules.mjs';
 import { importedBindings, importMatches, registeredTests } from './witness-fixtures.mjs';
+
+const ts = loadTypeScript();
 
 const named = (node, name) => !!node && ts.isIdentifier(node) && (name === undefined || node.text === name);
 const property = node => !!node && ts.isPropertyAccessExpression(node) && !node.questionDotToken;

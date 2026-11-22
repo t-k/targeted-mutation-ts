@@ -1,4 +1,6 @@
-import ts from 'typescript';
+import { loadTypeScript } from './typescript-compiler.mjs';
+
+const ts = loadTypeScript();
 
 export function parseSortConstraints(specification) {
   const entries = specification?.sortConstraints ?? [];

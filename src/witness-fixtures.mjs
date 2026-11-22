@@ -1,8 +1,10 @@
-import ts from 'typescript';
 import { realpathSync, statSync } from 'node:fs';
 import { dirname, extname, resolve } from 'node:path';
+import { loadTypeScript } from './typescript-compiler.mjs';
 import { bare, integer } from './witness-rules.mjs';
 import { orderProjection } from './witness-order.mjs';
+
+const ts = loadTypeScript();
 
 function literal(node, shape) {
   node = bare(node);

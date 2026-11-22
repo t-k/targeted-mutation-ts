@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
+import { enablePreparedTypeScript } from '../src/typescript-compiler.mjs';
 
 const usage = 'Usage: tmt-ts extract FILE [--mode script|module] [--dialect ts|tsx]\n' +
   '       tmt-ts analyze [PROJECT] [FILE...] [--lines FILE:FROM-TO] [--since REV] [--mutators focused|standard|all] [--spec FILE] [--deterministic] [--audit] [--displace-thresholds] [--witnesses] [--runner vitest|playwright] [--project NAME] [--config FILE] [--test FILE] [--copy-exclude PATH]\n' +
@@ -22,6 +23,7 @@ try {
   if (!command || ['help', '--help', '-h'].includes(command) || values.help) {
     console.log(usage);
   } else if (command === 'extract' && positionals.length === 1) {
+    enablePreparedTypeScript();
     const { extract } = await import('../src/extract.mjs');
     const [file] = positionals;
     const result = extract(readFileSync(file), { file, mode: values.mode, dialect: values.dialect });
@@ -33,6 +35,7 @@ try {
     if (values.runner === 'playwright' && values.test?.length) throw new Error('--test selects Vitest files');
     if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
     if (values.mutators && !['focused', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|standard|all');
+    enablePreparedTypeScript();
     let result;
     if (values.witnesses) {
       if (values.runner === 'playwright' || ['standard', 'all'].includes(values.mutators) ||
@@ -53,6 +56,7 @@ try {
     console.log(JSON.stringify(result, null, 2));
     if (['baseline_error', 'incomplete'].includes(result.evaluation) || result.extraction.some(file => file.path === 'diagnostic')) process.exitCode = 1;
   } else if (command === 'prototype' && positionals.length === 2) {
+    enablePreparedTypeScript();
     const { runPrototype } = await import('../src/prototype.mjs');
     console.log(JSON.stringify(runPrototype(...positionals, values), null, 2));
   } else {

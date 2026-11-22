@@ -1,0 +1,3 @@
+Artifact: Ready, Missing, Truncated, Corrupted, StaleSource, WrongEngine, Rejected
+Route: Native, Fallback
+Policy: Enabled, Disabled, Library, Preloaded, Restricted, ExternalLoader
