@@ -13,10 +13,12 @@ const fixtures = {
 };
 
 const data = source => 'data:text/javascript;base64,' + Buffer.from(source).toString('base64');
-const runtime = data('export const Fragment = "fragment"; export function jsx(type, props) { return {type, props}; } export function jsxs(type, props) { return {type, props, multiple: true}; }');
+const runtime = data('export const Fragment = "fragment"; export function jsx(type, props, key) { return key === undefined ? {type, props} : {type, props, key}; } export function jsxs(type, props, key) { return {...jsx(type, props, key), multiple: true}; }');
 const classic = 'const React = {Fragment:"fragment", createElement(type, props, ...children) { return {type, props, children}; }};\n';
 async function load(code) {
-  return import(data(classic + code.replace(/(["'])react\/jsx-runtime\1/g, JSON.stringify(runtime))));
+  const create = data('export function createElement(type, props, ...children) { return {type, props, children}; }');
+  return import(data(classic + code.replace(/(["'])react\/jsx-runtime\1/g, JSON.stringify(runtime))
+    .replace(/(["'])react\1/g, JSON.stringify(create))));
 }
 
 const rows = readFileSync(new URL('../verification/pict/compiler-lowering.tsv', import.meta.url), 'utf8')
@@ -68,7 +70,6 @@ test('native enum and JSX lowering do not load TypeScript', () => {
 
 test('native runtime lowering defers ambiguous transforms and honors options', () => {
   for (const [file, source] of [
-    ['main.tsx', 'export const View = () => <span key="view" />;'],
     ['main.tsx', '/** @jsxImportSource alternate */ export const View = <span />;'],
     ['main.tsx', 'export const View = () => <span></em>;'],
     ['main.ts', 'export enum Ready { A = compute(), B }'],
@@ -179,11 +180,16 @@ test('grouped JSX supports const initializers, arrow functions and default funct
   }
 });
 
-test('JSX functions decline an ASI return and extra unhandled statements', () => {
-  for (const body of ['return\n<i/>;', 'return (<i/>;','return <i/>; extra();', 'return (<i/>).value;']) {
-    const result = compile('export function View() { ' + body + ' }', { file: 'component.tsx' });
-    assert.equal(result.backend, 'typescript', body);
+test('whole-module JSX preserves ASI and the surrounding function body', async () => {
+  for (const body of ['return\n<i/>;', 'return <i/>; extra();', 'return (<i/>).value;']) {
+    const source = 'export function View() { ' + body + ' }';
+    const options = { file: 'component.tsx' };
+    const result = compile(source, options);
+    assert.equal(result.backend, 'pulse+node-strip', body);
+    const reference = compile(source, { ...options, sourceMap: true });
+    assert.deepEqual((await load(result.code)).View(), (await load(reference.code)).View());
   }
+  assert.equal(compile('export function View() { return (<i/>; }', { file: 'component.tsx' }).code, null);
 });
 
 test('mixed TSX keeps directives and complex JavaScript expressions in place', async () => {
@@ -202,9 +208,11 @@ test('mixed TSX keeps directives and complex JavaScript expressions in place', a
   }
 });
 
-test('mixed JSX expression copies cannot publish unlowered nested JSX', () => {
+test('mixed JSX expression copies lower nested conditional children', async () => {
   const source = 'const visible = true; export const View = () => <i>{visible ? <b/> : null}</i>;';
-  assert.equal(compile(source, { file: 'component.tsx' }).backend, 'typescript');
+  const result = compile(source, { file: 'component.tsx' });
+  assert.equal(result.backend, 'pulse+node-strip');
+  assert.deepEqual((await load(result.code)).View(), { type: 'i', props: { children: { type: 'b', props: {} } } });
 });
 
 test('the runtime import lands on its statement boundary after an earlier JSX edit', async () => {
@@ -213,4 +221,44 @@ test('the runtime import lands on its statement boundary after an earlier JSX ed
   assert.equal(actual.backend, 'pulse+node-strip');
   assert.match(actual.code, /;\s*import\{[\s\S]+\nexport const getView/);
   assert.deepEqual((await load(actual.code)).getView(), { type: 'div', props: { children: 'longer output' } });
+});
+
+const moduleCases = readFileSync(new URL('../verification/pict/compiler-jsx-module.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1).map(row => row.split('\t'));
+for (const [placement, key, tail] of moduleCases) {
+  test('arbitrary JSX placement with ' + [placement, key, tail].join(' '), async () => {
+    const attrs = key === 'None' ? '' : key === 'BeforeSpread' ? ' key={x} {...props}' : ' {...props} key={x}';
+    const child = '<strong' + attrs + '>{x}</strong>';
+    const body = {
+      Callback: '[x].map(x => ' + child + ')[0]',
+      Conditional: 'x ? ' + child + ' : <b/>',
+      Attribute: '<div item={[x].map(x => ' + child + ')[0]} />',
+    }[placement];
+    const source = 'const props = { title: "hi" }; export function Outer(x: number) { return ' + body + '; }' +
+      (tail === 'Invalid' ? ' export const broken = ' : '');
+    const result = compile(source, { file: 'module.tsx' });
+    if (tail === 'Invalid') {
+      assert.equal(result.code, null);
+      return;
+    }
+    assert.equal(result.backend, 'pulse+node-strip');
+    const reference = compile(source, { file: 'module.tsx', sourceMap: true });
+    const native = (await load(result.code)).Outer(5);
+    const original = (await load(reference.code)).Outer(5);
+    assert.deepEqual(native, original);
+  });
+}
+
+test('whole-module JSX decodes numeric references and composes with runtime enums', async () => {
+  const source = 'enum E { Start, Next } export const View = () => <i title="&#x1F600;">&#123;{E.Next}&#125;</i>;';
+  const result = compile(source, { file: 'component.tsx' });
+  assert.equal(result.backend, 'pulse+node-strip');
+  const view = (await load(result.code)).View();
+  assert.deepEqual(view, { type: 'i', props: { title: '😀', children: ['{', 1, '}'] }, multiple: true });
+});
+
+test('a TSX module with no markup still erases TypeScript without the compiler', () => {
+  const result = compile('export function read(x: object) { return x; }', { file: 'empty-markup.tsx' });
+  assert.equal(result.backend, 'pulse+node-strip');
+  assert.doesNotMatch(result.code, /: object/);
 });

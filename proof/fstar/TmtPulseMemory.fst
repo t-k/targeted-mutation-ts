@@ -40,6 +40,7 @@ noeq type tape = {
   source : array U8.t;
   size : n:U32.t { U32.v n <= 1048576 };
   private_possible : bool;
+  capture_jsx : bool;
   output : array G.candidate;
   capacity : U32.t;
   bindings : array binding_name;

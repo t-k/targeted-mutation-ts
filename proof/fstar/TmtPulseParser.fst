@@ -3157,13 +3157,21 @@ and jsx_element (input:tape) (state:parser_state) (fuel:U32.t)
   let depth = minus 64ul fuel in
   let state = if U32.(depth >^ state.depth) then { state with depth } else state in
   let! opening = (fun () -> (let! anf_value_1 = (fun () -> (consume input state 60uy)) in tag_space input anf_value_1)) in
-  (let! anf_value_2 = (fun () -> same input opening.offset 62uy) in if anf_value_2 then
-    (let! anf_value_3 = (fun () -> (consume input opening 62uy)) in jsx_children input anf_value_3 (start_range opening.offset) fuel input.size)
+  let! ended = (fun () ->
+    let! fragment = (fun () -> same input opening.offset 62uy) in
+    if fragment then
+      let! children = (fun () -> consume input opening 62uy) in
+      jsx_children input children (start_range opening.offset) fuel input.size
+    else
+      let! named = (fun () -> jsx_tag_name input opening.offset 64ul) in
+      let! attrs = (fun () -> jsx_attributes input (from_cursor opening named) fuel input.size) in
+      if attrs.after_tag.status <> 0ul || attrs.self_closing then ret input attrs.after_tag
+      else jsx_children input attrs.after_tag { G.first = opening.offset; G.last = named.at } fuel input.size) in
+  if not input.capture_jsx || ended.status <> 0ul then ret input ended
   else
-    let! named = (fun () -> jsx_tag_name input opening.offset 64ul) in
-    let! attrs = (fun () -> jsx_attributes input (from_cursor opening named) fuel input.size) in
-    if attrs.after_tag.status <> 0ul || attrs.self_closing then ret input (attrs.after_tag)
-    else jsx_children input attrs.after_tag { G.first = opening.offset; G.last = named.at } fuel input.size)
+    let span = { G.first = state.offset; G.last = ended.offset } in
+    let! stored = (fun () -> emit_comparison_in_workspace input ended ended.count 0ul state.offset span span) in
+    ret input (if stored.status <> 0ul then stored else { stored with count = next stored.count })
 
 and condition (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 43; 0]) =
   let! st = (fun () -> (let! anf_value_1 = (fun () -> (skip input state)) in consume input anf_value_1 40uy)) in

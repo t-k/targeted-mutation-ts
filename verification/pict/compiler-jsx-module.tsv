@@ -1,0 +1,10 @@
+Placement	Key	Tail
+Callback	None	Valid
+Conditional	BeforeSpread	Valid
+Attribute	AfterSpread	Valid
+Callback	AfterSpread	Invalid
+Attribute	None	Invalid
+Callback	BeforeSpread	Invalid
+Attribute	BeforeSpread	Invalid
+Conditional	AfterSpread	Invalid
+Conditional	None	Invalid

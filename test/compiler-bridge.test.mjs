@@ -85,3 +85,29 @@ test('a fully erased module retains an explicit ESM marker and its comments', as
   const empty = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
   assert.deepEqual(Object.keys(empty), []);
 });
+
+test('type erasure preserves globals, runtime exports and Unicode position padding', async () => {
+  const input = 'declare global { interface Window { readonly name: string } }\n' +
+    'interface Config { /** 構成 */ value: number }\nexport function read(x: Config) { return x.value; }';
+  const result = compile(input);
+  assert.equal(result.backend, 'node-strip');
+  const loaded = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+  assert.equal(loaded.read({ value: 42 }), 42);
+});
+
+test('a validated ordinary script emits TypeScript strict semantics', () => {
+  const source = 'declare const ambient: string; function read() { return this; }';
+  const result = compile(source);
+  assert.equal(result.backend, 'node-strip');
+  assert.match(result.code, /^"use strict";/);
+  assert.equal(Function(result.code + '\nreturn read()')(), undefined);
+  const existing = compile('"use\\x20strict"; function read() { return this; }');
+  assert.notEqual(existing.backend, 'node-strip');
+});
+
+test('parameter properties accept identifiers and object keys containing runtime keywords', () => {
+  if (Number(process.versions.node.split('.')[0]) > 25) return;
+  const result = compile('export class Box { constructor(public enumerable: number) {} } ' +
+    'export const value: object = { namespace: "demo" };');
+  assert.equal(result.backend, 'node-transform');
+});

@@ -127,6 +127,21 @@ error:
   return NULL;
 }
 
+static napi_value plain_script(napi_env env, napi_callback_info info) {
+  napi_value arg, result;
+  size_t argc = 1, size;
+  void *source;
+  NAPI(napi_get_cb_info(env, info, &argc, &arg, NULL, NULL));
+  if (argc != 1) goto error;
+  NAPI(napi_get_buffer_info(env, arg, &source, &size));
+  const bool accepted = size && size <= source_limit && tmt_plain_script(source, (uint32_t)size);
+  NAPI(napi_get_boolean(env, accepted, &result));
+  return result;
+error:
+  napi_throw_type_error(env, NULL, "Expected a source buffer");
+  return NULL;
+}
+
 static napi_value trivia_only(napi_env env, napi_callback_info info) {
   napi_value arg, result;
   size_t argc = 1, size;
@@ -173,6 +188,8 @@ static napi_value init(napi_env env, napi_value exports) {
 #ifndef TMT_DIRECT
   NAPI(napi_create_function(env, "moduleMarker", NAPI_AUTO_LENGTH, module_marker, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "moduleMarker", entry));
+  NAPI(napi_create_function(env, "plainScript", NAPI_AUTO_LENGTH, plain_script, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "plainScript", entry));
   NAPI(napi_create_function(env, "triviaOnly", NAPI_AUTO_LENGTH, trivia_only, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "triviaOnly", entry));
 #endif

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "Custard.h"
+#include "jsx-entities.h"
 
 typedef struct {
   char *code;
@@ -19,9 +20,25 @@ typedef struct {
   writer output;
   bool classic, mixed;
   unsigned helpers;
+#ifndef TMT_DIRECT
+  const TmtGrammar_span *jsx_spans;
+  size_t jsx_count;
+#endif
 } lowering;
 
-enum { jsx_one = 1, jsx_many = 2, jsx_fragment = 4 };
+enum { jsx_one = 1, jsx_many = 2, jsx_fragment = 4, jsx_create = 8, jsx_create_first = 16 };
+
+typedef struct {
+  writer key;
+  unsigned key_helpers;
+  size_t count;
+  bool has_key, create;
+} jsx_props;
+
+static void register_jsx_helper(lowering *lower, unsigned helper) {
+  if (!lower->helpers && helper == jsx_create) lower->helpers = jsx_create_first;
+  lower->helpers |= helper;
+}
 
 static void write_bytes(writer *out, const void *bytes, size_t size) {
   if (out->failed || !size) return;
@@ -75,19 +92,49 @@ static void source_bytes(lowering *lower, uint32_t first, uint32_t last) {
   write_bytes(&lower->output, lower->input.source + first, last - first);
 }
 
-static const char *entity(const uint8_t *bytes, size_t limit, size_t *length) {
-  static const struct { const char *name, *escaped; } entities[] = {
-    { "&amp;", "&" }, { "&lt;", "<" }, { "&gt;", ">" }, { "&quot;", "\\\"" },
-    { "&apos;", "'" }, { "&nbsp;", "\\u00a0" },
-  };
-  for (size_t index = 0; index < sizeof(entities) / sizeof(entities[0]); index++) {
-    const size_t size = strlen(entities[index].name);
-    if (size <= limit && memcmp(bytes, entities[index].name, size) == 0) {
-      *length = size;
-      return entities[index].escaped;
+static size_t entity(const uint8_t *bytes, size_t limit, char escaped[16]) {
+  if (limit < 3) return 0;
+  size_t end = 1;
+  uint32_t value = 0;
+  if (bytes[end] == '#') {
+    end++;
+    const bool hex = bytes[end] == 'x';
+    if (hex) end++;
+    const size_t first = end;
+    while (end < limit) {
+      const uint8_t byte = bytes[end];
+      uint32_t digit;
+      if (byte >= '0' && byte <= '9') digit = byte - '0';
+      else if (hex && byte >= 'a' && byte <= 'f') digit = byte - 'a' + 10;
+      else if (hex && byte >= 'A' && byte <= 'F') digit = byte - 'A' + 10;
+      else break;
+      value = value * (hex ? 16 : 10) + digit;
+      if (value > 0x10ffff) return 0;
+      end++;
     }
+    if (end == first || end == limit || bytes[end] != ';') return 0;
+  } else {
+    char name[10];
+    while (end < limit && end < sizeof(name) && TmtGrammar_identifier_continue(bytes[end])) end++;
+    if (end == 1 || end == limit || bytes[end] != ';') return 0;
+    memcpy(name, bytes + 1, end - 1);
+    name[end - 1] = '\0';
+    size_t first = 0, last = sizeof(jsx_entities) / sizeof(*jsx_entities);
+    while (first < last) {
+      const size_t middle = first + (last - first) / 2;
+      const int order = strcmp(name, jsx_entities[middle].name);
+      if (order < 0) last = middle;
+      else if (order > 0) first = middle + 1;
+      else {
+        value = jsx_entities[middle].value;
+        break;
+      }
+    }
+    if (!value) return 0;
   }
-  return NULL;
+  if (value <= 0xffff) snprintf(escaped, 16, "\\u%04" PRIx32, value);
+  else snprintf(escaped, 16, "\\u{%" PRIx32 "}", value);
+  return end + 1;
 }
 
 static bool quote_contents(lowering *lower, TmtGrammar_span span, bool decode) {
@@ -95,6 +142,7 @@ static bool quote_contents(lowering *lower, TmtGrammar_span span, bool decode) {
   for (uint32_t at = span.first; at < span.last; at++) {
     const uint8_t byte = lower->input.source[at];
     const char *replacement;
+    char escaped[16];
     size_t consumed = 1;
     if (decode && byte == 0xe2 && span.last - at >= 3 && lower->input.source[at + 1] == 0x80 &&
         (lower->input.source[at + 2] == 0xa8 || lower->input.source[at + 2] == 0xa9)) return false;
@@ -102,8 +150,9 @@ static bool quote_contents(lowering *lower, TmtGrammar_span span, bool decode) {
     else if (byte == '\\') replacement = "\\\\";
     else if (byte == '\t') replacement = "\\t";
     else if (byte == '&' && decode) {
-      replacement = entity(lower->input.source + at, span.last - at, &consumed);
-      if (!replacement) return false;
+      consumed = entity(lower->input.source + at, span.last - at, escaped);
+      if (!consumed) continue;
+      replacement = escaped;
     } else {
       if (byte < 32) return false;
       continue;
@@ -235,8 +284,41 @@ static bool js_atom(lowering *lower) {
 
 static bool jsx_element(lowering *lower, uint32_t depth);
 
+#ifndef TMT_DIRECT
+static bool source_jsx(lowering *lower, uint32_t first, uint32_t last, uint32_t depth) {
+  size_t lo = 0, hi = lower->jsx_count;
+  while (lo < hi) {
+    const size_t middle = lo + (hi - lo) / 2;
+    if (lower->jsx_spans[middle].first < first) lo = middle + 1;
+    else hi = middle;
+  }
+  for (size_t index = lo; index < lower->jsx_count; index++) {
+    const TmtGrammar_span span = lower->jsx_spans[index];
+    if (span.first >= last) break;
+    if (span.first < first) continue;
+    if (span.last > last || span.last <= span.first) return false;
+    source_bytes(lower, first, span.first);
+    lower->at = span.first;
+    if (!jsx_element(lower, depth) || lower->at != span.last) return false;
+    first = span.last;
+  }
+  source_bytes(lower, first, last);
+  return !lower->output.failed;
+}
+#endif
+
 static bool jsx_value(lowering *lower, uint32_t depth) {
   if (!trivia(lower)) return false;
+#ifndef TMT_DIRECT
+  if (lower->jsx_spans) {
+    const TmtPulseParser_cursor end = TmtPulseCompiler_jsx_expression_end(lower->input, lower->at);
+    if (!end.ok || end.at <= lower->at || end.at >= lower->input.size) return false;
+    put(&lower->output, "(");
+    if (!source_jsx(lower, lower->at, end.at, depth)) return false;
+    put(&lower->output, ")");
+    lower->at = end.at;
+  } else
+#endif
   if (peek(lower) == '<') {
     if (!jsx_element(lower, depth)) return false;
 #ifndef TMT_DIRECT
@@ -277,16 +359,32 @@ static bool jsx_name(lowering *lower, TmtGrammar_span *span) {
   return true;
 }
 
-static bool jsx_attributes(lowering *lower, uint32_t depth, size_t *properties) {
+static bool jsx_property_value(lowering *lower, uint32_t depth, uint32_t name_end) {
+  tag_space(lower);
+  if (!consume(lower, '=')) {
+    lower->at = name_end;
+    put(&lower->output, "true");
+    return !lower->output.failed;
+  }
+  tag_space(lower);
+  if (peek(lower) == '"' || peek(lower) == '\'') return jsx_quoted(lower);
+  if (peek(lower) == '<') return jsx_element(lower, depth);
+  return consume(lower, '{') && jsx_value(lower, depth) && !lower->output.failed;
+}
+
+static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *properties) {
+  bool spread = false, literal_spread = false;
   for (;;) {
     const uint32_t previous = lower->at;
     tag_space(lower);
     if (peek(lower) == '/' || peek(lower) == '>') return true;
-    if (previous == lower->at || *properties == 4096) return false;
-    if ((*properties)++ != 0) put(&lower->output, ",");
+    if (previous == lower->at || properties->count == 4096) return false;
     if (consume(lower, '{')) {
-      if (!trivia(lower) || !consume(lower, '.') || !consume(lower, '.') || !consume(lower, '.')) return false;
+      if (!trivia(lower) || !consume(lower, '.') || !consume(lower, '.') || !consume(lower, '.') || !trivia(lower)) return false;
+      if (properties->count++ != 0) put(&lower->output, ",");
       put(&lower->output, "...");
+      if (peek(lower) == '{') literal_spread = true;
+      else spread = true;
       if (!jsx_value(lower, depth)) return false;
       continue;
     }
@@ -295,20 +393,36 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, size_t *properties) 
     if (!prop.ok || prop.at <= first || prop.at > lower->input.size) return false;
     lower->at = prop.at;
     const TmtGrammar_span key = { first, prop.at };
-    if (same_bytes(lower, key, "__proto__") || (!lower->classic && same_bytes(lower, key, "key"))) return false;
+    if (same_bytes(lower, key, "__proto__")) return false;
+    if (!lower->classic && same_bytes(lower, key, "key")) {
+      if (properties->has_key || (literal_spread && !spread)) return false;
+      properties->has_key = true;
+      properties->create = spread;
+      if (!spread) {
+        lowering saved = *lower;
+        saved.output = (writer){ .limit = lower->output.limit };
+        saved.helpers = 0;
+        const bool accepted = jsx_property_value(&saved, depth, prop.at);
+        properties->key = saved.output;
+        properties->key_helpers = saved.helpers;
+        if (!accepted) return false;
+        lower->at = saved.at;
+        continue;
+      }
+    }
+    if (properties->count++ != 0) put(&lower->output, ",");
     if (!quote(lower, key, false)) return false;
     put(&lower->output, ":");
-    tag_space(lower);
-    if (!consume(lower, '=')) {
-      lower->at = prop.at;
-      put(&lower->output, "true");
-      continue;
-    }
-    tag_space(lower);
-    if (peek(lower) == '"' || peek(lower) == '\'') {
-      if (!jsx_quoted(lower)) return false;
-    } else if (!consume(lower, '{') || !jsx_value(lower, depth)) return false;
-    if (lower->output.failed) return false;
+    if (!jsx_property_value(lower, depth, prop.at)) return false;
+  }
+}
+
+static void put_jsx_key(lowering *lower, const jsx_props *props) {
+  if (props->key.length) {
+    put(&lower->output, ",");
+    write_bytes(&lower->output, props->key.code, props->key.length);
+    if (!lower->helpers) lower->helpers = props->key_helpers;
+    else lower->helpers |= props->key_helpers & ~jsx_create_first;
   }
 }
 
@@ -373,7 +487,9 @@ static bool quote_jsx_lines(lowering *lower, TmtGrammar_span text) {
   return !out->failed;
 }
 
-static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, size_t props, size_t helper_offset) {
+static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, const jsx_props *props,
+  size_t helper_offset, bool classic)
+{
   writer *out = &lower->output;
   size_t children = 0, array_open = 0;
   for (;;) {
@@ -388,17 +504,17 @@ static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, s
       }
       tag_space(lower);
       if (!consume(lower, '>')) return false;
-      if (!lower->classic) {
+      if (!classic) {
         if (children > 1) {
           out->code[helper_offset + 7] = 's';
-          lower->helpers |= jsx_many;
           put(out, "]");
         } else {
-          lower->helpers |= jsx_one;
           if (children) out->code[array_open] = ' ';
         }
         put(out, "}");
-      }
+        put_jsx_key(lower, props);
+        register_jsx_helper(lower, children > 1 ? jsx_many : jsx_one);
+      } else if (props->create) register_jsx_helper(lower, jsx_create);
       put(out, ")");
       return !out->failed;
     }
@@ -412,9 +528,9 @@ static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, s
       if (!jsx_text(lower, &text, &multiline, &visible)) return false;
       if (multiline && !visible) continue;
     }
-    if (lower->classic || children) put(out, ",");
+    if (classic || children) put(out, ",");
     else {
-      if (props) put(out, ",");
+      if (props->count) put(out, ",");
       put(out, "children:");
       array_open = out->length;
       put(out, "[");
@@ -440,7 +556,6 @@ static bool jsx_element(lowering *lower, uint32_t depth) {
   put(out, lower->classic ? "React.createElement(" : "_tmtJsx0(");
   if (fragment) {
     put(out, lower->classic ? "React.Fragment" : "_tmtFragment");
-    if (!lower->classic) lower->helpers |= jsx_fragment;
   }
   else {
     const uint8_t *name = lower->input.source + tag.first;
@@ -461,20 +576,33 @@ static bool jsx_element(lowering *lower, uint32_t depth) {
   put(out, ",");
   const size_t props_open = out->length;
   put(out, "{");
-  size_t props = 0;
-  if (!fragment && !jsx_attributes(lower, depth - 1, &props)) return false;
+  jsx_props props = {0};
+  bool accepted = false;
+  if (!fragment && !jsx_attributes(lower, depth - 1, &props)) goto done;
   const bool self_closed = !fragment && consume(lower, '/');
-  if (!consume(lower, '>')) return false;
-  if (lower->classic) {
-    if (props) put(out, "}");
+  if (!consume(lower, '>')) goto done;
+  const bool classic = lower->classic || props.create;
+  if (classic) {
+    if (props.create && !out->failed) memcpy(out->code + helper_offset, "_tmtElem", 8);
+    if (props.count) put(out, "}");
     else if (!out->failed) { out->length = props_open; put(out, "null"); }
   }
   if (self_closed) {
-    if (!lower->classic) lower->helpers |= jsx_one;
-    put(out, lower->classic ? ")" : "})");
-    return !out->failed;
+    if (!classic) {
+      put(out, "}");
+      put_jsx_key(lower, &props);
+      register_jsx_helper(lower, jsx_one);
+    } else if (props.create) register_jsx_helper(lower, jsx_create);
+    put(out, ")");
+    accepted = !out->failed;
+  } else {
+    accepted = jsx_children(lower, tag, depth - 1, &props, helper_offset, classic);
   }
-  return jsx_children(lower, tag, depth - 1, props, helper_offset);
+  if (accepted && fragment && !classic) register_jsx_helper(lower, jsx_fragment);
+
+done:
+  free(props.key.code);
+  return accepted;
 }
 
 static bool emit_jsx(lowering *lower, TmtPulseCompiler_runtime_head head) {
@@ -519,10 +647,14 @@ static bool inject_jsx_runtime(lowering *lower, size_t at) {
   const bool one = (lower->helpers & jsx_one) != 0;
   const bool many = (lower->helpers & jsx_many) != 0;
   const bool fragment = (lower->helpers & jsx_fragment) != 0;
-  char import[128];
-  const int size = snprintf(import, sizeof(import), "import{%s%s%s%s%s}from\"react/jsx-runtime\";\n",
+  const char *create = lower->helpers & jsx_create ? "import{createElement as _tmtElem}from\"react\";\n" : "";
+  const bool create_first = (lower->helpers & jsx_create_first) != 0;
+  char import[192];
+  const int size = snprintf(import, sizeof(import), "%s%s%s%s%s%s%s%s",
+    create_first ? create : "", one || many || fragment ? "import{" : "",
     one ? "jsx as _tmtJsx0" : "", one && many ? "," : "", many ? "jsxs as _tmtJsxs" : "",
-    (one || many) && fragment ? "," : "", fragment ? "Fragment as _tmtFragment" : "");
+    fragment ? (one || many ? ",Fragment as _tmtFragment" : "Fragment as _tmtFragment") : "",
+    one || many || fragment ? "}from\"react/jsx-runtime\";\n" : "", create_first ? "" : create);
   if (size < 0 || (size_t)size >= sizeof(import) || at > out->length) return false;
   const size_t before = out->length;
   write_bytes(out, import, (size_t)size);
@@ -594,6 +726,14 @@ bool tmt_module_marker(uint8_t *source, uint32_t size, bool validate) {
   return module_after_prelude(source, size, first.at, initial, validate);
 }
 
+bool tmt_plain_script(uint8_t *source, uint32_t size) {
+  module_workspace memory = {0};
+  const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
+  const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
+  return first.ok && first.at < size && source[first.at] != '"' && source[first.at] != '\'' &&
+    TmtPulseCompiler_supported_script(input);
+}
+
 #endif
 
 bool tmt_leading_directive(uint8_t *source, uint32_t size) {
@@ -648,6 +788,60 @@ decline:
   return NULL;
 }
 
+static int compare_spans(const void *lhs, const void *rhs) {
+  const TmtGrammar_span *a = lhs, *b = rhs;
+  if (a->first != b->first) return a->first < b->first ? -1 : 1;
+  if (a->last == b->last) return 0;
+  return a->last > b->last ? -1 : 1;
+}
+
+static char *lower_jsx_module(uint8_t *source, uint32_t size, bool classic, size_t *length) {
+  module_workspace memory = {0};
+  const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
+  const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
+  if (!first.ok) return NULL;
+  const uint32_t marker = find_marker(input, first.at, true);
+  if (marker == size) return NULL;
+  uint32_t capacity = size / 3 + 1;
+  if (capacity > 16384) capacity = 16384;
+  TmtGrammar_candidate *records = malloc(capacity * sizeof(*records));
+  uint8_t *marks = calloc(capacity, sizeof(*marks));
+  TmtGrammar_span *spans = malloc(capacity * sizeof(*spans));
+  char *result = NULL;
+  if (records && marks && spans) {
+    TmtPulseMemory_tape capture = input;
+    capture.capture_jsx = true;
+    capture.output = records;
+    capture.marks = marks;
+    capture.capacity = capacity;
+    const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(capture, true, true);
+    if (parsed.status == 0 && parsed.count <= capacity) {
+      size_t count = 0;
+      for (uint32_t index = 0; index < parsed.count; index++) {
+        if (records[index].original == 0) spans[count++] = records[index].left;
+      }
+      {
+        qsort(spans, count, sizeof(*spans), compare_spans);
+        lowering lower = { .input = input, .classic = classic, .mixed = true, .jsx_spans = spans, .jsx_count = count,
+          .output.limit = (size_t)size * 32 + 1024 };
+        if (source_jsx(&lower, 0, marker, 32)) {
+          const size_t runtime_at = lower.output.length;
+          if (source_jsx(&lower, marker, size, 32) && inject_jsx_runtime(&lower, runtime_at)) {
+            result = lower.output.code;
+            *length = lower.output.length;
+          }
+        }
+        if (!result) free(lower.output.code);
+      }
+    }
+  }
+  free(records);
+  free(marks);
+  free(spans);
+  return result;
+}
+
+
 #endif
 
 char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescript, bool classic,
@@ -658,6 +852,10 @@ char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescrip
 #ifdef TMT_DIRECT
     return NULL;
 #else
+    if (jsx) {
+      char *general = lower_jsx_module(source, size, classic, length);
+      if (general) return general;
+    }
     return lower_mixed(source, size, jsx, classic, length);
 #endif
   }

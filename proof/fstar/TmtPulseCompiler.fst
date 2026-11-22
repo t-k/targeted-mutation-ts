@@ -471,9 +471,18 @@ fn supported_module (input:tape) (jsx:bool)
   result.status = 0ul
 }
 
+fn supported_script (input:tape)
+  requires heap input
+  returns accepted:bool
+  ensures heap input
+{
+  let result = P.parse_candidates input false false;
+  result.status = 0ul
+}
+
 // The caller first validates the whole module. This pass recovers item boundaries
 // without repeating the module's binding and deferred-export validation.
-let module_item_end (input:tape) (state:P.parser_state)
+let ordinary_module_item_end (input:tape) (state:P.parser_state)
   : Tot (stt P.parser_state (heap input) (fun _ -> heap input)) =
   let! exported = (fun () -> P.module_export input state) in
   if exported.export_kind = 1ul then
@@ -499,6 +508,15 @@ let module_item_end (input:tape) (state:P.parser_state)
       else
         let! control = (fun () -> P.control_statement input state 64ul false P.NoJump 0ul 0ul false) in
         ret input control.state
+
+let module_item_end (input:tape) (state:P.parser_state)
+  : Tot (stt P.parser_state (heap input) (fun _ -> heap input)) =
+  let! first = (fun () -> peek input state.offset) in
+  let! augmentation = (fun () -> if first = 100uy then P.global_augmentation_start input state else ret input (P.failed state 1ul)) in
+  if augmentation.status = 0ul then
+    let! closed, _ = (fun () -> P.global_augmentation_members input augmentation input.size 0uy) in
+    ret input closed
+  else ordinary_module_item_end input state
 
 let next_module_boundary (input:tape) (jsx:bool) (at:U32.t)
   : Tot (stt U32.t (heap input) (fun _ -> heap input)) =

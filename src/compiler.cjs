@@ -111,12 +111,44 @@ function strip(source, file) {
   }
 }
 
+function hasModuleMarker(addon, code) {
+  return addon.moduleMarker(Buffer.from(code), false) ||
+    (code.includes('\u2002') && addon.moduleMarker(Buffer.from(code.replaceAll('\u2002', ' ')), false));
+}
+
+function eraseScript(addon, source, bytes, file) {
+  if (/\b(?:import|export)\b/.test(source) || !addon.plainScript(bytes)) return null;
+  const result = strip(source, file);
+  if (result.code === null || addon.triviaOnly(Buffer.from(result.code))) return null;
+  const newline = result.code.startsWith('#!') ? result.code.indexOf('\n') : -1;
+  const offset = newline + 1;
+  const code = result.code.slice(0, offset) + '"use strict";\n' + result.code.slice(offset);
+  try {
+    new (require('node:vm').Script)(code, { filename: file });
+    return { ...result, code };
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) throw error;
+    return null;
+  }
+}
+
+function eraseLoweredModule(addon, source, file) {
+  let result = strip(source, file);
+  const diagnostic = result.diagnostics[0];
+  if (diagnostic?.code === 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX' &&
+      /^(?:\s*x\s*)?TypeScript enum is not supported/.test(diagnostic.message)) {
+    const code = addon.lower(Buffer.from(source), false, true, false, true);
+    if (code !== null) result = strip(code, file);
+  }
+  return result.code !== null && hasModuleMarker(addon, result.code) ? { ...result, backend: 'pulse+node-strip' } : null;
+}
+
 function eraseModule(addon, source, file, format) {
   let result = strip(source, file);
   const diagnostic = result.diagnostics[0];
   if (result.code === null && diagnostic?.code === 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX' &&
       /^(?:\s*x\s*)?TypeScript parameter property is not supported/.test(diagnostic.message) &&
-      !source.includes('enum') && !source.includes('namespace')) {
+      !/\benum\b|\bnamespace\b(?![ \t]*:)/.test(source)) {
     try {
       const code = require('node:module').stripTypeScriptTypes(source, { mode: 'transform' });
       result = { backend: 'node-transform', code, sourceMap: null, diagnostics: [] };
@@ -126,7 +158,7 @@ function eraseModule(addon, source, file, format) {
   }
   if (result.code === null) return null;
   const emitted = Buffer.from(result.code);
-  if (addon.moduleMarker(emitted, false)) return result;
+  if (hasModuleMarker(addon, result.code)) return result;
   if (!addon.triviaOnly(emitted)) return null;
   if (format === 'esm') result.code += '\nexport {};\n';
   return result;
@@ -180,14 +212,14 @@ function compile(input, options = {}) {
           if (runtime && (!jsxFile || !source.includes('\\u'))) {
             const mixed = addon.lower(source, jsxFile, true, jsx === 'classic', true);
             if (mixed !== null) {
-              const result = strip(mixed, file);
-              if (result.code !== null && addon.moduleMarker(Buffer.from(result.code), false)) {
-                return { ...result, backend: 'pulse+node-strip' };
-              }
+              const result = eraseLoweredModule(addon, mixed, file);
+              if (result) return result;
             }
           }
-          if (!jsxFile && addon.moduleMarker(source, true)) {
-            const result = eraseModule(addon, typeof stableInput === 'string' ? stableInput : source.toString(), file, format);
+          if (!jsxFile) {
+            const text = typeof stableInput === 'string' ? stableInput : source.toString();
+            const result = addon.moduleMarker(source, true) ? eraseModule(addon, text, file, format) :
+              format === 'preserve' ? eraseScript(addon, text, source, file) : null;
             if (result) return result;
           }
         }
