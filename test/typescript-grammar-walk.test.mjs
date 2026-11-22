@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import test from 'node:test';
-import { extractTypeScript } from '../src/typescript-extraction.mjs';
+import { createTypeScriptExtractor, extractTypeScript } from '../src/typescript-extraction.mjs';
 import { extractYuku } from './support/yuku-extraction.mjs';
 
 const cases = {
@@ -72,4 +73,25 @@ test('scope collisions precede statement errors at the same binding span', () =>
   assert.equal(duplicate.start, second.start);
   assert.equal(duplicate.end, second.end);
   assert.deepEqual(duplicate.labels.map(({ start, end }) => [start, end]), [[first.start, first.end]]);
+});
+
+test('hash text does not trigger a private scope traversal', () => {
+  const ts = createRequire(import.meta.url)('typescript');
+  let visits = 0;
+  const extract = createTypeScriptExtractor({ ...ts, forEachChild(node, ...callbacks) {
+    if (ts.isSourceFile(node)) visits++;
+    return ts.forEachChild(node, ...callbacks);
+  } });
+  const options = { file: 'walk.ts', mode: 'module' };
+  const source = '// TOKEN\nconst text = "TOKEN"; const mark = /TOKEN/; const hit = a < b;';
+  const ordinary = extract(source.replaceAll('TOKEN', 'plain'), options);
+  const ordinaryVisits = visits;
+  visits = 0;
+  const hash = extract(source.replaceAll('TOKEN', '#text'), options);
+  assert.deepEqual(hash, ordinary);
+  assert.equal(visits, ordinaryVisits);
+  const invalid = extract('/* #text */ class C { read() { return input.#missing; } } const hit = a < b;', options);
+  assert.equal(invalid.path, 'diagnostic');
+  assert.deepEqual(invalid.candidates, []);
+  assert.match(invalid.diagnostics[0].message, /#missing/);
 });

@@ -587,6 +587,7 @@ export function createTypeScriptGrammar(ts, bindings) {
       canYield: false, ambient: false, assignmentPattern: false, forInitializer: false, strict: strictRoot,
       newTarget: false, jsxAttribute: undefined }];
     let hasVarBindings = false;
+    let hasPrivateNames = false;
     const hasModifier = (node, kind) => node.modifiers?.some(modifier => modifier.kind === kind);
     const tokenAt = at => {
       scanner.setTextPos(at);
@@ -857,6 +858,7 @@ export function createTypeScriptGrammar(ts, bindings) {
       const childAttribute = isJsxExpression(node) ? parent : undefined;
       forEachChild(node, child => {
         if (child.kind <= SyntaxKind.LastToken && !typeCheckKind[child.kind] && !child.templateFlags) {
+          if (child.kind === SyntaxKind.PrivateIdentifier) hasPrivateNames = true;
           if (isIdentifier(child)) {
             if (child.text !== 'await' && child.text !== 'arguments' && !strictReservedBindings.has(child.text)) return;
           } else if (module || !isNumericLiteral(child) && !isStringLiteral(child)) return;
@@ -881,7 +883,7 @@ export function createTypeScriptGrammar(ts, bindings) {
           forInitializer: forInitializer || isForStatement(node) && node.initializer === child});
       });
     }
-    return hasVarBindings;
+    return { hasVarBindings, hasPrivateNames };
   }
 
   function hasStrictDirective(statements, file) {
@@ -909,10 +911,10 @@ export function createTypeScriptGrammar(ts, bindings) {
     const typeDiagnostics = [];
     const visitType = createTypeSyntaxVisitor(file, module, (node, message) => { typeDiagnostics.push([node, message]); });
     // The expression walk visits declaration lists as well as expressions.
-    const hasVarBindings = checkExpressionSyntax(file, module, strict, emit, visitType, visitBinary);
+    const { hasVarBindings, hasPrivateNames } = checkExpressionSyntax(file, module, strict, emit, visitType, visitBinary);
     for (const [node, message] of typeDiagnostics) emit(node, message);
     checkContexts(file, module, strict, emit, hasVarBindings);
-    if (file.text.includes('#')) checkPrivateNames(file, emit);
+    if (hasPrivateNames) checkPrivateNames(file, emit);
     const nestedVars = hasVarBindings ? file.statements.filter(statement => !isVariableStatement(statement)).flatMap(bindings.nestedVarsIn) : [];
     bindings.checkScope(file.statements, emit, { nestedVars });
     bindings.checkNamespaceExports(file, emit);
