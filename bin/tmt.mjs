@@ -1,9 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync } from 'node:fs';
-import { analyze } from '../src/analysis.mjs';
-import { extract } from '../src/extract.mjs';
 import { parseArgs } from 'node:util';
-import { runPrototype } from '../src/prototype.mjs';
 
 const usage = 'Usage: tmt-ts extract FILE [--mode script|module] [--dialect ts|tsx]\n' +
   '       tmt-ts analyze [PROJECT] [FILE...] [--lines FILE:FROM-TO] [--since REV] [--mutators focused|standard|all] [--spec FILE] [--deterministic] [--audit] [--displace-thresholds] [--witnesses] [--runner vitest|playwright] [--project NAME] [--config FILE] [--test FILE] [--copy-exclude PATH]\n' +
@@ -25,6 +22,7 @@ try {
   if (!command || ['help', '--help', '-h'].includes(command) || values.help) {
     console.log(usage);
   } else if (command === 'extract' && positionals.length === 1) {
+    const { extract } = await import('../src/extract.mjs');
     const [file] = positionals;
     const result = extract(readFileSync(file), { file, mode: values.mode, dialect: values.dialect });
     console.log(JSON.stringify(result, null, 2));
@@ -49,11 +47,13 @@ try {
       const { analyzeConventional } = await import('../src/conventional.mjs');
       result = await analyzeConventional(project, files, values);
     } else {
+      const { analyze } = await import('../src/analysis.mjs');
       result = analyze(project, files, values);
     }
     console.log(JSON.stringify(result, null, 2));
     if (['baseline_error', 'incomplete'].includes(result.evaluation) || result.extraction.some(file => file.path === 'diagnostic')) process.exitCode = 1;
   } else if (command === 'prototype' && positionals.length === 2) {
+    const { runPrototype } = await import('../src/prototype.mjs');
     console.log(JSON.stringify(runPrototype(...positionals, values), null, 2));
   } else {
     throw new Error(usage);

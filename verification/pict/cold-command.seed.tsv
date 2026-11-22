@@ -1,0 +1,6 @@
+Command	Addon	Input
+Help	Broken	Valid
+Extract	Present	Valid
+Extract	Broken	Valid
+Analyze	Broken	Invalid
+Prototype	Broken	Invalid
