@@ -1,0 +1,4 @@
+Declaration: Global, QuotedModule
+Interface: Plain, Exported
+Suffix: Valid, Broken
+IF [Declaration] = "Global" THEN [Interface] = "Plain";

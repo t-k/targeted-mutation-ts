@@ -82,6 +82,8 @@ TmtParser_trivia_from(TmtParser_tape input0, uint32_t at0, bool newline0, uint32
 
 TmtParser_cursor TmtParser_trivia(TmtParser_tape input, uint32_t at);
 
+uint32_t TmtParser_source_start(TmtParser_tape input);
+
 uint32_t TmtParser_scan_class(TmtParser_tape input, uint32_t at, TmtGrammar_byte_class cls);
 
 uint32_t TmtParser_jsx_name_end(TmtParser_tape input0, uint32_t at0, uint32_t fuel0);
@@ -1475,10 +1477,14 @@ TmtParser_parser_state
 TmtParser_global_augmentation_start(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
-TmtParser_global_interfaces(
+TmtParser_ambient_module_start(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
+TmtParser_ambient_interfaces(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
-  uint32_t remaining0
+  uint32_t remaining0,
+  bool allow_exports0
 );
 
 TmtParser_named_state

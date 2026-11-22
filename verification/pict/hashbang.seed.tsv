@@ -1,0 +1,6 @@
+Dialect	Line	Source
+TS	LF	Valid
+TSX	CRLF	Broken
+TS	LF	Misplaced
+TSX	EOF	Valid
+TS	LS	Valid

@@ -102,6 +102,11 @@ let rec trivia_from (input:tape) (at:U32.t) (newline:bool) (fuel:U32.t)
 let trivia (input:tape) (at:U32.t) : Read cursor input =
   trivia_from input at false (plus input.size 1ul)
 
+let source_start (input:tape) : Read U32.t input =
+  let hash = same input 0ul 35uy in
+  let bang = if hash then same input 1ul 33uy else false in
+  if bang then (line_comment input 2ul input.size).at else 0ul
+
 let scan_class (input:tape) (at:U32.t) (cls:G.byte_class) : Read U32.t input =
   if U32.(at <=^ input.size) then S.scan_class input.source input.size at cls else at
 
@@ -3127,19 +3132,35 @@ let global_augmentation_start (input:tape) (state:parser_state) : Read parser_st
     else failed state 1ul
   else failed state 1ul
 
-let rec global_interfaces (input:tape) (state:parser_state) (remaining:U32.t)
+let ambient_module_start (input:tape) (state:parser_state) : Read parser_state input =
+  if keyword input state.offset 7ul 0x6465636c617265uL then
+    let module_ = skip input { state with offset = plus state.offset 7ul } in
+    if keyword input module_.offset 6ul 0x6d6f64756c65uL then
+      let quoted = skip input { module_ with offset = plus module_.offset 6ul } in
+      let delimiter = peek input quoted.offset in
+      if delimiter = 34uy || delimiter = 39uy then
+        let key = string_end input (next quoted.offset) delimiter input.size false in
+        consume input (skip input (from_cursor quoted key)) 123uy
+      else failed state 1ul
+    else failed state 1ul
+  else failed state 1ul
+
+let rec ambient_interfaces (input:tape) (state:parser_state) (remaining:U32.t) (allow_exports:bool)
   : Read parser_state input (decreases U32.v remaining) =
   let st = skip input state in
   if st.status <> 0ul then st
   else if same input st.offset 125uy then consume input st 125uy
   else if remaining = 0ul then failed st 3ul
-  else if type_declaration_width input st.offset = 9ul then
-    let start = skip input { st with offset = plus st.offset 9ul } in
-    let declared = from_cursor start (name input start.offset false true) in
-    let valid = admissible_type_binding input start.offset declared.offset in
-    let body = if valid then interface_tail input (skip input declared) else failed declared 1ul in
-    global_interfaces input body (minus remaining 1ul)
-  else failed st 1ul
+  else
+    let exported = if allow_exports then keyword input st.offset 6ul 0x6578706f7274uL else false in
+    let member = if exported then skip input { st with offset = plus st.offset 6ul } else st in
+    if type_declaration_width input member.offset = 9ul then
+      let start = skip input { member with offset = plus member.offset 9ul } in
+      let declared = from_cursor start (name input start.offset false true) in
+      let valid = admissible_type_binding input start.offset declared.offset in
+      let body = if valid then interface_tail input (skip input declared) else failed declared 1ul in
+      ambient_interfaces input body (minus remaining 1ul) allow_exports
+    else failed member 1ul
 
 let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
   let head = declaration_start input state in
@@ -3294,6 +3315,27 @@ let default_declaration (input:tape) (state:parser_state) (used:names_used) : Ru
     let value = comparison input state 64ul in
     { state = statement_end input value.parser value.range.G.last false; used }
 
+private let module_plain_declaration (input:tape) (st:parser_state) (used:names_used) : Run named_state input =
+  let first = peek input st.offset in
+  let augmentation = if first = 100uy then global_augmentation_start input st else failed st 1ul in
+  let ambient_module = if first = 100uy && augmentation.status <> 0ul then ambient_module_start input st else failed st 1ul in
+  let declared =
+    if first = 101uy then keyword input st.offset 6ul 0x6578706f7274uL
+    else if first = 102uy then keyword input st.offset 8ul 0x66756e6374696f6euL
+    else if first = 97uy then (async_function input st.offset).ok
+    else if first = 100uy then (ambient_modifier input st.offset).ok
+    else if first = 99uy then
+      let class_ = class_keyword input st.offset in
+      if class_ then true else local_width input st.offset <> 0ul
+    else if first = 105uy || first = 116uy then
+      let width = type_declaration_width input st.offset in width <> 0ul
+    else
+      let width = local_width input st.offset in width <> 0ul in
+  if augmentation.status = 0ul then { state = ambient_interfaces input augmentation input.size false; used }
+  else if ambient_module.status = 0ul then { state = ambient_interfaces input ambient_module input.size true; used }
+  else if declared then module_declaration input st used
+  else { state = (control_statement input st 64ul false NoJump 0ul 0ul false).state; used }
+
 let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (exports:names_used)
   : Run parser_state input (decreases U32.v fuel) =
   let st = skip input state in
@@ -3324,23 +3366,7 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
           { state = (control_statement input st 64ul false NoJump 0ul 0ul false).state; used }, exports
         else import_declaration input st used, exports
       else
-        let first = peek input st.offset in
-        let augmentation = if first = 100uy then global_augmentation_start input st else failed st 1ul in
-        let declared =
-          if first = 101uy then keyword input st.offset 6ul 0x6578706f7274uL
-          else if first = 102uy then keyword input st.offset 8ul 0x66756e6374696f6euL
-          else if first = 97uy then (async_function input st.offset).ok
-          else if first = 100uy then (ambient_modifier input st.offset).ok
-          else if first = 99uy then
-            let class_ = class_keyword input st.offset in
-            if class_ then true else local_width input st.offset <> 0ul
-          else if first = 105uy || first = 116uy then
-            let width = type_declaration_width input st.offset in width <> 0ul
-          else
-            let width = local_width input st.offset in width <> 0ul in
-        if augmentation.status = 0ul then { state = global_interfaces input augmentation input.size; used }, exports
-        else if declared then module_declaration input st used, exports
-        else { state = (control_statement input st 64ul false NoJump 0ul 0ul false).state; used }, exports in
+        module_plain_declaration input st used, exports in
     let reserved = if exported.direct then reserve_direct_exports input decl.state exports used decl.used
       else { state = decl.state; used = exports } in
     module_sequence input reserved.state decl.used (minus fuel 1ul) reserved.used
@@ -3382,7 +3408,7 @@ let parse (input:tape) (jsx module_mode:bool)
       (r.status = 0ul ==> r.offset = input.size /\ U32.v r.count <= U32.v input.capacity) /\
       (r.status <> 0ul ==> r.count = 0ul)
     }) input =
-  let initial = skip input (initial_state jsx module_mode) in
+  let initial = skip input { (initial_state jsx module_mode) with offset = source_start input } in
   let state = parse_state input initial module_mode in
   let state : parser_state =
     if module_mode && (state.status = 1ul || (state.status = 0ul && state.offset <> input.size)) then

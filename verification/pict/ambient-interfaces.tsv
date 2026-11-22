@@ -1,0 +1,6 @@
+Declaration	Interface	Suffix
+QuotedModule	Exported	Valid
+QuotedModule	Plain	Valid
+QuotedModule	Exported	Broken
+Global	Plain	Valid
+Global	Plain	Broken

@@ -1,0 +1,4 @@
+Dialect: TS, TSX
+Line: LF, CRLF, CR, LS, PS, EOF
+Source: Valid, Broken, Misplaced
+IF [Line] = "EOF" THEN [Source] = "Valid";
