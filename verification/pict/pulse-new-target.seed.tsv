@@ -1,0 +1,10 @@
+Context	Form	Tail
+Top	Direct	Complete
+TopArrow	Member	Complete
+Function	Direct	Complete
+NestedArrow	Direct	Complete
+Method	Direct	Complete
+Field	Direct	Complete
+NestedArrow	Assignment	Complete
+Function	Spelling	Complete
+Function	Member	Broken

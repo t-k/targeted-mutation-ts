@@ -79,10 +79,11 @@ TmtPulseParser_lexical_conflict;
 typedef uint8_t TmtPulseParser_binding_mode;
 
 #define TmtPulseParser_NoSuper 0
-#define TmtPulseParser_MethodSuper 1
-#define TmtPulseParser_BaseConstructor 2
-#define TmtPulseParser_DerivedConstructor 3
-#define TmtPulseParser_ClassField 4
+#define TmtPulseParser_FunctionBody 1
+#define TmtPulseParser_MethodSuper 2
+#define TmtPulseParser_BaseConstructor 3
+#define TmtPulseParser_DerivedConstructor 4
+#define TmtPulseParser_ClassField 5
 
 typedef uint8_t TmtPulseParser_super_context;
 

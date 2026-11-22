@@ -181,6 +181,7 @@ type local_log_used = n:U16.t{U16.v n <= U16.v local_log_capacity}
 
 type super_context =
   | NoSuper
+  | FunctionBody
   | MethodSuper
   | BaseConstructor
   | DerivedConstructor
@@ -2038,7 +2039,7 @@ let read_atom_head (input:tape) (#frame:slprop) (st:parser_state) : Tot (stt ato
   let start_pos = st.offset in
   let! ch = (fun () -> peek input #frame start_pos) in
   let! imported = (fun () -> if ch = 105uy then keyword input #frame start_pos 6ul 0x696d706f7274uL else read_ret input #frame (false)) in
-  let! super_ = (fun () -> if ch = 115uy && st.super_context <> NoSuper then
+  let! super_ = (fun () -> if ch = 115uy && st.super_context <> NoSuper && st.super_context <> FunctionBody then
     keyword input #frame start_pos 5ul 0x7375706572uL else read_ret input #frame (false)) in
   let! function_head = (fun () -> function_start input #frame start_pos) in
   let! increment = (fun () -> update_width input #frame start_pos ch) in
@@ -2190,23 +2191,31 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           (fun () -> if constructor then
             let! target = (fun () -> skip input { st with offset = plus start_pos 3ul }) in
             let! head = (fun () -> peek input target.offset) in
-            let! named =
-              (fun () -> if head = 40uy then
-                let! inside = (fun () -> consume input { target with in_allowed = true } 40uy) in
-                let! grouped = (fun () -> comparison input inside inner) in
-                let! after = (fun () -> skip input grouped.parser) in
-                consume input { after with in_allowed = target.in_allowed } 41uy
-              else
-                let! this_ = (fun () -> if head = 116uy then keyword input target.offset 4ul 0x74686973uL else ret input false) in
-                if this_ then ret input { target with offset = plus target.offset 4ul }
-                else (let! anf_value_5 = (fun () -> forbidden_field_arguments input target) in if anf_value_5 then ret input (failed target 1ul)
-                else (let! anf_value_6 = (fun () -> (name input target.offset false false)) in ret input (from_cursor target anf_value_6)))) in
-            let! named = (fun () -> qualified_name input named 64ul) in
-            let! tail = (fun () -> skip input named) in
-            let! typed = (fun () -> same input tail.offset 60uy) in
-            let! tail = (fun () -> if typed && tail.offset = named.offset then call_type_arguments input tail else ret input (tail)) in
-            let! args = (fun () -> consume input tail 40uy) in
-            (let! anf_value_7 = (fun () -> (let! anf_value_8 = (fun () -> (expression_list input args inner input.size 41uy false)) in ret input (anf_value_8.list_end))) in ret input (anf_value_7, NotAssignable))
+            if head = 46uy then
+              let! meta = (fun () -> (let! dot = (fun () -> consume input target 46uy) in skip input dot)) in
+              let! valid = (fun () -> if target.super_context <> NoSuper then keyword input meta.offset 6ul 0x746172676574uL
+                else ret input false) in
+              let result = if valid then { meta with offset = plus meta.offset 6ul } else failed meta 1ul in
+              ret input (result, NotAssignable)
+            else
+              let! named =
+                (fun () -> if head = 40uy then
+                  let! inside = (fun () -> consume input { target with in_allowed = true } 40uy) in
+                  let! grouped = (fun () -> comparison input inside inner) in
+                  let! after = (fun () -> skip input grouped.parser) in
+                  consume input { after with in_allowed = target.in_allowed } 41uy
+                else
+                  let! this_ = (fun () -> if head = 116uy then keyword input target.offset 4ul 0x74686973uL else ret input false) in
+                  if this_ then ret input { target with offset = plus target.offset 4ul }
+                  else (let! anf_value_5 = (fun () -> forbidden_field_arguments input target) in if anf_value_5 then ret input (failed target 1ul)
+                  else (let! anf_value_6 = (fun () -> (name input target.offset false false)) in ret input (from_cursor target anf_value_6)))) in
+              let! named = (fun () -> qualified_name input named 64ul) in
+              let! tail = (fun () -> skip input named) in
+              let! typed = (fun () -> same input tail.offset 60uy) in
+              let! tail = (fun () -> if typed && tail.offset = named.offset then call_type_arguments input tail else ret input (tail)) in
+              let! args = (fun () -> consume input tail 40uy) in
+              let! list = (fun () -> expression_list input args inner input.size 41uy false) in
+              ret input (list.list_end, NotAssignable)
           else
             let inside = { st with offset = next start_pos } in
             if ch = 96uy then (let! anf_value_9 = (fun () -> template_body input inside inner input.size false) in ret input (anf_value_9, NotAssignable))
@@ -3232,7 +3241,7 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
   : Tot (stt function_shape (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 53; 0]) =
   let depth = minus 64ul fuel in
   let start = if U32.(depth >^ state.depth) then { state with depth } else state in
-  let start = { start with super_context = NoSuper; yield_allowed = false } in
+  let start = { start with super_context = FunctionBody; yield_allowed = false } in
   let! start = (fun () -> (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (skip input start)) in optional_type_parameters input anf_value_2))) in skip input anf_value_1)) in
   let! opening = (fun () -> consume input start 40uy) in
   let! opening, limit =
@@ -3253,7 +3262,8 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
     (fun () -> if signature_only then
       signature_end input state opening params annotation st
     else
-      let st = enter_function_locals { st with await_allowed = async_; yield_allowed = generator; in_allowed = true; super_context = super_ } in
+      let context = if super_ = NoSuper then FunctionBody else super_ in
+      let st = enter_function_locals { st with await_allowed = async_; yield_allowed = generator; in_allowed = true; super_context = context } in
       (let! anf_value_5 = (fun () -> (function_body input st params.non_simple)) in control_block input anf_value_5 fuel true NoJump floor params.names.used)) in
   ret input ({ after_function = leave_function_locals { closed with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed;
       in_allowed = state.in_allowed; super_context = state.super_context } state; signature_only })

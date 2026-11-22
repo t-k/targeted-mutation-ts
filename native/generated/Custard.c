@@ -5936,7 +5936,11 @@ TmtPulseParser_read_atom_head(TmtPulseMemory_tape input, TmtPulseParser_parser_s
   else
     value1 = false;
   bool value2;
-  if (value == 115U && st.super_context != TmtPulseParser_NoSuper)
+  if
+  (
+    value == 115U && st.super_context != TmtPulseParser_NoSuper &&
+      st.super_context != TmtPulseParser_FunctionBody
+  )
     value2 = TmtPulseParser_keyword(input, start_pos, 5U, 0x7375706572ULL);
   else
     value2 = false;
@@ -8441,7 +8445,7 @@ TmtPulseParser_function_form(
       .strict_script = start.strict_script, .in_allowed = start.in_allowed,
       .for_initializer = start.for_initializer,
       .arrow_defaults_allowed = start.arrow_defaults_allowed, .binding_mode = start.binding_mode,
-      .super_context = TmtPulseParser_NoSuper, .private_scope = start.private_scope,
+      .super_context = TmtPulseParser_FunctionBody, .private_scope = start.private_scope,
       .private_count = start.private_count, .local_log_floor = start.local_log_floor,
       .local_log_used = start.local_log_used
     };
@@ -8530,6 +8534,8 @@ TmtPulseParser_function_form(
     value9 = TmtPulseParser_signature_end(input, state, opening, value5, value6, value7);
   else
   {
+    TmtPulseParser_super_context
+    context = super_ == TmtPulseParser_NoSuper ? TmtPulseParser_FunctionBody : super_;
     TmtPulseParser_parser_state
     st =
       TmtPulseParser_enter_function_locals((
@@ -8548,7 +8554,7 @@ TmtPulseParser_function_form(
             .for_initializer = value7.for_initializer,
             .arrow_defaults_allowed = value7.arrow_defaults_allowed,
             .binding_mode = value7.binding_mode,
-            .super_context = super_,
+            .super_context = context,
             .private_scope = value7.private_scope,
             .private_count = value7.private_count,
             .local_log_floor = value7.local_log_floor,
@@ -11389,129 +11395,183 @@ TmtPulseParser_atom(
                   }
                 ));
             uint8_t value4 = TmtPulseMemory_peek(input, value3.offset);
-            TmtPulseParser_parser_state value50;
-            if (value4 == 40U)
+            if (value4 == 46U)
             {
-              TmtPulseParser_parser_state
-              value5 =
-                TmtPulseParser_consume(input,
-                  (
-                    (TmtPulseParser_parser_state){
-                      .offset = value3.offset,
-                      .count = value3.count,
-                      .depth = value3.depth,
-                      .status = value3.status,
-                      .local_names = value3.local_names,
-                      .await_allowed = value3.await_allowed,
-                      .yield_allowed = value3.yield_allowed,
-                      .jsx_allowed = value3.jsx_allowed,
-                      .module_mode = value3.module_mode,
-                      .strict_script = value3.strict_script,
-                      .in_allowed = true,
-                      .for_initializer = value3.for_initializer,
-                      .arrow_defaults_allowed = value3.arrow_defaults_allowed,
-                      .binding_mode = value3.binding_mode,
-                      .super_context = value3.super_context,
-                      .private_scope = value3.private_scope,
-                      .private_count = value3.private_count,
-                      .local_log_floor = value3.local_log_floor,
-                      .local_log_used = value3.local_log_used
-                    }
-                  ),
-                  40U);
-              TmtPulseParser_parsed value6 = TmtPulseParser_comparison(input, value5, inner);
-              TmtPulseParser_parser_state value7 = TmtPulseParser_skip(input, value6.parser);
-              value50 =
-                TmtPulseParser_consume(input,
-                  (
-                    (TmtPulseParser_parser_state){
-                      .offset = value7.offset,
-                      .count = value7.count,
-                      .depth = value7.depth,
-                      .status = value7.status,
-                      .local_names = value7.local_names,
-                      .await_allowed = value7.await_allowed,
-                      .yield_allowed = value7.yield_allowed,
-                      .jsx_allowed = value7.jsx_allowed,
-                      .module_mode = value7.module_mode,
-                      .strict_script = value7.strict_script,
-                      .in_allowed = value3.in_allowed,
-                      .for_initializer = value7.for_initializer,
-                      .arrow_defaults_allowed = value7.arrow_defaults_allowed,
-                      .binding_mode = value7.binding_mode,
-                      .super_context = value7.super_context,
-                      .private_scope = value7.private_scope,
-                      .private_count = value7.private_count,
-                      .local_log_floor = value7.local_log_floor,
-                      .local_log_used = value7.local_log_used
-                    }
-                  ),
-                  41U);
-            }
-            else
-            {
-              bool value5;
-              if (value4 == 116U)
-                value5 = TmtPulseParser_keyword(input, value3.offset, 4U, 0x74686973ULL);
+              TmtPulseParser_parser_state value5 = TmtPulseParser_consume(input, value3, 46U);
+              TmtPulseParser_parser_state value6 = TmtPulseParser_skip(input, value5);
+              bool value7;
+              if (value3.super_context != TmtPulseParser_NoSuper)
+                value7 = TmtPulseParser_keyword(input, value6.offset, 6U, 0x746172676574ULL);
               else
-                value5 = false;
-              if (value5)
-                value50 =
+                value7 = false;
+              TmtPulseParser_parser_state result;
+              if (value7)
+                result =
                   (
                     (TmtPulseParser_parser_state){
-                      .offset = TmtPulseParser_plus(value3.offset, 4U),
-                      .count = value3.count,
-                      .depth = value3.depth,
-                      .status = value3.status,
-                      .local_names = value3.local_names,
-                      .await_allowed = value3.await_allowed,
-                      .yield_allowed = value3.yield_allowed,
-                      .jsx_allowed = value3.jsx_allowed,
-                      .module_mode = value3.module_mode,
-                      .strict_script = value3.strict_script,
-                      .in_allowed = value3.in_allowed,
-                      .for_initializer = value3.for_initializer,
-                      .arrow_defaults_allowed = value3.arrow_defaults_allowed,
-                      .binding_mode = value3.binding_mode,
-                      .super_context = value3.super_context,
-                      .private_scope = value3.private_scope,
-                      .private_count = value3.private_count,
-                      .local_log_floor = value3.local_log_floor,
-                      .local_log_used = value3.local_log_used
+                      .offset = TmtPulseParser_plus(value6.offset, 6U),
+                      .count = value6.count,
+                      .depth = value6.depth,
+                      .status = value6.status,
+                      .local_names = value6.local_names,
+                      .await_allowed = value6.await_allowed,
+                      .yield_allowed = value6.yield_allowed,
+                      .jsx_allowed = value6.jsx_allowed,
+                      .module_mode = value6.module_mode,
+                      .strict_script = value6.strict_script,
+                      .in_allowed = value6.in_allowed,
+                      .for_initializer = value6.for_initializer,
+                      .arrow_defaults_allowed = value6.arrow_defaults_allowed,
+                      .binding_mode = value6.binding_mode,
+                      .super_context = value6.super_context,
+                      .private_scope = value6.private_scope,
+                      .private_count = value6.private_count,
+                      .local_log_floor = value6.local_log_floor,
+                      .local_log_used = value6.local_log_used
                     }
                   );
               else
+                result = TmtPulseParser_failed(value6, 1U);
+              value30 =
+                (
+                  (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_assignment_target){
+                    ._1 = result,
+                    ._2 = TmtPulseParser_NotAssignable
+                  }
+                );
+            }
+            else
+            {
+              TmtPulseParser_parser_state value50;
+              if (value4 == 40U)
               {
-                bool value6 = TmtPulseParser_forbidden_field_arguments(input, value3);
-                if (value6)
-                  value50 = TmtPulseParser_failed(value3, 1U);
+                TmtPulseParser_parser_state
+                value5 =
+                  TmtPulseParser_consume(input,
+                    (
+                      (TmtPulseParser_parser_state){
+                        .offset = value3.offset,
+                        .count = value3.count,
+                        .depth = value3.depth,
+                        .status = value3.status,
+                        .local_names = value3.local_names,
+                        .await_allowed = value3.await_allowed,
+                        .yield_allowed = value3.yield_allowed,
+                        .jsx_allowed = value3.jsx_allowed,
+                        .module_mode = value3.module_mode,
+                        .strict_script = value3.strict_script,
+                        .in_allowed = true,
+                        .for_initializer = value3.for_initializer,
+                        .arrow_defaults_allowed = value3.arrow_defaults_allowed,
+                        .binding_mode = value3.binding_mode,
+                        .super_context = value3.super_context,
+                        .private_scope = value3.private_scope,
+                        .private_count = value3.private_count,
+                        .local_log_floor = value3.local_log_floor,
+                        .local_log_used = value3.local_log_used
+                      }
+                    ),
+                    40U);
+                TmtPulseParser_parsed value6 = TmtPulseParser_comparison(input, value5, inner);
+                TmtPulseParser_parser_state value7 = TmtPulseParser_skip(input, value6.parser);
+                value50 =
+                  TmtPulseParser_consume(input,
+                    (
+                      (TmtPulseParser_parser_state){
+                        .offset = value7.offset,
+                        .count = value7.count,
+                        .depth = value7.depth,
+                        .status = value7.status,
+                        .local_names = value7.local_names,
+                        .await_allowed = value7.await_allowed,
+                        .yield_allowed = value7.yield_allowed,
+                        .jsx_allowed = value7.jsx_allowed,
+                        .module_mode = value7.module_mode,
+                        .strict_script = value7.strict_script,
+                        .in_allowed = value3.in_allowed,
+                        .for_initializer = value7.for_initializer,
+                        .arrow_defaults_allowed = value7.arrow_defaults_allowed,
+                        .binding_mode = value7.binding_mode,
+                        .super_context = value7.super_context,
+                        .private_scope = value7.private_scope,
+                        .private_count = value7.private_count,
+                        .local_log_floor = value7.local_log_floor,
+                        .local_log_used = value7.local_log_used
+                      }
+                    ),
+                    41U);
+              }
+              else
+              {
+                bool value5;
+                if (value4 == 116U)
+                  value5 = TmtPulseParser_keyword(input, value3.offset, 4U, 0x74686973ULL);
+                else
+                  value5 = false;
+                if (value5)
+                  value50 =
+                    (
+                      (TmtPulseParser_parser_state){
+                        .offset = TmtPulseParser_plus(value3.offset, 4U),
+                        .count = value3.count,
+                        .depth = value3.depth,
+                        .status = value3.status,
+                        .local_names = value3.local_names,
+                        .await_allowed = value3.await_allowed,
+                        .yield_allowed = value3.yield_allowed,
+                        .jsx_allowed = value3.jsx_allowed,
+                        .module_mode = value3.module_mode,
+                        .strict_script = value3.strict_script,
+                        .in_allowed = value3.in_allowed,
+                        .for_initializer = value3.for_initializer,
+                        .arrow_defaults_allowed = value3.arrow_defaults_allowed,
+                        .binding_mode = value3.binding_mode,
+                        .super_context = value3.super_context,
+                        .private_scope = value3.private_scope,
+                        .private_count = value3.private_count,
+                        .local_log_floor = value3.local_log_floor,
+                        .local_log_used = value3.local_log_used
+                      }
+                    );
                 else
                 {
-                  TmtPulseParser_cursor
-                  value7 = TmtPulseParser_name(input, value3.offset, false, false);
-                  value50 = TmtPulseParser_from_cursor(value3, value7);
+                  bool value6 = TmtPulseParser_forbidden_field_arguments(input, value3);
+                  if (value6)
+                    value50 = TmtPulseParser_failed(value3, 1U);
+                  else
+                  {
+                    TmtPulseParser_cursor
+                    value7 = TmtPulseParser_name(input, value3.offset, false, false);
+                    value50 = TmtPulseParser_from_cursor(value3, value7);
+                  }
                 }
               }
+              TmtPulseParser_parser_state
+              value6 = TmtPulseParser_qualified_name(input, value50, 64U);
+              TmtPulseParser_parser_state value7 = TmtPulseParser_skip(input, value6);
+              bool value8 = TmtPulseParser_same(input, value7.offset, 60U);
+              TmtPulseParser_parser_state value9;
+              if (value8 && value7.offset == value6.offset)
+                value9 = TmtPulseParser_call_type_arguments(input, value7);
+              else
+                value9 = value7;
+              TmtPulseParser_parser_state value10 = TmtPulseParser_consume(input, value9, 40U);
+              TmtPulseParser_expression_items
+              value11 =
+                TmtPulseParser_expression_list(input,
+                  value10,
+                  inner,
+                  input.size,
+                  41U,
+                  false);
+              value30 =
+                (
+                  (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_assignment_target){
+                    ._1 = value11.list_end,
+                    ._2 = TmtPulseParser_NotAssignable
+                  }
+                );
             }
-            TmtPulseParser_parser_state value6 = TmtPulseParser_qualified_name(input, value50, 64U);
-            TmtPulseParser_parser_state value7 = TmtPulseParser_skip(input, value6);
-            bool value8 = TmtPulseParser_same(input, value7.offset, 60U);
-            TmtPulseParser_parser_state value9;
-            if (value8 && value7.offset == value6.offset)
-              value9 = TmtPulseParser_call_type_arguments(input, value7);
-            else
-              value9 = value7;
-            TmtPulseParser_parser_state value10 = TmtPulseParser_consume(input, value9, 40U);
-            TmtPulseParser_expression_items
-            value11 = TmtPulseParser_expression_list(input, value10, inner, input.size, 41U, false);
-            TmtPulseParser_parser_state value12 = value11.list_end;
-            value30 =
-              (
-                (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_assignment_target){
-                  ._1 = value12,
-                  ._2 = TmtPulseParser_NotAssignable
-                }
-              );
           }
           else
           {
