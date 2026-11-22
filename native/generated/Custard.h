@@ -800,15 +800,6 @@ extern uint32_t TmtPulseMemory_local_region_base;
 
 uint32_t TmtPulseParser_local_slot(uint16_t index);
 
-bool
-TmtPulseParser_local_conflict(
-  TmtPulseMemory_tape input0,
-  uint16_t floor0,
-  uint16_t used0,
-  TmtGrammar_span span0,
-  TmtPulseMemory_binding_namespace namespace0
-);
-
 TmtPulseParser_parser_state
 TmtPulseParser_record_local(
   TmtPulseMemory_tape input,
@@ -1348,6 +1339,37 @@ TmtPulseParser_cursor TmtPulseParser_regex_end(TmtPulseMemory_tape input, uint32
 
 TmtPulseParser_assignment_target
 TmtPulseParser_identifier_target(TmtPulseMemory_tape input, uint32_t pos, uint8_t ch);
+
+bool
+TmtPulseParser_local_var_seen(
+  TmtPulseMemory_tape input0,
+  uint16_t floor0,
+  uint16_t used0,
+  TmtGrammar_span span0
+);
+
+bool
+TmtPulseParser_local_scope_conflict(
+  TmtPulseMemory_tape input0,
+  uint16_t first0,
+  uint16_t limit0,
+  uint16_t index0
+);
+
+uint16_t
+TmtPulseParser_retain_local_vars(
+  TmtPulseMemory_tape input0,
+  uint16_t limit0,
+  uint16_t read_at0,
+  uint16_t write_at0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_finish_local_scope(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint16_t first
+);
 
 bool
 TmtPulseParser_ambiguous_assertion_update(

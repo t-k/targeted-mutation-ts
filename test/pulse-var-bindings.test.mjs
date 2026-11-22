@@ -35,7 +35,7 @@ for (const row of rows) {
 
 test('var lists can repeat a name and conflicts are caught in either order', () => {
   compare('function f() { var x = 1, x = 2; return a < b; }', true);
-  compare('function f() { var { x } = o; { let x = a < b; } }', false);
+  compare('function f() { var { x } = o; { let x = a < b; } }', true);
   compare('function f() { for (var [x] in o) {} let x = a < b; }', false);
   compare('function f() { var { x }; return a < b; }', false);
   compare('function f() { for (var [x]; a < b;) {} }', false);

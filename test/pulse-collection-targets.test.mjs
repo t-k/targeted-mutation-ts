@@ -13,11 +13,11 @@ for (const row of rows) {
   test(`Pulse collection: ${target} ${loop} ${tail}`, () => {
     const prefix = { Existing: '', Var: 'var ', Let: 'let ', ConflictingVar: 'var ' }[target];
     const head = loop === 'AwaitOf' ? 'for await' : 'for';
-    const before = target === 'ConflictingVar' ? '{ const value = 1; } ' : '';
+    const before = target === 'ConflictingVar' ? 'const value = 1; ' : '';
     const token = loop === 'In' ? 'in' : 'of';
     const source = `/* 🧪 */ async function scan() { ${before}${head} (${prefix}value ${token} items) { check(value < max); } }` +
       (tail === 'Broken' ? ' const =' : '');
-    const expected = tail === 'Broken' ? 'diagnostic' : target === 'ConflictingVar' ? 'fallback' : 'fast';
+    const expected = tail === 'Broken' || target === 'ConflictingVar' ? 'diagnostic' : 'fast';
     const result = extract(source, options);
     assert.equal(result.path, expected, source);
     for (const reference of [extractTypeScript(source, options), extractYuku(source, options)]) {

@@ -1,0 +1,10 @@
+Relation	Order	Name
+Same	VarFirst	Equal
+Ancestor	LexicalFirst	Equal
+Child	VarFirst	Equal
+Child	LexicalFirst	Equal
+Sibling	VarFirst	Equal
+Loop	LexicalFirst	Equal
+Catch	VarFirst	Equal
+Switch	VarFirst	Equal
+Function	LexicalFirst	Equal

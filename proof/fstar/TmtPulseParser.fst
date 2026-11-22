@@ -795,30 +795,61 @@ let local_slot (index:U16.t{U16.v index < U16.v local_log_capacity})
   : at:U32.t{U32.v at < U32.v binding_capacity} =
   U32.add local_region_base (Cast.uint16_to_uint32 index)
 
-// The live slice survives block exits and gets popped only on function exit.
-// Entries written by a discarded alternative lie beyond its checkpoint.
-let rec local_conflict (input:tape) (floor:U16.t) (used:local_log_used) (span:G.span) (namespace:binding_namespace)
+let rec local_var_seen (input:tape) (floor:U16.t) (used:local_log_used) (span:G.span)
   : Tot (stt bool (heap input) (fun _ -> heap input)) (decreases U16.v used) =
   if U16.(used <=^ floor) then ret input false
   else
     let previous = U16.sub used 1us in
     let! saved = (fun () -> get_binding input (local_slot previous)) in
     let length = minus span.G.last span.G.first in
-    let! equal = (fun () -> if namespace <> saved.namespace && length = minus saved.span.G.last saved.span.G.first then
+    let! equal = (fun () -> if saved.namespace = LocalVarName && length = minus saved.span.G.last saved.span.G.first then
       same_bytes input span.G.first saved.span.G.first length else ret input false) in
-    if equal then ret input true else local_conflict input floor previous span namespace
+    if equal then ret input true else local_var_seen input floor previous span
+
+let rec local_scope_conflict (input:tape) (first limit index:local_log_used)
+  : Tot (stt bool (heap input) (fun _ -> heap input)) (decreases U16.v index) =
+  if U16.(index <=^ first) then ret input false
+  else
+    let previous = U16.sub index 1us in
+    let! entry = (fun () -> get_binding input (local_slot previous)) in
+    let! conflict = (fun () -> if entry.namespace = LocalLexicalName then local_var_seen input first limit entry.span
+      else ret input false) in
+    if conflict then ret input true else local_scope_conflict input first limit previous
+
+let rec retain_local_vars (input:tape) (limit read_at:local_log_used)
+  (write_at:local_log_used{U16.v write_at <= U16.v read_at})
+  : Tot (stt local_log_used (heap input) (fun _ -> heap input)) (decreases (U16.v limit - U16.v read_at)) =
+  if U16.(read_at >=^ limit) then ret #local_log_used input write_at
+  else
+    let! entry = (fun () -> get_binding input (local_slot read_at)) in
+    let next_read:local_log_used = U16.add read_at 1us in
+    if entry.namespace <> LocalVarName then retain_local_vars input limit next_read write_at
+    else
+      let! _ = (fun () -> if read_at = write_at then ret input () else set_binding input (local_slot write_at) entry) in
+      retain_local_vars input limit next_read (U16.add write_at 1us)
+
+// A block's suffix contains its own lexical declarations and all descendant var names.
+// The parent sees the vars in source order after the block-local names have been checked.
+let finish_local_scope (input:tape) (state:parser_state) (first:local_log_used)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  if state.status <> 0ul || U16.(state.local_log_floor >^ local_log_capacity) then ret input state
+  else if U16.(first <^ state.local_log_floor || first >^ state.local_log_used) then ret input (failed state 1ul)
+  else if first = state.local_log_used then ret input state
+  else
+    let! conflict = (fun () -> if state.binding_mode = MixedLocals then
+      local_scope_conflict input first state.local_log_used state.local_log_used else ret input false) in
+    if conflict then ret input (failed state 1ul)
+    else
+      let! kept = (fun () -> retain_local_vars input state.local_log_used first first) in
+      ret input { state with local_log_used = kept }
 
 let record_local (input:tape) (st:parser_state) (span:G.span) (namespace:binding_namespace)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
   if st.status <> 0ul || U16.(st.local_log_floor >^ local_log_capacity) then ret input st
   else if st.local_log_used = local_log_capacity || U32.(minus span.G.last span.G.first >^ 256ul) then ret input (failed st 1ul)
   else
-    let! conflict = (fun () -> if st.binding_mode = MixedLocals then
-      local_conflict input st.local_log_floor st.local_log_used span namespace else ret input false) in
-    if conflict then ret input (failed st 1ul)
-    else
-      let! _ = (fun () -> set_binding input (local_slot st.local_log_used) { span; namespace; owner = 0uy }) in
-      ret input { st with local_log_used = U16.add st.local_log_used 1us }
+    let! _ = (fun () -> set_binding input (local_slot st.local_log_used) { span; namespace; owner = 0uy }) in
+    ret input { st with local_log_used = U16.add st.local_log_used 1us }
 
 let rec record_local_pattern_kind (input:tape) (st:parser_state) (first used:names_used) (kind:binding_namespace)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases (U32.v used - U32.v first)) =
@@ -3113,7 +3144,8 @@ and control_block (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bo
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 51; 0]) =
   let! st = (fun () -> (let! anf_value_1 = (fun () -> (skip input state)) in consume input anf_value_1 123uy)) in
   let! st = (fun () -> control_sequence input { st with local_names = used } fuel input.size in_function jumps floor used false) in
-  consume input { st with local_names = state.local_names } 125uy
+  let! closed = (fun () -> consume input { st with local_names = state.local_names } 125uy) in
+  finish_local_scope input closed state.local_log_used
 and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bool) (jumps:jump_context)
   (floor used:names_used) (allow_var:bool) : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 47; 0]) =
   let! kind = (fun () -> statement_kind input state.offset) in
@@ -3170,7 +3202,7 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
         (fun () -> if kind = 4ul then
           let! tested = (fun () -> for_header input { state with offset = plus state.offset 3ul } allow_var (in_function && state.module_mode) fuel) in
           let! body = (fun () -> control_body input tested inner in_function (loop_jumps jumps) tested.local_names tested.local_names) in
-          ret input ({ body.state with local_names = state.local_names })
+          finish_local_scope input { body.state with local_names = state.local_names } state.local_log_used
         else if kind = 5ul then
           try_statement input { state with offset = plus state.offset 3ul } inner in_function jumps used
         else if kind = 6ul then control_block input state inner in_function jumps used used
@@ -3179,7 +3211,8 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
           let! start = (fun () -> (let! anf_value_6 = (fun () -> (skip input tested)) in consume input anf_value_6 123uy)) in
           let case_jumps = match jumps with | NoJump -> BreakOnly | _ -> jumps in
           let! st = (fun () -> switch_sequence input start inner input.size in_function case_jumps used used false false) in
-          consume input { st with local_names = state.local_names } 125uy) in
+          let! closed = (fun () -> consume input { st with local_names = state.local_names } 125uy) in
+          finish_local_scope input closed state.local_log_used) in
       ret input ({ state = result; used })
 and control_body (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bool) (jumps:jump_context)
   (floor used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 52; 0]) =
@@ -3197,7 +3230,8 @@ and catch_block (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bool
     let! tracked = (fun () -> record_local_pattern input bound.state used bound.used) in
     let! annotated = (fun () -> (let! anf_value_3 = (fun () -> (simple_annotation input tracked)) in skip input anf_value_3)) in
     let! body = (fun () -> consume input annotated 41uy) in
-    control_block input body fuel in_function jumps used bound.used
+    let! closed = (fun () -> control_block input body fuel in_function jumps used bound.used) in
+    finish_local_scope input closed state.local_log_used
   else control_block input st fuel in_function jumps used used)
 and try_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bool) (jumps:jump_context) (used:names_used)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 53; 0]) =

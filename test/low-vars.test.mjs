@@ -88,7 +88,8 @@ for (const row of mixedRows) {
   test(`Low* mixed locals: ${varForm} ${lexical} ${placement}`, () => {
     const body = placements[placement](varForms[varForm], lexicalForms[lexical]);
     const source = `function run() { record(first < last); ${body} record(left <= right); }`;
-    compare(source, placement.startsWith('Conflict') ? undefined : 'fast');
+    const separateScope = ['ClassicFor', 'Collection', 'Catch'].includes(lexical);
+    compare(source, placement.startsWith('Conflict') && !separateScope ? undefined : 'fast');
   });
 }
 
@@ -99,13 +100,13 @@ test('mixed locals only record bound value names in their function', () => {
   compare('function run() { var n; const m = () => { var m; let n; return a < b; }; }', 'fast');
   compare('function run() { var out; let shared; consume(() => { let inner; var shared; return a < b; }); }', 'fast');
   compare('function run() { var out; let local; consume(() => { var sibling; let inner; }); let sibling; return a < b; }', 'fast');
-  compare('function run() { var n; const m = a < b; const k = () => { var m; let n; }; { let n; } }');
+  compare('function run() { var n; const m = a < b; const k = () => { var m; let n; }; { let n; } }', 'fast');
 });
 
 test('mixed local refusal rolls back native candidates and retry marks', () => {
   const require = createRequire(import.meta.url);
   const { parse } = require('../build/tmt.node');
-  const source = 'function run() { record(a < b); var n; { let n; } }';
+  const source = 'function run() { record(a < b); { var n; } let n; }';
   const [status, , nodes, bytes, ...candidates] = parse(Buffer.from(source), false, true);
   assert.deepEqual({ status, nodes, bytes, candidates }, { status: 1, nodes: 0, bytes: 0, candidates: [] });
   compare(source);
@@ -122,8 +123,10 @@ test('the exact local binding budget only applies during a mixed-source retry', 
   const block = '{ let repeat; }';
   const lexical = block.repeat(512);
   compare(`function run() { ${lexical} return a < b; }`, 'fast');
-  compare(`function run() { var hoisted; ${block.repeat(511)} return a < b; }`, 'fast');
-  compare(`function run() { var hoisted; ${lexical} return a < b; }`);
+  compare(`function run() { var hoisted; ${lexical} return a < b; }`, 'fast');
+  const varBlock = '{ var repeat; }';
+  compare(`function run() { let local; ${varBlock.repeat(511)} return a < b; }`, 'fast');
+  compare(`function run() { let local; ${varBlock.repeat(512)} return a < b; }`);
 });
 
 test('the mixed-source retry also works across candidate capacity retries', () => {
