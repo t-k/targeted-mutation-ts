@@ -1329,12 +1329,19 @@ uint32_t TmtParser_regex_flag_bit(uint8_t byte)
 }
 
 TmtParser_cursor
-TmtParser_regex_flags(TmtParser_tape input0, uint32_t at0, uint32_t seen0, uint32_t fuel0)
+TmtParser_regex_flags(
+  TmtParser_tape input0,
+  uint32_t at0,
+  uint32_t seen0,
+  uint32_t fuel0,
+  bool legacy0
+)
 {
   TmtParser_tape input = input0;
   uint32_t at = at0;
   uint32_t seen = seen0;
   uint32_t fuel = fuel0;
+  bool legacy = legacy0;
   while (true)
   {
     uint8_t byte = TmtParser_peek(input, at);
@@ -1348,7 +1355,7 @@ TmtParser_regex_flags(TmtParser_tape input0, uint32_t at0, uint32_t seen0, uint3
             .newline = false
           }
         );
-    else if (fuel == 0U || (bit & seen) != 0U)
+    else if (fuel == 0U || (bit & seen) != 0U || legacy && bit == 32U)
       return ((TmtParser_cursor){ .at = at, .ok = false, .newline = false });
     else
     {
@@ -1439,7 +1446,8 @@ TmtParser_regex_pattern(
       uint32_t rest = TmtParser_minus(fuel, 1U);
       if (byte == 47U && !nested)
       {
-        TmtParser_cursor ending = TmtParser_regex_flags(input, TmtParser_next(at), 0U, 7U);
+        TmtParser_cursor
+        ending = TmtParser_regex_flags(input, TmtParser_next(at), 0U, 7U, captures.legacy);
         return ((TmtParser_regex_result){ .ending = ending, .captures = captures });
       }
       else if (byte == 41U && nested)
@@ -1554,15 +1562,26 @@ TmtParser_regex_pattern(
           }
         }
       }
-      else if
-      (TmtParser_regex_printable(byte) && byte != 47U && byte != 41U && byte != 93U && byte != 125U)
+      else if (TmtParser_regex_printable(byte) && byte != 47U && byte != 41U && byte != 93U)
       {
+        TmtParser_regex_captures
+        captures1 =
+          byte == 125U ? (
+                         (TmtParser_regex_captures){
+                           .names = captures.names,
+                           .count1 = captures.count1,
+                           .legacy = true
+                         }
+                       )
+                       : captures;
         uint32_t tmp0 = TmtParser_next(at);
         uint32_t tmp1 = rest;
-        bool tmp = true;
+        bool tmp2 = true;
+        TmtParser_regex_captures tmp = captures1;
         at = tmp0;
         fuel = tmp1;
-        can_repeat = tmp;
+        can_repeat = tmp2;
+        captures = tmp;
       }
       else
         return TmtParser_regex_result_at(at, false, captures);
@@ -1649,7 +1668,7 @@ TmtParser_regex_group(
         fuel,
         true,
         false,
-        ((TmtParser_regex_captures){ .names = names1, .count1 = count }));
+        ((TmtParser_regex_captures){ .names = names1, .count1 = count, .legacy = captures.legacy }));
   }
   return
     ((TmtParser_regex_group_result){ .pattern = pattern, .repeatable_group = repeatable_group });
@@ -1665,7 +1684,7 @@ TmtParser_cursor TmtParser_regex_end(TmtParser_tape input, uint32_t at)
       input.size,
       false,
       false,
-      ((TmtParser_regex_captures){ .names = 0ULL, .count1 = 0U }));
+      ((TmtParser_regex_captures){ .names = 0ULL, .count1 = 0U, .legacy = false }));
   return parsed1.ending;
 }
 
@@ -5592,6 +5611,34 @@ TmtParser_class_member_key(TmtParser_tape input, TmtParser_parser_state state)
     );
 }
 
+TmtParser_parser_state
+TmtParser_constructor_property(TmtParser_tape input, TmtParser_parser_state state)
+{
+  uint8_t first = TmtParser_peek(input, state.offset);
+  if (first != 112U && first != 114U)
+    return state;
+  else
+  {
+    TmtParser_class_prefix prefixes = TmtParser_class_modifiers(input, state, 0U, 2U);
+    TmtParser_parser_state property = prefixes.key_state;
+    if (property.status != 0U || prefixes.flags == 0U || (prefixes.flags & 9U) != 0U)
+      return state;
+    else
+    {
+      TmtParser_cursor binding = TmtParser_name(input, property.offset, false, true);
+      TmtParser_cursor tail = TmtParser_trivia(input, binding.at);
+      bool optional = TmtParser_same(input, tail.at, 63U);
+      TmtParser_cursor colon;
+      if (optional)
+        colon = TmtParser_trivia(input, TmtParser_next(tail.at));
+      else
+        colon = tail;
+      bool typed = TmtParser_same(input, colon.at, 58U);
+      return binding.ok && tail.ok && colon.ok && typed ? property : state;
+    }
+  }
+}
+
 bool
 TmtParser_wide_key_matches(
   TmtParser_tape input,
@@ -6252,6 +6299,10 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
             .arrow_defaults_allowed = done_.arrow_defaults_allowed,
             .binding_mode = done_.binding_mode, .super_context = done_.super_context
           };
+        TmtParser_assignment_target
+        target =
+          !comma && inner.target == TmtParser_AssertedTarget ? TmtParser_AssertedTarget
+                                                             : TmtParser_NotAssignable;
         return
           TmtParser_postfix(input,
             (
@@ -6262,7 +6313,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .outer_or = false,
                 .right_shift = false,
                 .shortcut = 0U,
-                .target = TmtParser_NotAssignable
+                .target = target
               }
             ),
             fuel,
@@ -10488,39 +10539,9 @@ TmtParser_function_parameters(
         return TmtParser_rest_parameter(input, st, floor, used);
       else
       {
-        bool readonly;
-        if (constructor)
-          readonly = TmtParser_keyword(input, st.offset, 8U, 0x726561646f6e6c79ULL);
-        else
-          readonly = false;
         TmtParser_parser_state st1;
-        if (readonly)
-        {
-          TmtParser_cursor property = TmtParser_trivia(input, TmtParser_plus(st.offset, 8U));
-          TmtParser_cursor binding1 = TmtParser_name(input, property.at, false, true);
-          TmtParser_cursor colon = TmtParser_trivia(input, binding1.at);
-          bool typed = TmtParser_same(input, colon.at, 58U);
-          st1 =
-            property.ok && !property.newline && binding1.ok && colon.ok && typed ? (
-                                                                                   (TmtParser_parser_state){
-                                                                                     .offset = property.at,
-                                                                                     .count = st.count,
-                                                                                     .depth = st.depth,
-                                                                                     .status = st.status,
-                                                                                     .local_names = st.local_names,
-                                                                                     .await_allowed = st.await_allowed,
-                                                                                     .yield_allowed = st.yield_allowed,
-                                                                                     .jsx_allowed = st.jsx_allowed,
-                                                                                     .module_mode = st.module_mode,
-                                                                                     .in_allowed = st.in_allowed,
-                                                                                     .for_initializer = st.for_initializer,
-                                                                                     .arrow_defaults_allowed = st.arrow_defaults_allowed,
-                                                                                     .binding_mode = st.binding_mode,
-                                                                                     .super_context = st.super_context
-                                                                                   }
-                                                                                 )
-                                                                                 : st;
-        }
+        if (constructor)
+          st1 = TmtParser_constructor_property(input, st);
         else
           st1 = st;
         TmtParser_parameter_list prefix = TmtParser_parameter_prefix(input, st1, floor, used);

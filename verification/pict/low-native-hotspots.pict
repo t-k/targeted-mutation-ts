@@ -1,0 +1,3 @@
+Feature: ConstructorProperty, GroupedAssertion, RegexBrace
+Dialect: TS, TSX
+Suffix: Valid, Broken

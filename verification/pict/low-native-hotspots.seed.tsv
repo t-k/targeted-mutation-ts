@@ -1,0 +1,4 @@
+Feature	Dialect	Suffix
+ConstructorProperty	TS	Valid
+GroupedAssertion	TS	Valid
+RegexBrace	TSX	Valid

@@ -406,14 +406,14 @@ let regex_flag_bit (byte:U8.t) : U32.t =
   else if byte = 121uy then 64ul
   else 0ul
 
-let rec regex_flags (input:tape) (at seen fuel:U32.t) : Read cursor input (decreases U32.v fuel) =
+let rec regex_flags (input:tape) (at seen fuel:U32.t) (legacy:bool) : Read cursor input (decreases U32.v fuel) =
   let byte = peek input at in
   let bit = regex_flag_bit byte in
   if bit = 0ul then { at; ok = not (G.identifier_continue byte || byte = 92uy); newline = false }
-  else if fuel = 0ul || U32.logand bit seen <> 0ul then { at; ok = false; newline = false }
-  else regex_flags input (next at) (U32.logor bit seen) (minus fuel 1ul)
+  else if fuel = 0ul || U32.logand bit seen <> 0ul || (legacy && bit = 32ul) then { at; ok = false; newline = false }
+  else regex_flags input (next at) (U32.logor bit seen) (minus fuel 1ul) legacy
 
-type regex_captures = { names:U64.t; count:U32.t }
+type regex_captures = { names:U64.t; count:U32.t; legacy:bool }
 type regex_result = { ending:cursor; captures:regex_captures }
 type regex_group_result = { pattern:regex_result; repeatable_group:bool }
 
@@ -435,7 +435,7 @@ let rec regex_pattern (input:tape) (at depth fuel:U32.t) (nested can_repeat:bool
     let byte = peek input at in
     let rest = minus fuel 1ul in
     if byte = 47uy && not nested then
-      let ending = regex_flags input (next at) 0ul 7ul in { ending; captures }
+      let ending = regex_flags input (next at) 0ul 7ul captures.legacy in { ending; captures }
     else if byte = 41uy && nested then regex_result_at (next at) true captures
     else if byte = 40uy then
       let group = regex_group input at depth rest captures in
@@ -470,7 +470,8 @@ let rec regex_pattern (input:tape) (at depth fuel:U32.t) (nested can_repeat:bool
           let lazy_ = same input quantifier.at 63uy in
           let after = if lazy_ then next quantifier.at else quantifier.at in
           regex_pattern input after depth rest nested false captures
-    else if regex_printable byte && byte <> 47uy && byte <> 41uy && byte <> 93uy && byte <> 125uy then
+    else if regex_printable byte && byte <> 47uy && byte <> 41uy && byte <> 93uy then
+      let captures = if byte = 125uy then { captures with legacy = true } else captures in
       regex_pattern input (next at) depth rest nested true captures
     else regex_result_at at false captures
 and regex_group (input:tape) (at depth fuel:U32.t) (captures:regex_captures)
@@ -502,11 +503,11 @@ and regex_group (input:tape) (at depth fuel:U32.t) (captures:regex_captures)
     if start = at || depth = 0ul || U32.(captures.count >=^ input.size) then regex_result_at at false captures
     else
       let count = if capturing then U32.add captures.count 1ul else captures.count in
-      regex_pattern input start (minus depth 1ul) fuel true false { names; count } in
+      regex_pattern input start (minus depth 1ul) fuel true false { captures with names; count } in
   { pattern; repeatable_group }
 
 let regex_end (input:tape) (at:U32.t) : Read cursor input =
-  let parsed = regex_pattern input at 32ul input.size false false { names = 0uL; count = 0ul } in
+  let parsed = regex_pattern input at 32ul input.size false false { names = 0uL; count = 0ul; legacy = false } in
   parsed.ending
 
 type precedence = p:U32.t{1 <= U32.v p /\ U32.v p <= 11}
@@ -1665,6 +1666,21 @@ let class_member_key (input:tape) (state:parser_state) : Read class_key input =
   { after_key = key_end; first; last; async_; arity = accessor.arity;
     static_ = U32.logand prefix.flags 1ul <> 0ul; readonly_ = U32.logand prefix.flags 2ul <> 0ul }
 
+let constructor_property (input:tape) (state:parser_state) : Read parser_state input =
+  let first = peek input state.offset in
+  if first <> 112uy && first <> 114uy then state
+  else
+    let prefixes = class_modifiers input state 0ul 2ul in
+    let property = prefixes.key_state in
+    if property.status <> 0ul || prefixes.flags = 0ul || U32.logand prefixes.flags 9ul <> 0ul then state
+    else
+      let binding = name input property.offset false true in
+      let tail = trivia input binding.at in
+      let optional = same input tail.at 63uy in
+      let colon = if optional then trivia input (next tail.at) else tail in
+      let typed = same input colon.at 58uy in
+      if binding.ok && tail.ok && colon.ok && typed then property else state
+
 let wide_key_matches (input:tape) (key:class_key) (suffix_size:U32.t) (prefix suffix:U64.t) : Read bool input =
   if minus key.last key.first <> plus 8ul suffix_size then false
   else
@@ -1851,7 +1867,8 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           else if inner.open_angle then failed consumed 1ul
           else grouped_tail input (consume input consumed 44uy) (minus fuel 1ul) input.size in
         let done_ = { done_ with in_allowed = st.in_allowed } in
-        postfix input { parser = done_; range = { G.first = start_pos; G.last = done_.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable }
+        let target = if not comma && inner.target = AssertedTarget then AssertedTarget else NotAssignable in
+        postfix input { parser = done_; range = { G.first = start_pos; G.last = done_.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target }
           fuel input.size
     else if G.decimal_digit ch || ch = 46uy then
       let number = number_end input start_pos in
@@ -2746,17 +2763,7 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
       else { names = { state = consume input end_ 41uy; used }; non_simple }
     else if spread then rest_parameter input st floor used
     else
-      let readonly = if constructor then keyword input st.offset 8ul 0x726561646f6e6c79uL else false in
-      let st =
-        if readonly then
-          let property = trivia input (plus st.offset 8ul) in
-          let binding = name input property.at false true in
-          let colon = trivia input binding.at in
-          let typed = same input colon.at 58uy in
-          if property.ok && not property.newline && binding.ok && colon.ok && typed then
-            { st with offset = property.at }
-          else st
-        else st in
+      let st = if constructor then constructor_property input st else st in
       let prefix = parameter_prefix input st floor used in
       let st = prefix.names.state in
       let default_ = same input st.offset 61uy in

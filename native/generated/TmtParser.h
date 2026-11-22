@@ -290,12 +290,19 @@ TmtParser_cursor TmtParser_regex_counted(TmtParser_tape input, uint32_t at);
 uint32_t TmtParser_regex_flag_bit(uint8_t byte);
 
 TmtParser_cursor
-TmtParser_regex_flags(TmtParser_tape input0, uint32_t at0, uint32_t seen0, uint32_t fuel0);
+TmtParser_regex_flags(
+  TmtParser_tape input0,
+  uint32_t at0,
+  uint32_t seen0,
+  uint32_t fuel0,
+  bool legacy0
+);
 
 typedef struct TmtParser_regex_captures_s
 {
   uint64_t names;
   uint32_t count1;
+  bool legacy;
 }
 TmtParser_regex_captures;
 
@@ -906,6 +913,9 @@ TmtParser_class_modifiers(
 
 TmtParser_class_key
 TmtParser_class_member_key(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
+TmtParser_constructor_property(TmtParser_tape input, TmtParser_parser_state state);
 
 bool
 TmtParser_wide_key_matches(
