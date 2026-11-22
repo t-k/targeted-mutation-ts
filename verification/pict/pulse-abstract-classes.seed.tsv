@@ -1,0 +1,9 @@
+Class	Member	Boundary
+Abstract	Property	Semicolon
+Exported	Readonly	Newline
+Exported	Method	Newline
+Concrete	Property	Semicolon
+Abstract	Initializer	Newline
+Abstract	Implementation	Semicolon
+Exported	Constructor	Newline
+Exported	Method	Broken

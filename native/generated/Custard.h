@@ -857,6 +857,9 @@ TmtPulseParser_pending_overload;
 
 extern TmtPulseParser_pending_overload TmtPulseParser_no_overload;
 
+TmtPulseParser_cursor
+TmtPulseParser_abstract_modifier(TmtPulseMemory_tape input, uint32_t offset);
+
 typedef struct TmtPulseParser_class_key_s
 {
   TmtPulseParser_parser_state after_key;
@@ -1377,6 +1380,7 @@ TmtPulseParser_class_members(
   uint32_t remaining0,
   bool derived0,
   bool seen_constructor0,
+  bool abstract_class0,
   TmtPulseParser_pending_overload pending0
 );
 
@@ -1384,7 +1388,8 @@ TmtPulseParser_parser_state
 TmtPulseParser_class_tail(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
-  uint32_t fuel
+  uint32_t fuel,
+  bool abstract_class
 );
 
 TmtPulseParser_parser_state
@@ -1927,6 +1932,12 @@ TmtPulseParser_ambient_module_start(
   TmtPulseParser_parser_state state
 );
 
+TmtPulseParser_cursor
+TmtPulseParser_abstract_class_start(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
 uint32_t TmtPulseParser_ambient_variable_width(TmtPulseMemory_tape input, uint32_t start);
 
 TmtPulseParser_cursor
@@ -1950,6 +1961,7 @@ typedef struct TmtPulseParser_declaration_head_s
   bool async_declaration;
   bool ambient_declaration;
   bool class_declaration;
+  bool abstract_class;
 }
 TmtPulseParser_declaration_head;
 
