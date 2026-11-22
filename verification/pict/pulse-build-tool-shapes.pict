@@ -1,0 +1,3 @@
+Shape: Abstract, ConstructorDefault, ThisAssignment, IndexedNew, PrivateOverload, ExportEquals
+Input: Good, Bad
+Mode: Module, Script

@@ -4,7 +4,7 @@ EXTENDS Naturals, Sequences
 CONSTANT Capacity
 VARIABLES events, pending, closed
 vars == <<events, pending, closed>>
-Keys == {"plain-a", "plain-b", "async-a", "static-a", "override-a", "constructor"}
+Keys == {"plain-a", "plain-b", "async-a", "static-a", "override-a", "private-a", "protected-a", "constructor"}
 Empty == ""
 ConstructorBodySeen == \E i \in 1..Len(events):
   events[i].type = "method" /\ events[i].key = "constructor"

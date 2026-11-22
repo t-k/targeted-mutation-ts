@@ -1,0 +1,11 @@
+Surface	Input	Suffix
+ObjectInfer	Valid	Complete
+TemplateInfer	Valid	Complete
+SignatureBinding	Valid	Complete
+EscapedKey	Valid	Complete
+EscapedKey	Invalid	Complete
+SignatureBinding	Invalid	Complete
+SignatureBinding	Valid	Broken
+EscapedKey	Invalid	Broken
+TemplateInfer	Invalid	Broken
+ObjectInfer	Invalid	Broken

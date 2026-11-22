@@ -1,0 +1,8 @@
+Modifier	Key	Tail
+Plain	Identifier	Required
+Private	Identifier	Optional
+Public	Identifier	Required
+Readonly	Identifier	Required
+Static	Computed	Required
+Plain	Identifier	Initialized
+Plain	Private	Required

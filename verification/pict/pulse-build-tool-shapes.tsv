@@ -1,0 +1,15 @@
+Shape	Input	Mode
+Abstract	Good	Module
+ConstructorDefault	Good	Module
+ThisAssignment	Good	Module
+IndexedNew	Good	Module
+PrivateOverload	Good	Module
+ExportEquals	Good	Module
+ExportEquals	Good	Script
+PrivateOverload	Bad	Module
+ConstructorDefault	Bad	Script
+ThisAssignment	Bad	Script
+IndexedNew	Bad	Script
+Abstract	Bad	Script
+ExportEquals	Bad	Script
+PrivateOverload	Bad	Script

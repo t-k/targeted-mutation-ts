@@ -1,0 +1,3 @@
+Surface: ObjectInfer, TemplateInfer, SignatureBinding, EscapedKey
+Input: Valid, Invalid
+Suffix: Complete, Broken

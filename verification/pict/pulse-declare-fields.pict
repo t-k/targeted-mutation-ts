@@ -1,0 +1,3 @@
+Modifier: Plain, Public, Private, Readonly, Static
+Key: Identifier, Computed, Private
+Tail: Required, Optional, Initialized

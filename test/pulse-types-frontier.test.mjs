@@ -57,7 +57,8 @@ test('ambient typed functions accept annotated single parameters without initial
 test('a typed callback can end in a simple object binding', () => {
   check('type Read = (input: unknown, { key, }: { key: string },) => number; const hit = a < b;', true);
   check('type Read = ({ key }: { key: string }) => number; const hit = a < b;', true);
-  for (const params of ['key: unknown, { key }: Input', '{ key = 1 }: Input', '{ key, other }: Input',
+  check('type Read = ({ key, other }: Input) => number; const hit = a < b;', true);
+  for (const params of ['key: unknown, { key }: Input', '{ key = 1 }: Input',
     '{ key }: Input, other: number', '...{ key }: Input']) {
     check(`type Read = (${params}) => number; const hit = a < b;`, false);
   }

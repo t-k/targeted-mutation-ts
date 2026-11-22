@@ -164,7 +164,7 @@ function parseInput(ts, project, file, text, logical) {
   }
   const commonJS = /(?:^|\/)npm\/|^packages\/[^/]+\/index\.js$/.test(file);
   const external = ts.isExternalModule(tree);
-  const commonJSExtension = /\.c[jt]s$/.test(file) && !(tree.isDeclarationFile && external);
+  const commonJSExtension = /\.cjs$/.test(file) || (/\.cts$/.test(file) && !external);
   const script = commonJSExtension || (!/\.m[jt]s$/.test(file) && !external &&
     (commonJS || commonJSCohort.has(project) || project === 'fastify' || project === 'esbuild' || project === 'htmx'));
   return { tree, file, dialect, originalDialect, mode: script ? 'script' : 'module', logical, requireNative: true };
