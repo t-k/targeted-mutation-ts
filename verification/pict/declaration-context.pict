@@ -1,0 +1,4 @@
+File: TS, DTS, MTS, DMTS, CTS, DCTS, ArbitraryDTS, DeclarationDirectory, NoPath
+Scope: Top, Namespace, Explicit, Block, ClassicLoop
+Binding: Identifier, Destructuring
+Mode: Module, Script

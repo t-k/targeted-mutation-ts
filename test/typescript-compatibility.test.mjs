@@ -44,6 +44,55 @@ test('compatibility parser handles private JSX member names and unadorned TSX ge
   compare('const choose = async <T>(item: T) => await pick(item < limit);', options);
 });
 
+const declarationContextRows = readFileSync(new URL('../verification/pict/declaration-context.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of declarationContextRows) {
+  const [fileKind, scope, binding, mode] = row.split('\t');
+  test(`declaration file initializer: ${fileKind} ${scope} ${binding} ${mode}`, () => {
+    const files = {
+      TS: 'value.ts', DTS: 'value.d.ts', MTS: 'value.mts', DMTS: 'value.d.mts',
+      CTS: 'value.cts', DCTS: 'value.d.cts', ArbitraryDTS: 'value.d.css.ts',
+      DeclarationDirectory: 'types.d.ts/value.ts',
+    };
+    const file = files[fileKind];
+    const declarator = binding === 'Identifier' ? 'value: number' : '{ value }: { value: number }';
+    const variable = `const ${declarator}`;
+    const top = mode === 'Module' ? 'export ' : '';
+    const sources = {
+      Top: `${top}${variable};`,
+      Namespace: `${top}namespace Outer.Inner { ${variable}; }`,
+      Explicit: `${top}declare namespace Outer { ${variable}; }`,
+      Block: `{ ${variable}; }`,
+      ClassicLoop: `for (${variable};;) {}`,
+    };
+    const source = '/* 🧪 */ ' + sources[scope];
+    const result = extractTypeScript(source, { file, mode: mode.toLowerCase() });
+    const declarationFile = ['DTS', 'DMTS', 'DCTS', 'ArbitraryDTS'].includes(fileKind);
+    const ambient = scope === 'Explicit' || declarationFile && (scope === 'Top' || scope === 'Namespace');
+    assert.deepEqual(result.candidates, []);
+    if (ambient) {
+      assert.equal(result.path, 'fallback');
+    } else {
+      assert.equal(result.path, 'diagnostic');
+      assert.equal(result.diagnostics.length, 1);
+      const [diagnostic] = result.diagnostics;
+      const name = binding === 'Identifier' ? "'const' declarations" : 'Destructuring declaration';
+      const suffix = scope === 'ClassicLoop' ? ' in for loop initializer must be initialized'
+        : binding === 'Identifier' ? ' must be initialized' : ' must have an initializer';
+      assert.equal(diagnostic.message, name + suffix);
+      assert.equal(diagnostic.path, file ?? null);
+      assert.equal(Buffer.from(source).toString('utf8', diagnostic.start, diagnostic.end), declarator);
+    }
+  });
+}
+
+test('an initializer-free declaration does not hide an independent parse error in a declaration file', () => {
+  const result = extractTypeScript('export const value: number; export type Broken = ;', { file: 'value.d.ts' });
+  assert.equal(result.path, 'diagnostic');
+  assert.deepEqual(result.diagnostics.map(diagnostic => diagnostic.message), ['Type expected.']);
+  assert.deepEqual(result.candidates, []);
+});
+
 const decoratorContextRows = readFileSync(new URL('../verification/pict/decorator-context.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1);
 for (const row of decoratorContextRows) {

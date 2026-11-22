@@ -33,11 +33,11 @@ export function createTypeScriptGrammar(ts, bindings) {
   function checkStatementSyntax(file, module, strictRoot, emit) {
     const pending = [{
       node: file, parent: undefined, ambient: false, functionContext: false,
-      runtimeParameters: false, forHead: '', strict: strictRoot, async: false,
+      runtimeParameters: false, forHead: '', strict: strictRoot, async: false, declarationScope: file.isDeclarationFile,
     }];
     while (pending.length) {
       const { node, parent, ambient: parentAmbient, functionContext, runtimeParameters, forHead,
-        strict: parentStrict, async: parentAsync } = pending.pop();
+        strict: parentStrict, async: parentAsync, declarationScope } = pending.pop();
       const strict = strictScope(node, file, parentStrict);
       const async = isFunctionLike(node)
         ? node.modifiers?.some(modifier => modifier.kind === SyntaxKind.AsyncKeyword)
@@ -62,7 +62,8 @@ export function createTypeScriptGrammar(ts, bindings) {
         }
       }
 
-      if (isVariableDeclaration(node) && isVariableDeclarationList(parent) && !ambient && !node.initializer && forHead !== 'iteration') {
+      if (isVariableDeclaration(node) && isVariableDeclarationList(parent) &&
+          !ambient && !declarationScope && !node.initializer && forHead !== 'iteration') {
         const destructured = isObjectBindingPattern(node.name) || isArrayBindingPattern(node.name);
         if (forHead === 'classic') {
           if (destructured) report('Destructuring declaration in for loop initializer must be initialized');
@@ -87,6 +88,9 @@ export function createTypeScriptGrammar(ts, bindings) {
           report('Lexical declaration cannot appear in a single-statement context');
         }
       }
+      // Declaration-file initializer rules apply to declarations in the file or a namespace.
+      const childDeclarationScope = declarationScope && (isSourceFile(node) || isModuleDeclaration(node) ||
+        isModuleBlock(node) || isVariableStatement(node) || isVariableDeclarationList(node));
       forEachChild(node, child => {
         if (child.kind <= SyntaxKind.LastToken) return;
         const loopHead = isVariableDeclarationList(child) && node.initializer === child
@@ -97,7 +101,7 @@ export function createTypeScriptGrammar(ts, bindings) {
           isInterfaceDeclaration(node) || isTypeAliasDeclaration(node);
         pending.push({
           node: child, parent: node, ambient, functionContext: childFunction, runtimeParameters: childParameters,
-          forHead: loopHead, strict, async,
+          forHead: loopHead, strict, async, declarationScope: childDeclarationScope,
         });
       });
     }
