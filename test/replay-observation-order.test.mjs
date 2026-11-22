@@ -33,4 +33,5 @@ test('compare exact JSON row spellings, including nulls, repetitions and propert
   assert.equal(sameObservations([null, sample, sample], [null, sample]), false);
   assert.equal(sameObservations([{ x: 'a\nb', y: 1 }], [{ y: 1, x: 'a\nb' }]), false);
   assert.equal(sameObservations([sample], [{ hit: null }, sample]), true);
+  assert.equal(sameObservations([hit, sample], [sample]), true);
 });
