@@ -75,3 +75,70 @@ test('Lean boundary summaries agree exactly with full replay observations', asyn
     { ...positive, boundarySummary: { count: 1, safeAndUnequal: 'true' } },
   ]), [false, false, false, false]);
 });
+
+const decide = (input, ...args) => spawnSync('build/tmt-decide', args, { encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 });
+const gapRequest = { threshold: 18, min: 0, max: 100, observations: [10, 20] };
+const gapAnswer = { interval: [11, 20], alternate: 17, witness: 17, expected: false, mutant: true };
+
+test('the request reader accepts JSON as JavaScript writes it', () => {
+  const spaced = decide(JSON.stringify([gapRequest, { ...gapRequest, observations: [] }], null, '\t') + '\r\n', 'thresholds');
+  assert.equal(spaced.status, 0, spaced.stderr);
+  assert.deepEqual(JSON.parse(spaced.stdout), [gapAnswer, null]);
+  const text = 'é "quoted" \\ / \b\f\n\r\t \u0001 😀 \ud83d';
+  const escaped = { candidate: text, traceCandidate: text, complete: true, deterministic: true, original: '>=', replacement: '>', observations: [[20, 18]] };
+  const ascii = JSON.stringify([escaped, { ...escaped, traceCandidate: text + '!' }])
+    .replace(/[\u0080-\uffff]/g, unit => '\\u' + unit.charCodeAt(0).toString(16).padStart(4, '0'));
+  for (const input of [JSON.stringify([escaped, { ...escaped, traceCandidate: text + '!' }]), ascii]) {
+    const run = decide(input);
+    assert.equal(run.status, 0, run.stderr);
+    assert.deepEqual(JSON.parse(run.stdout), [true, false]);
+  }
+  assert.deepEqual(JSON.parse(decide('[]').stdout), []);
+  assert.deepEqual(JSON.parse(decide(' [ ] ', 'thresholds').stdout), []);
+});
+
+test('the request reader treats non-integer numbers and wrong shapes as undecidable entries', () => {
+  const entries = [
+    { ...gapRequest, threshold: 18.5 }, { ...gapRequest, threshold: '18' }, { ...gapRequest, min: null },
+    { ...gapRequest, observations: [10, 20.25] }, { ...gapRequest, observations: { 0: 10 } }, { threshold: 18 },
+    [gapRequest], 'text', 18, null, true,
+    { ...gapRequest, max: Number.MAX_SAFE_INTEGER + 1 }, { ...gapRequest, max: 1e21 },
+  ];
+  const run = decide(JSON.stringify([gapRequest, ...entries, gapRequest]), 'thresholds');
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout), [gapAnswer, ...entries.map(() => null), gapAnswer]);
+  // JavaScript writes every safe integer as plain digits, so other spellings are not integers here.
+  const spelled = decide('[{"threshold":1.8e1,"min":0,"max":100,"observations":[10,20]},{"threshold":18,"min":0,"max":1E2,"observations":[10,20]}]', 'thresholds');
+  assert.deepEqual(JSON.parse(spelled.stdout), [null, null]);
+});
+
+test('malformed input fails the whole batch so that every trial is run', () => {
+  const body = JSON.stringify(gapRequest);
+  for (const input of ['', '[', '[]]', '[] x', 'null', '{"a":1}', '[1,]', `[${body},]`, '[{"a":1,}]', '[01]', '[1.]', '[1e]', '[-]', '[+1]',
+    '["\\x"]', '["\\u12"]', '["open]', '["a\nb"]', '[tru]', '[nul]', '[{"a" 1}]', '[{a:1}]', `[${body} ${body}]`,
+    '[{"threshold":18,"threshold":19,"min":0,"max":100,"observations":[10,20]}]']) {
+    const run = decide(input, 'thresholds');
+    assert.equal(run.status, 1, JSON.stringify(input));
+    assert.equal(run.stdout, '');
+    assert.ok(run.stderr.trim().length > 0);
+  }
+});
+
+test('a large batch is read in one pass', () => {
+  const observations = Array.from({ length: 20_000 }, (_, index) => index % 2 ? 4_000 + index : -index);
+  const requests = Array.from({ length: 20 }, () => ({ threshold: 4_000, min: -1_000_000, max: 1_000_000, observations }));
+  const input = JSON.stringify(requests);
+  assert.ok(input.length > 2_000_000);
+  const started = performance.now();
+  const run = decide(input, 'thresholds');
+  assert.equal(run.status, 0, run.stderr);
+  const answers = JSON.parse(run.stdout);
+  assert.equal(answers.length, 20);
+  assert.deepEqual(answers[0], { interval: [1, 4001], alternate: 3999, witness: 3999, expected: false, mutant: true });
+  assert.ok(performance.now() - started < 30_000);
+});
+
+test('the decision executable links no Lean library beyond the runtime', () => {
+  assert.ok(readFileSync('build/tmt-decide').length < 16 * 1024 * 1024);
+  assert.doesNotMatch(readFileSync('proof/lean/Main.lean', 'utf8'), /^import /m);
+});

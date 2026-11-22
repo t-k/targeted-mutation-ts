@@ -1,8 +1,209 @@
-import Lean.Data.Json.Parser
-import Lean.Data.Json.Printer
-import Lean.Data.Json.FromToJson.Basic
+/-
+A small JSON reader and writer for the request protocol. It replaces `Lean.Data.Json`, whose import links
+the whole Lean library into the executable. Numbers with a fraction or an exponent are kept apart from
+integers: every integer the protocol accepts is written by JavaScript as plain decimal digits.
+-/
+namespace Wire
 
-open Lean
+inductive Value where
+  | null
+  | bool (value : Bool)
+  | int (value : Int)
+  | fraction
+  | str (value : String)
+  | arr (items : Array Value)
+  | obj (fields : Array (String × Value))
+
+@[inline] def at? (bytes : ByteArray) (i : Nat) : Option UInt8 :=
+  if i < bytes.size then some bytes[i]! else none
+
+@[inline] def is (bytes : ByteArray) (i : Nat) (expected : UInt8) : Bool :=
+  i < bytes.size && bytes[i]! == expected
+
+partial def skipSpace (bytes : ByteArray) (i : Nat) : Nat :=
+  match at? bytes i with
+  | some 0x20 | some 0x09 | some 0x0A | some 0x0D => skipSpace bytes (i + 1)
+  | _ => i
+
+partial def digits (bytes : ByteArray) (i : Nat) (value : Nat) : Nat × Nat :=
+  match at? bytes i with
+  | some b => if 0x30 ≤ b && b ≤ 0x39 then digits bytes (i + 1) (value * 10 + (b.toNat - 0x30)) else (value, i)
+  | none => (value, i)
+
+def word (bytes : ByteArray) (i : Nat) (text : String) (value : Value) : Except String (Value × Nat) :=
+  let expected := text.toUTF8
+  if i + expected.size ≤ bytes.size && (List.range expected.size).all (fun k => bytes[i + k]! == expected[k]!) then
+    .ok (value, i + expected.size)
+  else .error "invalid literal"
+
+def number (bytes : ByteArray) (start : Nat) : Except String (Value × Nat) := do
+  let negative := is bytes start 0x2D
+  let first := if negative then start + 1 else start
+  let (magnitude, afterInt) := digits bytes first 0
+  if afterInt == first then throw "invalid number"
+  if is bytes first 0x30 && afterInt != first + 1 then throw "invalid number"
+  let mut i := afterInt
+  let mut integral := true
+  if is bytes i 0x2E then
+    let (_, afterFraction) := digits bytes (i + 1) 0
+    if afterFraction == i + 1 then throw "invalid number"
+    i := afterFraction
+    integral := false
+  if is bytes i 0x65 || is bytes i 0x45 then
+    let signed := is bytes ((i + 1)) 0x2B || is bytes ((i + 1)) 0x2D
+    let exponent := if signed then i + 2 else i + 1
+    let (_, afterExponent) := digits bytes exponent 0
+    if afterExponent == exponent then throw "invalid number"
+    i := afterExponent
+    integral := false
+  let whole : Int := if negative then -(magnitude : Int) else magnitude
+  if integral then pure (Value.int whole, i) else pure (Value.fraction, i)
+
+def hex (b : UInt8) : Option Nat :=
+  if 0x30 ≤ b && b ≤ 0x39 then some (b.toNat - 0x30)
+  else if 0x61 ≤ b && b ≤ 0x66 then some (b.toNat - 0x61 + 10)
+  else if 0x41 ≤ b && b ≤ 0x46 then some (b.toNat - 0x41 + 10)
+  else none
+
+def unit (bytes : ByteArray) (i : Nat) : Except String Nat := do
+  let mut value := 0
+  for k in [0:4] do
+    match (at? bytes (i + k)).bind hex with
+    | some digit => value := value * 16 + digit
+    | none => throw "invalid escape"
+  pure value
+
+partial def text (bytes : ByteArray) (i : Nat) (out : ByteArray) : Except String (String × Nat) :=
+  match at? bytes i with
+  | none => .error "unterminated string"
+  | some 0x22 =>
+    match String.fromUTF8? out with
+    | some value => .ok (value, i + 1)
+    | none => .error "invalid UTF-8"
+  | some 0x5C =>
+    match at? bytes (i + 1) with
+    | some 0x22 => text bytes (i + 2) (out.push 0x22)
+    | some 0x5C => text bytes (i + 2) (out.push 0x5C)
+    | some 0x2F => text bytes (i + 2) (out.push 0x2F)
+    | some 0x62 => text bytes (i + 2) (out.push 0x08)
+    | some 0x66 => text bytes (i + 2) (out.push 0x0C)
+    | some 0x6E => text bytes (i + 2) (out.push 0x0A)
+    | some 0x72 => text bytes (i + 2) (out.push 0x0D)
+    | some 0x74 => text bytes (i + 2) (out.push 0x09)
+    | some 0x75 =>
+      match unit bytes (i + 2) with
+      | .error message => .error message
+      | .ok high =>
+        let paired : Option Nat :=
+          if 0xD800 ≤ high && high < 0xDC00 && is bytes ((i + 6)) 0x5C && is bytes ((i + 7)) 0x75 then
+            match unit bytes (i + 8) with
+            | .ok low => if 0xDC00 ≤ low && low < 0xE000 then some (0x10000 + (high - 0xD800) * 0x400 + (low - 0xDC00)) else none
+            | .error _ => none
+          else none
+        match paired with
+        | some code => text bytes (i + 12) (out ++ (String.singleton (Char.ofNat code)).toUTF8)
+        | none => text bytes (i + 6) (out ++ (String.singleton (Char.ofNat high)).toUTF8)
+    | _ => .error "invalid escape"
+  | some b => if b < 0x20 then .error "control character in string" else text bytes (i + 1) (out.push b)
+
+mutual
+  partial def value (bytes : ByteArray) (start : Nat) : Except String (Value × Nat) :=
+    let i := skipSpace bytes start
+    match at? bytes i with
+    | some 0x6E => word bytes i "null" .null
+    | some 0x74 => word bytes i "true" (.bool true)
+    | some 0x66 => word bytes i "false" (.bool false)
+    | some 0x22 => (text bytes (i + 1) ByteArray.empty).map fun (s, next) => (.str s, next)
+    | some 0x5B =>
+      let next := skipSpace bytes (i + 1)
+      if is bytes next 0x5D then .ok (.arr #[], next + 1) else items bytes next #[]
+    | some 0x7B =>
+      let next := skipSpace bytes (i + 1)
+      if is bytes next 0x7D then .ok (.obj #[], next + 1) else fields bytes next #[]
+    | some _ => number bytes i
+    | none => .error "unexpected end of input"
+
+  partial def items (bytes : ByteArray) (i : Nat) (out : Array Value) : Except String (Value × Nat) :=
+    match value bytes i with
+    | .error message => .error message
+    | .ok (item, afterItem) =>
+      let next := skipSpace bytes afterItem
+      match at? bytes next with
+      | some 0x2C => items bytes (next + 1) (out.push item)
+      | some 0x5D => .ok (.arr (out.push item), next + 1)
+      | _ => .error "expected , or ]"
+
+  partial def fields (bytes : ByteArray) (start : Nat) (out : Array (String × Value)) : Except String (Value × Nat) :=
+    let i := skipSpace bytes start
+    if !is bytes i 0x22 then .error "expected a member name" else
+    match text bytes (i + 1) ByteArray.empty with
+    | .error message => .error message
+    | .ok (name, afterName) =>
+      if out.any (fun entry => entry.1 == name) then .error "duplicate member name" else
+      let colon := skipSpace bytes afterName
+      if !is bytes colon 0x3A then .error "expected :" else
+      match value bytes (colon + 1) with
+      | .error message => .error message
+      | .ok (member, afterMember) =>
+        let next := skipSpace bytes afterMember
+        match at? bytes next with
+        | some 0x2C => fields bytes (next + 1) (out.push (name, member))
+        | some 0x7D => .ok (.obj (out.push (name, member)), next + 1)
+        | _ => .error "expected , or }"
+end
+
+def parse (input : String) : Except String Value := do
+  let bytes := input.toUTF8
+  let (parsed, next) ← value bytes 0
+  if skipSpace bytes next != bytes.size then throw "unexpected text after the value"
+  pure parsed
+
+namespace Value
+
+def items? : Value → Except String (Array Value)
+  | .arr items => .ok items
+  | _ => .error "array expected"
+
+def field? (input : Value) (name : String) : Except String Value :=
+  match input with
+  | .obj fields =>
+    match fields.find? (fun entry => entry.1 == name) with
+    | some entry => .ok entry.2
+    | none => .error s!"missing member {name}"
+  | _ => .error "object expected"
+
+def string? : Value → Except String String
+  | .str value => .ok value
+  | _ => .error "string expected"
+
+def bool? : Value → Except String Bool
+  | .bool value => .ok value
+  | _ => .error "boolean expected"
+
+def int? : Value → Except String Int
+  | .int value => .ok value
+  | _ => .error "integer expected"
+
+def nat? : Value → Except String Nat
+  | .int value => if value < 0 then .error "natural number expected" else .ok value.toNat
+  | _ => .error "natural number expected"
+
+def ints? (input : Value) : Except String (List Int) := do
+  (← input.items?).toList.mapM int?
+
+def pairs? (input : Value) : Except String (List (Int × Int)) := do
+  (← input.items?).toList.mapM fun entry => do
+    match (← entry.items?).toList with
+    | [lhs, rhs] => pure (← lhs.int?, ← rhs.int?)
+    | _ => throw "pair expected"
+
+end Value
+
+def renderBool (value : Bool) : String := if value then "true" else "false"
+
+def renderArray (items : Array String) : String := "[" ++ ",".intercalate items.toList ++ "]"
+
+end Wire
 
 inductive Op where
   | lt | le | gt | ge | constantTrue | geLiteral (value : Int)
@@ -180,31 +381,31 @@ def decodeOp (op : String) : Except String Op :=
   | "true" => .ok .constantTrue
   | _ => .error "unknown operator"
 
-def decodeReplayHeader (input : Json) : Except String ReplayHeader := do
-  let candidate ← input.getObjValAs? String "candidate"
-  let traceCandidate ← input.getObjValAs? String "traceCandidate"
-  let complete ← input.getObjValAs? Bool "complete"
-  let deterministic ← input.getObjValAs? Bool "deterministic"
-  let original ← decodeOp (← input.getObjValAs? String "original")
-  let encoded ← input.getObjVal? "replacement"
+def decodeReplayHeader (input : Wire.Value) : Except String ReplayHeader := do
+  let candidate ← (← input.field? "candidate").string?
+  let traceCandidate ← (← input.field? "traceCandidate").string?
+  let complete ← (← input.field? "complete").bool?
+  let deterministic ← (← input.field? "deterministic").bool?
+  let original ← decodeOp (← (← input.field? "original").string?)
+  let encoded ← input.field? "replacement"
   let replacement ← match encoded with
     | .str op => decodeOp op
     | _ => do
-      let literal ← encoded.getObjValAs? Int "geLiteral"
+      let literal ← (← encoded.field? "geLiteral").int?
       unless original == .ge && safe literal do throw "invalid literal threshold"
       pure (.geLiteral literal)
   pure { candidate, traceCandidate, complete, deterministic, original, replacement }
 
-def decideReplay (input : Json) : Except String Bool := do
+def decideReplay (input : Wire.Value) : Except String Bool := do
   let header ← decodeReplayHeader input
-  match input.getObjVal? "boundarySummary" with
+  match input.field? "boundarySummary" with
   | .ok encoded =>
-    if (input.getObjVal? "observations").toOption.isSome then throw "ambiguous replay observations"
-    let count ← encoded.getObjValAs? Nat "count"
-    let safeAndUnequal ← encoded.getObjValAs? Bool "safeAndUnequal"
+    if (input.field? "observations").toOption.isSome then throw "ambiguous replay observations"
+    let count ← (← encoded.field? "count").nat?
+    let safeAndUnequal ← (← encoded.field? "safeAndUnequal").bool?
     pure (maySkipBoundary header { count, safeAndUnequal })
   | .error _ =>
-    let observations ← input.getObjValAs? (List (Int × Int)) "observations"
+    let observations ← (← input.field? "observations").pairs?
     pure (maySkip { toReplayHeader := header, observations })
 
 namespace Threshold
@@ -292,7 +493,10 @@ structure Gap where
   witness : Int
   expected : Bool
   mutant : Bool
-deriving ToJson
+
+def Gap.render (gap : Gap) : String :=
+  s!"\{\"interval\":[{gap.interval.1},{gap.interval.2}],\"alternate\":{gap.alternate},\"witness\":{gap.witness}," ++
+    s!"\"expected\":{Wire.renderBool gap.expected},\"mutant\":{Wire.renderBool gap.mutant}}"
 
 def choose (threshold : Int) (b : Int × Int) : Option Gap :=
   if b.1 < threshold then
@@ -354,11 +558,11 @@ theorem no_gap_iff_unique (threshold lo hi : Int) (xs : List Int)
         omega
       · rfl
 
-def decodeGap (input : Json) : Except String (Option Gap) := do
-  let threshold ← input.getObjValAs? Int "threshold"
-  let lo ← input.getObjValAs? Int "min"
-  let hi ← input.getObjValAs? Int "max"
-  let xs ← input.getObjValAs? (List Int) "observations"
+def decodeGap (input : Wire.Value) : Except String (Option Gap) := do
+  let threshold ← (← input.field? "threshold").int?
+  let lo ← (← input.field? "min").int?
+  let hi ← (← input.field? "max").int?
+  let xs ← (← input.field? "observations").ints?
   if safe lo && safe hi && lo ≤ threshold && threshold ≤ hi && !xs.isEmpty &&
       xs.all (fun x => lo ≤ x && x ≤ hi) then
     return choose threshold (bounds threshold lo hi xs)
@@ -368,17 +572,17 @@ end Threshold
 
 def main (args : List String) : IO UInt32 := do
   let input ← (← IO.getStdin).readToEnd
-  match Json.parse input >>= Json.getArr? with
+  match Wire.parse input >>= Wire.Value.items? with
   | .error message =>
     (← IO.getStderr).putStrLn message
     return 1
   | .ok requests =>
     if args == ["thresholds"] then
       let gaps := requests.map fun request => (Threshold.decodeGap request).toOption.join
-      (← IO.getStdout).putStrLn (toJson gaps).compress
+      (← IO.getStdout).putStrLn (Wire.renderArray (gaps.map fun gap => (gap.map Threshold.Gap.render).getD "null"))
       return 0
     let decisions := requests.map fun request => (decideReplay request).toOption.getD false
-    (← IO.getStdout).putStrLn (toJson decisions).compress
+    (← IO.getStdout).putStrLn (Wire.renderArray (decisions.map Wire.renderBool))
     return 0
 
 #print axioms maySkip_replays
