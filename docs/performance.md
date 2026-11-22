@@ -14,6 +14,22 @@ Each comparison alternates nine samples on an Apple M5 Max with Node 24.14.0 and
 
 Warm medians rose by 2.0–4.0%, and cold medians rose by 1.0–1.4% relative to Low★. First extraction remains 4.4–19.9% faster than the former Yuku runtime. Both implementations returned identical candidate, diagnostic and extraction metadata records for 8,549 tracked files and 3,303 unique captured inputs with each logical-rule setting. See the [paired samples and corpus details](../evidence/m1/pulse-parser.json).
 
+## Analysis throughput
+
+Measurements on Apple M5 Max with Node 24.14.0 alternate baseline and current samples. The Git and CLI benchmarks use nine pairs. The coverage planner uses eleven pairs. CLI samples start a fresh Node process with the compile cache disabled.
+
+| Workload | Median |
+| --- | ---: |
+| Git line selection with 100 changes across 1,000 tracked files | 545.80 → 56.47 ms |
+| Standard coverage planning for 500 mutations and 2,000 tests | 77.27 → 1.59 ms |
+| Writing 50,000 observations from one focused test | 973.66 → 20.35 ms |
+| Focused CLI with the 50,000-observation fixture | 2.93 → 1.03 s |
+| Focused CLI with eight comparisons reached by one of twelve tests | 2.76 → 0.80 s |
+
+With one changed file, Git scope selection took 46.90 → 46.79 ms. The scope and coverage measurements exclude test execution. The trace reader returned identical ordered observation bytes after removing internal control records, and the 50,000-observation CLI reports matched. On the twelve-test fixture, Lean reduced Vitest launches from eleven to three. The reports matched after excluding the fields that identify how each verdict was obtained.
+
+Focused trials continue to use independent project copies and Vitest contexts. Trace batches are accepted after task completion. If another producer writes while a chunk is pending, the runner repeats the attempt with immediate writes in a fresh copy. Threshold planning uses one lazy TypeScript parse per file across all comparison operators. See the [paired samples](../evidence/m1/analysis-throughput.json).
+
 ## Pulse byte-class scanner pilot
 
 The Pulse build replaces only the Low★ byte-class scanner. The scanner predicate, parser, compatibility route and Node-API interface are shared. Both variants use native LTO and fixture-trained PGO. Each column compares nine alternating samples on an Apple M5 Max with Node 24.14.0. First extraction starts a new process for each sample and disables the Node compile cache. Both measurements parse pre-read source buffers.
