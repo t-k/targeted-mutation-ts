@@ -1,10 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-const { values } = parseArgs({ options: { 'low-only': { type: 'boolean' }, pgo: { type: 'boolean' }, output: { type: 'string' } } });
+const { values } = parseArgs({ options: {
+  'low-only': { type: 'boolean' }, 'scalar-scans': { type: 'boolean' }, pgo: { type: 'boolean' }, output: { type: 'string' },
+} });
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const output = resolve(root, values.output ?? 'build/tmt.node');
@@ -42,6 +44,42 @@ function nativeOptimizationFlags(compiler) {
 
 const compiler = process.env.CC ?? (macOS ? '/usr/bin/clang' : 'cc');
 
+function parserSource(scratch) {
+  const original = 'native/generated/Custard.c';
+  if (values['scalar-scans'] || process.arch !== 'arm64' || (!macOS && process.platform !== 'linux') ||
+      !existsSync(resolve(root, original))) return original;
+  const loops = [
+    ['line_comment', 'bool value = TmtPulseParser_line_break(input, at);', '13, 10'],
+    ['block_comment', 'bool value = TmtPulseParser_same(input, at, 42U);', '42, 42'],
+    ['string_end', 'uint8_t value = TmtPulseMemory_peek(input, at);', 'delimiter, 92'],
+  ];
+  let source = readFileSync(resolve(root, original), 'utf8');
+  const include = '#include "Custard.h"\n';
+  if (!source.includes(include)) return original;
+  for (const [loop, scalar, sentinels] of loops) {
+    const start = source.indexOf(`\nTmtPulseParser_${loop}(`);
+    const end = source.indexOf('\n}\n', start);
+    if (start < 0 || end < 0) return original;
+    const body = source.slice(start, end);
+    const anchor = `    else\n    {\n      ${scalar}`;
+    const at = body.indexOf(anchor);
+    if (at < 0 || at !== body.lastIndexOf(anchor) || !body.slice(0, at).includes('while (true)')) return original;
+    const position = start + at + anchor.length - scalar.length - 6;
+    const fast = `#if defined(__aarch64__)
+      if (at < input.size && fuel >= 16U && input.size - at >= 16U) {
+        const unsigned skipped = tmt_neon_scan(input.source + at, ${sentinels});
+        if (skipped != 0U) { at += skipped; fuel -= skipped; continue; }
+      }
+#endif
+`;
+    source = source.slice(0, position) + fast + source.slice(position);
+  }
+  const output = resolve(scratch, 'Custard.neon.c');
+  const header = '#if defined(__aarch64__)\n#include "tmt_neon_scan.h"\n#endif\n';
+  writeFileSync(output, source.replace(include, include + header));
+  return output;
+}
+
 const args = [
   '-std=c11', '-O3', '-Wall', '-Wextra', '-Werror', '-Wno-parentheses', '-fPIC',
   ...nativeOptimizationFlags(compiler),
@@ -52,11 +90,10 @@ const args = [
   ...(values['low-only'] ? ['-DTMT_LOW_ONLY'] : []),
   '-I', headers, '-I', 'native/generated', '-I', 'native/runtime',
   'native/addon.c', 'native/parser.c', 'native/positions.c',
-  'native/generated/Custard.c',
 ];
 
-function compile(target, flags = [], stdio = 'inherit') {
-  return spawnSync(compiler, [...args, ...flags, '-o', target], { cwd: root, stdio });
+function compile(input, target, flags = [], stdio = 'inherit') {
+  return spawnSync(compiler, [...args, input, ...flags, '-o', target], { cwd: root, stdio });
 }
 
 function profileTool() {
@@ -68,14 +105,14 @@ function profileTool() {
   return 'llvm-profdata';
 }
 
-function buildProfiled() {
+function buildProfiled(input) {
   const tool = profileTool();
   const probe = spawnSync(tool, ['--version'], { stdio: 'ignore', timeout: 10_000 });
   if (probe.status !== 0) return false;
   const scratch = mkdtempSync(resolve(outputDirectory, '.profile-'));
   try {
     const instrumented = resolve(scratch, 'instrumented.node');
-    if (compile(instrumented, ['-fprofile-instr-generate'], 'pipe').status !== 0) return false;
+    if (compile(input, instrumented, ['-fprofile-instr-generate'], 'pipe').status !== 0) return false;
     const raw = resolve(scratch, 'training.profraw');
     const trained = spawnSync(process.execPath, [resolve(root, 'scripts/train-native.mjs'), instrumented], {
       cwd: root, env: { ...process.env, LLVM_PROFILE_FILE: raw }, stdio: 'inherit', timeout: 15_000,
@@ -85,7 +122,7 @@ function buildProfiled() {
     const merged = spawnSync(tool, ['merge', '-o', profile, raw], { cwd: root, stdio: 'inherit', timeout: 15_000 });
     if (merged.status !== 0) return false;
     const optimized = resolve(scratch, 'optimized.node');
-    if (compile(optimized, [`-fprofile-instr-use=${profile}`]).status !== 0) return false;
+    if (compile(input, optimized, [`-fprofile-instr-use=${profile}`]).status !== 0) return false;
     renameSync(optimized, output);
     return true;
   } finally {
@@ -93,18 +130,19 @@ function buildProfiled() {
   }
 }
 
-if (values.pgo && buildProfiled()) {
-  console.log('Built native extractor with fixture PGO');
-  process.exit(0);
-}
-if (values.pgo) console.warn('Fixture PGO unavailable. Building the regular native extractor.');
 const scratch = mkdtempSync(resolve(outputDirectory, '.native-'));
 try {
-  const pending = resolve(scratch, 'tmt.node');
-  const built = compile(pending);
-  if (built.error) throw built.error;
-  if (built.status === 0) renameSync(pending, output);
-  else process.exitCode = built.status ?? 1;
+  const input = parserSource(scratch);
+  if (values.pgo && buildProfiled(input)) {
+    console.log('Built native extractor with fixture PGO');
+  } else {
+    if (values.pgo) console.warn('Fixture PGO unavailable. Building the regular native extractor.');
+    const pending = resolve(scratch, 'tmt.node');
+    const built = compile(input, pending);
+    if (built.error) throw built.error;
+    if (built.status === 0) renameSync(pending, output);
+    else process.exitCode = built.status ?? 1;
+  }
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }

@@ -1,0 +1,7 @@
+Token	Stop	Position
+Line	CRLF	LastLane
+Block	UnicodeLine	LastLane
+SingleQuoted	Escape	LastLane
+DoubleQuoted	Delimiter	NextLane
+Line	NonSeparatorE2	TwoBlocks
+Block	Delimiter	Start

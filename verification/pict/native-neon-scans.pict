@@ -1,0 +1,3 @@
+Token: Line, Block, SingleQuoted, DoubleQuoted
+Stop: LF, CRLF, UnicodeLine, NonSeparatorE2, Escape, Delimiter
+Position: Start, LastLane, NextLane, TwoBlocks
