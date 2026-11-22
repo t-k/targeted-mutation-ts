@@ -75,7 +75,9 @@ export function extractFallback(input, options = {}) {
 }
 
 export function extract(input, options = {}) {
-  if (!native && options.requireNative) throw new Error('Run npm run build:native to build the extractor');
+  if (!native && options.requireNative) throw new Error(`The native extractor is not available for ${process.platform} ${process.arch}. ` +
+      'Prebuilt binaries cover macOS and Linux (glibc) on arm64 and x64; check that optional dependencies were installed. ' +
+      'In a source checkout, run npm run build:native to build the extractor.');
   const { dialect, mode } = optionsFor(options);
   let reason = 'native-unavailable';
   let metrics;

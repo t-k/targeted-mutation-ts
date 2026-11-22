@@ -29,6 +29,13 @@ export function snapshotVitestRun(root, modules, unhandled, reason) {
   return { tests, modules: files, errors: errors.map(error => error.message), reason };
 }
 
+// A baseline report names what failed so the suite can be fixed without a second run.
+export function failedTests(run, limit = 20) {
+  return (run.tests ?? []).filter(test => test.status === 'failed').slice(0, limit).map(test => ({
+    file: test.file, name: test.name, failures: (test.failures ?? []).slice(0, 5).map(failure => String(failure).slice(0, 2000)),
+  }));
+}
+
 export default class TmtReporter {
   onTestRunEnd(modules, unhandled, reason) {
     const run = snapshotVitestRun(process.env.TMT_WORKSPACE, modules, unhandled, reason);

@@ -41,6 +41,7 @@ test('a platform manifest restricts installation to its OS, CPU and C library', 
   assert.deepEqual([mac.os, mac.cpu], [['darwin'], ['arm64']]);
   assert.equal(Object.hasOwn(mac, 'libc'), false);
   for (const field of ['bin', 'dependencies', 'scripts', 'private']) assert.equal(Object.hasOwn(mac, field), false, field);
+  assert.equal(mac.description, 'Native parser and decision executable of targeted-mutation for darwin arm64.');
   assert.throws(() => platformManifest(root, 'win32', 'x64'), /No platform package is built for win32-x64/);
 });
 
@@ -62,7 +63,16 @@ test('an incomplete or inconsistent set is refused before anything is published'
   assert.throws(() => publishOrder(platforms()), /Expected one main package, found 0/);
   assert.throws(() => publishOrder([main, main, ...platforms()]), /Expected one main package, found 2/);
   assert.throws(() => publishOrder([main, ...platforms().slice(1)]), /Platform packages do not match the main package: expected .*found @targeted-mutation\/tmt-darwin-x64/);
-  assert.throws(() => publishOrder([main]), /found none/);
+  assert.throws(() => publishOrder([main]), {
+    message: 'Platform packages do not match the main package: expected @targeted-mutation/tmt-darwin-arm64, ' +
+      '@targeted-mutation/tmt-darwin-x64, @targeted-mutation/tmt-linux-arm64, @targeted-mutation/tmt-linux-x64; found none',
+  });
+  assert.throws(() => publishOrder([main, ...platforms().slice(2)]),
+    /found @targeted-mutation\/tmt-linux-arm64, @targeted-mutation\/tmt-linux-x64$/);
+  const pinnedElsewhere = platforms();
+  pinnedElsewhere[0] = { ...pinnedElsewhere[0], version: '0.0.9' };
+  const following = { ...main, optionalDependencies: { ...main.optionalDependencies, [pinnedElsewhere[0].name]: '0.0.9' } };
+  assert.throws(() => publishOrder([following, ...pinnedElsewhere]), /tmt-darwin-arm64@0\.0\.9 does not match targeted-mutation@/);
   const stale = platforms();
   stale[2] = { ...stale[2], version: '0.0.9' };
   assert.throws(() => publishOrder([main, ...stale]), /tmt-linux-arm64@0\.0\.9 does not match targeted-mutation@/);

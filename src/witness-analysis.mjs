@@ -4,7 +4,8 @@ import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync }
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { verdict } from './analysis.mjs';
 import { selectScope } from './scope.mjs';
-import { failedTests, inside, runVitest, withCopy } from './vitest.mjs';
+import { failedTests } from './vitest-reporter.mjs';
+import { inside, runVitest, withCopy } from './vitest.mjs';
 import { parseSource, discoverWitnessRules } from './witness-rules.mjs';
 import { fixtureCalls, witnessProposals } from './witness-fixtures.mjs';
 import { prepareContracts, evaluateContracts } from './witness-contracts.mjs';

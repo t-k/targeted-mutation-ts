@@ -93,3 +93,59 @@ test('help starts with usage and names every option the CLI parses', () => {
   assert.ok(options.length >= 17, `parsed ${options.length} options`);
   for (const option of options) assert.ok(usage.includes(`--${option}`), `--${option} is undocumented`);
 });
+
+test('the text report has an exact layout', () => {
+  assert.equal(renderText(reports.Gaps), [
+    'src/cart.ts:4:13  survived  comparison-boundary/v1: >= -> >',
+    'src/cart.ts:9:13  killed  comparison-boundary/v1: >= -> >',
+    '',
+    'Test gaps:',
+    'INPUT GAP src/cart.ts:4:13',
+    '  operands (5000, 5000): original true, edited false',
+    '  suggested test: expect(shippingFee(5000)).toBe(0)',
+    '',
+    'vitest, 5 baseline tests: 2 edits (1 survived, 1 killed), 1 test gaps',
+  ].join('\n'));
+  assert.equal(renderText(reports.Clean), [
+    'src/cart.ts:9:13  killed  comparison-boundary/v1: >= -> >', '',
+    'vitest, 5 baseline tests: 1 edits (1 killed), 0 test gaps',
+  ].join('\n'));
+  assert.equal(renderText(reports.BaselineFailed), [
+    'The test suite did not pass before any edit (baseline failed). Fix it and run again.',
+    '  FAILED test/bad.test.ts > fails',
+    '    expected 1 to be 2',
+  ].join('\n'));
+});
+
+test('sparse reports render without invented entries', () => {
+  assert.equal(renderText({ runner: 'playwright', evaluation: 'evaluated' }), 'playwright: 0 edits (none), 0 test gaps');
+  assert.equal(renderText({ runner: 'vitest', evaluation: 'evaluated', extraction: [{ file: 'a.ts', path: 'fast' }],
+    mutants: [{ location, replacement: '>', status: 'killed' }, { location, operator: '>', replacement: '>x', status: 'killed' },
+      { location, operator: '>', replacement: 'x>=', status: 'killed' }],
+    diagnostics: [{ kind: 'INPUT GAP', location }] }), [
+    'src/cart.ts:4:13  killed  edit: replace with >',
+    'src/cart.ts:4:13  killed  edit: replace with >x',
+    'src/cart.ts:4:13  killed  edit: replace with x>=',
+    '', 'Test gaps:', 'INPUT GAP src/cart.ts:4:13', '',
+    'vitest: 3 edits (3 killed), 1 test gaps',
+  ].join('\n'));
+  assert.equal(renderText({ evaluation: 'no_sites', extraction: [{ file: 'b.ts', path: 'diagnostic' }, { file: 'c.ts', path: 'diagnostic', reason: 'source-limit' }] }),
+    'SKIPPED b.ts: not analyzed\nSKIPPED c.ts: source-limit\n\nNo edit sites in the selected scope.');
+  assert.equal(renderText({ evaluation: 'baseline_error' }),
+    'The test suite did not pass before any edit (baseline unknown). Fix it and run again.');
+  assert.equal(renderText({ evaluation: 'baseline_error', baseline: { status: 'failed', failedTests: [{ file: 'a', name: 'b' }] } }),
+    'The test suite did not pass before any edit (baseline failed). Fix it and run again.\n  FAILED a > b');
+});
+
+test('runner output is shown only when nothing more specific explains a baseline error', () => {
+  const output = '\n' + Array.from({ length: 25 }, (_, index) => `line ${index + 1}`).join('\n') + '\n\n';
+  const shown = renderText({ evaluation: 'baseline_error', baseline: { status: 'error', output } }).split('\n');
+  assert.equal(shown.length, 21);
+  assert.deepEqual([shown[1], shown.at(-1)], ['  line 6', '  line 25']);
+  const header = 'The test suite did not pass before any edit (baseline error). Fix it and run again.';
+  assert.equal(renderText({ evaluation: 'baseline_error', baseline: { status: 'error', output: '  \n' } }), header);
+  assert.equal(renderText({ evaluation: 'baseline_error', baseline: { status: 'error', output, errors: ['\n  Unhandled rejection  \nstack'] } }),
+    `${header}\n  ERROR Unhandled rejection`);
+  assert.equal(renderText({ evaluation: 'baseline_error', baseline: { status: 'error', output, errors: [' \n '],
+    failedTests: [{ file: 'a', name: 'b', failures: [] }] } }), `${header}\n  FAILED a > b\n  ERROR `);
+});

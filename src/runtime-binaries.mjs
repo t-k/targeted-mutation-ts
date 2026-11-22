@@ -27,9 +27,9 @@ const require = createRequire(import.meta.url);
 const localRoot = fileURLToPath(new URL('../build/', import.meta.url));
 let ownVersion;
 
-function resolvePackage(name) {
+export function installedPackage(name, resolver = require) {
   try {
-    const manifest = require.resolve(`${name}/package.json`);
+    const manifest = resolver.resolve(`${name}/package.json`);
     return { root: dirname(manifest), version: JSON.parse(readFileSync(manifest, 'utf8')).version };
   } catch {
     return null;
@@ -43,6 +43,6 @@ export function packageVersion() {
 
 export function binaryPath(name) {
   return locateBinary(name, {
-    host: process, get version() { return packageVersion(); }, localRoot, exists: existsSync, resolvePackage,
+    host: process, get version() { return packageVersion(); }, localRoot, exists: existsSync, resolvePackage: installedPackage,
   })?.path ?? null;
 }

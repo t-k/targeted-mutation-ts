@@ -47,6 +47,8 @@ test('refuses mutations following a failing baseline', () => temporaryProject(ro
   assert.equal(status, 1);
   assert.equal(report.evaluation, 'baseline_error');
   assert.equal(report.mutants.length, 0);
+  assert.deepEqual(report.baseline.failedTests.map(failed => [failed.file, failed.name]), [['subject.test.ts', 'fails']]);
+  assert.match(report.baseline.failedTests[0].failures[0], /expected true to be false/);
 }));
 
 test('captures mutation coverage in user teardown hooks', () => temporaryProject(root => {

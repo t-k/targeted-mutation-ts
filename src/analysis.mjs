@@ -5,7 +5,8 @@ import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mj
 import { comparisonThresholdSites } from './prototype.mjs';
 import { thresholdGaps } from './threshold.mjs';
 import { tightenComparison } from './displacement.mjs';
-import { failedTests, inside, runVitest, withCopy } from './vitest.mjs';
+import { failedTests } from './vitest-reporter.mjs';
+import { inside, runVitest, withCopy } from './vitest.mjs';
 import { createProbePreloadCheck, freshProbeBinding, instrument, installProbe, rewrite } from './probe.mjs';
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';

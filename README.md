@@ -32,7 +32,7 @@ Requirements:
 
 - Node.js 22.15 or later.
 - [Vitest](https://vitest.dev/) or [Playwright](https://playwright.dev/) installed in the project or its workspace. Releases are tested with Vitest 4.0 and Playwright 1.65.
-- Prebuilt binaries are installed automatically on macOS (arm64, x64) and Linux with glibc (arm64, x64). On other platforms the tool parses with TypeScript and decides every trial by running the tests, which is slower. Those platforms are not tested.
+- macOS (arm64, x64) or Linux with glibc (arm64, x64). npm installs the matching prebuilt binary package automatically. `analyze` needs it and stops with a message on other platforms, including Windows and Alpine Linux; `extract` still works there through the TypeScript parser.
 
 The tool copies the project to a temporary directory and runs the project's own test code and configuration there. Run it only on code you trust, as you would run the test suite.
 

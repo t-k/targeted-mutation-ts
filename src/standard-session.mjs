@@ -2,7 +2,7 @@ import { appendFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { snapshotVitestRun } from './vitest-reporter.mjs';
+import { failedTests, snapshotVitestRun } from './vitest-reporter.mjs';
 import { indexCoverage, agreesWithCoverage, assessTrial } from './standard-plan.mjs';
 import { checkReplay } from './lean-replay.mjs';
 import { inside } from './vitest.mjs';
@@ -97,7 +97,8 @@ try {
   if (!passed.length || tests.size !== passed.length || passed.some(test => !coveredModules.has(subjectKey(test.project, test.file))) ||
       baseline.snapshot.errors.length || baseline.snapshot.reason !== 'passed') {
     record({ baseline: { status: 'error', errors: baseline.snapshot.errors,
-      output: baseline.snapshot.tests.flatMap(test => test.failures).join('\n') } });
+      output: baseline.snapshot.tests.flatMap(test => test.failures).join('\n'),
+      failedTests: failedTests(baseline.snapshot) } });
   } else {
     record({ baseline: { status: 'passed', tests: baseline.snapshot.tests.length } });
     const baselineCoverage = indexCoverage(baseline.records, tests);

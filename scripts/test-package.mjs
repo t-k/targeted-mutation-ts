@@ -54,7 +54,8 @@ try {
   assert.match(readFileSync(join(syntax, 'LICENSE.txt'), 'utf8'), /Apache License/);
   assert.ok(readFileSync(join(syntax, 'ThirdPartyNoticeText.txt')).length);
   const lock = JSON.parse(readFileSync(join(cwd, 'package-lock.json'), 'utf8'));
-  assert.deepEqual(Object.keys(lock.packages).filter(path => path.startsWith('node_modules/')).sort(),
+  // The lockfile also lists the other platforms' optional packages, which npm does not install here.
+  assert.deepEqual(Object.keys(lock.packages).filter(path => path.startsWith('node_modules/') && existsSync(join(cwd, path))).sort(),
     [`node_modules/@targeted-mutation/tmt-${target}`, 'node_modules/targeted-mutation', 'node_modules/typescript']);
   assert.deepEqual(platformManifest.os, [process.platform]);
   assert.deepEqual(platformManifest.cpu, [process.arch]);
@@ -163,7 +164,7 @@ registerHooks({ load(url, context, next) {
   const denied = spawnSync(npm, ['install', join(mismatch, filename), '--no-audit', '--no-fund'], { cwd, encoding: 'utf8', timeout: 240_000 });
   assert.notEqual(denied.status, 0);
   assert.match(denied.stderr, /EBADPLATFORM/);
-  // Without a platform package the CLI parses with TypeScript and decides every trial by a real run.
+  // Without a platform package extraction falls back to TypeScript and analysis explains what is missing.
   const hiddenPlatform = join(cwd, 'hidden-platform');
   renameSync(platformPackage, hiddenPlatform);
   try {
@@ -171,10 +172,10 @@ registerHooks({ load(url, context, next) {
     assert.equal(portable.path, 'fallback');
     assert.equal(portable.reason, 'native-unavailable');
     assert.deepEqual(portable.candidates.map(candidate => candidate.operator), ['<']);
-    const unassisted = JSON.parse(run(process.execPath, [entry, 'analyze', ...profiles.Focused]));
-    assert.equal(unassisted.evaluation, 'evaluated');
-    assert.ok(unassisted.mutants.length > 0);
-    assert.ok(unassisted.mutants.every(mutant => mutant.evidence === 'reexecuted'));
+    const unassisted = spawnSync(process.execPath, [entry, 'analyze', ...profiles.Focused], { cwd, encoding: 'utf8', timeout: 240_000 });
+    assert.equal(unassisted.status, 1);
+    assert.equal(unassisted.stdout, '');
+    assert.match(unassisted.stderr, new RegExp(`^The native extractor is not available for ${process.platform} ${process.arch}\\. Prebuilt binaries cover`));
   } finally {
     renameSync(hiddenPlatform, platformPackage);
   }

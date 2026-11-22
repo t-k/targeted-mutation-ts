@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
-import { locateBinary, platformPackage, supportedTargets } from '../src/runtime-binaries.mjs';
+import { binaryPath, installedPackage, locateBinary, packageVersion, platformPackage, supportedTargets } from '../src/runtime-binaries.mjs';
 
 const scenarios = readFileSync(new URL('../verification/pict/runtime-binaries.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1).map(row => row.split('\t'));
@@ -49,8 +52,28 @@ test('platform packages exist only for the built targets', () => {
   assert.equal(platformPackage('linux', 'ia32'), null);
 });
 
-test('this checkout resolves its own built binaries', async () => {
-  const { binaryPath } = await import('../src/runtime-binaries.mjs');
+test('this checkout resolves its own built binaries and version', () => {
   assert.match(binaryPath('tmt.node'), /build[\\/]tmt\.node$/);
   assert.equal(binaryPath('absent-binary'), null);
+  const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(packageVersion(), version);
+  assert.equal(packageVersion(), version);
+});
+
+test('an installed platform package is read from node_modules and a missing one is absent', () => {
+  const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'tmt-platform-package-')));
+  try {
+    const name = '@targeted-mutation/tmt-linux-x64';
+    const root = join(scratch, 'node_modules', name);
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name, version: '4.5.6' }));
+    const resolver = createRequire(join(scratch, 'entry.js'));
+    assert.deepEqual(installedPackage(name, resolver), { root, version: '4.5.6' });
+    assert.equal(installedPackage('@targeted-mutation/tmt-darwin-x64', resolver), null);
+    writeFileSync(join(root, 'package.json'), 'not json');
+    assert.equal(installedPackage(name, resolver), null);
+    assert.equal(installedPackage('@targeted-mutation/tmt-absent-target'), null);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
 });

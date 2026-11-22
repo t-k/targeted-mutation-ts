@@ -33,7 +33,7 @@ export function platformManifest(root, platform, arch) {
 }
 
 export function tarballName(manifest) {
-  return `${manifest.name.replace(/^@/, '').replace('/', '-')}-${manifest.version}.tgz`;
+  return `${manifest.name.replace('@', '').replace('/', '-')}-${manifest.version}.tgz`;
 }
 
 // Platform packages first: an installable main package always finds its binaries.
