@@ -1,0 +1,4 @@
+Enclosing: Async, Generator, AsyncGenerator, Top, Sync
+Member: Method, AsyncMethod, GeneratorMethod, Getter, Setter
+Expression: Await, Yield
+Mode: Module, Script

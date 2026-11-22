@@ -869,8 +869,9 @@ export function createTypeScriptGrammar(ts, bindings) {
         const fn = isFunctionLike(node);
         const arrow = isArrowFunction(node);
         const nextField = inField || (field && (!fn || arrow || node.name === child));
-        const nextAwait = inField ? false : fn && node.name !== child ? hasModifier(node, SyntaxKind.AsyncKeyword) : canAwait;
-        const nextYield = inField ? false : fn && node.name !== child ? !!node.asteriskToken : canYield;
+        const usesFunctionContext = fn && node.name !== child && child.kind !== SyntaxKind.Decorator;
+        const nextAwait = inField ? false : usesFunctionContext ? hasModifier(node, SyntaxKind.AsyncKeyword) : canAwait;
+        const nextYield = inField ? false : usesFunctionContext ? !!node.asteriskToken : canYield;
         const nextFormal = fn ? node.parameters.includes(child) : formal;
         const parentPattern = assignmentPattern && (isArrayLiteralExpression(node) || isObjectLiteralExpression(node) ||
           isParenthesizedExpression(node) || isPropertyAssignment(node) && node.initializer === child ||

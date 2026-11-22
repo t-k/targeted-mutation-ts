@@ -44,6 +44,57 @@ test('compatibility parser handles private JSX member names and unadorned TSX ge
   compare('const choose = async <T>(item: T) => await pick(item < limit);', options);
 });
 
+const decoratorContextRows = readFileSync(new URL('../verification/pict/decorator-context.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of decoratorContextRows) {
+  const [enclosing, member, expression, mode] = row.split('\t');
+  test(`class member decorator context: ${enclosing} ${member} ${expression} ${mode}`, () => {
+    const enclosingFunction = {
+      Async: 'async function outer()',
+      Generator: 'function* outer()',
+      AsyncGenerator: 'async function* outer()',
+      Sync: 'function outer()',
+    }[enclosing];
+    const declaration = {
+      Method: 'method() {}',
+      AsyncMethod: 'async method() {}',
+      GeneratorMethod: '*method() {}',
+      Getter: 'get value() {}',
+      Setter: 'set value(input) {}',
+    }[member];
+    const klass = `class C { @dec(${expression.toLowerCase()} value < limit) ${declaration} }`;
+    const source = '/* 🧪 */ const keep = a > b; ' + (enclosingFunction ? `${enclosingFunction} { ${klass} }` : klass);
+    const result = compare(source, { file: 'decorator.ts', mode: mode.toLowerCase() });
+    const permitted = expression === 'Await'
+      ? enclosing === 'Async' || enclosing === 'AsyncGenerator' || enclosing === 'Top' && mode === 'Module'
+      : enclosing === 'Generator' || enclosing === 'AsyncGenerator';
+    assert.equal(result.path, permitted ? 'fallback' : 'diagnostic');
+    assert.deepEqual(result.candidates.map(candidate => candidate.operator), permitted ? ['>', '<'] : []);
+  });
+}
+
+test('parenthesized method decorators retain comparisons inside await operands', () => {
+  const source = '/* 🧪 */ async function outer() { class C { @(record(await (value < limit)), dec) method() {} } }';
+  const result = compare(source, { file: 'decorator.ts' });
+  assert.equal(result.candidates.length, 1);
+  assert.equal(Buffer.from(source).toString('utf8', ...result.candidates[0].edit), '<');
+});
+
+test('decorator expressions leave method bodies, parameters, and nested functions in their own contexts', () => {
+  for (const source of [
+    'async function outer() { class C { @dec(await value < limit) method() { await value; } } }',
+    'function* outer() { class C { @dec(yield value < limit) method() { yield value; } } }',
+    'async function outer() { class C { @dec(await value < limit) async method(input = await value) {} } }',
+    'function* outer() { class C { @dec(yield value < limit) *method(input = yield value) {} } }',
+    'async function outer() { class C { @dec(() => await value < limit) method() {} } }',
+  ]) {
+    const result = compare(source, { file: 'decorator.ts' });
+    assert.equal(result.path, 'diagnostic', source);
+    assert.equal(result.diagnostics.length, 1, source);
+    assert.equal(result.diagnostics[0].end, source.lastIndexOf('value') + 'value'.length, source);
+  }
+});
+
 test('custom early errors point to their UTF-8 source region', () => {
   const source = '/* 🧪 */\nclass A { static prototype = 1; } const probe = left < right;';
   const result = compare(source, { file: 'invalid.ts' });
