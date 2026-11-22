@@ -1,0 +1,5 @@
+Syntax	Target	Module	Map
+TypeScript	Modern	Preserve	Off
+JSX	ES2018	CJS	On
+Enum	Modern	Preserve	Off
+Broken	Modern	Preserve	On

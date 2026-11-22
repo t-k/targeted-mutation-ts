@@ -1,0 +1,4 @@
+Syntax: TypeScript, JSX, Enum, Broken
+Target: Modern, ES2018
+Module: Preserve, CJS
+Map: Off, On
