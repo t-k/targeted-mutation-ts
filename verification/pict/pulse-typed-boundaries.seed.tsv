@@ -1,0 +1,9 @@
+Form	Context	Suffix
+ThisType	Direct	Comparison
+ThisQuery	AfterImport	Comparison
+Receiver	Direct	Comparison
+PublicAbstract	AfterImport	Comparison
+DeclareAlias	Direct	Comparison
+EscapedBacktick	Direct	Comparison
+LongUnion	AfterImport	Comparison
+ThisQuery	Direct	Malformed

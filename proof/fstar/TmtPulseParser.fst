@@ -308,7 +308,7 @@ let simple_escape (input:tape) (#frame:slprop) (at:U32.t) (template:bool) : Tot 
   read_ret input #frame (escape = 92uy || escape = 34uy || escape = 39uy ||
   escape = 110uy || escape = 114uy || escape = 116uy || escape = 98uy ||
   escape = 102uy || escape = 118uy || (escape = 48uy && not (G.decimal_digit following)) ||
-  (template && (escape = 36uy || escape = 96uy)))
+  escape = 96uy || (template && escape = 36uy))
 
 let rec fixed_hex (input:tape) (#frame:slprop) (at digits:U32.t) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v digits) =
   if digits = 0ul then read_ret input #frame ({ at; ok = true; newline = false })
@@ -858,7 +858,8 @@ let builtin_type (packed:U64.t) : bool =
   packed = 0x6f626a656374uL || packed = 0x73796d626f6cuL ||
   packed = 0x756e6b6e6f776euL || packed = 0x616e79uL ||
   packed = 0x6e65766572uL || packed = 0x766f6964uL ||
-  packed = 0x6e756c6cuL || packed = 0x74727565uL || packed = 0x66616c7365uL
+  packed = 0x6e756c6cuL || packed = 0x74727565uL || packed = 0x66616c7365uL ||
+  packed = 0x74686973uL
 
 let type_name (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! width =
@@ -867,7 +868,8 @@ let type_name (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt curso
     else (let! anf_value_3 = (fun () -> keyword input #frame state.offset 4ul 0x74727565uL) in if anf_value_3 then read_ret input #frame (4ul)
     else (let! anf_value_4 = (fun () -> keyword input #frame state.offset 5ul 0x66616c7365uL) in if anf_value_4 then read_ret input #frame (5ul)
     else (let! anf_value_5 = (fun () -> keyword input #frame state.offset 5ul 0x636f6e7374uL) in if anf_value_5 then read_ret input #frame (5ul)
-    else read_ret input #frame (0ul))))))) in
+    else (let! this_ = (fun () -> keyword input #frame state.offset 4ul 0x74686973uL) in
+    read_ret input #frame (if this_ then 4ul else 0ul)))))))) in
   if width <> 0ul then read_ret input #frame ({ at = plus state.offset width; ok = true; newline = false })
   else name input #frame state.offset false false
 
@@ -985,7 +987,9 @@ let type_query (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt type
   (let! anf_value_1 = (fun () -> keyword input #frame target.offset 6ul 0x696d706f7274uL) in if anf_value_1 then
     (let! anf_value_2 = (fun () -> import_type input #frame target) in read_ret input #frame ({ query_end = anf_value_2; is_import = true }))
   else
-    let! named = (fun () -> (let! anf_value_3 = (fun () -> (name input #frame target.offset false false)) in read_ret input #frame (from_cursor target anf_value_3))) in
+    let! this_ = (fun () -> keyword input #frame target.offset 4ul 0x74686973uL) in
+    let! named = (fun () -> if this_ then read_ret input #frame { target with offset = plus target.offset 4ul }
+      else (let! anf_value_3 = (fun () -> name input #frame target.offset false false) in read_ret input #frame (from_cursor target anf_value_3))) in
     (let! anf_value_4 = (fun () -> qualified_name input #frame named 64ul) in read_ret input #frame ({ query_end = anf_value_4; is_import = false })))
 
 let spread_at (input:tape) (#frame:slprop) (at:U32.t) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
@@ -1698,7 +1702,7 @@ let admissible_type_binding (input:tape) (#frame:slprop) (first last:U32.t) : To
 
 let type_alias_tail (input:tape) (#frame:slprop) (state:parser_state) (before_brace:bool) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! st = (fun () -> (let! anf_value_1 = (fun () -> (optional_type_parameters input #frame state)) in skip input #frame anf_value_1)) in
-  let! alias = (fun () -> (let! anf_value_2 = (fun () -> (consume input #frame st 61uy)) in annotation_type input #frame anf_value_2 16ul 64ul)) in
+  let! alias = (fun () -> (let! anf_value_2 = (fun () -> (consume input #frame st 61uy)) in annotation_type input #frame anf_value_2 16ul 256ul)) in
   statement_end input #frame alias alias.offset before_brace
 
 let local_type_alias (input:tape) (state:parser_state) (floor used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
@@ -1793,6 +1797,17 @@ let abstract_class_start (input:tape) (#frame:slprop) (state:parser_state)
     let! modifier = (fun () -> abstract_modifier input #frame state.offset) in
     let! class_ = (fun () -> if modifier.ok then class_keyword input #frame modifier.at else read_ret input #frame false) in
     read_ret input #frame { modifier with ok = class_ }
+
+let abstract_member_modifier (input:tape) (#frame:slprop) (start:U32.t) (byte:U8.t)
+  : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  if byte = 97uy then abstract_modifier input #frame start
+  else
+    let! public_ = (fun () -> keyword input #frame start 6ul 0x7075626c6963uL) in
+    if not public_ then read_ret input #frame { at = start; ok = false; newline = false }
+    else
+      let! after = (fun () -> trivia input #frame (plus start 6ul)) in
+      if after.ok && not after.newline then abstract_modifier input #frame after.at
+      else read_ret input #frame { after with ok = false }
 
 type class_key = {
   after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool; readonly_:bool; arity:parameter_arity;
@@ -3055,7 +3070,9 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
     let! receiver = (fun () -> if remaining = 64ul then keyword input st.offset 4ul 0x74686973uL else ret input (false)) in
     if receiver then
       let! colon = (fun () -> skip input { st with offset = plus st.offset 4ul }) in
-      let! typed = (fun () -> (let! anf_value_4 = (fun () -> (consume input colon 58uy)) in annotation_type input anf_value_4 16ul 64ul)) in
+      let! mark = (fun () -> peek input colon.offset) in
+      let! typed = (fun () -> if not constructor && (mark = 41uy || mark = 44uy) then ret input colon
+        else (let! anf_value_4 = (fun () -> consume input colon 58uy) in annotation_type input anf_value_4 16ul 64ul)) in
       let! end_ = (fun () -> skip input typed) in
       (let! anf_value_5 = (fun () -> same input end_.offset 44uy) in if anf_value_5 then
         (let! anf_value_6 = (fun () -> (consume input end_ 44uy)) in function_parameters input anf_value_6 floor used fuel (minus remaining 1ul) non_simple constructor)
@@ -3146,8 +3163,8 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
     else (let! anf_value_1 = (fun () -> (consume input st 59uy)) in class_members input anf_value_1 fuel (minus remaining 1ul) derived seen_constructor abstract_class no_overload)
   else
     let! member_head =
-      (fun () -> if abstract_class && byte = 97uy then
-        let! modifier = (fun () -> abstract_modifier input st.offset) in
+      (fun () -> if abstract_class && (byte = 97uy || byte = 112uy) then
+        let! modifier = (fun () -> abstract_member_modifier input st.offset byte) in
         let! has_key = (fun () -> if modifier.ok then class_key_start input { st with offset = modifier.at } else ret input false) in
         ret input (if has_key then { modifier with ok = true } else { modifier with at = st.offset; ok = false })
       else ret input { at = st.offset; ok = false; newline = false }) in
@@ -3458,7 +3475,8 @@ let ambient_modifier (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt curso
   (let! anf_value_1 = (fun () -> keyword input #frame start 7ul 0x6465636c617265uL) in if anf_value_1 then
     let! after = (fun () -> trivia input #frame (plus start 7ul)) in
     let! width = (fun () -> ambient_variable_width input #frame after.at) in
-    read_ret input #frame ({ after with ok = after.ok && not after.newline && width <> 0ul })
+    let! alias = (fun () -> if width = 0ul then type_declaration_width input #frame after.at else read_ret input #frame 0ul) in
+    read_ret input #frame ({ after with ok = after.ok && not after.newline && (width <> 0ul || alias = 4ul) })
   else read_ret input #frame ({ at = start; ok = false; newline = false }))
 
 type declaration_head = {

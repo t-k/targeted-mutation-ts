@@ -1809,7 +1809,8 @@ bool TmtPulseParser_simple_escape(TmtPulseMemory_tape input, uint32_t at, bool t
     || value == 102U
     || value == 118U
     || value == 48U && !TmtGrammar_decimal_digit(value1)
-    || template0 && (value == 36U || value == 96U);
+    || value == 96U
+    || template0 && value == 36U;
 }
 
 uint32_t TmtPulseParser_hex_value(uint8_t ch)
@@ -2194,7 +2195,8 @@ bool TmtPulseParser_builtin_type(uint64_t packed)
     || packed == 0x766f6964ULL
     || packed == 0x6e756c6cULL
     || packed == 0x74727565ULL
-    || packed == 0x66616c7365ULL;
+    || packed == 0x66616c7365ULL
+    || packed == 0x74686973ULL;
 }
 
 bool TmtPulseParser_type_operator(uint64_t packed)
@@ -2561,9 +2563,39 @@ TmtPulseParser_type_query(TmtPulseMemory_tape input, TmtPulseParser_parser_state
   }
   else
   {
-    TmtPulseParser_cursor value2 = TmtPulseParser_name(input, value.offset, false, false);
-    TmtPulseParser_parser_state value3 = TmtPulseParser_from_cursor(value, value2);
-    TmtPulseParser_parser_state value4 = TmtPulseParser_qualified_name(input, value3, 64U);
+    bool value2 = TmtPulseParser_keyword(input, value.offset, 4U, 0x74686973ULL);
+    TmtPulseParser_parser_state value30;
+    if (value2)
+      value30 =
+        (
+          (TmtPulseParser_parser_state){
+            .offset = TmtPulseParser_plus(value.offset, 4U),
+            .count = value.count,
+            .depth = value.depth,
+            .status = value.status,
+            .local_names = value.local_names,
+            .await_allowed = value.await_allowed,
+            .yield_allowed = value.yield_allowed,
+            .jsx_allowed = value.jsx_allowed,
+            .module_mode = value.module_mode,
+            .strict_script = value.strict_script,
+            .in_allowed = value.in_allowed,
+            .for_initializer = value.for_initializer,
+            .arrow_defaults_allowed = value.arrow_defaults_allowed,
+            .binding_mode = value.binding_mode,
+            .super_context = value.super_context,
+            .private_scope = value.private_scope,
+            .private_count = value.private_count,
+            .local_log_floor = value.local_log_floor,
+            .local_log_used = value.local_log_used
+          }
+        );
+    else
+    {
+      TmtPulseParser_cursor value3 = TmtPulseParser_name(input, value.offset, false, false);
+      value30 = TmtPulseParser_from_cursor(value, value3);
+    }
+    TmtPulseParser_parser_state value4 = TmtPulseParser_qualified_name(input, value30, 64U);
     return ((TmtPulseParser_type_query_target){ .query_end = value4, .is_import = false });
   }
 }
@@ -2662,7 +2694,13 @@ TmtPulseParser_type_name(TmtPulseMemory_tape input, TmtPulseParser_parser_state 
         else
         {
           bool value4 = TmtPulseParser_keyword(input, state.offset, 5U, 0x636f6e7374ULL);
-          value10 = value4 ? 5U : 0U;
+          if (value4)
+            value10 = 5U;
+          else
+          {
+            bool value5 = TmtPulseParser_keyword(input, state.offset, 4U, 0x74686973ULL);
+            value10 = value5 ? 4U : 0U;
+          }
         }
       }
     }
@@ -5336,6 +5374,31 @@ TmtPulseParser_abstract_modifier(TmtPulseMemory_tape input, uint32_t offset)
   }
 }
 
+TmtPulseParser_cursor
+TmtPulseParser_abstract_member_modifier(
+  TmtPulseMemory_tape input,
+  uint32_t start,
+  uint8_t byte
+)
+{
+  if (byte == 97U)
+    return TmtPulseParser_abstract_modifier(input, start);
+  else
+  {
+    bool value = TmtPulseParser_keyword(input, start, 6U, 0x7075626c6963ULL);
+    if (!value)
+      return ((TmtPulseParser_cursor){ .at = start, .ok = false, .newline = false });
+    else
+    {
+      TmtPulseParser_cursor value1 = TmtPulseParser_trivia(input, TmtPulseParser_plus(start, 6U));
+      if (value1.ok && !value1.newline)
+        return TmtPulseParser_abstract_modifier(input, value1.at);
+      else
+        return ((TmtPulseParser_cursor){ .at = value1.at, .ok = false, .newline = value1.newline });
+    }
+  }
+}
+
 TmtPulseParser_accessor_head
 TmtPulseParser_accessor_modifier(TmtPulseMemory_tape input, TmtPulseParser_parser_state st)
 {
@@ -5619,7 +5682,7 @@ TmtPulseParser_type_alias_tail(
   TmtPulseParser_parser_state value = TmtPulseParser_optional_type_parameters(input, state);
   TmtPulseParser_parser_state value1 = TmtPulseParser_skip(input, value);
   TmtPulseParser_parser_state value2 = TmtPulseParser_consume(input, value1, 61U);
-  TmtPulseParser_parser_state value3 = TmtPulseParser_annotation_type(input, value2, 16U, 64U);
+  TmtPulseParser_parser_state value3 = TmtPulseParser_annotation_type(input, value2, 16U, 256U);
   return TmtPulseParser_statement_end(input, value3, value3.offset, before_brace);
 }
 
@@ -7968,10 +8031,16 @@ TmtPulseParser_function_parameters(
                   .local_log_used = value.local_log_used
                 }
               ));
-          TmtPulseParser_parser_state value5 = TmtPulseParser_consume(input, value4, 58U);
-          TmtPulseParser_parser_state
-          value6 = TmtPulseParser_annotation_type(input, value5, 16U, 64U);
-          TmtPulseParser_parser_state value7 = TmtPulseParser_skip(input, value6);
+          uint8_t value5 = TmtPulseMemory_peek(input, value4.offset);
+          TmtPulseParser_parser_state value60;
+          if (!constructor && (value5 == 41U || value5 == 44U))
+            value60 = value4;
+          else
+          {
+            TmtPulseParser_parser_state value6 = TmtPulseParser_consume(input, value4, 58U);
+            value60 = TmtPulseParser_annotation_type(input, value6, 16U, 64U);
+          }
+          TmtPulseParser_parser_state value7 = TmtPulseParser_skip(input, value60);
           bool value8 = TmtPulseParser_same(input, value7.offset, 44U);
           if (value8)
           {
@@ -9197,9 +9266,10 @@ TmtPulseParser_class_members(
     else
     {
       TmtPulseParser_cursor value20;
-      if (abstract_class && value1 == 97U)
+      if (abstract_class && (value1 == 97U || value1 == 112U))
       {
-        TmtPulseParser_cursor value2 = TmtPulseParser_abstract_modifier(input, value.offset);
+        TmtPulseParser_cursor
+        value2 = TmtPulseParser_abstract_member_modifier(input, value.offset, value1);
         bool value3;
         if (value2.ok)
           value3 =
@@ -16132,11 +16202,16 @@ TmtPulseParser_ambient_modifier(TmtPulseMemory_tape input, uint32_t start)
   {
     TmtPulseParser_cursor value1 = TmtPulseParser_trivia(input, TmtPulseParser_plus(start, 7U));
     uint32_t value2 = TmtPulseParser_ambient_variable_width(input, value1.at);
+    uint32_t value3;
+    if (value2 == 0U)
+      value3 = TmtPulseParser_type_declaration_width(input, value1.at);
+    else
+      value3 = 0U;
     return
       (
         (TmtPulseParser_cursor){
           .at = value1.at,
-          .ok = value1.ok && !value1.newline && value2 != 0U,
+          .ok = value1.ok && !value1.newline && (value2 != 0U || value3 == 4U),
           .newline = value1.newline
         }
       );

@@ -910,6 +910,13 @@ extern TmtPulseParser_pending_overload TmtPulseParser_no_overload;
 TmtPulseParser_cursor
 TmtPulseParser_abstract_modifier(TmtPulseMemory_tape input, uint32_t offset);
 
+TmtPulseParser_cursor
+TmtPulseParser_abstract_member_modifier(
+  TmtPulseMemory_tape input,
+  uint32_t start,
+  uint8_t byte
+);
+
 typedef struct TmtPulseParser_class_key_s
 {
   TmtPulseParser_parser_state after_key;
