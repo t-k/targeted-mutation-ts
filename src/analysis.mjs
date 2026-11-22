@@ -11,6 +11,7 @@ import { createProbePreloadCheck, freshProbeBinding, instrument, installProbe, r
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
 import { checkReplay } from './lean-replay.mjs';
+import { collectOperatorSites } from './operator-sites.mjs';
 import { inspectTrace, pendingTraceDirectory, sameObservations } from './trace-buffer.mjs';
 
 const sha = source => createHash('sha256').update(source).digest('hex');
@@ -26,14 +27,23 @@ function compare(operator, left, right) {
   }
 }
 
+// The Playwright extraction already reports logical operators, so an operator start is taken once.
+function withOperatorSites(comparisons, input, file) {
+  const start = candidate => (candidate.operatorEdit ?? candidate.edit)[0];
+  const taken = new Set(comparisons.map(start));
+  const added = collectOperatorSites(input, file).filter(site => !taken.has(site.edit[0]));
+  return added.length ? [...comparisons, ...added].sort((a, b) => start(a) - start(b)) : comparisons;
+}
+
 export function collectComparisons(root, files, options) {
   const subjects = [];
   const extraction = [];
   for (const { file, selected } of selectScope(root, files, options)) {
     const input = readFileSync(inside(root, file));
-    const { path, fallback, reason, candidates, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, requireNative: true, logical: options.runner === 'playwright' });
+    const { path, fallback, reason, candidates: comparisons, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, requireNative: true, logical: options.runner === 'playwright' });
     extraction.push({ file, path, reason, diagnostics, ...(fallback === undefined ? {} : { fallback }) });
     if (path === 'diagnostic') continue;
+    const candidates = options.mutators === 'operators' ? withOperatorSites(comparisons, input, file) : comparisons;
     const positions = byteLocations(input, candidates.map(candidate => (candidate.operatorEdit ?? candidate.edit)[0]));
     let digest;
     const sites = candidates.flatMap((candidate, index) => {
@@ -74,9 +84,10 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
     for (const entry of files) {
       const { subject, file } = entry;
       if (sha(readFileSync(file)) !== subject.digest) throw new Error(`Source changed during analysis: ${subject.file}`);
-      if (tracing) writeFileSync(file, instrument(workspace, subject.file, subject.input, subject.sites,
+      const observable = tracing ? subject.sites.filter(site => !site.unobserved) : [];
+      if (observable.length) writeFileSync(file, instrument(workspace, subject.file, subject.input, observable,
         preloaded.has(entry) ? binding : undefined, coverageSites));
-      else if (trial?.site.location.file === subject.file) writeFileSync(file, rewrite(subject.input, trial.edit, trial.replacement));
+      else if (!tracing && trial?.site.location.file === subject.file) writeFileSync(file, rewrite(subject.input, trial.edit, trial.replacement));
     }
     let witnessFile;
     if (witness?.appendTo) {
@@ -419,6 +430,7 @@ export function analyze(project, files, options) {
   const root = realpathSync(project);
   const { subjects, extraction } = collectComparisons(root, files, options);
   const report = { schemaVersion: 1, runner: options.runner ?? 'vitest', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
+  if (options.mutators === 'operators') report.mutators = 'operators';
   if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
     report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
   }
@@ -479,7 +491,9 @@ export function analyze(project, files, options) {
       }
     }
 
-    if (result.status === 'survived' && (report.instrumented.stable === false || trial.observation.rows.length === 0)) {
+    // Operator edits are never traced, so reach is unknown and a surviving run stands as survived.
+    if (result.status === 'survived' && !site.unobserved &&
+        (report.instrumented.stable === false || trial.observation.rows.length === 0)) {
       result.sourceVerdict = 'survived';
       result.status = report.instrumented.stable === false ? 'unstable'
         : trial.observation.loaded ? 'unreached' : 'unevaluated';

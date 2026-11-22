@@ -1,0 +1,6 @@
+Family	Operands	Dialect
+StrictEquality	Identifiers	Ts
+Additive	StringLiteral	Ts
+Logical	Identifiers	Tsx
+Multiplicative	NonAscii	Ts
+Nullish	Identifiers	Js

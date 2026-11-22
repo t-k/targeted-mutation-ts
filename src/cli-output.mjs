@@ -11,8 +11,9 @@ Scope (analyze):
   --copy-exclude PATH           Leave a project path out of the temporary copies. Repeatable.
 
 Profiles (analyze):
-  --mutators focused|standard|all
+  --mutators focused|operators|standard|all
                                 focused (default) edits comparison boundaries and thresholds.
+                                operators adds equality, logical and arithmetic operator edits.
                                 standard and all need @stryker-mutator/instrumenter@10.1.1.
   --witnesses                   Search for edits that survive and confirm a distinguishing test.
   --spec FILE                   Specification with expected thresholds or witness plans.
@@ -47,7 +48,7 @@ const at = location => location ? `${location.file}:${location.line}:${location.
 function describeEdit(mutant) {
   const name = mutant.mutatorName ?? mutant.rule ?? 'edit';
   if (mutant.original !== undefined) return `${name}: ${firstLine(mutant.original)} -> ${firstLine(mutant.replacement)}`;
-  if (mutant.operator !== undefined && /^[<>]=?$/.test(mutant.replacement)) return `${name}: ${mutant.operator} -> ${mutant.replacement}`;
+  if (mutant.operator !== undefined && /^[<>=!&|?+*\/%-]+$/.test(mutant.replacement)) return `${name}: ${mutant.operator} -> ${mutant.replacement}`;
   return `${name}: replace with ${firstLine(mutant.replacement)}`;
 }
 

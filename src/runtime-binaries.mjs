@@ -12,13 +12,15 @@ export function platformPackage(platform, arch) {
 }
 
 // A checkout's own build wins. An installed platform package must match this release exactly.
-export function locateBinary(name, { host, version, localRoot, exists, resolvePackage }) {
+// `context.version` is read only when a platform package is installed: a bare copy of bin/ and src/ has no manifest.
+export function locateBinary(name, context) {
+  const { host, localRoot, exists, resolvePackage } = context;
   const local = join(localRoot, name);
   if (exists(local)) return { path: local, source: 'local' };
   const packageName = platformPackage(host.platform, host.arch);
   if (!packageName) return null;
   const installed = resolvePackage(packageName);
-  if (!installed || installed.version !== version) return null;
+  if (!installed || installed.version !== context.version) return null;
   const path = join(installed.root, name);
   return exists(path) ? { path, source: 'package' } : null;
 }

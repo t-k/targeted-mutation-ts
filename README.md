@@ -67,9 +67,10 @@ On a terminal the report is text. When the output is piped or redirected it is J
 
 | Option | What it edits |
 |--------|---------------|
-| (default) `--mutators focused` | `<`, `<=`, `>`, `>=` boundaries and integer thresholds. Equality operators (`==`, `===`, `!=`, `!==`) are not edited. |
+| (default) `--mutators focused` | `<`, `<=`, `>`, `>=` boundaries and integer thresholds, with the missing input for each survivor. |
+| `--mutators operators` | `focused`, plus equality (`===` and `!==`, `==` and `!=`), logical (`&&`, `\|\|`, `??`) and arithmetic (`+`, `-`, `*`, `/`, `%`) operator swaps. Needs no extra package and works with Vitest and Playwright. Each edit costs one run of the suite. |
 | `--witnesses` | Value substitutions such as a neighbouring field, the first or last index, or a sort key, each confirmed by a test that tells them apart. Reports `No edit sites` when a file has no such pattern. |
-| `--mutators standard` | The StrykerJS mutator set. Install `@stryker-mutator/instrumenter@10.1.1` in the project first. |
+| `--mutators standard` | The full StrykerJS mutator set, run with per-test coverage (Vitest only). Install `@stryker-mutator/instrumenter@10.1.1` in the project first. |
 | `--mutators all` | `standard` and `focused` together. |
 
 `--deterministic` declares that the suite runs from the same state every time. Recorded comparison values then decide many trials without re-running the tests, and each such decision is checked by an executable extracted from a Lean proof. `--audit` re-runs those trials against the rewritten source and reports any disagreement.

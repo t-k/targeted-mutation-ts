@@ -46,7 +46,7 @@ test('the normal addon reports a complete diagnostic without parser dependencies
   try {
     mkdirSync(join(root, 'build'));
     mkdirSync(join(root, 'src'));
-    for (const path of ['build/tmt.node', 'src/extract.mjs', 'src/source-text.mjs', 'src/typescript-extraction.mjs', 'src/typescript-bindings.mjs', 'src/typescript-grammar.mjs']) {
+    for (const path of ['build/tmt.node', 'src/extract.mjs', 'src/runtime-binaries.mjs', 'src/source-text.mjs', 'src/typescript-extraction.mjs', 'src/typescript-bindings.mjs', 'src/typescript-grammar.mjs']) {
       copyFileSync(new URL(`../${path}`, import.meta.url), join(root, path));
     }
     const { extract: isolatedExtract } = await import(pathToFileURL(join(root, 'src/extract.mjs')));

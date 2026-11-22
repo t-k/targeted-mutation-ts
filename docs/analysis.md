@@ -40,6 +40,12 @@ With `--deterministic` and complete, stable observations, the compiled replay de
 
 Pass `--displace-thresholds` to try tightening strict comparisons by one integer step. For example, `measured.size > 0` becomes `measured.size > 1`, and `offset < source.length` becomes `offset < source.length - 1`. The rule requires complete safe-integer observations with a representable shifted bound and always runs the source rewrite. A surviving mutation can identify an observed result that changed or propose an operand pair to exercise. When the comparison is a directly callable exported unary arrow with an integer literal, an input gap includes a suggested assertion and `--audit` verifies it. Use an application-level test to confirm reachability and expected behavior for other comparisons.
 
+### Built-in operator edits
+
+`--mutators operators` adds fixed operator swaps to the focused profile: `===` and `!==`, `==` and `!=`, `&&` and `||`, `??` to `&&`, `+` and `-`, `*` and `/`, and `%` to `*`. The sites come from the TypeScript syntax tree, so operator spellings in types, strings, comments and JSX text are ignored, and `+` with a string or template literal operand is left alone. The profile needs no extra package and runs with Vitest and Playwright.
+
+Each operator edit is a source rewrite followed by one run of the suite. These edits are not instrumented: Lean replay does not apply to them, and an edit in code that no test executes is reported as `survived`, not `unreached`. Use `--lines` or `--since` to bound the number of runs.
+
 ### Standard mutation profile
 
 `--mutators standard` enables the pinned StrykerJS instrumenter's default TypeScript and TSX mutation families, including source comments that disable mutation. The profile applies a line range to complete mutable syntax nodes. It runs a disabled-switch baseline and trials in a disposable project workspace with isolated Vitest workers. On Vitest 4.1, covered tests are selected by task ID. Import-time hits run the selected suite with the mutation active at module load. An unreached mutation uses baseline coverage evidence. A partial session reports any remaining trials as unevaluated and exits with an error.
