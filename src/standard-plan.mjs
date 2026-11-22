@@ -1,21 +1,34 @@
-export function coveredTests(id, records, tests) {
-  let staticHits = 0;
-  let hits = 0;
-  let unknown = false;
-  const covered = new Set();
-  const perTestHits = new Map();
+export function indexCoverage(records, tests) {
+  const plans = new Map();
+  function entry(id) {
+    let plan = plans.get(id);
+    if (!plan) {
+      plan = { hits: 0, staticHits: 0, unknown: false, perTestHits: new Map() };
+      plans.set(id, plan);
+    }
+    return plan;
+  }
   for (const { coverage } of records) {
     if (!coverage) continue;
-    staticHits += coverage.static?.[id] ?? 0;
+    for (const [id, hits] of Object.entries(coverage.static ?? {})) {
+      if (hits) entry(id).staticHits += hits;
+    }
     for (const [testId, mutations] of Object.entries(coverage.perTest ?? {})) {
-      if (!mutations[id]) continue;
-      hits += mutations[id];
-      covered.add(testId);
-      perTestHits.set(testId, (perTestHits.get(testId) ?? 0) + mutations[id]);
-      if (!tests.has(testId)) unknown = true;
+      const unknown = !tests.has(testId);
+      for (const [id, hits] of Object.entries(mutations)) {
+        if (!hits) continue;
+        const plan = entry(id);
+        plan.hits += hits;
+        plan.unknown ||= unknown;
+        plan.perTestHits.set(testId, (plan.perTestHits.get(testId) ?? 0) + hits);
+      }
     }
   }
-  return { hits: hits + staticHits, staticActivation: staticHits > 0 || unknown, covered, perTestHits };
+  for (const [id, { hits, staticHits, unknown, perTestHits }] of plans) {
+    plans.set(id, { hits: hits + staticHits, staticActivation: staticHits > 0 || unknown,
+      covered: new Set(perTestHits.keys()), perTestHits });
+  }
+  return id => plans.get(String(id)) ?? { hits: 0, staticActivation: false, covered: new Set(), perTestHits: new Map() };
 }
 
 export function agreesWithCoverage(rows, plan) {

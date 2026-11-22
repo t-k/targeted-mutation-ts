@@ -1,0 +1,6 @@
+Activation: Missing, Static, Runtime, Both
+Inventory: Known, Unknown
+Records: Single, Multiple
+Replay: Exact, WrongTest, WrongCount, NoRows
+IF [Activation] IN {"Missing", "Static"} THEN [Inventory] = "Known";
+IF [Replay] IN {"WrongTest", "WrongCount"} THEN [Activation] IN {"Runtime", "Both"};

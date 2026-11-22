@@ -3,7 +3,7 @@ import { createRequire } from 'node:module';
 import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { snapshotVitestRun } from './vitest-reporter.mjs';
-import { coveredTests, agreesWithCoverage, assessTrial } from './standard-plan.mjs';
+import { indexCoverage, agreesWithCoverage, assessTrial } from './standard-plan.mjs';
 import { checkReplay } from './lean-replay.mjs';
 import { inside } from './vitest.mjs';
 
@@ -100,6 +100,7 @@ try {
       output: baseline.snapshot.tests.flatMap(test => test.failures).join('\n') } });
   } else {
     record({ baseline: { status: 'passed', tests: baseline.snapshot.tests.length } });
+    const baselineCoverage = indexCoverage(baseline.records, tests);
     const focusedTrace = numericTraces(baseline.records, focused, tests);
     for (const { id } of focused) {
       if (!focusedTrace[id]) record({ id, status: 'unsupported', statusReason: 'Missing or unsupported numeric observations' });
@@ -110,7 +111,7 @@ try {
     if (!passed.some(test => test.retry || test.repeats || test.concurrent)) {
       for (const { id, candidate, original, replacement } of replay) {
         const rows = focusedTrace[candidate];
-        const plan = coveredTests(id, baseline.records, tests);
+        const plan = baselineCoverage(id);
         if (!agreesWithCoverage(rows, plan)) continue;
         requests.push({ candidate, traceCandidate: candidate, original, replacement, complete: true,
           deterministic: true, observations: rows.map(([, lhs, rhs]) => [lhs, rhs]) });
@@ -123,9 +124,10 @@ try {
       const confirmation = await run(specs, baselineState);
       if (JSON.stringify(confirmation.snapshot) !== JSON.stringify(baseline.snapshot)) predicted.clear();
       else {
+        const confirmationCoverage = indexCoverage(confirmation.records, tests);
         const repeated = numericTraces(confirmation.records, focused, tests);
         predicted = new Set(replay.filter(({ id, candidate }) => predicted.has(id) &&
-          agreesWithCoverage(repeated[candidate], coveredTests(id, confirmation.records, tests)) &&
+          agreesWithCoverage(repeated[candidate], confirmationCoverage(id)) &&
           JSON.stringify(repeated[candidate]) === JSON.stringify(focusedTrace[candidate])).map(({ id }) => id));
       }
     }
@@ -136,7 +138,7 @@ try {
         record({ id, status: 'survived', evidence: 'predicted' });
         continue;
       }
-      const plan = coveredTests(id, baseline.records, tests);
+      const plan = baselineCoverage(id);
       if (!plan.hits) {
         record({ id, status: 'unreached' });
         continue;

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { coveredTests, assessTrial } from '../src/standard-plan.mjs';
+import { indexCoverage, assessTrial } from '../src/standard-plan.mjs';
 
 const rows = readFileSync(new URL('../verification/pict/session-plan.tsv', import.meta.url), 'utf8')
   .trim().split('\n').slice(1).map(line => line.trim().split('\t'));
@@ -15,7 +15,7 @@ for (const [activation, coverage, result] of rows) {
       static: activation === 'Static' ? { [id]: 2 } : {},
       perTest: activation === 'Runtime' ? { [testId]: { [id]: 3 } } : {},
     } }];
-    const plan = coveredTests(id, records, tests);
+    const plan = indexCoverage(records, tests)(id);
     assert.equal(plan.staticActivation, activation === 'Static' || activation === 'Runtime' && coverage === 'Unknown');
     assert.equal(plan.hits, { Static: 2, Runtime: 3, Missing: 0 }[activation]);
     if (activation === 'Missing') return;
