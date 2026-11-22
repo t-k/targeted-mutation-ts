@@ -51,6 +51,6 @@ test('rest and malformed defaults refuse, and expressions retain their compariso
     compare(`const before = a < b; ${source}`, 'diagnostic');
   }
   for (const source of ['const [name = 0 < limit] = input;', 'for (const { key = foo() } of values) { pick(key >= b); }']) {
-    assert.notEqual(compare(`const before = a < b; ${source}`), 'fast', source);
+    compare(`const before = a < b; ${source}`, 'fast');
   }
 });

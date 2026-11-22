@@ -180,7 +180,12 @@ test('the standalone CLI extracts without Cargo, Oxc, or installed npm dependenc
     const result = JSON.parse(native.stdout);
     assert.equal(result.path, 'fast');
     assert.deepEqual(result.candidates, extractFallback(source).candidates);
-    writeFileSync(join(root, 'source.ts'), source + '\nclass Shape { #value = 1; }');
+    const privateField = source + '\nclass Shape { #value = 1; check() { return this.#value >= 1; } }';
+    writeFileSync(join(root, 'source.ts'), privateField);
+    const scoped = spawnSync(process.execPath, ['bin/tmt.mjs', 'extract', 'source.ts'], { cwd: root, encoding: 'utf8' });
+    assert.equal(scoped.status, 0, scoped.stderr);
+    assert.deepEqual(JSON.parse(scoped.stdout).candidates, extractFallback(privateField).candidates);
+    writeFileSync(join(root, 'source.ts'), source + '\nclass Shape { #value = 1; owns(other) { return #value in other; } }');
     const unsupported = spawnSync(process.execPath, ['bin/tmt.mjs', 'extract', 'source.ts'], { cwd: root, encoding: 'utf8' });
     assert.equal(unsupported.status, 1, unsupported.stderr);
     const refusal = JSON.parse(unsupported.stdout);
