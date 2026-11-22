@@ -174,6 +174,14 @@ On Redux Toolkit, TMT improved on its prior extractor in all seven pairs for bot
 
 ## Analysis throughput
 
+### Reusing the syntax projection and reducing Lean input
+
+Focused threshold discovery and probe module classification share the 639,522-byte TypeScript syntax projection with compatibility extraction. A matching projection keeps the full compiler unloaded. On an Apple M5 Max with Node 24.14.0, fresh-process syntax work decreased from 596.55 to 154.40 ms across thirteen alternating pairs. Seven paired runs of `analyze` on the eligibility fixture, including Vitest and Lean, had identical full reports and medians of 7.19 and 6.75 seconds. This machine was carrying other work during the run. The [raw syntax and CLI measurement pairs](../evidence/m1/analysis-syntax-projection.json) include the fixture invocation.
+
+The threshold batch now transmits the greatest observation below each threshold and the smallest observation at or above it. Lean proves that these observations preserve the exact feasible interval. For 64 requests with 262,095 observations, this reduced the JSON payload from 1,282,824 to 4,225 bytes. Across thirteen alternating calls to the same compiled executable, the median decision time decreased from 133.74 to 70.92 ms, including the JavaScript projection. Every selected interval and witness matched. The [raw threshold samples and validation settings](../evidence/m1/threshold-extrema.json) record the workload.
+
+### Scope and replay
+
 Measurements on Apple M5 Max with Node 24.14.0 alternate baseline and current samples. The Git and CLI benchmarks use nine pairs. The coverage planner uses eleven pairs. CLI samples start a fresh Node process with the compile cache disabled.
 
 | Workload | Median |

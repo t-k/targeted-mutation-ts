@@ -1,0 +1,79 @@
+{
+  "implementation": "1f11c44",
+  "environment": {
+    "cpu": "Apple M5 Max",
+    "os": "macOS arm64",
+    "node": "24.14.0",
+    "notes": "Alternating pairs on the same host with concurrent system activity."
+  },
+  "workload": "64 threshold-gap requests from alternating stationary observations in 0..10000, including both sides of the threshold.",
+  "comparison": "The same compiled Lean executable and JSON protocol. The optimized samples include the JavaScript extremum scan.",
+  "sample": {
+    "requests": 64,
+    "observations": 262095,
+    "fullBytes": 1282824,
+    "extremaBytes": 4225,
+    "fullMs": 133.73908299999994,
+    "extremaMs": 70.92270800000006,
+    "raw": [
+      {
+        "fullMs": 363.193125,
+        "extremaMs": 80.11024999999995
+      },
+      {
+        "fullMs": 133.061958,
+        "extremaMs": 70.15016700000001
+      },
+      {
+        "fullMs": 129.39037499999995,
+        "extremaMs": 71.03679199999999
+      },
+      {
+        "fullMs": 120.23737499999993,
+        "extremaMs": 71.50850000000003
+      },
+      {
+        "fullMs": 128.41641700000014,
+        "extremaMs": 58.9826250000001
+      },
+      {
+        "fullMs": 122.79441700000007,
+        "extremaMs": 62.18666599999983
+      },
+      {
+        "fullMs": 133.87791700000002,
+        "extremaMs": 70.76933299999996
+      },
+      {
+        "fullMs": 137.4681660000001,
+        "extremaMs": 68.83524999999986
+      },
+      {
+        "fullMs": 135.19812500000012,
+        "extremaMs": 69.91958299999988
+      },
+      {
+        "fullMs": 133.73908299999994,
+        "extremaMs": 70.92270800000006
+      },
+      {
+        "fullMs": 132.133875,
+        "extremaMs": 79.32158400000026
+      },
+      {
+        "fullMs": 140.378291,
+        "extremaMs": 75.54041600000028
+      },
+      {
+        "fullMs": 148.31045799999993,
+        "extremaMs": 80.59604199999967
+      }
+    ]
+  },
+  "verification": {
+    "targetedTests": 31,
+    "pictObservations": 19,
+    "pictPairs": 42,
+    "leanTheorem": "Threshold.bounds_extrema"
+  }
+}

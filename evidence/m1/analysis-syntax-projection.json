@@ -1,0 +1,203 @@
+{
+  "before": "f5b8edd",
+  "after": "4358e44",
+  "environment": {
+    "cpu": "Apple M5 Max",
+    "os": "macOS arm64",
+    "node": "24.14.0",
+    "notes": "Alternating pairs on the same host with concurrent system activity."
+  },
+  "parser": "TypeScript 6.0.3",
+  "syntaxAssetBytes": 639522,
+  "scope": {
+    "syntax": "Threshold scan and six source-mode decisions in a fresh Node process. Node compile cache disabled.",
+    "cli": "analyze fixtures/eligibility src/eligibility.ts --spec spec.json --deterministic",
+    "parity": "Full JSON report equality for all seven paired CLI samples, and equal syntax outputs across all 13 syntax pairs."
+  },
+  "syntax": {
+    "pairs": [
+      {
+        "before": 689.567416,
+        "after": 196.74283300000002
+      },
+      {
+        "after": 151.739708,
+        "before": 698.3445
+      },
+      {
+        "before": 614.735375,
+        "after": 178.606
+      },
+      {
+        "after": 125.10162499999998,
+        "before": 650.15225
+      },
+      {
+        "before": 509.846291,
+        "after": 151.66191700000002
+      },
+      {
+        "after": 154.399541,
+        "before": 504.23749999999995
+      },
+      {
+        "before": 543.881125,
+        "after": 146.01041700000002
+      },
+      {
+        "after": 158.320291,
+        "before": 603.7481250000001
+      },
+      {
+        "before": 553.302625,
+        "after": 115.145333
+      },
+      {
+        "after": 162.955917,
+        "before": 537.9344169999999
+      },
+      {
+        "before": 534.943209,
+        "after": 155.241333
+      },
+      {
+        "after": 165.80566600000003,
+        "before": 596.553667
+      },
+      {
+        "before": 619.45075,
+        "after": 142.309
+      }
+    ],
+    "baselineMs": 596.553667,
+    "improvedMs": 154.399541,
+    "pairedMedianRatio": 0.2779392285589622
+  },
+  "analysis": {
+    "repeats": 7,
+    "rows": [
+      {
+        "before": 8348.849791999999,
+        "after": 6749.4151249999995
+      },
+      {
+        "after": 6957.263041999999,
+        "before": 7538.445709000003
+      },
+      {
+        "before": 7945.667958000002,
+        "after": 6686.093124999999
+      },
+      {
+        "after": 6577.830541000003,
+        "before": 7191.416542000006
+      },
+      {
+        "before": 7022.806958000001,
+        "after": 6762.229541999994
+      },
+      {
+        "after": 6616.076457999996,
+        "before": 6654.116874999992
+      },
+      {
+        "before": 7153.247291000007,
+        "after": 7457.940708000009
+      }
+    ],
+    "beforeMs": 7191.416542000006,
+    "afterMs": 6749.4151249999995,
+    "pairedMedianRatio": 0.9229041782039842,
+    "report": {
+      "schemaVersion": 1,
+      "runner": "vitest",
+      "extraction": [
+        {
+          "file": "src/eligibility.ts",
+          "path": "fast"
+        }
+      ],
+      "mutants": [
+        {
+          "site": "39c46cb87a4c4b7562f0bae26d1efe471bd627139d8424e033a431bdc0f4fc0d",
+          "location": {
+            "file": "src/eligibility.ts",
+            "line": 1,
+            "column": 46,
+            "start": 45,
+            "end": 47
+          },
+          "rule": "comparison-boundary/v1",
+          "operator": ">=",
+          "edit": [
+            45,
+            47
+          ],
+          "replacement": ">",
+          "equivalentOnSafeIntegers": [
+            ">= 19"
+          ],
+          "status": "survived",
+          "evidence": "predicted"
+        }
+      ],
+      "diagnostics": [
+        {
+          "kind": "INPUT GAP",
+          "site": "39c46cb87a4c4b7562f0bae26d1efe471bd627139d8424e033a431bdc0f4fc0d",
+          "location": {
+            "file": "src/eligibility.ts",
+            "line": 1,
+            "column": 46,
+            "start": 45,
+            "end": 47
+          },
+          "witness": {
+            "input": 18,
+            "operands": [
+              18,
+              18
+            ],
+            "original": true,
+            "mutant": false,
+            "expectation": "specification"
+          },
+          "observedInputs": [
+            17,
+            20
+          ],
+          "suggestedTest": "expect(eligible(18)).toBe(true)",
+          "feasibleThresholds": [
+            18,
+            20
+          ],
+          "mutations": [
+            {
+              "rule": "comparison-boundary/v1",
+              "edit": [
+                45,
+                47
+              ],
+              "replacement": ">",
+              "evidence": "predicted"
+            }
+          ]
+        }
+      ],
+      "evaluation": "evaluated",
+      "baseline": {
+        "status": "passed",
+        "tests": 2
+      },
+      "instrumented": {
+        "status": "passed",
+        "stable": true
+      }
+    }
+  },
+  "verification": {
+    "targetedTests": 93,
+    "pictObservations": 16,
+    "pictPairs": 31
+  }
+}
