@@ -1,10 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 
-const { values } = parseArgs({ options: { 'low-only': { type: 'boolean' } } });
+const { values } = parseArgs({ options: { 'low-only': { type: 'boolean' }, pgo: { type: 'boolean' } } });
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const output = resolve(root, 'build/tmt.node');
@@ -52,8 +52,58 @@ const args = [
   '-I', headers, '-I', 'native/generated', '-I', 'native/runtime',
   'native/addon.c', 'native/parser.c', 'native/positions.c',
   'native/generated/TmtGrammar.c', 'native/generated/TmtScan.c', 'native/generated/TmtParser.c',
-  '-o', output,
 ];
-const built = spawnSync(compiler, args, { cwd: root, stdio: 'inherit' });
-if (built.error) throw built.error;
-if (built.status !== 0) process.exit(built.status ?? 1);
+
+function compile(target, flags = [], stdio = 'inherit') {
+  return spawnSync(compiler, [...args, ...flags, '-o', target], { cwd: root, stdio });
+}
+
+function profileTool() {
+  if (process.env.TMT_LLVM_PROFDATA) return process.env.TMT_LLVM_PROFDATA;
+  if (macOS) {
+    const found = spawnSync('/usr/bin/xcrun', ['--find', 'llvm-profdata'], { encoding: 'utf8', timeout: 10_000 });
+    if (found.status === 0) return found.stdout.trim();
+  }
+  return 'llvm-profdata';
+}
+
+function buildProfiled() {
+  const tool = profileTool();
+  const probe = spawnSync(tool, ['--version'], { stdio: 'ignore', timeout: 10_000 });
+  if (probe.status !== 0) return false;
+  const scratch = mkdtempSync(resolve(root, 'build/.profile-'));
+  try {
+    const instrumented = resolve(scratch, 'instrumented.node');
+    if (compile(instrumented, ['-fprofile-instr-generate'], 'pipe').status !== 0) return false;
+    const raw = resolve(scratch, 'training.profraw');
+    const trained = spawnSync(process.execPath, [resolve(root, 'scripts/train-native.mjs'), instrumented], {
+      cwd: root, env: { ...process.env, LLVM_PROFILE_FILE: raw }, stdio: 'inherit', timeout: 15_000,
+    });
+    if (trained.status !== 0 || !existsSync(raw)) return false;
+    const profile = resolve(scratch, 'training.profdata');
+    const merged = spawnSync(tool, ['merge', '-o', profile, raw], { cwd: root, stdio: 'inherit', timeout: 15_000 });
+    if (merged.status !== 0) return false;
+    const optimized = resolve(scratch, 'optimized.node');
+    if (compile(optimized, [`-fprofile-instr-use=${profile}`]).status !== 0) return false;
+    renameSync(optimized, output);
+    return true;
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+if (values.pgo && buildProfiled()) {
+  console.log('Built native extractor with fixture PGO');
+  process.exit(0);
+}
+if (values.pgo) console.warn('Fixture PGO unavailable. Building the regular native extractor.');
+const scratch = mkdtempSync(resolve(root, 'build/.native-'));
+try {
+  const pending = resolve(scratch, 'tmt.node');
+  const built = compile(pending);
+  if (built.error) throw built.error;
+  if (built.status === 0) renameSync(pending, output);
+  else process.exitCode = built.status ?? 1;
+} finally {
+  rmSync(scratch, { recursive: true, force: true });
+}

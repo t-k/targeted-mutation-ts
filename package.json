@@ -21,7 +21,7 @@
     "evidence:m3": "node scripts/evidence-m3.mjs",
     "bench:extraction": "node scripts/bench-extraction.mjs",
     "bench:analysis": "node scripts/bench-analysis.mjs",
-    "pack:runtime": "npm run build:native && npm run build:lean && node scripts/pack-runtime.mjs",
+    "pack:runtime": "npm run build:native -- --pgo && npm run build:lean && node scripts/pack-runtime.mjs",
     "test:package": "node scripts/test-package.mjs"
   },
   "dependencies": {
