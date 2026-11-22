@@ -12,11 +12,23 @@ export function loaded(ids) {
   if (writer) writer.write({ loaded: ids });
 }
 
-export function compare(site, original, replacement, lhs, rhs) {
-  const test = getCurrentTest();
-  const identity = test ? {
+function testIdentity(test) {
+  return test ? {
     id: test.id, project: test.file.projectName ?? '', file: relative(workspace, test.file.filepath),
   } : null;
+}
+
+export function hit(site) {
+  if (writer) {
+    const test = getCurrentTest();
+    writer.write({ hit: site, identity: testIdentity(test) }, test);
+  }
+  return site;
+}
+
+export function compare(site, original, replacement, lhs, rhs) {
+  const test = getCurrentTest();
+  const identity = testIdentity(test);
   const safe = isSafeInteger(lhs) && isSafeInteger(rhs);
   const operator = site === active ? replacement : original;
   let result;

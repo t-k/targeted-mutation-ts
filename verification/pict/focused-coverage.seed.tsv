@@ -1,0 +1,7 @@
+Observed	Hits	Identity
+Single	Exact	Same
+Multiple	Exact	Same
+Single	Missing	Same
+Multiple	Extra	Same
+Single	Exact	Unknown
+Multiple	Exact	Static

@@ -88,13 +88,15 @@ export function freshProbeBinding(sources) {
   return binding;
 }
 
-export function instrument(root, file, source, sites, preloadedBinding) {
+export function instrument(root, file, source, sites, preloadedBinding, coverageSites) {
   const runtime = resolve(root, probeDirectory, probeEntry);
   const path = relative(dirname(resolve(root, file)), runtime).split(sep).join('/');
   const spellings = sourceSpellings(source);
   let alias = '__tmtCompare';
   while (spellings.includes(alias)) alias += '_';
   const comparison = preloadedBinding ? preloadedBinding + '.compare' : alias;
+  const recordHit = preloadedBinding ? preloadedBinding + '.hit' : alias + 'Hit';
+  const countHits = coverageSites && sites.some(site => coverageSites.has(site.id));
   const sorted = sites.slice().sort((a, b) => a.left[0] - b.left[0] || b.right[1] - a.right[1]);
   let index = 0;
 
@@ -108,8 +110,10 @@ export function instrument(root, file, source, sites, preloadedBinding) {
       if (first < from || last > end || afterLeft > site.edit[0] || rightStart < site.edit[1]) {
         throw new Error('Overlapping probe spans');
       }
+      const id = JSON.stringify(site.id);
+      const siteArgument = coverageSites?.has(site.id) ? recordHit + '(' + id + ')' : id;
       chunks.push(source.subarray(from, first).toString(), comparison,
-        '(' + [site.id, site.operator, site.replacement].map(JSON.stringify).join(',') + ',(',
+        '(' + [siteArgument, JSON.stringify(site.operator), JSON.stringify(site.replacement)].join(',') + ',(',
         render(first, afterLeft), source.subarray(afterLeft, site.edit[0]).toString(), '),(',
         source.subarray(site.edit[1], rightStart).toString(), render(rightStart, last), '))');
       from = last;
@@ -122,7 +126,8 @@ export function instrument(root, file, source, sites, preloadedBinding) {
   const specifier = JSON.stringify(path.startsWith('../') ? path : './' + path);
   const ids = JSON.stringify(sites.map(site => site.id));
   if (preloadedBinding) return sourceText + '\n' + preloadedBinding + '.loaded(' + ids + ');\n';
-  return sourceText + '\nimport { compare as ' + alias + ', loaded as ' + alias + 'Loaded } from ' +
+  const coverageImport = countHits ? ', hit as ' + recordHit : '';
+  return sourceText + '\nimport { compare as ' + alias + ', loaded as ' + alias + 'Loaded' + coverageImport + ' } from ' +
     specifier + ';\n' + alias + 'Loaded(' + ids + ');\n';
 }
 
@@ -141,6 +146,7 @@ Object.defineProperty(globalThis, ${JSON.stringify(preloadedBinding)}, {
   value: {
     compare: (...args) => load().compare(...args),
     loaded: ids => load().loaded(ids),
+    hit: id => load().hit(id),
   },
 });
 `, { flag: 'wx' });

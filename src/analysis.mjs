@@ -61,7 +61,7 @@ export function verdict(run, baseline) {
   return run.status === 'passed' ? 'survived' : 'killed';
 }
 
-function makeAttempt(root, subjects, runner, copyExclude, { tracing = false, activate, trial, witness } = {}) {
+function makeAttempt(root, subjects, runner, copyExclude, { tracing = false, activate, trial, witness, coverageSites } = {}) {
   return withCopy(root, (workspace, temp) => {
     const trace = tracing ? resolve(temp, 'trace.jsonl') : undefined;
     if (trace) mkdirSync(pendingTraceDirectory(trace));
@@ -73,7 +73,7 @@ function makeAttempt(root, subjects, runner, copyExclude, { tracing = false, act
       const { subject, file } = entry;
       if (sha(readFileSync(file)) !== subject.digest) throw new Error(`Source changed during analysis: ${subject.file}`);
       if (tracing) writeFileSync(file, instrument(workspace, subject.file, subject.input, subject.sites,
-        preloaded.has(entry) ? binding : undefined));
+        preloaded.has(entry) ? binding : undefined, coverageSites));
       else if (trial?.site.location.file === subject.file) writeFileSync(file, rewrite(subject.input, trial.edit, trial.replacement));
     }
     let witnessFile;
@@ -196,13 +196,47 @@ export function planFocusedTrials(subjects, trace, baseline, specification, disp
   return trials;
 }
 
-function leanSkips(trials, baseline, deterministic) {
+function sitesForIndependentCoverage(subjects, trace, baseline) {
+  const index = indexObservations(trace, baseline);
+  const sites = new Set();
+  for (const { sites: candidates } of subjects) {
+    for (const site of candidates) {
+      const observation = matchObservations(site, index);
+      if (observation.complete && observation.observed.size < index.tests.size) sites.add(site.id);
+    }
+  }
+  return sites;
+}
+
+function indexFocusedCoverage(trace, sites) {
+  const coverage = new Map();
+  for (const row of trace) {
+    if (!sites.has(row?.hit)) continue;
+    let counts = coverage.get(row.hit);
+    if (!counts) coverage.set(row.hit, counts = new Map());
+    const key = row.identity ? identity(row.identity) : null;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return coverage;
+}
+
+export function matchesFocusedCoverage(observed, counts) {
+  if (!observed.size || counts?.size !== observed.size) return false;
+  for (const [test, hits] of counts) {
+    if (observed.get(test)?.length !== hits) return false;
+  }
+  return true;
+}
+
+function leanSkips(trials, baseline, deterministic, coverage) {
   if (!deterministic || baseline.tests.some(test => test.retry || test.repeats || test.concurrent)) return new Set();
   const requests = [];
   const indices = [];
   for (const [index, trial] of trials.entries()) {
     const { site, rule, observation } = trial;
-    if (!observation.complete || observation.observed.size !== observation.tests.size) continue;
+    if (!observation.complete) continue;
+    if (observation.observed.size !== observation.tests.size &&
+        !matchesFocusedCoverage(observation.observed, coverage.get(site.id))) continue;
     const literal = rule === 'comparison-threshold/v1';
     if (!literal && rule !== site.rule) continue;
     indices.push(index);
@@ -286,7 +320,7 @@ __tmtIt_${key}(${JSON.stringify(testName)}, () => __tmtExpect_${key}(__tmtSubjec
 }
 
 function traceSignature(trace) {
-  return trace && trace.map(row => JSON.stringify(row)).join('\n');
+  return trace && trace.filter(row => row?.hit === undefined).map(row => JSON.stringify(row)).join('\n');
 }
 
 function playwrightSummary(run) {
@@ -401,14 +435,17 @@ export function analyze(project, files, options) {
   const tracedStatus = verdict(traced, baseline);
   report.instrumented = { status: tracedStatus === 'survived' ? 'passed' : tracedStatus };
   let trace = tracedStatus === 'survived' ? traced.trace : null;
+  let coverage = new Map();
   if (trace && (options.deterministic || options.audit)) {
-    const replay = attempt({ tracing: true });
+    const coverageSites = options.deterministic ? sitesForIndependentCoverage(subjects, trace, baseline) : new Set();
+    const replay = attempt({ tracing: true, coverageSites });
     report.instrumented.stable = verdict(replay, baseline) === 'survived' && traceSignature(trace) === traceSignature(replay.trace);
     if (!report.instrumented.stable) trace = null;
+    else if (coverageSites.size) coverage = indexFocusedCoverage(replay.trace, coverageSites);
   }
 
   const trials = planFocusedTrials(subjects, trace, baseline, specification, options['displace-thresholds']);
-  const skips = leanSkips(trials, baseline, !!options.deterministic);
+  const skips = leanSkips(trials, baseline, !!options.deterministic, coverage);
   report.evaluation = 'evaluated';
 
   for (const [index, trial] of trials.entries()) {

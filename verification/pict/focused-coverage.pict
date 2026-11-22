@@ -1,0 +1,4 @@
+Observed: Single, Multiple
+Hits: Exact, Missing, Extra
+Identity: Same, Unknown, Static
+IF [Hits] = "Missing" THEN [Identity] = "Same";
