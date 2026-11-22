@@ -5964,6 +5964,76 @@ TmtPulseParser_regex_escape(TmtPulseMemory_tape input, uint32_t at, bool in_clas
   }
 }
 
+bool TmtPulseParser_utf8_tail(uint8_t ch)
+{
+  return ch >= 128U && ch < 192U;
+}
+
+uint32_t TmtPulseParser_utf8_bits(uint8_t byte, uint32_t mask)
+{
+  return (uint32_t)byte & mask;
+}
+
+TmtPulseParser_regex_unit
+TmtPulseParser_regex_bmp_unit(TmtPulseMemory_tape input, uint32_t at, uint8_t first)
+{
+  TmtPulseParser_regex_unit
+  invalid =
+    {
+      .unit_end = at,
+      .unit_ok = false,
+      .character = TmtPulseParser_no_character,
+      .repeatable = false
+    };
+  if (first < 194U || first >= 240U)
+    return invalid;
+  else
+  {
+    uint8_t value = TmtPulseMemory_peek(input, TmtPulseParser_next(at));
+    if (!TmtPulseParser_utf8_tail(value))
+      return invalid;
+    else if (first < 224U)
+    {
+      uint32_t
+      value1 = TmtPulseParser_utf8_bits(first, 31U) << 6U | TmtPulseParser_utf8_bits(value, 63U);
+      return
+        (
+          (TmtPulseParser_regex_unit){
+            .unit_end = TmtPulseParser_plus(at, 2U),
+            .unit_ok = true,
+            .character = value1,
+            .repeatable = true
+          }
+        );
+    }
+    else
+    {
+      uint8_t value1 = TmtPulseMemory_peek(input, TmtPulseParser_plus(at, 2U));
+      uint32_t
+      value2 =
+        TmtPulseParser_utf8_bits(first, 15U) << 12U |
+          TmtPulseParser_utf8_bits(value, 63U) << 6U | TmtPulseParser_utf8_bits(value1, 63U);
+      if
+      (
+        TmtPulseParser_utf8_tail(value1) && value2 >= 2048U && (value2 < 55296U || value2 > 57343U)
+        && value2 != 8232U
+        && value2 != 8233U
+      )
+        return
+          (
+            (TmtPulseParser_regex_unit){
+              .unit_end = TmtPulseParser_plus(at, 3U),
+              .unit_ok = true,
+              .character = value2,
+              .repeatable = true
+            }
+          );
+      else
+        return invalid;
+    }
+  }
+}
+
 bool TmtPulseParser_regex_printable(uint8_t ch)
 {
   return ch >= 32U && ch <= 126U;
@@ -5975,6 +6045,8 @@ TmtPulseParser_regex_class_unit(TmtPulseMemory_tape input, uint32_t at)
   uint8_t value = TmtPulseMemory_peek(input, at);
   if (value == 92U)
     return TmtPulseParser_regex_escape(input, at, true);
+  else if (!(value < 128U))
+    return TmtPulseParser_regex_bmp_unit(input, at, value);
   else
     return
       (
@@ -6466,6 +6538,21 @@ TmtPulseParser_regex_pattern(
         fuel = tmp1;
         can_repeat = tmp2;
         captures = tmp;
+      }
+      else if (!(value < 128U))
+      {
+        TmtPulseParser_regex_unit value1 = TmtPulseParser_regex_bmp_unit(input, at, value);
+        if (value1.unit_ok)
+        {
+          uint32_t tmp0 = value1.unit_end;
+          uint32_t tmp1 = rest;
+          bool tmp = true;
+          at = tmp0;
+          fuel = tmp1;
+          can_repeat = tmp;
+        }
+        else
+          return TmtPulseParser_regex_result_at(at, false, captures);
       }
       else
         return TmtPulseParser_regex_result_at(at, false, captures);

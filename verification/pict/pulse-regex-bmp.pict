@@ -1,0 +1,3 @@
+Pattern: TwoBytes, ThreeBytes, MixedRange, ReversedRange, Separator, Astral, Outside, Invisible
+Mode: Legacy, Unicode, Sets
+Tail: Complete, Truncated

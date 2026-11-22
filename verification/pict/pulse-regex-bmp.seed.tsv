@@ -1,0 +1,11 @@
+Pattern	Mode	Tail
+TwoBytes	Legacy	Complete
+ThreeBytes	Unicode	Complete
+MixedRange	Unicode	Complete
+ReversedRange	Unicode	Complete
+Separator	Legacy	Complete
+Astral	Legacy	Complete
+Outside	Unicode	Complete
+Invisible	Unicode	Complete
+TwoBytes	Sets	Complete
+ThreeBytes	Legacy	Truncated

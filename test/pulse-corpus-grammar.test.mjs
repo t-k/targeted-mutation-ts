@@ -97,3 +97,27 @@ for (const [pattern, mode, tail] of rows('pulse-legacy-regex')) {
     }
   });
 }
+
+for (const [pattern, mode, tail] of rows('pulse-regex-bmp')) {
+  test(`Pulse BMP regex: ${pattern} ${mode} ${tail}`, () => {
+    const body = {
+      TwoBytes: '[á]', ThreeBytes: '[海]', MixedRange: '[é-海]', ReversedRange: '[海-é]',
+      Separator: '[\u2028]', Astral: '[🧪]', Outside: '海+', Invisible: '[\u0085\u202a]',
+    }[pattern];
+    const flags = { Legacy: '', Unicode: 'u', Sets: 'v' }[mode];
+    const source = `const emoji = '🧪'; const r = /${body}/${flags}; const keep = a > b;` +
+      (tail === 'Truncated' ? ' const =' : '');
+    const options = { file: 'regex.js', mode: 'script', requireNative: true };
+    const allowed = !['Separator', 'ReversedRange', 'Astral'].includes(pattern) && mode !== 'Sets' && tail === 'Complete';
+    if (allowed) {
+      assert.doesNotThrow(() => new RegExp(body, flags));
+      const actual = compare(source, options);
+      assert.equal(actual.path, 'fast');
+      assert.equal(actual.candidates.length, 1);
+    } else {
+      const actual = extract(source, options);
+      assert.notEqual(actual.path, 'fast');
+      if (tail === 'Truncated') assert.equal(actual.candidates.length, 0);
+    }
+  });
+}

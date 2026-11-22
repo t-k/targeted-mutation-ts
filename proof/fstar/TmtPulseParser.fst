@@ -396,9 +396,33 @@ let regex_escape (input:tape) (#frame:slprop) (at:U32.t) (in_class:bool) : Tot (
     { unit_end = finish; unit_ok = character <> no_character || group || boundary;
       character; repeatable = not boundary })
 
+let utf8_tail (ch:U8.t) : bool = U8.(ch >=^ 128uy && ch <^ 192uy)
+
+let utf8_bits (byte:U8.t) (mask:U32.t) : U32.t = U32.logand (Cast.uint8_to_uint32 byte) mask
+
+let regex_bmp_unit (input:tape) (#frame:slprop) (at:U32.t) (first:U8.t)
+  : Tot (stt regex_unit (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let invalid = { unit_end = at; unit_ok = false; character = no_character; repeatable = false } in
+  if U8.(first <^ 194uy || first >=^ 240uy) then read_ret input #frame invalid
+  else
+    let! second = (fun () -> peek input #frame (next at)) in
+    if not (utf8_tail second) then read_ret input #frame invalid
+    else if U8.(first <^ 224uy) then
+      let value = U32.logor (U32.shift_left (utf8_bits first 31ul) 6ul) (utf8_bits second 63ul) in
+      read_ret input #frame { unit_end = plus at 2ul; unit_ok = true; character = value; repeatable = true }
+    else
+      let! third = (fun () -> peek input #frame (plus at 2ul)) in
+      let value = U32.logor (U32.shift_left (utf8_bits first 15ul) 12ul)
+        (U32.logor (U32.shift_left (utf8_bits second 63ul) 6ul) (utf8_bits third 63ul)) in
+      if utf8_tail third && U32.(value >=^ 2048ul && (value <^ 55296ul || value >^ 57343ul)) &&
+        value <> 8232ul && value <> 8233ul then
+        read_ret input #frame { unit_end = plus at 3ul; unit_ok = true; character = value; repeatable = true }
+      else read_ret input #frame invalid
+
 let regex_class_unit (input:tape) (#frame:slprop) (at:U32.t) : Tot (stt regex_unit (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! byte = (fun () -> peek input #frame at) in
   if byte = 92uy then regex_escape input #frame at true
+  else if not (U8.lt byte 128uy) then regex_bmp_unit input #frame at byte
   else read_ret input #frame ({ unit_end = next at; unit_ok = regex_printable byte && byte <> 93uy;
     character = Cast.uint8_to_uint32 byte; repeatable = true })
 
@@ -526,6 +550,10 @@ let rec regex_pattern (input:tape) (#frame:slprop) (at depth fuel:U32.t) (nested
     else if regex_printable byte && byte <> 47uy && byte <> 41uy && byte <> 93uy then
       let captures = if byte = 125uy then { captures with legacy = true } else captures in
       regex_pattern input #frame (next at) depth rest nested true captures
+    else if not (U8.lt byte 128uy) then
+      let! atom = (fun () -> regex_bmp_unit input #frame at byte) in
+      if atom.unit_ok then regex_pattern input #frame atom.unit_end depth rest nested true captures
+      else read_ret input #frame (regex_result_at at false captures)
     else read_ret input #frame (regex_result_at at false captures)
 and regex_group (input:tape) (#frame:slprop) (at depth fuel:U32.t) (captures:regex_captures)
   : Tot (stt regex_group_result (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v depth; 0; U32.v fuel]) =

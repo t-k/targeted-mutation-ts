@@ -1098,6 +1098,13 @@ extern uint32_t TmtPulseParser_no_character;
 TmtPulseParser_regex_unit
 TmtPulseParser_regex_escape(TmtPulseMemory_tape input, uint32_t at, bool in_class);
 
+bool TmtPulseParser_utf8_tail(uint8_t ch);
+
+uint32_t TmtPulseParser_utf8_bits(uint8_t byte, uint32_t mask);
+
+TmtPulseParser_regex_unit
+TmtPulseParser_regex_bmp_unit(TmtPulseMemory_tape input, uint32_t at, uint8_t first);
+
 bool TmtPulseParser_regex_printable(uint8_t ch);
 
 TmtPulseParser_regex_unit
