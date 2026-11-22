@@ -1,0 +1,7 @@
+Branch	Dialect	Mode
+Candidate	TSX	Module
+Type	TS	Module
+Context	TS	Module
+Private	TSX	Script
+StrictLiteral	TS	Script
+Recovery	TSX	Module

@@ -88,6 +88,7 @@ export function createTypeScriptGrammar(ts, bindings) {
         }
       }
       forEachChild(node, child => {
+        if (child.kind <= SyntaxKind.LastToken) return;
         const loopHead = isVariableDeclarationList(child) && node.initializer === child
           ? (isForInOrOfStatement(node) ? 'iteration' : isForStatement(node) ? 'classic' : '')
           : isVariableDeclarationList(node) ? forHead : '';
@@ -201,6 +202,7 @@ export function createTypeScriptGrammar(ts, bindings) {
         }
       }
       forEachChild(node, child => {
+        if (child.kind <= SyntaxKind.LastToken && child.kind !== SyntaxKind.SuperKeyword) return;
         const boundary = isFunctionScope(node);
         const childLoop = boundary ? false : isIteration(node) && node.statement === child ? true : loop;
         const childSwitch = boundary ? false : isSwitchStatement(node) && node.caseBlock === child ? true : switch_;
@@ -223,8 +225,20 @@ export function createTypeScriptGrammar(ts, bindings) {
   }
 
 
-  function checkTypeSyntax(file, module, emit) {
-    const pending = [{ node: file, parent: undefined }];
+  // The remaining type checks use empty lists, template flags, multiple modifiers, or the parent kind.
+  const typeCheckKind = new Uint8Array(SyntaxKind.Count);
+  for (const kind of [
+    SyntaxKind.IndexSignature, SyntaxKind.CatchClause, SyntaxKind.EnumMember, SyntaxKind.TupleType,
+    SyntaxKind.Parameter, SyntaxKind.FunctionDeclaration, SyntaxKind.ClassDeclaration, SyntaxKind.ClassExpression,
+    SyntaxKind.InterfaceDeclaration, SyntaxKind.Constructor, SyntaxKind.MethodDeclaration, SyntaxKind.MethodSignature,
+    SyntaxKind.GetAccessor, SyntaxKind.SetAccessor, SyntaxKind.MappedType, SyntaxKind.PropertyDeclaration,
+    SyntaxKind.VariableDeclaration, SyntaxKind.PropertySignature, SyntaxKind.ArrowFunction, SyntaxKind.ThrowStatement,
+    SyntaxKind.NewExpression, SyntaxKind.BindingElement, SyntaxKind.ExportDeclaration, SyntaxKind.SwitchStatement,
+    SyntaxKind.JsxAttribute, SyntaxKind.JsxExpression, SyntaxKind.MetaProperty, SyntaxKind.RegularExpressionLiteral,
+    SyntaxKind.ImportType, SyntaxKind.ImportClause, SyntaxKind.ImportAttribute, SyntaxKind.ImportDeclaration,
+  ]) typeCheckKind[kind] = 1;
+
+  function createTypeSyntaxVisitor(file, module, emit) {
     const scanner = createScanner(ScriptTarget.Latest, true, file.languageVariant, file.text);
     function tokenAt(at) {
       scanner.setTextPos(at);
@@ -235,8 +249,9 @@ export function createTypeScriptGrammar(ts, bindings) {
       SyntaxKind.PublicKeyword, SyntaxKind.ProtectedKeyword, SyntaxKind.PrivateKeyword,
       SyntaxKind.ReadonlyKeyword, SyntaxKind.OverrideKeyword,
     ].includes(modifier.kind);
-    while (pending.length) {
-      const { node, parent } = pending.pop();
+    return function visitType(node, parent) {
+      if (!typeCheckKind[node.kind] && node.typeParameters?.length !== 0 && node.typeArguments?.length !== 0 &&
+          !node.templateFlags && !(node.modifiers?.length > 1) && parent?.kind !== SyntaxKind.ObjectLiteralExpression) return;
       const add = (message, at = node) => emit(at, message);
       if (node.typeParameters?.length === 0) add('A type parameter list cannot be empty');
       if (node.typeArguments?.length === 0) add('A type argument list cannot be empty');
@@ -514,8 +529,7 @@ export function createTypeScriptGrammar(ts, bindings) {
       if (isImportDeclaration(node) && !isSourceFile(parent) && !isModuleBlock(parent)) {
         add("'import' declaration may only appear at the top level");
       }
-      forEachChild(node, child => { pending.push({node: child, parent: node}); });
-    }
+    };
   }
 
 
@@ -554,7 +568,7 @@ export function createTypeScriptGrammar(ts, bindings) {
     }
   }
 
-  function checkExpressionSyntax(file, module, strictRoot, emit) {
+  function checkExpressionSyntax(file, module, strictRoot, emit, visitType) {
     const pending = [{ node: file, parent: undefined, canAwait: module, field: false, formal: false,
       canYield: false, ambient: false, assignmentPattern: false, forInitializer: false, strict: strictRoot, newTarget: false }];
     const modifiers = node => node.modifiers?.filter(modifier => modifier.kind !== SyntaxKind.Decorator) ?? [];
@@ -633,6 +647,12 @@ export function createTypeScriptGrammar(ts, bindings) {
     while (pending.length) {
       const { node, parent, canAwait, field, formal, canYield, ambient: inheritedAmbient,
         assignmentPattern, forInitializer, strict: inheritedStrict, newTarget } = pending.pop();
+      visitType(node, parent);
+      if (node.kind <= SyntaxKind.LastToken) {
+        if (isIdentifier(node)) {
+          if (!strictReservedBindings.has(node.text) && node.text !== 'await' && node.text !== 'arguments') continue;
+        } else if (module || !isNumericLiteral(node) && !isStringLiteral(node)) continue;
+      }
       const strict = strictScope(node, file, inheritedStrict);
       const report = (message, at = node) => emit(at, message);
       const ambient = inheritedAmbient || hasModifier(node, SyntaxKind.DeclareKeyword);
@@ -805,8 +825,8 @@ export function createTypeScriptGrammar(ts, bindings) {
       if (isStatement(node)) {
         scanner.setTextPos(node.getStart(file));
         const first = scanner.scan();
-        const second = scanner.scan();
-        const third = scanner.scan();
+        const second = first === SyntaxKind.DeclareKeyword || first === SyntaxKind.ExportKeyword ? scanner.scan() : undefined;
+        const third = second === SyntaxKind.DeclareKeyword ? scanner.scan() : undefined;
         if (first === SyntaxKind.DeclareKeyword && second === SyntaxKind.ExportKeyword) {
           report("Expected a semicolon or an implicit semicolon after a statement, but found 'export'");
         }
@@ -859,11 +879,14 @@ export function createTypeScriptGrammar(ts, bindings) {
   return function checkGrammar(file, mode, emit) {
     const module = mode !== 'script';
     const strict = module || hasStrictDirective(file.statements, file);
-    checkExpressionSyntax(file, module, strict, emit);
-    checkTypeSyntax(file, module, emit);
+    // Preserve the standalone type pass's emission order for diagnostics sharing a byte offset.
+    const typeDiagnostics = [];
+    const visitType = createTypeSyntaxVisitor(file, module, (node, message) => { typeDiagnostics.push([node, message]); });
+    checkExpressionSyntax(file, module, strict, emit, visitType);
+    for (const [node, message] of typeDiagnostics) emit(node, message);
     checkContexts(file, strict, emit);
     checkStatementSyntax(file, module, strict, emit);
-    checkPrivateNames(file, emit);
+    if (file.text.includes('#')) checkPrivateNames(file, emit);
     const nestedVars = file.statements.filter(statement => !isVariableStatement(statement)).flatMap(bindings.nestedVarsIn);
     bindings.checkScope(file.statements, emit, { nestedVars });
     bindings.checkNamespaceExports(file, emit);

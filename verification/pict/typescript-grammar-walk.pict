@@ -1,0 +1,3 @@
+Branch: Candidate, Type, Context, Private, StrictLiteral, Recovery
+Dialect: TS, TSX
+Mode: Module, Script
