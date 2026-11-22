@@ -1,0 +1,448 @@
+{
+  "implementation": "8ba7eb7",
+  "os": "macOS arm64",
+  "cpu": "Apple M5 Max",
+  "node": "v24.14.0",
+  "rounds": 13,
+  "method": "Alternating samples in one process. Garbage collection before each sample. Heap delta immediately after comparison.",
+  "verification": {
+    "targetedTests": 61,
+    "pictRows": 21,
+    "pictPairs": 44
+  },
+  "observations": 50000,
+  "samples": {
+    "stable": {
+      "runs": [
+        {
+          "prior": {
+            "elapsedMs": 57.336917,
+            "heapDelta": 48265048
+          },
+          "stream": {
+            "elapsedMs": 46.702833999999996,
+            "heapDelta": 24412168
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 43.837875,
+            "heapDelta": 24406592
+          },
+          "prior": {
+            "elapsedMs": 53.86949999999996,
+            "heapDelta": 48197888
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 52.24874999999997,
+            "heapDelta": 48198392
+          },
+          "stream": {
+            "elapsedMs": 43.77154099999996,
+            "heapDelta": 24406152
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 43.987750000000005,
+            "heapDelta": 24403440
+          },
+          "prior": {
+            "elapsedMs": 52.547916999999984,
+            "heapDelta": 48196504
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 52.313375000000065,
+            "heapDelta": 48196568
+          },
+          "stream": {
+            "elapsedMs": 44.186874999999986,
+            "heapDelta": 24402952
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 43.998374999999896,
+            "heapDelta": 24402952
+          },
+          "prior": {
+            "elapsedMs": 52.32295899999997,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 51.39783399999999,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 38.797458000000006,
+            "heapDelta": 24402952
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 39.58033400000011,
+            "heapDelta": 24402952
+          },
+          "prior": {
+            "elapsedMs": 47.046749999999975,
+            "heapDelta": 48196352
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 46.24912499999982,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 38.33320800000001,
+            "heapDelta": 24402952
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 38.057166999999936,
+            "heapDelta": 24402952
+          },
+          "prior": {
+            "elapsedMs": 45.287708000000066,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 44.65670799999998,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 33.37670800000001,
+            "heapDelta": 24402952
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 34.696083000000044,
+            "heapDelta": 24402952
+          },
+          "prior": {
+            "elapsedMs": 42.406833000000006,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 42.48258399999986,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 35.575874999999996,
+            "heapDelta": 24402952
+          }
+        }
+      ],
+      "medians": {
+        "prior": {
+          "elapsedMs": 51.39783399999999,
+          "heapDelta": 48196264
+        },
+        "stream": {
+          "elapsedMs": 39.58033400000011,
+          "heapDelta": 24402952
+        }
+      }
+    },
+    "early-mismatch": {
+      "runs": [
+        {
+          "prior": {
+            "elapsedMs": 44.93295799999987,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 0.02508399999987887,
+            "heapDelta": 1296
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 0.006791999999904874,
+            "heapDelta": 1120
+          },
+          "prior": {
+            "elapsedMs": 45.030750000000126,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 44.035457999999835,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 0.009250000000065484,
+            "heapDelta": 1120
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 0.0073749999999108695,
+            "heapDelta": 1120
+          },
+          "prior": {
+            "elapsedMs": 46.269874999999956,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 45.06466599999999,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 0.007875000000012733,
+            "heapDelta": 1120
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 0.00874999999996362,
+            "heapDelta": 1120
+          },
+          "prior": {
+            "elapsedMs": 45.02716699999996,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 44.961958000000095,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 0.006791999999904874,
+            "heapDelta": 1120
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 0.009292000000186817,
+            "heapDelta": 1120
+          },
+          "prior": {
+            "elapsedMs": 44.58129100000019,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 43.95308300000033,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 0.006750000000010914,
+            "heapDelta": 1120
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 0.007790999999997439,
+            "heapDelta": 1120
+          },
+          "prior": {
+            "elapsedMs": 44.25791599999957,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 44.521790999999666,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 0.009000000000014552,
+            "heapDelta": 1120
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 0.009957999999642198,
+            "heapDelta": 1120
+          },
+          "prior": {
+            "elapsedMs": 44.28358299999991,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 44.93175000000019,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 0.007499999999708962,
+            "heapDelta": 1120
+          }
+        }
+      ],
+      "medians": {
+        "prior": {
+          "elapsedMs": 44.93175000000019,
+          "heapDelta": 48196264
+        },
+        "stream": {
+          "elapsedMs": 0.007875000000012733,
+          "heapDelta": 1120
+        }
+      }
+    },
+    "late-mismatch": {
+      "runs": [
+        {
+          "prior": {
+            "elapsedMs": 44.59516600000006,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 37.41320799999994,
+            "heapDelta": 24404008
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 37.214292000000114,
+            "heapDelta": 24403520
+          },
+          "prior": {
+            "elapsedMs": 45.073249999999916,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 44.22724999999991,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 37.094916999999896,
+            "heapDelta": 24404008
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 37.19704199999978,
+            "heapDelta": 24403520
+          },
+          "prior": {
+            "elapsedMs": 44.83008299999983,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 44.15887500000008,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 40.49850000000015,
+            "heapDelta": 24403520
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 43.941583000000264,
+            "heapDelta": 24403520
+          },
+          "prior": {
+            "elapsedMs": 50.38329199999998,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 50.663125000000036,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 43.11308300000019,
+            "heapDelta": 24403520
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 43.48295800000005,
+            "heapDelta": 24403520
+          },
+          "prior": {
+            "elapsedMs": 50.650125000000116,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 50.644542,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 42.504791999999725,
+            "heapDelta": 24403520
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 43.162832999999864,
+            "heapDelta": 24403520
+          },
+          "prior": {
+            "elapsedMs": 51.092167000000245,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 50.87145799999962,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 42.631250000000364,
+            "heapDelta": 24403520
+          }
+        },
+        {
+          "stream": {
+            "elapsedMs": 43.95879100000002,
+            "heapDelta": 24403520
+          },
+          "prior": {
+            "elapsedMs": 52.14662500000031,
+            "heapDelta": 48196264
+          }
+        },
+        {
+          "prior": {
+            "elapsedMs": 51.03345799999988,
+            "heapDelta": 48196264
+          },
+          "stream": {
+            "elapsedMs": 43.774333999999726,
+            "heapDelta": 24403520
+          }
+        }
+      ],
+      "medians": {
+        "prior": {
+          "elapsedMs": 50.644542,
+          "heapDelta": 48196264
+        },
+        "stream": {
+          "elapsedMs": 42.631250000000364,
+          "heapDelta": 24403520
+        }
+      }
+    }
+  }
+}
