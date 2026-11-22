@@ -1,0 +1,4 @@
+Layout: Empty, Numeric, WithLoad
+Placement: None, Start, Between, End
+Difference: Same, Changed, Reordered, Missing, Extra
+IF [Layout] = "Empty" THEN [Difference] IN { "Same", "Extra" };

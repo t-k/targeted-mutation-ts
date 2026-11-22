@@ -111,3 +111,16 @@ export function inspectTrace(trace) {
 export function readCompletedTrace(trace) {
   return inspectTrace(trace).rows;
 }
+
+export function sameObservations(reference, replay) {
+  if (!reference || !replay) return reference === replay;
+  let index = 0;
+  for (const row of reference) {
+    if (row?.hit !== undefined) continue;
+    while (index < replay.length && replay[index]?.hit !== undefined) index++;
+    if (index === replay.length || JSON.stringify(row) !== JSON.stringify(replay[index])) return false;
+    index++;
+  }
+  while (index < replay.length && replay[index]?.hit !== undefined) index++;
+  return index === replay.length;
+}

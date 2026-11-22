@@ -1,0 +1,8 @@
+Layout	Placement	Difference
+Empty	Start	Same
+Empty	End	Extra
+Numeric	None	Same
+Numeric	Between	Changed
+Numeric	End	Missing
+WithLoad	End	Same
+WithLoad	Between	Reordered

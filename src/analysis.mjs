@@ -10,7 +10,7 @@ import { createProbePreloadCheck, freshProbeBinding, instrument, installProbe, r
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
 import { checkReplay } from './lean-replay.mjs';
-import { inspectTrace, pendingTraceDirectory } from './trace-buffer.mjs';
+import { inspectTrace, pendingTraceDirectory, sameObservations } from './trace-buffer.mjs';
 
 const sha = source => createHash('sha256').update(source).digest('hex');
 const identity = test => JSON.stringify([test.project, test.file, test.id]);
@@ -326,10 +326,6 @@ __tmtIt_${key}(${JSON.stringify(testName)}, () => __tmtExpect_${key}(__tmtSubjec
   return verifyWitnessRuns(baseline, originalRun, changedRun);
 }
 
-function traceSignature(trace) {
-  return trace && trace.filter(row => row?.hit === undefined).map(row => JSON.stringify(row)).join('\n');
-}
-
 function playwrightSummary(run) {
   return { attempt: run.attempt, runnerPid: run.runnerPid, serverPid: run.serverPid, status: run.status,
     tests: run.tests?.map(test => ({ ...testcase(test), browser: test.browser, worker: test.worker, status: test.status })) };
@@ -448,7 +444,7 @@ export function analyze(project, files, options) {
   if (trace && (options.deterministic || options.audit)) {
     const coverageSites = options.deterministic ? sitesForIndependentCoverage(subjects, trace, baseline) : new Set();
     const replay = attempt({ tracing: true, coverageSites, synchronousTrace: traced.synchronousTrace });
-    report.instrumented.stable = verdict(replay, baseline) === 'survived' && traceSignature(trace) === traceSignature(replay.trace);
+    report.instrumented.stable = verdict(replay, baseline) === 'survived' && sameObservations(trace, replay.trace);
     if (!report.instrumented.stable) trace = null;
     else if (coverageSites.size) coverage = indexFocusedCoverage(replay.trace, coverageSites);
   }
