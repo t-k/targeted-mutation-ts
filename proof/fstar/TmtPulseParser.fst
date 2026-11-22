@@ -1421,68 +1421,6 @@ let simple_default (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt 
         else read_ret input #frame ({ st with offset = plus st.offset width }))) in
     skip input #frame value
 
-let rec pattern_names (input:tape) (state:parser_state) (base:names_base) (floor used:names_used)
-  (depth remaining:U32.t) (close:U8.t)
-  : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v depth; 1; U32.v remaining]) =
-  let! st = (fun () -> skip input state) in
-  if st.status <> 0ul then ret input ({ state = st; used })
-  else (let! anf_value_1 = (fun () -> same input st.offset close) in if anf_value_1 then (let! anf_value_2 = (fun () -> consume input st close) in ret input ({ state = anf_value_2; used }))
-  else if remaining = 0ul then ret input ({ state = failed st 1ul; used })
-  else
-    let! byte = (fun () -> peek input st.offset) in
-    if close = 93uy && byte = 44uy then
-      (let! anf_value_3 = (fun () -> (consume input st 44uy)) in pattern_names input anf_value_3 base floor used depth (minus remaining 1ul) close)
-    else (let! anf_value_4 = (fun () -> spread_at input st.offset) in if anf_value_4 then
-      let! target = (fun () -> skip input { st with offset = plus st.offset 3ul }) in
-      let! rest = (fun () -> bind_pattern_name input target base floor used target.offset) in
-      (let! anf_value_5 = (fun () -> (let! anf_value_6 = (fun () -> (skip input rest.state)) in consume input anf_value_6 close)) in ret input ({ rest with state = anf_value_5 }))
-    else
-      let! bound =
-        (fun () -> if close = 93uy then pattern_binding_at input st base floor used depth
-        else
-          let! key = (fun () -> if G.decimal_digit byte || byte = 46uy then number_end input st.offset else property_name input st) in
-          let! after = (fun () -> skip input (from_cursor st key)) in
-          (let! anf_value_7 = (fun () -> same input after.offset 58uy) in if anf_value_7 then
-            let! target = (fun () -> (let! anf_value_8 = (fun () -> (consume input after 58uy)) in skip input anf_value_8)) in
-            pattern_binding_at input target base floor used depth
-          else bind_pattern_name input st base floor used st.offset)) in
-      let! st = (fun () -> (let! anf_value_9 = (fun () -> (skip input bound.state)) in simple_default input anf_value_9)) in
-      (let! anf_value_10 = (fun () -> same input st.offset 44uy) in if anf_value_10 then
-        (let! anf_value_11 = (fun () -> (consume input st 44uy)) in pattern_names input anf_value_11 base floor bound.used depth (minus remaining 1ul) close)
-      else (let! anf_value_12 = (fun () -> consume input st close) in ret input ({ bound with state = anf_value_12 })))))
-
-and pattern_binding_at (input:tape) (state:parser_state) (base:names_base) (floor used:names_used) (depth:U32.t)
-  : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v depth; 0; 0]) =
-  let! byte = (fun () -> peek input state.offset) in
-  if byte = 123uy || byte = 91uy then
-    if depth = 0ul then ret input ({ state = failed state 1ul; used })
-    else
-      let close = if byte = 123uy then 125uy else 93uy in
-      (let! anf_value_1 = (fun () -> (consume input state byte)) in pattern_names input anf_value_1 base floor used (minus depth 1ul) 64ul close)
-  else bind_pattern_name input state base floor used state.offset
-
-let pattern_binding (input:tape) (state:parser_state) (base:names_base) (floor used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
-  pattern_binding_at input state base floor used 16ul
-
-let collection_head (input:tape) (state:parser_state) (allow_in:bool) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
-  let! byte = (fun () -> peek input state.offset) in
-  let! constant = (fun () -> if byte = 99uy then keyword input state.offset 5ul 0x636f6e7374uL else ret input (false)) in
-  let! lexical = (fun () -> if byte = 108uy then keyword input state.offset 3ul 0x6c6574uL else ret input (false)) in
-  let width =
-    if constant then 5ul
-    else if lexical then 3ul
-    else 0ul in
-  if state.status <> 0ul || width = 0ul then ret input (failed state 1ul)
-  else
-    let! start = (fun () -> skip input { state with offset = plus state.offset width }) in
-    let mark = state.local_names in
-    let! bound = (fun () -> pattern_binding input start binding_region_width mark mark) in
-    let! next_token = (fun () -> skip input bound.state) in
-    let! of_token = (fun () -> keyword input next_token.offset 2ul 0x6f66uL) in
-    let! in_token = (fun () -> keyword input next_token.offset 2ul 0x696euL) in
-    ret input (if next_token.status = 0ul && (of_token || (allow_in && in_token)) then
-      { next_token with offset = plus next_token.offset 2ul }
-    else failed state 1ul)
 
 type parameter_list = { names:named_state; non_simple:bool }
 type function_shape = { after_function:parser_state; signature_only:bool }
@@ -1491,15 +1429,6 @@ type parameter_arity =
   | GetterParameters
   | SetterParameters
 
-let parameter_prefix (input:tape) (state:parser_state) (floor used:names_used) : Tot (stt parameter_list (heap input) (fun _ -> heap input)) =
-  let! first = (fun () -> peek input state.offset) in
-  let! bound = (fun () -> pattern_binding input state binding_region_width floor used) in
-  let! tail = (fun () -> skip input bound.state) in
-  let! typed = (fun () -> (let! anf_value_1 = (fun () -> same input tail.offset 63uy) in if anf_value_1 then
-      let! colon = (fun () -> (let! anf_value_2 = (fun () -> (consume input tail 63uy)) in skip input anf_value_2)) in
-      (let! anf_value_3 = (fun () -> (consume input colon 58uy)) in annotation_type input anf_value_3 16ul 64ul)
-    else simple_annotation input tail)) in
-  (let! anf_value_4 = (fun () -> (let! anf_value_5 = (fun () -> skip input typed) in ret input ({ bound with state = anf_value_5 }))) in ret input ({ names = anf_value_4; non_simple = first = 123uy || first = 91uy }))
 
 let rest_parameter (input:tape) (state:parser_state) (floor used:names_used) : Tot (stt parameter_list (heap input) (fun _ -> heap input)) =
   let! named = (fun () -> skip input { state with offset = plus state.offset 3ul }) in
@@ -2109,7 +2038,7 @@ and arrow_parameter_list (input:tape) (state:parser_state) (floor used:names_use
   else if remaining = 0ul then ret input ({ names = { state = failed st 1ul; used }; non_simple })
   else (let! anf_value_4 = (fun () -> spread_at input st.offset) in if anf_value_4 then rest_parameter input st floor used
   else
-    let! prefix = (fun () -> parameter_prefix input st floor used) in
+    let! prefix = (fun () -> parameter_prefix input st floor used fuel) in
     let equal = prefix.names.state in
     let! initialized = (fun () -> same input equal.offset 61uy) in
     let non_simple = non_simple || prefix.non_simple || initialized in
@@ -2634,7 +2563,7 @@ and for_bindings (input:tape) (state:parser_state) (fuel remaining:U32.t) (floor
   else if remaining = 0ul then ret input (failed st 1ul)
   else
     let! first = (fun () -> peek input st.offset) in
-    let! declared = (fun () -> pattern_binding input st binding_region_width floor st.local_names) in
+    let! declared = (fun () -> pattern_binding input st binding_region_width floor st.local_names fuel) in
     let! annotated = (fun () -> simple_annotation input { declared.state with local_names = declared.used }) in
     let! tail = (fun () -> skip input annotated) in
     let! equal = (fun () -> same input tail.offset 61uy) in
@@ -2688,7 +2617,7 @@ and for_header (input:tape) (state:parser_state) (top_level local_var:bool) (fue
   let! async_ = (fun () -> if head.await_allowed then keyword input head.offset 5ul 0x6177616974uL else ret input (false)) in
   let! head = (fun () -> if async_ then skip input { head with offset = plus head.offset 5ul } else ret input (head)) in
   let! st = (fun () -> (let! anf_value_1 = (fun () -> (consume input head 40uy)) in skip input anf_value_1)) in
-  let! collection = (fun () -> collection_head input st (not async_)) in
+  let! collection = (fun () -> collection_head input st (not async_) fuel) in
   if collection.status = 0ul then
     let collection = if local_var then record_binding_mode collection LexicalLocals else collection in
     let! value = (fun () -> comparison input collection fuel) in
@@ -2769,7 +2698,7 @@ and local_declarators (input:tape) (state:parser_state) (constant:bool) (floor u
   if start.status <> 0ul || remaining = 0ul then ret input ({ state = failed start 1ul; used })
   else
     let! first = (fun () -> peek input start.offset) in
-    let! decl = (fun () -> pattern_binding input start binding_region_width floor used) in
+    let! decl = (fun () -> pattern_binding input start binding_region_width floor used fuel) in
     let named = { decl.state with local_names = decl.used } in
     let! value = (fun () -> declarator_value input named fuel (not constant && G.identifier_start first)) in
     let! tail = (fun () -> skip input value.parser) in
@@ -2917,7 +2846,7 @@ and catch_block (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bool
   (let! anf_value_1 = (fun () -> same input st.offset 40uy) in if anf_value_1 then
     let st = record_binding_mode st LexicalLocals in
     let! start = (fun () -> (let! anf_value_2 = (fun () -> (consume input st 40uy)) in skip input anf_value_2)) in
-    let! bound = (fun () -> pattern_binding input start binding_region_width used used) in
+    let! bound = (fun () -> pattern_binding input start binding_region_width used used fuel) in
     let! annotated = (fun () -> (let! anf_value_3 = (fun () -> (simple_annotation input bound.state)) in skip input anf_value_3)) in
     let! body = (fun () -> consume input annotated 41uy) in
     control_block input body fuel in_function jumps used bound.used
@@ -2957,7 +2886,7 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
     else if spread then rest_parameter input st floor used
     else
       let! st = (fun () -> if constructor then constructor_property input st else ret input (st)) in
-      let! prefix = (fun () -> parameter_prefix input st floor used) in
+      let! prefix = (fun () -> parameter_prefix input st floor used fuel) in
       let st = prefix.names.state in
       let! default_ = (fun () -> same input st.offset 61uy) in
       let non_simple = non_simple || prefix.non_simple || default_ in
@@ -3085,6 +3014,98 @@ and class_tail (input:tape) (state:parser_state) (fuel:U32.t)
     else ret input start) in
   let! closed = (fun () -> class_members input start fuel input.size derived false) in
   ret input { closed with private_scope = state.private_scope }
+
+and pattern_names (input:tape) (state:parser_state) (base:names_base) (floor used:names_used)
+  (fuel depth remaining:U32.t) (close:U8.t)
+  : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 16; U32.v depth; 1; U32.v remaining]) =
+  let! st = (fun () -> skip input state) in
+  if st.status <> 0ul then ret input ({ state = st; used })
+  else (let! anf_value_1 = (fun () -> same input st.offset close) in if anf_value_1 then (let! anf_value_2 = (fun () -> consume input st close) in ret input ({ state = anf_value_2; used }))
+  else if remaining = 0ul then ret input ({ state = failed st 1ul; used })
+  else
+    let! byte = (fun () -> peek input st.offset) in
+    if close = 93uy && byte = 44uy then
+      (let! anf_value_3 = (fun () -> (consume input st 44uy)) in pattern_names input anf_value_3 base floor used fuel depth (minus remaining 1ul) close)
+    else (let! anf_value_4 = (fun () -> spread_at input st.offset) in if anf_value_4 then
+      let! target = (fun () -> skip input { st with offset = plus st.offset 3ul }) in
+      let! rest = (fun () -> bind_pattern_name input target base floor used target.offset) in
+      (let! anf_value_5 = (fun () -> (let! anf_value_6 = (fun () -> (skip input rest.state)) in consume input anf_value_6 close)) in ret input ({ rest with state = anf_value_5 }))
+    else
+      let! bound =
+        (fun () -> if close = 93uy then pattern_binding_at input st base floor used fuel depth
+        else
+          let! key = (fun () -> if G.decimal_digit byte || byte = 46uy then number_end input st.offset else property_name input st) in
+          let! after = (fun () -> skip input (from_cursor st key)) in
+          (let! anf_value_7 = (fun () -> same input after.offset 58uy) in if anf_value_7 then
+            let! target = (fun () -> (let! anf_value_8 = (fun () -> (consume input after 58uy)) in skip input anf_value_8)) in
+            pattern_binding_at input target base floor used fuel depth
+          else bind_pattern_name input st base floor used st.offset)) in
+      let! equal = (fun () -> skip input bound.state) in
+      let! initialized = (fun () -> same input equal.offset 61uy) in
+      let! st = (fun () -> if not initialized || equal.status <> 0ul then ret input equal
+        else
+          let! simple = (fun () -> simple_default input equal) in
+          let! delimiter = (fun () -> peek input simple.offset) in
+          if simple.status = 0ul && (delimiter = 44uy || delimiter = close) then ret input simple
+          else if fuel = 0ul || not equal.arrow_defaults_allowed then ret input (failed equal 1ul)
+          else
+            let local_names = if base = binding_region_width then bound.used else equal.local_names in
+            let! start = (fun () -> consume input { equal with local_names; in_allowed = true; arrow_defaults_allowed = false } 61uy) in
+            let! value = (fun () -> comparison input start (minus fuel 1ul)) in
+            let! tail = (fun () -> skip input value.parser) in
+            let! comma = (fun () -> same input tail.offset 44uy) in
+            let end_ = if value.open_angle && comma then failed tail 1ul else tail in
+            ret input { end_ with local_names = equal.local_names; in_allowed = equal.in_allowed;
+              arrow_defaults_allowed = equal.arrow_defaults_allowed }) in
+      (let! anf_value_10 = (fun () -> same input st.offset 44uy) in if anf_value_10 then
+        (let! anf_value_11 = (fun () -> (consume input st 44uy)) in pattern_names input anf_value_11 base floor bound.used fuel depth (minus remaining 1ul) close)
+      else (let! anf_value_12 = (fun () -> consume input st close) in ret input ({ bound with state = anf_value_12 })))))
+
+and pattern_binding_at (input:tape) (state:parser_state) (base:names_base) (floor used:names_used) (fuel depth:U32.t)
+  : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 16; U32.v depth; 0; 0]) =
+  let! byte = (fun () -> peek input state.offset) in
+  if byte = 123uy || byte = 91uy then
+    if depth = 0ul then ret input ({ state = failed state 1ul; used })
+    else
+      let close = if byte = 123uy then 125uy else 93uy in
+      (let! anf_value_1 = (fun () -> (consume input state byte)) in pattern_names input anf_value_1 base floor used fuel (minus depth 1ul) 64ul close)
+  else bind_pattern_name input state base floor used state.offset
+
+and pattern_binding (input:tape) (state:parser_state) (base:names_base) (floor used:names_used) (fuel:U32.t)
+  : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 17; 0]) =
+  pattern_binding_at input state base floor used fuel 16ul
+
+and collection_head (input:tape) (state:parser_state) (allow_in:bool) (fuel:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 18; 0]) =
+  let! byte = (fun () -> peek input state.offset) in
+  let! constant = (fun () -> if byte = 99uy then keyword input state.offset 5ul 0x636f6e7374uL else ret input (false)) in
+  let! lexical = (fun () -> if byte = 108uy then keyword input state.offset 3ul 0x6c6574uL else ret input (false)) in
+  let width =
+    if constant then 5ul
+    else if lexical then 3ul
+    else 0ul in
+  if state.status <> 0ul || width = 0ul then ret input (failed state 1ul)
+  else
+    let! start = (fun () -> skip input { state with offset = plus state.offset width }) in
+    let mark = state.local_names in
+    let! bound = (fun () -> pattern_binding input start binding_region_width mark mark fuel) in
+    let! next_token = (fun () -> skip input bound.state) in
+    let! of_token = (fun () -> keyword input next_token.offset 2ul 0x6f66uL) in
+    let! in_token = (fun () -> keyword input next_token.offset 2ul 0x696euL) in
+    ret input (if next_token.status = 0ul && (of_token || (allow_in && in_token)) then
+      { next_token with offset = plus next_token.offset 2ul }
+    else failed state 1ul)
+
+and parameter_prefix (input:tape) (state:parser_state) (floor used:names_used) (fuel:U32.t)
+  : Tot (stt parameter_list (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 18; 0]) =
+  let! first = (fun () -> peek input state.offset) in
+  let! bound = (fun () -> pattern_binding input { state with await_allowed = false; yield_allowed = false } binding_region_width floor used fuel) in
+  let! tail = (fun () -> skip input { bound.state with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed }) in
+  let! typed = (fun () -> (let! anf_value_1 = (fun () -> same input tail.offset 63uy) in if anf_value_1 then
+      let! colon = (fun () -> (let! anf_value_2 = (fun () -> (consume input tail 63uy)) in skip input anf_value_2)) in
+      (let! anf_value_3 = (fun () -> (consume input colon 58uy)) in annotation_type input anf_value_3 16ul 64ul)
+    else simple_annotation input tail)) in
+  (let! anf_value_4 = (fun () -> (let! anf_value_5 = (fun () -> skip input typed) in ret input ({ bound with state = anf_value_5 }))) in ret input ({ names = anf_value_4; non_simple = first = 123uy || first = 91uy }))
 
 #pop-options
 
@@ -3257,7 +3278,7 @@ let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) 
   if start.status <> 0ul || remaining = 0ul then ret input ({ state = failed start 1ul; used })
   else
     let! first = (fun () -> peek input start.offset) in
-    let! decl = (fun () -> pattern_binding input start 0ul 0ul used) in
+    let! decl = (fun () -> pattern_binding input start 0ul 0ul used 64ul) in
     let! value = (fun () -> declarator_value input decl.state 64ul (not constant && G.identifier_start first)) in
     let! tail = (fun () -> skip input value.parser) in
     let! comma = (fun () -> same input tail.offset 44uy) in
@@ -3394,6 +3415,20 @@ let export_identifier (input:tape) (#frame:slprop) (state:parser_state) : Tot (s
   let! first = (fun () -> peek input #frame state.offset) in
   if G.identifier_start first then (let! anf_value_1 = (fun () -> scan_class input #frame state.offset G.Identifier) in read_ret input #frame ({ state with offset = anf_value_1 }))
   else read_ret input #frame (failed state 1ul)
+
+let star_reexport (input:tape) (state:parser_state) (used:names_used)
+  : Tot (stt named_state (heap input) (fun _ -> heap input)) =
+  let! alias = (fun () -> keyword input state.offset 2ul 0x6173uL) in
+  let! named = (fun () -> if alias then
+    let! start = (fun () -> skip input { state with offset = plus state.offset 2ul }) in
+    let! last = (fun () -> export_identifier input start) in
+    reserve_export input last used start.offset last.offset
+    else ret input { state; used }) in
+  let! tail = (fun () -> skip input named.state) in
+  let! from_ = (fun () -> keyword input tail.offset 4ul 0x66726f6duL) in
+  let! source = (fun () -> if from_ then import_source input { tail with offset = plus tail.offset 4ul }
+    else ret input (failed tail 1ul)) in
+  ret input { named with state = source }
 
 let rec export_string_name (input:tape) (#frame:slprop) (state:parser_state) (delimiter:U8.t) (remaining:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v remaining) =
@@ -3534,11 +3569,8 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
         let! body = (fun () -> skip input { reserved.state with offset = end_ }) in
         (let! anf_value_3 = (fun () -> default_declaration input body used) in ret input (anf_value_3, reserved.used))
       else if exported.export_kind = 2ul then
-        let tail = exported.after_export in
-        let! source = (fun () -> (let! anf_value_4 = (fun () -> keyword input tail.offset 4ul 0x66726f6duL) in if anf_value_4 then
-          import_source input { tail with offset = plus tail.offset 4ul }
-          else ret input (failed tail 1ul))) in
-        ret input ({ state = source; used }, exports)
+        let! reexported = (fun () -> star_reexport input exported.after_export exports) in
+        ret input ({ state = reexported.state; used }, reexported.used)
       else if exported.export_kind = 3ul then
         let! imported = (fun () -> named_reexport input exported.after_export exports used) in
         ret input ({ state = imported.state; used }, imported.used)

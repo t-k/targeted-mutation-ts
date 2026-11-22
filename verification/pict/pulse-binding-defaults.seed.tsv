@@ -1,0 +1,9 @@
+Context	Default	Tail
+ExportedObject	Property	Complete
+ExportedObject	Call	Complete
+ExportedObject	Class	Complete
+ExportedObject	Comparison	Complete
+Array	Comparison	Complete
+Function	Comparison	Complete
+Arrow	Comparison	Complete
+ExportedObject	Property	Broken
