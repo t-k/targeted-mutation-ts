@@ -28,9 +28,9 @@ function compare(operator, left, right) {
 }
 
 // The Playwright extraction reports a logical operator with an operand-dropping edit. The operator swap is a different edit at the same position.
-function withOperatorSites(comparisons, input, file) {
+function withOperatorSites(comparisons, input, file, dialect) {
   const start = candidate => (candidate.operatorEdit ?? candidate.edit)[0];
-  const added = collectOperatorSites(input, file);
+  const added = collectOperatorSites(input, file, { dialect });
   return added.length ? [...comparisons, ...added].sort((a, b) => start(a) - start(b)) : comparisons;
 }
 
@@ -42,7 +42,7 @@ export function collectComparisons(root, files, options) {
     const { path, fallback, reason, candidates: comparisons, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, requireNative: true, logical: options.runner === 'playwright' });
     extraction.push({ file, path, reason, diagnostics, ...(fallback === undefined ? {} : { fallback }) });
     if (path === 'diagnostic') continue;
-    const candidates = options.mutators === 'operators' ? withOperatorSites(comparisons, input, file) : comparisons;
+    const candidates = options.mutators === 'operators' ? withOperatorSites(comparisons, input, file, options.dialect) : comparisons;
     const positions = byteLocations(input, candidates.map(candidate => (candidate.operatorEdit ?? candidate.edit)[0]));
     let digest;
     const sites = candidates.flatMap((candidate, index) => {

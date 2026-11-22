@@ -22,7 +22,8 @@ test('the main manifest is public and depends on every platform package at its o
     '@targeted-mutation/tmt-linux-arm64': root.version, '@targeted-mutation/tmt-linux-x64': root.version,
   });
   assert.deepEqual(main.dependencies, root.dependencies);
-  assert.deepEqual(main.peerDependenciesMeta, { '@stryker-mutator/instrumenter': { optional: true } });
+  // An exact optional peer would still conflict with a project that has another instrumenter version installed.
+  assert.equal(main.peerDependencies, undefined);
   assert.ok(main.files.includes('LICENSE') && main.files.includes('NOTICE'));
   assert.equal(main.files.some(file => /tmt\.node|tmt-decide|evidence/.test(file)), false);
   assert.match(main.repository.url, /^git\+https:\/\/github\.com\//);

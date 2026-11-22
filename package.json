@@ -53,14 +53,6 @@
   "dependencies": {
     "typescript": ">=5.9.3 <7"
   },
-  "peerDependencies": {
-    "@stryker-mutator/instrumenter": "10.1.1"
-  },
-  "peerDependenciesMeta": {
-    "@stryker-mutator/instrumenter": {
-      "optional": true
-    }
-  },
   "devDependencies": {
     "@playwright/test": "1.65.1",
     "@stryker-mutator/core": "10.1.1",

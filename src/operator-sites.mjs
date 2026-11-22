@@ -18,9 +18,11 @@ export const operatorRules = new Map([
 ]);
 
 // Sites are in source order. Offsets are UTF-8 bytes, matching the native extractor's candidates.
-export function collectOperatorSites(input, file, ts = loadTypeScript()) {
+export function collectOperatorSites(input, file, { dialect, ts = loadTypeScript() } = {}) {
   const text = input.toString('utf8');
-  const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false);
+  // An explicit dialect overrides the file name, as it does for the comparison extractor.
+  const kind = dialect === 'tsx' ? ts.ScriptKind.TSX : dialect === 'ts' ? ts.ScriptKind.TS : undefined;
+  const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false, kind);
   const concatenates = node => ts.isStringLiteralLike(node) || ts.isTemplateExpression(node);
   const nullish = node => ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken;
   // An operator character next to the token would merge with the replacement (`a*/* c */b` -> `a//* c */b`).

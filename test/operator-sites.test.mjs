@@ -103,3 +103,11 @@ test('the Playwright scope keeps the operand edit and adds the operator swap at 
   assert.equal(extended.find(site => site.unobserved).replacement, '&&');
   assert.equal(new Set(extended.map(site => site.id)).size, 2);
 });
+
+test('an explicit dialect decides whether angle brackets are JSX', () => {
+  const input = Buffer.from('export const view = <div>Hello + world</div>;');
+  assert.deepEqual(collectOperatorSites(input, 'view.ts', { dialect: 'tsx' }), []);
+  assert.deepEqual(collectOperatorSites(input, 'view.tsx'), []);
+  const cast = Buffer.from('const n = <number>a + b;');
+  assert.deepEqual(collectOperatorSites(cast, 'cast.tsx', { dialect: 'ts' }).map(site => site.operator), ['+']);
+});

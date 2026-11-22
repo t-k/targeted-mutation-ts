@@ -36,7 +36,7 @@ try {
   for (const binary of ['tmt.node', 'tmt-decide']) {
     assert.equal(readFileSync(join(platformPackage, binary)).includes(homedir()), false, `${binary} records the build machine's home directory`);
   }
-  for (const file of ['LICENSE', 'NOTICE', 'lean/LICENSE', 'lean/LICENSES', 'lean/GPL-3.0.txt', 'lean/libuv-LICENSE.txt']) assert.ok(readFileSync(join(platformPackage, file)).length, file);
+  for (const file of ['LICENSE', 'NOTICE', 'lean/LICENSE', 'lean/LICENSES', 'lean/GPL-3.0.txt', 'lean/libuv-LICENSE.txt', 'lean/libuv-LICENSE-extra.txt']) assert.ok(readFileSync(join(platformPackage, file)).length, file);
   const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
   const platformManifest = JSON.parse(readFileSync(join(platformPackage, 'package.json'), 'utf8'));
   assert.deepEqual(manifest.dependencies, { typescript: '>=5.9.3 <7' });

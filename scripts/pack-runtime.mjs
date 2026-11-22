@@ -59,7 +59,7 @@ function leanLicenses(target) {
   mkdirSync(target, { recursive: true });
   for (const file of ['LICENSE', 'LICENSES']) copyFileSync(join(prefix, file), join(target, file));
   // Lean's notice file omits the GPL text that the LGPL incorporates and the libuv notice.
-  for (const file of ['GPL-3.0.txt', 'libuv-LICENSE.txt']) copyFileSync(join('licenses', file), join(target, file));
+  for (const file of ['GPL-3.0.txt', 'libuv-LICENSE.txt', 'libuv-LICENSE-extra.txt']) copyFileSync(join('licenses', file), join(target, file));
 }
 
 function packPlatform() {
