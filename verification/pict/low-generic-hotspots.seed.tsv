@@ -1,0 +1,5 @@
+Feature	Dialect	Suffix
+ConstParam	TSX	Valid
+Unique	TS	Valid
+Global	TS	Valid
+Captures	TS	Valid

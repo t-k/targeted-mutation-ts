@@ -1,0 +1,9 @@
+Feature	Dialect	Suffix
+ConstParam	TSX	Valid
+Unique	TS	Valid
+Global	TS	Valid
+Captures	TS	Valid
+Captures	TSX	Broken
+Unique	TSX	Broken
+Global	TSX	Broken
+ConstParam	TS	Broken

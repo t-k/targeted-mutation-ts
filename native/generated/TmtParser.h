@@ -316,6 +316,14 @@ TmtParser_regex_group_result;
 TmtParser_regex_result
 TmtParser_regex_result_at(uint32_t at, bool ok, TmtParser_regex_captures captures);
 
+uint32_t
+TmtParser_capture_hash(
+  TmtParser_tape input0,
+  uint32_t at0,
+  uint32_t remaining0,
+  uint32_t value0
+);
+
 TmtParser_regex_result
 TmtParser_regex_pattern(
   TmtParser_tape input0,
@@ -486,11 +494,15 @@ typedef struct TmtParser_type_term_head_s
   bool term_queried;
   bool term_imported;
   bool term_inferred;
+  bool term_unique;
 }
 TmtParser_type_term_head;
 
 TmtParser_type_term_head
 TmtParser_read_type_term_head(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
+TmtParser_unique_symbol_type(TmtParser_tape input, TmtParser_parser_state st);
 
 typedef struct TmtParser_bracket_type_key_s
 {
@@ -1415,6 +1427,19 @@ TmtParser_enum_members(
 
 TmtParser_named_state
 TmtParser_const_enum(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);
+
+TmtParser_parser_state
+TmtParser_interface_tail(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
+TmtParser_global_augmentation_start(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
+TmtParser_global_interfaces(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t remaining0
+);
 
 TmtParser_named_state
 TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);

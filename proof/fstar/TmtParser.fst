@@ -420,6 +420,14 @@ type regex_group_result = { pattern:regex_result; repeatable_group:bool }
 let regex_result_at (at:U32.t) (ok:bool) (captures:regex_captures) : regex_result =
   { ending = { at; ok; newline = false }; captures }
 
+let rec capture_hash (input:tape) (at remaining value:U32.t)
+  : Read U32.t input (decreases U32.v remaining) =
+  if remaining = 0ul then value
+  else
+    let byte = peek input at in
+    let folded = U32.mul_mod (U32.logxor value (Cast.uint8_to_uint32 byte)) 16777619ul in
+    capture_hash input (next at) (minus remaining 1ul) folded
+
 let rec regex_pattern (input:tape) (at depth fuel:U32.t) (nested can_repeat:bool) (captures:regex_captures)
   : Read regex_result input (decreases %[U32.v depth; 1; U32.v fuel]) =
   if fuel = 0ul || U32.(at >=^ input.size) then regex_result_at at false captures
@@ -483,10 +491,8 @@ and regex_group (input:tape) (at depth fuel:U32.t) (captures:regex_captures)
       else
         let limit = scan_class input prefix G.Identifier in
         let closed = same input limit 62uy in
-        let last = peek input (minus limit 1ul) in
         // Equal names always share a bit. Decline collisions instead of accepting a duplicate.
-        let edges = U32.add (Cast.uint8_to_uint32 first) (Cast.uint8_to_uint32 last) in
-        let hash = U32.add_mod edges (minus limit prefix) in
+        let hash = capture_hash input prefix (minus limit prefix) 2166136261ul in
         let bit = U64.shift_left 1uL (U32.rem hash 64ul) in
         if closed && U64.logand names bit = 0uL then next limit, U64.logor names bit, true
         else at, names, false
@@ -771,7 +777,7 @@ type tuple_item = { item_end:parser_state; optional_item:bool; rest_item:bool }
 
 type type_term_head = {
   term_state:parser_state; term_readonly:bool; term_byte:U8.t;
-  term_keyof:bool; term_queried:bool; term_imported:bool; term_inferred:bool
+  term_keyof:bool; term_queried:bool; term_imported:bool; term_inferred:bool; term_unique:bool
 }
 
 let read_type_term_head (input:tape) (state:parser_state) : Read type_term_head input =
@@ -782,8 +788,14 @@ let read_type_term_head (input:tape) (state:parser_state) : Read type_term_head 
   let queried = if byte = 116uy then keyword input st.offset 6ul 0x747970656f66uL else false in
   let imported = if byte = 105uy then keyword input st.offset 6ul 0x696d706f7274uL else false in
   let inferred = if byte = 105uy then keyword input st.offset 5ul 0x696e666572uL else false in
+  let unique = if byte = 117uy then keyword input st.offset 6ul 0x756e69717565uL else false in
   { term_state = st; term_readonly = readonly; term_byte = byte;
-    term_keyof = keyof; term_queried = queried; term_imported = imported; term_inferred = inferred }
+    term_keyof = keyof; term_queried = queried; term_imported = imported; term_inferred = inferred; term_unique = unique }
+
+let unique_symbol_type (input:tape) (st:parser_state) : Read parser_state input =
+  let symbol = skip input { st with offset = plus st.offset 6ul } in
+  if keyword input symbol.offset 6ul 0x73796d626f6cuL then { symbol with offset = plus symbol.offset 6ul }
+  else failed symbol 1ul
 
 type bracket_type_key = { key_end:parser_state; index_signature:bool }
 
@@ -1040,6 +1052,7 @@ and type_term (input:tape) (state:parser_state) (fuel:U32.t) (allow_signature al
         let query = type_query input st in
         type_arguments input query.query_end fuel query.is_import
       else if imported then type_arguments input (import_type input st) fuel true
+      else if head.term_unique then unique_symbol_type input st
       else if head.term_inferred then
         let start = skip input { st with offset = plus st.offset 5ul } in
         let binding = from_cursor start (name input start.offset false true) in
@@ -1180,6 +1193,9 @@ and type_parameters (input:tape) (state:parser_state) (fuel remaining:U32.t)
   let st = skip input state in
   if st.status <> 0ul || remaining = 0ul then failed st 1ul
   else
+    let st = if keyword input st.offset 5ul 0x636f6e7374uL then
+      skip input { st with offset = plus st.offset 5ul }
+      else st in
     let named = name input st.offset false true in
     let packed = packed_type input st.offset named.at in
     let undefined = undefined_type input st.offset named.at in
@@ -1356,13 +1372,15 @@ let generic_arrow_head (input:tape) (state:parser_state) : Read parser_state inp
     if not head.jsx_allowed then true
     else
       let first = skip input head in
-      let named = name input first.offset false true in
-      let tail = skip input (from_cursor first named) in
-      let byte = peek input tail.offset in
-      if tail.status <> 0ul then false
-      else if byte = 44uy || byte = 61uy then true
-      else if byte = 101uy then keyword input tail.offset 7ul 0x657874656e6473uL
-      else false in
+      if keyword input first.offset 5ul 0x636f6e7374uL then true
+      else
+        let named = name input first.offset false true in
+        let tail = skip input (from_cursor first named) in
+        let byte = peek input tail.offset in
+        if tail.status <> 0ul then false
+        else if byte = 44uy || byte = 61uy then true
+        else if byte = 101uy then keyword input tail.offset 7ul 0x657874656e6473uL
+        else false in
   if eligible then skip input (type_parameters input head 16ul 64ul) else failed head 1ul
 
 let async_modifier (input:tape) (start:U32.t) : Read cursor input =
@@ -3024,6 +3042,34 @@ let const_enum (input:tape) (state:parser_state) (used:names_used) : Run named_s
   let opening = consume input (skip input named.state) 123uy in
   { named with state = enum_members input opening input.size }
 
+let interface_tail (input:tape) (state:parser_state) : Read parser_state input =
+  let st = skip input (optional_type_parameters input state) in
+  let extends = keyword input st.offset 7ul 0x657874656e6473uL in
+  let st = if extends then interface_bases input { st with offset = plus st.offset 7ul } 64ul else st in
+  object_type input (consume input st 123uy) 15ul input.size
+
+let global_augmentation_start (input:tape) (state:parser_state) : Read parser_state input =
+  if keyword input state.offset 7ul 0x6465636c617265uL then
+    let global = skip input { state with offset = plus state.offset 7ul } in
+    if keyword input global.offset 6ul 0x676c6f62616cuL then
+      consume input (skip input { global with offset = plus global.offset 6ul }) 123uy
+    else failed state 1ul
+  else failed state 1ul
+
+let rec global_interfaces (input:tape) (state:parser_state) (remaining:U32.t)
+  : Read parser_state input (decreases U32.v remaining) =
+  let st = skip input state in
+  if st.status <> 0ul then st
+  else if same input st.offset 125uy then consume input st 125uy
+  else if remaining = 0ul then failed st 3ul
+  else if type_declaration_width input st.offset = 9ul then
+    let start = skip input { st with offset = plus st.offset 9ul } in
+    let declared = from_cursor start (name input start.offset false true) in
+    let valid = admissible_type_binding input start.offset declared.offset in
+    let body = if valid then interface_tail input (skip input declared) else failed declared 1ul in
+    global_interfaces input body (minus remaining 1ul)
+  else failed st 1ul
+
 let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
   let head = declaration_start input state in
   let st = head.after_modifiers in
@@ -3047,11 +3093,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
         else if type_only then
           let valid = admissible_type_binding input start.offset decl.state.offset in
           if not valid then failed st 1ul
-          else if width = 9ul then
-            let st = skip input (optional_type_parameters input st) in
-            let extends = keyword input st.offset 7ul 0x657874656e6473uL in
-            let st = if extends then interface_bases input { st with offset = plus st.offset 7ul } 64ul else st in
-            object_type input (consume input st 123uy) 15ul input.size
+          else if width = 9ul then interface_tail input st
           else type_alias_tail input st false
         else
           let annotation = annotation_type input (consume input st 58uy) 16ul 64ul in
@@ -3190,6 +3232,7 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
         else import_declaration input st used, exports
       else
         let first = peek input st.offset in
+        let augmentation = if first = 100uy then global_augmentation_start input st else failed st 1ul in
         let declared =
           if first = 101uy then keyword input st.offset 6ul 0x6578706f7274uL
           else if first = 102uy then keyword input st.offset 8ul 0x66756e6374696f6euL
@@ -3202,7 +3245,8 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
             let width = type_declaration_width input st.offset in width <> 0ul
           else
             let width = local_width input st.offset in width <> 0ul in
-        if declared then module_declaration input st used, exports
+        if augmentation.status = 0ul then { state = global_interfaces input augmentation input.size; used }, exports
+        else if declared then module_declaration input st used, exports
         else { state = (control_statement input st 64ul false NoJump 0ul 0ul false).state; used }, exports in
     let reserved = if exported.direct then reserve_direct_exports input decl.state exports used decl.used
       else { state = decl.state; used = exports } in

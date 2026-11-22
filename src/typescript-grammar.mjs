@@ -53,11 +53,13 @@ export function createTypeScriptGrammar(ts, bindings) {
         ((isFunctionDeclaration(node) || isFunctionExpression(node)) && node.body) ||
         ((isTypeParameterDeclaration(node) || isParameter(node)) && runtimeParameters)
       ) binding = node.name;
-      if (!ambient && binding && isIdentifier(binding)) {
+      if (binding && isIdentifier(binding)) {
         const name = binding.text;
-        if (strict && strictReservedBindings.has(name)) report(`'${name}' is reserved in strict mode and cannot be used as a binding identifier`, binding);
-        else if (strict && strictRestrictedBindings.has(name)) report(`'${name}' is not allowed as a binding identifier in strict mode`, binding);
-        else if (name === 'await' && (module || async)) report("'await' is reserved in an async/module context and cannot be used as a binding identifier", binding);
+        if (!ambient && strict && strictReservedBindings.has(name)) report(`'${name}' is reserved in strict mode and cannot be used as a binding identifier`, binding);
+        else if (!ambient && strict && strictRestrictedBindings.has(name)) report(`'${name}' is not allowed as a binding identifier in strict mode`, binding);
+        else if (name === 'await' && (module || async) && (!ambient || isInterfaceDeclaration(node))) {
+          report("'await' is reserved in an async/module context and cannot be used as a binding identifier", binding);
+        }
       }
 
       if (isVariableDeclaration(node) && isVariableDeclarationList(parent) && !ambient && !node.initializer && forHead !== 'iteration') {
