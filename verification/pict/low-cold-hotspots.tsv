@@ -1,0 +1,7 @@
+Feature	Dialect	Suffix
+Exponent	TS	Valid
+Capture	TSX	Valid
+Attribute	TS	Valid
+Exponent	TSX	Broken
+Capture	TS	Broken
+Attribute	TSX	Broken

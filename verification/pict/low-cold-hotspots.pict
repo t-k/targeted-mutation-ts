@@ -1,0 +1,3 @@
+Feature: Exponent, Capture, Attribute
+Dialect: TS, TSX
+Suffix: Valid, Broken

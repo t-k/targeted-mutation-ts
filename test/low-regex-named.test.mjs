@@ -46,7 +46,7 @@ test('each literal has its own captures and class text does not open a group', (
 });
 
 test('the capture mask and group depth decline conservatively', () => {
-  assert.notEqual(compare('const ok = /(?<ah>x)(?<ba>y)/ < limit;').path, 'fast');
+  assert.notEqual(compare('const ok = /(?<ala>x)(?<aav>y)/ < limit;').path, 'fast');
   const source = count => `const ok = /${'(?:'.repeat(count)}(?<entry>x)${')'.repeat(count)}/ < limit;`;
   compare(source(31), 'fast');
   assert.notEqual(compare(source(32)).path, 'fast');

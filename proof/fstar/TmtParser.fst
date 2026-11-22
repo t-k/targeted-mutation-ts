@@ -494,10 +494,13 @@ and regex_group (input:tape) (at depth fuel:U32.t) (captures:regex_captures)
       else
         let limit = scan_class input prefix G.Identifier in
         let closed = same input limit 62uy in
-        // Equal names always share a bit. Decline collisions instead of accepting a duplicate.
+        // Equal names set both positions. If both are occupied, leave the decision to compatibility parsing.
         let hash = capture_hash input prefix (minus limit prefix) 2166136261ul in
-        let bit = U64.shift_left 1uL (U32.rem hash 64ul) in
-        if closed && U64.logand names bit = 0uL then next limit, U64.logor names bit, true
+        let low = U64.shift_left 1uL (U32.rem hash 32ul) in
+        let high_index = U32.add 32ul (U32.rem (U32.shift_right hash 16ul) 32ul) in
+        let high = U64.shift_left 1uL high_index in
+        let bits = U64.logor low high in
+        if closed && U64.logand names bits <> bits then next limit, U64.logor names bits, true
         else at, names, false
     else at, names, false in
   let capturing = not question || (marker = 60uy && repeatable_group) in
@@ -546,6 +549,9 @@ let operator (input:tape) (at:U32.t) (in_allowed:bool) : Read binary_operator in
         { strength = 7ul; width = 2ul; boundary = 0ul; nullish = false }
       else none
     else none
+  else if byte = 42uy && follower = 42uy then
+    if same input (plus at 2ul) 61uy then none
+    else { strength = 11ul; width = 2ul; boundary = 0ul; nullish = false }
   else if follower = 61uy then none
   else if byte = 124uy then { strength = 3ul; width = 1ul; boundary = 0ul; nullish = false }
   else if byte = 38uy then { strength = 5ul; width = 1ul; boundary = 0ul; nullish = false }
@@ -1744,6 +1750,10 @@ let read_atom_head (input:tape) (st:parser_state) : Read atom_head input =
   { token_ = ch; imported_ = imported; super_; fn_ = fn; increment_ = increment; deleting_ = deleting; prefix_ = prefix;
     constructor_ = constructor; class_ }
 
+let exponent_base (input:tape) (state:parser_state) : Read bool input =
+  let head = read_atom_head input state in
+  head.token_ <> 60uy && (head.prefix_ = 0ul || head.increment_ <> 0ul)
+
 let combine_binary (input:tape) (lhs rhs:parsed) (st:parser_state) (op:binary_operator) (first:U8.t)
   : Run parsed input =
   if rhs.parser.status <> 0ul then rhs
@@ -2090,16 +2100,22 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
           binary_tail input value fuel minimum (minus remaining 1ul)
     else
       let op = operator input st.offset st.in_allowed in
+      let exponent = op.strength = 11ul in
+      let forbidden_base =
+        if exponent then let allowed = exponent_base input { st with offset = lhs.range.G.first } in not allowed
+        else false in
       if op.width = 0ul || U32.(op.strength <^ minimum) then { lhs with parser = st }
       else if remaining = 0ul then empty_range (failed st 3ul)
-      else if op.strength = 11ul then empty_range (failed st 1ul)
+      else if exponent && fuel = 0ul then empty_range (failed st 3ul)
+      else if forbidden_base then empty_range (failed st 1ul)
       else if lhs.open_angle && (op.boundary = 3ul || op.boundary = 4ul ||
           op.strength = 3ul || op.strength = 5ul || op.strength = 8ul) then empty_range (failed st 1ul)
       else if op.boundary <> 0ul && U32.(st.count >=^ input.capacity) then empty_range (failed st 4ul)
       else
         let count = if op.boundary = 0ul then st.count else next st.count in
         let after = { st with offset = plus st.offset op.width; count } in
-        let rhs = binary input after fuel (U32.add op.strength 1ul) in
+        let rhs = if exponent then binary input after (minus fuel 1ul) op.strength
+          else binary input after fuel (U32.add op.strength 1ul) in
         let combined = combine_binary input lhs rhs st op first in
         if combined.parser.status <> 0ul then combined
         else binary_tail input combined fuel minimum (minus remaining 1ul)
@@ -2906,13 +2922,32 @@ let declaration (input:tape) (state:parser_state) : Run parser_state input =
     let st = consume input st 61uy in
     (comparison input st 64ul).parser
 
+let static_import_attributes (input:tape) (state:parser_state) : Read parser_state input =
+  let opening = consume input (skip input { state with offset = plus state.offset 4ul }) 123uy in
+  let key = skip input opening in
+  if same input key.offset 125uy then consume input key 125uy
+  else if not (keyword input key.offset 4ul 0x74797065uL) then failed key 1ul
+  else
+    let colon = skip input { key with offset = plus key.offset 4ul } in
+    let value = skip input (consume input colon 58uy) in
+    let delimiter = peek input value.offset in
+    if delimiter <> 34uy && delimiter <> 39uy then failed value 1ul
+    else
+      let literal = string_end input (next value.offset) delimiter input.size false in
+      let ending = skip input (from_cursor value literal) in
+      let ending = if same input ending.offset 44uy then skip input (consume input ending 44uy) else ending in
+      consume input ending 125uy
+
 let import_source (input:tape) (state:parser_state) : Read parser_state input =
   let st = skip input state in
   let delimiter = peek input st.offset in
   if st.status <> 0ul || (delimiter <> 34uy && delimiter <> 39uy) then failed st 1ul
   else
-    let literal = string_end input (next st.offset) delimiter input.size false in
-    statement_end input (from_cursor st literal) literal.at false
+    let literal = from_cursor st (string_end input (next st.offset) delimiter input.size false) in
+    let tail = skip input literal in
+    let has_attributes = if tail.status = 0ul then keyword input tail.offset 4ul 0x77697468uL else false in
+    let ending = if has_attributes then static_import_attributes input tail else literal in
+    statement_end input ending ending.offset false
 
 let rec import_members (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (allow_type:bool)
   : Run named_state input (decreases U32.v fuel) =

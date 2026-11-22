@@ -977,6 +977,8 @@ TmtParser_atom_head;
 
 TmtParser_atom_head TmtParser_read_atom_head(TmtParser_tape input, TmtParser_parser_state st);
 
+bool TmtParser_exponent_base(TmtParser_tape input, TmtParser_parser_state state);
+
 TmtParser_parsed
 TmtParser_combine_binary(
   TmtParser_tape input,
@@ -1395,6 +1397,9 @@ TmtParser_class_tail(TmtParser_tape input, TmtParser_parser_state state, uint32_
 
 TmtParser_parser_state
 TmtParser_declaration(TmtParser_tape input, TmtParser_parser_state state);
+
+TmtParser_parser_state
+TmtParser_static_import_attributes(TmtParser_tape input, TmtParser_parser_state state);
 
 TmtParser_parser_state
 TmtParser_import_source(TmtParser_tape input, TmtParser_parser_state state);

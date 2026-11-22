@@ -5,11 +5,17 @@ CONSTANT Capacity
 VARIABLES events, depth, seen, legacyOnly, rejected
 vars == <<events, depth, seen, legacyOnly, rejected>>
 
-Buckets == {"bucket-a", "bucket-b", "bucket-c"}
+Names == {"aa", "ab", "ba", "bb"}
+Bits(name) == CASE name = "aa" -> {"low-a", "high-a"}
+                [] name = "ab" -> {"low-a", "high-b"}
+                [] name = "ba" -> {"low-b", "high-a"}
+                [] OTHER -> {"low-b", "high-b"}
 CaptureEvents == DOMAIN events
-Observed == {events[i] : i \in {j \in CaptureEvents : events[j] \in Buckets}}
+ObservedBefore(position) == UNION {Bits(events[i]) : i \in {j \in CaptureEvents : j < position /\ events[j] \in Names}}
+Observed == ObservedBefore(Len(events) + 1)
 Repeated == \E i,j \in CaptureEvents :
-  i < j /\ events[i] \in Buckets /\ events[i] = events[j]
+  i < j /\ events[i] \in Names /\ events[i] = events[j]
+Collision == \E i \in CaptureEvents : events[i] \in Names /\ Bits(events[i]) \subseteq ObservedBefore(i)
 HasRawBrace == \E i \in CaptureEvents : events[i] = "raw-brace"
 Unicode == \E i \in CaptureEvents : events[i] = "unicode-flags"
 Finished == \E i \in CaptureEvents : events[i] \in {"unicode-flags", "legacy-flags"}
@@ -32,10 +38,10 @@ Leave ==
   /\ events' = Append(events, "leave")
   /\ UNCHANGED <<seen, legacyOnly, rejected>>
 
-Capture(bucket) ==
-  /\ events' = Append(events, bucket)
-  /\ rejected' = (bucket \in seen)
-  /\ seen' = seen \cup {bucket}
+Capture(name) ==
+  /\ events' = Append(events, name)
+  /\ rejected' = (Bits(name) \subseteq seen)
+  /\ seen' = seen \cup Bits(name)
   /\ UNCHANGED <<depth, legacyOnly>>
 
 RawBrace ==
@@ -51,10 +57,11 @@ Finish(unicode) ==
 
 Next == /\ Len(events) < Capacity
         /\ ~rejected /\ ~Finished
-        /\ Enter \/ Leave \/ (\E bucket \in Buckets : Capture(bucket)) \/ RawBrace \/ Finish(TRUE) \/ Finish(FALSE)
+        /\ Enter \/ Leave \/ (\E name \in Names : Capture(name)) \/ RawBrace \/ Finish(TRUE) \/ Finish(FALSE)
 
 Spec == Init /\ [][Next]_vars
 CaptureHistory == /\ seen = Observed
                   /\ legacyOnly = HasRawBrace
-                  /\ rejected = (Repeated \/ (HasRawBrace /\ Unicode))
+                  /\ rejected = (Collision \/ (HasRawBrace /\ Unicode))
+                  /\ (Repeated => rejected)
 =============================================================================

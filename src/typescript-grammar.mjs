@@ -235,7 +235,7 @@ export function createTypeScriptGrammar(ts, bindings) {
     SyntaxKind.VariableDeclaration, SyntaxKind.PropertySignature, SyntaxKind.ArrowFunction, SyntaxKind.ThrowStatement,
     SyntaxKind.NewExpression, SyntaxKind.BindingElement, SyntaxKind.ExportDeclaration, SyntaxKind.SwitchStatement,
     SyntaxKind.JsxAttribute, SyntaxKind.JsxExpression, SyntaxKind.MetaProperty, SyntaxKind.RegularExpressionLiteral,
-    SyntaxKind.ImportType, SyntaxKind.ImportClause, SyntaxKind.ImportAttribute, SyntaxKind.ImportDeclaration,
+    SyntaxKind.ImportType, SyntaxKind.ImportClause, SyntaxKind.ImportAttribute, SyntaxKind.ImportAttributes, SyntaxKind.ImportDeclaration,
   ]) typeCheckKind[kind] = 1;
 
   function createTypeSyntaxVisitor(file, module, emit) {
@@ -537,6 +537,13 @@ export function createTypeScriptGrammar(ts, bindings) {
       }
       if (isImportClause(node) && node.isTypeOnly && node.name && node.namedBindings) {
         add('A type-only import can specify a default import or named bindings, but not both');
+      }
+      if (node.kind === SyntaxKind.ImportAttributes && parent && (isImportDeclaration(parent) || isExportDeclaration(parent))) {
+        const seen = new Set();
+        for (const { name } of node.elements) {
+          if (seen.has(name.text)) add(`Duplicate import attribute key '${name.text}'`, name);
+          else seen.add(name.text);
+        }
       }
       if (isImportAttribute(node) && !isStringLiteral(node.value)) add('Import attribute value must be a string literal');
       if (isImportDeclaration(node) && !isSourceFile(parent) && !isModuleBlock(parent)) {
