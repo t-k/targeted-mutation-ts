@@ -1,0 +1,17 @@
+Operation	Asset	Shape
+Threshold	Ready	Plain
+Threshold	Ready	Diagnostic
+Threshold	Missing	Plain
+Threshold	Stale	Contextual
+Threshold	ReadFailure	Plain
+Probe	Ready	Plain
+Probe	Ready	Contextual
+Probe	Preloaded	Contextual
+Probe	ReadFailure	Diagnostic
+Probe	Stale	Plain
+Threshold	Preloaded	Diagnostic
+Threshold	ReadFailure	Contextual
+Probe	Missing	Diagnostic
+Probe	Stale	Diagnostic
+Probe	Preloaded	Plain
+Threshold	Missing	Contextual

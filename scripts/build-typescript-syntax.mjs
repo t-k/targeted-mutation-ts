@@ -39,6 +39,15 @@ function compilerExports() {
       names.add(name.text);
     }
   }
+  for (const file of ['probe', 'prototype']) {
+    const code = readFileSync(new URL(`../src/${file}.mjs`, import.meta.url), 'utf8');
+    const module = ts.createSourceFile(file, code, ts.ScriptTarget.Latest, false, ts.ScriptKind.JS);
+    visit(module, undefined, node => {
+      if (!ts.isPropertyAccessExpression(node) || !ts.isIdentifier(node.expression) || node.expression.text !== 'ts') return;
+      assert.ok(Object.hasOwn(ts, node.name.text), `Unknown TypeScript syntax helper ${node.name.text}`);
+      names.add(node.name.text);
+    });
+  }
   return [...names];
 }
 

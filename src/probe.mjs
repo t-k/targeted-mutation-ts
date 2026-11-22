@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, relative, resolve, sep } from 'node:path';
-import { loadTypeScript } from './typescript-compiler.mjs';
+import { withTypeScriptSyntax } from './typescript-compiler.mjs';
 
 export function rewrite(source, edit, replacement) {
   const [start, end] = edit;
@@ -45,8 +45,7 @@ function ambient(ts, node) {
   return node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.DeclareKeyword);
 }
 
-function hasRuntimeModuleSyntax(file, source) {
-  const ts = loadTypeScript();
+function readRuntimeModuleSyntax(ts, file, source) {
   const parsed = ts.createSourceFile(file, source.toString(), ts.ScriptTarget.Latest, false);
   if (parsed.statements.some(statement => {
     if (ambient(ts, statement)) return false;
@@ -70,6 +69,10 @@ function hasRuntimeModuleSyntax(file, source) {
     ts.forEachChild(node, child => { pending.push([child, childTopLevel]); });
   }
   return false;
+}
+
+function hasRuntimeModuleSyntax(file, source) {
+  return withTypeScriptSyntax(ts => readRuntimeModuleSyntax(ts, file, source));
 }
 
 function probePreload(root, file, hasModuleSyntax) {

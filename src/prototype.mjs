@@ -2,13 +2,14 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { thresholdGaps } from './threshold.mjs';
-import { loadTypeScript } from './typescript-compiler.mjs';
+import { withTypeScriptSyntax } from './typescript-compiler.mjs';
 import { inside, runVitest, withCopy } from './vitest.mjs';
 
-function scanThresholdSites(source, file, operators) {
-  const ts = loadTypeScript();
+function readThresholdSites(ts, source, file, operators) {
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
-  if (tree.parseDiagnostics.length) throw new Error(ts.flattenDiagnosticMessageText(tree.parseDiagnostics[0].messageText, '\n'));
+  if (tree.parseDiagnostics.length) {
+    return { error: ts.flattenDiagnosticMessageText(tree.parseDiagnostics[0].messageText, '\n') };
+  }
   const sites = [];
   for (const statement of tree.statements) {
     if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const) ||
@@ -47,6 +48,12 @@ function scanThresholdSites(source, file, operators) {
       });
     }
   }
+  return { sites };
+}
+
+function scanThresholdSites(source, file, operators) {
+  const { sites, error } = withTypeScriptSyntax(ts => readThresholdSites(ts, source, file, operators));
+  if (error !== undefined) throw new Error(error);
   return sites;
 }
 
@@ -69,8 +76,7 @@ function moduleSpecifier(from, to) {
   return JSON.stringify(path.startsWith('../') ? path : './' + path);
 }
 
-function instrument(source, sites, target, root) {
-  const ts = loadTypeScript();
+function sourceIdentifiers(ts, source, target) {
   const tree = ts.createSourceFile(target, source, ts.ScriptTarget.Latest, true);
   const identifiers = new Set();
   function visit(node) {
@@ -78,6 +84,11 @@ function instrument(source, sites, target, root) {
     ts.forEachChild(node, visit);
   }
   visit(tree);
+  return identifiers;
+}
+
+function instrument(source, sites, target, root) {
+  const identifiers = withTypeScriptSyntax(ts => sourceIdentifiers(ts, source, target));
   let alias = '__tmtThreshold';
   while (identifiers.has(alias)) alias += '_';
 
