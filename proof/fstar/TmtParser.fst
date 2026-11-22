@@ -172,7 +172,7 @@ type super_context =
 
 type parser_state = {
   offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used;
-  await_allowed:bool; jsx_allowed:bool; module_mode:bool; in_allowed:bool; for_initializer:bool;
+  await_allowed:bool; yield_allowed:bool; jsx_allowed:bool; module_mode:bool; in_allowed:bool; for_initializer:bool;
   arrow_defaults_allowed:bool; binding_mode:binding_mode; super_context:super_context
 }
 type assignment_target =
@@ -1741,16 +1741,9 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           empty_range (failed child.parser 1ul)
         else { child with range = { child.range with G.first = start_pos }; target = NotAssignable }
     else if fn.ok then
-      if fuel = 0ul then empty_range (failed st 3ul)
-      else
-        let first = skip input { st with offset = plus fn.at 8ul } in
-        let byte = peek input first.offset in
-        let named =
-          if byte = 40uy || byte = 60uy then first
-          else from_cursor first (name input first.offset false true) in
-        let closed = function_tail input named (minus fuel 1ul) (start_pos <> fn.at) NoSuper in
-        postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
-          open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
+      let closed = function_expression input st fuel fn.at in
+      postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
+        open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
     else if head.class_ then
       let closed = class_expression input st fuel in
       postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
@@ -1843,6 +1836,18 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
       let base = { parser = named; range = { G.first = start_pos; G.last = named.offset };
         open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target } in
       postfix input base fuel input.size
+and function_expression (input:tape) (st:parser_state) (fuel fn:U32.t)
+  : Run parser_state input (decreases %[U32.v fuel; 1; 0]) =
+  if fuel = 0ul then failed st 3ul
+  else
+    let first = skip input { st with offset = plus fn 8ul } in
+    let generator = same input first.offset 42uy in
+    let first = if generator then skip input (consume input first 42uy) else first in
+    let byte = peek input first.offset in
+    let named =
+      if byte = 40uy || byte = 60uy then first
+      else from_cursor first (name input first.offset false true) in
+    (function_form input named (minus fuel 1ul) (st.offset <> fn) NoSuper false OrdinaryParameters generator).after_function
 and class_expression (input:tape) (st:parser_state) (fuel:U32.t)
   : Run parser_state input (decreases %[U32.v fuel; 1; 0]) =
   if fuel = 0ul then failed st 3ul
@@ -1945,7 +1950,7 @@ and arrow_parameters (input:tape) (state:parser_state) (fuel:U32.t)
 and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 25; 0]) =
   let start = skip input current in
-  let arrow = arrow_parameters input start fuel in
+  let arrow = arrow_parameters input { start with yield_allowed = false } fuel in
   if arrow.names.state.status = 0ul then
     let body = skip input { arrow.names.state with local_names = arrow.names.used; binding_mode = NoLocals } in
     if fuel = 0ul then empty_range (failed body 3ul)
@@ -1964,7 +1969,7 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
           let in_allowed = body.in_allowed && not body.for_initializer in
           comparison input { body with in_allowed } inner in
       { result with parser = { result.parser with local_names = start.local_names; await_allowed = start.await_allowed;
-          in_allowed = start.in_allowed; binding_mode = start.binding_mode };
+          yield_allowed = start.yield_allowed; in_allowed = start.in_allowed; binding_mode = start.binding_mode };
         range = { result.range with G.first = start.offset }; outer_or = false; shortcut = 0ul; target = NotAssignable }
   else
   let lhs = binary input start fuel 1ul in
@@ -2193,7 +2198,7 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bo
       if not colon_required && (next_token = 40uy || next_token = 60uy) then
         if fuel = 0ul then empty_range (failed after_key 3ul)
         else if accessor then
-          empty_range (function_form input after_key (minus fuel 1ul) false MethodSuper false arity).after_function
+          empty_range (function_form input after_key (minus fuel 1ul) false MethodSuper false arity false).after_function
         else empty_range (function_tail input after_key (minus fuel 1ul) async_method NoSuper)
       else if computed || quoted || colon_required || async_method || accessor then empty_range (failed st 1ul)
       else
@@ -2454,6 +2459,20 @@ and return_statement (input:tape) (state:parser_state) (fuel:U32.t) : Run parser
   else
     let value = comparison input st fuel in
     statement_end input value.parser value.range.G.last true
+and yield_statement (input:tape) (state:parser_state) (fuel:U32.t) : Run parser_state input (decreases %[U32.v fuel; 44; 0]) =
+  let head = plus state.offset 5ul in
+  let after = trivia input head in
+  let st = from_cursor state after in
+  let byte = peek input st.offset in
+  if byte = 59uy || byte = 125uy || after.newline then statement_end input st head true
+  else
+    let start =
+      if byte = 42uy then
+        let operand = trivia input (next st.offset) in
+        if operand.newline then failed st 1ul else from_cursor st operand
+      else st in
+    let value = comparison input start fuel in
+    statement_end input value.parser value.range.G.last true
 
 and ordinary_statement (input:tape) (state:parser_state) (fuel:U32.t) : Run parser_state input (decreases %[U32.v fuel; 45; 0]) =
   let fn = function_start input state.offset in
@@ -2469,12 +2488,15 @@ and simple_statement (input:tape) (state:parser_state) (in_function:bool) (jumps
   let byte = peek input state.offset in
   let is_return =
     if byte = 114uy && in_function then keyword input state.offset 6ul 0x72657475726euL else false in
+  let is_yield =
+    if byte = 121uy && state.yield_allowed then keyword input state.offset 5ul 0x7969656c64uL else false in
   let is_throw = if byte = 116uy then keyword input state.offset 5ul 0x7468726f77uL else false in
   let jump =
     if byte = 98uy then (if keyword input state.offset 5ul 0x627265616buL then 5ul else 0ul)
     else if byte = 99uy then (if keyword input state.offset 8ul 0x636f6e74696e7565uL then 8ul else 0ul)
     else 0ul in
   if is_return then return_statement input state fuel
+  else if is_yield then yield_statement input state fuel
   else if jump <> 0ul then
     if jumps = LoopJump || (jumps = BreakOnly && jump = 5ul) then statement_end input state (plus state.offset jump) true
     else failed state 1ul
@@ -2701,14 +2723,14 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
       else { names = { prefix.names with state = consume input end_ 41uy }; non_simple }
 and function_tail (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (super_:super_context)
   : Run parser_state input (decreases %[U32.v fuel; 54; 0]) =
-  (function_form input state fuel async_ super_ false OrdinaryParameters).after_function
+  (function_form input state fuel async_ super_ false OrdinaryParameters false).after_function
 
 and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (super_:super_context) (overload:bool)
-  (arity:parameter_arity)
+  (arity:parameter_arity) (generator:bool)
   : Run function_shape input (decreases %[U32.v fuel; 53; 0]) =
   let depth = minus 64ul fuel in
   let start = if U32.(depth >^ state.depth) then { state with depth } else state in
-  let start = { start with super_context = NoSuper } in
+  let start = { start with super_context = NoSuper; yield_allowed = false } in
   let start = skip input (optional_type_parameters input (skip input start)) in
   let opening = consume input start 40uy in
   let opening, limit =
@@ -2729,9 +2751,9 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
     if signature_only then
       signature_end input state opening params annotation st
     else
-      let st = { st with await_allowed = async_; in_allowed = true; binding_mode = NoLocals; super_context = super_ } in
+      let st = { st with await_allowed = async_; yield_allowed = generator; in_allowed = true; binding_mode = NoLocals; super_context = super_ } in
       control_block input (function_body input st params.non_simple) fuel true NoJump floor params.names.used in
-  { after_function = { closed with await_allowed = state.await_allowed; in_allowed = state.in_allowed;
+  { after_function = { closed with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed; in_allowed = state.in_allowed;
       binding_mode = state.binding_mode; super_context = state.super_context }; signature_only }
 
 and class_field_tail (input:tape) (state:parser_state) (fuel:U32.t)
@@ -2748,10 +2770,11 @@ and class_field_tail (input:tape) (state:parser_state) (fuel:U32.t)
   if definite && (equal || typed.offset = head.offset) then failed after 1ul
   else if not equal then statement_end input typed typed.offset true
   else
-    let start = consume input { after with await_allowed = false; super_context = ClassField; in_allowed = true } 61uy in
+    let start = consume input { after with await_allowed = false; yield_allowed = false; super_context = ClassField; in_allowed = true } 61uy in
     let value = comparison input start fuel in
     let closed = statement_end input value.parser value.range.G.last true in
-    { closed with await_allowed = state.await_allowed; super_context = state.super_context; in_allowed = state.in_allowed }
+    { closed with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed;
+      super_context = state.super_context; in_allowed = state.in_allowed }
 
 and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (derived seen_constructor:bool)
   : Run parser_state input (decreases %[U32.v fuel; 56; U32.v remaining]) =
@@ -2782,7 +2805,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             if fuel = 0ul then failed tail 3ul
             else
               let mode = if not constructor then MethodSuper else if derived then DerivedConstructor else BaseConstructor in
-              (function_form input tail (minus fuel 1ul) key.async_ mode false key.arity).after_function
+              (function_form input tail (minus fuel 1ul) key.async_ mode false key.arity false).after_function
           else if key.async_ then failed tail 1ul
           else class_field_tail input key.after_key fuel in
         class_members input after fuel (minus remaining 1ul) derived (seen_constructor || constructor)
@@ -2940,7 +2963,7 @@ let declaration_start (input:tape) (state:parser_state) : Read declaration_head 
 let module_function (input:tape) (state:parser_state) (used:names_used) (async_:bool)
   : Run named_state input =
   let named = from_cursor state (name input state.offset false true) in
-  let function_ = function_form input named 64ul async_ NoSuper true OrdinaryParameters in
+  let function_ = function_form input named 64ul async_ NoSuper true OrdinaryParameters false in
   let after = function_.after_function in
   if after.status <> 0ul then { state = after; used }
   else
@@ -3173,7 +3196,7 @@ private let parse_state (input:tape) (st:parser_state) (module_mode:bool) : Run 
 
 let initial_state (jsx module_mode:bool) : parser_state = {
   offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
-  await_allowed = module_mode; jsx_allowed = jsx; module_mode; in_allowed = true; for_initializer = false;
+  await_allowed = module_mode; yield_allowed = false; jsx_allowed = jsx; module_mode; in_allowed = true; for_initializer = false;
   arrow_defaults_allowed = true; binding_mode = NoLocals; super_context = NoSuper
 }
 

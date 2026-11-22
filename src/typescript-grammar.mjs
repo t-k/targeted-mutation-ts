@@ -624,6 +624,9 @@ export function createTypeScriptGrammar(ts, bindings) {
       if (isYieldExpression(node) && formal) report('Yield expression is not allowed in formal parameters');
       else if (isYieldExpression(node) && !canYield && node.expression) {
         report(`Expected a semicolon or an implicit semicolon after a statement, but found '${node.expression.getText(file)}'`);
+      } else if (isYieldExpression(node) && node.asteriskToken && node.expression) {
+        const trivia = file.text.slice(node.asteriskToken.end, node.expression.getStart(file));
+        if (/[\r\n\u2028\u2029]/.test(trivia)) report("Expected expression after 'yield*'", node.asteriskToken);
       }
       if (isIdentifier(node) && parent && valueUse(node, parent)) {
         const bare = isExpressionStatement(parent);

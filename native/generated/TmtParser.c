@@ -705,6 +705,7 @@ TmtParser_parser_state TmtParser_failed(TmtParser_parser_state state, uint32_t e
                            .status = error,
                            .local_names = state.local_names,
                            .await_allowed = state.await_allowed,
+                           .yield_allowed = state.yield_allowed,
                            .jsx_allowed = state.jsx_allowed,
                            .module_mode = state.module_mode,
                            .in_allowed = state.in_allowed,
@@ -730,6 +731,7 @@ TmtParser_record_binding_mode(TmtParser_parser_state state, TmtParser_binding_mo
           .status = state.status,
           .local_names = state.local_names,
           .await_allowed = state.await_allowed,
+          .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
@@ -782,6 +784,7 @@ TmtParser_consume(TmtParser_tape input, TmtParser_parser_state state, uint8_t by
             .status = state.status,
             .local_names = state.local_names,
             .await_allowed = state.await_allowed,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -811,6 +814,7 @@ TmtParser_from_cursor(TmtParser_parser_state state, TmtParser_cursor read)
           .status = state.status,
           .local_names = state.local_names,
           .await_allowed = state.await_allowed,
+          .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
@@ -2080,6 +2084,7 @@ TmtParser_qualified_name(TmtParser_tape input0, TmtParser_parser_state state0, u
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -2100,9 +2105,9 @@ TmtParser_qualified_name(TmtParser_tape input0, TmtParser_parser_state state0, u
             {
               .offset = end_at, .count = property.count, .depth = property.depth,
               .status = property.status, .local_names = property.local_names,
-              .await_allowed = property.await_allowed, .jsx_allowed = property.jsx_allowed,
-              .module_mode = property.module_mode, .in_allowed = property.in_allowed,
-              .for_initializer = property.for_initializer,
+              .await_allowed = property.await_allowed, .yield_allowed = property.yield_allowed,
+              .jsx_allowed = property.jsx_allowed, .module_mode = property.module_mode,
+              .in_allowed = property.in_allowed, .for_initializer = property.for_initializer,
               .arrow_defaults_allowed = property.arrow_defaults_allowed,
               .binding_mode = property.binding_mode, .super_context = property.super_context
             };
@@ -2314,6 +2319,7 @@ TmtParser_import_type(TmtParser_tape input, TmtParser_parser_state state)
           .status = state.status,
           .local_names = state.local_names,
           .await_allowed = state.await_allowed,
+          .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
@@ -2352,6 +2358,7 @@ TmtParser_type_query(TmtParser_tape input, TmtParser_parser_state state)
           .status = state.status,
           .local_names = state.local_names,
           .await_allowed = state.await_allowed,
+          .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
@@ -2420,6 +2427,7 @@ TmtParser_read_type_term_head(TmtParser_tape input, TmtParser_parser_state state
             .status = state.status,
             .local_names = state.local_names,
             .await_allowed = state.await_allowed,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -2511,6 +2519,7 @@ TmtParser_read_bracket_type_key(TmtParser_tape input, TmtParser_parser_state sta
               .status = start.status,
               .local_names = start.local_names,
               .await_allowed = start.await_allowed,
+              .yield_allowed = start.yield_allowed,
               .jsx_allowed = start.jsx_allowed,
               .module_mode = start.module_mode,
               .in_allowed = start.in_allowed,
@@ -2569,6 +2578,7 @@ TmtParser_constructor_type_start(TmtParser_tape input, TmtParser_parser_state st
               .status = st.status,
               .local_names = st.local_names,
               .await_allowed = st.await_allowed,
+              .yield_allowed = st.yield_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
@@ -2599,6 +2609,7 @@ TmtParser_constructor_type_start(TmtParser_tape input, TmtParser_parser_state st
             .status = start.status,
             .local_names = start.local_names,
             .await_allowed = start.await_allowed,
+            .yield_allowed = start.yield_allowed,
             .jsx_allowed = start.jsx_allowed,
             .module_mode = start.module_mode,
             .in_allowed = start.in_allowed,
@@ -2641,6 +2652,7 @@ TmtParser_mapped_type_start(TmtParser_tape input, TmtParser_parser_state st)
             .status = start.status,
             .local_names = start.local_names,
             .await_allowed = start.await_allowed,
+            .yield_allowed = start.yield_allowed,
             .jsx_allowed = start.jsx_allowed,
             .module_mode = start.module_mode,
             .in_allowed = start.in_allowed,
@@ -2675,6 +2687,7 @@ TmtParser_mapped_type_start(TmtParser_tape input, TmtParser_parser_state st)
               .status = key.status,
               .local_names = key.local_names,
               .await_allowed = key.await_allowed,
+              .yield_allowed = key.yield_allowed,
               .jsx_allowed = key.jsx_allowed,
               .module_mode = key.module_mode,
               .in_allowed = key.in_allowed,
@@ -2701,6 +2714,7 @@ TmtParser_mapped_type_start(TmtParser_tape input, TmtParser_parser_state st)
                 .status = tail.status,
                 .local_names = tail.local_names,
                 .await_allowed = tail.await_allowed,
+                .yield_allowed = tail.yield_allowed,
                 .jsx_allowed = tail.jsx_allowed,
                 .module_mode = tail.module_mode,
                 .in_allowed = tail.in_allowed,
@@ -2811,8 +2825,9 @@ TmtParser_type_list(
           {
             .offset = TmtParser_next(st1.offset), .count = st1.count, .depth = st1.depth,
             .status = st1.status, .local_names = st1.local_names, .await_allowed = st1.await_allowed,
-            .jsx_allowed = st1.jsx_allowed, .module_mode = st1.module_mode,
-            .in_allowed = st1.in_allowed, .for_initializer = st1.for_initializer,
+            .yield_allowed = st1.yield_allowed, .jsx_allowed = st1.jsx_allowed,
+            .module_mode = st1.module_mode, .in_allowed = st1.in_allowed,
+            .for_initializer = st1.for_initializer,
             .arrow_defaults_allowed = st1.arrow_defaults_allowed, .binding_mode = st1.binding_mode,
             .super_context = st1.super_context
           };
@@ -2849,6 +2864,7 @@ TmtParser_tuple_element(TmtParser_tape input, TmtParser_parser_state state, uint
             .status = state.status,
             .local_names = state.local_names,
             .await_allowed = state.await_allowed,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -2880,6 +2896,7 @@ TmtParser_tuple_element(TmtParser_tape input, TmtParser_parser_state state, uint
             .status = start.status,
             .local_names = start.local_names,
             .await_allowed = start.await_allowed,
+            .yield_allowed = start.yield_allowed,
             .jsx_allowed = start.jsx_allowed,
             .module_mode = start.module_mode,
             .in_allowed = start.in_allowed,
@@ -3016,6 +3033,7 @@ TmtParser_object_type_member(TmtParser_tape input, TmtParser_parser_state st, ui
             .status = st.status,
             .local_names = st.local_names,
             .await_allowed = st.await_allowed,
+            .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
@@ -3182,6 +3200,7 @@ TmtParser_mapped_type(TmtParser_tape input, TmtParser_parser_state state, uint32
             .status = st.status,
             .local_names = st.local_names,
             .await_allowed = st.await_allowed,
+            .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
@@ -3273,6 +3292,7 @@ TmtParser_signature_parameters(
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -3300,6 +3320,7 @@ TmtParser_signature_parameters(
               .status = st1.status,
               .local_names = st1.local_names,
               .await_allowed = st1.await_allowed,
+              .yield_allowed = st1.yield_allowed,
               .jsx_allowed = st1.jsx_allowed,
               .module_mode = st1.module_mode,
               .in_allowed = st1.in_allowed,
@@ -3382,6 +3403,7 @@ TmtParser_type_term(
                 .status = st1.status,
                 .local_names = st1.local_names,
                 .await_allowed = st1.await_allowed,
+                .yield_allowed = st1.yield_allowed,
                 .jsx_allowed = st1.jsx_allowed,
                 .module_mode = st1.module_mode,
                 .in_allowed = st1.in_allowed,
@@ -3415,6 +3437,7 @@ TmtParser_type_term(
               .status = st1.status,
               .local_names = st1.local_names,
               .await_allowed = st1.await_allowed,
+              .yield_allowed = st1.yield_allowed,
               .jsx_allowed = st1.jsx_allowed,
               .module_mode = st1.module_mode,
               .in_allowed = st1.in_allowed,
@@ -3450,6 +3473,7 @@ TmtParser_type_term(
                 .status = tail.status,
                 .local_names = tail.local_names,
                 .await_allowed = tail.await_allowed,
+                .yield_allowed = tail.yield_allowed,
                 .jsx_allowed = tail.jsx_allowed,
                 .module_mode = tail.module_mode,
                 .in_allowed = tail.in_allowed,
@@ -3489,6 +3513,7 @@ TmtParser_type_term(
                 .status = st1.status,
                 .local_names = st1.local_names,
                 .await_allowed = st1.await_allowed,
+                .yield_allowed = st1.yield_allowed,
                 .jsx_allowed = st1.jsx_allowed,
                 .module_mode = st1.module_mode,
                 .in_allowed = st1.in_allowed,
@@ -3528,8 +3553,9 @@ TmtParser_type_term(
           {
             .offset = TmtParser_next(st1.offset), .count = st1.count, .depth = st1.depth,
             .status = st1.status, .local_names = st1.local_names, .await_allowed = st1.await_allowed,
-            .jsx_allowed = st1.jsx_allowed, .module_mode = st1.module_mode,
-            .in_allowed = st1.in_allowed, .for_initializer = st1.for_initializer,
+            .yield_allowed = st1.yield_allowed, .jsx_allowed = st1.jsx_allowed,
+            .module_mode = st1.module_mode, .in_allowed = st1.in_allowed,
+            .for_initializer = st1.for_initializer,
             .arrow_defaults_allowed = st1.arrow_defaults_allowed, .binding_mode = st1.binding_mode,
             .super_context = st1.super_context
           };
@@ -3618,6 +3644,7 @@ TmtParser_template_type(
               .status = state.status,
               .local_names = state.local_names,
               .await_allowed = state.await_allowed,
+              .yield_allowed = state.yield_allowed,
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
               .in_allowed = state.in_allowed,
@@ -3648,6 +3675,7 @@ TmtParser_template_type(
                   .status = state.status,
                   .local_names = state.local_names,
                   .await_allowed = state.await_allowed,
+                  .yield_allowed = state.yield_allowed,
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
                   .in_allowed = state.in_allowed,
@@ -3673,6 +3701,7 @@ TmtParser_template_type(
                 .status = state.status,
                 .local_names = state.local_names,
                 .await_allowed = state.await_allowed,
+                .yield_allowed = state.yield_allowed,
                 .jsx_allowed = state.jsx_allowed,
                 .module_mode = state.module_mode,
                 .in_allowed = state.in_allowed,
@@ -3787,6 +3816,7 @@ TmtParser_annotation_type(
             .status = tail.status,
             .local_names = tail.local_names,
             .await_allowed = tail.await_allowed,
+            .yield_allowed = tail.yield_allowed,
             .jsx_allowed = tail.jsx_allowed,
             .module_mode = tail.module_mode,
             .in_allowed = tail.in_allowed,
@@ -3853,6 +3883,7 @@ TmtParser_result_type(TmtParser_tape input, TmtParser_parser_state state, uint32
               .status = st.status,
               .local_names = st.local_names,
               .await_allowed = st.await_allowed,
+              .yield_allowed = st.yield_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
@@ -3874,6 +3905,7 @@ TmtParser_result_type(TmtParser_tape input, TmtParser_parser_state state, uint32
             .status = st.status,
             .local_names = st.local_names,
             .await_allowed = st.await_allowed,
+            .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
@@ -3932,8 +3964,9 @@ TmtParser_type_terms(
             {
               .offset = TmtParser_next(st.offset), .count = st.count, .depth = st.depth,
               .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed,
-              .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
+              .yield_allowed = st.yield_allowed, .jsx_allowed = st.jsx_allowed,
+              .module_mode = st.module_mode, .in_allowed = st.in_allowed,
+              .for_initializer = st.for_initializer,
               .arrow_defaults_allowed = st.arrow_defaults_allowed, .binding_mode = st.binding_mode,
               .super_context = st.super_context
             };
@@ -3995,6 +4028,7 @@ TmtParser_type_parameters(
                     .status = st1.status,
                     .local_names = st1.local_names,
                     .await_allowed = st1.await_allowed,
+                    .yield_allowed = st1.yield_allowed,
                     .jsx_allowed = st1.jsx_allowed,
                     .module_mode = st1.module_mode,
                     .in_allowed = st1.in_allowed,
@@ -4062,6 +4096,7 @@ TmtParser_simple_annotation(TmtParser_tape input, TmtParser_parser_state state)
             .status = st.status,
             .local_names = st.local_names,
             .await_allowed = st.await_allowed,
+            .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
@@ -4190,6 +4225,7 @@ TmtParser_simple_default(TmtParser_tape input, TmtParser_parser_state state)
               .status = st.status,
               .local_names = st.local_names,
               .await_allowed = st.await_allowed,
+              .yield_allowed = st.yield_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
@@ -4257,6 +4293,7 @@ TmtParser_pattern_names(
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -4399,6 +4436,7 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
             .status = state.status,
             .local_names = state.local_names,
             .await_allowed = state.await_allowed,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -4424,6 +4462,7 @@ TmtParser_collection_head(TmtParser_tape input, TmtParser_parser_state state, bo
             .status = next_token.status,
             .local_names = next_token.local_names,
             .await_allowed = next_token.await_allowed,
+            .yield_allowed = next_token.yield_allowed,
             .jsx_allowed = next_token.jsx_allowed,
             .module_mode = next_token.module_mode,
             .in_allowed = next_token.in_allowed,
@@ -4527,6 +4566,7 @@ TmtParser_rest_parameter(
           .status = state.status,
           .local_names = state.local_names,
           .await_allowed = state.await_allowed,
+          .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
@@ -4579,6 +4619,7 @@ TmtParser_arrow_token(TmtParser_tape input, TmtParser_parser_state state)
             .status = st.status,
             .local_names = st.local_names,
             .await_allowed = st.await_allowed,
+            .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
@@ -4681,6 +4722,7 @@ TmtParser_accessor_modifier(TmtParser_tape input, TmtParser_parser_state st)
             .status = st.status,
             .local_names = st.local_names,
             .await_allowed = st.await_allowed,
+            .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
@@ -5004,6 +5046,7 @@ TmtParser_local_type_alias(
           .status = state.status,
           .local_names = state.local_names,
           .await_allowed = state.await_allowed,
+          .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
@@ -5032,7 +5075,8 @@ TmtParser_local_type_alias(
       (TmtParser_named_state){
         .state = {
           .offset = st.offset, .count = st.count, .depth = st.depth, .status = st.status,
-          .local_names = decl.used, .await_allowed = st.await_allowed, .jsx_allowed = st.jsx_allowed,
+          .local_names = decl.used, .await_allowed = st.await_allowed,
+          .yield_allowed = st.yield_allowed, .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode, .in_allowed = st.in_allowed,
           .for_initializer = st.for_initializer, .arrow_defaults_allowed = st.arrow_defaults_allowed,
           .binding_mode = st.binding_mode, .super_context = st.super_context
@@ -5054,6 +5098,7 @@ TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parse
         .status = state.status,
         .local_names = state.local_names,
         .await_allowed = state.await_allowed,
+        .yield_allowed = state.yield_allowed,
         .jsx_allowed = state.jsx_allowed,
         .module_mode = state.module_mode,
         .in_allowed = state.in_allowed,
@@ -5324,6 +5369,7 @@ TmtParser_class_member_key(TmtParser_tape input, TmtParser_parser_state state)
                     .status = start.status,
                     .local_names = start.local_names,
                     .await_allowed = start.await_allowed,
+                    .yield_allowed = start.yield_allowed,
                     .jsx_allowed = start.jsx_allowed,
                     .module_mode = start.module_mode,
                     .in_allowed = start.in_allowed,
@@ -5675,6 +5721,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -5709,59 +5756,22 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
     }
     else if (fn.ok)
     {
-      if (fuel == 0U)
-        return TmtParser_empty_range(TmtParser_failed(st, 3U));
-      else
-      {
-        TmtParser_parser_state
-        first =
-          TmtParser_skip(input,
-            (
-              (TmtParser_parser_state){
-                .offset = TmtParser_plus(fn.at, 8U),
-                .count = st.count,
-                .depth = st.depth,
-                .status = st.status,
-                .local_names = st.local_names,
-                .await_allowed = st.await_allowed,
-                .jsx_allowed = st.jsx_allowed,
-                .module_mode = st.module_mode,
-                .in_allowed = st.in_allowed,
-                .for_initializer = st.for_initializer,
-                .arrow_defaults_allowed = st.arrow_defaults_allowed,
-                .binding_mode = st.binding_mode,
-                .super_context = st.super_context
-              }
-            ));
-        uint8_t byte = TmtParser_peek(input, first.offset);
-        TmtParser_parser_state named;
-        if (byte == 40U || byte == 60U)
-          named = first;
-        else
-          named = TmtParser_from_cursor(first, TmtParser_name(input, first.offset, false, true));
-        TmtParser_parser_state
-        closed =
-          TmtParser_function_tail(input,
-            named,
-            TmtParser_minus(fuel, 1U),
-            start_pos != fn.at,
-            TmtParser_NoSuper);
-        return
-          TmtParser_postfix(input,
-            (
-              (TmtParser_parsed){
-                .parser = closed,
-                .range = { .first = start_pos, .last = closed.offset },
-                .open_angle = false,
-                .outer_or = false,
-                .right_shift = false,
-                .shortcut = 0U,
-                .target = TmtParser_NotAssignable
-              }
-            ),
-            fuel,
-            input.size);
-      }
+      TmtParser_parser_state closed = TmtParser_function_expression(input, st, fuel, fn.at);
+      return
+        TmtParser_postfix(input,
+          (
+            (TmtParser_parsed){
+              .parser = closed,
+              .range = { .first = start_pos, .last = closed.offset },
+              .open_angle = false,
+              .outer_or = false,
+              .right_shift = false,
+              .shortcut = 0U,
+              .target = TmtParser_NotAssignable
+            }
+          ),
+          fuel,
+          input.size);
     }
     else if (head.class_)
     {
@@ -5797,6 +5807,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               .status = st.status,
               .local_names = st.local_names,
               .await_allowed = st.await_allowed,
+              .yield_allowed = st.yield_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
@@ -5825,6 +5836,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                                     .status = after.status,
                                     .local_names = after.local_names,
                                     .await_allowed = after.await_allowed,
+                                    .yield_allowed = after.yield_allowed,
                                     .jsx_allowed = after.jsx_allowed,
                                     .module_mode = after.module_mode,
                                     .in_allowed = after.in_allowed,
@@ -5852,6 +5864,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .status = meta.status,
                 .local_names = meta.local_names,
                 .await_allowed = meta.await_allowed,
+                .yield_allowed = meta.yield_allowed,
                 .jsx_allowed = meta.jsx_allowed,
                 .module_mode = meta.module_mode,
                 .in_allowed = meta.in_allowed,
@@ -5919,8 +5932,9 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
           {
             .offset = st.offset, .count = st.count, .depth = depth1, .status = st.status,
             .local_names = st.local_names, .await_allowed = st.await_allowed,
-            .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
-            .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
+            .yield_allowed = st.yield_allowed, .jsx_allowed = st.jsx_allowed,
+            .module_mode = st.module_mode, .in_allowed = st.in_allowed,
+            .for_initializer = st.for_initializer,
             .arrow_defaults_allowed = st.arrow_defaults_allowed, .binding_mode = st.binding_mode,
             .super_context = st.super_context
           };
@@ -5939,6 +5953,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                   .status = st1.status,
                   .local_names = st1.local_names,
                   .await_allowed = st1.await_allowed,
+                  .yield_allowed = st1.yield_allowed,
                   .jsx_allowed = st1.jsx_allowed,
                   .module_mode = st1.module_mode,
                   .in_allowed = st1.in_allowed,
@@ -5973,9 +5988,9 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
             {
               .offset = TmtParser_next(start_pos), .count = st1.count, .depth = st1.depth,
               .status = st1.status, .local_names = st1.local_names,
-              .await_allowed = st1.await_allowed, .jsx_allowed = st1.jsx_allowed,
-              .module_mode = st1.module_mode, .in_allowed = st1.in_allowed,
-              .for_initializer = st1.for_initializer,
+              .await_allowed = st1.await_allowed, .yield_allowed = st1.yield_allowed,
+              .jsx_allowed = st1.jsx_allowed, .module_mode = st1.module_mode,
+              .in_allowed = st1.in_allowed, .for_initializer = st1.for_initializer,
               .arrow_defaults_allowed = st1.arrow_defaults_allowed, .binding_mode = st1.binding_mode,
               .super_context = st1.super_context
             };
@@ -6027,6 +6042,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = true,
@@ -6054,9 +6070,9 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
           {
             .offset = done_.offset, .count = done_.count, .depth = done_.depth,
             .status = done_.status, .local_names = done_.local_names,
-            .await_allowed = done_.await_allowed, .jsx_allowed = done_.jsx_allowed,
-            .module_mode = done_.module_mode, .in_allowed = st.in_allowed,
-            .for_initializer = done_.for_initializer,
+            .await_allowed = done_.await_allowed, .yield_allowed = done_.yield_allowed,
+            .jsx_allowed = done_.jsx_allowed, .module_mode = done_.module_mode,
+            .in_allowed = st.in_allowed, .for_initializer = done_.for_initializer,
             .arrow_defaults_allowed = done_.arrow_defaults_allowed,
             .binding_mode = done_.binding_mode, .super_context = done_.super_context
           };
@@ -6153,9 +6169,9 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .fst = {
                   .offset = TmtParser_plus(start_pos, width), .count = st.count, .depth = st.depth,
                   .status = st.status, .local_names = st.local_names,
-                  .await_allowed = st.await_allowed, .jsx_allowed = st.jsx_allowed,
-                  .module_mode = st.module_mode, .in_allowed = st.in_allowed,
-                  .for_initializer = st.for_initializer,
+                  .await_allowed = st.await_allowed, .yield_allowed = st.yield_allowed,
+                  .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
+                  .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
                   .arrow_defaults_allowed = st.arrow_defaults_allowed,
                   .binding_mode = st.binding_mode, .super_context = st.super_context
                 },
@@ -6190,6 +6206,63 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
 }
 
 TmtParser_parser_state
+TmtParser_function_expression(
+  TmtParser_tape input,
+  TmtParser_parser_state st,
+  uint32_t fuel,
+  uint32_t fn
+)
+{
+  if (fuel == 0U)
+    return TmtParser_failed(st, 3U);
+  else
+  {
+    TmtParser_parser_state
+    first =
+      TmtParser_skip(input,
+        (
+          (TmtParser_parser_state){
+            .offset = TmtParser_plus(fn, 8U),
+            .count = st.count,
+            .depth = st.depth,
+            .status = st.status,
+            .local_names = st.local_names,
+            .await_allowed = st.await_allowed,
+            .yield_allowed = st.yield_allowed,
+            .jsx_allowed = st.jsx_allowed,
+            .module_mode = st.module_mode,
+            .in_allowed = st.in_allowed,
+            .for_initializer = st.for_initializer,
+            .arrow_defaults_allowed = st.arrow_defaults_allowed,
+            .binding_mode = st.binding_mode,
+            .super_context = st.super_context
+          }
+        ));
+    bool generator = TmtParser_same(input, first.offset, 42U);
+    TmtParser_parser_state first1;
+    if (generator)
+      first1 = TmtParser_skip(input, TmtParser_consume(input, first, 42U));
+    else
+      first1 = first;
+    uint8_t byte = TmtParser_peek(input, first1.offset);
+    TmtParser_parser_state named;
+    if (byte == 40U || byte == 60U)
+      named = first1;
+    else
+      named = TmtParser_from_cursor(first1, TmtParser_name(input, first1.offset, false, true));
+    return
+      TmtParser_function_form(input,
+        named,
+        TmtParser_minus(fuel, 1U),
+        st.offset != fn,
+        TmtParser_NoSuper,
+        false,
+        TmtParser_OrdinaryParameters,
+        generator).after_function;
+  }
+}
+
+TmtParser_parser_state
 TmtParser_class_expression(TmtParser_tape input, TmtParser_parser_state st, uint32_t fuel)
 {
   if (fuel == 0U)
@@ -6207,6 +6280,7 @@ TmtParser_class_expression(TmtParser_tape input, TmtParser_parser_state st, uint
             .status = st.status,
             .local_names = st.local_names,
             .await_allowed = st.await_allowed,
+            .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
@@ -6246,6 +6320,7 @@ TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint
           .status = st.status,
           .local_names = st.local_names,
           .await_allowed = st.await_allowed,
+          .yield_allowed = st.yield_allowed,
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
           .in_allowed = st.in_allowed,
@@ -6274,6 +6349,7 @@ TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint
                                 .status = after.status,
                                 .local_names = after.local_names,
                                 .await_allowed = after.await_allowed,
+                                .yield_allowed = after.yield_allowed,
                                 .jsx_allowed = after.jsx_allowed,
                                 .module_mode = after.module_mode,
                                 .in_allowed = after.in_allowed,
@@ -6303,6 +6379,7 @@ TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint
           .status = st.status,
           .local_names = st.local_names,
           .await_allowed = st.await_allowed,
+          .yield_allowed = st.yield_allowed,
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
           .in_allowed = st.in_allowed,
@@ -6408,6 +6485,7 @@ TmtParser_arrow_parameter_list(
                   .status = equal.status,
                   .local_names = prefix.names1.used,
                   .await_allowed = false,
+                  .yield_allowed = equal.yield_allowed,
                   .jsx_allowed = equal.jsx_allowed,
                   .module_mode = equal.module_mode,
                   .in_allowed = true,
@@ -6435,6 +6513,7 @@ TmtParser_arrow_parameter_list(
                 .status = st3.status,
                 .local_names = equal.local_names,
                 .await_allowed = equal.await_allowed,
+                .yield_allowed = st3.yield_allowed,
                 .jsx_allowed = st3.jsx_allowed,
                 .module_mode = st3.module_mode,
                 .in_allowed = equal.in_allowed,
@@ -6556,9 +6635,9 @@ TmtParser_plain_arrow_parameters(
                 .state = {
                   .offset = body.offset, .count = uu____1.count, .depth = uu____1.depth,
                   .status = uu____1.status, .local_names = uu____1.local_names,
-                  .await_allowed = uu____1.await_allowed, .jsx_allowed = uu____1.jsx_allowed,
-                  .module_mode = uu____1.module_mode, .in_allowed = uu____1.in_allowed,
-                  .for_initializer = uu____1.for_initializer,
+                  .await_allowed = uu____1.await_allowed, .yield_allowed = uu____1.yield_allowed,
+                  .jsx_allowed = uu____1.jsx_allowed, .module_mode = uu____1.module_mode,
+                  .in_allowed = uu____1.in_allowed, .for_initializer = uu____1.for_initializer,
                   .arrow_defaults_allowed = uu____1.arrow_defaults_allowed,
                   .binding_mode = uu____1.binding_mode, .super_context = uu____1.super_context
                 },
@@ -6591,6 +6670,7 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state, u
             .status = state.status,
             .local_names = state.local_names,
             .await_allowed = true,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -6614,6 +6694,7 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state, u
               .status = state.status,
               .local_names = state.local_names,
               .await_allowed = false,
+              .yield_allowed = state.yield_allowed,
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
               .in_allowed = state.in_allowed,
@@ -6636,6 +6717,7 @@ TmtParser_arrow_parameters(TmtParser_tape input, TmtParser_parser_state state, u
             .status = state.status,
             .local_names = state.local_names,
             .await_allowed = false,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -6652,7 +6734,28 @@ TmtParser_parsed
 TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel)
 {
   TmtParser_parser_state start = TmtParser_skip(input, current);
-  TmtParser_parameter_list arrow = TmtParser_arrow_parameters(input, start, fuel);
+  TmtParser_parameter_list
+  arrow =
+    TmtParser_arrow_parameters(input,
+      (
+        (TmtParser_parser_state){
+          .offset = start.offset,
+          .count = start.count,
+          .depth = start.depth,
+          .status = start.status,
+          .local_names = start.local_names,
+          .await_allowed = start.await_allowed,
+          .yield_allowed = false,
+          .jsx_allowed = start.jsx_allowed,
+          .module_mode = start.module_mode,
+          .in_allowed = start.in_allowed,
+          .for_initializer = start.for_initializer,
+          .arrow_defaults_allowed = start.arrow_defaults_allowed,
+          .binding_mode = start.binding_mode,
+          .super_context = start.super_context
+        }
+      ),
+      fuel);
   if (arrow.names1.state.status == 0U)
   {
     TmtParser_parser_state uu____0 = arrow.names1.state;
@@ -6667,6 +6770,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             .status = uu____0.status,
             .local_names = arrow.names1.used,
             .await_allowed = uu____0.await_allowed,
+            .yield_allowed = uu____0.yield_allowed,
             .jsx_allowed = uu____0.jsx_allowed,
             .module_mode = uu____0.module_mode,
             .in_allowed = uu____0.in_allowed,
@@ -6687,8 +6791,9 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
         {
           .offset = body.offset, .count = body.count, .depth = depth1, .status = body.status,
           .local_names = body.local_names, .await_allowed = body.await_allowed,
-          .jsx_allowed = body.jsx_allowed, .module_mode = body.module_mode,
-          .in_allowed = body.in_allowed, .for_initializer = body.for_initializer,
+          .yield_allowed = body.yield_allowed, .jsx_allowed = body.jsx_allowed,
+          .module_mode = body.module_mode, .in_allowed = body.in_allowed,
+          .for_initializer = body.for_initializer,
           .arrow_defaults_allowed = body.arrow_defaults_allowed, .binding_mode = body.binding_mode,
           .super_context = body.super_context
         };
@@ -6702,8 +6807,8 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
           {
             .offset = body1.offset, .count = body1.count, .depth = body1.depth,
             .status = body1.status, .local_names = body1.local_names,
-            .await_allowed = body1.await_allowed, .jsx_allowed = body1.jsx_allowed,
-            .module_mode = body1.module_mode, .in_allowed = true,
+            .await_allowed = body1.await_allowed, .yield_allowed = body1.yield_allowed,
+            .jsx_allowed = body1.jsx_allowed, .module_mode = body1.module_mode, .in_allowed = true,
             .for_initializer = body1.for_initializer,
             .arrow_defaults_allowed = body1.arrow_defaults_allowed,
             .binding_mode = body1.binding_mode, .super_context = body1.super_context
@@ -6732,6 +6837,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                 .status = body1.status,
                 .local_names = body1.local_names,
                 .await_allowed = body1.await_allowed,
+                .yield_allowed = body1.yield_allowed,
                 .jsx_allowed = body1.jsx_allowed,
                 .module_mode = body1.module_mode,
                 .in_allowed = in_allowed,
@@ -6750,9 +6856,9 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
             .parser = {
               .offset = uu____1.offset, .count = uu____1.count, .depth = uu____1.depth,
               .status = uu____1.status, .local_names = start.local_names,
-              .await_allowed = start.await_allowed, .jsx_allowed = uu____1.jsx_allowed,
-              .module_mode = uu____1.module_mode, .in_allowed = start.in_allowed,
-              .for_initializer = uu____1.for_initializer,
+              .await_allowed = start.await_allowed, .yield_allowed = start.yield_allowed,
+              .jsx_allowed = uu____1.jsx_allowed, .module_mode = uu____1.module_mode,
+              .in_allowed = start.in_allowed, .for_initializer = uu____1.for_initializer,
               .arrow_defaults_allowed = uu____1.arrow_defaults_allowed,
               .binding_mode = start.binding_mode, .super_context = uu____1.super_context
             },
@@ -6780,6 +6886,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
               .status = 4U,
               .local_names = st.local_names,
               .await_allowed = st.await_allowed,
+              .yield_allowed = st.yield_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
@@ -6817,6 +6924,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                   .status = st.status,
                   .local_names = st.local_names,
                   .await_allowed = st.await_allowed,
+                  .yield_allowed = st.yield_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
@@ -6859,6 +6967,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = true,
@@ -6881,6 +6990,7 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
                 .status = uu____2.status,
                 .local_names = uu____2.local_names,
                 .await_allowed = uu____2.await_allowed,
+                .yield_allowed = uu____2.yield_allowed,
                 .jsx_allowed = uu____2.jsx_allowed,
                 .module_mode = uu____2.module_mode,
                 .in_allowed = st.in_allowed,
@@ -6987,6 +7097,7 @@ TmtParser_binary_tail(
                   .status = st.status,
                   .local_names = st.local_names,
                   .await_allowed = st.await_allowed,
+                  .yield_allowed = st.yield_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
@@ -7062,8 +7173,9 @@ TmtParser_binary_tail(
             {
               .offset = TmtParser_plus(st.offset, op.width), .count = count, .depth = st.depth,
               .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed,
-              .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
-              .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
+              .yield_allowed = st.yield_allowed, .jsx_allowed = st.jsx_allowed,
+              .module_mode = st.module_mode, .in_allowed = st.in_allowed,
+              .for_initializer = st.for_initializer,
               .arrow_defaults_allowed = st.arrow_defaults_allowed, .binding_mode = st.binding_mode,
               .super_context = st.super_context
             };
@@ -7152,8 +7264,9 @@ TmtParser_postfix(
                 .parser = {
                   .offset = end_at, .count = st.count, .depth = st.depth, .status = st.status,
                   .local_names = st.local_names, .await_allowed = st.await_allowed,
-                  .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode,
-                  .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
+                  .yield_allowed = st.yield_allowed, .jsx_allowed = st.jsx_allowed,
+                  .module_mode = st.module_mode, .in_allowed = st.in_allowed,
+                  .for_initializer = st.for_initializer,
                   .arrow_defaults_allowed = st.arrow_defaults_allowed,
                   .binding_mode = st.binding_mode, .super_context = st.super_context
                 },
@@ -7201,6 +7314,7 @@ TmtParser_postfix(
                   .status = st.status,
                   .local_names = st.local_names,
                   .await_allowed = st.await_allowed,
+                  .yield_allowed = st.yield_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
@@ -7240,9 +7354,9 @@ TmtParser_postfix(
               {
                 .offset = TmtParser_next(operand.offset), .count = operand.count, .depth = depth1,
                 .status = operand.status, .local_names = operand.local_names,
-                .await_allowed = operand.await_allowed, .jsx_allowed = operand.jsx_allowed,
-                .module_mode = operand.module_mode, .in_allowed = operand.in_allowed,
-                .for_initializer = operand.for_initializer,
+                .await_allowed = operand.await_allowed, .yield_allowed = operand.yield_allowed,
+                .jsx_allowed = operand.jsx_allowed, .module_mode = operand.module_mode,
+                .in_allowed = operand.in_allowed, .for_initializer = operand.for_initializer,
                 .arrow_defaults_allowed = operand.arrow_defaults_allowed,
                 .binding_mode = operand.binding_mode, .super_context = operand.super_context
               };
@@ -7284,6 +7398,7 @@ TmtParser_postfix(
                     .status = st.status,
                     .local_names = st.local_names,
                     .await_allowed = st.await_allowed,
+                    .yield_allowed = st.yield_allowed,
                     .jsx_allowed = st.jsx_allowed,
                     .module_mode = st.module_mode,
                     .in_allowed = st.in_allowed,
@@ -7306,6 +7421,7 @@ TmtParser_postfix(
                   .status = property.status,
                   .local_names = property.local_names,
                   .await_allowed = property.await_allowed,
+                  .yield_allowed = property.yield_allowed,
                   .jsx_allowed = property.jsx_allowed,
                   .module_mode = property.module_mode,
                   .in_allowed = property.in_allowed,
@@ -7326,6 +7442,7 @@ TmtParser_postfix(
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -7452,6 +7569,7 @@ TmtParser_deep_array_literal(
             .status = uu____0.status,
             .local_names = uu____0.local_names,
             .await_allowed = uu____0.await_allowed,
+            .yield_allowed = uu____0.yield_allowed,
             .jsx_allowed = uu____0.jsx_allowed,
             .module_mode = uu____0.module_mode,
             .in_allowed = uu____0.in_allowed,
@@ -7479,6 +7597,7 @@ TmtParser_deep_array_literal(
             .status = closed.status,
             .local_names = closed.local_names,
             .await_allowed = closed.await_allowed,
+            .yield_allowed = closed.yield_allowed,
             .jsx_allowed = closed.jsx_allowed,
             .module_mode = closed.module_mode,
             .in_allowed = closed.in_allowed,
@@ -7542,6 +7661,7 @@ TmtParser_expression_list(
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -7608,6 +7728,7 @@ TmtParser_object_member(
             .status = st.status,
             .local_names = st.local_names,
             .await_allowed = st.await_allowed,
+            .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
@@ -7644,6 +7765,7 @@ TmtParser_object_member(
                        .status = st.status,
                        .local_names = st.local_names,
                        .await_allowed = st.await_allowed,
+                       .yield_allowed = st.yield_allowed,
                        .jsx_allowed = st.jsx_allowed,
                        .module_mode = st.module_mode,
                        .in_allowed = st.in_allowed,
@@ -7671,6 +7793,7 @@ TmtParser_object_member(
               .status = key_start.status,
               .local_names = key_start.local_names,
               .await_allowed = key_start.await_allowed,
+              .yield_allowed = key_start.yield_allowed,
               .jsx_allowed = key_start.jsx_allowed,
               .module_mode = key_start.module_mode,
               .in_allowed = true,
@@ -7692,6 +7815,7 @@ TmtParser_object_member(
             .status = closed.status,
             .local_names = closed.local_names,
             .await_allowed = closed.await_allowed,
+            .yield_allowed = closed.yield_allowed,
             .jsx_allowed = closed.jsx_allowed,
             .module_mode = closed.module_mode,
             .in_allowed = st.in_allowed,
@@ -7750,7 +7874,8 @@ TmtParser_object_member(
                 false,
                 TmtParser_MethodSuper,
                 false,
-                arity).after_function);
+                arity,
+                false).after_function);
         else
           return
             TmtParser_empty_range(TmtParser_function_tail(input,
@@ -7856,6 +7981,7 @@ TmtParser_template_body(
               .status = state.status,
               .local_names = state.local_names,
               .await_allowed = state.await_allowed,
+              .yield_allowed = state.yield_allowed,
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
               .in_allowed = state.in_allowed,
@@ -7881,6 +8007,7 @@ TmtParser_template_body(
                   .status = state.status,
                   .local_names = state.local_names,
                   .await_allowed = state.await_allowed,
+                  .yield_allowed = state.yield_allowed,
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
                   .in_allowed = true,
@@ -7902,6 +8029,7 @@ TmtParser_template_body(
                   .status = uu____0.status,
                   .local_names = uu____0.local_names,
                   .await_allowed = uu____0.await_allowed,
+                  .yield_allowed = uu____0.yield_allowed,
                   .jsx_allowed = uu____0.jsx_allowed,
                   .module_mode = uu____0.module_mode,
                   .in_allowed = state.in_allowed,
@@ -7925,6 +8053,7 @@ TmtParser_template_body(
                   .status = state.status,
                   .local_names = state.local_names,
                   .await_allowed = state.await_allowed,
+                  .yield_allowed = state.yield_allowed,
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
                   .in_allowed = state.in_allowed,
@@ -7947,6 +8076,7 @@ TmtParser_template_body(
                 .status = state.status,
                 .local_names = state.local_names,
                 .await_allowed = state.await_allowed,
+                .yield_allowed = state.yield_allowed,
                 .jsx_allowed = state.jsx_allowed,
                 .module_mode = state.module_mode,
                 .in_allowed = state.in_allowed,
@@ -7992,6 +8122,7 @@ TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint
               .status = inner.status,
               .local_names = inner.local_names,
               .await_allowed = inner.await_allowed,
+              .yield_allowed = inner.yield_allowed,
               .jsx_allowed = inner.jsx_allowed,
               .module_mode = inner.module_mode,
               .in_allowed = inner.in_allowed,
@@ -8030,6 +8161,7 @@ TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -8058,6 +8190,7 @@ TmtParser_jsx_attribute(TmtParser_tape input, TmtParser_parser_state state, uint
                   .status = st.status,
                   .local_names = st.local_names,
                   .await_allowed = st.await_allowed,
+                  .yield_allowed = st.yield_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
@@ -8193,6 +8326,7 @@ TmtParser_jsx_children(
                   .status = state.status,
                   .local_names = state.local_names,
                   .await_allowed = state.await_allowed,
+                  .yield_allowed = state.yield_allowed,
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
                   .in_allowed = state.in_allowed,
@@ -8259,9 +8393,9 @@ TmtParser_jsx_children(
           {
             .offset = TmtParser_next(state.offset), .count = state.count, .depth = state.depth,
             .status = state.status, .local_names = state.local_names,
-            .await_allowed = state.await_allowed, .jsx_allowed = state.jsx_allowed,
-            .module_mode = state.module_mode, .in_allowed = state.in_allowed,
-            .for_initializer = state.for_initializer,
+            .await_allowed = state.await_allowed, .yield_allowed = state.yield_allowed,
+            .jsx_allowed = state.jsx_allowed, .module_mode = state.module_mode,
+            .in_allowed = state.in_allowed, .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode, .super_context = state.super_context
           };
@@ -8291,6 +8425,7 @@ TmtParser_jsx_element(TmtParser_tape input, TmtParser_parser_state state, uint32
                             .status = state.status,
                             .local_names = state.local_names,
                             .await_allowed = state.await_allowed,
+                            .yield_allowed = state.yield_allowed,
                             .jsx_allowed = state.jsx_allowed,
                             .module_mode = state.module_mode,
                             .in_allowed = state.in_allowed,
@@ -8427,6 +8562,7 @@ TmtParser_binding(
           .status = st2.status,
           .local_names = st2.local_names,
           .await_allowed = st2.await_allowed,
+          .yield_allowed = st2.yield_allowed,
           .jsx_allowed = st2.jsx_allowed,
           .module_mode = st2.module_mode,
           .in_allowed = in_allowed,
@@ -8447,6 +8583,7 @@ TmtParser_binding(
         .status = uu____0.status,
         .local_names = uu____0.local_names,
         .await_allowed = uu____0.await_allowed,
+        .yield_allowed = uu____0.yield_allowed,
         .jsx_allowed = uu____0.jsx_allowed,
         .module_mode = uu____0.module_mode,
         .in_allowed = state.in_allowed,
@@ -8503,6 +8640,7 @@ TmtParser_for_bindings(
               .status = uu____0.status,
               .local_names = declared.used,
               .await_allowed = uu____0.await_allowed,
+              .yield_allowed = uu____0.yield_allowed,
               .jsx_allowed = uu____0.jsx_allowed,
               .module_mode = uu____0.module_mode,
               .in_allowed = uu____0.in_allowed,
@@ -8529,6 +8667,7 @@ TmtParser_for_bindings(
                   .status = tail.status,
                   .local_names = tail.local_names,
                   .await_allowed = tail.await_allowed,
+                  .yield_allowed = tail.yield_allowed,
                   .jsx_allowed = tail.jsx_allowed,
                   .module_mode = tail.module_mode,
                   .in_allowed = false,
@@ -8550,6 +8689,7 @@ TmtParser_for_bindings(
               .status = uu____1.status,
               .local_names = uu____1.local_names,
               .await_allowed = uu____1.await_allowed,
+              .yield_allowed = uu____1.yield_allowed,
               .jsx_allowed = uu____1.jsx_allowed,
               .module_mode = uu____1.module_mode,
               .in_allowed = state.in_allowed,
@@ -8616,6 +8756,7 @@ TmtParser_for_expressions(
               .status = state.status,
               .local_names = state.local_names,
               .await_allowed = state.await_allowed,
+              .yield_allowed = state.yield_allowed,
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
               .in_allowed = in_allowed,
@@ -8638,6 +8779,7 @@ TmtParser_for_expressions(
               .status = uu____0.status,
               .local_names = uu____0.local_names,
               .await_allowed = uu____0.await_allowed,
+              .yield_allowed = uu____0.yield_allowed,
               .jsx_allowed = uu____0.jsx_allowed,
               .module_mode = uu____0.module_mode,
               .in_allowed = state.in_allowed,
@@ -8699,6 +8841,7 @@ TmtParser_classic_for_header(
             .status = st1.status,
             .local_names = st1.local_names,
             .await_allowed = st1.await_allowed,
+            .yield_allowed = st1.yield_allowed,
             .jsx_allowed = st1.jsx_allowed,
             .module_mode = st1.module_mode,
             .in_allowed = st1.in_allowed,
@@ -8730,6 +8873,7 @@ TmtParser_classic_for_header(
             .status = st1.status,
             .local_names = st1.local_names,
             .await_allowed = st1.await_allowed,
+            .yield_allowed = st1.yield_allowed,
             .jsx_allowed = st1.jsx_allowed,
             .module_mode = st1.module_mode,
             .in_allowed = st1.in_allowed,
@@ -8788,6 +8932,7 @@ TmtParser_for_header(
             .status = head.status,
             .local_names = head.local_names,
             .await_allowed = head.await_allowed,
+            .yield_allowed = head.yield_allowed,
             .jsx_allowed = head.jsx_allowed,
             .module_mode = head.module_mode,
             .in_allowed = head.in_allowed,
@@ -8834,6 +8979,33 @@ TmtParser_return_statement(TmtParser_tape input, TmtParser_parser_state state, u
 }
 
 TmtParser_parser_state
+TmtParser_yield_statement(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel)
+{
+  uint32_t head = TmtParser_plus(state.offset, 5U);
+  TmtParser_cursor after = TmtParser_trivia(input, head);
+  TmtParser_parser_state st = TmtParser_from_cursor(state, after);
+  uint8_t byte = TmtParser_peek(input, st.offset);
+  if (byte == 59U || byte == 125U || after.newline)
+    return TmtParser_statement_end(input, st, head, true);
+  else
+  {
+    TmtParser_parser_state start;
+    if (byte == 42U)
+    {
+      TmtParser_cursor operand = TmtParser_trivia(input, TmtParser_next(st.offset));
+      if (operand.newline)
+        start = TmtParser_failed(st, 1U);
+      else
+        start = TmtParser_from_cursor(st, operand);
+    }
+    else
+      start = st;
+    TmtParser_parsed value = TmtParser_comparison(input, start, fuel);
+    return TmtParser_statement_end(input, value.parser, value.range.last, true);
+  }
+}
+
+TmtParser_parser_state
 TmtParser_ordinary_statement(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel)
 {
   TmtParser_cursor fn = TmtParser_function_start(input, state.offset);
@@ -8868,6 +9040,11 @@ TmtParser_simple_statement(
     is_return = TmtParser_keyword(input, state.offset, 6U, 0x72657475726eULL);
   else
     is_return = false;
+  bool is_yield;
+  if (byte == 121U && state.yield_allowed)
+    is_yield = TmtParser_keyword(input, state.offset, 5U, 0x7969656c64ULL);
+  else
+    is_yield = false;
   bool is_throw;
   if (byte == 116U)
     is_throw = TmtParser_keyword(input, state.offset, 5U, 0x7468726f77ULL);
@@ -8892,6 +9069,8 @@ TmtParser_simple_statement(
     jump = 0U;
   if (is_return)
     return TmtParser_return_statement(input, state, fuel);
+  else if (is_yield)
+    return TmtParser_yield_statement(input, state, fuel);
   else if (jump != 0U)
   {
     if (jumps == TmtParser_LoopJump || jumps == TmtParser_BreakOnly && jump == 5U)
@@ -8936,6 +9115,7 @@ TmtParser_local_var_declaration(
           .status = st.status,
           .local_names = st.local_names,
           .await_allowed = st.await_allowed,
+          .yield_allowed = st.yield_allowed,
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
           .in_allowed = st.in_allowed,
@@ -8972,6 +9152,7 @@ TmtParser_local_declaration(
           .status = state1.status,
           .local_names = state1.local_names,
           .await_allowed = state1.await_allowed,
+          .yield_allowed = state1.yield_allowed,
           .jsx_allowed = state1.jsx_allowed,
           .module_mode = state1.module_mode,
           .in_allowed = state1.in_allowed,
@@ -8991,8 +9172,9 @@ TmtParser_local_declaration(
     {
       .offset = uu____0.offset, .count = uu____0.count, .depth = uu____0.depth,
       .status = uu____0.status, .local_names = decl.used, .await_allowed = uu____0.await_allowed,
-      .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
-      .in_allowed = uu____0.in_allowed, .for_initializer = uu____0.for_initializer,
+      .yield_allowed = uu____0.yield_allowed, .jsx_allowed = uu____0.jsx_allowed,
+      .module_mode = uu____0.module_mode, .in_allowed = uu____0.in_allowed,
+      .for_initializer = uu____0.for_initializer,
       .arrow_defaults_allowed = uu____0.arrow_defaults_allowed, .binding_mode = uu____0.binding_mode,
       .super_context = uu____0.super_context
     };
@@ -9058,6 +9240,7 @@ TmtParser_scope_statement(
               .status = declared.status,
               .local_names = declared.local_names,
               .await_allowed = declared.await_allowed,
+              .yield_allowed = declared.yield_allowed,
               .jsx_allowed = declared.jsx_allowed,
               .module_mode = declared.module_mode,
               .in_allowed = declared.in_allowed,
@@ -9081,8 +9264,9 @@ TmtParser_scope_statement(
         {
           .offset = uu____0.offset, .count = uu____0.count, .depth = uu____0.depth,
           .status = uu____0.status, .local_names = decl.used, .await_allowed = uu____0.await_allowed,
-          .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
-          .in_allowed = uu____0.in_allowed, .for_initializer = uu____0.for_initializer,
+          .yield_allowed = uu____0.yield_allowed, .jsx_allowed = uu____0.jsx_allowed,
+          .module_mode = uu____0.module_mode, .in_allowed = uu____0.in_allowed,
+          .for_initializer = uu____0.for_initializer,
           .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
           .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context
         };
@@ -9117,6 +9301,7 @@ TmtParser_scope_statement(
               .status = declared.status,
               .local_names = declared.local_names,
               .await_allowed = declared.await_allowed,
+              .yield_allowed = declared.yield_allowed,
               .jsx_allowed = declared.jsx_allowed,
               .module_mode = declared.module_mode,
               .in_allowed = declared.in_allowed,
@@ -9140,8 +9325,9 @@ TmtParser_scope_statement(
         {
           .offset = uu____1.offset, .count = uu____1.count, .depth = uu____1.depth,
           .status = uu____1.status, .local_names = decl.used, .await_allowed = uu____1.await_allowed,
-          .jsx_allowed = uu____1.jsx_allowed, .module_mode = uu____1.module_mode,
-          .in_allowed = uu____1.in_allowed, .for_initializer = uu____1.for_initializer,
+          .yield_allowed = uu____1.yield_allowed, .jsx_allowed = uu____1.jsx_allowed,
+          .module_mode = uu____1.module_mode, .in_allowed = uu____1.in_allowed,
+          .for_initializer = uu____1.for_initializer,
           .arrow_defaults_allowed = uu____1.arrow_defaults_allowed,
           .binding_mode = uu____1.binding_mode, .super_context = uu____1.super_context
         };
@@ -9201,6 +9387,7 @@ TmtParser_control_sequence(
             .status = state.status,
             .local_names = used,
             .await_allowed = state.await_allowed,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -9279,6 +9466,7 @@ TmtParser_switch_sequence(
             .status = state.status,
             .local_names = used,
             .await_allowed = state.await_allowed,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -9320,6 +9508,7 @@ TmtParser_switch_sequence(
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -9357,6 +9546,7 @@ TmtParser_switch_sequence(
                     .status = st.status,
                     .local_names = st.local_names,
                     .await_allowed = st.await_allowed,
+                    .yield_allowed = st.yield_allowed,
                     .jsx_allowed = st.jsx_allowed,
                     .module_mode = st.module_mode,
                     .in_allowed = st.in_allowed,
@@ -9432,6 +9622,7 @@ TmtParser_control_block(
           .status = st.status,
           .local_names = used,
           .await_allowed = st.await_allowed,
+          .yield_allowed = st.yield_allowed,
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
           .in_allowed = st.in_allowed,
@@ -9458,6 +9649,7 @@ TmtParser_control_block(
           .status = st1.status,
           .local_names = state.local_names,
           .await_allowed = st1.await_allowed,
+          .yield_allowed = st1.yield_allowed,
           .jsx_allowed = st1.jsx_allowed,
           .module_mode = st1.module_mode,
           .in_allowed = st1.in_allowed,
@@ -9534,6 +9726,7 @@ TmtParser_control_statement(
                               .status = state.status,
                               .local_names = state.local_names,
                               .await_allowed = state.await_allowed,
+                              .yield_allowed = state.yield_allowed,
                               .jsx_allowed = state.jsx_allowed,
                               .module_mode = state.module_mode,
                               .in_allowed = state.in_allowed,
@@ -9558,6 +9751,7 @@ TmtParser_control_statement(
               .status = state1.status,
               .local_names = state1.local_names,
               .await_allowed = state1.await_allowed,
+              .yield_allowed = state1.yield_allowed,
               .jsx_allowed = state1.jsx_allowed,
               .module_mode = state1.module_mode,
               .in_allowed = state1.in_allowed,
@@ -9588,6 +9782,7 @@ TmtParser_control_statement(
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -9618,6 +9813,7 @@ TmtParser_control_statement(
               .status = state1.status,
               .local_names = state1.local_names,
               .await_allowed = state1.await_allowed,
+              .yield_allowed = state1.yield_allowed,
               .jsx_allowed = state1.jsx_allowed,
               .module_mode = state1.module_mode,
               .in_allowed = state1.in_allowed,
@@ -9651,6 +9847,7 @@ TmtParser_control_statement(
                   .status = st.status,
                   .local_names = st.local_names,
                   .await_allowed = st.await_allowed,
+                  .yield_allowed = st.yield_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
@@ -9684,6 +9881,7 @@ TmtParser_control_statement(
                 .status = state1.status,
                 .local_names = state1.local_names,
                 .await_allowed = state1.await_allowed,
+                .yield_allowed = state1.yield_allowed,
                 .jsx_allowed = state1.jsx_allowed,
                 .module_mode = state1.module_mode,
                 .in_allowed = state1.in_allowed,
@@ -9715,6 +9913,7 @@ TmtParser_control_statement(
               .status = uu____0.status,
               .local_names = state1.local_names,
               .await_allowed = uu____0.await_allowed,
+              .yield_allowed = uu____0.yield_allowed,
               .jsx_allowed = uu____0.jsx_allowed,
               .module_mode = uu____0.module_mode,
               .in_allowed = uu____0.in_allowed,
@@ -9736,6 +9935,7 @@ TmtParser_control_statement(
                 .status = state1.status,
                 .local_names = state1.local_names,
                 .await_allowed = state1.await_allowed,
+                .yield_allowed = state1.yield_allowed,
                 .jsx_allowed = state1.jsx_allowed,
                 .module_mode = state1.module_mode,
                 .in_allowed = state1.in_allowed,
@@ -9764,6 +9964,7 @@ TmtParser_control_statement(
                 .status = state1.status,
                 .local_names = state1.local_names,
                 .await_allowed = state1.await_allowed,
+                .yield_allowed = state1.yield_allowed,
                 .jsx_allowed = state1.jsx_allowed,
                 .module_mode = state1.module_mode,
                 .in_allowed = state1.in_allowed,
@@ -9800,6 +10001,7 @@ TmtParser_control_statement(
                 .status = st.status,
                 .local_names = state1.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -9900,6 +10102,7 @@ TmtParser_try_statement(
                 .status = after.status,
                 .local_names = after.local_names,
                 .await_allowed = after.await_allowed,
+                .yield_allowed = after.yield_allowed,
                 .jsx_allowed = after.jsx_allowed,
                 .module_mode = after.module_mode,
                 .in_allowed = after.in_allowed,
@@ -9927,6 +10130,7 @@ TmtParser_try_statement(
               .status = st.status,
               .local_names = st.local_names,
               .await_allowed = st.await_allowed,
+              .yield_allowed = st.yield_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
@@ -10016,6 +10220,7 @@ TmtParser_function_parameters(
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -10069,6 +10274,7 @@ TmtParser_function_parameters(
                                                                                      .status = st.status,
                                                                                      .local_names = st.local_names,
                                                                                      .await_allowed = st.await_allowed,
+                                                                                     .yield_allowed = st.yield_allowed,
                                                                                      .jsx_allowed = st.jsx_allowed,
                                                                                      .module_mode = st.module_mode,
                                                                                      .in_allowed = st.in_allowed,
@@ -10100,6 +10306,7 @@ TmtParser_function_parameters(
                   .status = st2.status,
                   .local_names = prefix.names1.used,
                   .await_allowed = false,
+                  .yield_allowed = st2.yield_allowed,
                   .jsx_allowed = st2.jsx_allowed,
                   .module_mode = st2.module_mode,
                   .in_allowed = st2.in_allowed,
@@ -10121,6 +10328,7 @@ TmtParser_function_parameters(
                 .status = uu____0.status,
                 .local_names = st2.local_names,
                 .await_allowed = st2.await_allowed,
+                .yield_allowed = uu____0.yield_allowed,
                 .jsx_allowed = uu____0.jsx_allowed,
                 .module_mode = uu____0.module_mode,
                 .in_allowed = uu____0.in_allowed,
@@ -10182,7 +10390,8 @@ TmtParser_function_tail(
       async_,
       super_,
       false,
-      TmtParser_OrdinaryParameters).after_function;
+      TmtParser_OrdinaryParameters,
+      false).after_function;
 }
 
 typedef struct __TmtParser_parser_state_uint32_t_s
@@ -10200,7 +10409,8 @@ TmtParser_function_form(
   bool async_,
   TmtParser_super_context super_,
   bool overload,
-  TmtParser_parameter_arity arity
+  TmtParser_parameter_arity arity,
+  bool generator
 )
 {
   uint32_t depth = TmtParser_minus(64U, fuel);
@@ -10214,6 +10424,7 @@ TmtParser_function_form(
                             .status = state.status,
                             .local_names = state.local_names,
                             .await_allowed = state.await_allowed,
+                            .yield_allowed = state.yield_allowed,
                             .jsx_allowed = state.jsx_allowed,
                             .module_mode = state.module_mode,
                             .in_allowed = state.in_allowed,
@@ -10228,7 +10439,7 @@ TmtParser_function_form(
   start1 =
     {
       .offset = start.offset, .count = start.count, .depth = start.depth, .status = start.status,
-      .local_names = start.local_names, .await_allowed = start.await_allowed,
+      .local_names = start.local_names, .await_allowed = start.await_allowed, .yield_allowed = false,
       .jsx_allowed = start.jsx_allowed, .module_mode = start.module_mode,
       .in_allowed = start.in_allowed, .for_initializer = start.for_initializer,
       .arrow_defaults_allowed = start.arrow_defaults_allowed, .binding_mode = start.binding_mode,
@@ -10297,10 +10508,10 @@ TmtParser_function_form(
     st1 =
       {
         .offset = st.offset, .count = st.count, .depth = st.depth, .status = st.status,
-        .local_names = st.local_names, .await_allowed = async_, .jsx_allowed = st.jsx_allowed,
-        .module_mode = st.module_mode, .in_allowed = true, .for_initializer = st.for_initializer,
-        .arrow_defaults_allowed = st.arrow_defaults_allowed, .binding_mode = TmtParser_NoLocals,
-        .super_context = super_
+        .local_names = st.local_names, .await_allowed = async_, .yield_allowed = generator,
+        .jsx_allowed = st.jsx_allowed, .module_mode = st.module_mode, .in_allowed = true,
+        .for_initializer = st.for_initializer, .arrow_defaults_allowed = st.arrow_defaults_allowed,
+        .binding_mode = TmtParser_NoLocals, .super_context = super_
       };
     closed =
       TmtParser_control_block(input,
@@ -10317,9 +10528,9 @@ TmtParser_function_form(
         .after_function = {
           .offset = closed.offset, .count = closed.count, .depth = closed.depth,
           .status = closed.status, .local_names = closed.local_names,
-          .await_allowed = state.await_allowed, .jsx_allowed = closed.jsx_allowed,
-          .module_mode = closed.module_mode, .in_allowed = state.in_allowed,
-          .for_initializer = closed.for_initializer,
+          .await_allowed = state.await_allowed, .yield_allowed = state.yield_allowed,
+          .jsx_allowed = closed.jsx_allowed, .module_mode = closed.module_mode,
+          .in_allowed = state.in_allowed, .for_initializer = closed.for_initializer,
           .arrow_defaults_allowed = closed.arrow_defaults_allowed,
           .binding_mode = state.binding_mode, .super_context = state.super_context
         },
@@ -10361,6 +10572,7 @@ TmtParser_class_field_tail(TmtParser_tape input, TmtParser_parser_state state, u
             .status = after.status,
             .local_names = after.local_names,
             .await_allowed = false,
+            .yield_allowed = false,
             .jsx_allowed = after.jsx_allowed,
             .module_mode = after.module_mode,
             .in_allowed = true,
@@ -10383,6 +10595,7 @@ TmtParser_class_field_tail(TmtParser_tape input, TmtParser_parser_state state, u
           .status = closed.status,
           .local_names = closed.local_names,
           .await_allowed = state.await_allowed,
+          .yield_allowed = state.yield_allowed,
           .jsx_allowed = closed.jsx_allowed,
           .module_mode = closed.module_mode,
           .in_allowed = state.in_allowed,
@@ -10479,7 +10692,8 @@ TmtParser_class_members(
                   key.async_,
                   mode,
                   false,
-                  key.arity1).after_function;
+                  key.arity1,
+                  false).after_function;
             }
           }
           else if (key.async_)
@@ -10527,6 +10741,7 @@ TmtParser_class_tail(TmtParser_tape input, TmtParser_parser_state state, uint32_
             .status = st.status,
             .local_names = st.local_names,
             .await_allowed = st.await_allowed,
+            .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
@@ -10561,6 +10776,7 @@ TmtParser_class_tail(TmtParser_tape input, TmtParser_parser_state state, uint32_
             .status = inherited.status,
             .local_names = inherited.local_names,
             .await_allowed = inherited.await_allowed,
+            .yield_allowed = inherited.yield_allowed,
             .jsx_allowed = inherited.jsx_allowed,
             .module_mode = inherited.module_mode,
             .in_allowed = inherited.in_allowed,
@@ -10584,6 +10800,7 @@ TmtParser_class_tail(TmtParser_tape input, TmtParser_parser_state state, uint32_
                             .status = ready.status,
                             .local_names = ready.local_names,
                             .await_allowed = ready.await_allowed,
+                            .yield_allowed = ready.yield_allowed,
                             .jsx_allowed = ready.jsx_allowed,
                             .module_mode = ready.module_mode,
                             .in_allowed = ready.in_allowed,
@@ -10622,6 +10839,7 @@ TmtParser_declaration(TmtParser_tape input, TmtParser_parser_state state)
             .status = state.status,
             .local_names = state.local_names,
             .await_allowed = state.await_allowed,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -10695,6 +10913,7 @@ TmtParser_import_members(
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -10730,6 +10949,7 @@ TmtParser_import_members(
                 .status = st1.status,
                 .local_names = st1.local_names,
                 .await_allowed = st1.await_allowed,
+                .yield_allowed = st1.yield_allowed,
                 .jsx_allowed = st1.jsx_allowed,
                 .module_mode = st1.module_mode,
                 .in_allowed = st1.in_allowed,
@@ -10753,6 +10973,7 @@ TmtParser_import_members(
                   .status = tail.status,
                   .local_names = tail.local_names,
                   .await_allowed = tail.await_allowed,
+                  .yield_allowed = tail.yield_allowed,
                   .jsx_allowed = tail.jsx_allowed,
                   .module_mode = tail.module_mode,
                   .in_allowed = tail.in_allowed,
@@ -10826,6 +11047,7 @@ TmtParser_import_bindings(
             .status = st.status,
             .local_names = st.local_names,
             .await_allowed = st.await_allowed,
+            .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
@@ -10848,6 +11070,7 @@ TmtParser_import_bindings(
               .status = as_.status,
               .local_names = as_.local_names,
               .await_allowed = as_.await_allowed,
+              .yield_allowed = as_.yield_allowed,
               .jsx_allowed = as_.jsx_allowed,
               .module_mode = as_.module_mode,
               .in_allowed = as_.in_allowed,
@@ -10880,6 +11103,7 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
           .status = state.status,
           .local_names = state.local_names,
           .await_allowed = state.await_allowed,
+          .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
@@ -10906,6 +11130,7 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .status = st.status,
               .local_names = st.local_names,
               .await_allowed = st.await_allowed,
+              .yield_allowed = st.yield_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
@@ -10935,6 +11160,7 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .status = after_type.status,
               .local_names = after_type.local_names,
               .await_allowed = after_type.await_allowed,
+              .yield_allowed = after_type.yield_allowed,
               .jsx_allowed = after_type.jsx_allowed,
               .module_mode = after_type.module_mode,
               .in_allowed = after_type.in_allowed,
@@ -10986,6 +11212,7 @@ TmtParser_import_declaration(TmtParser_tape input, TmtParser_parser_state state,
               .status = st1.status,
               .local_names = st1.local_names,
               .await_allowed = st1.await_allowed,
+              .yield_allowed = st1.yield_allowed,
               .jsx_allowed = st1.jsx_allowed,
               .module_mode = st1.module_mode,
               .in_allowed = st1.in_allowed,
@@ -11046,6 +11273,7 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
             .status = state.status,
             .local_names = state.local_names,
             .await_allowed = state.await_allowed,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -11068,6 +11296,7 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
                   .status = st.status,
                   .local_names = st.local_names,
                   .await_allowed = st.await_allowed,
+                  .yield_allowed = st.yield_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
@@ -11089,6 +11318,7 @@ TmtParser_declaration_start(TmtParser_tape input, TmtParser_parser_state state)
                    .status = st1.status,
                    .local_names = st1.local_names,
                    .await_allowed = st1.await_allowed,
+                   .yield_allowed = st1.yield_allowed,
                    .jsx_allowed = st1.jsx_allowed,
                    .module_mode = st1.module_mode,
                    .in_allowed = st1.in_allowed,
@@ -11145,7 +11375,8 @@ TmtParser_module_function(
       async_,
       TmtParser_NoSuper,
       true,
-      TmtParser_OrdinaryParameters);
+      TmtParser_OrdinaryParameters,
+      false);
   TmtParser_parser_state after = function_.after_function;
   if (after.status != 0U)
     return ((TmtParser_named_state){ .state = after, .used = used });
@@ -11248,6 +11479,7 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
             .status = st.status,
             .local_names = st.local_names,
             .await_allowed = st.await_allowed,
+            .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
             .in_allowed = st.in_allowed,
@@ -11302,6 +11534,7 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
                     .status = st2.status,
                     .local_names = st2.local_names,
                     .await_allowed = st2.await_allowed,
+                    .yield_allowed = st2.yield_allowed,
                     .jsx_allowed = st2.jsx_allowed,
                     .module_mode = st2.module_mode,
                     .in_allowed = st2.in_allowed,
@@ -11335,9 +11568,9 @@ TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state,
             .state = {
               .offset = result.offset, .count = result.count, .depth = result.depth,
               .status = result.status, .local_names = result.local_names,
-              .await_allowed = state.await_allowed, .jsx_allowed = result.jsx_allowed,
-              .module_mode = result.module_mode, .in_allowed = result.in_allowed,
-              .for_initializer = result.for_initializer,
+              .await_allowed = state.await_allowed, .yield_allowed = result.yield_allowed,
+              .jsx_allowed = result.jsx_allowed, .module_mode = result.module_mode,
+              .in_allowed = result.in_allowed, .for_initializer = result.for_initializer,
               .arrow_defaults_allowed = result.arrow_defaults_allowed,
               .binding_mode = result.binding_mode, .super_context = result.super_context
             },
@@ -11449,6 +11682,7 @@ TmtParser_export_identifier(TmtParser_tape input, TmtParser_parser_state state)
           .status = state.status,
           .local_names = state.local_names,
           .await_allowed = state.await_allowed,
+          .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
           .in_allowed = state.in_allowed,
@@ -11528,6 +11762,7 @@ TmtParser_reexport_members(
                 .status = after_source.status,
                 .local_names = after_source.local_names,
                 .await_allowed = after_source.await_allowed,
+                .yield_allowed = after_source.yield_allowed,
                 .jsx_allowed = after_source.jsx_allowed,
                 .module_mode = after_source.module_mode,
                 .in_allowed = after_source.in_allowed,
@@ -11592,6 +11827,7 @@ TmtParser_named_reexport(TmtParser_tape input, TmtParser_parser_state state, uin
             .status = tail.status,
             .local_names = tail.local_names,
             .await_allowed = tail.await_allowed,
+            .yield_allowed = tail.yield_allowed,
             .jsx_allowed = tail.jsx_allowed,
             .module_mode = tail.module_mode,
             .in_allowed = tail.in_allowed,
@@ -11633,6 +11869,7 @@ TmtParser_module_export(TmtParser_tape input, TmtParser_parser_state state)
             .status = state.status,
             .local_names = state.local_names,
             .await_allowed = state.await_allowed,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -11660,6 +11897,7 @@ TmtParser_module_export(TmtParser_tape input, TmtParser_parser_state state)
                 .status = tail.status,
                 .local_names = tail.local_names,
                 .await_allowed = tail.await_allowed,
+                .yield_allowed = tail.yield_allowed,
                 .jsx_allowed = tail.jsx_allowed,
                 .module_mode = tail.module_mode,
                 .in_allowed = tail.in_allowed,
@@ -11722,6 +11960,7 @@ TmtParser_default_declaration(
             .status = state.status,
             .local_names = state.local_names,
             .await_allowed = state.await_allowed,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -11759,6 +11998,7 @@ TmtParser_default_declaration(
             .status = state.status,
             .local_names = state.local_names,
             .await_allowed = state.await_allowed,
+            .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
             .in_allowed = state.in_allowed,
@@ -11863,6 +12103,7 @@ TmtParser_module_sequence(
                 .status = uu____0.status,
                 .local_names = uu____0.local_names,
                 .await_allowed = uu____0.await_allowed,
+                .yield_allowed = uu____0.yield_allowed,
                 .jsx_allowed = uu____0.jsx_allowed,
                 .module_mode = uu____0.module_mode,
                 .in_allowed = uu____0.in_allowed,
@@ -11895,6 +12136,7 @@ TmtParser_module_sequence(
                   .status = tail.status,
                   .local_names = tail.local_names,
                   .await_allowed = tail.await_allowed,
+                  .yield_allowed = tail.yield_allowed,
                   .jsx_allowed = tail.jsx_allowed,
                   .module_mode = tail.module_mode,
                   .in_allowed = tail.in_allowed,
@@ -12071,6 +12313,7 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,
@@ -12121,6 +12364,7 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
                   .status = st.status,
                   .local_names = st.local_names,
                   .await_allowed = st.await_allowed,
+                  .yield_allowed = st.yield_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
                   .in_allowed = st.in_allowed,
@@ -12149,6 +12393,7 @@ parse_state(TmtParser_tape input, TmtParser_parser_state st, bool module_mode)
                 .status = st3.status,
                 .local_names = st3.local_names,
                 .await_allowed = st3.await_allowed,
+                .yield_allowed = st3.yield_allowed,
                 .jsx_allowed = st3.jsx_allowed,
                 .module_mode = st3.module_mode,
                 .in_allowed = st3.in_allowed,
@@ -12175,6 +12420,7 @@ TmtParser_parser_state TmtParser_initial_state(bool jsx, bool module_mode)
         .status = 0U,
         .local_names = 0U,
         .await_allowed = module_mode,
+        .yield_allowed = false,
         .jsx_allowed = jsx,
         .module_mode = module_mode,
         .in_allowed = true,
@@ -12212,6 +12458,7 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .status = uu____0.status,
           .local_names = uu____0.local_names,
           .await_allowed = uu____0.await_allowed,
+          .yield_allowed = uu____0.yield_allowed,
           .jsx_allowed = uu____0.jsx_allowed,
           .module_mode = uu____0.module_mode,
           .in_allowed = uu____0.in_allowed,
@@ -12234,6 +12481,7 @@ TmtParser_parser_state TmtParser_parse(TmtParser_tape input, bool jsx, bool modu
           .status = uu____1.status,
           .local_names = uu____1.local_names,
           .await_allowed = uu____1.await_allowed,
+          .yield_allowed = uu____1.yield_allowed,
           .jsx_allowed = uu____1.jsx_allowed,
           .module_mode = uu____1.module_mode,
           .in_allowed = uu____1.in_allowed,
@@ -12339,6 +12587,7 @@ TmtParser_lexical_operand(TmtParser_tape input, TmtParser_parser_state state)
               .status = st.status,
               .local_names = st.local_names,
               .await_allowed = st.await_allowed,
+              .yield_allowed = st.yield_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
               .in_allowed = st.in_allowed,
@@ -12386,6 +12635,7 @@ TmtParser_lexical_declarator_end(
               .status = boundary.status,
               .local_names = boundary.local_names,
               .await_allowed = boundary.await_allowed,
+              .yield_allowed = boundary.yield_allowed,
               .jsx_allowed = boundary.jsx_allowed,
               .module_mode = boundary.module_mode,
               .in_allowed = boundary.in_allowed,
@@ -12449,6 +12699,7 @@ TmtParser_read_lexical_conflict(
                 .status = st.status,
                 .local_names = st.local_names,
                 .await_allowed = st.await_allowed,
+                .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
                 .in_allowed = st.in_allowed,

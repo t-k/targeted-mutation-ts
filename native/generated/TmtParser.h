@@ -136,6 +136,7 @@ typedef struct TmtParser_parser_state_s
   uint32_t status;
   uint32_t local_names;
   bool await_allowed;
+  bool yield_allowed;
   bool jsx_allowed;
   bool module_mode;
   bool in_allowed;
@@ -965,6 +966,14 @@ TmtParser_parsed
 TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel);
 
 TmtParser_parser_state
+TmtParser_function_expression(
+  TmtParser_tape input,
+  TmtParser_parser_state st,
+  uint32_t fuel,
+  uint32_t fn
+);
+
+TmtParser_parser_state
 TmtParser_class_expression(TmtParser_tape input, TmtParser_parser_state st, uint32_t fuel);
 
 TmtParser_parsed
@@ -1164,6 +1173,9 @@ TmtParser_parser_state
 TmtParser_return_statement(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
+TmtParser_yield_statement(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
+
+TmtParser_parser_state
 TmtParser_ordinary_statement(TmtParser_tape input, TmtParser_parser_state state, uint32_t fuel);
 
 TmtParser_parser_state
@@ -1314,7 +1326,8 @@ TmtParser_function_form(
   bool async_,
   TmtParser_super_context super_,
   bool overload,
-  TmtParser_parameter_arity arity
+  TmtParser_parameter_arity arity,
+  bool generator
 );
 
 TmtParser_parser_state

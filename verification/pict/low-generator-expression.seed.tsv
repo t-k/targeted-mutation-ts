@@ -1,0 +1,6 @@
+Function	Yield	Suffix
+Generator	Value	Valid
+AsyncGenerator	Delegate	Valid
+Ordinary	Line	Valid
+Generator	Bare	Valid
+AsyncGenerator	Value	Broken
