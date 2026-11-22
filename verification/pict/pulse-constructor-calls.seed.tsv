@@ -1,0 +1,8 @@
+Target	Argument	Tail
+Name	Empty	Standalone
+This	Empty	Comparison
+Parenthesized	Less	Comparison
+Class	Trailing	Comparison
+This	Trailing	Standalone
+Name	Hole	Standalone
+Class	Trailing	Broken

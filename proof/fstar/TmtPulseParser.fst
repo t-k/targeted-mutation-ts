@@ -2030,9 +2030,18 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         let! completed, target =
           (fun () -> if constructor then
             let! target = (fun () -> skip input { st with offset = plus start_pos 3ul }) in
+            let! head = (fun () -> peek input target.offset) in
             let! named =
-              (fun () -> (let! anf_value_5 = (fun () -> forbidden_field_arguments input target) in if anf_value_5 then ret input (failed target 1ul)
-              else (let! anf_value_6 = (fun () -> (name input target.offset false false)) in ret input (from_cursor target anf_value_6)))) in
+              (fun () -> if head = 40uy then
+                let! inside = (fun () -> consume input { target with in_allowed = true } 40uy) in
+                let! grouped = (fun () -> comparison input inside inner) in
+                let! after = (fun () -> skip input grouped.parser) in
+                consume input { after with in_allowed = target.in_allowed } 41uy
+              else
+                let! this_ = (fun () -> if head = 116uy then keyword input target.offset 4ul 0x74686973uL else ret input false) in
+                if this_ then ret input { target with offset = plus target.offset 4ul }
+                else (let! anf_value_5 = (fun () -> forbidden_field_arguments input target) in if anf_value_5 then ret input (failed target 1ul)
+                else (let! anf_value_6 = (fun () -> (name input target.offset false false)) in ret input (from_cursor target anf_value_6)))) in
             let! named = (fun () -> qualified_name input named 64ul) in
             let! tail = (fun () -> skip input named) in
             let! typed = (fun () -> same input tail.offset 60uy) in
@@ -2422,11 +2431,13 @@ and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (cl
       let valid_array_target = valid_array_target && not spread && can_assign arg.target in
       (let! anf_value_4 = (fun () -> same input st.offset 44uy) in if anf_value_4 then
         let! next_item = (fun () -> consume input st 44uy) in
-        let! next_hole = (fun () -> if arg.open_angle && close = 93uy then
-          let! next_item = (fun () -> skip input next_item) in same input next_item.offset 44uy
+        let! disambiguated = (fun () -> if arg.open_angle then
+          let! following = (fun () -> skip input next_item) in
+          let stop = if close = 93uy then 44uy else close in
+          same input following.offset stop
           else ret input (false)) in
-        // A generic argument list cannot continue across an array elision.
-        if arg.open_angle && not next_hole then ret input ({ list_end = failed st 1ul; valid_array_target = false })
+        // A generic argument list cannot continue across an elision or the call's closing parenthesis.
+        if arg.open_angle && not disambiguated then ret input ({ list_end = failed st 1ul; valid_array_target = false })
         else expression_list input next_item fuel (minus remaining 1ul) close valid_array_target
       else (let! anf_value_5 = (fun () -> consume input st close) in ret input ({ list_end = anf_value_5; valid_array_target }))))
 and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required seen_prototype:bool)
