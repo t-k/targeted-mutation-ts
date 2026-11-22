@@ -18,7 +18,11 @@ Use `oxc-transform@0.159.0`, `yuku-parser@0.19.0`, `yuku-codegen@0.19.0` and `ty
 ```sh
 NODE_OPTIONS="--experimental-vm-modules --max-old-space-size=512" \
   NODE_DISABLE_COMPILE_CACHE=1 NODE_NO_WARNINGS=1 \
-  node scripts/bench-compiler.mjs synthetic /inputs/vite.json /inputs/mreact.json /inputs/tachyon-dom.json
+  node scripts/bench-compiler.mjs synthetic jsx enum \
+  /inputs/vite.json /inputs/mreact.json /inputs/tachyon-dom.json \
+  /inputs/mreact.tsx.json /inputs/tachyon-dom.tsx.json
 ```
 
 The benchmark prints which inputs produced valid JavaScript on each route, exact checks for the synthetic fixtures, and warm and first-process samples. A common-input timing excludes a file if one engine produces no valid JavaScript. The coverage counts record every measured input before this restriction.
+
+The `jsx` and `enum` workloads execute the generated fixtures against independent expected results. Files named `*.tsx.json` select a real TSX workload. These comparisons omit Yuku because the parser and code generator used here do not provide the corresponding JSX and enum lowering API. The benchmark never evaluates code from the real corpus or loads its configuration.

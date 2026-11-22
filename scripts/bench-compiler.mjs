@@ -5,12 +5,14 @@ import { readFileSync } from 'node:fs';
 import { createRequire, stripTypeScriptTypes } from 'node:module';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SourceTextModule } from 'node:vm';
+import { SourceTextModule, createContext } from 'node:vm';
 
 const entry = fileURLToPath(import.meta.url);
 const require = createRequire(import.meta.url);
 const engines = ['tmt', 'oxc', 'yuku', 'swc-next'];
 const rounds = 5;
+
+function isTsxCorpus(path) { return path.endsWith('.tsx.json'); }
 
 function readCases(path) {
   if (path === 'synthetic') {
@@ -19,8 +21,18 @@ function readCases(path) {
       return { file: 'input.ts', source, bytes: Buffer.from(source), expected: index };
     });
   }
+  if (path === 'jsx' || path === 'enum') {
+    return Array.from({ length: 256 }, (_, value) => {
+      const source = path === 'jsx' ? (value % 2 ?
+        'export function View(n: number) { return (\n  <section data-id={n}>\n    <b>ready</b>\n    {n}\n  </section>\n); }' :
+        'export const View = (n: number) => <section data-id={n}><b>ready</b>{n}</section>;') :
+        `export enum Flag { Start = ${value}, Next, Off = "off" }`;
+      return { file: path === 'jsx' ? 'view.tsx' : 'flags.ts', source, bytes: Buffer.from(source), lowering: path, value };
+    });
+  }
+  const dialect = isTsxCorpus(path) ? /\.tsx$/i : /\.m?ts$/i;
   return JSON.parse(readFileSync(path, 'utf8'))
-    .filter(test => /\.m?ts$/i.test(test.file) && !/\.d\.m?ts$/i.test(test.file) && test.mode === 'module')
+    .filter(test => dialect.test(test.file) && !/\.d\.m?ts$/i.test(test.file) && test.mode === 'module')
     .map(({ file, source }) => {
       const bytes = Buffer.from(source, 'base64');
       return { file, source: bytes.toString('utf8'), bytes };
@@ -40,6 +52,7 @@ async function load(name) {
     return test => {
       const result = transformSync(test.file, test.source, {
         target: 'esnext', sourceType: 'module', typescript: { onlyRemoveTypeImports: true },
+        jsx: /\.tsx$/.test(test.file) ? { runtime: 'automatic' } : undefined,
       });
       return { code: result.errors.length ? null : result.code };
     };
@@ -74,7 +87,32 @@ function sample(run, cases, iterations) {
   return { ms: (performance.now() - start) / iterations, sum };
 }
 
-function inspect(name, run, test) {
+async function compareLowered(code, test) {
+  const context = createContext();
+  const runtime = new SourceTextModule(
+    'export const Fragment = "fragment"; export function jsx(type, props) { return {type, props}; } export function jsxs(type, props) { return {type, props, multiple: true}; }',
+    { context },
+  );
+  await runtime.link(() => { throw new Error('Unexpected JSX runtime import'); });
+  await runtime.evaluate();
+  const module = new SourceTextModule(code, { context });
+  await module.link(specifier => {
+    assert.equal(specifier, 'react/jsx-runtime');
+    return runtime;
+  });
+  await module.evaluate({ timeout: 1000 });
+  if (test.lowering === 'jsx') {
+    const expected = { type: 'section', props: { 'data-id': test.value,
+      children: [{type: 'b', props: { children: 'ready' }}, test.value] }, multiple: true };
+    assert.deepEqual(JSON.parse(JSON.stringify(module.namespace.View(test.value))), expected);
+  } else {
+    const expected = { [test.value]: 'Start', [test.value + 1]: 'Next',
+      Start: test.value, Next: test.value + 1, Off: 'off' };
+    assert.deepEqual(JSON.parse(JSON.stringify(module.namespace.Flag)), expected);
+  }
+}
+
+async function inspect(name, run, test) {
   let result;
   try {
     result = run(test);
@@ -85,9 +123,10 @@ function inspect(name, run, test) {
       if (name === 'tmt' || name === 'node-strip') assert.equal(result.code, stripTypeScriptTypes(test.source));
       assert.ok(module);
     }
-    return { accepted: true, native: result.backend === 'pulse' };
+    if (test.lowering) await compareLowered(result.code, test);
+    return { accepted: true, native: result.backend === 'pulse', backend: result.backend };
   } catch (error) {
-    if (test.expected !== undefined) throw error;
+    if (test.expected !== undefined || test.lowering) throw error;
     if (error instanceof SyntaxError || error.code === 'ERR_INVALID_TYPESCRIPT_SYNTAX' ||
         error.code === 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') return { accepted: false, native: false };
     throw error;
@@ -108,25 +147,33 @@ if (first === '--first') {
   const active = Object.fromEntries(await Promise.all([...engines, 'node-strip'].map(async name => [name, await load(name)])));
   for (const path of paths) {
     const cases = readCases(path);
-    const names = path === 'synthetic' ? [...engines, 'node-strip'] : engines;
+    const generated = path === 'synthetic' || path === 'jsx' || path === 'enum';
+    const names = path === 'synthetic' ? [...engines, 'node-strip'] :
+      generated || isTsxCorpus(path) ? engines.filter(name => name !== 'yuku') : engines;
     const coverage = Object.fromEntries(names.map(name => [name, { accepted: 0, native: 0 }]));
-    const mask = cases.map(test => {
+    coverage.tmt.backends = {};
+    let mask = '';
+    for (const test of cases) {
       let common = true;
       for (const name of names) {
-        const result = inspect(name, active[name], test);
+        const result = await inspect(name, active[name], test);
         coverage[name].accepted += Number(result.accepted);
         coverage[name].native += Number(result.native);
+        if (name === 'tmt' && result.backend) {
+          const backends = coverage.tmt.backends;
+          backends[result.backend] = (backends[result.backend] ?? 0) + 1;
+        }
         common &&= result.accepted;
       }
-      return Number(common);
-    }).join('');
+      mask += Number(common);
+    }
     const selected = cases.filter((_, index) => mask[index] === '1');
     assert.ok(selected.length, path);
-    if (path === 'synthetic') assert.equal(selected.length, cases.length);
+    if (generated) assert.equal(selected.length, cases.length);
     const result = { name: path, cases: cases.length, selected: selected.length, coverage,
-      inputSha256: path === 'synthetic' ? null : createHash('sha256').update(readFileSync(path)).digest('hex'),
+      inputSha256: generated ? null : createHash('sha256').update(readFileSync(path)).digest('hex'),
       samples: Object.fromEntries(names.map(name => [name, { warm: [], first: [] }])) };
-    const iterations = path === 'synthetic' ? 25 : 1;
+    const iterations = generated ? 25 : 1;
     const expected = Object.fromEntries(names.map(name => [name, sample(active[name], selected, 1).sum]));
     for (let turn = 0; turn < rounds; turn++) {
       const order = [...names.slice(turn % names.length), ...names.slice(0, turn % names.length)];

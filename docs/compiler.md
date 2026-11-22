@@ -19,34 +19,46 @@ const result = compile('export const eligible = (age: number) => age >= 18;', {
 });
 ```
 
-CommonJS callers can load the same implementation from `src/compiler.cjs`. Strip mode implements the position-preserving contract for TypeScript files without JSX. It rejects syntax that needs runtime lowering and the compiler reports a diagnostic. Transform mode supports those constructs through isolated TypeScript emission.
+CommonJS callers can load the same implementation from `src/compiler.cjs`. Strip mode implements the position-preserving contract for TypeScript files without JSX. It rejects syntax that needs runtime lowering and the compiler reports a diagnostic. Transform mode selects the native emitter, Node type erasure, or the isolated TypeScript emitter according to the input and output options.
 
 ## Native path and proof
 
-For ESNext TypeScript, Pulse recognizes bounded forms of exported constants, single-parameter arrows with primitive annotations, and complete type-only modules. The arrow and constant path records up to three ranges. The C adapter checks their order and bounds, copies the source once, and invokes the verified span writer. The type-only path reuses the existing Pulse TypeScript declaration and import recognizers, requires a module marker and a complete parse, and emits an empty module. Files with comment markers in this path use the compatibility emitter to retain comments it would otherwise emit.
+The `pulse` backend handles bounded exported constants, simple typed arrows, complete type-only modules, and runtime JSX and enum forms. The native JSX emitter handles automatic and classic runtimes, elements and fragments, nested children, multiline text, typical attributes and object spreads. Its entry points include direct and parenthesized initializers, arrow expressions, and simple exported function components. The enum emitter handles numeric and string literal members, signed values, implicit numbering, reverse maps, and literal `const enum` declarations under isolated emission semantics.
 
-The Pulse span writer proves that a successful replacement changes only bytes in the requested span to spaces and that invalid spans leave the buffer untouched. The parser functions preserve the input borrow. TypeScript grammar and diagnostic agreement are tested with independent implementations and real sources. The native and compatibility emitters can format valid JavaScript differently. Other requested transformations and syntax outside the native subset select TypeScript lazily.
+The direct Node addon includes only the necessary Pulse entry points and the runtime emitter. It loads the full-module addon when a direct form declines. For supported mixed TSX or TypeScript modules, the full parser validates the input and recovers its top-level item boundaries. The native emitter lowers complete runtime declarations, and Node erases any remaining TypeScript annotations on the `pulse+node-strip` route. The `node-strip` route supports Pulse-validated ESNext modules whose JavaScript retains a static import or export, or contains only comments and whitespace. Node can also lower supported parameter properties on runtimes that provide the transform option.
+
+The Pulse span writer proves that a successful replacement changes only the requested bytes and that invalid spans leave the buffer untouched. The extracted parser preserves its input borrow. The runtime C emitter is checked by executable differential tests. The NEON and SSE2 builds accelerate comment and string scanning when the generated scalar functions match the checked versions. The extraction check regenerates and compares both variants of the generated C and headers.
+
+Computed enum initializers, JSX outside the supported shapes, CommonJS, downlevel targets, and source maps can still require the TypeScript emitter. Output formatting can differ across the supported backends.
 
 ```sh
 FSTAR_EXE=/path/to/fstar.exe KARAMEL_EXE=/path/to/krml npm run verify:compiler
-node --test test/compiler.test.mjs test/compiler-native.test.mjs
+node --test test/compiler*.test.mjs
 ```
 
 ## Performance comparison
 
-The synthetic workload emits 256 modules with a typed arrow and a distinct threshold. Every output must parse as JavaScript and contain the expected exported function. The Pulse output also matches Node's position-preserving output byte for byte. The real workloads select TypeScript module implementation files from pinned Git snapshots. Each engine independently validates its output as JavaScript, then timing uses the common accepted files. The coverage counts include inputs that any engine rejected. External project output is parsed and never evaluated.
+The workloads measure complete JavaScript emission over in-memory inputs. First-process samples include backend loading. Node startup and corpus reading are outside the timed region. The default comparison uses Oxc 0.159.0, the Yuku 0.19.0 parser and code generator, and SWC Next 0.7.0 through its native transform adapter. Yuku takes part in workloads compatible with its strip and print API.
 
-The benchmark measures selected in-memory inputs through complete JavaScript output. First-process samples include backend loading and exclude Node startup and corpus reading. The benchmark uses the CommonJS library entry for TMT and a direct Node adapter to SWC Next's native Rust transformer. It measures Oxc's transformer, Yuku's parser and code generator, and Node's position-preserving stripper on the synthetic workload. The source snapshots and third-party packages ran offline in a memory-bounded, rootless Linux arm64 Podman container.
+The synthetic workload checks 256 exported threshold functions. The JSX and enum workloads each execute 256 controlled modules and check the results. The JSX fixtures exercise both the direct and grouped function forms. The real workloads time files whose output parsed as JavaScript for every measured engine. They read pinned source blobs without executing project code or loading the projects' tooling.
 
-All values are medians in milliseconds from five rotating rounds on an Apple M5 Max using Linux arm64. Host load varied, and the final run overlapped the worktree's Node suite.
+Medians are milliseconds from five rotating rounds on an Apple M5 Max in a rootless, offline Linux arm64 Podman container with Node 24.14.0. Host load varied between benchmark runs.
 
 | Workload | Common files | TMT warm | Fastest reference warm | TMT first | Fastest reference first |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| synthetic | 256 | 0.31 | 1.70 (swc-next) | 5.01 | 3.68 (swc-next) |
-| vite | 113 | 2,462.17 | 45.34 (oxc) | 4,438.54 | 71.99 (swc-next) |
-| mreact | 315 | 7,126.92 | 275.53 (oxc) | 9,713.83 | 431.83 (swc-next) |
-| tachyon-dom | 94 | 1,717.71 | 62.18 (oxc) | 3,660.76 | 69.59 (swc-next) |
+| synthetic | 256 | 0.64 | 1.76 (swc-next) | 6.82 | 4.34 (swc-next) |
+| jsx | 256 | 1.28 | 5.11 (swc-next) | 8.15 | 7.43 (swc-next) |
+| enum | 256 | 0.93 | 3.42 (swc-next) | 6.54 | 6.48 (swc-next) |
+| vite | 113 | 227.52 | 48.52 (oxc) | 893.54 | 57.94 (swc-next) |
+| mreact | 315 | 598.73 | 121.78 (oxc) | 1098.95 | 133.00 (swc-next) |
+| tachyon-dom | 94 | 189.35 | 39.48 (oxc) | 323.08 | 41.36 (swc-next) |
+| mreact.tsx | 84 | 452.54 | 10.25 (oxc) | 972.06 | 12.69 (swc-next) |
+| tachyon-dom.tsx | 32 | 193.34 | 1.93 (oxc) | 841.36 | 3.58 (swc-next) |
 
-The native path emitted all 256 synthetic inputs. On the three main real workloads it emitted 1 of 122 Vite files, 3 of 321 mreact files and 0 of 94 tachyon-dom files. The six-project native output audit covered 1,817 TypeScript module files, with all 28 accepted native outputs exactly matching TypeScript's bytes. The [raw samples and coverage](../evidence/compiler/experiment.json) include both compiler iterations and the paired [SWC Next native adapter](../verification/compiler-comparison/README.md).
+All generated JSX and enum fixtures used the direct Pulse route. It was 4.0× faster for JSX and 3.7× faster for enums than the fastest warm reference. SWC Next had the lowest first-process times. On the three real TypeScript workloads, 532 of 537 files avoided loading the TypeScript compiler, including Vite's two runtime `const enum` files. The native and Node erasure routes produced JavaScript in 39 of 116 tracked real TSX files, up from 27 before mixed expression support. The 5 TypeScript and 77 TSX fallbacks continue to use the TypeScript emitter.
 
-The existing comparison-candidate extractor remains a separate workload. It emits a small list of edits. The general compiler's performance depends on expanding the native path to type erasure and lowering inside mixed modules, where TypeScript still accounts for most of the measured time.
+The structural audit compared files that avoided TypeScript against the corresponding TypeScript output. It found four differences in constructor emission and two in optional-chain parentheses. The isolated runtime tests check constructor initialization order and execute the bounded JSX and enum forms. The real-file speed suite verifies syntax and route coverage.
+
+The small direct addon is 83 KiB on the host, down from the previous monolithic 332 KiB. In a paired arm64 check, the shared NEON scanner reduced 256 long comment and string lowering fixtures from 3.33 ms to 1.99 ms, with identical output. On 537 inputs, the native module-validation stage changed from 132.58 ms to 131.75 ms. Separate stage timings show that Node erasure took about five times as long as Pulse validation on the three bridge workloads. The remaining work for general throughput is to emit the type edits during the Pulse parse and expand the TSX emitter to more expression and component forms.
+
+The [runtime-lowering samples and route counts](../evidence/compiler/runtime-lowering.json) include the input hashes and TSX snapshot revisions. The [earlier compiler measurements](../evidence/compiler/experiment.json) and [native SWC Next benchmark adapter](../verification/compiler-comparison/README.md) are also available.
