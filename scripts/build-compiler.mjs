@@ -23,7 +23,7 @@ try {
   const common = ['-std=c11', '-O3', '-fPIC', '-fvisibility=hidden', '-Wall', '-Wextra', '-Werror',
     '-Wno-parentheses', '-I', headers, '-I', 'native/runtime',
     ...(macOS ? ['-bundle', '-undefined', 'dynamic_lookup', '-Wl,-dead_strip'] : ['-shared']),
-    'native/compiler/addon.c', 'native/compiler/generated/Custard.c', '-o', pending];
+    'native/compiler/addon.c', 'native/compiler/lowering.c', 'native/compiler/generated/Custard.c', '-o', pending];
   const built = spawnSync(compiler, ['-flto', ...common], { cwd: root, encoding: 'utf8' });
   if (built.error) throw built.error;
   const result = built.status === 0 ? built : spawnSync(compiler, common, { cwd: root, encoding: 'utf8' });

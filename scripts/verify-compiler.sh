@@ -13,6 +13,9 @@ done
 "$fstar" --include proof/fstar --cache_dir "$cache" --codegen KrmlC \
   --custard_entry TmtPulseCompiler.read_plan --custard_entry TmtPulseCompiler.blank_range \
   --custard_entry TmtPulseCompiler.type_only_module \
+  --custard_entry TmtPulseCompiler.read_runtime_head --custard_entry TmtPulseCompiler.runtime_tag_name \
+  --custard_entry TmtPulseCompiler.runtime_atom --custard_entry TmtPulseCompiler.runtime_module_marker \
+  --custard_entry TmtPulseCompiler.erasable_module --custard_entry TmtPulseCompiler.next_module_item \
   -o "$scratch/compiler.krml" proof/fstar/TmtPulseCompiler.fst
 "$krml" -minimal -drop Prims -ftail-calls -add-early-include '"tmt_krml_runtime.h"' \
   -skip-compilation -tmpdir "$scratch" "$scratch/compiler.krml"

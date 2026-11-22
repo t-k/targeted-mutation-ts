@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "generated/Custard.h"
+#include "lowering.h"
 
 #define NAPI(call) do { if ((call) != napi_ok) goto error; } while (0)
 enum { source_limit = 1048576, binding_capacity = 2367 };
@@ -76,10 +77,77 @@ error:
   return NULL;
 }
 
+static napi_value lower_source(napi_env env, napi_callback_info info) {
+  napi_value args[5], result;
+  size_t argc = 5, size, length;
+  bool jsx, typescript, classic, mixed;
+  void *source;
+  char *output = NULL;
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc != 5) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &source, &size));
+  NAPI(napi_get_value_bool(env, args[1], &jsx));
+  NAPI(napi_get_value_bool(env, args[2], &typescript));
+  NAPI(napi_get_value_bool(env, args[3], &classic));
+  NAPI(napi_get_value_bool(env, args[4], &mixed));
+  if (size <= source_limit) output = tmt_lower_runtime(source, (uint32_t)size, jsx, typescript, classic, mixed, &length);
+  if (output) {
+    NAPI(napi_create_string_utf8(env, output, length, &result));
+    free(output);
+  } else {
+    NAPI(napi_get_null(env, &result));
+  }
+  return result;
+error:
+  free(output);
+  napi_throw_error(env, NULL, "Native runtime lowering arguments or allocation failed");
+  return NULL;
+}
+
+static bool validate_erasable(uint8_t *source, uint32_t size) {
+  TmtPulseMemory_binding_name bindings[binding_capacity] = {0};
+  TmtGrammar_candidate candidates[128];
+  uint8_t marks[128] = {0};
+  const TmtPulseMemory_tape input = {
+    .source = source, .size = size, .private_possible = memchr(source, '#', size) != NULL,
+    .output = candidates, .capacity = sizeof(candidates) / sizeof(*candidates),
+    .bindings = bindings, .marks = marks,
+  };
+  return TmtPulseCompiler_erasable_module(input, false);
+}
+
+static napi_value module_marker(napi_env env, napi_callback_info info) {
+  napi_value args[2], result;
+  size_t argc = 2, size;
+  bool validate;
+  void *source;
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc != 2) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &source, &size));
+  NAPI(napi_get_value_bool(env, args[1], &validate));
+  bool accepted = false;
+  if (size && size <= source_limit) {
+    if (validate) accepted = validate_erasable(source, (uint32_t)size);
+    else {
+      const TmtPulseMemory_tape input = { .source = source, .size = (uint32_t)size };
+      accepted = TmtPulseCompiler_runtime_module_marker(input);
+    }
+  }
+  NAPI(napi_get_boolean(env, accepted, &result));
+  return result;
+error:
+  napi_throw_type_error(env, NULL, "Expected a source buffer and validation flag");
+  return NULL;
+}
+
 static napi_value init(napi_env env, napi_value exports) {
   napi_value entry;
   NAPI(napi_create_function(env, "compile", NAPI_AUTO_LENGTH, compile_source, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "compile", entry));
+  NAPI(napi_create_function(env, "lower", NAPI_AUTO_LENGTH, lower_source, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "lower", entry));
+  NAPI(napi_create_function(env, "moduleMarker", NAPI_AUTO_LENGTH, module_marker, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "moduleMarker", entry));
   return exports;
 error:
   napi_throw_error(env, NULL, "Unable to register the native compiler");

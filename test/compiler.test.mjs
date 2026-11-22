@@ -8,7 +8,7 @@ import { compile } from '../src/compiler.mjs';
 const samples = {
   TypeScript: { file: 'input.ts', source: 'export const value: number = 42;', pattern: /42/ },
   JSX: { file: 'input.tsx', source: 'export const value = () => <div>ok</div>;', pattern: /jsx-runtime/ },
-  Enum: { file: 'input.ts', source: 'export enum Flag { Ready = 42 }', pattern: /Flag\["Ready"\] = 42/ },
+  Enum: { file: 'input.ts', source: 'export enum Flag { Ready = 42 }', pattern: /Flag\["Ready"\]\s*=\s*42/ },
   Broken: { file: 'input.ts', source: 'export const value: = 42;' },
 };
 const matrix = readFileSync(new URL('../verification/pict/compiler-output.tsv', import.meta.url), 'utf8')

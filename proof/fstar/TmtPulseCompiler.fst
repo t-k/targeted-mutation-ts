@@ -292,3 +292,189 @@ fn type_only_module (input:tape)
 {
   type_only_statements input (P.initial_state false true P.primary_locals) 0ul false 512ul
 }
+
+type runtime_head = {
+  kind:U8.t; declaration:U32.t; body:U32.t; name_span:G.span;
+  binding_type:G.span; parameter_type:G.span; return_type:G.span
+}
+
+let runtime_head_of (kind:U8.t) (declaration body:U32.t)
+  (name_span binding_type parameter_type return_type:G.span) : runtime_head =
+  { kind; declaration; body; name_span; binding_type; parameter_type; return_type }
+
+let declined_runtime () = runtime_head_of 0uy 0ul 0ul empty_span empty_span empty_span empty_span
+
+fn jsx_arrow_body (input:tape) (#frame:slprop)
+  (declaration opening:U32.t) (name_span:G.span) (binding_type:G.span) (typescript:bool)
+  requires input_ready input ** frame
+  returns head:runtime_head
+  ensures input_ready input ** frame
+{
+  let first = P.trivia input #frame (P.next opening);
+  let no_params = P.same input #frame first.at 41uy;
+  let parameter = if (no_params) {
+    make_annotation first.ok first.at empty_span
+  } else {
+    let named = P.name input #frame first.at false true;
+    if (first.ok && named.ok) { annotation_after input #frame named.at }
+    else { make_annotation false first.at empty_span }
+  };
+  let close = P.trivia input #frame parameter.offset;
+  let closes = P.same input #frame close.at 41uy;
+  if (not (parameter.valid && close.ok && closes)) { declined_runtime () } else {
+    let end_params = P.next close.at;
+    let after = P.trivia input #frame end_params;
+    let result = annotation_after input #frame end_params;
+    let arrow = P.trivia input #frame result.offset;
+    let equals = P.same input #frame arrow.at 61uy;
+    let greater = P.same input #frame (P.next arrow.at) 62uy;
+    if (after.ok && not after.newline && result.valid && arrow.ok && not arrow.newline && equals && greater &&
+        (typescript || (parameter.erased.G.first = parameter.erased.G.last && result.erased.G.first = result.erased.G.last))) {
+      let body = P.trivia input #frame (P.plus arrow.at 2ul);
+      let element = P.same input #frame body.at 60uy;
+      if (body.ok && element) {
+        runtime_head_of 2uy declaration body.at name_span binding_type parameter.erased result.erased
+      } else { declined_runtime () }
+    } else { declined_runtime () }
+  }
+}
+
+fn read_runtime_head (input:tape) (#frame:slprop) (at:U32.t) (jsx typescript local:bool)
+  requires input_ready input ** frame
+  returns head:runtime_head
+  ensures input_ready input ** frame
+{
+  let start = P.trivia input #frame at;
+  let exported = P.keyword input #frame start.at 6ul 0x6578706f7274uL;
+  if (not (start.ok && (exported || local))) { declined_runtime () } else {
+    let declaration = if (exported) { P.trivia input #frame (P.plus start.at 6ul) } else { start };
+    let constant = P.keyword input #frame declaration.at 5ul 0x636f6e7374uL;
+    let after_const = if (constant) {
+      P.trivia input #frame (P.plus declaration.at 5ul)
+    } else { declaration };
+    let enumeration = P.keyword input #frame after_const.at 4ul 0x656e756duL;
+    if (typescript && after_const.ok && enumeration) {
+      let first = P.trivia input #frame (P.plus after_const.at 4ul);
+      let name = P.name input #frame first.at false true;
+      let open_brace = P.trivia input #frame name.at;
+      let has_brace = P.same input #frame open_brace.at 123uy;
+      if (first.ok && name.ok && open_brace.ok && has_brace) {
+        runtime_head_of (if exported then 1uy else 3uy) start.at (P.next open_brace.at) (range first.at name.at) empty_span empty_span empty_span
+      } else { declined_runtime () }
+    } else if (jsx && constant && after_const.ok) {
+      let name = P.name input #frame after_const.at false true;
+      let annotation = annotation_after input #frame name.at;
+      let equal = P.trivia input #frame annotation.offset;
+      let assigned = P.same input #frame equal.at 61uy;
+      if (name.ok && annotation.valid && equal.ok && assigned && (typescript || annotation.erased.G.first = annotation.erased.G.last)) {
+        let init = P.trivia input #frame (P.next equal.at);
+        let element = P.same input #frame init.at 60uy;
+        let arrow = P.same input #frame init.at 40uy;
+        let name_span = range after_const.at name.at;
+        if (not init.ok) { declined_runtime () }
+        else if (element) {
+          runtime_head_of 2uy start.at init.at name_span annotation.erased empty_span empty_span
+        } else if (arrow) {
+          jsx_arrow_body input #frame start.at init.at name_span annotation.erased typescript
+        } else { declined_runtime () }
+      } else { declined_runtime () }
+    } else { declined_runtime () }
+  }
+}
+
+fn runtime_tag_name (input:tape) (#frame:slprop) (at:U32.t)
+  requires input_ready input ** frame
+  returns name:P.cursor
+  ensures input_ready input ** frame
+{
+  P.jsx_tag_name input #frame at 32ul
+}
+
+fn runtime_atom (input:tape) (#frame:slprop) (at:U32.t)
+  requires input_ready input ** frame
+  returns stop:P.cursor
+  ensures input_ready input ** frame
+{
+  atom input #frame at
+}
+
+fn runtime_module_marker (input:tape) (#frame:slprop)
+  requires input_ready input ** frame
+  returns marked:bool
+  ensures input_ready input ** frame
+{
+  let head = P.trivia input #frame 0ul;
+  if (not head.ok) { false } else {
+    let exported = P.keyword input #frame head.at 6ul 0x6578706f7274uL;
+    if (exported) { true } else {
+      let imported = P.keyword input #frame head.at 6ul 0x696d706f7274uL;
+      if (not imported) { false } else {
+        let after = P.trivia input #frame (P.plus head.at 6ul);
+        let token = peek input #frame after.at;
+        after.ok && (G.identifier_start token || token = 39uy || token = 34uy || token = 123uy || token = 42uy)
+      }
+    }
+  }
+}
+
+fn erasable_module (input:tape) (jsx:bool)
+  requires heap input
+  returns accepted:bool
+  ensures heap input
+{
+  unfold heap;
+  let marked = runtime_module_marker input #(workspace_ready input);
+  fold heap;
+  if (marked) {
+    let result = P.parse_candidates input jsx true;
+    result.status = 0ul
+  } else { false }
+}
+
+// The caller first validates the whole module. This pass recovers item boundaries
+// without repeating the module's binding and deferred-export validation.
+let module_item_end (input:tape) (state:P.parser_state)
+  : Tot (stt P.parser_state (heap input) (fun _ -> heap input)) =
+  let! exported = (fun () -> P.module_export input state) in
+  if exported.export_kind = 1ul then
+    let! start = (fun () -> P.skip input { exported.after_export with offset = P.plus exported.after_export.offset 7ul }) in
+    let! item = (fun () -> P.default_declaration input start 0ul) in
+    ret input item.state
+  else if exported.export_kind = 2ul then
+    let! item = (fun () -> P.star_reexport input exported.after_export 0ul) in
+    ret input item.state
+  else if exported.export_kind = 3ul then
+    let! item, _ = (fun () -> P.named_reexport input exported.after_export 0ul 0ul 0ul) in
+    ret input item.state
+  else if exported.export_kind = 4ul then ret input (P.failed state 1ul)
+  else
+    let! imported = (fun () -> P.keyword input state.offset 6ul 0x696d706f7274uL) in
+    let! expression = (fun () -> if imported then P.import_expression_start input state else ret input false) in
+    if imported && not expression then
+      let! item = (fun () -> P.import_declaration input state 0ul) in
+      ret input item.state
+    else
+      let! declaration = (fun () -> P.module_declaration input state 0ul) in
+      if declaration.state.status = 0ul then ret input declaration.state
+      else
+        let! control = (fun () -> P.control_statement input state 64ul false P.NoJump 0ul 0ul false) in
+        ret input control.state
+
+let next_module_boundary (input:tape) (jsx:bool) (at:U32.t)
+  : Tot (stt U32.t (heap input) (fun _ -> heap input)) =
+  let initial = P.initial_state jsx true P.primary_locals in
+  let! st = (fun () -> P.skip input { initial with offset = at }) in
+  if st.status <> 0ul then ret input 0ul
+  else if st.offset = input.size then ret input input.size
+  else
+    let! semicolon = (fun () -> P.same input st.offset 59uy) in
+    let! end_ = (fun () -> if semicolon then P.consume input st 59uy else module_item_end input st) in
+    ret input (if end_.status = 0ul && U32.gt end_.offset at && U32.lte end_.offset input.size then end_.offset else 0ul)
+
+fn next_module_item (input:tape) (jsx:bool) (at:U32.t)
+  requires heap input
+  returns end_:U32.t
+  ensures heap input
+{
+  next_module_boundary input jsx at
+}

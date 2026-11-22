@@ -1,0 +1,6 @@
+Form	Layout	Tail
+Numeric	Compact	Complete
+Strings	Unicode	Complete
+Automatic	Compact	Complete
+Classic	Unicode	Complete
+Numeric	Unicode	Broken

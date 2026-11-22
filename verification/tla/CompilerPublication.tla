@@ -3,29 +3,37 @@ EXTENDS Naturals, Sequences
 
 Limits == 3
 Offsets == 1..4
-VARIABLES mode, edits, output
-vars == <<mode, edits, output>>
+Operations == {"erase", "enum", "jsx"}
+VARIABLES operation, mode, edits, output, checked
+vars == <<operation, mode, edits, output, checked>>
 
-Init == /\ mode = "scanning" /\ edits = <<>> /\ output = <<>>
+Init == /\ operation \in Operations /\ mode = "scanning"
+        /\ edits = <<>> /\ output = <<>> /\ checked = FALSE
 
 Record ==
   /\ mode = "scanning" /\ Len(edits) < Limits
   /\ \E end \in Offsets:
        /\ (IF Len(edits) = 0 THEN TRUE ELSE end > edits[Len(edits)])
        /\ edits' = Append(edits, end)
-  /\ UNCHANGED <<mode, output>>
+  /\ UNCHANGED <<operation, mode, output, checked>>
 
-Decide ==
+Finish ==
   /\ mode = "scanning"
-  /\ mode' \in {"validated", "fallback", "invalid"}
-  /\ UNCHANGED <<edits, output>>
+  /\ mode' \in {"complete", "fallback", "invalid"}
+  /\ UNCHANGED <<operation, edits, output, checked>>
+
+Validate ==
+  /\ mode = "complete"
+  /\ mode' \in {"validated", "invalid"}
+  /\ checked' = (mode' = "validated")
+  /\ UNCHANGED <<operation, edits, output>>
 
 Publish ==
-  /\ mode = "validated"
+  /\ mode = "validated" /\ checked
   /\ mode' = "published" /\ output' = edits
-  /\ UNCHANGED edits
+  /\ UNCHANGED <<operation, edits, checked>>
 
-Spec == Init /\ [][Record \/ Decide \/ Publish]_vars
+Spec == Init /\ [][Record \/ Finish \/ Validate \/ Publish]_vars
 Ordered == \A i, j \in 1..Len(edits): i < j => edits[i] < edits[j]
-Atomic == IF mode = "published" THEN output = edits ELSE output = <<>>
+Atomic == IF mode = "published" THEN checked /\ output = edits ELSE output = <<>>
 ====

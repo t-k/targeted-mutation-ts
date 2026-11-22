@@ -102,6 +102,11 @@ typedef struct TmtPulseParser_parser_state_s
 }
 TmtPulseParser_parser_state;
 
+TmtPulseParser_parser_state
+TmtPulseParser_initial_state(bool jsx, bool module_mode, uint16_t local_log_floor);
+
+extern uint16_t TmtPulseParser_primary_locals;
+
 typedef struct TmtPulseParser_cursor_s
 {
   uint32_t at;
@@ -160,6 +165,21 @@ TmtPulseParser_from_cursor(TmtPulseParser_parser_state state, TmtPulseParser_cur
 TmtPulseParser_parser_state
 TmtPulseParser_skip(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
 
+TmtPulseParser_parser_state
+TmtPulseParser_consume(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint8_t byte
+);
+
+typedef struct TmtPulseParser_export_prefix_s
+{
+  TmtPulseParser_parser_state after_export;
+  uint32_t export_kind;
+  bool direct;
+}
+TmtPulseParser_export_prefix;
+
 uint64_t
 TmtPulseParser_word(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0, uint64_t value0);
 
@@ -177,6 +197,9 @@ TmtPulseParser_keyword(
   uint64_t expected
 );
 
+TmtPulseParser_export_prefix
+TmtPulseParser_module_export(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
 typedef struct TmtPulseParser_named_state_s
 {
   TmtPulseParser_parser_state state;
@@ -184,62 +207,19 @@ typedef struct TmtPulseParser_named_state_s
 }
 TmtPulseParser_named_state;
 
-bool TmtPulseParser_simple_escape(TmtPulseMemory_tape input, uint32_t at, bool template0);
+TmtPulseParser_cursor TmtPulseParser_async_modifier(TmtPulseMemory_tape input, uint32_t start);
 
-uint32_t TmtPulseParser_hex_value(uint8_t ch);
+TmtPulseParser_cursor TmtPulseParser_async_function(TmtPulseMemory_tape input, uint32_t start);
 
-TmtPulseParser_cursor
-TmtPulseParser_fixed_hex(TmtPulseMemory_tape input0, uint32_t at0, uint32_t digits0);
-
-TmtPulseParser_cursor
-TmtPulseParser_unicode_escape(
-  TmtPulseMemory_tape input0,
-  uint32_t at0,
-  uint32_t value0,
-  uint32_t fuel0,
-  bool seen0
-);
+TmtPulseParser_cursor TmtPulseParser_function_start(TmtPulseMemory_tape input, uint32_t start);
 
 TmtPulseParser_cursor
-TmtPulseParser_escape_end(
-  TmtPulseMemory_tape input,
-  uint32_t at,
-  bool template0,
-  bool extended
-);
+TmtPulseParser_abstract_modifier(TmtPulseMemory_tape input, uint32_t offset);
+
+bool TmtPulseParser_class_keyword(TmtPulseMemory_tape input, uint32_t offset);
 
 TmtPulseParser_cursor
-TmtPulseParser_string_end(
-  TmtPulseMemory_tape input0,
-  uint32_t at0,
-  uint8_t delimiter0,
-  uint32_t fuel0,
-  bool extended0
-);
-
-TmtPulseParser_parser_state
-TmtPulseParser_consume(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint8_t byte
-);
-
-TmtPulseParser_parser_state
-TmtPulseParser_static_import_attributes(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state
-);
-
-TmtPulseParser_parser_state
-TmtPulseParser_statement_end(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t end_at,
-  bool before_brace
-);
-
-TmtPulseParser_parser_state
-TmtPulseParser_import_source(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+TmtPulseParser_abstract_class_start(TmtPulseMemory_tape input, uint32_t offset);
 
 #define TmtGrammar_Space 0
 #define TmtGrammar_Identifier 1
@@ -338,28 +318,17 @@ TmtPulseParser_bind_at(
   uint32_t pos
 );
 
-TmtPulseParser_named_state
-TmtPulseParser_import_members(
-  TmtPulseMemory_tape input0,
-  TmtPulseParser_parser_state state0,
-  uint32_t used0,
-  uint32_t fuel0,
-  bool allow_type0
-);
+#define TmtPulseParser_OrdinaryClass 0
+#define TmtPulseParser_AbstractClass 1
+#define TmtPulseParser_AmbientClass 2
 
-TmtPulseParser_named_state
-TmtPulseParser_import_bindings(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t used,
-  bool allow_type
-);
+typedef uint8_t TmtPulseParser_class_kind;
 
-TmtPulseParser_named_state
-TmtPulseParser_import_declaration(
+TmtPulseParser_parser_state
+TmtPulseParser_variance_prefix(
   TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t used
+  TmtPulseParser_parser_state st,
+  bool allow_variance
 );
 
 uint64_t
@@ -370,20 +339,6 @@ bool TmtPulseParser_undefined_type(TmtPulseMemory_tape input, uint32_t start, ui
 bool TmtPulseParser_builtin_type(uint64_t packed);
 
 bool TmtPulseParser_type_operator(uint64_t packed);
-
-bool
-TmtPulseParser_admissible_type_binding(
-  TmtPulseMemory_tape input,
-  uint32_t first,
-  uint32_t last
-);
-
-TmtPulseParser_parser_state
-TmtPulseParser_variance_prefix(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state st,
-  bool allow_variance
-);
 
 typedef struct FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_bool_s
 {
@@ -427,6 +382,39 @@ typedef struct TmtPulseParser_type_query_target_s
   bool is_import;
 }
 TmtPulseParser_type_query_target;
+
+bool TmtPulseParser_simple_escape(TmtPulseMemory_tape input, uint32_t at, bool template0);
+
+uint32_t TmtPulseParser_hex_value(uint8_t ch);
+
+TmtPulseParser_cursor
+TmtPulseParser_fixed_hex(TmtPulseMemory_tape input0, uint32_t at0, uint32_t digits0);
+
+TmtPulseParser_cursor
+TmtPulseParser_unicode_escape(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t value0,
+  uint32_t fuel0,
+  bool seen0
+);
+
+TmtPulseParser_cursor
+TmtPulseParser_escape_end(
+  TmtPulseMemory_tape input,
+  uint32_t at,
+  bool template0,
+  bool extended
+);
+
+TmtPulseParser_cursor
+TmtPulseParser_string_end(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint8_t delimiter0,
+  uint32_t fuel0,
+  bool extended0
+);
 
 TmtPulseParser_parser_state
 TmtPulseParser_qualified_name(
@@ -730,11 +718,338 @@ TmtPulseParser_optional_type_parameters(
   bool allow_variance
 );
 
+bool
+TmtPulseParser_forbidden_field_arguments(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st
+);
+
 TmtPulseParser_parser_state
 TmtPulseParser_interface_bases(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state state0,
   uint32_t remaining0
+);
+
+extern uint32_t TmtPulseMemory_private_region_base;
+
+uint32_t TmtPulseParser_private_slot(uint8_t index);
+
+TmtPulseParser_parser_state
+TmtPulseParser_record_private(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  TmtGrammar_span span,
+  TmtPulseMemory_binding_namespace namespace0
+);
+
+TmtGrammar_span TmtPulseParser_start_range(uint32_t pos);
+
+typedef struct TmtPulseParser_pending_overload_s
+{
+  TmtGrammar_span key_span;
+  uint32_t key_flags;
+  bool key_async;
+}
+TmtPulseParser_pending_overload;
+
+extern TmtPulseParser_pending_overload TmtPulseParser_no_overload;
+
+TmtPulseParser_cursor
+TmtPulseParser_abstract_member_modifier(
+  TmtPulseMemory_tape input,
+  uint32_t start,
+  uint8_t byte
+);
+
+bool
+TmtPulseParser_class_key_start(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+#define TmtPulseParser_OrdinaryParameters 0
+#define TmtPulseParser_GetterParameters 1
+#define TmtPulseParser_SetterParameters 2
+
+typedef uint8_t TmtPulseParser_parameter_arity;
+
+typedef struct TmtPulseParser_class_key_s
+{
+  TmtPulseParser_parser_state after_key;
+  uint32_t first;
+  uint32_t last;
+  bool static_;
+  bool async_;
+  bool readonly_;
+  TmtPulseParser_parameter_arity arity;
+  bool generator_;
+  bool private_;
+  bool quoted_;
+  bool computed;
+  uint32_t modifier_flags;
+}
+TmtPulseParser_class_key;
+
+typedef struct TmtPulseParser_class_prefix_s
+{
+  TmtPulseParser_parser_state key_state;
+  uint32_t flags;
+}
+TmtPulseParser_class_prefix;
+
+uint32_t
+TmtPulseParser_class_modifier_width(TmtPulseMemory_tape input, uint32_t at, uint8_t first);
+
+extern uint32_t TmtPulseParser_class_access_flags;
+
+TmtPulseParser_class_prefix
+TmtPulseParser_class_modifiers(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state st0,
+  uint32_t flags0,
+  uint32_t fuel0
+);
+
+typedef struct TmtPulseParser_generator_head_s
+{
+  TmtPulseParser_parser_state after_star;
+  bool generator;
+}
+TmtPulseParser_generator_head;
+
+TmtPulseParser_generator_head
+TmtPulseParser_read_generator_head(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state start
+);
+
+typedef struct TmtPulseParser_accessor_head_s
+{
+  TmtPulseParser_parameter_arity arity;
+  TmtPulseParser_parser_state key_start;
+}
+TmtPulseParser_accessor_head;
+
+TmtPulseParser_accessor_head
+TmtPulseParser_accessor_modifier(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
+
+TmtPulseParser_cursor
+TmtPulseParser_private_identifier(TmtPulseMemory_tape input, uint32_t start);
+
+TmtPulseParser_cursor
+TmtPulseParser_computed_property_name(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+TmtPulseParser_class_key
+TmtPulseParser_class_member_key(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+bool
+TmtPulseParser_wide_key_matches(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_class_key key,
+  uint32_t suffix_size,
+  uint64_t prefix,
+  uint64_t suffix
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_statement_end(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t end_at,
+  bool before_brace
+);
+
+typedef struct TmtPulseParser_function_shape_s
+{
+  TmtPulseParser_parser_state after_function;
+  bool signature_only;
+}
+TmtPulseParser_function_shape;
+
+typedef struct TmtPulseParser_parameter_list_s
+{
+  TmtPulseParser_named_state names;
+  bool non_simple;
+}
+TmtPulseParser_parameter_list;
+
+TmtPulseParser_parser_state
+TmtPulseParser_simple_annotation(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+TmtPulseParser_parameter_list
+TmtPulseParser_rest_parameter(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t floor,
+  uint32_t used
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_constructor_property(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_bind_pattern_name(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t base,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t pos
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_simple_default(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+#define TmtPulseParser_NotAssignable 0
+#define TmtPulseParser_Assignable 1
+#define TmtPulseParser_MemberTarget 2
+#define TmtPulseParser_PrivateTarget 3
+#define TmtPulseParser_BareSuper 4
+#define TmtPulseParser_OptionalChain 5
+#define TmtPulseParser_AssertedTarget 6
+#define TmtPulseParser_ArrayTarget 7
+
+typedef uint8_t TmtPulseParser_assignment_target;
+
+typedef struct TmtPulseParser_parsed_s
+{
+  TmtPulseParser_parser_state parser;
+  TmtGrammar_span range;
+  bool open_angle;
+  bool outer_or;
+  bool right_shift;
+  uint32_t shortcut;
+  TmtPulseParser_assignment_target target;
+}
+TmtPulseParser_parsed;
+
+TmtPulseParser_parser_state
+TmtPulseParser_generic_arrow_head(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+TmtPulseParser_parser_state
+TmtPulseParser_arrow_token(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+TmtPulseParser_parser_state
+TmtPulseParser_enter_function_locals(TmtPulseParser_parser_state state);
+
+TmtPulseParser_parsed TmtPulseParser_empty_range(TmtPulseParser_parser_state state);
+
+bool TmtPulseParser_strict_locals(TmtPulseParser_parser_state state);
+
+bool TmtPulseParser_strict_directive(TmtPulseMemory_tape input, uint32_t at);
+
+TmtPulseParser_parser_state
+TmtPulseParser_function_body(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  bool non_simple
+);
+
+#define TmtPulseParser_NoJump 0
+#define TmtPulseParser_BreakOnly 1
+#define TmtPulseParser_LoopJump 2
+#define TmtPulseParser_NamedLoop 3
+#define TmtPulseParser_NestedNamedLoops 4
+
+typedef uint8_t TmtPulseParser_jump_context_tags;
+
+typedef struct TmtPulseParser_jump_context_s
+{
+  TmtPulseParser_jump_context_tags tag;
+  union {
+    uint32_t case_NamedLoop;
+    struct
+    {
+      uint32_t _0;
+      uint32_t _1;
+    }
+    case_NestedNamedLoops;
+  }
+  ;
+}
+TmtPulseParser_jump_context;
+
+uint32_t TmtPulseParser_local_width(TmtPulseMemory_tape input, uint32_t start);
+
+TmtPulseParser_parser_state
+TmtPulseParser_resource_declaration_start(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint8_t first
+);
+
+extern uint32_t TmtPulseParser_mixed_locals_status;
+
+TmtPulseParser_parser_state
+TmtPulseParser_record_binding_mode(
+  TmtPulseParser_parser_state state,
+  TmtPulseParser_binding_mode kind
+);
+
+extern uint16_t TmtPulseParser_local_log_capacity;
+
+extern uint32_t TmtPulseMemory_local_region_base;
+
+uint32_t TmtPulseParser_local_slot(uint16_t index);
+
+TmtPulseParser_parser_state
+TmtPulseParser_record_local(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  TmtGrammar_span span,
+  TmtPulseMemory_binding_namespace namespace0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_record_local_pattern_kind(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state st0,
+  uint32_t first0,
+  uint32_t used0,
+  TmtPulseMemory_binding_namespace kind0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_record_local_pattern(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t first,
+  uint32_t used
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_result_annotation(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+TmtPulseParser_parser_state
+TmtPulseParser_signature_end(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  TmtPulseParser_parser_state opening,
+  TmtPulseParser_parameter_list params,
+  TmtPulseParser_parser_state annotation,
+  TmtPulseParser_parser_state st,
+  bool constructor
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_leave_function_locals(
+  TmtPulseParser_parser_state state,
+  TmtPulseParser_parser_state outer
+);
+
+uint32_t TmtPulseParser_statement_kind(TmtPulseMemory_tape input, uint32_t at);
+
+uint32_t TmtPulseParser_type_declaration_width(TmtPulseMemory_tape input, uint32_t start);
+
+bool
+TmtPulseParser_admissible_type_binding(
+  TmtPulseMemory_tape input,
+  uint32_t first,
+  uint32_t last
 );
 
 TmtPulseParser_parser_state
@@ -745,6 +1060,1512 @@ TmtPulseParser_type_alias_tail(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   bool before_brace
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_local_type_declaration(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t width,
+  uint32_t floor,
+  uint32_t used
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_read_local_var_name(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
+
+bool
+TmtPulseParser_same_label_name(
+  TmtPulseMemory_tape input,
+  uint32_t start,
+  uint32_t first,
+  uint32_t last
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_jump_statement(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  TmtPulseParser_jump_context jumps,
+  uint32_t width
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_labeled_loop_start(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+TmtPulseParser_jump_context TmtPulseParser_loop_jumps(TmtPulseParser_jump_context jumps);
+
+typedef struct TmtPulseParser_atom_head_s
+{
+  uint8_t token_;
+  bool imported_;
+  bool super_;
+  TmtPulseParser_cursor fn_;
+  uint32_t increment_;
+  bool deleting_;
+  uint32_t prefix_;
+  bool constructor_;
+  bool class_;
+}
+TmtPulseParser_atom_head;
+
+uint32_t TmtPulseParser_update_width(TmtPulseMemory_tape input, uint32_t at, uint8_t byte);
+
+uint32_t TmtPulseParser_unary_width(TmtPulseMemory_tape input, uint32_t at, uint8_t byte);
+
+TmtPulseParser_atom_head
+TmtPulseParser_read_atom_head(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
+
+bool TmtPulseParser_can_assign(TmtPulseParser_assignment_target target);
+
+typedef struct TmtPulseParser_postfix_head_s
+{
+  TmtPulseParser_parser_state after_trivia;
+  TmtPulseParser_parser_state after_types;
+  uint8_t token;
+  uint32_t update;
+  bool type_call;
+  bool instantiated;
+  bool optional_chain;
+  bool non_null;
+}
+TmtPulseParser_postfix_head;
+
+typedef struct TmtPulseParser_generic_postfix_s
+{
+  TmtPulseParser_parser_state type_cursor;
+  bool calls;
+  bool instantiates;
+}
+TmtPulseParser_generic_postfix;
+
+TmtPulseParser_parser_state
+TmtPulseParser_expression_type_arguments(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+bool
+TmtPulseParser_instantiation_follower(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state type_end,
+  TmtPulseParser_parser_state after
+);
+
+TmtPulseParser_generic_postfix
+TmtPulseParser_read_generic_postfix(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  bool allow_instantiation
+);
+
+TmtPulseParser_postfix_head
+TmtPulseParser_postfix_start(TmtPulseMemory_tape input, TmtPulseParser_parsed base);
+
+TmtPulseParser_parser_state
+TmtPulseParser_call_type_arguments(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+typedef struct TmtPulseParser_expression_items_s
+{
+  TmtPulseParser_parser_state list_end;
+  bool valid_array_target;
+}
+TmtPulseParser_expression_items;
+
+bool
+TmtPulseParser_simple_less_argument(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state start,
+  TmtPulseParser_parser_state comma
+);
+
+bool
+TmtPulseParser_type_arguments_end_at_call_close(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t remaining0
+);
+
+bool TmtPulseParser_can_assign_expression(TmtPulseParser_assignment_target target);
+
+TmtPulseParser_parser_state
+TmtPulseParser_tag_space(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+TmtPulseParser_cursor
+TmtPulseParser_jsx_tag_name(TmtPulseMemory_tape input0, uint32_t at0, uint32_t remaining0);
+
+typedef struct TmtPulseParser_jsx_opening_s
+{
+  TmtPulseParser_parser_state after_tag;
+  bool self_closing;
+}
+TmtPulseParser_jsx_opening;
+
+uint32_t
+TmtPulseParser_quote_end(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint8_t delimiter0,
+  uint32_t fuel0
+);
+
+typedef struct TmtPulseParser_array_run_s
+{
+  TmtPulseParser_parser_state inside;
+  uint32_t openers;
+}
+TmtPulseParser_array_run;
+
+TmtPulseParser_array_run
+TmtPulseParser_array_openers(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t count0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_array_closers(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t count0
+);
+
+typedef struct TmtPulseParser_object_item_s
+{
+  TmtPulseParser_parsed value;
+  bool prototype_setter;
+}
+TmtPulseParser_object_item;
+
+bool TmtPulseParser_proto_key(TmtPulseMemory_tape input, uint32_t first, uint32_t last);
+
+TmtPulseParser_parser_state
+TmtPulseParser_flat_assignment_members(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_flat_assignment_head(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+typedef struct TmtPulseParser_regex_captures_s
+{
+  uint64_t names;
+  uint32_t count;
+  bool legacy;
+  bool unicode_only;
+}
+TmtPulseParser_regex_captures;
+
+typedef struct TmtPulseParser_regex_result_s
+{
+  TmtPulseParser_cursor ending;
+  TmtPulseParser_regex_captures captures;
+}
+TmtPulseParser_regex_result;
+
+TmtPulseParser_regex_result
+TmtPulseParser_regex_result_at(uint32_t at, bool ok, TmtPulseParser_regex_captures captures);
+
+uint32_t TmtPulseParser_regex_flag_bit(uint8_t byte);
+
+TmtPulseParser_cursor
+TmtPulseParser_regex_flags(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t seen0,
+  uint32_t fuel0,
+  bool legacy0,
+  bool unicode_only0
+);
+
+typedef struct TmtPulseParser_regex_group_result_s
+{
+  TmtPulseParser_regex_result pattern;
+  bool repeatable_group;
+}
+TmtPulseParser_regex_group_result;
+
+uint32_t
+TmtPulseParser_capture_hash(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t remaining0,
+  uint32_t value0
+);
+
+typedef struct TmtPulseParser_regex_class_end_s
+{
+  TmtPulseParser_cursor ending;
+  bool class_unicode;
+  bool class_legacy;
+}
+TmtPulseParser_regex_class_end;
+
+typedef struct TmtPulseParser_regex_unit_s
+{
+  uint32_t unit_end;
+  bool unit_ok;
+  uint32_t character;
+  bool repeatable;
+  bool unicode_only;
+}
+TmtPulseParser_regex_unit;
+
+extern uint32_t TmtPulseParser_no_character;
+
+TmtPulseParser_regex_unit TmtPulseParser_invalid_regex_unit(uint32_t at);
+
+TmtPulseParser_regex_unit
+TmtPulseParser_regex_category(TmtPulseMemory_tape input, uint32_t at, uint32_t opening);
+
+TmtPulseParser_regex_unit
+TmtPulseParser_regex_codepoint(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t value0,
+  uint32_t fuel0,
+  bool seen0
+);
+
+TmtPulseParser_regex_unit
+TmtPulseParser_regex_escape(TmtPulseMemory_tape input, uint32_t at, bool in_class);
+
+bool TmtPulseParser_utf8_tail(uint8_t ch);
+
+uint32_t TmtPulseParser_utf8_bits(uint8_t byte, uint32_t mask);
+
+TmtPulseParser_regex_unit
+TmtPulseParser_regex_bmp_unit(TmtPulseMemory_tape input, uint32_t at, uint8_t first);
+
+bool TmtPulseParser_regex_printable(uint8_t ch);
+
+TmtPulseParser_regex_unit
+TmtPulseParser_regex_class_unit(TmtPulseMemory_tape input, uint32_t at);
+
+TmtPulseParser_regex_class_end
+TmtPulseParser_regex_class(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t fuel0,
+  bool unicode_only0,
+  bool legacy0
+);
+
+typedef struct TmtPulseParser_regex_count_s
+{
+  uint32_t count_end;
+  uint32_t count_value;
+  bool count_ok;
+}
+TmtPulseParser_regex_count;
+
+TmtPulseParser_regex_count
+TmtPulseParser_regex_decimal(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t value0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_cursor TmtPulseParser_regex_counted(TmtPulseMemory_tape input, uint32_t at);
+
+typedef struct FStar_Pervasives_Native_tuple3__uint32_t_uint64_t_bool_s
+{
+  uint32_t _1;
+  uint64_t _2;
+  bool _3;
+}
+FStar_Pervasives_Native_tuple3__uint32_t_uint64_t_bool;
+
+TmtPulseParser_regex_group_result
+TmtPulseParser_regex_group(
+  TmtPulseMemory_tape input,
+  uint32_t at,
+  uint32_t depth,
+  uint32_t fuel,
+  TmtPulseParser_regex_captures captures
+);
+
+TmtPulseParser_regex_result
+TmtPulseParser_regex_pattern(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t depth0,
+  uint32_t fuel0,
+  bool nested0,
+  bool can_repeat0,
+  TmtPulseParser_regex_captures captures0
+);
+
+TmtPulseParser_cursor TmtPulseParser_regex_end(TmtPulseMemory_tape input, uint32_t at);
+
+TmtPulseParser_assignment_target
+TmtPulseParser_identifier_target(TmtPulseMemory_tape input, uint32_t pos, uint8_t ch);
+
+bool
+TmtPulseParser_local_var_seen(
+  TmtPulseMemory_tape input0,
+  uint16_t floor0,
+  uint16_t used0,
+  TmtGrammar_span span0
+);
+
+bool
+TmtPulseParser_local_scope_conflict(
+  TmtPulseMemory_tape input0,
+  uint16_t first0,
+  uint16_t limit0,
+  uint16_t index0
+);
+
+uint16_t
+TmtPulseParser_retain_local_vars(
+  TmtPulseMemory_tape input0,
+  uint16_t limit0,
+  uint16_t read_at0,
+  uint16_t write_at0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_finish_local_scope(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint16_t first
+);
+
+bool
+TmtPulseParser_ambiguous_assertion_update(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+typedef struct TmtPulseParser_binary_operator_s
+{
+  uint32_t strength;
+  uint32_t width;
+  uint32_t boundary;
+  bool nullish;
+}
+TmtPulseParser_binary_operator;
+
+uint32_t TmtPulseParser_shift_width(TmtPulseMemory_tape input, uint32_t at, uint8_t byte);
+
+uint32_t TmtGrammar_boundary(uint8_t first, uint8_t second);
+
+uint32_t TmtPulseScan_source_boundary(uint8_t *source, uint32_t size, uint32_t at);
+
+uint32_t TmtPulseMemory_boundary(TmtPulseMemory_tape input, uint32_t at);
+
+TmtPulseParser_binary_operator
+TmtPulseParser_operator(TmtPulseMemory_tape input, uint32_t at, bool in_allowed);
+
+bool
+TmtPulseParser_exponent_base(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+bool
+TmtPulseParser_left_shift_type_ambiguity(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state start,
+  TmtPulseParser_parser_state tail
+);
+
+void
+TmtPulseScan_save_candidate(
+  TmtGrammar_candidate *records,
+  uint32_t slot,
+  TmtGrammar_candidate candidate
+);
+
+uint32_t TmtGrammar_flip(uint32_t operator0);
+
+TmtGrammar_candidate
+TmtGrammar_make_candidate(
+  uint32_t operator0,
+  TmtGrammar_span edit,
+  TmtGrammar_span left,
+  TmtGrammar_span right
+);
+
+uint32_t TmtPulseParser_operator_end(uint32_t start, uint32_t op);
+
+TmtGrammar_span TmtPulseParser_comparison_edit(uint32_t start, uint32_t op);
+
+TmtPulseParser_parser_state
+TmtPulseParser_emit_comparison(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t slot,
+  uint32_t op,
+  uint32_t start,
+  TmtGrammar_span left,
+  TmtGrammar_span right
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_emit_comparison_in_workspace(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t slot,
+  uint32_t op,
+  uint32_t start,
+  TmtGrammar_span left,
+  TmtGrammar_span right
+);
+
+TmtPulseParser_parsed
+TmtPulseParser_combine_binary(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parsed lhs,
+  TmtPulseParser_parsed rhs,
+  TmtPulseParser_parser_state st,
+  TmtPulseParser_binary_operator op,
+  uint8_t first
+);
+
+uint32_t
+TmtPulseParser_assignment_width(
+  TmtPulseMemory_tape input,
+  uint32_t at,
+  uint8_t byte,
+  uint8_t follower
+);
+
+TmtPulseParser_parameter_list
+TmtPulseParser_arrow_parameter_list(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool non_simple0
+);
+
+TmtPulseParser_parameter_list
+TmtPulseParser_plain_arrow_parameters(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel
+);
+
+TmtPulseParser_parameter_list
+TmtPulseParser_arrow_parameters(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel
+);
+
+TmtPulseParser_parsed
+TmtPulseParser_declarator_value(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel,
+  bool optional
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_local_declarators(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  bool constant0,
+  bool names_only0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_local_declaration(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t width,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_local_function_group(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state start0,
+  uint32_t fuel0,
+  bool async_0,
+  bool generator0,
+  TmtGrammar_span expected0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_function_var_list(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool classic0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_local_var_declaration(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_return_statement(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_yield_statement(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_statement_expressions(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_ordinary_statement(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_simple_statement(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  bool in_function,
+  TmtPulseParser_jump_context jumps,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_condition(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_control_body(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel,
+  bool in_function,
+  TmtPulseParser_jump_context jumps,
+  uint32_t floor,
+  uint32_t used
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_function_expression(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t fuel,
+  uint32_t function_head
+);
+
+TmtPulseParser_expression_items
+TmtPulseParser_expression_list(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  uint8_t close0,
+  bool valid_array_target0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_template_body(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool tagged0
+);
+
+TmtPulseParser_parsed
+TmtPulseParser_postfix(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parsed base0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_class_expression(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t fuel
+);
+
+TmtPulseParser_parsed
+TmtPulseParser_super_expression(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_dynamic_import(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_jsx_children(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  TmtGrammar_span tag0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_jsx_attribute(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel
+);
+
+TmtPulseParser_jsx_opening
+TmtPulseParser_jsx_attributes(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_jsx_element(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_deep_array_literal(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state inside,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_function_tail(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel,
+  bool async_,
+  TmtPulseParser_super_context super_
+);
+
+TmtPulseParser_object_item
+TmtPulseParser_object_member(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t fuel,
+  bool colon_required,
+  bool seen_prototype
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_object_members(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool colon_required0,
+  bool seen_prototype0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_grouped_tail(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+typedef struct
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_assignment_target_s
+{
+  TmtPulseParser_parser_state _1;
+  TmtPulseParser_assignment_target _2;
+}
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_assignment_target;
+
+typedef struct
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_cursor_s
+{
+  TmtPulseParser_parser_state _1;
+  TmtPulseParser_cursor _2;
+}
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_cursor;
+
+TmtPulseParser_parsed
+TmtPulseParser_atom(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state current,
+  uint32_t fuel
+);
+
+typedef struct FStar_Pervasives_Native_tuple2__bool_TmtPulseParser_parser_state_s
+{
+  bool _1;
+  TmtPulseParser_parser_state _2;
+}
+FStar_Pervasives_Native_tuple2__bool_TmtPulseParser_parser_state;
+
+FStar_Pervasives_Native_tuple2__bool_TmtPulseParser_parser_state
+TmtPulseParser_collection_head(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  bool allow_in,
+  bool local_var,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_for_bindings(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  uint32_t floor0,
+  bool constant0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_binding(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel,
+  bool in_allowed
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_for_expressions(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool in_allowed0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_classic_for_header(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  bool top_level,
+  bool local_var,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_for_header(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  bool top_level,
+  bool local_var,
+  uint32_t fuel
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_catch_block(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel,
+  bool in_function,
+  TmtPulseParser_jump_context jumps,
+  uint32_t used
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_try_statement(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel,
+  bool in_function,
+  TmtPulseParser_jump_context jumps,
+  uint32_t used
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_switch_sequence(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool in_function0,
+  TmtPulseParser_jump_context jumps0,
+  uint32_t floor0,
+  uint32_t used0,
+  bool has_label0,
+  bool seen_default0
+);
+
+typedef struct FStar_Pervasives_Native_tuple2__TmtPulseParser_jump_context_bool_s
+{
+  TmtPulseParser_jump_context _1;
+  bool _2;
+}
+FStar_Pervasives_Native_tuple2__TmtPulseParser_jump_context_bool;
+
+TmtPulseParser_named_state
+TmtPulseParser_control_statement(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  bool in_function0,
+  TmtPulseParser_jump_context jumps0,
+  uint32_t floor0,
+  uint32_t used0,
+  bool allow_var0
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_scope_statement(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t fuel,
+  bool in_function,
+  TmtPulseParser_jump_context jumps,
+  uint32_t floor,
+  uint32_t used,
+  bool root_control,
+  bool allow_resource
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_control_sequence(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool in_function0,
+  TmtPulseParser_jump_context jumps0,
+  uint32_t floor0,
+  uint32_t used0,
+  bool root_control0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_control_block(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel,
+  bool in_function,
+  TmtPulseParser_jump_context jumps,
+  uint32_t floor,
+  uint32_t used
+);
+
+TmtPulseParser_parsed
+TmtPulseParser_binary_tail(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parsed lhs0,
+  uint32_t fuel0,
+  uint32_t minimum0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parsed
+TmtPulseParser_binary(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel,
+  uint32_t minimum
+);
+
+TmtPulseParser_parsed
+TmtPulseParser_comparison(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state current,
+  uint32_t fuel
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_pattern_names(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t base0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint32_t fuel0,
+  uint32_t depth0,
+  uint32_t remaining0,
+  uint8_t close0
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_pattern_binding_at(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t base,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t fuel,
+  uint32_t depth
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_pattern_binding(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t base,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t fuel
+);
+
+TmtPulseParser_parameter_list
+TmtPulseParser_parameter_prefix(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t fuel
+);
+
+TmtPulseParser_parameter_list
+TmtPulseParser_function_parameters(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool non_simple0,
+  bool constructor0
+);
+
+typedef struct FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t_s
+{
+  TmtPulseParser_parser_state _1;
+  uint32_t _2;
+}
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t;
+
+TmtPulseParser_function_shape
+TmtPulseParser_function_form(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel,
+  bool async_,
+  TmtPulseParser_super_context super_,
+  bool overload,
+  TmtPulseParser_parameter_arity arity,
+  bool generator
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_class_field_tail(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel
+);
+
+typedef struct
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_pending_overload_s
+{
+  TmtPulseParser_parser_state _1;
+  TmtPulseParser_pending_overload _2;
+}
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_pending_overload;
+
+TmtPulseParser_parser_state
+TmtPulseParser_class_members(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool derived0,
+  bool seen_constructor0,
+  TmtPulseParser_class_kind kind0,
+  TmtPulseParser_pending_overload pending0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_class_tail(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel,
+  TmtPulseParser_class_kind kind
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_default_function_body(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  TmtGrammar_span spelling0,
+  bool async_0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_default_declaration(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t used
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_export_identifier(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+extern uint32_t TmtPulseMemory_export_region_base;
+
+TmtPulseParser_named_state
+TmtPulseParser_reserve_export(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t used,
+  uint32_t first,
+  uint32_t last
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_static_import_attributes(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_import_source(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+TmtPulseParser_named_state
+TmtPulseParser_star_reexport(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t used
+);
+
+typedef struct TmtPulseParser_resolved_exports_s
+{
+  TmtPulseParser_named_state named;
+  bool locals_known;
+}
+TmtPulseParser_resolved_exports;
+
+TmtPulseParser_parser_state
+TmtPulseParser_export_string_name(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint8_t delimiter0,
+  uint32_t remaining0
+);
+
+typedef struct
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_parser_state_s
+{
+  TmtPulseParser_parser_state _1;
+  TmtPulseParser_parser_state _2;
+}
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_parser_state;
+
+typedef struct FStar_Pervasives_Native_tuple2__uint32_t_uint32_t_s
+{
+  uint32_t _1;
+  uint32_t _2;
+}
+FStar_Pervasives_Native_tuple2__uint32_t_uint32_t;
+
+TmtPulseParser_resolved_exports
+TmtPulseParser_reexport_members(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t used0,
+  uint32_t locals0,
+  uint32_t remaining0,
+  bool locals_known0,
+  bool reserve_names0
+);
+
+extern uint32_t TmtPulseMemory_deferred_export_limit;
+
+extern uint32_t TmtPulseMemory_deferred_export_base;
+
+uint32_t TmtPulseParser_deferred_export_slot(uint32_t index);
+
+typedef struct FStar_Pervasives_Native_tuple2__TmtPulseParser_named_state_uint32_t_s
+{
+  TmtPulseParser_named_state _1;
+  uint32_t _2;
+}
+FStar_Pervasives_Native_tuple2__TmtPulseParser_named_state_uint32_t;
+
+FStar_Pervasives_Native_tuple2__TmtPulseParser_named_state_uint32_t
+TmtPulseParser_named_reexport(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t used,
+  uint32_t locals,
+  uint32_t pending
+);
+
+bool
+TmtPulseParser_import_expression_start(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_import_members(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t used0,
+  uint32_t fuel0,
+  bool allow_type0
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_import_bindings(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t used,
+  bool allow_type
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_import_declaration(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t used
+);
+
+typedef struct TmtPulseParser_declaration_head_s
+{
+  TmtPulseParser_parser_state after_modifiers;
+  uint32_t width;
+  bool async_declaration;
+  bool ambient_declaration;
+  bool class_declaration;
+  bool abstract_class;
+}
+TmtPulseParser_declaration_head;
+
+uint32_t TmtPulseParser_ambient_variable_width(TmtPulseMemory_tape input, uint32_t start);
+
+bool TmtPulseParser_namespace_keyword(TmtPulseMemory_tape input, uint32_t at);
+
+TmtPulseParser_cursor
+TmtPulseParser_ambient_modifier(TmtPulseMemory_tape input, uint32_t start);
+
+TmtPulseParser_declaration_head
+TmtPulseParser_declaration_start(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+TmtPulseParser_parser_state
+TmtPulseParser_enum_members(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t remaining0,
+  bool ambient0
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_enum_declaration(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t used,
+  bool ambient
+);
+
+typedef struct TmtPulseParser_namespace_head_s
+{
+  TmtPulseParser_parser_state body_start;
+  uint32_t name_start;
+}
+TmtPulseParser_namespace_head;
+
+TmtPulseParser_namespace_head
+TmtPulseParser_named_namespace_start(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_ambient_namespace_exports(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint32_t locals0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_type_namespace_members(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t locals,
+  uint32_t depth,
+  uint32_t remaining,
+  bool ambient
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_module_function(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t used,
+  bool async_,
+  bool ambient
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_module_lexical_list(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t used0,
+  bool constant0,
+  bool names_only0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_module_declaration(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t used
+);
+
+TmtPulseParser_parser_state
+TmtPulseCompiler_module_item_end(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+uint32_t
+TmtPulseCompiler_next_module_boundary(TmtPulseMemory_tape input, bool jsx, uint32_t at);
+
+uint32_t TmtPulseCompiler_next_module_item(TmtPulseMemory_tape input, bool jsx, uint32_t at);
+
+bool TmtPulseCompiler_runtime_module_marker(TmtPulseMemory_tape input);
+
+uint32_t TmtPulseParser_source_start(TmtPulseMemory_tape input);
+
+TmtPulseParser_parser_state
+TmtPulseParser_check_local_exports(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t locals0,
+  uint32_t pending0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_global_augmentation_start(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_ambient_global_var(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
+
+TmtPulseParser_parser_state
+TmtPulseParser_ambient_global_function(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_ambient_interface(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  bool allow_exports
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_ambient_interfaces(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t remaining0,
+  bool allow_exports0
+);
+
+typedef struct FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint8_t_s
+{
+  TmtPulseParser_parser_state _1;
+  uint8_t _2;
+}
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint8_t;
+
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint8_t
+TmtPulseParser_global_augmentation_members(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t remaining0,
+  uint8_t family0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_ambient_module_start(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_reserve_direct_exports(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t used0,
+  uint32_t previous0,
+  uint32_t current0
+);
+
+typedef struct FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t_s
+{
+  TmtPulseParser_named_state _1;
+  uint32_t _2;
+  uint32_t _3;
+}
+FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t;
+
+TmtPulseParser_parser_state
+TmtPulseParser_module_sequence(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t used0,
+  uint32_t fuel0,
+  uint32_t exports0,
+  uint32_t pending0,
+  uint8_t family0
+);
+
+void Pulse_Lib_Array_fill__uint8_t(size_t l, uint8_t *a, uint8_t v);
+
+void Pulse_Lib_Array_zeroize(size_t l, uint8_t *a);
+
+void TmtPulseMemory_clear_marks(TmtPulseMemory_tape input);
+
+TmtPulseParser_parser_state
+TmtPulseParser_declaration(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+bool
+TmtPulseParser_has_private_declaration(
+  TmtPulseMemory_tape input0,
+  TmtGrammar_span span0,
+  uint8_t owner0,
+  uint8_t count0
+);
+
+bool
+TmtPulseParser_private_visible(
+  TmtPulseMemory_tape input0,
+  TmtGrammar_span span0,
+  uint8_t owner0,
+  uint8_t limit0
+);
+
+bool
+TmtPulseParser_valid_private_log(TmtPulseMemory_tape input0, uint8_t limit0, uint8_t count0);
+
+TmtPulseParser_parser_state
+TmtPulseParser_parse_attempt(
+  TmtPulseMemory_tape input,
+  bool jsx,
+  bool module_mode,
+  uint16_t local_log_floor
+);
+
+extern uint16_t TmtPulseParser_inactive_locals;
+
+TmtPulseParser_parser_state
+TmtPulseParser_parse_candidates(TmtPulseMemory_tape input, bool jsx, bool module_mode);
+
+bool TmtPulseCompiler_erasable_module(TmtPulseMemory_tape input, bool jsx);
+
+TmtPulseParser_cursor TmtPulseCompiler_plain_cursor(uint32_t at, bool ok);
+
+TmtPulseParser_cursor TmtPulseCompiler_atom(TmtPulseMemory_tape input, uint32_t start);
+
+TmtPulseParser_cursor TmtPulseCompiler_runtime_atom(TmtPulseMemory_tape input, uint32_t start);
+
+TmtPulseParser_cursor
+TmtPulseCompiler_runtime_tag_name(TmtPulseMemory_tape input, uint32_t at);
+
+typedef struct TmtPulseCompiler_runtime_head_s
+{
+  uint8_t kind;
+  uint32_t declaration;
+  uint32_t body;
+  TmtGrammar_span name_span;
+  TmtGrammar_span binding_type;
+  TmtGrammar_span parameter_type;
+  TmtGrammar_span return_type;
+}
+TmtPulseCompiler_runtime_head;
+
+TmtPulseCompiler_runtime_head
+TmtPulseCompiler_runtime_head_of(
+  uint8_t kind,
+  uint32_t declaration,
+  uint32_t body,
+  TmtGrammar_span name_span,
+  TmtGrammar_span binding_type,
+  TmtGrammar_span parameter_type,
+  TmtGrammar_span return_type
+);
+
+extern TmtGrammar_span TmtPulseCompiler_empty_span;
+
+TmtPulseCompiler_runtime_head TmtPulseCompiler_declined_runtime(void);
+
+TmtGrammar_span TmtPulseCompiler_range(uint32_t first, uint32_t last);
+
+typedef struct TmtPulseCompiler_annotation_s
+{
+  bool valid;
+  uint32_t offset;
+  TmtGrammar_span erased;
+}
+TmtPulseCompiler_annotation;
+
+TmtPulseCompiler_annotation
+TmtPulseCompiler_make_annotation(bool valid, uint32_t offset, TmtGrammar_span erased);
+
+uint32_t TmtPulseCompiler_spaces(TmtPulseMemory_tape input, uint32_t start);
+
+bool TmtPulseCompiler_primitive_type(uint64_t word);
+
+TmtPulseCompiler_annotation
+TmtPulseCompiler_annotation_after(TmtPulseMemory_tape input, uint32_t start);
+
+TmtPulseCompiler_runtime_head
+TmtPulseCompiler_jsx_arrow_body(
+  TmtPulseMemory_tape input,
+  uint32_t declaration,
+  uint32_t opening,
+  TmtGrammar_span name_span,
+  TmtGrammar_span binding_type,
+  bool typescript
+);
+
+TmtPulseCompiler_runtime_head
+TmtPulseCompiler_read_runtime_head(
+  TmtPulseMemory_tape input,
+  uint32_t at,
+  bool jsx,
+  bool typescript,
+  bool local
 );
 
 TmtPulseParser_named_state
@@ -764,11 +2585,6 @@ TmtPulseCompiler_type_only_statements(
   uint32_t fuel0
 );
 
-TmtPulseParser_parser_state
-TmtPulseParser_initial_state(bool jsx, bool module_mode, uint16_t local_log_floor);
-
-extern uint16_t TmtPulseParser_primary_locals;
-
 bool TmtPulseCompiler_type_only_module(TmtPulseMemory_tape input);
 
 void TmtPulseCompiler_blank(uint8_t *output, uint32_t size, uint32_t first, uint32_t last);
@@ -785,37 +2601,7 @@ typedef struct TmtPulseCompiler_edit_plan_s
 }
 TmtPulseCompiler_edit_plan;
 
-extern TmtGrammar_span TmtPulseCompiler_empty_span;
-
 TmtPulseCompiler_edit_plan TmtPulseCompiler_declined(void);
-
-typedef struct TmtPulseCompiler_annotation_s
-{
-  bool valid;
-  uint32_t offset;
-  TmtGrammar_span erased;
-}
-TmtPulseCompiler_annotation;
-
-TmtPulseCompiler_annotation
-TmtPulseCompiler_make_annotation(bool valid, uint32_t offset, TmtGrammar_span erased);
-
-uint32_t TmtPulseCompiler_spaces(TmtPulseMemory_tape input, uint32_t start);
-
-bool TmtPulseCompiler_primitive_type(uint64_t word);
-
-TmtGrammar_span TmtPulseCompiler_range(uint32_t first, uint32_t last);
-
-TmtPulseCompiler_annotation
-TmtPulseCompiler_annotation_after(TmtPulseMemory_tape input, uint32_t start);
-
-TmtPulseParser_cursor TmtPulseCompiler_plain_cursor(uint32_t at, bool ok);
-
-TmtPulseParser_cursor TmtPulseCompiler_atom(TmtPulseMemory_tape input, uint32_t start);
-
-uint32_t TmtGrammar_boundary(uint8_t first, uint8_t second);
-
-uint32_t TmtPulseParser_operator_end(uint32_t start, uint32_t op);
 
 TmtPulseParser_cursor
 TmtPulseCompiler_expression_end(TmtPulseMemory_tape input, uint32_t start);

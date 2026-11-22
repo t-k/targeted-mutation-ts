@@ -129,13 +129,35 @@ function compile(input, options = {}) {
     return inputError(file, 'STRIP_DIALECT', 'strip mode requires a non-JSX TypeScript filename');
   }
   const stableInput = snapshot(input);
-  if (native && target === 'esnext' && module !== 'cjs' && !sourceMap && /\.m?ts$/i.test(file)) {
+  if (native && target === 'esnext' && outputFormat(file, module) !== 'cjs' && !sourceMap) {
+    const typed = /\.(?:m?ts|tsx)$/i.test(file);
+    const jsxFile = /\.[jt]sx$/i.test(file);
     const source = Buffer.isBuffer(stableInput) ? stableInput :
       typeof stableInput === 'string' && stableInput.isWellFormed() ? Buffer.from(stableInput) : null;
     if (source && isUtf8(source) && (mode === 'strip' || !source.includes('///'))) {
-      const typeOnlyOutput = mode === 'strip' ? 0 : outputFormat(file, module) === 'esm' ? 2 : 1;
-      const code = native.compile(source, typeOnlyOutput);
-      if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
+      if (typed && !jsxFile) {
+        const typeOnlyOutput = mode === 'strip' ? 0 : outputFormat(file, module) === 'esm' ? 2 : 1;
+        const code = native.compile(source, typeOnlyOutput);
+        if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
+      }
+      if (mode === 'transform' && (jsxFile ? jsx !== 'preserve' && (!source.includes('@') || !/@jsx/i.test(source.toString('latin1'))) &&
+          !source.includes('_tmt') : typed && source.includes('enum'))) {
+        const code = native.lower(source, jsxFile, typed, jsx === 'classic', false);
+        if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
+        if (typed && (!jsxFile || !source.includes('\\u'))) {
+          const mixed = native.lower(source, jsxFile, true, jsx === 'classic', true);
+          if (mixed !== null) {
+            const result = strip(mixed, file);
+            if (result.code !== null && native.moduleMarker(Buffer.from(result.code), false)) {
+              return { ...result, backend: 'pulse+node-strip' };
+            }
+          }
+        }
+      }
+      if (mode === 'transform' && typed && !jsxFile && native.moduleMarker(source, true)) {
+        const result = strip(typeof stableInput === 'string' ? stableInput : source.toString(), file);
+        if (result.code !== null && native.moduleMarker(Buffer.from(result.code), false)) return result;
+      }
     }
   }
   const { normalize } = require('./source-text.mjs');
