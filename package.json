@@ -15,7 +15,7 @@
     "build:native": "node scripts/build-native.mjs",
     "build:typescript-syntax": "node scripts/build-typescript-syntax.mjs",
     "verify:fstar": "sh scripts/verify-fstar.sh",
-    "pretest": "npm run build:native && npm run build:typescript-syntax && npm run build:lean",
+    "pretest": "npm run build:native && npm run build:compiler && npm run build:typescript-syntax && npm run build:lean",
     "audit:extraction": "node scripts/audit-extraction.mjs",
     "build:lean": "node scripts/build-lean.mjs",
     "build:typescript-cache": "node scripts/prepare-typescript.mjs",
@@ -25,7 +25,9 @@
     "bench:analysis": "node scripts/bench-analysis.mjs",
     "pack:runtime": "npm run build:lean && node scripts/pack-runtime.mjs",
     "test:native-profile": "node --test test/native-profile.integration.mjs",
-    "test:package": "node scripts/test-package.mjs"
+    "test:package": "node scripts/test-package.mjs",
+    "build:compiler": "node scripts/build-compiler.mjs",
+    "verify:compiler": "sh scripts/verify-compiler.sh"
   },
   "dependencies": {
     "typescript": "6.0.3"

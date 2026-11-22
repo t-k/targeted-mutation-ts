@@ -95,3 +95,34 @@ test('CLI emits compilable code or diagnostics and a nonzero exit', () => {
   assert.equal(fail.stdout, '');
   assert.match(fail.stderr, /stdin\.ts/);
 });
+
+test('ES6 and ES2015 produce the same program', () => {
+  const source = 'export const read = (record: { name: string }) => record?.name;';
+  assert.equal(compile(source, { target: 'es6' }).code, compile(source, { target: 'es2015' }).code);
+  assert.ok(compile(source, { target: 'es6' }).code);
+});
+
+test('incompatible module transforms report diagnostics instead of losing runtime behavior', () => {
+  for (const source of ['export = 42;', 'import lib = require("lib"); export const value = lib.read();']) {
+    for (const options of [{ file: 'input.cts', module: 'esm' }, { file: 'input.mts' }]) {
+      const result = compile(source, options);
+      assert.equal(result.code, null);
+      assert.equal(result.diagnostics[0].code, 'INCOMPATIBLE_MODULE_SYNTAX');
+    }
+  }
+  const cjs = compile('export const value = await Promise.resolve(5);', { module: 'cjs' });
+  assert.equal(cjs.code, null);
+  assert.equal(cjs.diagnostics[0].code, 'INVALID_COMMONJS_OUTPUT');
+});
+
+test('JSX preserve retains JSX syntax with the requested module lowering', () => {
+  const result = compile('export const element = <div/>;', { file: 'input.tsx', module: 'cjs', jsx: 'preserve' });
+  assert.deepEqual(result.diagnostics, []);
+  assert.match(result.code, /exports\.element.*<div\s*\/>/);
+});
+
+test('strip mode keeps its TypeScript filename contract', () => {
+  for (const file of ['input.js', 'input.jsx', 'input.tsx']) {
+    assert.equal(compile('const x: number = 42;', { file, mode: 'strip' }).diagnostics[0].code, 'STRIP_DIALECT');
+  }
+});

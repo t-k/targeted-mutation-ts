@@ -1,0 +1,5 @@
+Shape	Layout	Tail
+Literal	Compact	Clean
+Arrow	CRLF	Clean
+Return	UTF8	Clean
+Return	Compact	Malformed
