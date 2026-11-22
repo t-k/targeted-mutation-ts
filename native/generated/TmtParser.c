@@ -639,6 +639,21 @@ bool TmtParser_uu___is_AssertedTarget(TmtParser_assignment_target projectee)
   }
 }
 
+bool TmtParser_uu___is_ArrayTarget(TmtParser_assignment_target projectee)
+{
+  switch (projectee)
+  {
+    case TmtParser_ArrayTarget:
+      {
+        return true;
+      }
+    default:
+      {
+        return false;
+      }
+  }
+}
+
 bool TmtParser_uu___is_NoJump(TmtParser_jump_context projectee)
 {
   switch (projectee)
@@ -3872,7 +3887,9 @@ TmtParser_type_suffixes(
       return st;
     else if (TmtParser_same(input, st.offset, 91U))
     {
-      if (after.newline || remaining == 0U)
+      if (after.newline)
+        return state;
+      else if (remaining == 0U)
         return TmtParser_failed(st, 1U);
       else
       {
@@ -4470,7 +4487,11 @@ TmtParser_pattern_names(
           bound = TmtParser_pattern_binding_at(input, st, base, floor, used, depth);
         else
         {
-          TmtParser_cursor key = TmtParser_property_name(input, st);
+          TmtParser_cursor key;
+          if (TmtGrammar_decimal_digit(byte) || byte == 46U)
+            key = TmtParser_number_end(input, st.offset);
+          else
+            key = TmtParser_property_name(input, st);
           TmtParser_parser_state after = TmtParser_skip(input, TmtParser_from_cursor(st, key));
           if (TmtParser_same(input, after.offset, 58U))
           {
@@ -6162,7 +6183,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
             .super_context = st.super_context
           };
         uint32_t inner = TmtParser_minus(fuel, 1U);
-        TmtParser_parser_state completed;
+        __TmtParser_parser_state_TmtParser_assignment_target scrut;
         if (constructor)
         {
           TmtParser_parser_state
@@ -6202,7 +6223,18 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
           else
             tail1 = tail;
           TmtParser_parser_state args = TmtParser_consume(input, tail1, 40U);
-          completed = TmtParser_expression_list(input, args, inner, input.size, 41U);
+          scrut =
+            (
+              (__TmtParser_parser_state_TmtParser_assignment_target){
+                .fst = TmtParser_expression_list(input,
+                  args,
+                  inner,
+                  input.size,
+                  41U,
+                  false).list_end,
+                .snd = TmtParser_NotAssignable
+              }
+            );
         }
         else
         {
@@ -6218,17 +6250,47 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
               .super_context = st1.super_context
             };
           if (ch == 96U)
-            completed = TmtParser_template_body(input, inside, inner, input.size, false);
+            scrut =
+              (
+                (__TmtParser_parser_state_TmtParser_assignment_target){
+                  .fst = TmtParser_template_body(input, inside, inner, input.size, false),
+                  .snd = TmtParser_NotAssignable
+                }
+              );
           else if (ch == 91U)
           {
             if (inner <= 8U)
-              completed = TmtParser_deep_array_literal(input, inside, inner);
+              scrut =
+                (
+                  (__TmtParser_parser_state_TmtParser_assignment_target){
+                    .fst = TmtParser_deep_array_literal(input, inside, inner),
+                    .snd = TmtParser_NotAssignable
+                  }
+                );
             else
-              completed = TmtParser_expression_list(input, inside, inner, input.size, 93U);
+            {
+              TmtParser_expression_items
+              row = TmtParser_expression_list(input, inside, inner, input.size, 93U, true);
+              scrut =
+                (
+                  (__TmtParser_parser_state_TmtParser_assignment_target){
+                    .fst = row.list_end,
+                    .snd = row.valid_array_target ? TmtParser_ArrayTarget : TmtParser_NotAssignable
+                  }
+                );
+            }
           }
           else
-            completed = TmtParser_object_members(input, inside, inner, input.size, false);
+            scrut =
+              (
+                (__TmtParser_parser_state_TmtParser_assignment_target){
+                  .fst = TmtParser_object_members(input, inside, inner, input.size, false),
+                  .snd = TmtParser_NotAssignable
+                }
+              );
         }
+        TmtParser_parser_state completed = scrut.fst;
+        TmtParser_assignment_target target = scrut.snd;
         return
           TmtParser_postfix(input,
             (
@@ -6239,7 +6301,7 @@ TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fu
                 .outer_or = false,
                 .right_shift = false,
                 .shortcut = 0U,
-                .target = TmtParser_NotAssignable
+                .target = target
               }
             ),
             fuel,
@@ -6593,7 +6655,8 @@ TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint
           uu____0,
           TmtParser_minus(fuel, 1U),
           input.size,
-          41U);
+          41U,
+          false).list_end;
     }
   }
   else if (byte == 46U || byte == 91U)
@@ -7133,7 +7196,9 @@ TmtParser_comparison(TmtParser_tape input, TmtParser_parser_state current, uint3
       if (TmtParser_can_assign_expression(lhs.target))
         assignment = TmtParser_assignment_width(input, st.offset, byte, follower);
       else
-        assignment = 0U;
+        assignment =
+          lhs.target == TmtParser_ArrayTarget && byte == 61U && follower != 61U && follower != 62U ? 1U
+                                                                                                   : 0U;
       if (assignment != 0U)
       {
         if (fuel == 0U)
@@ -7593,7 +7658,8 @@ TmtParser_postfix(
                   inside,
                   TmtParser_minus(fuel, 1U),
                   input.size,
-                  41U);
+                  41U,
+                  false).list_end;
             else if (kind == 96U)
               next_st =
                 TmtParser_template_body(input,
@@ -7781,7 +7847,7 @@ TmtParser_deep_array_literal(
 {
   TmtParser_array_run run = TmtParser_array_openers(input, inside, 0U, input.size);
   if (run.openers <= fuel)
-    return TmtParser_expression_list(input, inside, fuel, input.size, 93U);
+    return TmtParser_expression_list(input, inside, fuel, input.size, 93U, false).list_end;
   else
   {
     TmtParser_parser_state uu____0 = run.inside;
@@ -7808,7 +7874,8 @@ TmtParser_deep_array_literal(
         ),
         fuel,
         input.size,
-        93U);
+        93U,
+        false).list_end;
     TmtParser_parser_state closed = TmtParser_array_closers(input, deepest, run.openers);
     uint32_t depth = TmtParser_plus(closed.depth, run.openers);
     uint32_t depth1 = depth > inside.depth ? depth : inside.depth;
@@ -7837,13 +7904,14 @@ TmtParser_deep_array_literal(
   }
 }
 
-TmtParser_parser_state
+TmtParser_expression_items
 TmtParser_expression_list(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
   uint32_t fuel0,
   uint32_t remaining0,
-  uint8_t close0
+  uint8_t close0,
+  bool valid_array_target0
 )
 {
   TmtParser_tape input = input0;
@@ -7851,15 +7919,28 @@ TmtParser_expression_list(
   uint32_t fuel = fuel0;
   uint32_t remaining = remaining0;
   uint8_t close = close0;
+  bool valid_array_target = valid_array_target0;
   while (true)
   {
     TmtParser_parser_state st = TmtParser_skip(input, state);
     if (st.status != 0U)
-      return st;
+      return ((TmtParser_expression_items){ .list_end = st, .valid_array_target = false });
     else if (TmtParser_same(input, st.offset, close))
-      return TmtParser_consume(input, st, close);
+      return
+        (
+          (TmtParser_expression_items){
+            .list_end = TmtParser_consume(input, st, close),
+            .valid_array_target = valid_array_target
+          }
+        );
     else if (remaining == 0U)
-      return TmtParser_failed(st, 3U);
+      return
+        (
+          (TmtParser_expression_items){
+            .list_end = TmtParser_failed(st, 3U),
+            .valid_array_target = false
+          }
+        );
     else
     {
       bool hole;
@@ -7902,6 +7983,8 @@ TmtParser_expression_list(
           start = st;
         TmtParser_parsed arg = TmtParser_comparison(input, start, fuel);
         TmtParser_parser_state st1 = TmtParser_skip(input, arg.parser);
+        bool
+        valid_array_target1 = valid_array_target && !spread && TmtParser_can_assign(arg.target);
         if (TmtParser_same(input, st1.offset, 44U))
         {
           TmtParser_parser_state next_item = TmtParser_consume(input, st1, 44U);
@@ -7914,17 +7997,31 @@ TmtParser_expression_list(
           else
             next_hole = false;
           if (arg.open_angle && !next_hole)
-            return TmtParser_failed(st1, 1U);
+            return
+              (
+                (TmtParser_expression_items){
+                  .list_end = TmtParser_failed(st1, 1U),
+                  .valid_array_target = false
+                }
+              );
           else
           {
             TmtParser_parser_state tmp0 = next_item;
-            uint32_t tmp = TmtParser_minus(remaining, 1U);
+            uint32_t tmp1 = TmtParser_minus(remaining, 1U);
+            bool tmp = valid_array_target1;
             state = tmp0;
-            remaining = tmp;
+            remaining = tmp1;
+            valid_array_target = tmp;
           }
         }
         else
-          return TmtParser_consume(input, st1, close);
+          return
+            (
+              (TmtParser_expression_items){
+                .list_end = TmtParser_consume(input, st1, close),
+                .valid_array_target = valid_array_target1
+              }
+            );
       }
     }
   }

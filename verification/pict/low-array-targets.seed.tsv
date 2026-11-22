@@ -1,0 +1,4 @@
+Feature	Dialect	Suffix
+ArrayTarget	TS	Valid
+NumericBinding	TSX	Valid
+BracketTypeMember	TS	Valid

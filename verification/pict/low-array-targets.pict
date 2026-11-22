@@ -1,0 +1,3 @@
+Feature: ArrayTarget, NumericBinding, BracketTypeMember
+Dialect: TS, TSX
+Suffix: Valid, Broken

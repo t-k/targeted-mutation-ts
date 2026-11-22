@@ -152,6 +152,7 @@ TmtParser_parser_state;
 #define TmtParser_MemberTarget 2
 #define TmtParser_OptionalChain 3
 #define TmtParser_AssertedTarget 4
+#define TmtParser_ArrayTarget 5
 
 typedef uint8_t TmtParser_assignment_target;
 
@@ -164,6 +165,8 @@ bool TmtParser_uu___is_MemberTarget(TmtParser_assignment_target projectee);
 bool TmtParser_uu___is_OptionalChain(TmtParser_assignment_target projectee);
 
 bool TmtParser_uu___is_AssertedTarget(TmtParser_assignment_target projectee);
+
+bool TmtParser_uu___is_ArrayTarget(TmtParser_assignment_target projectee);
 
 #define TmtParser_NoJump 0
 #define TmtParser_BreakOnly 1
@@ -192,6 +195,13 @@ typedef struct TmtParser_parsed_s
   TmtParser_assignment_target target;
 }
 TmtParser_parsed;
+
+typedef struct TmtParser_expression_items_s
+{
+  TmtParser_parser_state list_end;
+  bool valid_array_target;
+}
+TmtParser_expression_items;
 
 TmtParser_parser_state TmtParser_failed(TmtParser_parser_state state, uint32_t error);
 
@@ -1071,13 +1081,14 @@ TmtParser_deep_array_literal(
   uint32_t fuel
 );
 
-TmtParser_parser_state
+TmtParser_expression_items
 TmtParser_expression_list(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
   uint32_t fuel0,
   uint32_t remaining0,
-  uint8_t close0
+  uint8_t close0,
+  bool valid_array_target0
 );
 
 TmtParser_parsed

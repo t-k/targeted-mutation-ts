@@ -181,6 +181,7 @@ type assignment_target =
   | MemberTarget
   | OptionalChain
   | AssertedTarget
+  | ArrayTarget
 
 type jump_context =
   | NoJump
@@ -190,6 +191,7 @@ type jump_context =
 let can_assign (target:assignment_target) : bool = target = Assignable || target = MemberTarget
 let can_assign_expression (target:assignment_target) : bool = can_assign target || target = AssertedTarget
 type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:bool; right_shift:bool; shortcut:U32.t; target:assignment_target }
+type expression_items = { list_end:parser_state; valid_array_target:bool }
 
 let failed (state:parser_state) (error:U32.t) : parser_state =
   if state.status = 0ul then { state with status = error } else state
@@ -1128,7 +1130,8 @@ and type_suffixes (input:tape) (state:parser_state) (fuel remaining:U32.t) (inde
   let st = from_cursor state after in
   if st.status <> 0ul then st
   else if same input st.offset 91uy then
-    if after.newline || remaining = 0ul then failed st 1ul
+    if after.newline then state
+    else if remaining = 0ul then failed st 1ul
     else
       let inner = skip input (consume input st 91uy) in
       let empty = same input inner.offset 93uy in
@@ -1290,7 +1293,7 @@ let rec pattern_names (input:tape) (state:parser_state) (base:names_base) (floor
       let bound =
         if close = 93uy then pattern_binding_at input st base floor used depth
         else
-          let key = property_name input st in
+          let key = if G.decimal_digit byte || byte = 46uy then number_end input st.offset else property_name input st in
           let after = skip input (from_cursor st key) in
           if same input after.offset 58uy then
             let target = skip input (consume input after 58uy) in
@@ -1833,7 +1836,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         let depth = if U32.(depth >^ st.depth) then depth else st.depth in
         let st = { st with depth } in
         let inner = minus fuel 1ul in
-        let completed =
+        let completed, target =
           if constructor then
             let target = skip input { st with offset = plus start_pos 3ul } in
             let named =
@@ -1844,15 +1847,17 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
             let typed = same input tail.offset 60uy in
             let tail = if typed && tail.offset = named.offset then call_type_arguments input tail else tail in
             let args = consume input tail 40uy in
-            expression_list input args inner input.size 41uy
+            (expression_list input args inner input.size 41uy false).list_end, NotAssignable
           else
             let inside = { st with offset = next start_pos } in
-            if ch = 96uy then template_body input inside inner input.size false
+            if ch = 96uy then template_body input inside inner input.size false, NotAssignable
             else if ch = 91uy then
-              if U32.(inner <=^ 8ul) then deep_array_literal input inside inner
-              else expression_list input inside inner input.size 93uy
-            else object_members input inside inner input.size false in
-        postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable }
+              if U32.(inner <=^ 8ul) then deep_array_literal input inside inner, NotAssignable
+              else
+                let row = expression_list input inside inner input.size 93uy true in
+                row.list_end, (if row.valid_array_target then ArrayTarget else NotAssignable)
+            else object_members input inside inner input.size false, NotAssignable in
+        postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target }
           fuel input.size
     else if ch = 40uy then
       if fuel = 0ul then empty_range (failed st 3ul)
@@ -1925,7 +1930,7 @@ and super_expression (input:tape) (st:parser_state) (fuel:U32.t)
       else
         let depth = minus 65ul fuel in
         let after = if U32.(depth >^ after.depth) then { after with depth } else after in
-        expression_list input (consume input after 40uy) (minus fuel 1ul) input.size 41uy
+        (expression_list input (consume input after 40uy) (minus fuel 1ul) input.size 41uy false).list_end
     else if byte = 46uy || byte = 91uy then { st with offset = plus start_pos 5ul }
     else failed after 1ul in
   postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset };
@@ -2034,7 +2039,10 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   else
     let byte = peek input st.offset in
     let follower = peek input (next st.offset) in
-    let assignment = if can_assign_expression lhs.target then assignment_width input st.offset byte follower else 0ul in
+    let assignment =
+      if can_assign_expression lhs.target then assignment_width input st.offset byte follower
+      else if lhs.target = ArrayTarget && byte = 61uy && follower <> 61uy && follower <> 62uy then 1ul
+      else 0ul in
     if assignment <> 0ul then
       if fuel = 0ul then empty_range (failed st 3ul)
       else
@@ -2136,7 +2144,7 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
             let depth = minus 65ul fuel in
             let depth = if U32.(depth >^ st.depth) then depth else st.depth in
             let inside = { operand with offset = next operand.offset; depth } in
-            if kind = 40uy then expression_list input inside (minus fuel 1ul) input.size 41uy
+            if kind = 40uy then (expression_list input inside (minus fuel 1ul) input.size 41uy false).list_end
             else if kind = 96uy then template_body input inside (minus fuel 1ul) input.size true
             else
               let index = comparison input inside (minus fuel 1ul) in
@@ -2182,39 +2190,40 @@ and grouped_tail (input:tape) (state:parser_state) (fuel remaining:U32.t)
 and deep_array_literal (input:tape) (inside:parser_state) (fuel:U32.t)
   : Run parser_state input (decreases %[U32.v fuel; 27; 0]) =
   let run = array_openers input inside 0ul input.size in
-  if U32.(run.openers <=^ fuel) then expression_list input inside fuel input.size 93uy
+  if U32.(run.openers <=^ fuel) then (expression_list input inside fuel input.size 93uy false).list_end
   else
     // The leading wrappers cannot fit in the remaining recursive stack.
     // Read the innermost array once and accept only uninterrupted closing wrappers.
-    let deepest = expression_list input { run.inside with depth = minus 64ul fuel } fuel input.size 93uy in
+    let deepest = (expression_list input { run.inside with depth = minus 64ul fuel } fuel input.size 93uy false).list_end in
     let closed = array_closers input deepest run.openers in
     let depth = plus closed.depth run.openers in
     let depth = if U32.(depth >^ inside.depth) then depth else inside.depth in
     if closed.status <> 0ul then failed inside 3ul else { closed with depth }
 
-and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (close:U8.t)
-  : Run parser_state input (decreases %[U32.v fuel; 26; U32.v remaining]) =
+and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (close:U8.t) (valid_array_target:bool)
+  : Run expression_items input (decreases %[U32.v fuel; 26; U32.v remaining]) =
   let st = skip input state in
-  if st.status <> 0ul then st
-  else if same input st.offset close then consume input st close
-  else if remaining = 0ul then failed st 3ul
+  if st.status <> 0ul then { list_end = st; valid_array_target = false }
+  else if same input st.offset close then { list_end = consume input st close; valid_array_target }
+  else if remaining = 0ul then { list_end = failed st 3ul; valid_array_target = false }
   else
     let hole = if close = 93uy then same input st.offset 44uy else false in
-    if hole then expression_list input (consume input st 44uy) fuel (minus remaining 1ul) close
+    if hole then expression_list input (consume input st 44uy) fuel (minus remaining 1ul) close valid_array_target
     else
       let spread = spread_at input st.offset in
       let start = if spread then { st with offset = plus st.offset 3ul } else st in
       let arg = comparison input start fuel in
       let st = skip input arg.parser in
+      let valid_array_target = valid_array_target && not spread && can_assign arg.target in
       if same input st.offset 44uy then
         let next_item = consume input st 44uy in
         let next_hole = if arg.open_angle && close = 93uy then
           let next_item = skip input next_item in same input next_item.offset 44uy
           else false in
         // A generic argument list cannot continue across an array elision.
-        if arg.open_angle && not next_hole then failed st 1ul
-        else expression_list input next_item fuel (minus remaining 1ul) close
-      else consume input st close
+        if arg.open_angle && not next_hole then { list_end = failed st 1ul; valid_array_target = false }
+        else expression_list input next_item fuel (minus remaining 1ul) close valid_array_target
+      else { list_end = consume input st close; valid_array_target }
 and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bool)
   : Run parsed input (decreases %[U32.v fuel; 26; 0]) =
   let spread = spread_at input st.offset in
