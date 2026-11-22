@@ -1,0 +1,8 @@
+Export	Binding	Suffix
+Direct	Simple	Comparison
+Exported	List	DifferentScope
+Exported	Pattern	Comparison
+Exported	NoInitializer	Comparison
+Direct	List	SameLet
+Exported	Pattern	SameVar
+Exported	Simple	Broken

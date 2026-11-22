@@ -3406,7 +3406,7 @@ let declaration_start (input:tape) (#frame:slprop) (state:parser_state) : Tot (s
     else
       let! declared = (fun () -> type_declaration_width input #frame st.offset) in
       if declared <> 0ul then read_ret input #frame (declared)
-      else if ambient.ok then ambient_variable_width input #frame st.offset
+      else if ambient.ok || st.module_mode then ambient_variable_width input #frame st.offset
       else local_width input #frame st.offset)) in
   read_ret input #frame ({ after_modifiers = st; width; async_declaration = async_.ok; ambient_declaration = ambient.ok;
     class_declaration = class_; abstract_class = abstract_.ok })
@@ -3698,6 +3698,7 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
       if class_ then ret input (true) else (let! anf_value_3 = (fun () -> local_width input st.offset) in ret input (anf_value_3 <> 0ul))
     else if first = 105uy || first = 116uy then
       let! width = (fun () -> type_declaration_width input st.offset) in ret input (width <> 0ul)
+    else if first = 118uy && st.module_mode then keyword input st.offset 3ul 0x766172uL
     else
       let! width = (fun () -> local_width input st.offset) in ret input (width <> 0ul)) in
   if augmentation.status = 0ul then (let! anf_value_4 = (fun () -> ambient_interfaces input augmentation input.size false) in ret input ({ state = anf_value_4; used }))

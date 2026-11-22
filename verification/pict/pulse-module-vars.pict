@@ -1,0 +1,3 @@
+Export: Direct, Exported
+Binding: Simple, List, Pattern, NoInitializer
+Suffix: Comparison, DifferentScope, SameLet, SameVar, Broken

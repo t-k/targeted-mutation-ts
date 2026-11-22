@@ -16127,7 +16127,7 @@ TmtPulseParser_declaration_start(TmtPulseMemory_tape input, TmtPulseParser_parse
       uint32_t value7 = TmtPulseParser_type_declaration_width(input, st2.offset);
       if (value7 != 0U)
         value60 = value7;
-      else if (value3.ok)
+      else if (value3.ok || st2.module_mode)
         value60 = TmtPulseParser_ambient_variable_width(input, st2.offset);
       else
         value60 = TmtPulseParser_local_width(input, st2.offset);
@@ -16564,6 +16564,8 @@ module_plain_declaration(
     uint32_t value3 = TmtPulseParser_type_declaration_width(input, st.offset);
     value30 = value3 != 0U;
   }
+  else if (value == 118U && st.module_mode)
+    value30 = TmtPulseParser_keyword(input, st.offset, 3U, 0x766172ULL);
   else
   {
     uint32_t value3 = TmtPulseParser_local_width(input, st.offset);
