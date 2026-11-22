@@ -865,6 +865,7 @@ typedef struct TmtParser_class_key_s
   bool static_;
   bool async_;
   bool readonly_;
+  TmtParser_parameter_arity arity1;
 }
 TmtParser_class_key;
 
@@ -934,6 +935,7 @@ typedef struct TmtParser_atom_head_s
   bool deleting_;
   uint32_t prefix_;
   bool constructor_;
+  bool class_;
 }
 TmtParser_atom_head;
 
@@ -961,6 +963,9 @@ TmtParser_signature_end(
 
 TmtParser_parsed
 TmtParser_atom(TmtParser_tape input, TmtParser_parser_state current, uint32_t fuel);
+
+TmtParser_parser_state
+TmtParser_class_expression(TmtParser_tape input, TmtParser_parser_state st, uint32_t fuel);
 
 TmtParser_parsed
 TmtParser_super_expression(TmtParser_tape input, TmtParser_parser_state st, uint32_t fuel);

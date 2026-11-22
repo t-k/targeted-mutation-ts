@@ -1569,7 +1569,9 @@ let postfix_start (input:tape) (base:parsed) : Read postfix_head input =
 let class_keyword (input:tape) (offset:U32.t) : Read bool input =
   keyword input offset 5ul 0x636c617373uL
 
-type class_key = { after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool; readonly_:bool }
+type class_key = {
+  after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool; readonly_:bool; arity:parameter_arity
+}
 
 let class_key_start (input:tape) (state:parser_state) : Read bool input =
   let byte = peek input state.offset in
@@ -1613,16 +1615,16 @@ let class_member_key (input:tape) (state:parser_state) : Read class_key input =
   let modifier = async_modifier input start.offset in
   let after_async = if modifier.ok then { start with offset = modifier.at } else start in
   let async_ = if modifier.ok then class_key_start input after_async else false in
-  let key_start = if async_ then after_async else start in
+  let method_start = if async_ then after_async else start in
+  let accessor = accessor_modifier input method_start in
+  let key_start = accessor.key_start in
   let byte = peek input key_start.offset in
   let quoted = byte = 34uy || byte = 39uy in
   let key = property_name input key_start in
-  let accessor = accessor_modifier input key_start in
   let key_end = from_cursor key_start key in
-  let key_end = if accessor.arity = OrdinaryParameters then key_end else failed key_end 1ul in
   let first = if quoted then next key_start.offset else key_start.offset in
   let last = if quoted then minus key.at 1ul else key.at in
-  { after_key = key_end; first; last; async_;
+  { after_key = key_end; first; last; async_; arity = accessor.arity;
     static_ = U32.logand prefix.flags 1ul <> 0ul; readonly_ = U32.logand prefix.flags 2ul <> 0ul }
 
 let wide_key_matches (input:tape) (key:class_key) (suffix_size:U32.t) (prefix suffix:U64.t) : Read bool input =
@@ -1663,7 +1665,7 @@ let rec interface_bases (input:tape) (state:parser_state) (remaining:U32.t)
 
 type atom_head = {
   token_:U8.t; imported_:bool; super_:bool; fn_:cursor;
-  increment_:U32.t; deleting_:bool; prefix_:U32.t; constructor_:bool
+  increment_:U32.t; deleting_:bool; prefix_:U32.t; constructor_:bool; class_:bool
 }
 
 let read_atom_head (input:tape) (st:parser_state) : Read atom_head input =
@@ -1681,8 +1683,9 @@ let read_atom_head (input:tape) (st:parser_state) : Read atom_head input =
   let prefix = if deleting then 6ul else if await_ then 5ul
     else if increment <> 0ul then increment else unary_width input start_pos ch in
   let constructor = if ch = 110uy then keyword input start_pos 3ul 0x6e6577uL else false in
+  let class_ = if ch = 99uy then class_keyword input start_pos else false in
   { token_ = ch; imported_ = imported; super_; fn_ = fn; increment_ = increment; deleting_ = deleting; prefix_ = prefix;
-    constructor_ = constructor }
+    constructor_ = constructor; class_ }
 
 let combine_binary (input:tape) (lhs rhs:parsed) (st:parser_state) (op:binary_operator) (first:U8.t)
   : Run parsed input =
@@ -1748,6 +1751,10 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         let closed = function_tail input named (minus fuel 1ul) (start_pos <> fn.at) NoSuper in
         postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
           open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
+    else if head.class_ then
+      let closed = class_expression input st fuel in
+      postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
+        open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
     else if super_ then super_expression input st fuel
     else if imported then
       let after = skip input { st with offset = plus start_pos 6ul } in
@@ -1836,6 +1843,17 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
       let base = { parser = named; range = { G.first = start_pos; G.last = named.offset };
         open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target } in
       postfix input base fuel input.size
+and class_expression (input:tape) (st:parser_state) (fuel:U32.t)
+  : Run parser_state input (decreases %[U32.v fuel; 1; 0]) =
+  if fuel = 0ul then failed st 3ul
+  else
+    let body = skip input { st with offset = plus st.offset 5ul } in
+    let next_ = peek input body.offset in
+    let inherited = if next_ = 101uy then keyword input body.offset 7ul 0x657874656e6473uL else false in
+    let named =
+      if inherited || next_ = 60uy || next_ = 123uy then body
+      else from_cursor body (name input body.offset false true) in
+    class_tail input named (minus fuel 1ul)
 and super_expression (input:tape) (st:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 1; U32.v input.size + 1]) =
   let start_pos = st.offset in
@@ -2440,7 +2458,9 @@ and return_statement (input:tape) (state:parser_state) (fuel:U32.t) : Run parser
 and ordinary_statement (input:tape) (state:parser_state) (fuel:U32.t) : Run parser_state input (decreases %[U32.v fuel; 45; 0]) =
   let fn = function_start input state.offset in
   let block = same input state.offset 123uy in
-  if block || fn.ok then failed state 1ul
+  let first = peek input state.offset in
+  let class_ = if first = 99uy then class_keyword input state.offset else false in
+  if block || fn.ok || class_ then failed state 1ul
   else
     let value = comparison input state fuel in
     statement_end input value.parser value.range.G.last true
@@ -2752,7 +2772,9 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
       let prototype = if key.static_ then wide_key_matches input key 1ul 0x70726f746f747970uL 0x65uL else false in
       let next_byte = peek input tail.offset in
       let method = next_byte = 40uy || next_byte = 60uy in
+      let accessor = key.arity <> OrdinaryParameters in
       if prototype || (constructor_name && not method) || (key.readonly_ && method) ||
+        (accessor && (key.async_ || constructor || next_byte <> 40uy)) ||
         (constructor && (seen_constructor || key.async_ || next_byte <> 40uy)) then failed tail 1ul
       else
         let after =
@@ -2760,7 +2782,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             if fuel = 0ul then failed tail 3ul
             else
               let mode = if not constructor then MethodSuper else if derived then DerivedConstructor else BaseConstructor in
-              function_tail input tail (minus fuel 1ul) key.async_ mode
+              (function_form input tail (minus fuel 1ul) key.async_ mode false key.arity).after_function
           else if key.async_ then failed tail 1ul
           else class_field_tail input key.after_key fuel in
         class_members input after fuel (minus remaining 1ul) derived (seen_constructor || constructor)

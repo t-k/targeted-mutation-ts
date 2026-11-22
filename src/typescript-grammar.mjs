@@ -329,6 +329,9 @@ export function createTypeScriptGrammar(ts, bindings) {
         for (const clause of node.heritageClauses ?? []) {
           if (clause.token === SyntaxKind.ExtendsKeyword) {
             if (extendsSeen || implementsSeen) add("Expected '{' to start class body, but found 'extends'");
+            if (!clause.types.length) {
+              add(`Expected '{' to start class body, but found '${tokenAt(node.end)}'`, clause);
+            }
             if (clause.types.length > 1 || clause.types.hasTrailingComma) add("Expected '{' to start class body, but found ','");
             extendsSeen = true;
           } else {
@@ -377,6 +380,20 @@ export function createTypeScriptGrammar(ts, bindings) {
       }
       if (isAccessor(node)) {
         const params = node.parameters.filter(param => param.name.getText(file) !== 'this');
+        const static_ = nodeModifiers.some(modifier => modifier.kind === SyntaxKind.StaticKeyword);
+        if (nodeModifiers.some(modifier => modifier.kind === SyntaxKind.AsyncKeyword)) {
+          add(`Expected '(' for method definition, but found '${node.name.getText(file)}'`, node.name);
+        }
+        if (nodeModifiers.some(modifier => modifier.kind === SyntaxKind.DeclareKeyword)) {
+          add("A 'declare' modifier cannot appear on a class element of this kind", node.name);
+        }
+        if (node.body && nodeModifiers.some(modifier => modifier.kind === SyntaxKind.AbstractKeyword)) {
+          add('An abstract accessor cannot have an implementation', node.name);
+        }
+        if (parent && isClassLike(parent) && !static_ &&
+            (isIdentifier(node.name) || isStringLiteral(node.name)) && node.name.text === 'constructor') {
+          add("Constructor can't have get/set modifier", node.name);
+        }
         if (isGetAccessorDeclaration(node) && params.length) add('Getter must have no parameters');
         if (isSetAccessorDeclaration(node) && (params.length !== 1 || params[0].dotDotDotToken)) {
           add('Setter must have exactly one parameter');

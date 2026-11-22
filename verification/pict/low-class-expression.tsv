@@ -1,0 +1,16 @@
+Class	Member	Position
+Anonymous	Setter	Call
+Named	Method	Compare
+Generic	Getter	Init
+Anonymous	BadArity	Compare
+Generic	Prototype	Call
+Generic	Method	Init
+Named	Getter	Compare
+Anonymous	Getter	Call
+Generic	Setter	Compare
+Anonymous	Method	Call
+Named	Setter	Init
+Anonymous	Prototype	Init
+Generic	BadArity	Init
+Named	Prototype	Compare
+Named	BadArity	Call
