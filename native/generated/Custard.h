@@ -424,6 +424,12 @@ TmtPulseParser_bind_pattern_name(
   uint32_t pos
 );
 
+bool
+TmtPulseParser_forbidden_field_arguments(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st
+);
+
 TmtPulseParser_parser_state
 TmtPulseParser_qualified_name(
   TmtPulseMemory_tape input0,
@@ -472,12 +478,6 @@ TmtPulseParser_string_end(
 
 TmtPulseParser_cursor
 TmtPulseParser_property_name(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
-
-bool
-TmtPulseParser_forbidden_field_arguments(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state st
-);
 
 TmtPulseParser_parser_state
 TmtPulseParser_simple_default(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);

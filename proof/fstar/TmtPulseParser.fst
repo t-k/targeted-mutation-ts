@@ -1989,11 +1989,14 @@ let rec class_modifiers (input:tape) (#frame:slprop) (st:parser_state) (flags fu
 let computed_method_key (input:tape) (#frame:slprop) (state:parser_state)
   : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! start = (fun () -> skip input #frame { state with offset = next state.offset }) in
-  let! first = (fun () -> name input #frame start.offset false false) in
-  let! path = (fun () -> qualified_name input #frame (from_cursor start first) 16ul) in
-  let! after = (fun () -> skip input #frame path) in
-  let! end_ = (fun () -> consume input #frame after 93uy) in
-  read_ret input #frame { at = end_.offset; ok = end_.status = 0ul; newline = false }
+  let! forbidden = (fun () -> forbidden_field_arguments input #frame start) in
+  if forbidden then read_ret input #frame { at = start.offset; ok = false; newline = false }
+  else
+    let! first = (fun () -> name input #frame start.offset false false) in
+    let! path = (fun () -> qualified_name input #frame (from_cursor start first) 16ul) in
+    let! after = (fun () -> skip input #frame path) in
+    let! end_ = (fun () -> consume input #frame after 93uy) in
+    read_ret input #frame { at = end_.offset; ok = end_.status = 0ul; newline = false }
 
 let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt class_key (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! prefix = (fun () -> class_modifiers input #frame state 0ul 4ul) in

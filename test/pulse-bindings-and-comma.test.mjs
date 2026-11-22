@@ -40,3 +40,12 @@ test('a comma statement still respects ASI and a following statement', () => {
   compare('const k = 0; (left = a < b), (right = c <= d)\n; next >= 0;', true);
   compare('(left = a < b), (right = c <= d); const =', false);
 });
+
+test('computed keys retain the field initializer arguments restriction', () => {
+  compare('class C { field = ({[arguments]: x}) => x < 2; }', false);
+  compare('class C { field = () => { const {[arguments.x]: x} = obj; return x < 2; }; }', false);
+  compare('class C { field = class { [arguments.x]() { return x < 2; } }; }', false);
+  compare('class C { field = ({[obj.arguments]: x}) => x < 2; }', true);
+  compare('class C { field = class { [obj.arguments]() { return x < 2; } }; }', true);
+  compare('function run() { const {[arguments.x]: x} = obj; return x < 2; }', true);
+});
