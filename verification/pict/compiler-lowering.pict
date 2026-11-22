@@ -1,5 +1,5 @@
-Form: Numeric, Strings, Automatic, Classic
+Form: Numeric, Strings, Automatic, Classic, Function
 Layout: Compact, Unicode, Multiline
 Tail: Complete, Broken
 
-IF [Layout] = "Multiline" THEN [Form] IN {"Automatic", "Classic"};
+IF [Layout] = "Multiline" THEN [Form] IN {"Automatic", "Classic", "Function"};

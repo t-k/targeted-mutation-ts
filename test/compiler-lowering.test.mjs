@@ -8,6 +8,7 @@ const fixtures = {
   Numeric: 'export enum Ready { Zero, Minus = -2, Next, Reset = 4, Final, }',
   Strings: 'export const enum Ready { First = "yes", Second = "いいえ", Number = 42 }',
   Automatic: 'export const View = (x: number) => <><div enabled title="a &amp; b">{x}<br/></div></>;',
+  Function: 'export function View(x: number) { return (<i>{x}</i>); }',
   Classic: 'export const View = (x) => <div enabled title="text">{x}<br/></div>;',
 };
 
@@ -24,9 +25,11 @@ for (const row of rows) {
   const [form, layout, tail] = row.split('\t');
   test('native runtime lowering ' + row.replaceAll('\t', ' '), async () => {
     const jsx = form === 'Classic' ? 'classic' : 'automatic';
-    const file = form === 'Classic' ? 'input.jsx' : form === 'Automatic' ? 'input.tsx' : 'input.ts';
-    const fixture = layout === 'Multiline' ?
-      'export const View = (x) => <i>  first \r\n\t東京 &amp; second \r\n  {x} <b/>\n final  </i>;' : fixtures[form];
+    const file = form === 'Classic' ? 'input.jsx' : (form === 'Automatic' || form === 'Function') ? 'input.tsx' : 'input.ts';
+    const markup = '<i>  first \r\n\t東京 &amp; second \r\n  {x} <b/>\n final  </i>';
+    const fixture = layout !== 'Multiline' ? fixtures[form] : form === 'Function' ?
+      'export function View(x: number) { return (' + markup + '); }' :
+      'export const View = (x) => ' + markup + ';';
     const source = (layout === 'Unicode' ? '/* 東京🧪 */\r\n' : '') + fixture +
       (tail === 'Broken' ? ' export const x =' : '');
     const native = compile(source, { file, jsx });
@@ -158,5 +161,27 @@ test('multiline JSX preserves significant leading, trailing and single-line whit
     assert.equal(actual.backend, 'pulse', JSON.stringify(children));
     const expected = compile(source, { file: 'layout.tsx', sourceMap: true });
     assert.deepEqual((await load(actual.code)).X, (await load(expected.code)).X, JSON.stringify(children));
+  }
+});
+
+test('grouped JSX supports const initializers, arrow functions and default functions', async () => {
+  for (const [source, exported] of [
+    ['export const View = ((<i/>));', 'View'],
+    ['export const View = () => (\n  <i/>\n);', 'View'],
+    ['export default function () { return (\n  <i/>\n); }', 'default'],
+    ['export default function View(): object { return (<i/>) }', 'default'],
+  ]) {
+    const actual = compile(source, { file: 'component.tsx' });
+    assert.equal(actual.backend, 'pulse', source);
+    const reference = compile(source, { file: 'component.tsx', sourceMap: true });
+    const a = (await load(actual.code))[exported], b = (await load(reference.code))[exported];
+    assert.deepEqual(typeof a === 'function' ? a() : a, typeof b === 'function' ? b() : b);
+  }
+});
+
+test('JSX functions decline an ASI return and extra unhandled statements', () => {
+  for (const body of ['return\n<i/>;', 'return (<i/>;','return <i/>; extra();', 'return (<i/>).value;']) {
+    const result = compile('export function View() { ' + body + ' }', { file: 'component.tsx' });
+    assert.equal(result.backend, 'typescript', body);
   }
 });

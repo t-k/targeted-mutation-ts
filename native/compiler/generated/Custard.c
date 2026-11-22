@@ -20945,11 +20945,6 @@ TmtPulseCompiler_runtime_head TmtPulseCompiler_declined_runtime(void)
       TmtPulseCompiler_empty_span);
 }
 
-TmtGrammar_span TmtPulseCompiler_range(uint32_t first, uint32_t last)
-{
-  return ((TmtGrammar_span){ .first = first, .last = last });
-}
-
 TmtPulseCompiler_annotation
 TmtPulseCompiler_make_annotation(bool valid, uint32_t offset, TmtGrammar_span erased)
 {
@@ -20992,6 +20987,11 @@ bool TmtPulseCompiler_primitive_type(uint64_t word)
     || word == 0x6e756c6cULL;
 }
 
+TmtGrammar_span TmtPulseCompiler_range(uint32_t first, uint32_t last)
+{
+  return ((TmtGrammar_span){ .first = first, .last = last });
+}
+
 TmtPulseCompiler_annotation
 TmtPulseCompiler_annotation_after(TmtPulseMemory_tape input, uint32_t start)
 {
@@ -21022,13 +21022,14 @@ TmtPulseCompiler_annotation_after(TmtPulseMemory_tape input, uint32_t start)
 }
 
 TmtPulseCompiler_runtime_head
-TmtPulseCompiler_jsx_arrow_body(
+TmtPulseCompiler_jsx_callable_body(
   TmtPulseMemory_tape input,
   uint32_t declaration,
   uint32_t opening,
   TmtGrammar_span name_span,
   TmtGrammar_span binding_type,
-  bool typescript
+  bool typescript,
+  bool function_
 )
 {
   TmtPulseParser_cursor first = TmtPulseParser_trivia(input, TmtPulseParser_next(opening));
@@ -21053,23 +21054,55 @@ TmtPulseCompiler_jsx_arrow_body(
     uint32_t end_params = TmtPulseParser_next(close.at);
     TmtPulseParser_cursor after = TmtPulseParser_trivia(input, end_params);
     TmtPulseCompiler_annotation result = TmtPulseCompiler_annotation_after(input, end_params);
-    TmtPulseParser_cursor arrow = TmtPulseParser_trivia(input, result.offset);
-    bool equals = TmtPulseParser_same(input, arrow.at, 61U);
-    bool greater = TmtPulseParser_same(input, TmtPulseParser_next(arrow.at), 62U);
+    TmtPulseParser_cursor separator = TmtPulseParser_trivia(input, result.offset);
     if
     (
-      after.ok && !after.newline && result.valid && arrow.ok && !arrow.newline && equals && greater
-      &&
+      !(after.ok && (function_ || !after.newline) && result.valid && separator.ok &&
         (typescript ||
           parameter.erased.first == parameter.erased.last &&
-            result.erased.first == result.erased.last)
+            result.erased.first == result.erased.last))
     )
+      return TmtPulseCompiler_declined_runtime();
+    else
     {
-      TmtPulseParser_cursor body = TmtPulseParser_trivia(input, TmtPulseParser_plus(arrow.at, 2U));
+      TmtPulseParser_cursor body;
+      if (function_)
+      {
+        bool brace = TmtPulseParser_same(input, separator.at, 123U);
+        TmtPulseParser_cursor
+        start = TmtPulseParser_trivia(input, TmtPulseParser_next(separator.at));
+        bool return_ = TmtPulseParser_keyword(input, start.at, 6U, 0x72657475726eULL);
+        TmtPulseParser_cursor
+        value = TmtPulseParser_trivia(input, TmtPulseParser_plus(start.at, 6U));
+        body =
+          (
+            (TmtPulseParser_cursor){
+              .at = value.at,
+              .ok = brace && start.ok && return_ && value.ok && !value.newline,
+              .newline = value.newline
+            }
+          );
+      }
+      else
+      {
+        bool equals = TmtPulseParser_same(input, separator.at, 61U);
+        bool greater = TmtPulseParser_same(input, TmtPulseParser_next(separator.at), 62U);
+        TmtPulseParser_cursor
+        value = TmtPulseParser_trivia(input, TmtPulseParser_plus(separator.at, 2U));
+        body =
+          (
+            (TmtPulseParser_cursor){
+              .at = value.at,
+              .ok = !separator.newline && equals && greater && value.ok,
+              .newline = value.newline
+            }
+          );
+      }
       bool element = TmtPulseParser_same(input, body.at, 60U);
-      if (body.ok && element)
+      bool grouped = TmtPulseParser_same(input, body.at, 40U);
+      if (body.ok && (element || grouped))
         return
-          TmtPulseCompiler_runtime_head_of(2U,
+          TmtPulseCompiler_runtime_head_of(function_ ? 4U : 2U,
             declaration,
             body.at,
             name_span,
@@ -21079,8 +21112,6 @@ TmtPulseCompiler_jsx_arrow_body(
       else
         return TmtPulseCompiler_declined_runtime();
     }
-    else
-      return TmtPulseCompiler_declined_runtime();
   }
 }
 
@@ -21104,6 +21135,21 @@ TmtPulseCompiler_read_runtime_head(
       declaration = TmtPulseParser_trivia(input, TmtPulseParser_plus(start.at, 6U));
     else
       declaration = start;
+    bool default_;
+    if (exported)
+      default_ = TmtPulseParser_keyword(input, declaration.at, 7U, 0x64656661756c74ULL);
+    else
+      default_ = false;
+    TmtPulseParser_cursor callable;
+    if (default_)
+      callable = TmtPulseParser_trivia(input, TmtPulseParser_plus(declaration.at, 7U));
+    else
+      callable = declaration;
+    bool function_;
+    if (jsx)
+      function_ = TmtPulseParser_keyword(input, callable.at, 8U, 0x66756e6374696f6eULL);
+    else
+      function_ = false;
     bool constant = TmtPulseParser_keyword(input, declaration.at, 5U, 0x636f6e7374ULL);
     TmtPulseParser_cursor after_const;
     if (constant)
@@ -21111,7 +21157,31 @@ TmtPulseCompiler_read_runtime_head(
     else
       after_const = declaration;
     bool enumeration = TmtPulseParser_keyword(input, after_const.at, 4U, 0x656e756dULL);
-    if (typescript && after_const.ok && enumeration)
+    if (callable.ok && function_)
+    {
+      TmtPulseParser_cursor
+      first = TmtPulseParser_trivia(input, TmtPulseParser_plus(callable.at, 8U));
+      bool anonymous = TmtPulseParser_same(input, first.at, 40U);
+      TmtPulseParser_cursor named = TmtPulseParser_name(input, first.at, false, true);
+      TmtPulseParser_cursor opening;
+      if (anonymous && default_)
+        opening = first;
+      else
+        opening = TmtPulseParser_trivia(input, named.at);
+      bool paren = TmtPulseParser_same(input, opening.at, 40U);
+      if (first.ok && opening.ok && paren && (anonymous && default_ || named.ok))
+        return
+          TmtPulseCompiler_jsx_callable_body(input,
+            start.at,
+            opening.at,
+            TmtPulseCompiler_empty_span,
+            TmtPulseCompiler_empty_span,
+            typescript,
+            true);
+      else
+        return TmtPulseCompiler_declined_runtime();
+    }
+    else if (typescript && after_const.ok && enumeration)
     {
       TmtPulseParser_cursor
       first = TmtPulseParser_trivia(input, TmtPulseParser_plus(after_const.at, 4U));
@@ -21158,13 +21228,29 @@ TmtPulseCompiler_read_runtime_head(
               TmtPulseCompiler_empty_span,
               TmtPulseCompiler_empty_span);
         else if (arrow)
-          return
-            TmtPulseCompiler_jsx_arrow_body(input,
-              start.at,
-              init.at,
-              name_span,
-              annotation.erased,
-              typescript);
+        {
+          TmtPulseParser_cursor first = TmtPulseParser_trivia(input, TmtPulseParser_next(init.at));
+          bool grouped_element = TmtPulseParser_same(input, first.at, 60U);
+          bool grouped = TmtPulseParser_same(input, first.at, 40U);
+          if (first.ok && (grouped_element || grouped))
+            return
+              TmtPulseCompiler_runtime_head_of(2U,
+                start.at,
+                init.at,
+                name_span,
+                annotation.erased,
+                TmtPulseCompiler_empty_span,
+                TmtPulseCompiler_empty_span);
+          else
+            return
+              TmtPulseCompiler_jsx_callable_body(input,
+                start.at,
+                init.at,
+                name_span,
+                annotation.erased,
+                typescript,
+                false);
+        }
         else
           return TmtPulseCompiler_declined_runtime();
       }

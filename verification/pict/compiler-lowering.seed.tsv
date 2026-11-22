@@ -6,3 +6,5 @@ Classic	Unicode	Complete
 Numeric	Unicode	Broken
 Automatic	Multiline	Complete
 Classic	Multiline	Complete
+Function	Multiline	Complete
+Function	Compact	Broken

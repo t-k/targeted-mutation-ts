@@ -478,9 +478,29 @@ static bool emit_jsx(lowering *lower, TmtPulseCompiler_runtime_head head) {
     source_bytes(lower, cursor, span.first);
     cursor = span.last;
   }
-  source_bytes(lower, cursor, head.body);
+  uint32_t groups = 0;
+  while (consume(lower, '(')) {
+    if (++groups > 32 || !trivia(lower)) return false;
+  }
+  source_bytes(lower, cursor, lower->at);
   if (!jsx_element(lower, 32)) return false;
-  put(&lower->output, ";");
+  while (groups) {
+    const uint32_t close = lower->at;
+    if (!trivia(lower) || !consume(lower, ')')) return false;
+    source_bytes(lower, close, lower->at);
+    groups--;
+  }
+  if (head.kind == 4) {
+    uint32_t tail = lower->at;
+    if (!trivia(lower)) return false;
+    if (consume(lower, ';')) {
+      source_bytes(lower, tail, lower->at);
+      tail = lower->at;
+      if (!trivia(lower)) return false;
+    } else put(&lower->output, ";");
+    if (!consume(lower, '}')) return false;
+    source_bytes(lower, tail, lower->at);
+  } else put(&lower->output, ";");
   return !lower->output.failed;
 }
 
@@ -595,7 +615,8 @@ static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic,
       if (head.declaration < keep || head.body > end) goto decline;
       source_bytes(&lower, keep, head.declaration);
       lower.at = head.body;
-      const bool emitted = head.kind == 2 ? emit_jsx(&lower, head) : emit_enum(&lower, head.name_span, head.kind == 1);
+      const bool emitted = head.kind == 1 || head.kind == 3 ? emit_enum(&lower, head.name_span, head.kind == 1) :
+        emit_jsx(&lower, head);
       const uint32_t finish = lower.at;
       if (!emitted || !trivia(&lower)) goto decline;
       consume(&lower, ';');

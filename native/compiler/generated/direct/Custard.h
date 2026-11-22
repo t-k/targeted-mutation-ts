@@ -230,8 +230,6 @@ extern TmtGrammar_span TmtPulseCompiler_empty_span;
 
 TmtPulseCompiler_runtime_head TmtPulseCompiler_declined_runtime(void);
 
-TmtGrammar_span TmtPulseCompiler_range(uint32_t first, uint32_t last);
-
 typedef struct TmtPulseCompiler_annotation_s
 {
   bool valid;
@@ -247,17 +245,20 @@ uint32_t TmtPulseCompiler_spaces(TmtPulseMemory_tape input, uint32_t start);
 
 bool TmtPulseCompiler_primitive_type(uint64_t word);
 
+TmtGrammar_span TmtPulseCompiler_range(uint32_t first, uint32_t last);
+
 TmtPulseCompiler_annotation
 TmtPulseCompiler_annotation_after(TmtPulseMemory_tape input, uint32_t start);
 
 TmtPulseCompiler_runtime_head
-TmtPulseCompiler_jsx_arrow_body(
+TmtPulseCompiler_jsx_callable_body(
   TmtPulseMemory_tape input,
   uint32_t declaration,
   uint32_t opening,
   TmtGrammar_span name_span,
   TmtGrammar_span binding_type,
-  bool typescript
+  bool typescript,
+  bool function_
 );
 
 TmtPulseCompiler_runtime_head

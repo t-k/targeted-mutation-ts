@@ -304,8 +304,8 @@ let runtime_head_of (kind:U8.t) (declaration body:U32.t)
 
 let declined_runtime () = runtime_head_of 0uy 0ul 0ul empty_span empty_span empty_span empty_span
 
-fn jsx_arrow_body (input:tape) (#frame:slprop)
-  (declaration opening:U32.t) (name_span:G.span) (binding_type:G.span) (typescript:bool)
+fn jsx_callable_body (input:tape) (#frame:slprop)
+  (declaration opening:U32.t) (name_span:G.span) (binding_type:G.span) (typescript function_:bool)
   requires input_ready input ** frame
   returns head:runtime_head
   ensures input_ready input ** frame
@@ -325,17 +325,29 @@ fn jsx_arrow_body (input:tape) (#frame:slprop)
     let end_params = P.next close.at;
     let after = P.trivia input #frame end_params;
     let result = annotation_after input #frame end_params;
-    let arrow = P.trivia input #frame result.offset;
-    let equals = P.same input #frame arrow.at 61uy;
-    let greater = P.same input #frame (P.next arrow.at) 62uy;
-    if (after.ok && not after.newline && result.valid && arrow.ok && not arrow.newline && equals && greater &&
-        (typescript || (parameter.erased.G.first = parameter.erased.G.last && result.erased.G.first = result.erased.G.last))) {
-      let body = P.trivia input #frame (P.plus arrow.at 2ul);
+    let separator = P.trivia input #frame result.offset;
+    if (not (after.ok && (function_ || not after.newline) && result.valid && separator.ok &&
+        (typescript || (parameter.erased.G.first = parameter.erased.G.last && result.erased.G.first = result.erased.G.last)))) {
+      declined_runtime ()
+    } else {
+      let body = if (function_) {
+        let brace = P.same input #frame separator.at 123uy;
+        let start = P.trivia input #frame (P.next separator.at);
+        let return_ = P.keyword input #frame start.at 6ul 0x72657475726euL;
+        let value = P.trivia input #frame (P.plus start.at 6ul);
+        ({ value with P.ok = brace && start.ok && return_ && value.ok && not value.newline })
+      } else {
+        let equals = P.same input #frame separator.at 61uy;
+        let greater = P.same input #frame (P.next separator.at) 62uy;
+        let value = P.trivia input #frame (P.plus separator.at 2ul);
+        ({ value with P.ok = not separator.newline && equals && greater && value.ok })
+      };
       let element = P.same input #frame body.at 60uy;
-      if (body.ok && element) {
-        runtime_head_of 2uy declaration body.at name_span binding_type parameter.erased result.erased
+      let grouped = P.same input #frame body.at 40uy;
+      if (body.ok && (element || grouped)) {
+        runtime_head_of (if function_ then 4uy else 2uy) declaration body.at name_span binding_type parameter.erased result.erased
       } else { declined_runtime () }
-    } else { declined_runtime () }
+    }
   }
 }
 
@@ -348,12 +360,24 @@ fn read_runtime_head (input:tape) (#frame:slprop) (at:U32.t) (jsx typescript loc
   let exported = P.keyword input #frame start.at 6ul 0x6578706f7274uL;
   if (not (start.ok && (exported || local))) { declined_runtime () } else {
     let declaration = if (exported) { P.trivia input #frame (P.plus start.at 6ul) } else { start };
+    let default_ = if (exported) { P.keyword input #frame declaration.at 7ul 0x64656661756c74uL } else { false };
+    let callable = if (default_) { P.trivia input #frame (P.plus declaration.at 7ul) } else { declaration };
+    let function_ = if (jsx) { P.keyword input #frame callable.at 8ul 0x66756e6374696f6euL } else { false };
     let constant = P.keyword input #frame declaration.at 5ul 0x636f6e7374uL;
     let after_const = if (constant) {
       P.trivia input #frame (P.plus declaration.at 5ul)
     } else { declaration };
     let enumeration = P.keyword input #frame after_const.at 4ul 0x656e756duL;
-    if (typescript && after_const.ok && enumeration) {
+    if (callable.ok && function_) {
+      let first = P.trivia input #frame (P.plus callable.at 8ul);
+      let anonymous = P.same input #frame first.at 40uy;
+      let named = P.name input #frame first.at false true;
+      let opening = if (anonymous && default_) { first } else { P.trivia input #frame named.at };
+      let paren = P.same input #frame opening.at 40uy;
+      if (first.ok && opening.ok && paren && ((anonymous && default_) || named.ok)) {
+        jsx_callable_body input #frame start.at opening.at empty_span empty_span typescript true
+      } else { declined_runtime () }
+    } else if (typescript && after_const.ok && enumeration) {
       let first = P.trivia input #frame (P.plus after_const.at 4ul);
       let name = P.name input #frame first.at false true;
       let open_brace = P.trivia input #frame name.at;
@@ -375,7 +399,14 @@ fn read_runtime_head (input:tape) (#frame:slprop) (at:U32.t) (jsx typescript loc
         else if (element) {
           runtime_head_of 2uy start.at init.at name_span annotation.erased empty_span empty_span
         } else if (arrow) {
-          jsx_arrow_body input #frame start.at init.at name_span annotation.erased typescript
+          let first = P.trivia input #frame (P.next init.at);
+          let grouped_element = P.same input #frame first.at 60uy;
+          let grouped = P.same input #frame first.at 40uy;
+          if (first.ok && (grouped_element || grouped)) {
+            runtime_head_of 2uy start.at init.at name_span annotation.erased empty_span empty_span
+          } else {
+            jsx_callable_body input #frame start.at init.at name_span annotation.erased typescript false
+          }
         } else { declined_runtime () }
       } else { declined_runtime () }
     } else { declined_runtime () }
