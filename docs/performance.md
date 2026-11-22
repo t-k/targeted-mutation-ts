@@ -172,6 +172,36 @@ The same ten pinned workloads had identical ordered comparison candidates and UT
 
 On Redux Toolkit, TMT improved on its prior extractor in all seven pairs for both measurements. TMT led Oxc lazy in four warm Redux Toolkit pairs and six warm mreact pairs. The independent 28-project audit produced zero mismatches across 7,784 inputs in both logical-rule settings. The [pinned inputs, native coverage, and all measured results](../evidence/m1/complete-typed-corpora.json) record every corpus and competitor.
 
+### Framework and build tool expansion
+
+The independent audit includes pinned implementation sources from React Router, Immer, Lit, Rollup, Vitest and Tailwind CSS. Pulse emits all 1,368 comparison candidates on these inputs and handles 1,124 of the 1,125 source files. The table is limited to each audit's implementation-source selection. The Tailwind CSS corpus now reads external `.cts` files as TypeScript module source and recognizes terminal export assignments.
+
+| Workload | Native files before → after | Native candidates before → after |
+| --- | ---: | ---: |
+| React Router | 68 → 75 / 75 | 104 → 118 / 118 |
+| Immer | 15 → 16 / 16 | 26 → 26 / 26 |
+| Lit | 107 → 113 / 113 | 18 → 34 / 34 |
+| Rollup | 165 → 271 / 271 | 148 → 236 / 236 |
+| Vitest | 473 → 487 / 488 | 394 → 431 / 431 |
+| Tailwind CSS | 144 → 162 / 162 | 511 → 523 / 523 |
+
+Native additions include typed declaration fields, default function overload groups, plain exported interface reopening, explicit resource bindings, decimal property names and a bounded TypeScript default object assertion. The audit compares shipped diagnostic records with full TypeScript wherever both report diagnostics. The independent Yuku oracle compares source acceptance and candidate records.
+
+The bounded comment and quoted-string scan now uses SSE2 on x86-64 and NEON on arm64. Scalar and production Node addons matched on every byte and lane within the 16-byte window, including the x86-64 build run under Rosetta. In six translated x86-64 source workloads, native-core CPU time was approximately unchanged. A separate long-comment and long-literal input fell from 0.516 to 0.317 ms under the same translation. The benchmark records describe the translated environment.
+
+The initial 16-cohort comparison included 3,519 pinned implementation inputs and 4,713 candidates. Yuku 0.19.0, SWC Next 0.7.0, Oxc 0.159.0 in eager and lazy modes, and both TMT builds emitted the same ordered candidate records. TMT led all four reference paths on 15 cohorts in both measurements. In Vite, it reached 73.72 ms warm and 188.30 ms in a fresh process, compared with Oxc lazy at 66.75 and 152.42 ms. The measurements time extraction from in-memory source buffers. Fresh-process samples include engine loading and exclude the input read and Node startup. The benchmark runs offline in rootless Linux arm64 Podman on an Apple M5 Max, with Node 24.14.0, the compile cache disabled, seven alternating rounds and variable host load.
+
+Three Vite files, three Vitest files and one mreact file reached the compatibility parser in the initial comparison because distinct signature names occupied both fingerprint lanes. The third lane restores native extraction in those seven files. Vite and mreact reached 122 of 122 and 321 of 321 native inputs in the measured implementation selections. The remaining Vitest compatibility file contributes zero candidates. A collision in all three lanes still uses compatibility. The [corpus audit and raw comparison samples](../evidence/m1/framework-native-extraction.json) record both builds.
+
+The follow-up uses five rotating rounds on the same inputs and checks the same candidate records. It skips the separate AST-only timing passes. TMT has the lowest warm and fresh median in all 16 cohorts. The final independent audit found zero discrepancies across 34 projects and 8,921 inputs in both logical-rule settings. The table shows the TMT median and the fastest reference median for four workloads from the follow-up.
+
+| Workload | Warm TMT / fastest reference (ms) | Fresh TMT / fastest reference (ms) |
+| --- | ---: | ---: |
+| Vite | 14.32 / 25.40 (Oxc lazy) | 17.73 / 89.84 (Oxc lazy) |
+| mreact | 50.12 / 77.69 (Oxc lazy) | 106.19 / 731.89 (Oxc lazy) |
+| Vitest | 95.12 / 127.03 (Oxc lazy) | 221.90 / 326.45 (Oxc lazy) |
+| Tailwind CSS | 52.86 / 117.23 (Oxc lazy) | 54.85 / 612.32 (SWC Next) |
+
 ## Analysis throughput
 
 ### Reusing the syntax projection and reducing Lean input
