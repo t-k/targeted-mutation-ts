@@ -1,0 +1,7 @@
+Target	Rhs	Tail
+Shorthand	Reference	End
+Rename	Call	End
+Repeated	Comparison	OuterComparison
+Shorthand	Comparison	TrailingKeyComma
+Invalid	Call	TrailingKeyComma
+Rename	Comparison	Broken

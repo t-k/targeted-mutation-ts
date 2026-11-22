@@ -1117,6 +1117,19 @@ TmtPulseParser_object_item;
 
 bool TmtPulseParser_proto_key(TmtPulseMemory_tape input, uint32_t first, uint32_t last);
 
+TmtPulseParser_parser_state
+TmtPulseParser_flat_assignment_members(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_flat_assignment_head(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
 typedef struct TmtPulseParser_regex_captures_s
 {
   uint64_t names;

@@ -1981,6 +1981,41 @@ let signature_end (input:tape) (#frame:slprop) (state opening:parser_state) (par
     if checked.status <> 0ul || checked.offset <> params.names.state.offset then read_ret input #frame (failed st 1ul)
     else statement_end input #frame annotation annotation.offset false
 
+let rec flat_assignment_members (input:tape) (#frame:slprop) (state:parser_state) (remaining:U32.t)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v remaining) =
+  let! st = (fun () -> skip input #frame state) in
+  let! closing = (fun () -> same input #frame st.offset 125uy) in
+  if st.status <> 0ul || closing then consume input #frame st 125uy
+  else if remaining = 0ul then read_ret input #frame (failed st 1ul)
+  else
+    let! key = (fun () -> property_name input #frame st) in
+    let! tail = (fun () -> skip input #frame (from_cursor st key)) in
+    let! renamed = (fun () -> same input #frame tail.offset 58uy) in
+    let! target =
+      (fun () -> if renamed then
+        let! colon = (fun () -> consume input #frame tail 58uy) in
+        skip input #frame colon
+      else read_ret input #frame st) in
+    let! named = (fun () -> name input #frame target.offset false true) in
+    let! after = (fun () -> skip input #frame (from_cursor target named)) in
+    let! comma = (fun () -> same input #frame after.offset 44uy) in
+    if comma then
+      let! next_member = (fun () -> consume input #frame after 44uy) in
+      flat_assignment_members input #frame next_member (minus remaining 1ul)
+    else consume input #frame after 125uy
+
+let flat_assignment_head (input:tape) (#frame:slprop) (state:parser_state)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! st = (fun () -> skip input #frame state) in
+  let! brace = (fun () -> consume input #frame st 123uy) in
+  if brace.status <> 0ul then read_ret input #frame brace
+  else
+    let! pattern = (fun () -> flat_assignment_members input #frame brace 64ul) in
+    let! tail = (fun () -> skip input #frame pattern) in
+    let! equal = (fun () -> consume input #frame tail 61uy) in
+    let! follower = (fun () -> peek input #frame equal.offset) in
+    read_ret input #frame (if follower = 61uy || follower = 62uy then failed equal 1ul else equal)
+
 #push-options "--z3rlimit 30"
 let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 2; 0]) =
@@ -2082,7 +2117,9 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
       else
         let depth = minus 65ul fuel in
         let depth = if U32.(depth >^ st.depth) then depth else st.depth in
-        let! inner = (fun () -> comparison input { st with offset = next start_pos; depth; in_allowed = true } (minus fuel 1ul)) in
+        let inside = { st with offset = next start_pos; depth; in_allowed = true } in
+        let! assignment = (fun () -> flat_assignment_head input inside) in
+        let! inner = (fun () -> comparison input (if assignment.status = 0ul then assignment else inside) (minus fuel 1ul)) in
         let! consumed = (fun () -> skip input inner.parser) in
         let! comma = (fun () -> same input consumed.offset 44uy) in
         let! done_ =
@@ -2090,7 +2127,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           else if inner.open_angle then ret input (failed consumed 1ul)
           else (let! anf_value_12 = (fun () -> (consume input consumed 44uy)) in grouped_tail input anf_value_12 (minus fuel 1ul) input.size)) in
         let done_ = { done_ with in_allowed = st.in_allowed } in
-        let target = if not comma && inner.target = AssertedTarget then AssertedTarget else NotAssignable in
+        let target = if assignment.status <> 0ul && not comma && inner.target = AssertedTarget then AssertedTarget else NotAssignable in
         postfix input { parser = done_; range = { G.first = start_pos; G.last = done_.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target }
           fuel input.size
     else if G.decimal_digit ch || ch = 46uy then

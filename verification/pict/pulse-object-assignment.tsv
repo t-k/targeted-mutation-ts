@@ -1,0 +1,17 @@
+Target	Rhs	Tail
+Shorthand	Reference	End
+Rename	Call	End
+Repeated	Comparison	OuterComparison
+Shorthand	Comparison	TrailingKeyComma
+Invalid	Call	TrailingKeyComma
+Rename	Comparison	Broken
+Repeated	Reference	End
+Repeated	Call	Broken
+Rename	Reference	TrailingKeyComma
+Rename	Call	OuterComparison
+Repeated	Reference	TrailingKeyComma
+Invalid	Comparison	End
+Shorthand	Call	Broken
+Shorthand	Reference	OuterComparison
+Invalid	Reference	OuterComparison
+Invalid	Reference	Broken

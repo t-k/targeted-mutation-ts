@@ -1,0 +1,3 @@
+Target: Shorthand, Rename, Repeated, Invalid
+Rhs: Reference, Call, Comparison
+Tail: End, TrailingKeyComma, OuterComparison, Broken
