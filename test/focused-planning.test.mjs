@@ -10,9 +10,9 @@ const hook = registerHooks({ load(url, context, next) {
   const result = next(url, context);
   if (url !== prototypeURL) return result;
   return { ...result, source: String(result.source).replace(
-    'export function thresholdSites(source, file, operator = \'>=\') {',
-    `export function thresholdSites(source, file, operator = '>=') {
-  globalThis[Symbol.for('tmt-threshold-test-parse-count')]++;`,
+    '  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);',
+    `  globalThis[Symbol.for('tmt-threshold-test-parse-count')]++;
+  const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);`,
   ) };
 } });
 const { planFocusedTrials } = await import('../src/analysis.mjs');
@@ -41,7 +41,7 @@ for (const [text, sites, trace] of matrix) {
     }
     globalThis[parseCounter] = 0;
     const planned = planFocusedTrials([{ file, input, sites: candidates }], rows, { tests: [passing, second] }, {}, true);
-    assert.equal(globalThis[parseCounter], trace === 'LoadedOnly' || trace === 'Invalid' && sites === 'Single' ? 0 : new Set(operators).size);
+    assert.equal(globalThis[parseCounter], trace === 'LoadedOnly' || trace === 'Invalid' && sites === 'Single' ? 0 : 1);
     const boundary = planned.filter(trial => trial.rule === 'comparison-boundary/v1');
     assert.deepEqual(boundary.map(trial => trial.site.id), candidates.map(site => site.id));
     for (const [index, trial] of boundary.entries()) {

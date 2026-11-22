@@ -1,0 +1,4 @@
+Event: Attributed, Static, Mixed
+Traffic: Single, Small, Large
+Completion: Normal, Missing, Unavailable
+IF [Event] = "Static" THEN [Completion] <> "Missing";

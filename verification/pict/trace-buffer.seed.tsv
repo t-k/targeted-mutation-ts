@@ -1,0 +1,8 @@
+Event	Traffic	Completion
+Attributed	Single	Normal
+Attributed	Small	Normal
+Attributed	Small	Missing
+Attributed	Large	Missing
+Mixed	Large	Normal
+Mixed	Small	Unavailable
+Static	Small	Normal

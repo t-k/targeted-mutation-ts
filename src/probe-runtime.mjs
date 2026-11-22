@@ -1,14 +1,15 @@
-import { appendFileSync } from 'node:fs';
 import { relative } from 'node:path';
 import { getCurrentTest } from 'vitest/suite';
+import { createTraceWriter } from './trace-buffer.mjs';
 
 const trace = process.env.TMT_TRACE;
+const writer = trace && createTraceWriter(trace, (test, finish) => test.context.onTestFinished(finish));
 const active = process.env.TMT_ACTIVE_SITE;
 const workspace = process.env.TMT_WORKSPACE;
 const isSafeInteger = Number.isSafeInteger;
 
 export function loaded(ids) {
-  if (trace) appendFileSync(trace, JSON.stringify({ loaded: ids }) + '\n');
+  if (writer) writer.write({ loaded: ids });
 }
 
 export function compare(site, original, replacement, lhs, rhs) {
@@ -28,8 +29,8 @@ export function compare(site, original, replacement, lhs, rhs) {
     }
     return result;
   } finally {
-    if (trace) appendFileSync(trace, JSON.stringify({
+    if (writer) writer.write({
       site, identity, operands: safe ? [lhs, rhs] : null, result: result ?? null, operator,
-    }) + '\n');
+    }, test);
   }
 }

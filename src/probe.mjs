@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, extname, relative, resolve, sep } from 'node:path';
 import { loadTypeScript } from './typescript-compiler.mjs';
 
@@ -30,6 +30,9 @@ function explicitPackageType(root, file) {
     if (directory === root || dirname(directory) === directory) return undefined;
   }
 }
+
+const probeDirectory = '.tmt-probe';
+const probeEntry = 'probe-runtime.mjs';
 
 const commonJsWrapperNames = new Set(['require', 'module', 'exports', '__dirname', '__filename']);
 
@@ -86,7 +89,7 @@ export function freshProbeBinding(sources) {
 }
 
 export function instrument(root, file, source, sites, preloadedBinding) {
-  const runtime = resolve(root, '.tmt-probe.mjs');
+  const runtime = resolve(root, probeDirectory, probeEntry);
   const path = relative(dirname(resolve(root, file)), runtime).split(sep).join('/');
   const spellings = sourceSpellings(source);
   let alias = '__tmtCompare';
@@ -124,13 +127,16 @@ export function instrument(root, file, source, sites, preloadedBinding) {
 }
 
 export function installProbe(root, preloadedBinding) {
-  copyFileSync(new URL('./probe-runtime.mjs', import.meta.url), resolve(root, '.tmt-probe.mjs'), 1);
+  const directory = resolve(root, probeDirectory);
+  mkdirSync(directory);
+  copyFileSync(new URL('./probe-runtime.mjs', import.meta.url), resolve(directory, probeEntry), 1);
+  copyFileSync(new URL('./trace-buffer.mjs', import.meta.url), resolve(directory, 'trace-buffer.mjs'), 1);
   if (!preloadedBinding) return;
   const preload = resolve(root, '.tmt-probe-register.cjs');
   writeFileSync(preload, `
 'use strict';
 let runtime;
-const load = () => runtime ??= require('./.tmt-probe.mjs');
+const load = () => runtime ??= require('./${probeDirectory}/${probeEntry}');
 Object.defineProperty(globalThis, ${JSON.stringify(preloadedBinding)}, {
   value: {
     compare: (...args) => load().compare(...args),

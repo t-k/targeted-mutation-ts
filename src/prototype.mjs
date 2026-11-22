@@ -5,7 +5,7 @@ import { thresholdGaps } from './threshold.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
 import { inside, runVitest, withCopy } from './vitest.mjs';
 
-export function thresholdSites(source, file, operator = '>=') {
+function scanThresholdSites(source, file, operators) {
   const ts = loadTypeScript();
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   if (tree.parseDiagnostics.length) throw new Error(ts.flattenDiagnosticMessageText(tree.parseDiagnostics[0].messageText, '\n'));
@@ -22,8 +22,10 @@ export function thresholdSites(source, file, operator = '>=') {
       const parameter = arrow.parameters[0];
       const comparison = arrow.body;
       if (!ts.isIdentifier(parameter.name) || parameter.initializer || parameter.dotDotDotToken ||
-          !ts.isBinaryExpression(comparison) || comparison.operatorToken.getText(tree) !== operator ||
-          !ts.isIdentifier(comparison.left) || comparison.left.text !== parameter.name.text) continue;
+          !ts.isBinaryExpression(comparison) || !ts.isIdentifier(comparison.left) ||
+          comparison.left.text !== parameter.name.text) continue;
+      const operator = comparison.operatorToken.getText(tree);
+      if (!operators.has(operator)) continue;
 
       const literal = comparison.right;
       const numeric = ts.isNumericLiteral(literal)
@@ -34,6 +36,7 @@ export function thresholdSites(source, file, operator = '>=') {
       const threshold = numeric === literal ? value : -value;
       if (!Number.isSafeInteger(threshold)) continue;
       sites.push({
+        operator,
         functionName: declaration.name.getText(tree),
         threshold,
         operand: comparison.left.getText(tree),
@@ -45,6 +48,16 @@ export function thresholdSites(source, file, operator = '>=') {
     }
   }
   return sites;
+}
+
+const comparisonOperators = new Set(['<', '<=', '>', '>=']);
+
+export function comparisonThresholdSites(source, file) {
+  return scanThresholdSites(source, file, comparisonOperators);
+}
+
+export function thresholdSites(source, file, operator = '>=') {
+  return scanThresholdSites(source, file, new Set([operator])).map(({ operator: _, ...site }) => site);
 }
 
 function edit(source, start, end, replacement) {

@@ -41,7 +41,7 @@ for (const row of rows) {
       const output = instrument(root, sourceFile, source, sites, binding);
       if (strict === 'Directive') assert.match(output, /^"use strict";/);
       writeFileSync(path, output);
-      writeFileSync(join(root, '.tmt-probe.mjs'), 'export const compare = (id, op, replacement, left, right) => left < right;\n' +
+      writeFileSync(join(root, '.tmt-probe', 'probe-runtime.mjs'), 'export const compare = (id, op, replacement, left, right) => left < right;\n' +
         'export const loaded = sites => console.log(...sites);');
       const run = spawnSync(process.execPath, [...(preload ? ['--require', preload] : []), path],
         { encoding: 'utf8', timeout: 10_000 });

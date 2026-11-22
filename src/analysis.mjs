@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mjs';
-import { thresholdSites } from './prototype.mjs';
+import { comparisonThresholdSites } from './prototype.mjs';
 import { thresholdGaps } from './threshold.mjs';
 import { tightenComparison } from './displacement.mjs';
 import { inside, runVitest, withCopy } from './vitest.mjs';
@@ -10,6 +10,7 @@ import { needsProbePreload, freshProbeBinding, instrument, installProbe, rewrite
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
 import { checkReplay } from './lean-replay.mjs';
+import { pendingTraceDirectory, readCompletedTrace } from './trace-buffer.mjs';
 
 const sha = source => createHash('sha256').update(source).digest('hex');
 const identity = test => JSON.stringify([test.project, test.file, test.id]);
@@ -60,18 +61,10 @@ export function verdict(run, baseline) {
   return run.status === 'passed' ? 'survived' : 'killed';
 }
 
-function traceFrom(path) {
-  if (!existsSync(path)) return null;
-  try {
-    return readFileSync(path, 'utf8').trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
-  } catch {
-    return null;
-  }
-}
-
 function makeAttempt(root, subjects, runner, copyExclude, { tracing = false, activate, trial, witness } = {}) {
   return withCopy(root, (workspace, temp) => {
     const trace = tracing ? resolve(temp, 'trace.jsonl') : undefined;
+    if (trace) mkdirSync(pendingTraceDirectory(trace));
     const files = subjects.map(subject => ({ subject, file: inside(workspace, subject.file) }));
     const preloaded = tracing ? new Set(files.filter(({ file, subject }) => needsProbePreload(workspace, file, subject.input))) : null;
     const binding = preloaded?.size ? freshProbeBinding([...preloaded].map(({ subject }) => subject.input)) : undefined;
@@ -95,7 +88,7 @@ function makeAttempt(root, subjects, runner, copyExclude, { tracing = false, act
       witnessFile = relative(workspace, path);
     }
     const result = runner(workspace, temp, { trace, active: activate, product: true, probePreload });
-    return tracing ? { ...result, trace: traceFrom(trace) } : { ...result, witnessFile, witnessName: witness?.testName };
+    return tracing ? { ...result, trace: readCompletedTrace(trace) } : { ...result, witnessFile, witnessName: witness?.testName };
   }, { exclude: copyExclude });
 }
 
@@ -133,22 +126,21 @@ function matchObservations(site, { tests, bySite, loaded }) {
 }
 
 function thresholdLookup(subject) {
-  let source;
   let offsets;
-  const byOperator = new Map();
+  let byOperator;
   return site => {
-    let entries = byOperator.get(site.operator);
-    if (entries === undefined) {
-      source ??= subject.input.toString();
-      offsets ??= byteOffsets(source);
-      entries = new Map();
-      for (const entry of thresholdSites(source, subject.file, site.operator)) {
+    if (!byOperator) {
+      const source = subject.input.toString();
+      offsets = byteOffsets(source);
+      byOperator = new Map();
+      for (const { operator, ...entry } of comparisonThresholdSites(source, subject.file)) {
+        let entries = byOperator.get(operator);
+        if (!entries) byOperator.set(operator, entries = new Map());
         const left = offsets[entry.from];
         if (!entries.has(left)) entries.set(left, entry);
       }
-      byOperator.set(site.operator, entries);
     }
-    const entry = entries.get(site.left[0]);
+    const entry = byOperator.get(site.operator)?.get(site.left[0]);
     if (entry && offsets[entry.literalFrom] === site.right[0] && offsets[entry.literalTo] === site.right[1]) return entry;
     return null;
   };
