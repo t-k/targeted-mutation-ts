@@ -1047,7 +1047,7 @@ and type_list (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining:
     else (let! anf_value_2 = (fun () -> same input #frame st.offset 44uy) in if anf_value_2 then
       type_list input #frame { st with offset = next st.offset } fuel (minus remaining 1ul) close true
     else consume input #frame st close)
-and tuple_element (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t)
+and tuple_element (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t) (allow_constrained_infer:bool)
   : Tot (stt tuple_item (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 5; 0]) =
   let! rest_item = (fun () -> spread_at input #frame state.offset) in
   let! start = (fun () -> if rest_item then skip input #frame { state with offset = plus state.offset 3ul } else read_ret input #frame (state)) in
@@ -1059,6 +1059,11 @@ and tuple_element (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t)
   let! named = (fun () -> if label_end = start.offset then read_ret input #frame (false) else same input #frame colon.offset 58uy) in
   let! start = (fun () -> if named then consume input #frame colon 58uy else read_ret input #frame (start)) in
   let! value = (fun () -> annotation_type input #frame start fuel 64ul) in
+  let! value = (fun () -> if value.status <> 0ul && allow_constrained_infer then
+    let! item_start = (fun () -> skip input #frame start) in
+    let! infer_ = (fun () -> keyword input #frame item_start.offset 5ul 0x696e666572uL) in
+    if infer_ then type_terms input #frame item_start fuel 64ul false true else read_ret input #frame value
+    else read_ret input #frame value) in
   let! after_value = (fun () -> trivia input #frame value.offset) in
   let annotated = from_cursor value after_value in
   let! optional_suffix = (fun () -> if named then read_ret input #frame (false) else same input #frame annotated.offset 63uy) in
@@ -1071,19 +1076,19 @@ and tuple_element (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t)
       else (let! anf_value_3 = (fun () -> (consume input #frame annotated 63uy)) in skip input #frame anf_value_3)
     else read_ret input #frame (annotated)) in
   read_ret input #frame ({ item_end; optional_item; rest_item })
-and tuple_list (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining:U32.t) (seen_optional:bool)
+and tuple_list (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining:U32.t) (seen_optional allow_constrained_infer:bool)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 6; U32.v remaining]) =
   let! st = (fun () -> skip input #frame state) in
   if st.status <> 0ul then read_ret input #frame (st)
   else (let! anf_value_1 = (fun () -> same input #frame st.offset 93uy) in if anf_value_1 then consume input #frame st 93uy
   else if remaining = 0ul then read_ret input #frame (failed st 1ul)
   else
-    let! item = (fun () -> tuple_element input #frame st fuel) in
+    let! item = (fun () -> tuple_element input #frame st fuel allow_constrained_infer) in
     let end_ = item.item_end in
     if end_.status <> 0ul then read_ret input #frame (end_)
     else if seen_optional && not item.optional_item && not item.rest_item then read_ret input #frame (failed end_ 1ul)
     else (let! anf_value_2 = (fun () -> same input #frame end_.offset 44uy) in if anf_value_2 then
-      (let! anf_value_3 = (fun () -> (consume input #frame end_ 44uy)) in tuple_list input #frame anf_value_3 fuel (minus remaining 1ul) (seen_optional || item.optional_item))
+      (let! anf_value_3 = (fun () -> (consume input #frame end_ 44uy)) in tuple_list input #frame anf_value_3 fuel (minus remaining 1ul) (seen_optional || item.optional_item) allow_constrained_infer)
     else consume input #frame end_ 93uy))
 and object_type_member (input:tape) (#frame:slprop) (st:parser_state) (fuel:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 6; 0]) =
@@ -1232,7 +1237,7 @@ and type_term (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t) (al
         else
           let inside = { st with offset = next st.offset } in
           let inner = minus fuel 1ul in
-          if byte = 91uy then tuple_list input #frame inside inner 64ul false
+          if byte = 91uy then tuple_list input #frame inside inner 64ul false allow_constrained_infer
           else if byte = 123uy then braced_type input #frame inside inner
           else
             let! params = (fun () -> if allow_signature then signature_parameters input #frame inside inner 64ul

@@ -642,7 +642,8 @@ TmtPulseParser_tuple_item
 TmtPulseParser_tuple_element(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
-  uint32_t fuel
+  uint32_t fuel,
+  bool allow_constrained_infer
 );
 
 TmtPulseParser_parser_state
@@ -651,7 +652,8 @@ TmtPulseParser_tuple_list(
   TmtPulseParser_parser_state state0,
   uint32_t fuel0,
   uint32_t remaining0,
-  bool seen_optional0
+  bool seen_optional0,
+  bool allow_constrained_infer0
 );
 
 TmtPulseParser_parser_state

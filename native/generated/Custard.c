@@ -3389,7 +3389,8 @@ TmtPulseParser_tuple_item
 TmtPulseParser_tuple_element(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
-  uint32_t fuel
+  uint32_t fuel,
+  bool allow_constrained_infer
 )
 {
   bool value = TmtPulseParser_spread_at(input, state.offset);
@@ -3477,36 +3478,48 @@ TmtPulseParser_tuple_element(
   else
     value8 = value1;
   TmtPulseParser_parser_state value9 = TmtPulseParser_annotation_type(input, value8, fuel, 64U);
-  TmtPulseParser_cursor value10 = TmtPulseParser_trivia(input, value9.offset);
-  TmtPulseParser_parser_state annotated = TmtPulseParser_from_cursor(value9, value10);
-  bool value11;
-  if (value7)
-    value11 = false;
-  else
-    value11 = TmtPulseParser_same(input, annotated.offset, 63U);
-  bool optional_item = value7 && value5 || value11;
-  TmtPulseParser_parser_state value120;
-  if (value && optional_item)
-    value120 = TmtPulseParser_failed(annotated, 1U);
-  else if (value11)
+  TmtPulseParser_parser_state value100;
+  if (value9.status != 0U && allow_constrained_infer)
   {
-    TmtPulseParser_parser_state value12 = TmtPulseParser_type_reference(input, value8, 0U);
+    TmtPulseParser_parser_state value10 = TmtPulseParser_skip(input, value8);
+    bool value11 = TmtPulseParser_keyword(input, value10.offset, 5U, 0x696e666572ULL);
+    if (value11)
+      value100 = TmtPulseParser_type_terms(input, value10, fuel, 64U, false, true);
+    else
+      value100 = value9;
+  }
+  else
+    value100 = value9;
+  TmtPulseParser_cursor value11 = TmtPulseParser_trivia(input, value100.offset);
+  TmtPulseParser_parser_state annotated = TmtPulseParser_from_cursor(value100, value11);
+  bool value12;
+  if (value7)
+    value12 = false;
+  else
+    value12 = TmtPulseParser_same(input, annotated.offset, 63U);
+  bool optional_item = value7 && value5 || value12;
+  TmtPulseParser_parser_state value130;
+  if (value && optional_item)
+    value130 = TmtPulseParser_failed(annotated, 1U);
+  else if (value12)
+  {
+    TmtPulseParser_parser_state value13 = TmtPulseParser_type_reference(input, value8, 0U);
     TmtPulseParser_parser_state
-    value13 = TmtPulseParser_type_suffixes(input, value12, 0U, 16U, false);
-    if (value10.newline || value13.status != 0U || value13.offset != value9.offset)
-      value120 = TmtPulseParser_failed(annotated, 1U);
+    value14 = TmtPulseParser_type_suffixes(input, value13, 0U, 16U, false);
+    if (value11.newline || value14.status != 0U || value14.offset != value100.offset)
+      value130 = TmtPulseParser_failed(annotated, 1U);
     else
     {
-      TmtPulseParser_parser_state value14 = TmtPulseParser_consume(input, annotated, 63U);
-      value120 = TmtPulseParser_skip(input, value14);
+      TmtPulseParser_parser_state value15 = TmtPulseParser_consume(input, annotated, 63U);
+      value130 = TmtPulseParser_skip(input, value15);
     }
   }
   else
-    value120 = annotated;
+    value130 = annotated;
   return
     (
       (TmtPulseParser_tuple_item){
-        .item_end = value120,
+        .item_end = value130,
         .optional_item = optional_item,
         .rest_item = value
       }
@@ -3519,7 +3532,8 @@ TmtPulseParser_tuple_list(
   TmtPulseParser_parser_state state0,
   uint32_t fuel0,
   uint32_t remaining0,
-  bool seen_optional0
+  bool seen_optional0,
+  bool allow_constrained_infer0
 )
 {
   TmtPulseMemory_tape input = input0;
@@ -3527,6 +3541,7 @@ TmtPulseParser_tuple_list(
   uint32_t fuel = fuel0;
   uint32_t remaining = remaining0;
   bool seen_optional = seen_optional0;
+  bool allow_constrained_infer = allow_constrained_infer0;
   while (true)
   {
     TmtPulseParser_parser_state value = TmtPulseParser_skip(input, state);
@@ -3541,7 +3556,8 @@ TmtPulseParser_tuple_list(
         return TmtPulseParser_failed(value, 1U);
       else
       {
-        TmtPulseParser_tuple_item value2 = TmtPulseParser_tuple_element(input, value, fuel);
+        TmtPulseParser_tuple_item
+        value2 = TmtPulseParser_tuple_element(input, value, fuel, allow_constrained_infer);
         TmtPulseParser_parser_state end_ = value2.item_end;
         if (end_.status != 0U)
           return end_;
@@ -4070,7 +4086,13 @@ TmtPulseParser_type_term(
           };
         uint32_t inner = TmtPulseParser_minus(fuel, 1U);
         if (byte == 91U)
-          value30 = TmtPulseParser_tuple_list(input, inside, inner, 64U, false);
+          value30 =
+            TmtPulseParser_tuple_list(input,
+              inside,
+              inner,
+              64U,
+              false,
+              allow_constrained_infer);
         else if (byte == 123U)
           value30 = TmtPulseParser_braced_type(input, inside, inner);
         else
