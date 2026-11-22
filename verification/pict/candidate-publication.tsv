@@ -1,0 +1,12 @@
+Count	Missing	Suffix
+Zero	None	Clear
+Partial	None	Clear
+Partial	First	Marked
+Partial	Middle	Clear
+Partial	Last	Marked
+Full	None	Clear
+Full	Last	Clear
+Full	First	Clear
+Partial	Middle	Marked
+Full	Middle	Clear
+Zero	None	Marked

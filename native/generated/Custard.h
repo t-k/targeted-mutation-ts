@@ -52,6 +52,7 @@ typedef struct TmtPulseMemory_tape_s
   TmtGrammar_candidate *output;
   uint32_t capacity;
   TmtPulseMemory_binding_name *bindings;
+  uint8_t *marks;
 }
 TmtPulseMemory_tape;
 
@@ -1695,6 +1696,12 @@ TmtPulseParser_control_sequence(
 TmtPulseParser_parser_state
 TmtPulseParser_declaration(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
 
+void Pulse_Lib_Array_fill__uint8_t(size_t l, uint8_t *a, uint8_t v);
+
+void Pulse_Lib_Array_zeroize(size_t l, uint8_t *a);
+
+void TmtPulseMemory_clear_marks(TmtPulseMemory_tape input);
+
 typedef struct TmtPulseParser_export_prefix_s
 {
   TmtPulseParser_parser_state after_export;
@@ -1926,6 +1933,13 @@ TmtPulseParser_module_sequence(
   uint32_t fuel0,
   uint32_t exports0
 );
+
+TmtPulseParser_parser_state
+TmtPulseParser_parse_candidates(TmtPulseMemory_tape input, bool jsx, bool module_mode);
+
+bool TmtPulseMemory_prefix_marked(uint8_t *marks, uint32_t count);
+
+bool TmtPulseMemory_certify_prefix(TmtPulseMemory_tape input, uint32_t count);
 
 TmtPulseParser_parser_state
 TmtPulseParser_parse(TmtPulseMemory_tape input, bool jsx, bool module_mode);

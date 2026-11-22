@@ -25,9 +25,9 @@ for file in Custard.c Custard.h; do
   # The invocation embeds machine-local paths. Keep the verified snapshots reproducible.
   sed 's/[[:blank:]]*$//; /KaRaMeL invocation:/d; ${/^$/d;}' "$scratch/$file" > "$scratch/stable/$file"
 done
-"${CC:-cc}" -std=c11 -O2 -I"$scratch/stable" -Inative/runtime \
-  native/pulse/test.c "$scratch/stable/Custard.c" -o "$scratch/scanner-test"
-"$scratch/scanner-test" verification/pict/pulse-scan.tsv verification/pict/pulse-primitives.tsv
+"${CC:-cc}" -std=c11 -O2 -I"$scratch/stable" -Inative/runtime -Inative \
+  native/pulse/test.c native/parser.c "$scratch/stable/Custard.c" -o "$scratch/scanner-test"
+"$scratch/scanner-test" verification/pict/pulse-scan.tsv verification/pict/pulse-primitives.tsv verification/pict/candidate-publication.tsv
 
 if [ "${1:-}" = '--update' ]; then
   mkdir -p native/generated

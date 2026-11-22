@@ -1,0 +1,5 @@
+Count: Zero, Partial, Full
+Missing: None, First, Middle, Last
+Suffix: Clear, Marked
+IF [Count] = "Zero" THEN [Missing] = "None";
+IF [Count] = "Full" THEN [Suffix] = "Clear";

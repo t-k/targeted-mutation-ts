@@ -3,7 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "Custard.h"
+#include "parser.h"
 
 enum { SPACE, IDENTIFIER, DECIMAL_DIGITS };
 
@@ -94,12 +94,60 @@ static void check_primitives(const char *path)
   printf("Pulse primitives matched %d PICT cases\n", count);
 }
 
+static void check_publication(const char *path)
+{
+  FILE *matrix = fopen(path, "r");
+  char header[128], width[32], missing[32], suffix[32];
+  assert(matrix && fgets(header, sizeof(header), matrix));
+  int rows = 0;
+  while (fscanf(matrix, "%31s %31s %31s", width, missing, suffix) == 3) {
+    uint8_t marks[8] = {0};
+    uint32_t count = strcmp(width, "Zero") == 0 ? 0 : strcmp(width, "Partial") == 0 ? 4 : 8;
+    memset(marks, 1, strcmp(suffix, "Marked") == 0 ? sizeof(marks) : count);
+    const bool complete = strcmp(missing, "None") == 0;
+    if (!complete) {
+      uint32_t hole = strcmp(missing, "First") == 0 ? 0 :
+        strcmp(missing, "Middle") == 0 ? count / 2 : count - 1;
+      marks[hole] = 0;
+    }
+    uint8_t before[8];
+    memcpy(before, marks, sizeof(marks));
+    assert(TmtPulseMemory_prefix_marked(marks, count) == complete);
+    assert(memcmp(before, marks, sizeof(marks)) == 0);
+    rows++;
+  }
+  assert(feof(matrix) && rows > 0);
+  fclose(matrix);
+  printf("Pulse publication matched %d PICT cases\n", rows);
+}
+
+static void check_parser_publication(void)
+{
+  const uint8_t source[] = "const x = (a < b) > (c <= d);\nconst y = e >= f;";
+  const uint32_t size = sizeof(source) - 1;
+  TmtGrammar_candidate output[4];
+  tmt_result result = tmt_parse(source, size, false, true, output, 4);
+  assert(result.status == TMT_DONE && result.count == 4);
+  const uint32_t operators[] = { 1, 3, 2, 4 };
+  for (uint32_t i = 0; i < result.count; ++i) {
+    assert(output[i].original == operators[i]);
+    if (i > 0) assert(output[i - 1].edit.first < output[i].edit.first);
+  }
+  result = tmt_parse(source, size, false, true, output, 3);
+  assert(result.status == TMT_CANDIDATE_LIMIT && result.count == 0);
+  const uint8_t empty[] = "";
+  result = tmt_parse(empty, 0, false, true, NULL, 0);
+  assert(result.status == TMT_DONE && result.count == 0);
+}
+
 int main(int argc, char **argv)
 {
   uint8_t buffer[258];
-  assert(argc == 3);
+  assert(argc == 4);
   check_matrix(argv[1]);
   check_primitives(argv[2]);
+  check_publication(argv[3]);
+  check_parser_publication();
   for (uint8_t cls = SPACE; cls <= DECIMAL_DIGITS; cls++)
   {
     compare(buffer, 0, 0, cls);

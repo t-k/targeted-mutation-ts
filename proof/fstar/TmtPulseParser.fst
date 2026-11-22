@@ -10,6 +10,7 @@ module Cast = FStar.Int.Cast
 module G = TmtGrammar
 module A = Pulse.Lib.Array.Core
 module Seq = FStar.Seq
+module Size = FStar.SizeT
 module S = TmtPulseScan
 
 let class_code (cls:G.byte_class) : n:U8.t{U8.v n <= 2} =
@@ -235,7 +236,15 @@ fn emit_comparison_in_workspace (input:tape) (state:parser_state) (slot op start
 {
   unfold heap;
   unfold workspace_ready;
+  unfold workspace_at;
   let result = emit_comparison input state slot op start left right;
+  if U32.(slot <^ input.capacity) {
+    Pulse.Lib.Array.pts_to_len input.marks;
+    input.marks.(Size.uint32_to_sizet slot) <- 1uy;
+    fold workspace_at;
+  } else {
+    fold workspace_at;
+  };
   fold workspace_ready;
   fold heap;
   result
@@ -3410,12 +3419,13 @@ type parse_result (input:tape) = r:parser_state{
   (r.status <> 0ul ==> r.count = 0ul)
 }
 
-let parse (input:tape) (jsx module_mode:bool)
+let parse_candidates (input:tape) (jsx module_mode:bool)
   : Tot (stt (parse_result input) (heap input) (fun _ -> heap input)) =
   let! initial = (fun () -> (let! anf_value_1 = (fun () -> (let! anf_value_2 = (fun () -> source_start input) in ret input ({ (initial_state jsx module_mode) with offset = anf_value_2 }))) in skip input anf_value_1)) in
   let! state = (fun () -> parse_state input initial module_mode) in
   let! state : parser_state =
     (fun () -> if module_mode && (state.status = 1ul || (state.status = 0ul && state.offset <> input.size)) then
+      let! _ = (fun () -> clear_marks input) in
       let! expanded = (fun () -> module_sequence input initial 0ul input.size 0ul) in
       ret input (if expanded.status = 1ul then state else expanded)
     else ret input (state)) in
@@ -3424,6 +3434,28 @@ let parse (input:tape) (jsx module_mode:bool)
   else if U32.(state.count >^ input.capacity) then
     { (failed state 4ul) with count = 0ul }
   else state)
+
+fn parse (input:tape) (jsx module_mode:bool)
+  requires heap input
+  returns result:parse_result input
+  ensures published input result.count
+{
+  let result = parse_candidates input jsx module_mode;
+  if (result.status = 0ul) {
+    let full = certify_prefix input result.count;
+    if full { result } else {
+      let refused = { (failed result 1ul) with count = 0ul };
+      rewrite (published input 0ul) as (published input refused.count);
+
+      refused
+    }
+  } else {
+    unfold heap;
+    unfold workspace_ready;
+    fold (published input result.count);
+    result
+  }
+}
 
 type lexical_conflict = { first_name:G.span; repeated_name:G.span; checked:U32.t }
 
