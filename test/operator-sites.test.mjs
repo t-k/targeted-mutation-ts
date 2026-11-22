@@ -68,3 +68,38 @@ test('every rule replaces an operator with a different operator of the same fami
     assert.match(rule, /^(equality-negation|logical-operator|arithmetic-operator)\/v1$/);
   }
 });
+
+test('a replacement that would merge with a neighbouring token is separated by spaces', () => {
+  const rewrite = (source, pick = 0) => {
+    const input = Buffer.from(source);
+    const site = collectOperatorSites(input, 'a.ts')[pick];
+    return Buffer.concat([input.subarray(0, site.edit[0]), Buffer.from(site.replacement), input.subarray(site.edit[1])]).toString();
+  };
+  assert.equal(rewrite('const c = a*/* factor */b;'), 'const c = a/ /* factor */b;');
+  assert.equal(rewrite('const c = a+-b;'), 'const c = a- -b;');
+  assert.equal(rewrite('const c = a-+b;'), 'const c = a+ +b;');
+  assert.equal(rewrite('const c = a++-b;'), 'const c = a++ +b;');
+  assert.equal(rewrite('const c = a*b;'), 'const c = a/b;');
+  assert.equal(rewrite('const c = a === b;'), 'const c = a !== b;');
+});
+
+test('a nullish operator chained with another nullish operator is left alone', () => {
+  // `a && b ?? c` and `a ?? b && c` do not parse without parentheses.
+  assert.deepEqual(collectOperatorSites(Buffer.from('const v = a ?? b ?? c;'), 'a.ts'), []);
+  const grouped = collectOperatorSites(Buffer.from('const v = (a ?? b) ?? c; const w = a ?? (b || c);'), 'a.ts');
+  assert.deepEqual(grouped.map(site => [site.operator, site.replacement]), [['??', '&&'], ['??', '&&'], ['??', '&&'], ['||', '&&']]);
+});
+
+test('the Playwright scope keeps the operand edit and adds the operator swap at the same position', async () => {
+  const { collectComparisons } = await import('../src/analysis.mjs');
+  const collect = mutators => collectComparisons('fixtures/playwright', ['src/save.tsx'], { runner: 'playwright', mutators })
+    .subjects.flatMap(subject => subject.sites).filter(site => site.operator === '||');
+  const focused = collect(undefined);
+  assert.equal(focused.length, 1);
+  const extended = collect('operators');
+  assert.equal(extended.length, 2);
+  assert.deepEqual(extended.map(site => site.location), [focused[0].location, focused[0].location]);
+  assert.deepEqual(extended.find(site => !site.unobserved).replacement, focused[0].replacement);
+  assert.equal(extended.find(site => site.unobserved).replacement, '&&');
+  assert.equal(new Set(extended.map(site => site.id)).size, 2);
+});

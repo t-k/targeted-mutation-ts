@@ -30,7 +30,7 @@ npm install --save-dev targeted-mutation
 
 Requirements:
 
-- Node.js 22.15 or later.
+- Node.js 22.18 or later in the 22 line, or 24.11 or later.
 - [Vitest](https://vitest.dev/) or [Playwright](https://playwright.dev/) installed in the project or its workspace. Releases are tested with Vitest 4.0 and Playwright 1.65.
 - macOS (arm64, x64) or Linux with glibc (arm64, x64). npm installs the matching prebuilt binary package automatically. `analyze` needs it and stops with a message on other platforms, including Windows and Alpine Linux; `extract` still works there through the TypeScript parser.
 

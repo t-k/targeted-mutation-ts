@@ -4,7 +4,7 @@ This page covers building from a checkout, the recorded experiments and the veri
 
 ## Shipping threshold experiment
 
-Use Node.js 22.15 or later and run `npm ci`, then `npm test` or `npm run evidence:m0`. The experiment runs Vitest against original, instrumented, and actually rewritten source in temporary project copies. It also reproduces the comparison with StrykerJS 10.1.1 and Vitest 4.0.18.
+Use Node.js 22.18 or later in the 22 line, or 24.11 or later and run `npm ci`, then `npm test` or `npm run evidence:m0`. The experiment runs Vitest against original, instrumented, and actually rewritten source in temporary project copies. It also reproduces the comparison with StrykerJS 10.1.1 and Vitest 4.0.18.
 
 ```sh
 node bin/tmt.mjs prototype fixtures/shipping src/shipping.ts --spec spec.json

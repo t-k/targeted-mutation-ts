@@ -149,3 +149,20 @@ test('runner output is shown only when nothing more specific explains a baseline
   assert.equal(renderText({ evaluation: 'baseline_error', baseline: { status: 'error', output, errors: [' \n '],
     failedTests: [{ file: 'a', name: 'b', failures: [] }] } }), `${header}\n  FAILED a > b\n  ERROR `);
 });
+
+test('a Playwright witness gap shows its requirement, test file and verification', () => {
+  const text = renderText({ runner: 'playwright', evaluation: 'evaluated', baseline: { status: 'passed', tests: [1] },
+    mutants: [{ location, rule: 'logical-operand/v1', operator: '||', replacement: '!valid', status: 'survived' },
+      { location, rule: 'logical-operator/v1', operator: '||', replacement: ' && ', status: 'killed' }],
+    diagnostics: [{ kind: 'SURVIVED', location, requirement: 'Saving disables the button.', suggestedTestFile: 'variants/pending.ts',
+      verification: { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' } }] });
+  assert.equal(text, [
+    'src/cart.ts:4:13  survived  logical-operand/v1: replace with !valid',
+    'src/cart.ts:4:13  killed  logical-operator/v1: || -> &&',
+    '', 'Test gaps:', 'SURVIVED src/cart.ts:4:13',
+    '  requirement: Saving disables the button.',
+    '  suggested test file: variants/pending.ts',
+    '  verification: original passed, edited failed',
+    '', 'playwright, 1 baseline tests: 2 edits (1 survived, 1 killed), 1 test gaps',
+  ].join('\n'));
+});

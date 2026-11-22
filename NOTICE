@@ -10,6 +10,9 @@ third-party notices are in build/typescript-syntax/.
 The platform packages (@targeted-mutation/tmt-<os>-<cpu>) contain an
 executable linked with the Lean 4 runtime and the libraries it bundles,
 including GMP (LGPL-3.0-or-later or GPL-2.0-or-later) and libuv (MIT).
-Their licenses are in the lean/ directory of each platform package. The
+Their licenses are in the lean/ directory of each platform package
+(LICENSES from the Lean release, GPL-3.0.txt and libuv-LICENSE.txt).
+GMP is the version bundled by the Lean release named in
+proof/lean/lean-toolchain; its source is available from https://gmplib.org/. The
 proof sources and build scripts needed to relink that executable are in
 the source repository under proof/lean and scripts/.

@@ -27,11 +27,10 @@ function compare(operator, left, right) {
   }
 }
 
-// The Playwright extraction already reports logical operators, so an operator start is taken once.
+// The Playwright extraction reports a logical operator with an operand-dropping edit. The operator swap is a different edit at the same position.
 function withOperatorSites(comparisons, input, file) {
   const start = candidate => (candidate.operatorEdit ?? candidate.edit)[0];
-  const taken = new Set(comparisons.map(start));
-  const added = collectOperatorSites(input, file).filter(site => !taken.has(site.edit[0]));
+  const added = collectOperatorSites(input, file);
   return added.length ? [...comparisons, ...added].sort((a, b) => start(a) - start(b)) : comparisons;
 }
 
@@ -372,7 +371,8 @@ function analyzePlaywright(root, subjects, report, options, specification) {
   const baseline = attempt();
   report.baseline = playwrightSummary(baseline);
   if (baseline.status !== 'passed') {
-    return { ...report, evaluation: 'baseline_error', baseline: { ...report.baseline, output: baseline.output } };
+    return { ...report, evaluation: 'baseline_error',
+      baseline: { ...report.baseline, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } };
   }
 
   report.evaluation = 'evaluated';

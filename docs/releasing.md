@@ -13,7 +13,7 @@ The `Release` workflow builds each platform package on a runner of that platform
 
 npm configures trusted publishing per package, and a package must exist before it can be configured. The first release therefore uses a token.
 
-1. On npmjs.com create a granular access token with read and write access to the `@targeted-mutation` scope and permission to create the unscoped `targeted-mutation` package. Give it a short expiry. If the account enforces two-factor authentication for publishing, allow the token to bypass it.
+1. On npmjs.com create a granular access token with read and write access to the `@targeted-mutation` scope and permission to create the unscoped `targeted-mutation` package. Give it a short expiry and enable the option that lets the token bypass two-factor authentication: a workflow cannot answer a prompt, and creating new packages is refused without it.
 2. Store it as the secret `NPM_TOKEN` of the `npm` environment (not as a repository secret).
 3. Set the version in `package.json` and `package-lock.json`, update `CHANGELOG.md`, merge, and push the tag: `git tag v0.1.0 && git push origin v0.1.0`.
 4. After the workflow succeeds, check `npm view targeted-mutation` and install it in an empty project.
@@ -22,7 +22,7 @@ npm configures trusted publishing per package, and a package must exist before i
 
 Do this once, right after the first release.
 
-1. For each of the five packages, open Settings on npmjs.com, add a trusted publisher of type GitHub Actions, and enter the repository owner and name, the workflow file `release.yml` and the environment `npm`.
+1. For each of the five packages, open Settings on npmjs.com, add a trusted publisher of type GitHub Actions, and enter the repository owner and name, the workflow file `release.yml` and the environment `npm`. If the form offers a choice of permissions, allow publishing directly with `npm publish`.
 2. Delete the `NPM_TOKEN` environment secret and revoke the token on npmjs.com.
 3. In each package's settings, require two-factor authentication and disallow tokens.
 

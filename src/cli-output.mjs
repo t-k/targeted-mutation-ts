@@ -48,7 +48,8 @@ const at = location => location ? `${location.file}:${location.line}:${location.
 function describeEdit(mutant) {
   const name = mutant.mutatorName ?? mutant.rule ?? 'edit';
   if (mutant.original !== undefined) return `${name}: ${firstLine(mutant.original)} -> ${firstLine(mutant.replacement)}`;
-  if (mutant.operator !== undefined && /^[<>=!&|?+*\/%-]+$/.test(mutant.replacement)) return `${name}: ${mutant.operator} -> ${mutant.replacement}`;
+  const operator = String(mutant.replacement).trim();
+  if (mutant.operator !== undefined && /^[<>=!&|?+*\/%-]+$/.test(operator)) return `${name}: ${mutant.operator} -> ${operator}`;
   return `${name}: replace with ${firstLine(mutant.replacement)}`;
 }
 
@@ -75,7 +76,12 @@ function describeGap(gap) {
   }
   if (gap.suggestedTest) lines.push(`  suggested test: ${printable(gap.suggestedTest)}`);
   if (gap.seed) lines.push(`  based on: ${printable(gap.seed.file)} > ${printable(gap.seed.test)}`);
+  if (gap.requirement) lines.push(`  requirement: ${firstLine(gap.requirement)}`);
+  if (gap.suggestedTestFile) lines.push(`  suggested test file: ${printable(gap.suggestedTestFile)}`);
   if (gap.verification?.status) lines.push(`  verification: ${printable(gap.verification.status)}`);
+  if (gap.verification?.baselineWithWitness) {
+    lines.push(`  verification: original ${printable(gap.verification.baselineWithWitness)}, edited ${printable(gap.verification.rewriteWithWitness)}`);
+  }
   return lines;
 }
 

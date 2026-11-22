@@ -22,21 +22,28 @@ export function collectOperatorSites(input, file, ts = loadTypeScript()) {
   const text = input.toString('utf8');
   const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false);
   const concatenates = node => ts.isStringLiteralLike(node) || ts.isTemplateExpression(node);
+  const nullish = node => ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken;
+  // An operator character next to the token would merge with the replacement (`a*/* c */b` -> `a//* c */b`).
+  const merges = unit => '+-*/=&|?!<>%'.includes(text[unit] ?? ' ');
   const found = [];
-  (function visit(node) {
+  (function visit(node, parent) {
     if (ts.isBinaryExpression(node)) {
       const token = node.operatorToken;
       const start = token.getStart(tree);
       const operator = text.slice(start, token.end);
       const entry = operatorRules.get(operator);
       // Subtracting from a string is a type error, so the edit would fail to compile instead of testing the suite.
-      if (entry && !(operator === '+' && (concatenates(node.left) || concatenates(node.right)))) {
-        found.push({ rule: entry[0], operator, replacement: entry[1],
+      const concatenation = operator === '+' && (concatenates(node.left) || concatenates(node.right));
+      // `a && b ?? c` needs parentheses, which a token replacement cannot add.
+      const chained = operator === '??' && (nullish(parent) || nullish(node.left) || nullish(node.right));
+      if (entry && !concatenation && !chained) {
+        const replacement = (merges(start - 1) ? ' ' : '') + entry[1] + (merges(token.end) ? ' ' : '');
+        found.push({ rule: entry[0], operator, replacement,
           spans: [start, token.end, node.left.getStart(tree), node.left.end, node.right.getStart(tree), node.right.end] });
       }
     }
-    ts.forEachChild(node, visit);
-  })(tree);
+    ts.forEachChild(node, child => visit(child, node));
+  })(tree, undefined);
   if (!found.length) return [];
   const bytes = byteOffsets(text);
   return found.sort((a, b) => a.spans[0] - b.spans[0]).map(({ spans, ...site }) => {
