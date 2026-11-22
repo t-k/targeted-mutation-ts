@@ -30,89 +30,63 @@ export function createTypeScriptGrammar(ts, bindings) {
   const isInstanceConstructor = node => isConstructorDeclaration(node) &&
     !node.modifiers?.some(modifier => modifier.kind === SyntaxKind.StaticKeyword);
 
-  function checkStatementSyntax(file, module, strictRoot, emit) {
-    const pending = [{
-      node: file, parent: undefined, ambient: false, functionContext: false,
-      runtimeParameters: false, forHead: '', strict: strictRoot, async: false, declarationScope: file.isDeclarationFile,
-    }];
-    while (pending.length) {
-      const { node, parent, ambient: parentAmbient, functionContext, runtimeParameters, forHead,
-        strict: parentStrict, async: parentAsync, declarationScope } = pending.pop();
-      const strict = strictScope(node, file, parentStrict);
-      const async = isFunctionLike(node)
-        ? node.modifiers?.some(modifier => modifier.kind === SyntaxKind.AsyncKeyword)
-        : parentAsync;
-      const ambient = parentAmbient || (canHaveModifiers(node) && getModifiers(node)?.some(modifier => modifier.kind === SyntaxKind.DeclareKeyword));
-      const report = (message, at = node) => emit(at, message);
-      let binding;
-      if (
-        isVariableDeclaration(node) || isBindingElement(node) || isClassLike(node) ||
-        isEnumDeclaration(node) || isTypeAliasDeclaration(node) || isInterfaceDeclaration(node) ||
-        isModuleDeclaration(node) || isImportClause(node) || isNamespaceImport(node) ||
-        isImportSpecifier(node) || isImportEqualsDeclaration(node) ||
-        ((isFunctionDeclaration(node) || isFunctionExpression(node)) && node.body) ||
-        ((isTypeParameterDeclaration(node) || isParameter(node)) && runtimeParameters)
-      ) binding = node.name;
-      if (binding && isIdentifier(binding)) {
-        const name = binding.text;
-        if (!ambient && strict && strictReservedBindings.has(name)) report(`'${name}' is reserved in strict mode and cannot be used as a binding identifier`, binding);
-        else if (!ambient && strict && strictRestrictedBindings.has(name)) report(`'${name}' is not allowed as a binding identifier in strict mode`, binding);
-        else if (name === 'await' && (module || async) && (!ambient || isInterfaceDeclaration(node))) {
-          report("'await' is reserved in an async/module context and cannot be used as a binding identifier", binding);
-        }
+  function checkStatement(node, parent, module, ambient, strict, async, frame, emit) {
+    const { functionContext, runtimeParameters, forHead, declarationScope } = frame;
+    const report = (message, at = node) => emit(at, message);
+    let binding;
+    if (
+      isVariableDeclaration(node) || isBindingElement(node) || isClassLike(node) ||
+      isEnumDeclaration(node) || isTypeAliasDeclaration(node) || isInterfaceDeclaration(node) ||
+      isModuleDeclaration(node) || isImportClause(node) || isNamespaceImport(node) ||
+      isImportSpecifier(node) || isImportEqualsDeclaration(node) ||
+      ((isFunctionDeclaration(node) || isFunctionExpression(node)) && node.body) ||
+      ((isTypeParameterDeclaration(node) || isParameter(node)) && runtimeParameters)
+    ) binding = node.name;
+    if (binding && isIdentifier(binding)) {
+      const name = binding.text;
+      if (!ambient && strict && strictReservedBindings.has(name)) report(`'${name}' is reserved in strict mode and cannot be used as a binding identifier`, binding);
+      else if (!ambient && strict && strictRestrictedBindings.has(name)) report(`'${name}' is not allowed as a binding identifier in strict mode`, binding);
+      else if (name === 'await' && (module || async) && (!ambient || isInterfaceDeclaration(node))) {
+        report("'await' is reserved in an async/module context and cannot be used as a binding identifier", binding);
       }
+    }
 
-      if (isVariableDeclaration(node) && isVariableDeclarationList(parent) &&
-          !ambient && !declarationScope && !node.initializer && forHead !== 'iteration') {
-        const destructured = isObjectBindingPattern(node.name) || isArrayBindingPattern(node.name);
-        if (forHead === 'classic') {
-          if (destructured) report('Destructuring declaration in for loop initializer must be initialized');
-          else if ((parent.flags & NodeFlags.Const) !== 0) report("'const' declarations in for loop initializer must be initialized");
-        } else if (destructured) report('Destructuring declaration must have an initializer');
-        else if ((parent.flags & NodeFlags.Const) !== 0) report("'const' declarations must be initialized");
-      }
+    if (isVariableDeclaration(node) && isVariableDeclarationList(parent) &&
+        !ambient && !declarationScope && !node.initializer && forHead !== 'iteration') {
+      const destructured = isObjectBindingPattern(node.name) || isArrayBindingPattern(node.name);
+      if (forHead === 'classic') {
+        if (destructured) report('Destructuring declaration in for loop initializer must be initialized');
+        else if ((parent.flags & NodeFlags.Const) !== 0) report("'const' declarations in for loop initializer must be initialized");
+      } else if (destructured) report('Destructuring declaration must have an initializer');
+      else if ((parent.flags & NodeFlags.Const) !== 0) report("'const' declarations must be initialized");
+    }
 
-      if (strict && isWithStatement(node)) report("'with' statements are not allowed in strict mode");
-      if (isReturnStatement(node) && !functionContext) report("'return' statement is only valid inside a function");
-      const single = parent && (
-        (isIfStatement(parent) && (parent.thenStatement === node || parent.elseStatement === node)) ||
-        ((isIterationStatement(parent, true) || isWithStatement(parent) || isLabeledStatement(parent)) && parent.statement === node)
-      );
-      if (single) {
-        if (isClassDeclaration(node)) report('Class declarations are not allowed in single-statement contexts');
-        if (isFunctionDeclaration(node) && node.body && (strict || !isIfStatement(parent) && !isLabeledStatement(parent))) {
-          report(strict ? 'In strict mode code, functions can only be declared at top level or inside a block' :
-            'In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement');
-        }
-        if (isVariableStatement(node) && (node.declarationList.flags & NodeFlags.BlockScoped) !== 0) {
-          report('Lexical declaration cannot appear in a single-statement context');
-        }
+    if (strict && isWithStatement(node)) report("'with' statements are not allowed in strict mode");
+    if (isReturnStatement(node) && !functionContext) report("'return' statement is only valid inside a function");
+    const single = parent && (
+      (isIfStatement(parent) && (parent.thenStatement === node || parent.elseStatement === node)) ||
+      ((isIterationStatement(parent, true) || isWithStatement(parent) || isLabeledStatement(parent)) && parent.statement === node)
+    );
+    if (single) {
+      if (isClassDeclaration(node)) report('Class declarations are not allowed in single-statement contexts');
+      if (isFunctionDeclaration(node) && node.body && (strict || !isIfStatement(parent) && !isLabeledStatement(parent))) {
+        report(strict ? 'In strict mode code, functions can only be declared at top level or inside a block' :
+          'In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement');
       }
-      // Declaration-file initializer rules apply to declarations in the file or a namespace.
-      const childDeclarationScope = declarationScope && (isSourceFile(node) || isModuleDeclaration(node) ||
-        isModuleBlock(node) || isVariableStatement(node) || isVariableDeclarationList(node));
-      forEachChild(node, child => {
-        if (child.kind <= SyntaxKind.LastToken) return;
-        const loopHead = isVariableDeclarationList(child) && node.initializer === child
-          ? (isForInOrOfStatement(node) ? 'iteration' : isForStatement(node) ? 'classic' : '')
-          : isVariableDeclarationList(node) ? forHead : '';
-        const childFunction = isClassStaticBlockDeclaration(node) ? false : isFunctionLike(node) && node.body === child ? true : functionContext;
-        const childParameters = isFunctionLike(node) ? !!node.body : runtimeParameters || isClassLike(node) ||
-          isInterfaceDeclaration(node) || isTypeAliasDeclaration(node);
-        pending.push({
-          node: child, parent: node, ambient, functionContext: childFunction, runtimeParameters: childParameters,
-          forHead: loopHead, strict, async, declarationScope: childDeclarationScope,
-        });
-      });
+      if (isVariableStatement(node) && (node.declarationList.flags & NodeFlags.BlockScoped) !== 0) {
+        report('Lexical declaration cannot appear in a single-statement context');
+      }
     }
   }
 
-
-  function checkContexts(file, strictRoot, emit, hasVarBindings) {
+  function checkContexts(file, module, strictRoot, emit, hasVarBindings) {
     const pending = [{
       node: file, parent: undefined, loop: false, switch_: false, super_: 'none', labels: [],
       outerLabels: [], ambient: false, strict: strictRoot,
+      async: false, functionContext: false, runtimeParameters: false, forHead: '', declarationScope: file.isDeclarationFile,
     }];
+    const statementDiagnostics = [];
+    const recordStatement = (node, message) => { statementDiagnostics.push([node, message]); };
     function duplicates(names) {
       const seen = new Map();
       for (const name of names) {
@@ -121,7 +95,6 @@ export function createTypeScriptGrammar(ts, bindings) {
         else seen.set(name.text, name);
       }
     }
-    const isFunctionScope = node => isFunctionLike(node) || isClassStaticBlockDeclaration(node);
     function nestedAliases(statements) {
       const aliases = [];
       const pending = [...statements];
@@ -140,12 +113,16 @@ export function createTypeScriptGrammar(ts, bindings) {
     const modifiersOf = node => canHaveModifiers(node) ? getModifiers(node) : undefined;
     const lexicalListNames = list => list?.declarations.flatMap(decl => bindings.namesIn(decl.name)) ?? [];
     while (pending.length) {
+      const frame = pending.pop();
       const { node, parent, loop, switch_, super_, labels, outerLabels, ambient: parentAmbient,
-        strict: parentStrict } = pending.pop();
+        strict: parentStrict, async: parentAsync, functionContext, runtimeParameters, forHead, declarationScope } = frame;
       const report = (message, at = node) => emit(at, message);
       const strict = strictScope(node, file, parentStrict);
       const ambient = parentAmbient || modifiersOf(node)?.some(modifier => modifier.kind === SyntaxKind.DeclareKeyword);
-      if (isFunctionLike(node)) {
+      const functionLike = isFunctionLike(node);
+      const async = functionLike ? node.modifiers?.some(modifier => modifier.kind === SyntaxKind.AsyncKeyword) : parentAsync;
+      if (node.kind !== SyntaxKind.SuperKeyword) checkStatement(node, parent, module, ambient, strict, async, frame, recordStatement);
+      if (functionLike) {
         const ordinary = isFunctionDeclaration(node) || isFunctionExpression(node);
         if (strict || !ordinary || node.parameters.some(nonSimpleParameter)) {
           duplicates(node.parameters.flatMap(param => bindings.namesIn(param.name)));
@@ -205,9 +182,15 @@ export function createTypeScriptGrammar(ts, bindings) {
           report("'super' property access is only valid inside a method or class body");
         }
       }
+      const staticBlock = isClassStaticBlockDeclaration(node);
+      const boundary = functionLike || staticBlock;
+      const childParameters = functionLike ? !!node.body : runtimeParameters || isClassLike(node) ||
+        isInterfaceDeclaration(node) || isTypeAliasDeclaration(node);
+      const childDeclarationScope = declarationScope && (isSourceFile(node) || isModuleDeclaration(node) ||
+        isModuleBlock(node) || isVariableStatement(node) || isVariableDeclarationList(node));
+      const childOuterLabels = boundary && labels.length ? [...labels, ...outerLabels] : outerLabels;
       forEachChild(node, child => {
         if (child.kind <= SyntaxKind.LastToken && child.kind !== SyntaxKind.SuperKeyword) return;
-        const boundary = isFunctionScope(node);
         const childLoop = boundary ? false : isIteration(node) && node.statement === child ? true : loop;
         const childSwitch = boundary ? false : isSwitchStatement(node) && node.caseBlock === child ? true : switch_;
         let childLabels = boundary ? [] : labels;
@@ -222,13 +205,19 @@ export function createTypeScriptGrammar(ts, bindings) {
           childSuper = derived ? 'constructor' : 'property';
         } else if ((isMethodDeclaration(node) || isAccessor(node)) && usesMethodContext) childSuper = 'property';
         else if (isFunctionDeclaration(node) || isFunctionExpression(node)) childSuper = 'none';
-        else if (isClassStaticBlockDeclaration(node) || (isPropertyDeclaration(node) && child === node.initializer)) childSuper = 'property';
+        else if (staticBlock || (isPropertyDeclaration(node) && child === node.initializer)) childSuper = 'property';
+        const loopHead = isVariableDeclarationList(child) && node.initializer === child
+          ? (isForInOrOfStatement(node) ? 'iteration' : isForStatement(node) ? 'classic' : '')
+          : isVariableDeclarationList(node) ? forHead : '';
         pending.push({ node: child, parent: node, loop: childLoop, switch_: childSwitch, super_: childSuper, labels: childLabels,
-          outerLabels: boundary ? [...labels, ...outerLabels] : outerLabels, ambient, strict });
+          outerLabels: childOuterLabels, ambient, strict, async,
+          functionContext: !staticBlock && (functionLike && node.body === child || functionContext),
+          runtimeParameters: childParameters, forHead: loopHead, declarationScope: childDeclarationScope });
       });
     }
+    // Keep context diagnostics before statement diagnostics at the same byte offset.
+    for (const [node, message] of statementDiagnostics) emit(node, message);
   }
-
 
   // The remaining type checks use empty lists, template flags, multiple modifiers, or the parent kind.
   const typeCheckKind = new Uint8Array(SyntaxKind.Count);
@@ -922,8 +911,7 @@ export function createTypeScriptGrammar(ts, bindings) {
     // The expression walk visits declaration lists as well as expressions.
     const hasVarBindings = checkExpressionSyntax(file, module, strict, emit, visitType, visitBinary);
     for (const [node, message] of typeDiagnostics) emit(node, message);
-    checkContexts(file, strict, emit, hasVarBindings);
-    checkStatementSyntax(file, module, strict, emit);
+    checkContexts(file, module, strict, emit, hasVarBindings);
     if (file.text.includes('#')) checkPrivateNames(file, emit);
     const nestedVars = hasVarBindings ? file.statements.filter(statement => !isVariableStatement(statement)).flatMap(bindings.nestedVarsIn) : [];
     bindings.checkScope(file.statements, emit, { nestedVars });

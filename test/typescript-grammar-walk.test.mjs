@@ -58,3 +58,18 @@ test('expression diagnostics precede type diagnostics at the same byte range', (
     [start, end, "Expected module specifier, but found '42'"],
   ]);
 });
+
+test('scope collisions precede statement errors at the same binding span', () => {
+  const source = '/* 🧪 */ function f(eval, eval) { return a < b; }';
+  const result = extractTypeScript(source, { file: 'walk.ts', mode: 'module' });
+  assert.deepEqual(result.candidates, []);
+  const [first, duplicate, second] = result.diagnostics;
+  assert.deepEqual(result.diagnostics.map(entry => entry.message), [
+    "'eval' is not allowed as a binding identifier in strict mode",
+    "Identifier 'eval' has already been declared",
+    "'eval' is not allowed as a binding identifier in strict mode",
+  ]);
+  assert.equal(duplicate.start, second.start);
+  assert.equal(duplicate.end, second.end);
+  assert.deepEqual(duplicate.labels.map(({ start, end }) => [start, end]), [[first.start, first.end]]);
+});
