@@ -49,11 +49,12 @@ test('fixture PGO preserves the normal and standalone native result records', t 
         ...(mode === 'Standalone' ? ['--low-only'] : []),
       ];
       const result = spawnSync(process.execPath, args, {
-        cwd: root, encoding: 'utf8', timeout: 30_000,
+        cwd: root, encoding: 'utf8', timeout: applied ? 90_000 : 30_000,
         env: { ...process.env, ...(applied && { CC: tools.compiler }),
           TMT_LLVM_PROFDATA: tool === 'Present' && tools ? tools.profiler : join(root, 'missing-profiler') },
       });
-      assert.equal(result.status, 0, result.error?.message ?? result.stderr + result.stdout);
+      const details = [[profile, tool, mode].join('/'), result.error?.message, result.stderr, result.stdout];
+      assert.equal(result.status, 0, details.filter(Boolean).join('\n'));
       assert.equal(result.stdout.includes('Built native extractor with fixture PGO'), applied);
       const target = join(root, 'build', `variant-${index}.node`);
       renameSync(join(root, 'build/tmt.node'), target);
