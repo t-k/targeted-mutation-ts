@@ -112,6 +112,22 @@ On the same pinned inputs, the Pulse parser now covers every ESLint and Vite sou
 
 The complete ESLint lead follows native support for computed class method names, a single prototype setter, strict-script block functions, constructor expressions, trailing argument commas, four Unicode regular-expression category aliases and flat object assignments. Function-local and module-level `var` support moved much of Svelte to Pulse. The complete Hono, Astro and Svelte workloads still include compatibility parsing and trail Oxc lazy. The 23-repository independent extraction audit agreed with the development references for both logical-rule settings. See the [native coverage, parser samples, and audit results](../evidence/m1/native-grammar-coverage.json).
 
+### Complete native coverage of all five workloads
+
+The Pulse path handles all 1,784 pinned source files and produces all 1,853 ordered comparison candidates. The full-workload results agree with Yuku 0.19.0, SWC Next `@swc-next/parser` 0.7.0, and Oxc 0.159.0 in both AST modes. TMT has the lowest warm and first-extraction median on every workload in two complete runs. The table reports the final run after the class-field computed-key review fix. Times are warm / first extraction in milliseconds per corpus.
+
+| Workload | Files | TMT baseline | TMT | Oxc lazy |
+| --- | ---: | ---: | ---: | ---: |
+| Hono | 223 | 43.73 / 118.37 | 7.43 / 9.56 | 8.07 / 30.24 |
+| ESLint | 421 | 50.49 / 131.39 | 14.58 / 16.50 | 15.72 / 37.26 |
+| Astro | 642 | 58.40 / 134.01 | 15.83 / 18.05 | 18.83 / 45.82 |
+| Svelte | 376 | 89.58 / 204.07 | 14.96 / 17.31 | 16.28 / 40.92 |
+| Vite | 122 | 14.07 / 49.02 | 9.19 / 10.87 | 9.68 / 32.34 |
+
+Each run uses seven rotating warm trials and seven alternating fresh-process trials under rootless Linux arm64 Podman on an Apple M5 Max. First extraction includes parser loading with the source buffers already in memory and the Node compile cache disabled. The early ESLint warm lead was approximately 0.08 ms, and the final run put it at 1.14 ms. See the [all-engine medians, exact inputs, and raw trials for both runs](../evidence/m1/complete-native-comparison.json).
+
+The final Svelte coverage comes from validating hoisted names at each lexical scope boundary. The second-pass log reclaims block-local lexical entries and retains the variables hoisted to the parent. The grammar also handles nested loop labels, collection assignment targets, regular-expression code points and `new.target`. Hono and Astro gained type-only namespace handling, stronger type annotation coverage and completed-module resolution of forward exports. These are extraction measurements for the pinned files. The TypeScript compatibility parser remains available for sources outside the supported grammar.
+
 ## Analysis throughput
 
 Measurements on Apple M5 Max with Node 24.14.0 alternate baseline and current samples. The Git and CLI benchmarks use nine pairs. The coverage planner uses eleven pairs. CLI samples start a fresh Node process with the compile cache disabled.
