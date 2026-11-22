@@ -80,6 +80,24 @@ The new BMP regex production moved 77 date-fns files into Pulse. The generator c
 
 Use [the pinned input builder](../scripts/prepare-parser-benchmark.mjs) with a directory of Git repositories named `hono`, `eslint`, `astro`, `svelte`, and `vite`. Set `TMT_BENCH_INPUTS` to its output directory and `TMT_BENCH_BASELINE` to the built baseline’s `src/extract.mjs`, then run `node scripts/bench-parser-comparison.mjs hono eslint astro svelte vite`. Add `--native-only` before the cohort names to reproduce the native slice. The external parsers are benchmark inputs only. The recorded run used fixed package versions and verified their registry integrity, with no package lifecycle scripts and no network access during execution. See the [exact inputs, package digests, audit counts, and timing samples](../evidence/m1/parser-comparison.json).
 
+### Private names, wider grammar, and NEON
+
+The same pinned 1,784 files and 1,853 ordered comparison candidates were measured again. TMT improves across all five complete workloads. Vite is fully native and has the lowest warm and first-extraction medians among the compared engines. On the 1,669 files accepted directly by Pulse, TMT has the lowest median in both timing modes for every cohort. All timings in the table are milliseconds per corpus, warm / first extraction.
+
+| Workload | Native files | Previous TMT | Current TMT | Oxc lazy |
+| --- | ---: | ---: | ---: | ---: |
+| Hono | 207 / 223 | 46.22 / 118.30 | 34.60 / 98.26 | 7.80 / 30.13 |
+| ESLint | 409 / 421 | 49.78 / 131.19 | 28.55 / 82.94 | 14.55 / 37.84 |
+| Astro | 626 / 642 | 56.21 / 134.06 | 29.67 / 83.54 | 20.50 / 45.90 |
+| Svelte | 305 / 376 | 88.41 / 203.64 | 76.41 / 180.17 | 15.36 / 40.87 |
+| Vite | 122 / 122 | 14.07 / 48.62 | 8.65 / 10.33 | 9.41 / 31.76 |
+
+The comparison uses `1fdc764` as the baseline. It uses the same Node 24.14.0 Linux arm64 rootless Podman environment and package pins as the previous five-cohort comparison. Both binaries use GCC optimization and LTO. The current build enables NEON for confirmed scalar comment and quoted-string loops. In a paired macOS arm64 addon-only pilot, that specialization improved warm medians by 1.9–3.0%. The compiled code contains AArch64 vector compares and a lane minimum reduction. The full-run comparison includes the TypeScript compatibility path wherever needed. The test suite compares production NEON and scalar packed records on every byte value and lane, and verifies fallback to the original generated C if one of the scalar loops changes.
+
+Vite’s remaining files entered the native path through the new destructuring defaults, namespace star re-exports, and adjacent class overload syntax. Most of the Astro and ESLint gains followed private-name validation. In Svelte, 71 files still require compatibility. A separate binding-spelling probe recovered 26 files with 24 exact candidates when function-wide lexical and hoisted var names were disjoint. A 64-bit fingerprint reduced that estimate to 20 files and 17 candidates because collisions would delegate. The probe rewrites `var` only in temporary inputs. Production support must preserve the original variable scoping rules.
+
+The [pinned comparison records, native subset, and feasibility probes](../evidence/m1/native-overtake.json) contain all raw samples.
+
 ## Analysis throughput
 
 Measurements on Apple M5 Max with Node 24.14.0 alternate baseline and current samples. The Git and CLI benchmarks use nine pairs. The coverage planner uses eleven pairs. CLI samples start a fresh Node process with the compile cache disabled.
