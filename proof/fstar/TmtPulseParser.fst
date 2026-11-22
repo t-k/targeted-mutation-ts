@@ -206,6 +206,12 @@ type jump_context =
   | NoJump
   | BreakOnly
   | LoopJump
+  | NamedLoop : U32.t -> jump_context
+
+let loop_jumps (jumps:jump_context) : jump_context =
+  match jumps with
+  | NamedLoop _ -> jumps
+  | _ -> LoopJump
 
 let can_assign (target:assignment_target) : bool = target = Assignable || target = MemberTarget || target = PrivateTarget
 let can_assign_expression (target:assignment_target) : bool = can_assign target || target = AssertedTarget
@@ -1677,6 +1683,36 @@ let statement_end (input:tape) (#frame:slprop) (state:parser_state) (end_at:U32.
     else read_ret input #frame (if tail.newline || st.offset = input.size || (before_brace && byte = 125uy) then st
     else failed st 1ul)
 
+let jump_statement (input:tape) (#frame:slprop) (state:parser_state) (jumps:jump_context) (width:U32.t)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let end_at = plus state.offset width in
+  match jumps with
+  | NoJump -> read_ret input #frame (failed state 1ul)
+  | BreakOnly -> if width = 5ul then statement_end input #frame state end_at true else read_ret input #frame (failed state 1ul)
+  | LoopJump -> statement_end input #frame state end_at true
+  | NamedLoop start ->
+    let! after = (fun () -> trivia input #frame end_at) in
+    let! target = (fun () -> if after.ok && not after.newline then name input #frame after.at false false
+      else read_ret input #frame { at = after.at; ok = false; newline = after.newline }) in
+    if not target.ok then statement_end input #frame state end_at true
+    else
+      let! original_name = (fun () -> name input #frame start false false) in
+      let length = minus target.at after.at in
+      let! equal = (fun () -> if original_name.ok && length = minus original_name.at start then same_bytes input #frame start after.at length
+        else read_ret input #frame false) in
+      if equal then statement_end input #frame state target.at true
+      else read_ret input #frame (failed state 1ul)
+
+let labeled_loop_start (input:tape) (#frame:slprop) (state:parser_state)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! named = (fun () -> name input #frame state.offset false false) in
+  let! colon = (fun () -> skip input #frame (from_cursor state named)) in
+  let! start = (fun () -> (let! consumed = (fun () -> consume input #frame colon 58uy) in skip input #frame consumed)) in
+  if start.status <> 0ul then read_ret input #frame start
+  else
+    let! kind = (fun () -> statement_kind input #frame start.offset) in
+    read_ret input #frame (if kind = 2ul || kind = 3ul || kind = 4ul then start else failed start 1ul)
+
 let local_width (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt U32.t (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! first = (fun () -> peek input #frame start) in
   if first = 99uy then ((let! anf_value_1 = (fun () -> keyword input #frame start 5ul 0x636f6e7374uL) in if anf_value_1 then read_ret input #frame (5ul) else read_ret input #frame (0ul)))
@@ -2870,9 +2906,7 @@ and simple_statement (input:tape) (state:parser_state) (in_function:bool) (jumps
     else ret input (0ul)) in
   if is_return then return_statement input state fuel
   else if is_yield then yield_statement input state fuel
-  else if jump <> 0ul then
-    if jumps = LoopJump || (jumps = BreakOnly && jump = 5ul) then statement_end input state (plus state.offset jump) true
-    else ret input (failed state 1ul)
+  else if jump <> 0ul then jump_statement input state jumps jump
   else if is_throw then
     let! body = (fun () -> trivia input (plus state.offset 5ul)) in
     let st = from_cursor state body in
@@ -2994,7 +3028,14 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
     let! var = (fun () -> if local_var && first = 118uy then keyword input state.offset 3ul 0x766172uL else ret input (false)) in
     if alias then local_type_alias input state floor used
     else if var then (let! anf_value_2 = (fun () -> local_var_declaration input state fuel) in ret input ({ state = anf_value_2; used }))
-    else (let! anf_value_3 = (fun () -> simple_statement input state in_function jumps fuel) in ret input ({ state = anf_value_3; used }))
+    else
+      let! ordinary = (fun () -> simple_statement input state in_function jumps fuel) in
+      let named = match jumps with | NamedLoop _ -> true | _ -> false in
+      if ordinary.status <> 1ul || fuel = 0ul || named then ret input { state = ordinary; used }
+      else
+        let! opening = (fun () -> labeled_loop_start input state) in
+        if opening.status <> 0ul then ret input { state = ordinary; used }
+        else control_statement input opening (minus fuel 1ul) in_function (NamedLoop state.offset) floor used allow_var
   else if fuel = 0ul then ret input ({ state = failed state 3ul; used })
   else
     let inner = minus fuel 1ul in
@@ -3003,7 +3044,7 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
     if kind = 1ul || kind = 2ul then
       let width = if kind = 1ul then 2ul else 5ul in
       let! tested = (fun () -> condition input { state with offset = plus state.offset width } fuel) in
-      let body_jumps = if kind = 2ul then LoopJump else jumps in
+      let body_jumps = if kind = 2ul then loop_jumps jumps else jumps in
       let! body = (fun () -> control_body input tested inner in_function body_jumps floor used) in
       let! st = (fun () -> skip input body.state) in
       let! has_else = (fun () -> if kind = 1ul then keyword input st.offset 4ul 0x656c7365uL else ret input (false)) in
@@ -3011,7 +3052,7 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
         control_body input { st with offset = plus st.offset 4ul } inner in_function jumps floor body.used
       else ret input ({ body with state = st })
     else if kind = 3ul then
-      let! body = (fun () -> control_body input { state with offset = plus state.offset 2ul } inner in_function LoopJump floor used) in
+      let! body = (fun () -> control_body input { state with offset = plus state.offset 2ul } inner in_function (loop_jumps jumps) floor used) in
       let! st = (fun () -> skip input body.state) in
       let! tested = (fun () -> keyword input st.offset 5ul 0x7768696c65uL) in
       let! st = (fun () -> if not tested then ret input (failed st 1ul)
@@ -3023,7 +3064,7 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
       let! result =
         (fun () -> if kind = 4ul then
           let! tested = (fun () -> for_header input { state with offset = plus state.offset 3ul } allow_var (in_function && state.module_mode) fuel) in
-          let! body = (fun () -> control_body input tested inner in_function LoopJump tested.local_names tested.local_names) in
+          let! body = (fun () -> control_body input tested inner in_function (loop_jumps jumps) tested.local_names tested.local_names) in
           ret input ({ body.state with local_names = state.local_names })
         else if kind = 5ul then
           try_statement input { state with offset = plus state.offset 3ul } inner in_function jumps used
@@ -3031,7 +3072,7 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
         else
           let! tested = (fun () -> condition input { state with offset = plus state.offset 6ul } fuel) in
           let! start = (fun () -> (let! anf_value_6 = (fun () -> (skip input tested)) in consume input anf_value_6 123uy)) in
-          let case_jumps = if jumps = LoopJump then LoopJump else BreakOnly in
+          let case_jumps = match jumps with | NoJump -> BreakOnly | _ -> jumps in
           let! st = (fun () -> switch_sequence input start inner input.size in_function case_jumps used used false false) in
           consume input { st with local_names = state.local_names } 125uy) in
       ret input ({ state = result; used })

@@ -1,0 +1,8 @@
+Loop	Place	Jump
+For	Direct	Continue
+While	Nested	Break
+Do	Switch	Continue
+For	Switch	Break
+Do	Function	Unknown
+For	Function	Continue
+While	Direct	Unlabeled

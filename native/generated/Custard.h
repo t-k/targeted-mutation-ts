@@ -337,8 +337,16 @@ uint32_t TmtPulseParser_statement_kind(TmtPulseMemory_tape input, uint32_t at);
 #define TmtPulseParser_NoJump 0
 #define TmtPulseParser_BreakOnly 1
 #define TmtPulseParser_LoopJump 2
+#define TmtPulseParser_NamedLoop 3
 
-typedef uint8_t TmtPulseParser_jump_context;
+typedef uint8_t TmtPulseParser_jump_context_tags;
+
+typedef struct TmtPulseParser_jump_context_s
+{
+  TmtPulseParser_jump_context_tags tag;
+  uint32_t _0;
+}
+TmtPulseParser_jump_context;
 
 typedef struct TmtPulseParser_named_state_s
 {
@@ -991,6 +999,19 @@ TmtPulseParser_local_type_alias(
 
 TmtPulseParser_parser_state
 TmtPulseParser_read_local_var_name(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
+
+TmtPulseParser_parser_state
+TmtPulseParser_jump_statement(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  TmtPulseParser_jump_context jumps,
+  uint32_t width
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_labeled_loop_start(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+TmtPulseParser_jump_context TmtPulseParser_loop_jumps(TmtPulseParser_jump_context jumps);
 
 typedef struct TmtPulseParser_atom_head_s
 {
@@ -1864,14 +1885,14 @@ TmtPulseParser_switch_sequence(
 
 TmtPulseParser_named_state
 TmtPulseParser_control_statement(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t fuel,
-  bool in_function,
-  TmtPulseParser_jump_context jumps,
-  uint32_t floor,
-  uint32_t used,
-  bool allow_var
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  bool in_function0,
+  TmtPulseParser_jump_context jumps0,
+  uint32_t floor0,
+  uint32_t used0,
+  bool allow_var0
 );
 
 TmtPulseParser_named_state
