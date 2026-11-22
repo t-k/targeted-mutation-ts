@@ -1,5 +1,4 @@
 import { isUtf8 } from 'node:buffer';
-import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
@@ -54,6 +53,7 @@ export function extractFallback(input, options = {}) {
   }
 
   // Worker stacks can be smaller than the compiler's recursive parser requires.
+  const { spawnSync } = load('node:child_process');
   const child = spawnSync(process.execPath, [
     '--max-old-space-size=512', fileURLToPath(new URL('./fallback-process.mjs', import.meta.url)),
   ], {

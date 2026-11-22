@@ -14,6 +14,23 @@ const examples = {
   Logical: { source: 'const msg = "🌊"; const entry = <button disabled={a || (x >= y)}>{msg}</button>;', file: 'view.tsx' },
 };
 
+test('native extraction leaves the child-process builtin unloaded', () => {
+  const program = `
+    import { extract } from ${JSON.stringify(extractModule)};
+    const loaded = () => process.moduleLoadList.includes('NativeModule child_process');
+    const before = loaded();
+    const result = extract('const ok = a < b;', { requireNative: true });
+    const after = loaded();
+    await import('node:child_process');
+    console.log(JSON.stringify([before, result.path, after, loaded()]));
+  `;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', program], {
+    encoding: 'utf8', timeout: 10_000, env: { ...process.env, NODE_OPTIONS: '' },
+  });
+  assert.equal(child.status, 0, child.error?.message ?? child.stderr);
+  assert.deepEqual(JSON.parse(child.stdout), [false, 'fast', false, true]);
+});
+
 function runWorker(entry, sample, mode, setup = '') {
   const { source, file } = sample;
   const options = { file, mode, logical: true };
