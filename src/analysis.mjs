@@ -99,13 +99,25 @@ function makeAttempt(root, subjects, runner, copyExclude, { tracing = false, act
   }, { exclude: copyExclude });
 }
 
-function matchObservations(site, trace, baseline) {
-  const all = baseline.tests.filter(test => test.status === 'passed');
-  const tests = new Map(all.map(test => [identity(test), test]));
-  const rows = trace?.filter(row => row.site === site.id) ?? [];
-  const loaded = trace?.some(row => row.loaded?.includes(site.id)) ?? false;
+function indexObservations(trace, baseline) {
+  const tests = new Map(baseline.tests.filter(test => test.status === 'passed').map(test => [identity(test), test]));
+  const bySite = new Map();
+  const loaded = new Set();
+  for (const row of trace ?? []) {
+    if (typeof row?.site === 'string') {
+      let rows = bySite.get(row.site);
+      if (!rows) bySite.set(row.site, rows = []);
+      rows.push(row);
+    }
+    if (Array.isArray(row?.loaded)) for (const site of row.loaded) loaded.add(site);
+  }
+  return { tests, bySite, loaded };
+}
+
+function matchObservations(site, { tests, bySite, loaded }) {
+  const rows = bySite.get(site.id) ?? [];
   const observed = new Map();
-  let complete = trace !== null && rows.length > 0;
+  let complete = rows.length > 0;
   for (const row of rows) {
     const key = row.identity ? identity(row.identity) : null;
     if (!tests.has(key) || !Array.isArray(row.operands) || row.operands.length !== 2 ||
@@ -117,16 +129,35 @@ function matchObservations(site, trace, baseline) {
       observed.get(key).push(row.operands);
     }
   }
-  return { observed, rows, complete, tests, loaded };
+  return { observed, rows, complete, tests, loaded: loaded.has(site.id) };
 }
 
-function callableThreshold(subject, site, observations, specification) {
+function thresholdLookup(subject) {
+  let source;
+  let offsets;
+  const byOperator = new Map();
+  return site => {
+    let entries = byOperator.get(site.operator);
+    if (entries === undefined) {
+      source ??= subject.input.toString();
+      offsets ??= byteOffsets(source);
+      entries = new Map();
+      for (const entry of thresholdSites(source, subject.file, site.operator)) {
+        const left = offsets[entry.from];
+        if (!entries.has(left)) entries.set(left, entry);
+      }
+      byOperator.set(site.operator, entries);
+    }
+    const entry = entries.get(site.left[0]);
+    if (entry && offsets[entry.literalFrom] === site.right[0] && offsets[entry.literalTo] === site.right[1]) return entry;
+    return null;
+  };
+}
+
+function callableThreshold(subject, site, observations, specification, lookupThreshold) {
   if (!observations.complete ||
       !/^-?\s*\d+$/.test(subject.input.subarray(...site.right).toString())) return null;
-  const source = subject.input.toString();
-  const offsets = byteOffsets(source);
-  const meta = thresholdSites(source, subject.file, site.operator).find(entry =>
-    offsets[entry.from] === site.left[0] && offsets[entry.literalFrom] === site.right[0] && offsets[entry.literalTo] === site.right[1]);
+  const meta = lookupThreshold(site);
   if (!meta || observations.rows.some(row => row.operands[1] !== meta.threshold)) return null;
   const contract = Object.hasOwn(specification, meta.functionName) ? specification[meta.functionName] : null;
   const specified = contract?.operator === site.operator && contract.threshold === meta.threshold &&
@@ -135,15 +166,17 @@ function callableThreshold(subject, site, observations, specification) {
   return { meta, gap: null, specified, inputs, contract };
 }
 
-function plan(subjects, trace, baseline, specification, displaceThresholds) {
+export function planFocusedTrials(subjects, trace, baseline, specification, displaceThresholds) {
   const sites = [];
   const thresholds = [];
+  const observations = indexObservations(trace, baseline);
   for (const subject of subjects) {
+    const lookupThreshold = thresholdLookup(subject);
     for (const site of subject.sites) {
-      const observation = matchObservations(site, trace, baseline);
+      const observation = matchObservations(site, observations);
       const tightened = tightenComparison(subject.input, site, observation, displaceThresholds);
       const threshold = site.operator === '>=' || tightened
-        ? callableThreshold(subject, site, observation, specification) : null;
+        ? callableThreshold(subject, site, observation, specification, lookupThreshold) : null;
       if (threshold && site.operator === '>=') thresholds.push(threshold);
       sites.push({ site, observation, tightened, threshold });
     }
@@ -382,7 +415,7 @@ export function analyze(project, files, options) {
     if (!report.instrumented.stable) trace = null;
   }
 
-  const trials = plan(subjects, trace, baseline, specification, options['displace-thresholds']);
+  const trials = planFocusedTrials(subjects, trace, baseline, specification, options['displace-thresholds']);
   const skips = leanSkips(trials, baseline, !!options.deterministic);
   report.evaluation = 'evaluated';
 

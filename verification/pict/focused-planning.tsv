@@ -1,0 +1,10 @@
+Text	Sites	Trace
+Unicode	Repeated	Complete
+Unicode	MixedOperators	Complete
+ASCII	Single	LoadedOnly
+ASCII	Repeated	Invalid
+ASCII	MixedOperators	LoadedOnly
+Unicode	Single	Invalid
+Unicode	Repeated	LoadedOnly
+Unicode	MixedOperators	Invalid
+ASCII	Single	Complete
