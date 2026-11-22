@@ -1,0 +1,7 @@
+Syntax	Placement	Suffix
+LocalList	Function	Valid
+LocalList	Arrow	Valid
+DottedTag	Module	Valid
+DottedTag	Arrow	Broken
+DottedTag	Function	Broken
+LocalList	Module	Broken

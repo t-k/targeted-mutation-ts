@@ -821,6 +821,9 @@ TmtParser_local_type_alias(
 
 TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parser_state state);
 
+TmtParser_cursor
+TmtParser_jsx_tag_name(TmtParser_tape input0, uint32_t at0, uint32_t remaining0);
+
 uint32_t
 TmtParser_quote_end(TmtParser_tape input0, uint32_t at0, uint8_t delimiter0, uint32_t fuel0);
 
@@ -1204,6 +1207,17 @@ TmtParser_local_var_declaration(
   TmtParser_tape input,
   TmtParser_parser_state state,
   uint32_t fuel
+);
+
+TmtParser_named_state
+TmtParser_local_declarators(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  bool constant0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint32_t fuel0,
+  uint32_t remaining0
 );
 
 TmtParser_named_state

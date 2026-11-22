@@ -5246,6 +5246,39 @@ TmtParser_parser_state TmtParser_tag_space(TmtParser_tape input, TmtParser_parse
     );
 }
 
+TmtParser_cursor
+TmtParser_jsx_tag_name(TmtParser_tape input0, uint32_t at0, uint32_t remaining0)
+{
+  TmtParser_tape input = input0;
+  uint32_t at = at0;
+  uint32_t remaining = remaining0;
+  while (true)
+  {
+    TmtParser_cursor segment = TmtParser_name(input, at, true, false);
+    if (!segment.ok)
+      return segment;
+    else if (TmtParser_same(input, segment.at, 46U))
+    {
+      if (remaining == 0U)
+        return ((TmtParser_cursor){ .at = segment.at, .ok = false, .newline = segment.newline });
+      else
+      {
+        uint32_t tmp0 = TmtParser_next(segment.at);
+        uint32_t tmp = TmtParser_minus(remaining, 1U);
+        at = tmp0;
+        remaining = tmp;
+      }
+    }
+    else
+      return segment;
+  }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
 uint32_t
 TmtParser_quote_end(TmtParser_tape input0, uint32_t at0, uint8_t delimiter0, uint32_t fuel0)
 {
@@ -8485,7 +8518,7 @@ TmtParser_jsx_children(
             return TmtParser_consume(input, closing, 62U);
           else
           {
-            TmtParser_cursor named = TmtParser_name(input, closing.offset, true, false);
+            TmtParser_cursor named = TmtParser_jsx_tag_name(input, closing.offset, 64U);
             bool same_;
             if (named.ok && TmtParser_minus(named.at, closing.offset) == length)
               same_ = TmtParser_same_bytes(input, tag.first, closing.offset, length);
@@ -8594,7 +8627,7 @@ TmtParser_jsx_element(TmtParser_tape input, TmtParser_parser_state state, uint32
   }
   else
   {
-    TmtParser_cursor named = TmtParser_name(input, opening.offset, true, false);
+    TmtParser_cursor named = TmtParser_jsx_tag_name(input, opening.offset, 64U);
     TmtParser_jsx_opening
     attrs =
       TmtParser_jsx_attributes(input,
@@ -9275,6 +9308,83 @@ TmtParser_local_var_declaration(
 }
 
 TmtParser_named_state
+TmtParser_local_declarators(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  bool constant0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint32_t fuel0,
+  uint32_t remaining0
+)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  bool constant = constant0;
+  uint32_t floor = floor0;
+  uint32_t used = used0;
+  uint32_t fuel = fuel0;
+  uint32_t remaining = remaining0;
+  while (true)
+  {
+    TmtParser_parser_state start = TmtParser_skip(input, state);
+    if (start.status != 0U || remaining == 0U)
+      return ((TmtParser_named_state){ .state = TmtParser_failed(start, 1U), .used = used });
+    else
+    {
+      uint8_t first = TmtParser_peek(input, start.offset);
+      TmtParser_named_state
+      decl = TmtParser_pattern_binding(input, start, TmtParser_binding_region_width, floor, used);
+      TmtParser_parser_state uu____0 = decl.state;
+      TmtParser_parser_state
+      named =
+        {
+          .offset = uu____0.offset, .count = uu____0.count, .depth = uu____0.depth,
+          .status = uu____0.status, .local_names = decl.used, .await_allowed = uu____0.await_allowed,
+          .yield_allowed = uu____0.yield_allowed, .jsx_allowed = uu____0.jsx_allowed,
+          .module_mode = uu____0.module_mode, .in_allowed = uu____0.in_allowed,
+          .for_initializer = uu____0.for_initializer,
+          .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
+          .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context
+        };
+      TmtParser_parsed
+      value =
+        TmtParser_declarator_value(input,
+          named,
+          fuel,
+          !constant && TmtGrammar_identifier_start(first));
+      TmtParser_parser_state tail = TmtParser_skip(input, value.parser);
+      if (tail.status != 0U)
+        return ((TmtParser_named_state){ .state = tail, .used = decl.used });
+      else if (!TmtParser_same(input, tail.offset, 44U))
+        return
+          (
+            (TmtParser_named_state){
+              .state = TmtParser_statement_end(input, value.parser, value.range.last, true),
+              .used = decl.used
+            }
+          );
+      else if (value.open_angle)
+        return ((TmtParser_named_state){ .state = TmtParser_failed(tail, 1U), .used = decl.used });
+      else
+      {
+        TmtParser_parser_state tmp0 = TmtParser_consume(input, tail, 44U);
+        uint32_t tmp1 = decl.used;
+        uint32_t tmp = TmtParser_minus(remaining, 1U);
+        state = tmp0;
+        used = tmp1;
+        remaining = tmp;
+      }
+    }
+  }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+TmtParser_named_state
 TmtParser_local_declaration(
   TmtParser_tape input,
   TmtParser_parser_state state,
@@ -9285,9 +9395,8 @@ TmtParser_local_declaration(
 )
 {
   TmtParser_parser_state state1 = TmtParser_record_binding_mode(state, TmtParser_LexicalLocals);
-  TmtParser_parser_state
-  start =
-    TmtParser_skip(input,
+  return
+    TmtParser_local_declarators(input,
       (
         (TmtParser_parser_state){
           .offset = TmtParser_plus(state1.offset, width),
@@ -9305,30 +9414,12 @@ TmtParser_local_declaration(
           .binding_mode = state1.binding_mode,
           .super_context = state1.super_context
         }
-      ));
-  uint8_t first = TmtParser_peek(input, start.offset);
-  TmtParser_named_state
-  decl = TmtParser_pattern_binding(input, start, TmtParser_binding_region_width, floor, used);
-  bool optional = width == 3U && TmtGrammar_identifier_start(first);
-  TmtParser_parser_state uu____0 = decl.state;
-  TmtParser_parser_state
-  st =
-    {
-      .offset = uu____0.offset, .count = uu____0.count, .depth = uu____0.depth,
-      .status = uu____0.status, .local_names = decl.used, .await_allowed = uu____0.await_allowed,
-      .yield_allowed = uu____0.yield_allowed, .jsx_allowed = uu____0.jsx_allowed,
-      .module_mode = uu____0.module_mode, .in_allowed = uu____0.in_allowed,
-      .for_initializer = uu____0.for_initializer,
-      .arrow_defaults_allowed = uu____0.arrow_defaults_allowed, .binding_mode = uu____0.binding_mode,
-      .super_context = uu____0.super_context
-    };
-  return
-    (
-      (TmtParser_named_state){
-        .state = TmtParser_variable_initializer(input, st, fuel, optional, true),
-        .used = decl.used
-      }
-    );
+      ),
+      width != 3U,
+      floor,
+      used,
+      fuel,
+      input.size);
 }
 
 TmtParser_named_state

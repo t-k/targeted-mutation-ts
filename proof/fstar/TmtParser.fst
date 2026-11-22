@@ -1541,6 +1541,15 @@ let tag_space (input:tape) (state:parser_state) : Read parser_state input =
   let at = scan_class input state.offset G.Space in
   { state with offset = at }
 
+let rec jsx_tag_name (input:tape) (at remaining:U32.t)
+  : Read cursor input (decreases U32.v remaining) =
+  let segment = name input at true false in
+  if not segment.ok then segment
+  else if same input segment.at 46uy then
+    if remaining = 0ul then { segment with ok = false }
+    else jsx_tag_name input (next segment.at) (minus remaining 1ul)
+  else segment
+
 let rec quote_end (input:tape) (at:U32.t) (delimiter:U8.t) (fuel:U32.t) : Read U32.t input (decreases U32.v fuel) =
   if U32.(at >=^ input.size) || fuel = 0ul then at
   else
@@ -1744,7 +1753,7 @@ let signature_end (input:tape) (state opening:parser_state) (params:parameter_li
     if checked.status <> 0ul || checked.offset <> params.names.state.offset then failed st 1ul
     else statement_end input annotation annotation.offset false
 
-#push-options "--split_queries always"
+#push-options "--split_queries always --z3rlimit 15"
 let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
   : Run parsed input (decreases %[U32.v fuel; 2; 0]) =
   let st = skip input current in
@@ -2337,7 +2346,7 @@ and jsx_children (input:tape) (state:parser_state) (tag:G.span) (fuel remaining:
         let length = minus tag.G.last tag.G.first in
         if length = 0ul then consume input closing 62uy
         else
-          let named = name input closing.offset true false in
+          let named = jsx_tag_name input closing.offset 64ul in
           let same_ =
             if named.ok && minus named.at closing.offset = length then
               same_bytes input tag.G.first closing.offset length
@@ -2367,7 +2376,7 @@ and jsx_element (input:tape) (state:parser_state) (fuel:U32.t)
   if same input opening.offset 62uy then
     jsx_children input (consume input opening 62uy) (start_range opening.offset) fuel input.size
   else
-    let named = name input opening.offset true false in
+    let named = jsx_tag_name input opening.offset 64ul in
     let attrs = jsx_attributes input (from_cursor opening named) fuel input.size in
     if attrs.after_tag.status <> 0ul || attrs.self_closing then attrs.after_tag
     else jsx_children input attrs.after_tag { G.first = opening.offset; G.last = named.at } fuel input.size
@@ -2547,15 +2556,26 @@ and local_var_declaration (input:tape) (state:parser_state) (fuel:U32.t)
   let named = from_cursor start (name input start.offset false true) in
   variable_initializer input named fuel true true
 
+and local_declarators (input:tape) (state:parser_state) (constant:bool) (floor used:names_used) (fuel remaining:U32.t)
+  : Run named_state input (decreases %[U32.v fuel; 44; U32.v remaining]) =
+  let start = skip input state in
+  if start.status <> 0ul || remaining = 0ul then { state = failed start 1ul; used }
+  else
+    let first = peek input start.offset in
+    let decl = pattern_binding input start binding_region_width floor used in
+    let named = { decl.state with local_names = decl.used } in
+    let value = declarator_value input named fuel (not constant && G.identifier_start first) in
+    let tail = skip input value.parser in
+    if tail.status <> 0ul then { decl with state = tail }
+    else if not (same input tail.offset 44uy) then
+      { decl with state = statement_end input value.parser value.range.G.last true }
+    else if value.open_angle then { decl with state = failed tail 1ul }
+    else local_declarators input (consume input tail 44uy) constant floor decl.used fuel (minus remaining 1ul)
+
 and local_declaration (input:tape) (state:parser_state) (width:U32.t) (floor used:names_used) (fuel:U32.t)
   : Run named_state input (decreases %[U32.v fuel; 45; 0]) =
   let state = record_binding_mode state LexicalLocals in
-  let start = skip input { state with offset = plus state.offset width } in
-  let first = peek input start.offset in
-  let decl = pattern_binding input start binding_region_width floor used in
-  let optional = width = 3ul && G.identifier_start first in
-  let st = { decl.state with local_names = decl.used } in
-  { decl with state = variable_initializer input st fuel optional true }
+  local_declarators input { state with offset = plus state.offset width } (width <> 3ul) floor used fuel input.size
 
 and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:bool) (jumps:jump_context)
   (floor used:names_used) (root_control:bool)
