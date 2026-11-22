@@ -26,13 +26,16 @@ for (const row of rows) {
   const [branch, dialect, mode] = row.split('\t');
   test(`compatibility grammar walk ${branch} ${dialect} ${mode}`, () => {
     const [body, messages] = cases[branch];
-    const source = `/* 🧪 */ ${body}`;
+    const jsx = branch === 'Candidate' && dialect === 'TSX'
+      ? 'const view = <div disabled={count < max || ready} visible={a || b}><span disabled={(left || right)} /></div>;'
+      : '';
+    const source = `/* 🧪 */ ${body}${jsx}`;
     const options = { mode: mode.toLowerCase(), file: dialect === 'TSX' ? 'walk.tsx' : 'walk.ts', logical: true };
     const result = extractTypeScript(source, options);
     if (branch === 'Candidate') {
       assert.equal(result.path, 'fallback');
       assert.deepEqual(result.candidates, extractYuku(source, options).candidates);
-      assert.equal(result.candidates.length, 2);
+      assert.equal(result.candidates.length, jsx ? 4 : 2);
       return;
     }
     const expected = branch === 'StrictLiteral' ? [mode === 'Module'

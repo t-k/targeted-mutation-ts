@@ -581,11 +581,11 @@ export function createTypeScriptGrammar(ts, bindings) {
     }
   }
 
-  function checkExpressionSyntax(file, module, strictRoot, emit, visitType) {
+  function checkExpressionSyntax(file, module, strictRoot, emit, visitType, visitBinary) {
     const pending = [{ node: file, parent: undefined, canAwait: module, field: false, formal: false,
-      canYield: false, ambient: false, assignmentPattern: false, forInitializer: false, strict: strictRoot, newTarget: false }];
-    const modifiers = node => node.modifiers?.filter(modifier => modifier.kind !== SyntaxKind.Decorator) ?? [];
-    const hasModifier = (node, kind) => modifiers(node).some(modifier => modifier.kind === kind);
+      canYield: false, ambient: false, assignmentPattern: false, forInitializer: false, strict: strictRoot,
+      newTarget: false, jsxAttribute: undefined }];
+    const hasModifier = (node, kind) => node.modifiers?.some(modifier => modifier.kind === kind);
     const tokenAt = at => {
       scanner.setTextPos(at);
       return scanner.scan() === SyntaxKind.EndOfFileToken ? 'end of file' : scanner.getTokenText();
@@ -659,7 +659,7 @@ export function createTypeScriptGrammar(ts, bindings) {
     }
     while (pending.length) {
       const { node, parent, canAwait, field, formal, canYield, ambient: inheritedAmbient,
-        assignmentPattern, forInitializer, strict: inheritedStrict, newTarget } = pending.pop();
+        assignmentPattern, forInitializer, strict: inheritedStrict, newTarget, jsxAttribute } = pending.pop();
       visitType(node, parent);
       if (node.kind <= SyntaxKind.LastToken) {
         if (isIdentifier(node)) {
@@ -738,6 +738,7 @@ export function createTypeScriptGrammar(ts, bindings) {
         }
       }
       if (isBinaryExpression(node)) {
+        visitBinary?.(node, jsxAttribute);
         const op = node.operatorToken.kind;
         const read = expression => isBinaryExpression(expression) ? expression.operatorToken.kind : undefined;
         const nullish = SyntaxKind.QuestionQuestionToken;
@@ -850,7 +851,13 @@ export function createTypeScriptGrammar(ts, bindings) {
           report("Expected declaration after 'export', but found 'export'");
         }
       }
+      const childAttribute = isJsxExpression(node) ? parent : undefined;
       forEachChild(node, child => {
+        if (child.kind <= SyntaxKind.LastToken && !typeCheckKind[child.kind] && !child.templateFlags) {
+          if (isIdentifier(child)) {
+            if (child.text !== 'await' && child.text !== 'arguments' && !strictReservedBindings.has(child.text)) return;
+          } else if (module || !isNumericLiteral(child) && !isStringLiteral(child)) return;
+        }
         const inField = isClassStaticBlockDeclaration(node) || (isPropertyDeclaration(node) && node.initializer === child);
         const fn = isFunctionLike(node);
         const arrow = isArrowFunction(node);
@@ -864,7 +871,7 @@ export function createTypeScriptGrammar(ts, bindings) {
         const nextPattern = parentPattern || (isPlainAssignment(node) && node.left === child) ||
           (isForInOrOfStatement(node) && node.initializer === child);
         pending.push({node: child, parent: node, canAwait: nextAwait, field: nextField, formal: nextFormal,
-          canYield: nextYield, ambient, assignmentPattern: nextPattern, strict,
+          canYield: nextYield, ambient, assignmentPattern: nextPattern, strict, jsxAttribute: childAttribute,
           newTarget: inField || newTarget || fn && !arrow && node.name !== child,
           forInitializer: forInitializer || isForStatement(node) && node.initializer === child});
       });
@@ -889,13 +896,13 @@ export function createTypeScriptGrammar(ts, bindings) {
     return parameter.dotDotDotToken || parameter.initializer || !isIdentifier(parameter.name);
   }
 
-  return function checkGrammar(file, mode, emit) {
+  return function checkGrammar(file, mode, emit, visitBinary) {
     const module = mode !== 'script';
     const strict = module || hasStrictDirective(file.statements, file);
     // Preserve the standalone type pass's emission order for diagnostics sharing a byte offset.
     const typeDiagnostics = [];
     const visitType = createTypeSyntaxVisitor(file, module, (node, message) => { typeDiagnostics.push([node, message]); });
-    checkExpressionSyntax(file, module, strict, emit, visitType);
+    checkExpressionSyntax(file, module, strict, emit, visitType, visitBinary);
     for (const [node, message] of typeDiagnostics) emit(node, message);
     checkContexts(file, strict, emit);
     checkStatementSyntax(file, module, strict, emit);

@@ -10,7 +10,7 @@ function createExtractor(ts) {
   const {
     LanguageVariant, ScriptKind, ScriptTarget, SyntaxKind, createScanner, createSourceFile,
     flattenDiagnosticMessageText, forEachChild, isArrowFunction, isAsExpression, isBinaryExpression, isIdentifier,
-    isImportTypeNode, isJsxAttribute, isJsxClosingElement, isJsxElement, isJsxExpression, isJsxOpeningElement,
+    isImportTypeNode, isJsxAttribute, isJsxClosingElement, isJsxElement, isJsxOpeningElement,
     isJsxSelfClosingElement, isParenthesizedExpression, isSatisfiesExpression, isTypeAssertionExpression,
   } = ts;
   const checkGrammar = createTypeScriptGrammar(ts, createTypeScriptBindings(ts));
@@ -262,32 +262,22 @@ function createExtractor(ts) {
     return repairAssertedAssignments(result, read);
   }
 
-  function collectCandidates(tree, source, span, originalOffset, logical) {
-    if (!source.includes('<') && !source.includes('>') && (!logical || !source.includes('||'))) return [];
-    const pending = [{ node: tree, parent: null, grandparent: null }];
-    const candidates = [];
-    while (pending.length) {
-      const { node, parent, grandparent } = pending.pop();
-      if (isBinaryExpression(node)) {
-        const boundary = comparison.get(node.operatorToken.kind);
-        if (boundary) {
-          const [operator, replacement] = boundary;
-          candidates.push({
-            rule: 'comparison-boundary/v1', operator, replacement,
-            edit: span(node.operatorToken), left: span(node.left), right: span(node.right),
-          });
-        } else if (logical && node.operatorToken.kind === kind.BarBarToken && parent && isJsxExpression(parent) &&
-            grandparent && isJsxAttribute(grandparent) &&
-            isIdentifier(grandparent.name) && grandparent.name.text === 'disabled') {
-          candidates.push({
-            rule: 'jsx-disabled-drop-left/v1', operator: '||', operatorEdit: span(node.operatorToken),
-            replacement: '(' + source.slice(originalOffset(node.right.getStart(tree)), originalOffset(node.right.end)) + ')',
-            edit: span(node), left: span(node.left), right: span(node.right),
-          });
-        }
+  function materializeCandidates(sites, tree, source, span, originalOffset) {
+    const candidates = sites.map(node => {
+      const boundary = comparison.get(node.operatorToken.kind);
+      if (boundary) {
+        const [operator, replacement] = boundary;
+        return {
+          rule: 'comparison-boundary/v1', operator, replacement,
+          edit: span(node.operatorToken), left: span(node.left), right: span(node.right),
+        };
       }
-      forEachChild(node, child => { pending.push({ node: child, parent: node, grandparent: parent }); });
-    }
+      return {
+        rule: 'jsx-disabled-drop-left/v1', operator: '||', operatorEdit: span(node.operatorToken),
+        replacement: '(' + source.slice(originalOffset(node.right.getStart(tree)), originalOffset(node.right.end)) + ')',
+        edit: span(node), left: span(node.left), right: span(node.right),
+      };
+    });
     candidates.sort((a, b) => (a.operatorEdit ?? a.edit)[0] - (b.operatorEdit ?? b.edit)[0]);
     return candidates;
   }
@@ -329,6 +319,13 @@ function createExtractor(ts) {
       const start = node.getStart(tree);
       return start >= node.end || syntaxErrors.some(error => start <= error.end && error.start < node.end);
     }
+    const sites = [];
+    function visitBinary(node, attribute) {
+      const token = node.operatorToken.kind;
+      if (comparison.has(token) || (options.logical && token === kind.BarBarToken && attribute && isJsxAttribute(attribute) &&
+          isIdentifier(attribute.name) && attribute.name.text === 'disabled')) sites.push(node);
+    }
+    const scanCandidates = source.includes('<') || source.includes('>') || (options.logical && source.includes('||'));
     checkGrammar(tree, options.mode, (node, message, previous) => {
       if (overlapsSyntaxError(node)) return;
       const [start, end] = span(node);
@@ -338,11 +335,11 @@ function createExtractor(ts) {
         labels.push({ start: priorStart, end: priorEnd, message: 'Previously declared here' });
       }
       record(start, end, message, labels);
-    });
+    }, scanCandidates ? visitBinary : undefined);
     if (diagnostics.size) {
       return { path: 'diagnostic', candidates: [], diagnostics: [...diagnostics.values()].sort((a, b) => a.start - b.start) };
     }
-    return { path: 'fallback', fallback: 'typescript', candidates: collectCandidates(tree, source, span, originalOffset, options.logical) };
+    return { path: 'fallback', fallback: 'typescript', candidates: materializeCandidates(sites, tree, source, span, originalOffset) };
   };
 }
 
