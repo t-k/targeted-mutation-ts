@@ -1,0 +1,396 @@
+{
+  "baseline": "8592705",
+  "optimized": "69a4a22",
+  "environment": {
+    "node": "v24.14.0",
+    "system": "darwin 27.2.0 arm64",
+    "cpu": "Apple M5 Max",
+    "nativeBuild": "Clang -O3, hidden visibility, LTO and fixture PGO"
+  },
+  "corpus": {
+    "reference": "yuku-parser 0.19.0",
+    "logicalModes": [
+      false,
+      true
+    ],
+    "exact": "source acceptance and ordered comparison and logical candidate fields; full native UTF-8 and duplicate lexical diagnostics",
+    "capturedInputs": 3303,
+    "projects": [
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "files": 482,
+        "bytes": 2207415,
+        "fastFiles": 468,
+        "fastBytes": 2127308,
+        "candidates": 201,
+        "fastCandidates": 194,
+        "compatibilityFiles": 14,
+        "compatibilityCandidates": 7,
+        "diagnostics": 1,
+        "nativeDiagnosticFiles": 0
+      },
+      {
+        "project": "preact-corpus",
+        "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+        "files": 22,
+        "bytes": 41760,
+        "fastFiles": 17,
+        "fastBytes": 33730,
+        "candidates": 1,
+        "fastCandidates": 0,
+        "compatibilityFiles": 5,
+        "compatibilityCandidates": 1,
+        "diagnostics": 0,
+        "nativeDiagnosticFiles": 0
+      },
+      {
+        "project": "typescript-corpus",
+        "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+        "files": 6479,
+        "bytes": 4318704,
+        "fastFiles": 2110,
+        "fastBytes": 1097649,
+        "candidates": 562,
+        "fastCandidates": 174,
+        "compatibilityFiles": 4355,
+        "compatibilityCandidates": 388,
+        "diagnostics": 952,
+        "nativeDiagnosticFiles": 5
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "files": 1193,
+        "bytes": 12465294,
+        "fastFiles": 1159,
+        "fastBytes": 11963116,
+        "candidates": 1550,
+        "fastCandidates": 1452,
+        "compatibilityFiles": 34,
+        "compatibilityCandidates": 98,
+        "diagnostics": 0,
+        "nativeDiagnosticFiles": 0
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+        "files": 373,
+        "bytes": 3431318,
+        "fastFiles": 363,
+        "fastBytes": 3291074,
+        "candidates": 654,
+        "fastCandidates": 604,
+        "compatibilityFiles": 10,
+        "compatibilityCandidates": 50,
+        "diagnostics": 0,
+        "nativeDiagnosticFiles": 0
+      }
+    ]
+  },
+  "warmExtraction": {
+    "repetitions": 9,
+    "sourceResultCache": false,
+    "samples": [
+      {
+        "project": "vite-corpus",
+        "workload": "repository",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "files": 482,
+        "bytes": 2207415,
+        "turnsPerRepetition": 7,
+        "fastFiles": 468,
+        "fastCandidates": 194,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "nativeDiagnosticFiles": 0,
+        "compatibilityFiles": 14,
+        "compatibilityCandidates": 7,
+        "baseline": {
+          "medianMs": 23.80539285714287,
+          "p25Ms": 23.696839285714272,
+          "p75Ms": 24.00702985714286
+        },
+        "optimized": {
+          "medianMs": 16.4289642857143,
+          "p25Ms": 16.406696428571422,
+          "p75Ms": 16.565315428571434
+        },
+        "samplesMs": [
+          [
+            25.692511999999997,
+            23.80539285714287,
+            23.696839285714272,
+            24.00702985714286,
+            23.55236314285714,
+            25.569601142857145,
+            22.842000000000034,
+            23.929512000000027,
+            23.79364871428574
+          ],
+          [
+            16.565315428571434,
+            16.406696428571422,
+            16.63185114285716,
+            16.0845,
+            16.747898857142868,
+            16.4289642857143,
+            16.427398857142894,
+            16.115053571428557,
+            16.498148857142887
+          ]
+        ]
+      },
+      {
+        "project": "mreact",
+        "workload": "repository",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "files": 1193,
+        "bytes": 12465294,
+        "turnsPerRepetition": 7,
+        "fastFiles": 1159,
+        "fastCandidates": 1452,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "nativeDiagnosticFiles": 0,
+        "compatibilityFiles": 34,
+        "compatibilityCandidates": 98,
+        "baseline": {
+          "medianMs": 85.36851785714283,
+          "p25Ms": 84.25195828571434,
+          "p75Ms": 86.79057142857144
+        },
+        "optimized": {
+          "medianMs": 79.80288100000014,
+          "p25Ms": 79.7053631428571,
+          "p75Ms": 80.43155957142855
+        },
+        "samplesMs": [
+          [
+            84.18589285714286,
+            86.79057142857144,
+            85.36851785714283,
+            86.73337500000005,
+            84.81468442857138,
+            87.47256542857134,
+            83.92637500000014,
+            87.28227971428558,
+            84.25195828571434
+          ],
+          [
+            80.84136314285713,
+            79.74693457142855,
+            80.4296488571429,
+            79.47413685714284,
+            80.44552371428576,
+            79.26623814285722,
+            80.43155957142855,
+            79.7053631428571,
+            79.80288100000014
+          ]
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "workload": "repository",
+        "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+        "files": 373,
+        "bytes": 3431318,
+        "turnsPerRepetition": 7,
+        "fastFiles": 363,
+        "fastCandidates": 604,
+        "nativeFiles": 0,
+        "nativeCandidates": 0,
+        "nativeDiagnosticFiles": 0,
+        "compatibilityFiles": 10,
+        "compatibilityCandidates": 50,
+        "baseline": {
+          "medianMs": 40.10169042857144,
+          "p25Ms": 38.622505999999966,
+          "p75Ms": 41.00166671428571
+        },
+        "optimized": {
+          "medianMs": 26.562857142857087,
+          "p25Ms": 26.549952285714294,
+          "p75Ms": 26.910672571428613
+        },
+        "samplesMs": [
+          [
+            43.93188700000001,
+            41.00166671428571,
+            40.10169042857144,
+            40.004607142857175,
+            38.622505999999966,
+            40.394065428571466,
+            37.21951785714288,
+            42.89047014285721,
+            37.43879171428567
+          ],
+          [
+            26.942881000000007,
+            26.34715471428571,
+            26.825101285714318,
+            26.359178571428533,
+            26.924464285714294,
+            26.556827285714267,
+            26.910672571428613,
+            26.549952285714294,
+            26.562857142857087
+          ]
+        ]
+      }
+    ]
+  },
+  "firstProcess": {
+    "repetitions": 9,
+    "includes": "extractor module import and first extraction of the corpus after loading inputs into memory",
+    "samples": [
+      {
+        "project": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "candidates": 201,
+        "diagnostics": 1,
+        "files": 482,
+        "samples": [
+          [
+            47.360625,
+            47.247249999999994,
+            46.495125,
+            46.889084,
+            47.397417,
+            46.770833999999994,
+            46.309042000000005,
+            47.57299999999999,
+            47.185458000000004
+          ],
+          [
+            105.69529200000001,
+            106.44758300000001,
+            105.50575,
+            106.454084,
+            106.00275,
+            106.38404200000001,
+            106.738583,
+            106.21983300000001,
+            106.25020799999999
+          ]
+        ],
+        "medians": [
+          47.185458000000004,
+          106.25020799999999
+        ]
+      },
+      {
+        "project": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "candidates": 1550,
+        "diagnostics": 0,
+        "files": 1193,
+        "samples": [
+          [
+            133.099875,
+            133.469167,
+            134.142584,
+            128.84408299999998,
+            131.419375,
+            131.885791,
+            150.289208,
+            134.434,
+            132.272167
+          ],
+          [
+            203.868792,
+            205.581208,
+            203.402667,
+            202.958916,
+            203.919333,
+            204.581625,
+            202.46025,
+            206.153042,
+            205.5875
+          ]
+        ],
+        "medians": [
+          133.099875,
+          203.919333
+        ]
+      },
+      {
+        "project": "tachyon-dom",
+        "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+        "candidates": 654,
+        "diagnostics": 0,
+        "files": 373,
+        "samples": [
+          [
+            70.263709,
+            70.026583,
+            69.688041,
+            70.147291,
+            71.551958,
+            70.238292,
+            69.3905,
+            69.83862500000001,
+            68.524792
+          ],
+          [
+            124.19275,
+            123.822041,
+            124.071375,
+            122.793458,
+            122.63758299999999,
+            123.70416700000001,
+            123.08116700000001,
+            123.797584,
+            122.980541
+          ]
+        ],
+        "medians": [
+          70.026583,
+          123.70416700000001
+        ]
+      }
+    ]
+  },
+  "leanBoundaryReplay": {
+    "requests": 64,
+    "observations": 262144,
+    "repetitions": 9,
+    "variants": [
+      "complete rows",
+      "boundary summaries"
+    ],
+    "inputBytes": [
+      2630957,
+      11971
+    ],
+    "medianMs": [
+      61.46704199999999,
+      19.14133300000003
+    ],
+    "samplesMs": [
+      [
+        63.208291,
+        63.930125000000004,
+        62.9255,
+        61.00120900000002,
+        59.71812500000004,
+        60.28270799999996,
+        61.46704199999999,
+        61.28429199999994,
+        62.801417000000015
+      ],
+      [
+        19.643,
+        19.571166000000005,
+        19.191666999999995,
+        18.118415999999968,
+        17.90224999999998,
+        17.287791999999968,
+        19.14133300000003,
+        18.7733750000001,
+        19.363875000000007
+      ]
+    ]
+  }
+}

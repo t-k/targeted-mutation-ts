@@ -1,5 +1,29 @@
 # Performance measurements
 
+## Extraction compared with the former Yuku runtime
+
+At `69a4a22`, repeated extraction on an Apple M5 Max with Node 24.14.0 is faster than the former Yuku runtime `8592705` on all three measured projects. Each of the nine alternating samples parses every file anew from an in-memory buffer. Source results are never cached. The current binary uses Clang LTO and profile data trained on 19 repository fixtures. The measured corpora are outside that training set.
+
+| Workload | Former Yuku | Current | Reduction |
+| --- | ---: | ---: | ---: |
+| Vite | 23.81 ms | 16.43 ms | 31.0% |
+| mreact | 85.37 ms | 79.80 ms | 6.5% |
+| tachyon-dom | 40.10 ms | 26.56 ms | 33.8% |
+
+The first extraction in a fresh Node process includes importing the extractor and loading the compatibility parser when a file requires it. The corresponding Yuku and current medians are 47.19 and 106.25 ms for Vite, 133.10 and 203.92 ms for mreact, and 70.03 and 123.70 ms for tachyon-dom. These timings begin with source buffers in memory and exclude test execution.
+
+Low★ accepted 4,117 of the 8,549 files from the five pinned checkouts and extracted 2,424 of 2,968 comparison candidates. Both logical-rule settings agreed with Yuku on source acceptance, candidate order and every candidate field. An additional 3,303 captured inputs passed the same comparison. The compatibility parser produces its own diagnostic text and recovery. Type, expression and candidate checks share an AST traversal in the compatibility path.
+
+| Workload | Low★ candidates | Total candidates | Low★ files |
+| --- | ---: | ---: | ---: |
+| Vite | 194 | 201 | 468 / 482 |
+| mreact | 1,452 | 1,550 | 1,159 / 1,193 |
+| tachyon-dom | 604 | 654 | 363 / 373 |
+
+The compiled Lean checker also evaluates boundary-flip replay summaries through `maySkipBoundary`. Lean proves that the summary gives the same decision as evaluating all observations in the original model. Over 64 requests containing 262,144 safe integer pairs, the JSON payload decreased from 2,630,957 to 11,971 bytes and the median decision time fell from 61.47 to 19.14 ms. The CLI still requires complete, stable observations under the replay contract. This measurement covers replay decisions separately from extraction.
+
+The [audit data and paired samples](../evidence/m1/yuku-runtime-parity.json) include exact checkout revisions. The warm measurement uses `node --expose-gc scripts/bench-extraction.mjs BASELINE_MODULE GIT_CHECKOUT` after `npm run build:native -- --pgo`. The [native profile integration test](../test/native-profile.integration.mjs) includes regular builds on systems without a matching Clang and `llvm-profdata`.
+
 ## Production extraction without Yuku or Oxc
 
 The installed runtime uses Low★ first and uses its existing TypeScript dependency for declined files. Yuku is the development reference. Across 8,549 tracked TS/TSX files in the five pinned checkouts, both settings of the JSX logical rule produced the same source acceptance and ordered candidate fields as the reference. Low★ extracted 2,163 of 2,968 candidates across 3,786 valid files and reported five duplicate-declaration diagnostics. The compatibility parser retains source byte ranges and can use different diagnostic wording and recovery.
