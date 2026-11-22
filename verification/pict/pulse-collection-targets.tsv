@@ -1,0 +1,15 @@
+Target	Loop	Tail
+Existing	In	Complete
+Existing	Of	Complete
+Existing	AwaitOf	Complete
+Var	In	Complete
+Var	Of	Complete
+Var	AwaitOf	Complete
+ConflictingVar	Of	Complete
+Existing	In	Broken
+Let	In	Complete
+ConflictingVar	AwaitOf	Broken
+Let	Of	Broken
+ConflictingVar	In	Broken
+Var	AwaitOf	Broken
+Let	AwaitOf	Complete

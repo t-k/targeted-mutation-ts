@@ -2622,9 +2622,8 @@ and for_header (input:tape) (state:parser_state) (top_level local_var:bool) (fue
   let! async_ = (fun () -> if head.await_allowed then keyword input head.offset 5ul 0x6177616974uL else ret input (false)) in
   let! head = (fun () -> if async_ then skip input { head with offset = plus head.offset 5ul } else ret input (head)) in
   let! st = (fun () -> (let! anf_value_1 = (fun () -> (consume input head 40uy)) in skip input anf_value_1)) in
-  let! collection = (fun () -> collection_head input st (not async_) fuel) in
+  let! collection = (fun () -> collection_head input st (not async_) local_var fuel) in
   if collection.status = 0ul then
-    let collection = if local_var then record_binding_mode collection LexicalLocals else collection in
     let! value = (fun () -> comparison input collection fuel) in
     (let! anf_value_2 = (fun () -> (skip input value.parser)) in consume input anf_value_2 41uy)
   else if async_ then ret input (collection)
@@ -3097,26 +3096,35 @@ and pattern_binding (input:tape) (state:parser_state) (base:names_base) (floor u
   : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 17; 0]) =
   pattern_binding_at input state base floor used fuel 16ul
 
-and collection_head (input:tape) (state:parser_state) (allow_in:bool) (fuel:U32.t)
+and collection_head (input:tape) (state:parser_state) (allow_in local_var:bool) (fuel:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 18; 0]) =
   let! byte = (fun () -> peek input state.offset) in
   let! constant = (fun () -> if byte = 99uy then keyword input state.offset 5ul 0x636f6e7374uL else ret input (false)) in
   let! lexical = (fun () -> if byte = 108uy then keyword input state.offset 3ul 0x6c6574uL else ret input (false)) in
+  let! var = (fun () -> if local_var && byte = 118uy then keyword input state.offset 3ul 0x766172uL else ret input false) in
   let width =
     if constant then 5ul
-    else if lexical then 3ul
+    else if lexical || var then 3ul
     else 0ul in
-  if state.status <> 0ul || width = 0ul then ret input (failed state 1ul)
+  if state.status <> 0ul then ret input state
   else
-    let! start = (fun () -> skip input { state with offset = plus state.offset width }) in
-    let mark = state.local_names in
-    let! bound = (fun () -> pattern_binding input start binding_region_width mark mark fuel) in
-    let! next_token = (fun () -> skip input bound.state) in
+    let! start = (fun () -> if width = 0ul then ret input state else skip input { state with offset = plus state.offset width }) in
+    let! bound = (fun () -> if constant || lexical then
+      let mark = state.local_names in
+      let! binding = (fun () -> pattern_binding input start binding_region_width mark mark fuel) in
+      ret input binding.state
+      else let! target = (fun () -> name input start.offset false true) in ret input (from_cursor start target)) in
+    let! next_token = (fun () -> skip input bound) in
     let! of_token = (fun () -> keyword input next_token.offset 2ul 0x6f66uL) in
     let! in_token = (fun () -> keyword input next_token.offset 2ul 0x696euL) in
-    ret input (if next_token.status = 0ul && (of_token || (allow_in && in_token)) then
-      { next_token with offset = plus next_token.offset 2ul }
-    else failed state 1ul)
+    let! async_target = (fun () -> if allow_in && of_token && width = 0ul && byte = 97uy then
+      keyword input start.offset 5ul 0x6173796e63uL else ret input false) in
+    if next_token.status <> 0ul || async_target || not (of_token || (allow_in && in_token)) then ret input (failed state 1ul)
+    else
+      let value = { next_token with offset = plus next_token.offset 2ul } in
+      let value = if var then record_binding_mode value VarLocals
+        else if local_var && (constant || lexical) then record_binding_mode value LexicalLocals else value in
+      ret input value
 
 and parameter_prefix (input:tape) (state:parser_state) (floor used:names_used) (fuel:U32.t)
   : Tot (stt parameter_list (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 18; 0]) =

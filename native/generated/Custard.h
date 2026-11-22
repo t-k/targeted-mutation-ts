@@ -1649,6 +1649,7 @@ TmtPulseParser_collection_head(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   bool allow_in,
+  bool local_var,
   uint32_t fuel
 );
 

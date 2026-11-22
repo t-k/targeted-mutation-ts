@@ -1,0 +1,9 @@
+Target	Loop	Tail
+Existing	In	Complete
+Existing	Of	Complete
+Existing	AwaitOf	Complete
+Var	In	Complete
+Var	Of	Complete
+Var	AwaitOf	Complete
+ConflictingVar	Of	Complete
+Existing	In	Broken
