@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -30,10 +30,7 @@ try {
   assert.equal(addon.standalone, undefined);
   const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
   assert.deepEqual(manifest.dependencies, { typescript: '6.0.3' });
-  const prepared = join(installed, 'build/typescript-cache');
-  assert.match(readFileSync(join(prepared, 'LICENSE.txt'), 'utf8'), /Apache License/);
-  assert.ok(readFileSync(join(prepared, 'ThirdPartyNoticeText.txt')).length);
-  assert.ok(statSync(join(prepared, 'parser.v8')).size > 0);
+  assert.equal(existsSync(join(installed, 'build/typescript-cache')), false);
   const lock = JSON.parse(readFileSync(join(cwd, 'package-lock.json'), 'utf8'));
   assert.deepEqual(Object.keys(lock.packages).filter(path => path.startsWith('node_modules/')).sort(),
     ['node_modules/targeted-mutation-ts', 'node_modules/typescript']);

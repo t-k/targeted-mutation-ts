@@ -1,53 +1,38 @@
 ---------------------------- MODULE PreparedCompiler ----------------------------
 EXTENDS TLC
 
-VARIABLES stage, published, available, selected, registered,
-          enabled, supported, matchingEngine, matchingSource, completeEntry
-vars == <<stage, published, available, selected, registered,
-          enabled, supported, matchingEngine, matchingSource, completeEntry>>
-inputs == <<enabled, supported, matchingEngine, matchingSource, completeEntry>>
+VARIABLES entry, manifestMatches, decision, enabled, engineMatches, sourceMatches
+vars == <<entry, manifestMatches, decision, enabled, engineMatches, sourceMatches>>
+inputs == <<enabled, engineMatches, sourceMatches>>
 
-Init == /\ stage = "build"
-        /\ published = "previous"
-        /\ available \in BOOLEAN
+Entries == {"absent", "old", "new"}
+
+Init == /\ entry \in Entries \ {"new"}
+        /\ manifestMatches \in BOOLEAN
+        /\ decision = [kind |-> "pending", entry |-> "absent", manifest |-> FALSE]
         /\ enabled \in BOOLEAN
-        /\ supported \in BOOLEAN
-        /\ matchingEngine \in BOOLEAN
-        /\ matchingSource \in BOOLEAN
-        /\ completeEntry \in BOOLEAN
-        /\ selected = "pending"
-        /\ registered = "absent"
+        /\ engineMatches \in BOOLEAN
+        /\ sourceMatches \in BOOLEAN
 
-Publish(success) ==
-  /\ stage = "build"
-  /\ stage' = "load"
-  /\ published' = IF success THEN "complete" ELSE published
-  /\ available' = (available \/ success)
-  /\ UNCHANGED <<selected, registered, inputs>>
+ReplaceEntry == /\ entry # "new"
+                /\ entry' = "new"
+                /\ UNCHANGED <<manifestMatches, decision, inputs>>
 
-Load ==
-  /\ stage = "load"
-  /\ LET usePrepared == available /\ enabled /\ supported /\ matchingEngine /\ matchingSource /\ completeEntry
-     IN /\ stage' = IF usePrepared THEN "initialize" ELSE "done"
-        /\ selected' = IF usePrepared THEN "prepared" ELSE "ordinary"
-        /\ registered' = IF usePrepared THEN "loading" ELSE "absent"
-  /\ UNCHANGED <<available, published, inputs>>
+PublishManifest == /\ entry = "new" /\ ~manifestMatches
+                   /\ manifestMatches' = TRUE
+                   /\ UNCHANGED <<entry, decision, inputs>>
 
-Initialize(success) ==
-  /\ stage = "initialize"
-  /\ stage' = IF success THEN "done" ELSE "failed"
-  /\ registered' = IF success THEN "loaded" ELSE "absent"
-  /\ UNCHANGED <<available, published, selected, inputs>>
+\* Each load snapshots one cache entry. Node checks the source and engine on each cache hit.
+Load == /\ decision.kind = "pending"
+        /\ decision' = [kind |-> IF enabled /\ manifestMatches /\ engineMatches /\ sourceMatches /\ entry # "absent"
+                                 THEN "prepared" ELSE "ordinary",
+                         entry |-> entry, manifest |-> manifestMatches]
+        /\ UNCHANGED <<entry, manifestMatches, inputs>>
 
-Next == Publish(TRUE) \/ Publish(FALSE) \/ Load \/ Initialize(TRUE) \/ Initialize(FALSE)
+Next == ReplaceEntry \/ PublishManifest \/ Load
 Spec == Init /\ [][Next]_vars
 
-Publication == /\ published \in {"previous", "complete"}
-               /\ published = "complete" => available
-SafeSelection == /\ selected = "prepared" => available /\ enabled /\ supported
-                                            /\ matchingEngine /\ matchingSource /\ completeEntry
-                 /\ stage = "done" => selected \in {"prepared", "ordinary"}
-ModuleLifetime == /\ (registered = "loading") <=> (stage = "initialize")
-                  /\ (registered = "loaded") <=> (stage = "done" /\ selected = "prepared")
-                  /\ stage = "failed" => registered = "absent"
+SafeSelection == /\ decision.kind = "prepared" => enabled /\ decision.manifest /\ engineMatches /\ sourceMatches
+                                                  /\ decision.entry # "absent"
+                 /\ decision.kind \in {"pending", "prepared", "ordinary"}
 =============================================================================

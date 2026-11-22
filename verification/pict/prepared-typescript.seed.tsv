@@ -9,6 +9,6 @@ Truncated	Fallback	Enabled
 Corrupted	Fallback	Enabled
 StaleSource	Fallback	Enabled
 WrongEngine	Fallback	Enabled
-Rejected	Fallback	Enabled
+WrongMetadata	Fallback	Enabled
 Ready	Fallback	Restricted
 Ready	Fallback	ExternalLoader

@@ -41,7 +41,6 @@
     "src/",
     "build/tmt.node",
     "build/tmt-decide",
-    "build/typescript-cache",
     "README.md",
     "docs/",
     "evidence/"
