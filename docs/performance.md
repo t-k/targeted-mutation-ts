@@ -14,6 +14,24 @@ Each comparison alternates nine samples on an Apple M5 Max with Node 24.14.0 and
 
 Warm medians rose by 2.0–4.0%, and cold medians rose by 1.0–1.4% relative to Low★. First extraction remains 4.4–19.9% faster than the former Yuku runtime. Both implementations returned identical candidate, diagnostic and extraction metadata records for 8,549 tracked files and 3,303 unique captured inputs with each logical-rule setting. See the [paired samples and corpus details](../evidence/m1/pulse-parser.json).
 
+## Independent JavaScript and TypeScript corpora
+
+The audit reads pinned Git blobs from Fastify, Vue, React, Ant Design, Material UI, RxJS, Zod, esbuild, and SWR Firestore. Across all 2,896 audited files, the shipped extractor matched full TypeScript and Yuku on acceptance and ordered UTF-8 candidate fields. A separate walk of the full TypeScript AST checked candidate spans on accepted, syntactically clean inputs. The audit includes JavaScript, CommonJS script mode, TypeScript, and TSX. It excludes the selected projects' test and fixture directories and React's Flow-annotated JavaScript. It records JavaScript files that required an explicit TSX dialect. Declaration files, generated files and conformance harnesses are counted separately.
+
+Across the 2,530 application and tooling source files, native coverage rose from 2,232 to 2,316. The native route now emits 834 of 1,375 candidates, up from 721. The TypeScript route handled all 13 observed JSX disabled-disjunction candidates. The expanded grammar recognizes ordinary top-level enums and general statement sequences in explicit script mode with script restrictions on static imports and exports. The pinned esbuild decorator harness matches Yuku after the compatibility grammar correction. The five earlier corpora also passed the logical-rule audit across 8,549 files.
+
+Extraction measurements alternate nine pairs on an Apple M5 Max with Node 24.14.0 and fixture-trained native PGO. Cold timing starts with source buffers in memory, includes importer and parser loading, and disables the compile cache. Both versions produced the same acceptance and candidate fingerprints on these workloads.
+
+| Workload | Source files | Warm | First extraction |
+| --- | ---: | ---: | ---: |
+| Fastify CommonJS | 29 | 12.69 → 9.60 ms | 62.37 → 53.12 ms |
+| Vue | 232 | 43.01 → 27.60 ms | 122.33 → 89.12 ms |
+| React | 241 | 60.54 → 49.63 ms | 146.72 → 131.58 ms |
+
+First extraction on the established Vite, mreact, and tachyon-dom inputs changed by less than 0.6% from the previous Pulse baseline. Focused analysis reuses the runtime-module syntax decision for an unchanged subject and reads the package type in each new trial copy. Repeated preflight on the same 49,314-byte file took 1.417 → 0.011 ms per lookup, excluding test execution. The clone-on-write copy experiment was within 1% for both measured layouts, including the one with 96 MiB of assets. Focused mutations still use their own Vitest startup and independent project copy.
+
+Run the [independent corpus audit](../scripts/audit-independent-extraction.mjs) against local checkouts at the recorded revisions. See the [pinned revisions, exact counts, and paired samples](../evidence/m1/independent-extraction.json).
+
 ## Analysis throughput
 
 Measurements on Apple M5 Max with Node 24.14.0 alternate baseline and current samples. The Git and CLI benchmarks use nine pairs. The coverage planner uses eleven pairs. CLI samples start a fresh Node process with the compile cache disabled.

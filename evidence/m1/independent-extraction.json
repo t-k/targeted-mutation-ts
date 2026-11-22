@@ -1,0 +1,910 @@
+{
+  "baseline": "6458908",
+  "timedImplementation": "c182a99",
+  "auditedImplementation": "6793abad5d5763f1d5a4acfc168f35a768d8bc18",
+  "audit": {
+    "revision": "6793abad5d5763f1d5a4acfc168f35a768d8bc18",
+    "nativeSha256": "583cb27362286d5dfe3624bfd8dbf890704201fe9fdd7a4b28a6fa6e5978483c",
+    "node": "v24.14.0",
+    "typescript": "6.0.3",
+    "yuku": "0.19.0",
+    "reports": [
+      {
+        "name": "react",
+        "upstream": "react/react",
+        "revision": "ae74234eae6ebd62f19190731278e20bc1c37d51",
+        "paths": [
+          "compiler/packages",
+          "compiler/apps/playground",
+          "packages/react",
+          "packages/react-dom",
+          "packages/scheduler"
+        ],
+        "include": "^(?:compiler\\/packages\\/[^/]+\\/src\\/|compiler\\/apps\\/playground\\/|packages\\/(?:react|react-dom|scheduler)\\/)",
+        "excluded": {
+          "tests-fixtures-distribution": 1950,
+          "flow": 101
+        },
+        "classes": {
+          "source": {
+            "files": 241,
+            "bytes": 1980569,
+            "nativeFiles": 190,
+            "nativeBytes": 1189128,
+            "candidates": 236,
+            "nativeCandidates": 136,
+            "tsxFiles": 15,
+            "nativeTsxFiles": 12,
+            "dialectOverrides": 0,
+            "unicodeFiles": 20,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          },
+          "declaration": {
+            "files": 6,
+            "bytes": 4236,
+            "nativeFiles": 2,
+            "nativeBytes": 545,
+            "candidates": 0,
+            "nativeCandidates": 0,
+            "tsxFiles": 0,
+            "nativeTsxFiles": 0,
+            "dialectOverrides": 0,
+            "unicodeFiles": 0,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          }
+        },
+        "fallbackReasons": {
+          "outside-l1": 55
+        },
+        "mismatches": []
+      },
+      {
+        "name": "vue",
+        "upstream": "vuejs/core",
+        "revision": "5a8aa0b2ba575e098cbb63b396e9bcb751eb3a0f",
+        "paths": [
+          "packages"
+        ],
+        "include": "^packages\\/[^/]+\\/src\\/",
+        "excluded": {},
+        "classes": {
+          "source": {
+            "files": 232,
+            "bytes": 1556793,
+            "nativeFiles": 209,
+            "nativeBytes": 1205158,
+            "candidates": 400,
+            "nativeCandidates": 249,
+            "tsxFiles": 0,
+            "nativeTsxFiles": 0,
+            "dialectOverrides": 0,
+            "unicodeFiles": 1,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          },
+          "declaration": {
+            "files": 1,
+            "bytes": 110,
+            "nativeFiles": 0,
+            "nativeBytes": 0,
+            "candidates": 0,
+            "nativeCandidates": 0,
+            "tsxFiles": 0,
+            "nativeTsxFiles": 0,
+            "dialectOverrides": 0,
+            "unicodeFiles": 0,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          }
+        },
+        "fallbackReasons": {
+          "outside-l1": 24
+        },
+        "mismatches": []
+      },
+      {
+        "name": "fastify",
+        "upstream": "fastify/fastify",
+        "revision": "91414fecaa0ad383c7f97c91f86bee87bf4f06c0",
+        "paths": [
+          "fastify.js",
+          "lib",
+          "types"
+        ],
+        "excluded": {},
+        "classes": {
+          "source": {
+            "files": 29,
+            "bytes": 210199,
+            "nativeFiles": 19,
+            "nativeBytes": 67154,
+            "candidates": 32,
+            "nativeCandidates": 9,
+            "tsxFiles": 0,
+            "nativeTsxFiles": 0,
+            "dialectOverrides": 0,
+            "unicodeFiles": 1,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          },
+          "generated": {
+            "files": 1,
+            "bytes": 34331,
+            "nativeFiles": 0,
+            "nativeBytes": 0,
+            "candidates": 0,
+            "nativeCandidates": 0,
+            "tsxFiles": 0,
+            "nativeTsxFiles": 0,
+            "dialectOverrides": 0,
+            "unicodeFiles": 0,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          },
+          "declaration": {
+            "files": 15,
+            "bytes": 141339,
+            "nativeFiles": 13,
+            "nativeBytes": 134651,
+            "candidates": 0,
+            "nativeCandidates": 0,
+            "tsxFiles": 0,
+            "nativeTsxFiles": 0,
+            "dialectOverrides": 0,
+            "unicodeFiles": 0,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          }
+        },
+        "fallbackReasons": {
+          "outside-l1": 13
+        },
+        "mismatches": []
+      },
+      {
+        "name": "zod",
+        "upstream": "colinhacks/zod",
+        "revision": "3b946107b6c94b2ac8ff9fb451160c34dc4dd794",
+        "paths": [
+          "packages/zod/src",
+          "packages/docs/app",
+          "packages/docs/components"
+        ],
+        "excluded": {
+          "tests-fixtures-distribution": 148
+        },
+        "classes": {
+          "source": {
+            "files": 138,
+            "bytes": 979226,
+            "nativeFiles": 116,
+            "nativeBytes": 438729,
+            "candidates": 155,
+            "nativeCandidates": 79,
+            "tsxFiles": 27,
+            "nativeTsxFiles": 25,
+            "dialectOverrides": 0,
+            "unicodeFiles": 48,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          }
+        },
+        "fallbackReasons": {
+          "outside-l1": 22
+        },
+        "mismatches": []
+      },
+      {
+        "name": "rxjs",
+        "upstream": "ReactiveX/rxjs",
+        "revision": "e5351d02e225e275ac0e497c7b66eaa5f0c88791",
+        "paths": [
+          "src"
+        ],
+        "excluded": {},
+        "classes": {
+          "source": {
+            "files": 252,
+            "bytes": 814480,
+            "nativeFiles": 238,
+            "nativeBytes": 684212,
+            "candidates": 98,
+            "nativeCandidates": 88,
+            "tsxFiles": 0,
+            "nativeTsxFiles": 0,
+            "dialectOverrides": 0,
+            "unicodeFiles": 1,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          }
+        },
+        "fallbackReasons": {
+          "outside-l1": 14
+        },
+        "mismatches": []
+      },
+      {
+        "name": "esbuild",
+        "upstream": "evanw/esbuild",
+        "revision": "609683d892977362a0f99026cb74b96263d728a9",
+        "paths": [
+          "lib",
+          "scripts",
+          "compat-table/src"
+        ],
+        "excluded": {},
+        "classes": {
+          "source": {
+            "files": 20,
+            "bytes": 285467,
+            "nativeFiles": 6,
+            "nativeBytes": 54542,
+            "candidates": 91,
+            "nativeCandidates": 15,
+            "tsxFiles": 0,
+            "nativeTsxFiles": 0,
+            "dialectOverrides": 0,
+            "unicodeFiles": 3,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          },
+          "declaration": {
+            "files": 2,
+            "bytes": 302,
+            "nativeFiles": 0,
+            "nativeBytes": 0,
+            "candidates": 0,
+            "nativeCandidates": 0,
+            "tsxFiles": 0,
+            "nativeTsxFiles": 0,
+            "dialectOverrides": 0,
+            "unicodeFiles": 0,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          },
+          "conformance-harness": {
+            "files": 19,
+            "bytes": 1289385,
+            "nativeFiles": 9,
+            "nativeBytes": 434487,
+            "candidates": 104,
+            "nativeCandidates": 22,
+            "tsxFiles": 0,
+            "nativeTsxFiles": 0,
+            "dialectOverrides": 0,
+            "unicodeFiles": 15,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          }
+        },
+        "fallbackReasons": {
+          "outside-l1": 26
+        },
+        "mismatches": []
+      },
+      {
+        "name": "antd",
+        "upstream": "ant-design/ant-design",
+        "revision": "a31d11d8a7ea7dbb54199975c48bfa246ac8b354",
+        "paths": [
+          "components"
+        ],
+        "excluded": {
+          "tests-fixtures-distribution": 1496
+        },
+        "classes": {
+          "source": {
+            "files": 898,
+            "bytes": 2742199,
+            "nativeFiles": 846,
+            "nativeBytes": 2428395,
+            "candidates": 198,
+            "nativeCandidates": 149,
+            "tsxFiles": 281,
+            "nativeTsxFiles": 235,
+            "dialectOverrides": 0,
+            "unicodeFiles": 270,
+            "diagnostics": 0,
+            "logicalCandidates": 7,
+            "nativeLogicalCandidates": 0
+          }
+        },
+        "fallbackReasons": {
+          "outside-l1": 52
+        },
+        "mismatches": []
+      },
+      {
+        "name": "material-ui",
+        "upstream": "mui/material-ui",
+        "revision": "28eadba9ec2899226ecbf4058b8fba1ddeab9e6d",
+        "paths": [
+          "packages/mui-material/src"
+        ],
+        "excluded": {
+          "tests-fixtures-distribution": 243
+        },
+        "classes": {
+          "declaration": {
+            "files": 322,
+            "bytes": 564929,
+            "nativeFiles": 237,
+            "nativeBytes": 298286,
+            "candidates": 0,
+            "nativeCandidates": 0,
+            "tsxFiles": 0,
+            "nativeTsxFiles": 0,
+            "dialectOverrides": 0,
+            "unicodeFiles": 6,
+            "diagnostics": 2,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          },
+          "source": {
+            "files": 635,
+            "bytes": 1999638,
+            "nativeFiles": 607,
+            "nativeBytes": 1666028,
+            "candidates": 161,
+            "nativeCandidates": 105,
+            "tsxFiles": 175,
+            "nativeTsxFiles": 158,
+            "dialectOverrides": 157,
+            "unicodeFiles": 195,
+            "diagnostics": 0,
+            "logicalCandidates": 6,
+            "nativeLogicalCandidates": 0
+          }
+        },
+        "fallbackReasons": {
+          "outside-l1": 113
+        },
+        "mismatches": []
+      },
+      {
+        "name": "swr-firestore",
+        "upstream": "t-k/swr-firestore",
+        "revision": "25e295e6150025bc9b234eea5119589dee473ded",
+        "paths": [
+          "src"
+        ],
+        "excluded": {},
+        "classes": {
+          "source": {
+            "files": 85,
+            "bytes": 112739,
+            "nativeFiles": 85,
+            "nativeBytes": 112739,
+            "candidates": 4,
+            "nativeCandidates": 4,
+            "tsxFiles": 0,
+            "nativeTsxFiles": 0,
+            "dialectOverrides": 0,
+            "unicodeFiles": 0,
+            "diagnostics": 0,
+            "logicalCandidates": 0,
+            "nativeLogicalCandidates": 0
+          }
+        },
+        "fallbackReasons": {},
+        "mismatches": []
+      }
+    ]
+  },
+  "sourceBefore": {
+    "files": 2530,
+    "bytes": 10681310,
+    "nativeFiles": 2232,
+    "nativeBytes": 7209850,
+    "candidates": 1375,
+    "nativeCandidates": 721,
+    "tsxFiles": 498,
+    "nativeTsxFiles": 430,
+    "tsxOverrides": 157,
+    "logicalCandidates": 13,
+    "nativeLogicalCandidates": 0,
+    "unicodeFiles": 539,
+    "diagnostics": 0
+  },
+  "sourceAfter": {
+    "files": 2530,
+    "nativeFiles": 2316,
+    "candidates": 1375,
+    "nativeCandidates": 834,
+    "logicalCandidates": 13,
+    "nativeLogicalCandidates": 0,
+    "tsxFiles": 498,
+    "dialectOverrides": 157
+  },
+  "establishedLogicalAudit": [
+    {
+      "project": "vite-corpus",
+      "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+      "files": 482,
+      "candidates": 201,
+      "fastFiles": 472,
+      "fastCandidates": 196
+    },
+    {
+      "project": "preact-corpus",
+      "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+      "files": 22,
+      "candidates": 1,
+      "fastFiles": 17,
+      "fastCandidates": 0
+    },
+    {
+      "project": "typescript-corpus",
+      "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+      "files": 6479,
+      "candidates": 562,
+      "fastFiles": 2178,
+      "fastCandidates": 176
+    },
+    {
+      "project": "mreact",
+      "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+      "files": 1193,
+      "candidates": 1550,
+      "fastFiles": 1169,
+      "fastCandidates": 1511
+    },
+    {
+      "project": "tachyon-dom",
+      "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+      "files": 373,
+      "candidates": 654,
+      "fastFiles": 365,
+      "fastCandidates": 610
+    }
+  ],
+  "extraction": {
+    "node": "v24.14.0",
+    "cpu": "Apple M5 Max",
+    "baseline": "6458908",
+    "repetitions": 9,
+    "records": [
+      {
+        "project": "fastify-commonjs",
+        "files": 29,
+        "candidates": 32,
+        "fingerprint": "35efeb12c762a674c2ecccb226e3d95d7db0422b98383191e5142905931138e6",
+        "warm": {
+          "samples": [
+            [
+              15.501482142857144,
+              13.633535714285715,
+              12.71763685714284,
+              12.692618999999988,
+              12.542886857142873,
+              12.696881000000044,
+              12.569565428571423,
+              12.576053571428604,
+              12.510619000000004
+            ],
+            [
+              11.265184571428572,
+              10.169577428571431,
+              9.739523857142851,
+              9.579297571428567,
+              9.672142857142878,
+              9.564714285714283,
+              9.595922571428607,
+              9.596815571428513,
+              9.545767857142891
+            ]
+          ],
+          "medians": [
+            12.692618999999988,
+            9.596815571428513
+          ]
+        },
+        "cold": {
+          "samples": [
+            [
+              62.152,
+              63.056875000000005,
+              62.458166999999996,
+              61.858084,
+              62.611125,
+              62.432792,
+              62.315333,
+              62.015542,
+              62.373958
+            ],
+            [
+              53.341042,
+              52.60933300000001,
+              52.58945799999999,
+              52.673333,
+              53.228249999999996,
+              53.116915999999996,
+              52.535084000000005,
+              53.53104199999999,
+              53.675875000000005
+            ]
+          ],
+          "medians": [
+            62.373958,
+            53.116915999999996
+          ]
+        }
+      },
+      {
+        "project": "vue",
+        "files": 232,
+        "candidates": 400,
+        "fingerprint": "4b1dbc18ac4ca2eedf6429859644becae44bfd36a9f9649b9e4a20507ebcfe10",
+        "warm": {
+          "samples": [
+            [
+              45.932553571428606,
+              43.75160714285721,
+              43.0634702857143,
+              43.145083285714335,
+              42.99962499999999,
+              43.01456542857132,
+              42.88580957142858,
+              42.82364885714274,
+              42.97314285714284
+            ],
+            [
+              29.10852971428572,
+              27.91187500000004,
+              27.599166571428604,
+              27.55469042857138,
+              27.733321428571408,
+              27.467839285714295,
+              27.69679171428574,
+              27.527750000000065,
+              27.511267857143007
+            ]
+          ],
+          "medians": [
+            43.01456542857132,
+            27.599166571428604
+          ]
+        },
+        "cold": {
+          "samples": [
+            [
+              121.94387499999999,
+              122.23095899999998,
+              122.81033400000001,
+              122.32745800000001,
+              124.05316599999999,
+              122.86574999999999,
+              122.38374999999999,
+              121.664834,
+              122.238667
+            ],
+            [
+              89.23504100000001,
+              89.125125,
+              88.083792,
+              89.099834,
+              89.117042,
+              89.258708,
+              88.32145899999999,
+              89.172708,
+              88.886625
+            ]
+          ],
+          "medians": [
+            122.32745800000001,
+            89.117042
+          ]
+        }
+      },
+      {
+        "project": "react",
+        "files": 241,
+        "candidates": 236,
+        "fingerprint": "54e3634988e9b2efd5a154ee0371d9cf9b181d4b15cc61718f425ba8847645b7",
+        "warm": {
+          "samples": [
+            [
+              61.71535114285715,
+              61.30892857142862,
+              60.53948814285702,
+              60.221511857142886,
+              59.934214285714134,
+              60.3316428571426,
+              60.83196428571474,
+              60.17048814285746,
+              61.18369642857111
+            ],
+            [
+              50.8141607142856,
+              49.57972028571411,
+              49.80652371428577,
+              49.631011857142894,
+              49.33968442857128,
+              49.62011314285701,
+              50.11486314285711,
+              49.48648214285744,
+              50.34696428571416
+            ]
+          ],
+          "medians": [
+            60.53948814285702,
+            49.631011857142894
+          ]
+        },
+        "cold": {
+          "samples": [
+            [
+              145.598667,
+              143.924208,
+              147.510709,
+              144.675209,
+              146.715166,
+              144.729084,
+              148.635792,
+              148.511417,
+              147.77825
+            ],
+            [
+              129.88125,
+              129.740917,
+              130.514417,
+              132.741583,
+              132.899417,
+              135.384,
+              132.274417,
+              130.998542,
+              131.583
+            ]
+          ],
+          "medians": [
+            146.715166,
+            131.583
+          ]
+        }
+      }
+    ]
+  },
+  "establishedCold": {
+    "node": "v24.14.0",
+    "os": "darwin 27.2.0 arm64",
+    "cpu": "Apple M5 Max",
+    "repetitions": 9,
+    "files": [
+      {
+        "checkout": "vite-corpus",
+        "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+        "files": 482,
+        "candidates": 201,
+        "diagnostics": 1,
+        "fingerprint": "3fc4fc01fd691cabf2cf3678a80fc1551b048c7dba32256d7763a564dea03220",
+        "medianMs": [
+          42.465917000000005,
+          42.411500000000004
+        ],
+        "samplesMs": [
+          [
+            42.513375,
+            42.257208000000006,
+            42.465917000000005,
+            42.755416,
+            42.667666,
+            43.457499999999996,
+            42.361332999999995,
+            42.231500000000004,
+            42.087458
+          ],
+          [
+            42.411500000000004,
+            42.802542,
+            42.29241699999999,
+            42.276416,
+            42.4525,
+            42.158917,
+            43.44866699999999,
+            42.189459,
+            42.439667
+          ]
+        ]
+      },
+      {
+        "checkout": "mreact",
+        "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+        "files": 1193,
+        "candidates": 1550,
+        "diagnostics": 0,
+        "fingerprint": "22cc2394184fd508ce2017be0162ec21740de2e5b2738e93b4a50b31e79eab82",
+        "medianMs": [
+          118.39124999999999,
+          119.08375000000001
+        ],
+        "samplesMs": [
+          [
+            118.00616699999998,
+            119.03612500000001,
+            119.16945799999999,
+            118.39124999999999,
+            117.159208,
+            119.197083,
+            117.624875,
+            117.828959,
+            119.86391700000001
+          ],
+          [
+            119.08375000000001,
+            118.64512500000001,
+            120.528583,
+            118.48804200000001,
+            120.08933400000001,
+            117.70108400000001,
+            119.29012499999999,
+            118.699834,
+            120.372083
+          ]
+        ]
+      },
+      {
+        "checkout": "tachyon-dom",
+        "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+        "files": 373,
+        "candidates": 654,
+        "diagnostics": 0,
+        "fingerprint": "4c7b7385f68f972185410948d674c9d6c03c9d5408bb4480ba77c81c507090be",
+        "medianMs": [
+          66.83254199999999,
+          67.212791
+        ],
+        "samplesMs": [
+          [
+            67.2335,
+            66.05924999999999,
+            66.24745899999999,
+            67.399666,
+            66.83254199999999,
+            66.497458,
+            67.720583,
+            66.614125,
+            67.07329200000001
+          ],
+          [
+            66.63666699999999,
+            67.247625,
+            67.212791,
+            66.816375,
+            67.284292,
+            67.424417,
+            67.462875,
+            66.750291,
+            66.702584
+          ]
+        ]
+      }
+    ]
+  },
+  "probePreflight": {
+    "node": "v24.14.0",
+    "cpu": "Apple M5 Max",
+    "bytes": 49314,
+    "evaluations": 50,
+    "repetitions": 11,
+    "samples": [
+      [
+        1.4467450000000002,
+        1.4264566599999995,
+        1.4191333399999997,
+        1.4587241799999993,
+        1.4299741599999993,
+        1.417471660000001,
+        1.3738024999999994,
+        1.3510708400000022,
+        1.3434516800000005,
+        1.3951499999999988,
+        1.3525208399999997
+      ],
+      [
+        0.012525819999999611,
+        0.01197499999999991,
+        0.012450000000000046,
+        0.011375819999999521,
+        0.012181660000001102,
+        0.01136500000000069,
+        0.011190819999999348,
+        0.011420000000000527,
+        0.01134499999999889,
+        0.011239180000000033,
+        0.010951679999998305
+      ]
+    ],
+    "medians": [
+      1.417471660000001,
+      0.011375819999999521
+    ]
+  },
+  "copyExperiment": {
+    "node": "v24.14.0",
+    "machine": "Apple M5 Max",
+    "files": 1000,
+    "assetBytes": 100663296,
+    "small": {
+      "samples": [
+        [
+          154.183834,
+          161.14641699999993,
+          164.257208,
+          154.38204100000007,
+          155.977167,
+          150.7774169999998,
+          154.15412500000002,
+          153.2032079999999,
+          146.84162500000002,
+          149.36300000000028,
+          150.82387500000004
+        ],
+        [
+          155.30616699999996,
+          155.036792,
+          160.91333400000008,
+          156.27075000000013,
+          155.10779200000025,
+          151.80904099999998,
+          153.20691699999998,
+          148.1632910000003,
+          151.54516599999988,
+          148.60120800000004,
+          146.6424579999998
+        ]
+      ],
+      "medians": [
+        154.15412500000002,
+        153.20691699999998
+      ]
+    },
+    "assets": {
+      "samples": [
+        [
+          238.65949999999975,
+          237.192583,
+          191.5659999999998,
+          197.34354200000053,
+          203.1678750000001,
+          198.18112500000007,
+          190.62383300000056,
+          180.00487499999963,
+          209.48562499999935,
+          188.9567079999997,
+          190.03233400000136
+        ],
+        [
+          248.12595899999997,
+          243.02820900000006,
+          229.09295800000018,
+          208.61012500000015,
+          195.82275000000027,
+          211.37179099999958,
+          180.03087500000038,
+          187.72420799999963,
+          197.411333,
+          197.84108300000025,
+          177.51854099999946
+        ]
+      ],
+      "medians": [
+        197.34354200000053,
+        197.84108300000025
+      ]
+    }
+  }
+}
