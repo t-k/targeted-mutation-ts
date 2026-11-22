@@ -1943,6 +1943,24 @@ let local_width (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt U32.t (inp
   else if first = 108uy then ((let! anf_value_2 = (fun () -> keyword input #frame start 3ul 0x6c6574uL) in if anf_value_2 then read_ret input #frame (3ul) else read_ret input #frame (0ul)))
   else read_ret input #frame (0ul)
 
+let resource_declaration_start (input:tape) (#frame:slprop) (state:parser_state) (first:U8.t)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! start = (fun () -> if first = 117uy then read_ret input #frame state
+    else if first = 97uy && state.await_allowed then
+      let! await_ = (fun () -> keyword input #frame state.offset 5ul 0x6177616974uL) in
+      if not await_ then read_ret input #frame (failed state 1ul)
+      else
+        let! gap = (fun () -> trivia input #frame (plus state.offset 5ul)) in
+        read_ret input #frame (if gap.newline then failed state 1ul else from_cursor state gap)
+    else read_ret input #frame (failed state 1ul)) in
+  let! using_ = (fun () -> if start.status = 0ul then keyword input #frame start.offset 5ul 0x7573696e67uL
+    else read_ret input #frame false) in
+  if not using_ then read_ret input #frame (failed start 1ul)
+  else
+    let! gap = (fun () -> trivia input #frame (plus start.offset 5ul)) in
+    let! byte = (fun () -> peek input #frame gap.at) in
+    read_ret input #frame (if gap.newline || not (G.identifier_start byte) then failed start 1ul else from_cursor start gap)
+
 let type_declaration_width (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt U32.t (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! first = (fun () -> peek input #frame start) in
   let! width =
@@ -3244,13 +3262,14 @@ and local_var_declaration (input:tape) (state:parser_state) (fuel:U32.t)
   let st = record_binding_mode state VarLocals in
   function_var_list input { st with offset = plus st.offset 3ul } fuel 64ul false
 
-and local_declarators (input:tape) (state:parser_state) (constant:bool) (floor used:names_used) (fuel remaining:U32.t)
+and local_declarators (input:tape) (state:parser_state) (constant names_only:bool) (floor used:names_used) (fuel remaining:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 44; U32.v remaining]) =
   let! start = (fun () -> skip input state) in
   if start.status <> 0ul || remaining = 0ul then ret input ({ state = failed start 1ul; used })
   else
     let! first = (fun () -> peek input start.offset) in
-    let! decl = (fun () -> pattern_binding input start binding_region_width floor used fuel) in
+    let! decl = (fun () -> if names_only then bind_pattern_name input start binding_region_width floor used start.offset
+      else pattern_binding input start binding_region_width floor used fuel) in
     let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
     let named = { tracked with local_names = decl.used } in
     let! value = (fun () -> declarator_value input named fuel (not constant && G.identifier_start first)) in
@@ -3259,22 +3278,27 @@ and local_declarators (input:tape) (state:parser_state) (constant:bool) (floor u
     else (let! anf_value_1 = (fun () -> (let! anf_value_2 = (fun () -> (same input tail.offset 44uy)) in ret input (not anf_value_2))) in if anf_value_1 then
       (let! anf_value_3 = (fun () -> statement_end input value.parser value.range.G.last true) in ret input ({ decl with state = anf_value_3 }))
     else if value.open_angle then ret input ({ decl with state = failed tail 1ul })
-    else (let! anf_value_4 = (fun () -> (consume input tail 44uy)) in local_declarators input anf_value_4 constant floor decl.used fuel (minus remaining 1ul)))
+    else (let! anf_value_4 = (fun () -> (consume input tail 44uy)) in local_declarators input anf_value_4 constant names_only floor decl.used fuel (minus remaining 1ul)))
 
 and local_declaration (input:tape) (state:parser_state) (width:U32.t) (floor used:names_used) (fuel:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 45; 0]) =
   let state = record_binding_mode state LexicalLocals in
-  local_declarators input { state with offset = plus state.offset width } (width <> 3ul) floor used fuel input.size
+  local_declarators input { state with offset = plus state.offset width } (width <> 3ul) false floor used fuel input.size
 
 and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:bool) (jumps:jump_context)
-  (floor used:names_used) (root_control:bool)
+  (floor used:names_used) (root_control allow_resource:bool)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 48; 0]) =
   let! width = (fun () -> if root_control then ret input (0ul) else local_width input st.offset) in
   let! function_head = (fun () -> if root_control || not (st.module_mode || st.strict_script) then ret input ({ at = st.offset; ok = false; newline = false })
     else function_start input st.offset) in
-  let! class_ = (fun () -> if root_control || not st.module_mode then ret input (false) else
-    let! first = (fun () -> peek input st.offset) in if first = 99uy then class_keyword input st.offset else ret input (false)) in
+  let! first = (fun () -> peek input st.offset) in
+  let! class_ = (fun () -> if not root_control && st.module_mode && first = 99uy then class_keyword input st.offset
+    else ret input false) in
+  let! resource = (fun () -> if not root_control && allow_resource && (first = 117uy || first = 97uy && st.await_allowed) then
+    resource_declaration_start input st first else ret input (failed st 1ul)) in
   if width <> 0ul then local_declaration input st width floor used fuel
+  else if resource.status = 0ul then
+    local_declarators input (record_binding_mode resource LexicalLocals) true true floor used fuel input.size
   else if function_head.ok then
     if fuel = 0ul then ret input ({ state = failed st 3ul; used })
     else
@@ -3327,7 +3351,7 @@ and control_sequence (input:tape) (state:parser_state) (fuel remaining:U32.t) (i
   if st.status <> 0ul || st.offset = input.size || closed then ret input (st)
   else if remaining = 0ul then ret input (failed st 1ul)
   else
-    let! statement = (fun () -> scope_statement input st fuel in_function jumps floor used root_control) in
+    let! statement = (fun () -> scope_statement input st fuel in_function jumps floor used root_control true) in
     control_sequence input statement.state fuel (minus remaining 1ul) in_function jumps floor statement.used root_control
 and switch_sequence (input:tape) (state:parser_state) (fuel remaining:U32.t) (in_function:bool) (jumps:jump_context)
   (floor used:names_used) (has_label seen_default:bool)
@@ -3352,7 +3376,7 @@ and switch_sequence (input:tape) (state:parser_state) (fuel remaining:U32.t) (in
         switch_sequence input colon fuel left in_function jumps floor used true true
     else if not has_label then ret input (failed st 1ul)
     else
-      let! statement = (fun () -> scope_statement input st fuel in_function jumps floor used false) in
+      let! statement = (fun () -> scope_statement input st fuel in_function jumps floor used false false) in
       switch_sequence input statement.state fuel left in_function jumps floor statement.used true seen_default
 and control_block (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bool) (jumps:jump_context) (floor used:names_used)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 51; 0]) =
@@ -3964,20 +3988,21 @@ let module_function (input:tape) (state:parser_state) (used:names_used) (async_ 
     ret input ({ binding with state = if binding.state.status = 0ul then after else failed after 1ul })
 
 #push-options "--z3rlimit 20"
-let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) (constant:bool) (remaining:U32.t)
+let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) (constant names_only:bool) (remaining:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
   let! start = (fun () -> skip input state) in
   if start.status <> 0ul || remaining = 0ul then ret input ({ state = failed start 1ul; used })
   else
     let! first = (fun () -> peek input start.offset) in
-    let! decl = (fun () -> pattern_binding input start 0ul 0ul used 64ul) in
+    let! decl = (fun () -> if names_only then bind_pattern_name input start 0ul 0ul used start.offset
+      else pattern_binding input start 0ul 0ul used 64ul) in
     let! value = (fun () -> declarator_value input decl.state 64ul (not constant && G.identifier_start first)) in
     let! tail = (fun () -> skip input value.parser) in
     let! comma = (fun () -> same input tail.offset 44uy) in
     if tail.status <> 0ul then ret input ({ decl with state = tail })
     else if not comma then (let! anf_value_1 = (fun () -> statement_end input value.parser value.range.G.last false) in ret input ({ decl with state = anf_value_1 }))
     else if value.open_angle then ret input ({ decl with state = failed tail 1ul })
-    else (let! anf_value_2 = (fun () -> (consume input tail 44uy)) in module_lexical_list input anf_value_2 decl.used constant (minus remaining 1ul))
+    else (let! anf_value_2 = (fun () -> (consume input tail 44uy)) in module_lexical_list input anf_value_2 decl.used constant names_only (minus remaining 1ul))
 
 let rec enum_members (input:tape) (state:parser_state) (remaining:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
@@ -4170,7 +4195,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
     else if (width = 3ul || width = 5ul) && not head.ambient_declaration && not head.class_declaration then
       let! enumeration = (fun () -> if width = 5ul then keyword input start.offset 4ul 0x656e756duL else ret input (false)) in
       if enumeration then enum_declaration input start used
-      else module_lexical_list input start used (width = 5ul) input.size
+      else module_lexical_list input start used (width = 5ul) false input.size
     else
       let type_only = width = 4ul || width = 9ul in
       let! decl =
@@ -4390,6 +4415,8 @@ let default_declaration (input:tape) (state:parser_state) (used:names_used) : To
 
 private let module_plain_declaration (input:tape) (st:parser_state) (used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! first = (fun () -> peek input st.offset) in
+  let! resource = (fun () -> if st.module_mode && (first = 117uy || first = 97uy && st.await_allowed) then
+    resource_declaration_start input st first else ret input (failed st 1ul)) in
   let! ambient_module = (fun () -> if first = 100uy then ambient_module_start input st else ret input (failed st 1ul)) in
   let! declared =
     (fun () -> if first = 101uy then
@@ -4411,7 +4438,8 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
       ret input (namespace_.body_start.status = 0ul)
     else
       let! width = (fun () -> local_width input st.offset) in ret input (width <> 0ul)) in
-  if ambient_module.status = 0ul then (let! anf_value_5 = (fun () -> ambient_interfaces input ambient_module input.size true) in ret input ({ state = anf_value_5; used }))
+  if resource.status = 0ul then module_lexical_list input resource used true true input.size
+  else if ambient_module.status = 0ul then (let! anf_value_5 = (fun () -> ambient_interfaces input ambient_module input.size true) in ret input ({ state = anf_value_5; used }))
   else if declared then module_declaration input st used
   else (let! anf_value_6 = (fun () -> (let! anf_value_7 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_7.state))) in ret input ({ state = anf_value_6; used }))
 

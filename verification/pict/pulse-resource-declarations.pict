@@ -1,0 +1,3 @@
+Scope: Function, AsyncFunction, Module, Script, SwitchCase, SwitchBlock
+Keyword: Using, AwaitUsing
+Binding: Single, Multiple, Missing, Pattern

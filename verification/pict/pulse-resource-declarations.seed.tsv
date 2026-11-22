@@ -1,0 +1,10 @@
+Scope	Keyword	Binding
+Function	Using	Single
+Function	AwaitUsing	Single
+AsyncFunction	AwaitUsing	Multiple
+Module	Using	Single
+Module	AwaitUsing	Single
+Script	Using	Single
+SwitchCase	Using	Single
+SwitchBlock	Using	Single
+AsyncFunction	AwaitUsing	Missing

@@ -1138,6 +1138,13 @@ typedef struct TmtPulseParser_jump_context_s
 }
 TmtPulseParser_jump_context;
 
+TmtPulseParser_parser_state
+TmtPulseParser_resource_declaration_start(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint8_t first
+);
+
 extern uint32_t TmtPulseParser_mixed_locals_status;
 
 TmtPulseParser_parser_state
@@ -1680,6 +1687,7 @@ TmtPulseParser_local_declarators(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state state0,
   bool constant0,
+  bool names_only0,
   uint32_t floor0,
   uint32_t used0,
   uint32_t fuel0,
@@ -2055,7 +2063,8 @@ TmtPulseParser_scope_statement(
   TmtPulseParser_jump_context jumps,
   uint32_t floor,
   uint32_t used,
-  bool root_control
+  bool root_control,
+  bool allow_resource
 );
 
 TmtPulseParser_parser_state
@@ -2306,6 +2315,16 @@ uint32_t TmtPulseParser_ambient_variable_width(TmtPulseMemory_tape input, uint32
 TmtPulseParser_cursor
 TmtPulseParser_ambient_modifier(TmtPulseMemory_tape input, uint32_t start);
 
+TmtPulseParser_named_state
+TmtPulseParser_module_lexical_list(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t used0,
+  bool constant0,
+  bool names_only0,
+  uint32_t remaining0
+);
+
 typedef struct TmtPulseParser_declaration_head_s
 {
   TmtPulseParser_parser_state after_modifiers;
@@ -2351,15 +2370,6 @@ TmtPulseParser_module_function(
   uint32_t used,
   bool async_,
   bool ambient
-);
-
-TmtPulseParser_named_state
-TmtPulseParser_module_lexical_list(
-  TmtPulseMemory_tape input0,
-  TmtPulseParser_parser_state state0,
-  uint32_t used0,
-  bool constant0,
-  uint32_t remaining0
 );
 
 TmtPulseParser_named_state
