@@ -84,7 +84,7 @@ test('the request reader accepts JSON as JavaScript writes it', () => {
   const spaced = decide(JSON.stringify([gapRequest, { ...gapRequest, observations: [] }], null, '\t') + '\r\n', 'thresholds');
   assert.equal(spaced.status, 0, spaced.stderr);
   assert.deepEqual(JSON.parse(spaced.stdout), [gapAnswer, null]);
-  const text = 'é "quoted" \\ / \b\f\n\r\t \u0001 😀 \ud83d';
+  const text = 'é "quoted" \\ / \b\f\n\r\t \u0001 😀';
   const escaped = { candidate: text, traceCandidate: text, complete: true, deterministic: true, original: '>=', replacement: '>', observations: [[20, 18]] };
   const ascii = JSON.stringify([escaped, { ...escaped, traceCandidate: text + '!' }])
     .replace(/[\u0080-\uffff]/g, unit => '\\u' + unit.charCodeAt(0).toString(16).padStart(4, '0'));
@@ -110,6 +110,17 @@ test('the request reader treats non-integer numbers and wrong shapes as undecida
   // JavaScript writes every safe integer as plain digits, so other spellings are not integers here.
   const spelled = decide('[{"threshold":1.8e1,"min":0,"max":100,"observations":[10,20]},{"threshold":18,"min":0,"max":1E2,"observations":[10,20]}]', 'thresholds');
   assert.deepEqual(JSON.parse(spelled.stdout), [null, null]);
+});
+
+test('an unpaired surrogate escape fails the batch instead of matching another identifier', () => {
+  const request = { candidate: 'PLACEHOLDER', traceCandidate: 'x\u0000', complete: true, deterministic: true, original: '>=', replacement: '>', observations: [[20, 18]] };
+  for (const escape of ['\\uD800', '\\uDC00', '\\uD800\\u0041', '\\uDBFF\\uD800']) {
+    const run = decide(JSON.stringify([request]).replace('PLACEHOLDER', 'x' + escape));
+    assert.equal(run.status, 1, escape);
+    assert.equal(run.stdout, '');
+  }
+  const paired = decide(JSON.stringify([{ ...request, candidate: 'x😀', traceCandidate: 'x😀' }]).replaceAll('😀', '\\ud83d\\ude00'));
+  assert.deepEqual(JSON.parse(paired.stdout), [true]);
 });
 
 test('malformed input fails the whole batch so that every trial is run', () => {

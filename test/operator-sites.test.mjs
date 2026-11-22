@@ -111,3 +111,27 @@ test('an explicit dialect decides whether angle brackets are JSX', () => {
   const cast = Buffer.from('const n = <number>a + b;');
   assert.deepEqual(collectOperatorSites(cast, 'cast.tsx', { dialect: 'ts' }).map(site => site.operator), ['+']);
 });
+
+test('a logical swap inside another binary expression is rewritten as a parenthesized group', () => {
+  const rewrite = (source, pick) => {
+    const input = Buffer.from(source);
+    const site = collectOperatorSites(input, 'a.ts')[pick];
+    const { edit, replacement } = site.source ?? site;
+    return [Buffer.concat([input.subarray(0, edit[0]), Buffer.from(replacement), input.subarray(edit[1])]).toString(),
+      input.subarray(...site.edit).toString(), site.replacement];
+  };
+  // Without the group, `a || b && c` would mean a || (b && c).
+  assert.deepEqual(rewrite('const v = a && b && c;', 0), ['const v = (a || b) && c;', '&&', '||']);
+  assert.deepEqual(rewrite('const v = a && b && c;', 1), ['const v = a && b || c;', '&&', '||']);
+  assert.deepEqual(rewrite('const v = a || b && c;', 0), ['const v = a && b && c;', '||', '&&']);
+  assert.deepEqual(rewrite('const v = x === (a || b);', 1), ['const v = x === (a && b);', '||', '&&']);
+  assert.deepEqual(rewrite('const v = (a ?? b) === c;', 0), ['const v = (a && b) === c;', '??', '&&']);
+  assert.deepEqual(rewrite('const v = a ?? b + c;', 0), ['const v = a && b + c;', '??', '&&']);
+  assert.deepEqual(rewrite('let n = 1\na && b && c()', 0), ['let n = 1\nvoid 0, (a || b) && c()', '&&', '||']);
+  assert.deepEqual(rewrite('let n = 1\na && b && c()', 1), ['let n = 1\na && b || c()', '&&', '||']);
+});
+
+test('enum member initializers yield no site', () => {
+  assert.deepEqual(collectOperatorSites(Buffer.from('const enum E { A = 1 + 2, B = A * 2 } enum F { C = 1 << 1 | 2 - 1 }'), 'a.ts'), []);
+  assert.deepEqual(collectOperatorSites(Buffer.from('enum E { A } export const n = E.A + 1;'), 'a.ts').map(site => site.operator), ['+']);
+});

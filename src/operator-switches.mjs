@@ -4,15 +4,15 @@ import { collectOperatorSites } from './operator-sites.mjs';
 
 // Each operator becomes `on(id) ? edited : (cover(id), original)`, so one test session can try every edit.
 // The helpers speak the session's coverage protocol: per-test hit counts and a single active edit.
-const helpers = (on, cover) => `
+const helpers = (on, cover, scope) => `
 function ${on}(id) {
-  var ns = globalThis.__stryker__ || (globalThis.__stryker__ = {});
+  var scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
   if (ns.activeMutant !== id) return false;
   if (ns.hitCount !== void 0 && ++ns.hitCount > ns.hitLimit) throw new Error('Edit hit limit reached (' + ns.hitCount + ')');
   return true;
 }
 function ${cover}(id) {
-  var ns = globalThis.__stryker__ || (globalThis.__stryker__ = {});
+  var scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
   var coverage = ns.mutantCoverage || (ns.mutantCoverage = { static: {}, perTest: {} });
   var counts = ns.currentTestId ? (coverage.perTest[ns.currentTestId] || (coverage.perTest[ns.currentTestId] = {})) : coverage.static;
   counts[id] = (counts[id] || 0) + 1;
@@ -26,7 +26,7 @@ function unusedName(text, base) {
 }
 
 export function renderOperatorSwitches(input, file, selected = () => true, options = {}) {
-  const candidates = collectOperatorSites(input, file, options).filter(site => !site.constant);
+  const candidates = collectOperatorSites(input, file, options);
   if (!candidates.length) return { output: input.toString(), mutants: [] };
   const positions = byteLocations(input, candidates.map(site => site.edit[0]));
   const sites = candidates.map((site, index) => ({ ...site, line: positions[index * 2], column: positions[index * 2 + 1] }))
@@ -53,14 +53,16 @@ export function renderOperatorSwitches(input, file, selected = () => true, optio
       const edited = slice(first, site.edit[0]) + site.replacement + slice(site.edit[1], last);
       const id = JSON.stringify(site.id);
       const choice = `${on}(${id}) ? ${edited} : (${cover}(${id}), ${original})`;
-      // A statement that starts with `(` could continue the previous line, so a whole statement stays bare.
-      out += site.statement ? choice : `(${choice})`;
+      // A statement that starts with `(` could continue the previous line as a call.
+      out += site.statement ? choice : site.leading ? `void 0, (${choice})` : `(${choice})`;
       from = last;
     }
     return out + slice(from, end);
   }
 
-  const output = render(0, input.length) + helpers(on, cover);
+  // A module that binds its own `globalThis` reaches the real global object through an indirect eval.
+  const scope = /\bglobalThis\b/.test(text) ? "(0, eval)('this')" : 'globalThis';
+  const output = render(0, input.length) + helpers(on, cover, scope);
   return { output, mutants: ordered.sort((a, b) => a.edit[0] - b.edit[0]).map(site => ({
     id: site.id, mutatorName: site.rule,
     location: { file, line: site.line, column: site.column, start: site.edit[0], end: site.edit[1] },

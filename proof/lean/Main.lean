@@ -102,7 +102,10 @@ partial def text (bytes : ByteArray) (i : Nat) (out : ByteArray) : Except String
           else none
         match paired with
         | some code => text bytes (i + 12) (out ++ (String.singleton (Char.ofNat code)).toUTF8)
-        | none => text bytes (i + 6) (out ++ (String.singleton (Char.ofNat high)).toUTF8)
+        | none =>
+          -- An unpaired surrogate is not a character: mapping it to one would make distinct identifiers equal.
+          if 0xD800 ≤ high && high < 0xE000 then .error "unpaired surrogate escape"
+          else text bytes (i + 6) (out ++ (String.singleton (Char.ofNat high)).toUTF8)
     | _ => .error "invalid escape"
   | some b => if b < 0x20 then .error "control character in string" else text bytes (i + 1) (out.push b)
 

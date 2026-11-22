@@ -76,6 +76,7 @@ test('line selection, enum members and existing helper names are respected', () 
   const untouched = renderOperatorSwitches(Buffer.from('const a = 1 + 2;\n'), 'a.ts', () => false);
   assert.deepEqual(untouched, { output: 'const a = 1 + 2;\n', mutants: [] });
   const constant = renderOperatorSwitches(Buffer.from('const enum Size { Small = 1 + 1, Large = Small * 2 }\nexport const n = Size.Large - 1;'), 'a.ts');
+  assert.match(constant.output, /^const enum Size \{ Small = 1 \+ 1, Large = Small \* 2 \}\n/);
   assert.deepEqual(constant.mutants.map(mutant => mutant.original), ['-']);
   const taken = renderOperatorSwitches(Buffer.from('const __tmtOn = 1, __tmtCover = 2; const c = __tmtOn + __tmtCover;'), 'a.js');
   assert.match(taken.output, /function __tmtOn_\(id\)[\s\S]*function __tmtCover_\(id\)/);
@@ -88,4 +89,35 @@ test('edit ids are stable for a file and distinct within it', () => {
   assert.deepEqual(first.mutants.map(mutant => mutant.id), again.mutants.map(mutant => mutant.id));
   assert.equal(new Set(first.mutants.map(mutant => mutant.id)).size, 3);
   assert.notDeepEqual(renderOperatorSwitches(Buffer.from('export const f = (a, b) => a + b - a + b;'), 'g.js').mutants[0].id, first.mutants[0].id);
+});
+
+test('a logical swap keeps the grouping of the expression it replaces', () => {
+  const source = 'function f(a, b, c) { return a && b && c; } function g(a, b, c) { return a || b && c; }';
+  const { mutants } = load(source);
+  const inner = byOperator(mutants, '&&', 0);
+  const state = { activeMutant: inner.id };
+  // The edited expression is (a || b) && c: the swap stays inside its own operands.
+  assert.equal(load(source, state).call('f(true, true, false)'), false);
+  assert.equal(load(source, state).call('f(false, true, true)'), true);
+  const outerOr = byOperator(mutants, '||');
+  assert.equal(load(source, { activeMutant: outerOr.id }).call('g(true, false, false)'), false);
+});
+
+test('an operator at the start of a statement cannot attach to the previous line when it is nested', () => {
+  const source = 'function f() { const n = 1\n2 + 3 > 0\nreturn n }\nlet hits = 0\nconst ready = 1\nready === 1 ? hits++ : 0\n';
+  const { call, mutants, output } = load(source);
+  assert.equal(call('f()'), 1);
+  assert.equal(call('hits'), 1);
+  assert.equal(mutants.length, 2);
+  assert.match(output, /\nvoid 0, \(__tmtOn\("[0-9a-f]{16}"\) \? 2 - 3 : /);
+  assert.equal(load(source, { activeMutant: byOperator(mutants, '===').id }).call('hits'), 0);
+});
+
+test('a local globalThis does not hide the session state', () => {
+  const state = {};
+  const shadowed = load('const globalThis = { local: 1 + 2 }; var total = globalThis.local * 2;', state);
+  assert.equal(shadowed.call('total'), 6);
+  assert.equal(Object.keys(state.mutantCoverage.static).length, 2);
+  assert.doesNotMatch(shadowed.output.slice(shadowed.output.indexOf('function __tmtOn')), /globalThis/);
+  assert.match(load('var x = 1 + 2;').output, /var scope = globalThis, ns = scope\.__stryker__/);
 });

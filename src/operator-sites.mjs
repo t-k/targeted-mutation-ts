@@ -28,9 +28,10 @@ export function collectOperatorSites(input, file, { dialect, ts = loadTypeScript
   // An operator character next to the token would merge with the replacement (`a*/* c */b` -> `a//* c */b`).
   const merges = unit => '+-*/=&|?!<>%'.includes(text[unit] ?? ' ');
   const found = [];
-  (function visit(node, parent, constant) {
+  (function visit(node, parent, statementStart) {
     // An enum member initializer must stay a constant expression for const and ambient enums.
-    constant ||= ts.isEnumDeclaration(node);
+    if (ts.isEnumDeclaration(node)) return;
+    if (ts.isExpressionStatement(node)) statementStart = node.expression.getStart(tree);
     if (ts.isBinaryExpression(node)) {
       const token = node.operatorToken;
       const start = token.getStart(tree);
@@ -38,21 +39,33 @@ export function collectOperatorSites(input, file, { dialect, ts = loadTypeScript
       const entry = operatorRules.get(operator);
       // Subtracting from a string is a type error, so the edit would fail to compile instead of testing the suite.
       const concatenation = operator === '+' && (concatenates(node.left) || concatenates(node.right));
-      // `a && b ?? c` needs parentheses, which a token replacement cannot add.
+      // `a && b ?? c` needs parentheses around an operand, which this edit does not add.
       const chained = operator === '??' && (nullish(parent) || nullish(node.left) || nullish(node.right));
       if (entry && !concatenation && !chained) {
+        const first = node.left.getStart(tree);
+        const statement = parent !== undefined && ts.isExpressionStatement(parent);
+        // A parenthesis at the start of a statement could continue the previous line as a call.
+        const leading = !statement && first === statementStart;
         const replacement = (merges(start - 1) ? ' ' : '') + entry[1] + (merges(token.end) ? ' ' : '');
-        found.push({ rule: entry[0], operator, replacement,
-          ...(parent && ts.isExpressionStatement(parent) ? { statement: true } : {}), ...(constant ? { constant: true } : {}),
-          spans: [start, token.end, node.left.getStart(tree), node.left.end, node.right.getStart(tree), node.right.end] });
+        // Inside another binary expression a logical swap would regroup its neighbours: `a && b && c` -> `a || (b && c)`.
+        const regroups = entry[0] === 'logical-operator/v1' && parent !== undefined && ts.isBinaryExpression(parent);
+        found.push({ rule: entry[0], operator, replacement, statement, leading, regroups,
+          spans: [start, token.end, first, node.left.end, node.right.getStart(tree), node.right.end] });
       }
     }
-    ts.forEachChild(node, child => visit(child, node, constant));
-  })(tree, undefined, false);
+    ts.forEachChild(node, child => visit(child, node, statementStart));
+  })(tree, undefined, undefined);
   if (!found.length) return [];
   const bytes = byteOffsets(text);
-  return found.sort((a, b) => a.spans[0] - b.spans[0]).map(({ spans, ...site }) => {
+  return found.sort((a, b) => a.spans[0] - b.spans[0]).map(({ spans, statement, leading, regroups, ...site }) => {
     const [start, end, left, leftEnd, right, rightEnd] = spans.map(unit => bytes[unit]);
-    return { ...site, edit: [start, end], left: [left, leftEnd], right: [right, rightEnd], unobserved: true };
+    const result = { ...site, edit: [start, end], left: [left, leftEnd], right: [right, rightEnd], unobserved: true };
+    if (statement) result.statement = true;
+    if (leading) result.leading = true;
+    if (regroups) {
+      const group = '(' + text.slice(spans[2], spans[0]) + site.replacement + text.slice(spans[1], spans[5]) + ')';
+      result.source = { edit: [left, rightEnd], replacement: (leading ? 'void 0, ' : '') + group };
+    }
+    return result;
   });
 }

@@ -86,7 +86,7 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
       const observable = tracing ? subject.sites.filter(site => !site.unobserved) : [];
       if (observable.length) writeFileSync(file, instrument(workspace, subject.file, subject.input, observable,
         preloaded.has(entry) ? binding : undefined, coverageSites));
-      else if (!tracing && trial?.site.location.file === subject.file) writeFileSync(file, rewrite(subject.input, trial.edit, trial.replacement));
+      else if (!tracing && trial?.site.location.file === subject.file) writeFileSync(file, rewrite(subject.input, trial.source?.edit ?? trial.edit, trial.source?.replacement ?? trial.replacement));
     }
     let witnessFile;
     if (witness?.appendTo) {
@@ -199,7 +199,7 @@ export function planFocusedTrials(subjects, trace, baseline, specification, disp
 
   const trials = [];
   for (const { site, observation, tightened, threshold } of sites) {
-    const boundary = { site, edit: site.edit, replacement: site.replacement, rule: site.rule, observation, threshold: site.operator === '>=' ? threshold : null };
+    const boundary = { site, edit: site.edit, replacement: site.replacement, source: site.source, rule: site.rule, observation, threshold: site.operator === '>=' ? threshold : null };
     trials.push(boundary);
     if (threshold?.gap) {
       const alternate = String(threshold.gap.alternate);
@@ -379,7 +379,7 @@ function analyzePlaywright(root, subjects, report, options, specification) {
   report.instrumented = { status: 'unavailable', reason: 'browser-observations-unavailable' };
   for (const subject of subjects) {
     for (const site of subject.sites) {
-      const trial = { site, edit: site.edit, replacement: site.replacement };
+      const trial = { site, edit: site.edit, replacement: site.replacement, source: site.source };
       const mutant = attempt({ trial });
       const result = {
         site: site.id, location: site.location, rule: site.rule, operator: site.operator, edit: site.edit,
