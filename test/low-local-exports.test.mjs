@@ -32,7 +32,7 @@ for (const [form, binding, tail] of rows) {
 test('local exports use declared bindings and exact public-name spelling', () => {
   check('import { item } from "dep"; export { item as "two words" }; const keep = a < b;', 'fast');
   check('type Item = string; export { Item }; const keep = a < b;', 'fast');
-  check('export { item }; const item = a < b;', 'fallback');
+  check('export { item }; const item = a < b;', 'fast');
   check('const item = a < b; export { item as x }; export { item as "x" };', 'diagnostic');
   check('const item = a < b; export { item as "default" }; export default item;', 'diagnostic');
   check('const item = a < b; export { item as "\\u0078" };', 'fallback');

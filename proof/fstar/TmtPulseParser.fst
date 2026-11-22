@@ -3828,7 +3828,7 @@ let rec export_string_name (input:tape) (#frame:slprop) (state:parser_state) (de
 
 type resolved_exports = { named:named_state; locals_known:bool }
 
-let rec reexport_members (input:tape) (state:parser_state) (used locals:names_used) (remaining:U32.t) (locals_known:bool)
+let rec reexport_members (input:tape) (state:parser_state) (used locals:names_used) (remaining:U32.t) (locals_known reserve_names:bool)
   : Tot (stt resolved_exports (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
   let! st = (fun () -> skip input state) in
   if st.status <> 0ul then ret input ({ named = { state = st; used }; locals_known = false })
@@ -3857,22 +3857,48 @@ let rec reexport_members (input:tape) (state:parser_state) (used locals:names_us
       else if as_ then export_identifier input first
       else ret input (source_end)) in
     let start, stop = if quoted then next first.offset, minus last.offset 1ul else first.offset, last.offset in
-    let! named = (fun () -> reserve_export input last used start stop) in
+    let! named = (fun () -> if reserve_names then reserve_export input last used start stop else ret input { state = last; used }) in
     let! tail = (fun () -> skip input named.state) in
     (let! anf_value_6 = (fun () -> same input tail.offset 44uy) in if anf_value_6 then
-      (let! anf_value_7 = (fun () -> (consume input tail 44uy)) in reexport_members input anf_value_7 named.used locals (minus remaining 1ul) locals_known)
+      (let! anf_value_7 = (fun () -> (consume input tail 44uy)) in reexport_members input anf_value_7 named.used locals (minus remaining 1ul) locals_known reserve_names)
     else (let! anf_value_8 = (fun () -> (let! anf_value_9 = (fun () -> consume input tail 125uy) in ret input ({ named with state = anf_value_9 }))) in ret input ({ named = anf_value_8; locals_known }))))
 
-let named_reexport (input:tape) (state:parser_state) (used locals:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
-  let! resolved = (fun () -> (let! anf_value_1 = (fun () -> (consume input state 123uy)) in reexport_members input anf_value_1 used locals 64ul true)) in
+type pending_exports = n:U32.t{U32.v n <= U32.v deferred_export_limit}
+
+let deferred_export_slot (index:U32.t{U32.v index < U32.v deferred_export_limit})
+  : at:U32.t{U32.v at < U32.v binding_capacity} =
+  U32.add deferred_export_base index
+
+let named_reexport (input:tape) (state:parser_state) (used locals:names_used) (pending:pending_exports)
+  : Tot (stt (named_state & pending_exports) (heap input) (fun _ -> heap input)) =
+  let! start = (fun () -> consume input state 123uy) in
+  let! resolved = (fun () -> reexport_members input start used locals 64ul true true) in
   let named = resolved.named in
   let! tail = (fun () -> skip input named.state) in
   let! from = (fun () -> keyword input tail.offset 4ul 0x66726f6duL) in
-  let! result =
-    (fun () -> if from then import_source input { tail with offset = plus tail.offset 4ul }
-    else if resolved.locals_known then statement_end input named.state named.state.offset false
-    else ret input (failed tail 1ul)) in
-  ret input ({ named with state = result })
+  if from then
+    let! source = (fun () -> import_source input { tail with offset = plus tail.offset 4ul }) in
+    ret input ({ named with state = source }, pending)
+  else
+    let! complete = (fun () -> statement_end input named.state named.state.offset false) in
+    if complete.status <> 0ul || resolved.locals_known then ret input ({ named with state = complete }, pending)
+    else if pending = deferred_export_limit then ret input ({ named with state = failed complete 1ul }, pending)
+    else
+      let span = { G.first = start.offset; G.last = named.state.offset } in
+      let! _ = (fun () -> set_binding input (deferred_export_slot pending) { span; namespace = BothNames; owner = 0uy }) in
+      let more:pending_exports = U32.add pending 1ul in
+      ret input ({ named with state = complete }, more)
+
+let rec check_local_exports (input:tape) (state:parser_state) (locals:names_used) (pending:pending_exports)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v pending) =
+  if pending = 0ul then ret input state
+  else
+    let index = U32.sub pending 1ul in
+    let! saved = (fun () -> get_binding input (deferred_export_slot index)) in
+    let! checked = (fun () -> reexport_members input { state with offset = saved.span.G.first } 0ul locals 64ul true false) in
+    if checked.locals_known && checked.named.state.status = 0ul && checked.named.state.offset = saved.span.G.last then
+      check_local_exports input state locals index
+    else ret input (failed state 1ul)
 
 type export_prefix = { after_export:parser_state; export_kind:U32.t; direct:bool }
 
@@ -3943,41 +3969,42 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
   else if declared then module_declaration input st used
   else (let! anf_value_6 = (fun () -> (let! anf_value_7 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_7.state))) in ret input ({ state = anf_value_6; used }))
 
-let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (exports:names_used)
+let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (exports:names_used) (pending:pending_exports)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v fuel) =
   let! st = (fun () -> skip input state) in
-  if st.status <> 0ul || st.offset = input.size then ret input (st)
+  if st.status <> 0ul then ret input st
+  else if st.offset = input.size then check_local_exports input st used pending
   else if fuel = 0ul then ret input (failed st 1ul)
   else (let! anf_value_1 = (fun () -> same input st.offset 59uy) in if anf_value_1 then
-    (let! anf_value_2 = (fun () -> (consume input st 59uy)) in module_sequence input anf_value_2 used (minus fuel 1ul) exports)
+    (let! anf_value_2 = (fun () -> consume input st 59uy) in module_sequence input anf_value_2 used (minus fuel 1ul) exports pending)
   else
     let! exported = (fun () -> module_export input st) in
-    let! decl, exports =
+    let! decl, exports, pending =
       (fun () -> if not st.module_mode && (exported.direct || exported.export_kind <> 0ul) then
-        ret input ({ state = failed st 1ul; used }, exports)
+        ret input ({ state = failed st 1ul; used }, exports, pending)
       else if exported.export_kind = 1ul then
         let name = exported.after_export in
         let end_ = plus name.offset 7ul in
         let! reserved = (fun () -> reserve_export input name exports name.offset end_) in
         let! body = (fun () -> skip input { reserved.state with offset = end_ }) in
-        (let! anf_value_3 = (fun () -> default_declaration input body used) in ret input (anf_value_3, reserved.used))
+        (let! anf_value_3 = (fun () -> default_declaration input body used) in ret input (anf_value_3, reserved.used, pending))
       else if exported.export_kind = 2ul then
         let! reexported = (fun () -> star_reexport input exported.after_export exports) in
-        ret input ({ state = reexported.state; used }, reexported.used)
+        ret input ({ state = reexported.state; used }, reexported.used, pending)
       else if exported.export_kind = 3ul then
-        let! imported = (fun () -> named_reexport input exported.after_export exports used) in
-        ret input ({ state = imported.state; used }, imported.used)
+        let! imported, pending = (fun () -> named_reexport input exported.after_export exports used pending) in
+        ret input ({ state = imported.state; used }, imported.used, pending)
       else (let! anf_value_5 = (fun () -> keyword input st.offset 6ul 0x696d706f7274uL) in if anf_value_5 then
         (let! anf_value_6 = (fun () -> import_expression_start input st) in if anf_value_6 then
-          (let! anf_value_7 = (fun () -> (let! anf_value_8 = (fun () -> (let! anf_value_9 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_9.state))) in ret input ({ state = anf_value_8; used }))) in ret input (anf_value_7, exports))
+          (let! anf_value_7 = (fun () -> (let! anf_value_8 = (fun () -> (let! anf_value_9 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_9.state))) in ret input ({ state = anf_value_8; used }))) in ret input (anf_value_7, exports, pending))
         else if st.module_mode then
-          (let! anf_value_10 = (fun () -> import_declaration input st used) in ret input (anf_value_10, exports))
-        else ret input ({ state = failed st 1ul; used }, exports))
+          (let! anf_value_10 = (fun () -> import_declaration input st used) in ret input (anf_value_10, exports, pending))
+        else ret input ({ state = failed st 1ul; used }, exports, pending))
       else
-        (let! anf_value_11 = (fun () -> module_plain_declaration input st used) in ret input (anf_value_11, exports)))) in
+        (let! anf_value_11 = (fun () -> module_plain_declaration input st used) in ret input (anf_value_11, exports, pending)))) in
     let! reserved = (fun () -> if exported.direct then reserve_direct_exports input decl.state exports used decl.used
       else ret input ({ state = decl.state; used = exports })) in
-    module_sequence input reserved.state decl.used (minus fuel 1ul) reserved.used)
+    module_sequence input reserved.state decl.used (minus fuel 1ul) reserved.used pending)
 
 private let parse_state (input:tape) (st:parser_state) (module_mode:bool) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
   if st.status <> 0ul || st.offset = input.size then ret input (st)
@@ -4026,7 +4053,7 @@ let parse_attempt (input:tape) (jsx module_mode:bool) (local_log_floor:U16.t)
   let! state : parser_state =
     (fun () -> if state.status = 1ul || (state.status = 0ul && state.offset <> input.size) then
       let! _ = (fun () -> clear_marks input) in
-      let! expanded = (fun () -> module_sequence input initial 0ul input.size 0ul) in
+      let! expanded = (fun () -> module_sequence input initial 0ul input.size 0ul 0ul) in
       ret input (if expanded.status = 1ul then state else expanded)
     else ret input (state)) in
   let! private_ok = (fun () -> if state.status = 0ul && state.offset = input.size && state.private_count <> 0uy then

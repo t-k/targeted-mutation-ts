@@ -29,7 +29,9 @@ let binding_region_width : U32.t = 512ul
 let export_region_base : U32.t = 1024ul
 let private_region_base : U32.t = 1536ul
 let local_region_base : U32.t = 1791ul
-let binding_capacity : U32.t = 2303ul
+let deferred_export_base : U32.t = 2303ul
+let deferred_export_limit : U32.t = 64ul
+let binding_capacity : U32.t = 2367ul
 
 noeq type tape = {
   source : array U8.t;
