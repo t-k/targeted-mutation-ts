@@ -764,9 +764,12 @@ let is_function_binding (namespace:binding_namespace) : bool =
 let names_overlap (left right:binding_namespace) : bool =
   if is_function_binding left && is_function_binding right then
     left = FunctionImplementation && right = FunctionImplementation
+  else if (left = InterfaceName && right = TypeNamespace) || (left = TypeNamespace && right = InterfaceName) then false
   else
-    let left = if is_function_binding left then ValueName else left in
-    let right = if is_function_binding right then ValueName else right in
+    let effective binding = if is_function_binding binding then ValueName
+      else if binding = InterfaceName then TypeName else if binding = TypeNamespace then BothNames else binding in
+    let left = effective left in
+    let right = effective right in
     left = BothNames || right = BothNames || left = right
 
 let rec name_seen (input:tape) (base:names_base) (floor used:names_used) (pos len:U32.t) (namespace:binding_namespace)
@@ -1185,6 +1188,36 @@ let mapped_type_start (input:tape) (#frame:slprop) (st:parser_state) : Tot (stt 
         { constraint_start; mapped = true })
 
 #push-options "--z3rlimit 30"
+let rec signature_prefix_contains (input:tape) (#frame:slprop) (at remaining first length:U32.t)
+  : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v remaining) =
+  if U32.(remaining <^ length) || remaining = 0ul then read_ret input #frame false
+  else
+    let! matched = (fun () -> same_bytes input #frame at first length) in
+    if matched then read_ret input #frame true
+    else signature_prefix_contains input #frame (next at) (minus remaining 1ul) first length
+
+let variance_prefix (input:tape) (#frame:slprop) (st:parser_state) (allow_variance:bool)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! first_byte = (fun () -> peek input #frame st.offset) in
+  if first_byte <> 111uy && (first_byte <> 105uy || not allow_variance) then read_ret input #frame st
+  else
+    let! in_ = (fun () -> if first_byte = 105uy then keyword input #frame st.offset 2ul 0x696euL else read_ret input #frame false) in
+    let! first = (fun () -> if in_ then
+      let! gap = (fun () -> trivia input #frame (plus st.offset 2ul)) in
+      read_ret input #frame (if gap.newline then failed st 1ul else from_cursor st gap)
+      else read_ret input #frame st) in
+    let! out_ = (fun () -> keyword input #frame first.offset 3ul 0x6f7574uL) in
+    if first.status <> 0ul || not out_ then read_ret input #frame first
+    else
+      let! gap = (fun () -> trivia input #frame (plus first.offset 3ul)) in
+      let candidate = from_cursor first gap in
+      let! extends = (fun () -> keyword input #frame candidate.offset 7ul 0x657874656e6473uL) in
+      let! named = (fun () -> if allow_variance && not extends then name input #frame candidate.offset false true
+        else read_ret input #frame { at = first.offset; ok = false; newline = false }) in
+      let! repeated = (fun () -> if named.ok then keyword input #frame candidate.offset 3ul 0x6f7574uL else read_ret input #frame false) in
+      if extends || repeated then read_ret input #frame (failed first 1ul)
+      else read_ret input #frame (if candidate.status = 0ul && not gap.newline && named.ok then candidate else first)
+
 let rec type_reference (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 1; 0]) =
   let! st = (fun () -> skip input #frame state) in
@@ -1272,38 +1305,57 @@ and tuple_list (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining
     else consume input #frame end_ 93uy))
 and object_type_member (input:tape) (#frame:slprop) (st:parser_state) (fuel:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 6; 0]) =
-  let! is_readonly = (fun () -> keyword input #frame st.offset 8ul 0x726561646f6e6c79uL) in
-  let! key_start =
-    (fun () -> if is_readonly then
-      let! after = (fun () -> skip input #frame { st with offset = plus st.offset 8ul }) in
-      let! next_key = (fun () -> peek input #frame after.offset) in
-      read_ret input #frame (if G.identifier_start next_key || next_key = 34uy || next_key = 39uy || next_key = 91uy then after else st)
-    else read_ret input #frame (st)) in
-  let! first = (fun () -> peek input #frame key_start.offset) in
-  let! head =
-    (fun () -> if first = 91uy then read_bracket_type_key input #frame key_start
-    else
-      let unnamed = first = 40uy || first = 60uy in
-      let! key_end = (fun () -> if unnamed then read_ret input #frame (key_start) else (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (property_name input #frame key_start)) in read_ret input #frame (from_cursor key_start anf_value_2)))) in skip input #frame anf_value_1)) in
-      read_ret input #frame ({ key_end; index_signature = false })) in
-  if head.index_signature then
-    let! key_type = (fun () -> (let! anf_value_3 = (fun () -> (consume input #frame head.key_end 58uy)) in annotation_type input #frame anf_value_3 fuel 64ul)) in
-    let! last = (fun () -> (let! anf_value_4 = (fun () -> (skip input #frame key_type)) in consume input #frame anf_value_4 93uy)) in
-    (let! anf_value_5 = (fun () -> ((let! anf_value_6 = (fun () -> (skip input #frame last)) in consume input #frame anf_value_6 58uy))) in annotation_type input #frame anf_value_5 fuel 64ul)
+  let! first = (fun () -> peek input #frame st.offset) in
+  let! getter = (fun () -> if first = 103uy then keyword input #frame st.offset 3ul 0x676574uL else read_ret input #frame false) in
+  let! key = (fun () -> if getter then
+    let! gap = (fun () -> trivia input #frame (plus st.offset 3ul)) in
+    let! first = (fun () -> peek input #frame gap.at) in
+    if gap.ok && not gap.newline && G.identifier_start first then
+      let! end_ = (fun () -> scan_class input #frame gap.at G.Identifier) in
+      read_ret input #frame { st with offset = end_ }
+    else read_ret input #frame st
+    else read_ret input #frame st) in
+  if key.offset <> st.offset then
+    let! opening = (fun () -> skip input #frame key) in
+    let! parameters = (fun () -> consume input #frame opening 40uy) in
+    let! closing = (fun () -> skip input #frame parameters) in
+    let! after = (fun () -> consume input #frame closing 41uy) in
+    let! colon = (fun () -> skip input #frame after) in
+    let! typed = (fun () -> consume input #frame colon 58uy) in
+    annotation_type input #frame typed fuel 64ul
   else
-    let after = head.key_end in
-    let! optional = (fun () -> same input #frame after.offset 63uy) in
-    let! after = (fun () -> if optional then (let! anf_value_7 = (fun () -> (consume input #frame after 63uy)) in skip input #frame anf_value_7) else read_ret input #frame (after)) in
-    let! byte = (fun () -> peek input #frame after.offset) in
-    if byte = 40uy || byte = 60uy then
-      if key_start.offset <> st.offset || fuel = 0ul then read_ret input #frame (failed after 1ul)
+    let! is_readonly = (fun () -> keyword input #frame st.offset 8ul 0x726561646f6e6c79uL) in
+    let! key_start =
+      (fun () -> if is_readonly then
+        let! after = (fun () -> skip input #frame { st with offset = plus st.offset 8ul }) in
+        let! next_key = (fun () -> peek input #frame after.offset) in
+        read_ret input #frame (if G.identifier_start next_key || next_key = 34uy || next_key = 39uy || next_key = 91uy then after else st)
+      else read_ret input #frame (st)) in
+    let! first = (fun () -> peek input #frame key_start.offset) in
+    let! head =
+      (fun () -> if first = 91uy then read_bracket_type_key input #frame key_start
       else
-        let inner = minus fuel 1ul in
-        let! opening = (fun () -> if byte = 60uy then (let! anf_value_8 = (fun () -> ((let! anf_value_9 = (fun () -> (consume input #frame after 60uy)) in type_parameters input #frame anf_value_9 inner 64ul))) in skip input #frame anf_value_8)
-          else read_ret input #frame (after)) in
-        let! parameters = (fun () -> (let! anf_value_10 = (fun () -> (consume input #frame opening 40uy)) in signature_parameters input #frame anf_value_10 inner 64ul)) in
-        (let! anf_value_11 = (fun () -> ((let! anf_value_12 = (fun () -> (skip input #frame parameters)) in consume input #frame anf_value_12 58uy))) in result_type input #frame anf_value_11 fuel)
-    else (let! anf_value_13 = (fun () -> (consume input #frame after 58uy)) in annotation_type input #frame anf_value_13 fuel 64ul)
+        let unnamed = first = 40uy || first = 60uy in
+        let! key_end = (fun () -> if unnamed then read_ret input #frame (key_start) else (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (property_name input #frame key_start)) in read_ret input #frame (from_cursor key_start anf_value_2)))) in skip input #frame anf_value_1)) in
+        read_ret input #frame ({ key_end; index_signature = false })) in
+    if head.index_signature then
+      let! key_type = (fun () -> (let! anf_value_3 = (fun () -> (consume input #frame head.key_end 58uy)) in annotation_type input #frame anf_value_3 fuel 64ul)) in
+      let! last = (fun () -> (let! anf_value_4 = (fun () -> (skip input #frame key_type)) in consume input #frame anf_value_4 93uy)) in
+      (let! anf_value_5 = (fun () -> ((let! anf_value_6 = (fun () -> (skip input #frame last)) in consume input #frame anf_value_6 58uy))) in annotation_type input #frame anf_value_5 fuel 64ul)
+    else
+      let after = head.key_end in
+      let! optional = (fun () -> same input #frame after.offset 63uy) in
+      let! after = (fun () -> if optional then (let! anf_value_7 = (fun () -> (consume input #frame after 63uy)) in skip input #frame anf_value_7) else read_ret input #frame (after)) in
+      let! byte = (fun () -> peek input #frame after.offset) in
+      if byte = 40uy || byte = 60uy then
+        if key_start.offset <> st.offset || fuel = 0ul then read_ret input #frame (failed after 1ul)
+        else
+          let inner = minus fuel 1ul in
+          let! opening = (fun () -> if byte = 60uy then (let! anf_value_8 = (fun () -> ((let! anf_value_9 = (fun () -> (consume input #frame after 60uy)) in type_parameters input #frame anf_value_9 inner 64ul false))) in skip input #frame anf_value_8)
+            else read_ret input #frame (after)) in
+          let! parameters = (fun () -> (let! anf_value_10 = (fun () -> (consume input #frame opening 40uy)) in signature_parameters input #frame anf_value_10 inner 64ul anf_value_10.offset)) in
+          (let! anf_value_11 = (fun () -> ((let! anf_value_12 = (fun () -> (skip input #frame parameters)) in consume input #frame anf_value_12 58uy))) in result_type input #frame anf_value_11 fuel)
+      else (let! anf_value_13 = (fun () -> (consume input #frame after 58uy)) in annotation_type input #frame anf_value_13 fuel 64ul)
 and object_type (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 7; U32.v remaining]) =
   let! st = (fun () -> skip input #frame state) in
@@ -1345,7 +1397,7 @@ and braced_type (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t)
   let! head = (fun () -> mapped_type_start input #frame start) in
   if head.mapped then mapped_type input #frame head.constraint_start fuel
   else object_type input #frame start fuel input.size
-and signature_parameters (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining:U32.t)
+and signature_parameters (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining origin:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 5; U32.v remaining]) =
   let! st = (fun () -> skip input #frame state) in
   if st.status <> 0ul then read_ret input #frame (st)
@@ -1354,18 +1406,41 @@ and signature_parameters (input:tape) (#frame:slprop) (state:parser_state) (fuel
   else
     let! spread = (fun () -> spread_at input #frame st.offset) in
     let! st = (fun () -> if spread then skip input #frame { st with offset = plus st.offset 3ul } else read_ret input #frame (st)) in
-    let! receiver = (fun () -> if remaining = 64ul then keyword input #frame st.offset 4ul 0x74686973uL else read_ret input #frame (false)) in
-    let! named = (fun () -> if receiver && not spread then read_ret input #frame ({ st with offset = plus st.offset 4ul })
-      else (let! anf_value_2 = (fun () -> (name input #frame st.offset false false)) in read_ret input #frame (from_cursor st anf_value_2))) in
-    let! tail = (fun () -> skip input #frame named) in
-    let! optional = (fun () -> same input #frame tail.offset 63uy) in
-    let! tail = (fun () -> if optional && not receiver && not spread then (let! anf_value_3 = (fun () -> (consume input #frame tail 63uy)) in skip input #frame anf_value_3) else read_ret input #frame (tail)) in
-    let! annotated = (fun () -> (let! anf_value_4 = (fun () -> (consume input #frame tail 58uy)) in annotation_type input #frame anf_value_4 fuel 64ul)) in
-    let! end_ = (fun () -> skip input #frame annotated) in
-    let! comma = (fun () -> same input #frame end_.offset 44uy) in
-    if comma && not spread then
-      (let! anf_value_5 = (fun () -> (consume input #frame end_ 44uy)) in signature_parameters input #frame anf_value_5 fuel (minus remaining 1ul))
-    else consume input #frame end_ 41uy)
+    let! brace = (fun () -> if not spread then same input #frame st.offset 123uy else read_ret input #frame false) in
+    if brace then
+      let! key = (fun () -> skip input #frame { st with offset = next st.offset }) in
+      let! named = (fun () -> name input #frame key.offset false true) in
+      let width = minus named.at key.offset in
+      let prior = minus st.offset origin in
+      if not named.ok || U32.(width >^ 256ul || prior >^ 4096ul) then read_ret input #frame (failed key 1ul)
+      else
+        let! duplicate = (fun () -> signature_prefix_contains input #frame origin prior key.offset width) in
+        if duplicate then read_ret input #frame (failed key 1ul)
+        else
+          let! tail = (fun () -> skip input #frame (from_cursor key named)) in
+          let! comma = (fun () -> same input #frame tail.offset 44uy) in
+          let! tail = (fun () -> if comma then skip input #frame { tail with offset = next tail.offset } else read_ret input #frame tail) in
+          let! closed = (fun () -> consume input #frame tail 125uy) in
+          let! tail = (fun () -> skip input #frame closed) in
+          let! colon = (fun () -> consume input #frame tail 58uy) in
+          let! annotation = (fun () -> annotation_type input #frame colon fuel 64ul) in
+          let! tail = (fun () -> skip input #frame annotation) in
+          let! comma = (fun () -> same input #frame tail.offset 44uy) in
+          let! tail = (fun () -> if comma then skip input #frame { tail with offset = next tail.offset } else read_ret input #frame tail) in
+          consume input #frame tail 41uy
+    else
+      let! receiver = (fun () -> if remaining = 64ul then keyword input #frame st.offset 4ul 0x74686973uL else read_ret input #frame (false)) in
+      let! named = (fun () -> if receiver && not spread then read_ret input #frame ({ st with offset = plus st.offset 4ul })
+        else (let! anf_value_2 = (fun () -> (name input #frame st.offset false false)) in read_ret input #frame (from_cursor st anf_value_2))) in
+      let! tail = (fun () -> skip input #frame named) in
+      let! optional = (fun () -> same input #frame tail.offset 63uy) in
+      let! tail = (fun () -> if optional && not receiver && not spread then (let! anf_value_3 = (fun () -> (consume input #frame tail 63uy)) in skip input #frame anf_value_3) else read_ret input #frame (tail)) in
+      let! annotated = (fun () -> (let! anf_value_4 = (fun () -> (consume input #frame tail 58uy)) in annotation_type input #frame anf_value_4 fuel 64ul)) in
+      let! end_ = (fun () -> skip input #frame annotated) in
+      let! comma = (fun () -> same input #frame end_.offset 44uy) in
+      if comma && not spread then
+        (let! anf_value_5 = (fun () -> (consume input #frame end_ 44uy)) in signature_parameters input #frame anf_value_5 fuel (minus remaining 1ul) origin)
+      else consume input #frame end_ 41uy)
 and type_term (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t) (allow_signature allow_constrained_infer:bool)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 2; 0]) =
   let! st = (fun () -> skip input #frame state) in
@@ -1420,7 +1495,7 @@ and type_term (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t) (al
           if byte = 91uy then tuple_list input #frame inside inner 64ul false allow_constrained_infer
           else if byte = 123uy then braced_type input #frame inside inner
           else
-            let! params = (fun () -> if allow_signature then signature_parameters input #frame inside inner 64ul
+            let! params = (fun () -> if allow_signature then signature_parameters input #frame inside inner 64ul inside.offset
               else read_ret input #frame (failed inside 1ul)) in
             let! tail = (fun () -> skip input #frame params) in
             let! arrow = (fun () -> (let! anf_value_5 = (fun () -> (consume input #frame tail 61uy)) in consume input #frame anf_value_5 62uy)) in
@@ -1433,9 +1508,9 @@ and type_term (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t) (al
 and function_type (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 6; 0]) =
   let! generic = (fun () -> same input #frame state.offset 60uy) in
-  let! start = (fun () -> if generic then (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (consume input #frame state 60uy)) in type_parameters input #frame anf_value_2 fuel 64ul))) in skip input #frame anf_value_1)
+  let! start = (fun () -> if generic then (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (consume input #frame state 60uy)) in type_parameters input #frame anf_value_2 fuel 64ul false))) in skip input #frame anf_value_1)
     else read_ret input #frame (state)) in
-  let! params = (fun () -> (let! anf_value_3 = (fun () -> (consume input #frame start 40uy)) in signature_parameters input #frame anf_value_3 fuel 64ul)) in
+  let! params = (fun () -> (let! anf_value_3 = (fun () -> (consume input #frame start 40uy)) in signature_parameters input #frame anf_value_3 fuel 64ul anf_value_3.offset)) in
   let! tail = (fun () -> skip input #frame params) in
   let! arrow = (fun () -> (let! anf_value_4 = (fun () -> (consume input #frame tail 61uy)) in consume input #frame anf_value_4 62uy)) in
   result_type input #frame arrow fuel
@@ -1524,7 +1599,7 @@ and type_terms (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining
       if union then type_terms input #frame { st with offset = next st.offset } fuel (minus remaining 1ul) false allow_constrained_infer
       else read_ret input #frame (term)
 
-and type_parameters (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining:U32.t)
+and type_parameters (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining:U32.t) (allow_variance:bool)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 5; U32.v remaining]) =
   let! st = (fun () -> skip input #frame state) in
   if st.status <> 0ul || remaining = 0ul then read_ret input #frame (failed st 1ul)
@@ -1532,6 +1607,7 @@ and type_parameters (input:tape) (#frame:slprop) (state:parser_state) (fuel rema
     let! st = (fun () -> (let! anf_value_1 = (fun () -> keyword input #frame st.offset 5ul 0x636f6e7374uL) in if anf_value_1 then
       skip input #frame { st with offset = plus st.offset 5ul }
       else read_ret input #frame (st))) in
+    let! st = (fun () -> variance_prefix input #frame st allow_variance) in
     let! named = (fun () -> name input #frame st.offset false true) in
     let! packed = (fun () -> packed_type input #frame st.offset named.at) in
     let! undefined = (fun () -> undefined_type input #frame st.offset named.at) in
@@ -1549,7 +1625,7 @@ and type_parameters (input:tape) (#frame:slprop) (state:parser_state) (fuel rema
       else (let! anf_value_6 = (fun () -> same input #frame st.offset 44uy) in if anf_value_6 then
         let! after = (fun () -> (let! anf_value_7 = (fun () -> (consume input #frame st 44uy)) in skip input #frame anf_value_7)) in
         (let! anf_value_8 = (fun () -> same input #frame after.offset 62uy) in if anf_value_8 then consume input #frame after 62uy
-        else type_parameters input #frame after fuel (minus remaining 1ul))
+        else type_parameters input #frame after fuel (minus remaining 1ul) allow_variance)
       else consume input #frame st 62uy)
 
 #pop-options
@@ -1573,9 +1649,9 @@ let call_type_arguments (input:tape) (#frame:slprop) (state:parser_state) : Tot 
   let! arguments = (fun () -> (let! anf_value_1 = (fun () -> (expression_type_arguments input #frame state)) in skip input #frame anf_value_1)) in
   (let! anf_value_2 = (fun () -> same input #frame arguments.offset 40uy) in if anf_value_2 then read_ret input #frame (arguments) else read_ret input #frame (failed arguments 1ul))
 
-let optional_type_parameters (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+let optional_type_parameters (input:tape) (#frame:slprop) (state:parser_state) (allow_variance:bool) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   if state.status <> 0ul then read_ret input #frame (state)
-  else (let! anf_value_1 = (fun () -> same input #frame state.offset 60uy) in if anf_value_1 then (let! anf_value_2 = (fun () -> (consume input #frame state 60uy)) in type_parameters input #frame anf_value_2 16ul 64ul)
+  else (let! anf_value_1 = (fun () -> same input #frame state.offset 60uy) in if anf_value_1 then (let! anf_value_2 = (fun () -> (consume input #frame state 60uy)) in type_parameters input #frame anf_value_2 16ul 64ul allow_variance)
   else read_ret input #frame (state))
 
 let forbidden_field_arguments (input:tape) (#frame:slprop) (st:parser_state) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
@@ -1646,7 +1722,7 @@ let generic_arrow_head (input:tape) (#frame:slprop) (state:parser_state) : Tot (
         else if byte = 44uy || byte = 61uy then read_ret input #frame (true)
         else if byte = 101uy then keyword input #frame tail.offset 7ul 0x657874656e6473uL
         else read_ret input #frame (false))) in
-  if eligible then (let! anf_value_2 = (fun () -> (type_parameters input #frame head 16ul 64ul)) in skip input #frame anf_value_2) else read_ret input #frame (failed head 1ul)
+  if eligible then (let! anf_value_2 = (fun () -> (type_parameters input #frame head 16ul 64ul false)) in skip input #frame anf_value_2) else read_ret input #frame (failed head 1ul)
 
 let async_modifier (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   (let! anf_value_1 = (fun () -> same input #frame start 97uy) in if anf_value_1 then
@@ -1843,15 +1919,39 @@ let admissible_type_binding (input:tape) (#frame:slprop) (first last:U32.t) : To
   read_ret input #frame (not (builtin_type packed || undefined || type_operator packed))
 
 let type_alias_tail (input:tape) (#frame:slprop) (state:parser_state) (before_brace:bool) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  let! st = (fun () -> (let! anf_value_1 = (fun () -> (optional_type_parameters input #frame state)) in skip input #frame anf_value_1)) in
+  let! st = (fun () -> (let! anf_value_1 = (fun () -> (optional_type_parameters input #frame state false)) in skip input #frame anf_value_1)) in
   let! alias = (fun () -> (let! anf_value_2 = (fun () -> (consume input #frame st 61uy)) in annotation_type input #frame anf_value_2 16ul 256ul)) in
   statement_end input #frame alias alias.offset before_brace
 
-let local_type_alias (input:tape) (state:parser_state) (floor used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
-  let! start = (fun () -> skip input { state with offset = plus state.offset 4ul }) in
+let rec interface_bases (input:tape) (#frame:slprop) (state:parser_state) (remaining:U32.t)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v remaining) =
+  let! st = (fun () -> skip input #frame state) in
+  if st.status <> 0ul || remaining = 0ul then read_ret input #frame (failed st 1ul)
+  else
+    let! named = (fun () -> name input #frame st.offset false false) in
+    if not named.ok then read_ret input #frame (failed st 1ul)
+    else
+      let! ending = (fun () -> (let! anf_value_1 = (fun () -> (type_reference input #frame st 16ul)) in skip input #frame anf_value_1)) in
+      (let! anf_value_2 = (fun () -> same input #frame ending.offset 44uy) in if anf_value_2 then
+        (let! anf_value_3 = (fun () -> (consume input #frame ending 44uy)) in interface_bases input #frame anf_value_3 (minus remaining 1ul))
+      else read_ret input #frame (ending))
+
+type atom_head = {
+  token_:U8.t; imported_:bool; super_:bool; fn_:cursor;
+  increment_:U32.t; deleting_:bool; prefix_:U32.t; constructor_:bool; class_:bool
+}
+
+let interface_tail (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! st = (fun () -> (let! anf_value_1 = (fun () -> (optional_type_parameters input #frame state true)) in skip input #frame anf_value_1)) in
+  let! extends = (fun () -> keyword input #frame st.offset 7ul 0x657874656e6473uL) in
+  let! st = (fun () -> if extends then interface_bases input #frame { st with offset = plus st.offset 7ul } 64ul else read_ret input #frame (st)) in
+  (let! anf_value_2 = (fun () -> (consume input #frame st 123uy)) in object_type input #frame anf_value_2 15ul input.size)
+
+let local_type_declaration (input:tape) (state:parser_state) (width:U32.t) (floor used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
+  let! start = (fun () -> skip input { state with offset = plus state.offset width }) in
   let! decl = (fun () -> bind_since input start binding_region_width floor used start.offset) in
   let! valid = (fun () -> admissible_type_binding input start.offset decl.state.offset) in
-  let! st = (fun () -> if valid then type_alias_tail input decl.state true else ret input (failed decl.state 1ul)) in
+  let! st = (fun () -> if valid then (if width = 9ul then interface_tail input decl.state else type_alias_tail input decl.state true) else ret input (failed decl.state 1ul)) in
   ret input ({ decl with state = { st with local_names = decl.used } })
 
 let tag_space (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
@@ -2080,24 +2180,6 @@ let rec array_closers (input:tape) (#frame:slprop) (state:parser_state) (count:U
     let! st = (fun () -> (let! anf_value_1 = (fun () -> (skip input #frame state)) in consume input #frame anf_value_1 93uy)) in
     array_closers input #frame st (minus count 1ul)
 
-let rec interface_bases (input:tape) (#frame:slprop) (state:parser_state) (remaining:U32.t)
-  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v remaining) =
-  let! st = (fun () -> skip input #frame state) in
-  if st.status <> 0ul || remaining = 0ul then read_ret input #frame (failed st 1ul)
-  else
-    let! named = (fun () -> name input #frame st.offset false false) in
-    if not named.ok then read_ret input #frame (failed st 1ul)
-    else
-      let! ending = (fun () -> (let! anf_value_1 = (fun () -> (type_reference input #frame st 16ul)) in skip input #frame anf_value_1)) in
-      (let! anf_value_2 = (fun () -> same input #frame ending.offset 44uy) in if anf_value_2 then
-        (let! anf_value_3 = (fun () -> (consume input #frame ending 44uy)) in interface_bases input #frame anf_value_3 (minus remaining 1ul))
-      else read_ret input #frame (ending))
-
-type atom_head = {
-  token_:U8.t; imported_:bool; super_:bool; fn_:cursor;
-  increment_:U32.t; deleting_:bool; prefix_:U32.t; constructor_:bool; class_:bool
-}
-
 let read_atom_head (input:tape) (#frame:slprop) (st:parser_state) : Tot (stt atom_head (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let start_pos = st.offset in
   let! ch = (fun () -> peek input #frame start_pos) in
@@ -2139,13 +2221,13 @@ let combine_binary (input:tape) (lhs rhs:parsed) (st:parser_state) (op:binary_op
         right_shift = lhs.right_shift || rhs.right_shift || (op.strength = 8ul && first = 62uy);
         outer_or = op.strength = 1ul && not op.nullish; target = NotAssignable })
 
-let signature_end (input:tape) (#frame:slprop) (state opening:parser_state) (params:parameter_list) (annotation st:parser_state)
+let signature_end (input:tape) (#frame:slprop) (state opening:parser_state) (params:parameter_list) (annotation st:parser_state) (constructor:bool)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! typed = (fun () -> skip input #frame params.names.state) in
   let! annotated_return = (fun () -> same input #frame typed.offset 58uy) in
-  if not annotated_return || st.count <> state.count then read_ret input #frame (failed st 1ul)
+  if (not annotated_return && not constructor) || st.count <> state.count then read_ret input #frame (failed st 1ul)
   else
-    let! checked = (fun () -> if params.non_simple then signature_parameters input #frame opening 15ul 64ul else read_ret input #frame (params.names.state)) in
+    let! checked = (fun () -> if params.non_simple || constructor then signature_parameters input #frame opening 15ul 64ul opening.offset else read_ret input #frame (params.names.state)) in
     if checked.status <> 0ul || checked.offset <> params.names.state.offset then read_ret input #frame (failed st 1ul)
     else statement_end input #frame annotation annotation.offset false
 
@@ -3213,9 +3295,10 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
   else if kind = 0ul then
     let local_var = in_function && strict_locals state in
     let! first = (fun () -> peek input state.offset) in
-    let! alias = (fun () -> if local_var && first = 116uy then (let! anf_value_1 = (fun () -> type_declaration_width input state.offset) in ret input (anf_value_1 = 4ul)) else ret input (false)) in
+    let! type_width = (fun () -> if local_var && (first = 116uy || first = 105uy) then type_declaration_width input state.offset
+      else ret input 0ul) in
     let! var = (fun () -> if local_var && first = 118uy then keyword input state.offset 3ul 0x766172uL else ret input (false)) in
-    if alias then local_type_alias input state floor used
+    if type_width = 4ul || type_width = 9ul then local_type_declaration input state type_width floor used
     else if var then (let! anf_value_2 = (fun () -> local_var_declaration input state fuel) in ret input ({ state = anf_value_2; used }))
     else
       let! ordinary = (fun () -> simple_statement input state in_function jumps fuel) in
@@ -3354,7 +3437,7 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
   let depth = minus 64ul fuel in
   let start = if U32.(depth >^ state.depth) then { state with depth } else state in
   let start = { start with super_context = FunctionBody; yield_allowed = false } in
-  let! start = (fun () -> (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (skip input start)) in optional_type_parameters input anf_value_2))) in skip input anf_value_1)) in
+  let! start = (fun () -> (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (skip input start)) in optional_type_parameters input anf_value_2 false))) in skip input anf_value_1)) in
   let! opening = (fun () -> consume input start 40uy) in
   let! opening, limit =
     (fun () -> if arity = OrdinaryParameters then ret input ((opening, 64ul))
@@ -3372,7 +3455,7 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
   let! signature_only = (fun () -> if overload && st.status = 0ul then (let! anf_value_4 = (fun () -> (same input st.offset 123uy)) in ret input (not anf_value_4)) else ret input (false)) in
   let! closed =
     (fun () -> if signature_only then
-      signature_end input state opening params annotation st
+      signature_end input state opening params annotation st constructor
     else
       let context = if super_ = NoSuper then FunctionBody else super_ in
       let st = enter_function_locals { st with await_allowed = async_; yield_allowed = generator; in_allowed = true; super_context = context } in
@@ -3433,8 +3516,8 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
       let accessor = key.arity <> OrdinaryParameters in
       let! public_ = (fun () -> if method && U32.logand key.modifier_flags 4ul <> 0ul then keyword input st.offset 6ul 0x7075626c6963uL
         else ret input true) in
-      let overload = method && public_ && U32.logand key.modifier_flags 10ul = 0ul && not member_head.ok && not key.computed &&
-        not constructor && not accessor && not key.private_ && not key.quoted_ && not key.generator_ in
+      let overload = method && public_ && U32.logand key.modifier_flags 2ul = 0ul && not member_head.ok && not key.computed &&
+        not accessor && not key.private_ && not key.quoted_ && not key.generator_ in
       let! compatible = (fun () -> if not awaiting_body then ret input true else
           let length = minus key.last key.first in
           if overload && pending.key_flags = key.modifier_flags && pending.key_async = key.async_ &&
@@ -3476,10 +3559,10 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
               ret input (result.after_function, pending)
           else if key.async_ || key.generator_ then ret input (failed tail 1ul, no_overload)
           else let! field = (fun () -> class_field_tail input { tail with offset = key.after_key.offset } fuel) in ret input (field, no_overload)) in
-        class_members input after fuel (minus remaining 1ul) derived (seen_constructor || constructor) kind pending
+        class_members input after fuel (minus remaining 1ul) derived (seen_constructor || (constructor && pending.key_span.G.first = pending.key_span.G.last)) kind pending
 and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (kind:class_kind)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 57; 0]) =
-  let! st = (fun () -> (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (skip input state)) in optional_type_parameters input anf_value_2))) in skip input anf_value_1)) in
+  let! st = (fun () -> (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (skip input state)) in optional_type_parameters input anf_value_2 false))) in skip input anf_value_1)) in
   let! derived = (fun () -> keyword input st.offset 7ul 0x657874656e6473uL) in
   let! inherited =
     (fun () -> if not derived then ret input (st)
@@ -3822,12 +3905,6 @@ let enum_declaration (input:tape) (state:parser_state) (used:names_used) : Tot (
   let! opening = (fun () -> (let! anf_value_1 = (fun () -> (skip input named.state)) in consume input anf_value_1 123uy)) in
   (let! anf_value_2 = (fun () -> enum_members input opening input.size) in ret input ({ named with state = anf_value_2 }))
 
-let interface_tail (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  let! st = (fun () -> (let! anf_value_1 = (fun () -> (optional_type_parameters input #frame state)) in skip input #frame anf_value_1)) in
-  let! extends = (fun () -> keyword input #frame st.offset 7ul 0x657874656e6473uL) in
-  let! st = (fun () -> if extends then interface_bases input #frame { st with offset = plus st.offset 7ul } 64ul else read_ret input #frame (st)) in
-  (let! anf_value_2 = (fun () -> (consume input #frame st 123uy)) in object_type input #frame anf_value_2 15ul input.size)
-
 let global_augmentation_start (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   (let! anf_value_1 = (fun () -> keyword input #frame state.offset 7ul 0x6465636c617265uL) in if anf_value_1 then
     let! global = (fun () -> skip input #frame { state with offset = plus state.offset 7ul }) in
@@ -3900,20 +3977,42 @@ let ambient_global_var (input:tape) (#frame:slprop) (st:parser_state)
   let! annotation = (fun () -> annotation_type input #frame typed 16ul 64ul) in
   statement_end input #frame annotation annotation.offset true
 
-let rec global_augmentation_members (input:tape) (#frame:slprop) (state:parser_state) (remaining:U32.t)
-  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v remaining) =
+let ambient_global_function (input:tape) (#frame:slprop) (st:parser_state)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! start = (fun () -> skip input #frame { st with offset = plus st.offset 8ul }) in
+  let! named = (fun () -> name input #frame start.offset false true) in
+  let! after = (fun () -> skip input #frame (from_cursor start named)) in
+  let! parameters = (fun () -> optional_type_parameters input #frame after false) in
+  let! after = (fun () -> skip input #frame parameters) in
+  let! head = (fun () -> consume input #frame after 40uy) in
+  let! params = (fun () -> signature_parameters input #frame head 15ul 1ul head.offset) in
+  let! colon = (fun () -> skip input #frame params) in
+  let! typed = (fun () -> consume input #frame colon 58uy) in
+  let! annotation = (fun () -> result_type input #frame typed 16ul) in
+  statement_end input #frame annotation annotation.offset true
+
+let rec global_augmentation_members (input:tape) (#frame:slprop) (state:parser_state) (remaining:U32.t) (family:U8.t)
+  : Tot (stt (parser_state & U8.t) (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v remaining) =
   let! st = (fun () -> skip input #frame state) in
   let! closing = (fun () -> same input #frame st.offset 125uy) in
-  if st.status <> 0ul || closing then consume input #frame st 125uy
-  else if remaining = 0ul then read_ret input #frame (failed st 3ul)
+  if st.status <> 0ul || closing then
+    let! closed = (fun () -> consume input #frame st 125uy) in
+    read_ret input #frame (closed, family)
+  else if remaining = 0ul then read_ret input #frame (failed st 3ul, family)
   else
-    let! namespace_ = (fun () -> named_namespace_start input #frame st) in
-    let! body = (fun () -> if namespace_.body_start.status = 0ul then
-      ambient_interfaces input #frame namespace_.body_start remaining true
-      else
-        let! var = (fun () -> keyword input #frame st.offset 3ul 0x766172uL) in
-        if var then ambient_global_var input #frame st else ambient_interface input #frame st false) in
-    global_augmentation_members input #frame body (minus remaining 1ul)
+    let! byte = (fun () -> peek input #frame st.offset) in
+    let! var = (fun () -> if byte = 118uy then keyword input #frame st.offset 3ul 0x766172uL else read_ret input #frame false) in
+    let! function_ = (fun () -> if byte = 102uy then keyword input #frame st.offset 8ul 0x66756e6374696f6euL else read_ret input #frame false) in
+    if (var && family = 2uy) || (function_ && family = 1uy) then read_ret input #frame (failed st 1ul, family)
+    else
+      let! body = (fun () -> if var then ambient_global_var input #frame st
+        else if function_ then ambient_global_function input #frame st
+        else
+          let! namespace_ = (fun () -> named_namespace_start input #frame st) in
+          if namespace_.body_start.status = 0ul then ambient_interfaces input #frame namespace_.body_start remaining true
+          else ambient_interface input #frame st false) in
+      let family = if var then 1uy else if function_ then 2uy else family in
+      global_augmentation_members input #frame body (minus remaining 1ul) family
 
 let rec type_namespace_members (input:tape) (state:parser_state) (used:names_used) (remaining:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
@@ -3951,7 +4050,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
       else ret input { body_start = failed st 1ul; name_start = st.offset }) in
     if namespace_.body_start.status <> 0ul then ret input { state = failed st 1ul; used }
     else
-      let! named = (fun () -> bind_at input st 0ul used namespace_.name_start) in
+      let! named = (fun () -> bind_in_namespace input st 0ul 0ul used namespace_.name_start TypeNamespace) in
       if named.state.status <> 0ul then ret input named
       else
         let! body = (fun () -> type_namespace_members input namespace_.body_start 0ul input.size) in
@@ -3967,7 +4066,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
       let type_only = width = 4ul || width = 9ul in
       let! decl =
         (fun () -> if head.class_declaration then bind_at input start 0ul used start.offset
-        else bind_in_namespace input start 0ul 0ul used start.offset (if type_only then TypeName else ValueName)) in
+        else bind_in_namespace input start 0ul 0ul used start.offset (if width = 9ul then InterfaceName else if type_only then TypeName else ValueName)) in
       let! st = (fun () -> skip input decl.state) in
       let! result =
         (fun () -> if head.class_declaration then
@@ -4001,7 +4100,7 @@ let rec reserve_direct_exports (input:tape) (state:parser_state) (used previous 
   else
     let index = U32.sub current 1ul in
     let! binding = (fun () -> get_binding input index) in
-    let! named = (fun () -> if binding.namespace = TypeName || binding.namespace = FunctionSignature then ret input ({ state; used })
+    let! named = (fun () -> if binding.namespace = TypeName || binding.namespace = InterfaceName || binding.namespace = FunctionSignature then ret input ({ state; used })
       else reserve_export input state used binding.span.G.first binding.span.G.last) in
     reserve_direct_exports input named.state named.used previous index
 
@@ -4149,8 +4248,7 @@ let default_declaration (input:tape) (state:parser_state) (used:names_used) : To
 
 private let module_plain_declaration (input:tape) (st:parser_state) (used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! first = (fun () -> peek input st.offset) in
-  let! augmentation = (fun () -> if first = 100uy then global_augmentation_start input st else ret input (failed st 1ul)) in
-  let! ambient_module = (fun () -> if first = 100uy && augmentation.status <> 0ul then ambient_module_start input st else ret input (failed st 1ul)) in
+  let! ambient_module = (fun () -> if first = 100uy then ambient_module_start input st else ret input (failed st 1ul)) in
   let! declared =
     (fun () -> if first = 101uy then
       let! enumeration = (fun () -> keyword input st.offset 4ul 0x656e756duL) in
@@ -4171,47 +4269,52 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
       ret input (namespace_.body_start.status = 0ul)
     else
       let! width = (fun () -> local_width input st.offset) in ret input (width <> 0ul)) in
-  if augmentation.status = 0ul then (let! anf_value_4 = (fun () -> global_augmentation_members input augmentation input.size) in ret input ({ state = anf_value_4; used }))
-  else if ambient_module.status = 0ul then (let! anf_value_5 = (fun () -> ambient_interfaces input ambient_module input.size true) in ret input ({ state = anf_value_5; used }))
+  if ambient_module.status = 0ul then (let! anf_value_5 = (fun () -> ambient_interfaces input ambient_module input.size true) in ret input ({ state = anf_value_5; used }))
   else if declared then module_declaration input st used
   else (let! anf_value_6 = (fun () -> (let! anf_value_7 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_7.state))) in ret input ({ state = anf_value_6; used }))
 
-let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (exports:names_used) (pending:pending_exports)
+let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (exports:names_used) (pending:pending_exports) (family:U8.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v fuel) =
   let! st = (fun () -> skip input state) in
   if st.status <> 0ul then ret input st
   else if st.offset = input.size then check_local_exports input st used pending
   else if fuel = 0ul then ret input (failed st 1ul)
   else (let! anf_value_1 = (fun () -> same input st.offset 59uy) in if anf_value_1 then
-    (let! anf_value_2 = (fun () -> consume input st 59uy) in module_sequence input anf_value_2 used (minus fuel 1ul) exports pending)
+    (let! anf_value_2 = (fun () -> consume input st 59uy) in module_sequence input anf_value_2 used (minus fuel 1ul) exports pending family)
   else
-    let! exported = (fun () -> module_export input st) in
-    let! decl, exports, pending =
-      (fun () -> if not st.module_mode && (exported.direct || exported.export_kind <> 0ul) then
-        ret input ({ state = failed st 1ul; used }, exports, pending)
-      else if exported.export_kind = 1ul then
-        let name = exported.after_export in
-        let end_ = plus name.offset 7ul in
-        let! reserved = (fun () -> reserve_export input name exports name.offset end_) in
-        let! body = (fun () -> skip input { reserved.state with offset = end_ }) in
-        (let! anf_value_3 = (fun () -> default_declaration input body used) in ret input (anf_value_3, reserved.used, pending))
-      else if exported.export_kind = 2ul then
-        let! reexported = (fun () -> star_reexport input exported.after_export exports) in
-        ret input ({ state = reexported.state; used }, reexported.used, pending)
-      else if exported.export_kind = 3ul then
-        let! imported, pending = (fun () -> named_reexport input exported.after_export exports used pending) in
-        ret input ({ state = imported.state; used }, imported.used, pending)
-      else (let! anf_value_5 = (fun () -> keyword input st.offset 6ul 0x696d706f7274uL) in if anf_value_5 then
-        (let! anf_value_6 = (fun () -> import_expression_start input st) in if anf_value_6 then
-          (let! anf_value_7 = (fun () -> (let! anf_value_8 = (fun () -> (let! anf_value_9 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_9.state))) in ret input ({ state = anf_value_8; used }))) in ret input (anf_value_7, exports, pending))
-        else if st.module_mode then
-          (let! anf_value_10 = (fun () -> import_declaration input st used) in ret input (anf_value_10, exports, pending))
-        else ret input ({ state = failed st 1ul; used }, exports, pending))
-      else
-        (let! anf_value_11 = (fun () -> module_plain_declaration input st used) in ret input (anf_value_11, exports, pending)))) in
-    let! reserved = (fun () -> if exported.direct then reserve_direct_exports input decl.state exports used decl.used
-      else ret input ({ state = decl.state; used = exports })) in
-    module_sequence input reserved.state decl.used (minus fuel 1ul) reserved.used pending)
+    let! first = (fun () -> peek input st.offset) in
+    let! augmentation = (fun () -> if first = 100uy then global_augmentation_start input st else ret input (failed st 1ul)) in
+    if augmentation.status = 0ul then
+      let! closed, family = (fun () -> global_augmentation_members input augmentation input.size family) in
+      module_sequence input closed used (minus fuel 1ul) exports pending family
+    else
+      let! exported = (fun () -> module_export input st) in
+      let! decl, exports, pending =
+        (fun () -> if not st.module_mode && (exported.direct || exported.export_kind <> 0ul) then
+          ret input ({ state = failed st 1ul; used }, exports, pending)
+        else if exported.export_kind = 1ul then
+          let name = exported.after_export in
+          let end_ = plus name.offset 7ul in
+          let! reserved = (fun () -> reserve_export input name exports name.offset end_) in
+          let! body = (fun () -> skip input { reserved.state with offset = end_ }) in
+          (let! anf_value_3 = (fun () -> default_declaration input body used) in ret input (anf_value_3, reserved.used, pending))
+        else if exported.export_kind = 2ul then
+          let! reexported = (fun () -> star_reexport input exported.after_export exports) in
+          ret input ({ state = reexported.state; used }, reexported.used, pending)
+        else if exported.export_kind = 3ul then
+          let! imported, pending = (fun () -> named_reexport input exported.after_export exports used pending) in
+          ret input ({ state = imported.state; used }, imported.used, pending)
+        else (let! anf_value_5 = (fun () -> keyword input st.offset 6ul 0x696d706f7274uL) in if anf_value_5 then
+          (let! anf_value_6 = (fun () -> import_expression_start input st) in if anf_value_6 then
+            (let! anf_value_7 = (fun () -> (let! anf_value_8 = (fun () -> (let! anf_value_9 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_9.state))) in ret input ({ state = anf_value_8; used }))) in ret input (anf_value_7, exports, pending))
+          else if st.module_mode then
+            (let! anf_value_10 = (fun () -> import_declaration input st used) in ret input (anf_value_10, exports, pending))
+          else ret input ({ state = failed st 1ul; used }, exports, pending))
+        else
+          (let! anf_value_11 = (fun () -> module_plain_declaration input st used) in ret input (anf_value_11, exports, pending)))) in
+      let! reserved = (fun () -> if exported.direct then reserve_direct_exports input decl.state exports used decl.used
+        else ret input ({ state = decl.state; used = exports })) in
+      module_sequence input reserved.state decl.used (minus fuel 1ul) reserved.used pending family)
 
 private let parse_state (input:tape) (st:parser_state) (module_mode:bool) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
   if st.status <> 0ul || st.offset = input.size then ret input (st)
@@ -4261,7 +4364,7 @@ let parse_attempt (input:tape) (jsx module_mode:bool) (local_log_floor:U16.t)
   let! state : parser_state =
     (fun () -> if script_var then
       // A long script may end its first var declaration by ASI after a large initializer.
-      let! expanded = (fun () -> module_sequence input initial 0ul input.size 0ul 0ul) in
+      let! expanded = (fun () -> module_sequence input initial 0ul input.size 0ul 0ul 0uy) in
       if (expanded.status = 0ul && expanded.offset = input.size) || expanded.status = mixed_locals_status then ret input expanded
       else
         let! _ = (fun () -> clear_marks input) in
@@ -4271,7 +4374,7 @@ let parse_attempt (input:tape) (jsx module_mode:bool) (local_log_floor:U16.t)
       let! legacy = (fun () -> parse_state input initial module_mode) in
       if legacy.status = 1ul || (legacy.status = 0ul && legacy.offset <> input.size) then
         let! _ = (fun () -> clear_marks input) in
-        let! expanded = (fun () -> module_sequence input initial 0ul input.size 0ul 0ul) in
+        let! expanded = (fun () -> module_sequence input initial 0ul input.size 0ul 0ul 0uy) in
         ret input (if expanded.status = 1ul then legacy else expanded)
       else ret input legacy) in
   let! private_ok = (fun () -> if state.status = 0ul && state.offset = input.size && state.private_count <> 0uy then

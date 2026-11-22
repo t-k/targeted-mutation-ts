@@ -1,0 +1,9 @@
+Prefix	Tail	Context
+In	Plain	TopLevel
+Out	Plain	TopLevel
+Both	Bound	TopLevel
+Both	Default	Ambient
+BareOut	Bound	TopLevel
+Reversed	Plain	TopLevel
+Newline	Plain	TopLevel
+In	Plain	Function

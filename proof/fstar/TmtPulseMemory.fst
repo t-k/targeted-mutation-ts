@@ -13,6 +13,8 @@ module S = TmtPulseScan
 
 type binding_namespace =
   | TypeName
+  | InterfaceName
+  | TypeNamespace
   | ValueName
   | BothNames
   | FunctionSignature
