@@ -1,0 +1,8 @@
+First	Second	Placement
+Identifier	Quoted	Same
+Quoted	Identifier	Same
+Quoted	Quoted	Nested
+Computed	Computed	Same
+Identifier	Method	Same
+Identifier	Shorthand	Same
+Identifier	Computed	Broken

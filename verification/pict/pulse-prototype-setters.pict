@@ -1,0 +1,3 @@
+First: Identifier, Quoted, Computed
+Second: Identifier, Quoted, Computed, Method, Shorthand
+Placement: Same, Nested, Broken

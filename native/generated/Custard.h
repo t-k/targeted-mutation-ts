@@ -1108,6 +1108,13 @@ TmtPulseParser_array_closers(
   uint32_t count0
 );
 
+typedef struct TmtPulseParser_object_item_s
+{
+  TmtPulseParser_parsed value;
+  bool prototype_setter;
+}
+TmtPulseParser_object_item;
+
 bool TmtPulseParser_proto_key(TmtPulseMemory_tape input, uint32_t first, uint32_t last);
 
 typedef struct TmtPulseParser_regex_captures_s
@@ -1520,12 +1527,13 @@ TmtPulseParser_function_tail(
   TmtPulseParser_super_context super_
 );
 
-TmtPulseParser_parsed
+TmtPulseParser_object_item
 TmtPulseParser_object_member(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state st,
   uint32_t fuel,
-  bool colon_required
+  bool colon_required,
+  bool seen_prototype
 );
 
 TmtPulseParser_parser_state
@@ -1534,7 +1542,8 @@ TmtPulseParser_object_members(
   TmtPulseParser_parser_state state0,
   uint32_t fuel0,
   uint32_t remaining0,
-  bool colon_required0
+  bool colon_required0,
+  bool seen_prototype0
 );
 
 TmtPulseParser_parser_state

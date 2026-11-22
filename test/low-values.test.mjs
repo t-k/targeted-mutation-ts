@@ -43,7 +43,6 @@ test('mixed imports, compound values and simple type annotations are parsed as a
 test('compound syntax keeps unsupported cases on the reference route', () => {
   for (const source of [
     'const x = { __proto__: a < b, "__proto__": c > d };',
-    'const x = {"__proto__": a < b};',
     'import type { type Limit } from "limits"; const x = a < b;',
     'const x = (a, a) => a < b;',
     'const x = a\n=> a < b;',

@@ -211,6 +211,7 @@ let can_assign (target:assignment_target) : bool = target = Assignable || target
 let can_assign_expression (target:assignment_target) : bool = can_assign target || target = AssertedTarget
 type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:bool; right_shift:bool; shortcut:U32.t; target:assignment_target }
 type expression_items = { list_end:parser_state; valid_array_target:bool }
+type object_item = { value:parsed; prototype_setter:bool }
 
 let failed (state:parser_state) (error:U32.t) : parser_state =
   if state.status = 0ul then { state with status = error } else state
@@ -2046,7 +2047,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
               else
                 let! row = (fun () -> expression_list input inside inner input.size 93uy true) in
                 ret input (row.list_end, (if row.valid_array_target then ArrayTarget else NotAssignable))
-            else (let! anf_value_11 = (fun () -> object_members input inside inner input.size false) in ret input (anf_value_11, NotAssignable))) in
+            else (let! anf_value_11 = (fun () -> object_members input inside inner input.size false false) in ret input (anf_value_11, NotAssignable))) in
         postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target }
           fuel input.size
     else if ch = 40uy then
@@ -2428,10 +2429,12 @@ and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (cl
         if arg.open_angle && not next_hole then ret input ({ list_end = failed st 1ul; valid_array_target = false })
         else expression_list input next_item fuel (minus remaining 1ul) close valid_array_target
       else (let! anf_value_5 = (fun () -> consume input st close) in ret input ({ list_end = anf_value_5; valid_array_target }))))
-and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bool)
-  : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 26; 0]) =
+and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required seen_prototype:bool)
+  : Tot (stt object_item (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 26; 0]) =
   let! spread = (fun () -> spread_at input st.offset) in
-  if spread && not colon_required then comparison input { st with offset = plus st.offset 3ul } fuel
+  if spread && not colon_required then
+    let! value = (fun () -> comparison input { st with offset = plus st.offset 3ul } fuel) in
+    ret input { value; prototype_setter = false }
   else
     let! head = (fun () -> accessor_modifier input st) in
     let arity = head.arity in
@@ -2447,11 +2450,11 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bo
     let quoted = byte = 34uy || byte = 39uy in
     let computed = byte = 91uy in
     let numeric = G.decimal_digit byte || byte = 46uy in
-    let! end_key =
+    let! end_key, proto_spelling =
       (fun () -> if computed then
         let! key = (fun () -> comparison input { key_start with offset = next key_start.offset; in_allowed = true } fuel) in
         let! closed = (fun () -> (let! anf_value_1 = (fun () -> (skip input key.parser)) in consume input anf_value_1 93uy)) in
-        ret input ({ closed with in_allowed = st.in_allowed })
+        ret input ({ closed with in_allowed = st.in_allowed }, false)
       else
         let! key =
           (fun () -> if numeric then number_end input key_start.offset
@@ -2459,25 +2462,30 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bo
         let first = if quoted then next key_start.offset else key_start.offset in
         let last = if quoted then minus key.at 1ul else key.at in
         let! prototype = (fun () -> if key.ok && not accessor then proto_key input first last else ret input (false)) in
-        ret input (if prototype then failed st 1ul else from_cursor key_start key)) in
+        ret input (from_cursor key_start key, prototype)) in
     let! after_key = (fun () -> skip input end_key) in
     let! colon = (fun () -> same input after_key.offset 58uy) in
-    if after_key.status <> 0ul then ret input (empty_range after_key)
-    else if colon && not async_method && not accessor && not generator.generator then (let! anf_value_2 = (fun () -> (consume input after_key 58uy)) in comparison input anf_value_2 fuel)
-    else
-      let! next_token = (fun () -> peek input after_key.offset) in
-      if not colon_required && (next_token = 40uy || next_token = 60uy) then
-        if fuel = 0ul then ret input (empty_range (failed after_key 3ul))
-        else if accessor || generator.generator then
-          let! form = (fun () -> function_form input after_key (minus fuel 1ul) async_method MethodSuper false arity generator.generator) in
-          ret input (empty_range form.after_function)
-        else (let! anf_value_5 = (fun () -> (function_tail input after_key (minus fuel 1ul) async_method NoSuper)) in ret input (empty_range anf_value_5))
-      else if computed || quoted || numeric || colon_required || async_method || accessor || generator.generator then ret input (empty_range (failed st 1ul))
+    let assigning = colon && not async_method && not accessor && not generator.generator in
+    let prototype_setter = assigning && proto_spelling in
+    let! value = (fun () ->
+      if after_key.status <> 0ul then ret input (empty_range after_key)
+      else if prototype_setter && seen_prototype then ret input (empty_range (failed st 1ul))
+      else if assigning then (let! anf_value_2 = (fun () -> consume input after_key 58uy) in comparison input anf_value_2 fuel)
       else
-        let! shorthand = (fun () -> name input st.offset false false) in
-        let! forbidden = (fun () -> forbidden_field_arguments input st) in
-        ret input (if shorthand.ok && not forbidden then empty_range after_key else empty_range (failed st 1ul))
-and object_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (colon_required:bool)
+        let! next_token = (fun () -> peek input after_key.offset) in
+        if not colon_required && (next_token = 40uy || next_token = 60uy) then
+          if fuel = 0ul then ret input (empty_range (failed after_key 3ul))
+          else if accessor || generator.generator then
+            let! form = (fun () -> function_form input after_key (minus fuel 1ul) async_method MethodSuper false arity generator.generator) in
+            ret input (empty_range form.after_function)
+          else (let! anf_value_5 = (fun () -> function_tail input after_key (minus fuel 1ul) async_method NoSuper) in ret input (empty_range anf_value_5))
+        else if computed || quoted || numeric || colon_required || async_method || accessor || generator.generator then ret input (empty_range (failed st 1ul))
+        else
+          let! shorthand = (fun () -> name input st.offset false false) in
+          let! forbidden = (fun () -> forbidden_field_arguments input st) in
+          ret input (if shorthand.ok && not forbidden then empty_range after_key else empty_range (failed st 1ul))) in
+    ret input { value; prototype_setter }
+and object_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (colon_required seen_prototype:bool)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 27; U32.v remaining]) =
   let! st = (fun () -> skip input state) in
   let! byte = (fun () -> peek input st.offset) in
@@ -2485,11 +2493,13 @@ and object_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (col
   else if byte = 125uy then consume input st 125uy
   else if remaining = 0ul then ret input (failed st 3ul)
   else
-    let! value = (fun () -> object_member input st fuel colon_required) in
+    let! member = (fun () -> object_member input st fuel colon_required seen_prototype) in
+    let value = member.value in
     let! st = (fun () -> skip input value.parser) in
     (let! anf_value_1 = (fun () -> same input st.offset 44uy) in if anf_value_1 then
       // A colon in the next property rules out a generic argument list across the comma.
-      (let! anf_value_2 = (fun () -> (consume input st 44uy)) in object_members input anf_value_2 fuel (minus remaining 1ul) value.open_angle)
+      (let! anf_value_2 = (fun () -> (consume input st 44uy)) in object_members input anf_value_2 fuel (minus remaining 1ul)
+        value.open_angle (seen_prototype || member.prototype_setter))
     else consume input st 125uy)
 and template_body (input:tape) (state:parser_state) (fuel remaining:U32.t) (tagged:bool)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 26; U32.v remaining]) =
@@ -2815,7 +2825,7 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
   (floor used:names_used) (root_control:bool)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 48; 0]) =
   let! width = (fun () -> if root_control then ret input (0ul) else local_width input st.offset) in
-  let! function_head = (fun () -> if root_control || not (st.module_mode || (in_function && st.strict_script)) then ret input ({ at = st.offset; ok = false; newline = false })
+  let! function_head = (fun () -> if root_control || not (st.module_mode || st.strict_script) then ret input ({ at = st.offset; ok = false; newline = false })
     else function_start input st.offset) in
   let! class_ = (fun () -> if root_control || not st.module_mode then ret input (false) else
     let! first = (fun () -> peek input st.offset) in if first = 99uy then class_keyword input st.offset else ret input (false)) in
