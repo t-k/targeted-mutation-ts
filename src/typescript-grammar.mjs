@@ -108,7 +108,7 @@ export function createTypeScriptGrammar(ts, bindings) {
   }
 
 
-  function checkContexts(file, strictRoot, emit) {
+  function checkContexts(file, strictRoot, emit, hasVarBindings) {
     const pending = [{
       node: file, parent: undefined, loop: false, switch_: false, super_: 'none', labels: [],
       outerLabels: [], ambient: false, strict: strictRoot,
@@ -157,7 +157,7 @@ export function createTypeScriptGrammar(ts, bindings) {
           : parent && isCatchClause(parent) && parent.variableDeclaration ? bindings.namesIn(parent.variableDeclaration.name)
           : [];
         const catchPattern = parent && isCatchClause(parent) && parent.variableDeclaration && !isIdentifier(parent.variableDeclaration.name);
-        const deep = statements.filter(statement => !isVariableStatement(statement)).flatMap(bindings.nestedVarsIn);
+        const deep = hasVarBindings ? statements.filter(statement => !isVariableStatement(statement)).flatMap(bindings.nestedVarsIn) : [];
         const parameters = catchPattern ? params : [...new Map(params.map(name => [name.text, name])).values()];
         bindings.checkScope([...statements, ...nestedAliases(statements)], emit, {
           parameters, catchPattern, nestedVars: deep, ambient,
@@ -168,7 +168,7 @@ export function createTypeScriptGrammar(ts, bindings) {
         const names = lexicalListNames(node.initializer);
         duplicates(names);
         const lexical = new Map(names.map(name => [name.text, name]));
-        const nested = bindings.nestedVarsIn(node.statement);
+        const nested = hasVarBindings ? bindings.nestedVarsIn(node.statement) : [];
         for (const name of nested) {
           const earlier = lexical.get(name.text);
           if (earlier) emit(name, `Identifier '${name.text}' has already been declared`, earlier);
@@ -597,6 +597,7 @@ export function createTypeScriptGrammar(ts, bindings) {
     const pending = [{ node: file, parent: undefined, canAwait: module, field: false, formal: false,
       canYield: false, ambient: false, assignmentPattern: false, forInitializer: false, strict: strictRoot,
       newTarget: false, jsxAttribute: undefined }];
+    let hasVarBindings = false;
     const hasModifier = (node, kind) => node.modifiers?.some(modifier => modifier.kind === kind);
     const tokenAt = at => {
       scanner.setTextPos(at);
@@ -672,6 +673,7 @@ export function createTypeScriptGrammar(ts, bindings) {
     while (pending.length) {
       const { node, parent, canAwait, field, formal, canYield, ambient: inheritedAmbient,
         assignmentPattern, forInitializer, strict: inheritedStrict, newTarget, jsxAttribute } = pending.pop();
+      if (node.kind === SyntaxKind.VariableDeclarationList && (node.flags & NodeFlags.BlockScoped) === 0) hasVarBindings = true;
       visitType(node, parent);
       if (node.kind <= SyntaxKind.LastToken) {
         if (isIdentifier(node)) {
@@ -890,6 +892,7 @@ export function createTypeScriptGrammar(ts, bindings) {
           forInitializer: forInitializer || isForStatement(node) && node.initializer === child});
       });
     }
+    return hasVarBindings;
   }
 
   function hasStrictDirective(statements, file) {
@@ -916,12 +919,13 @@ export function createTypeScriptGrammar(ts, bindings) {
     // Preserve the standalone type pass's emission order for diagnostics sharing a byte offset.
     const typeDiagnostics = [];
     const visitType = createTypeSyntaxVisitor(file, module, (node, message) => { typeDiagnostics.push([node, message]); });
-    checkExpressionSyntax(file, module, strict, emit, visitType, visitBinary);
+    // The expression walk visits declaration lists as well as expressions.
+    const hasVarBindings = checkExpressionSyntax(file, module, strict, emit, visitType, visitBinary);
     for (const [node, message] of typeDiagnostics) emit(node, message);
-    checkContexts(file, strict, emit);
+    checkContexts(file, strict, emit, hasVarBindings);
     checkStatementSyntax(file, module, strict, emit);
     if (file.text.includes('#')) checkPrivateNames(file, emit);
-    const nestedVars = file.statements.filter(statement => !isVariableStatement(statement)).flatMap(bindings.nestedVarsIn);
+    const nestedVars = hasVarBindings ? file.statements.filter(statement => !isVariableStatement(statement)).flatMap(bindings.nestedVarsIn) : [];
     bindings.checkScope(file.statements, emit, { nestedVars });
     bindings.checkNamespaceExports(file, emit);
     if (module) bindings.checkExports(file, emit, nestedVars);

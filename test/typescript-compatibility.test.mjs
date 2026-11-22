@@ -93,6 +93,21 @@ test('an initializer-free declaration does not hide an independent parse error i
   assert.deepEqual(result.candidates, []);
 });
 
+test('hoisted binding checks distinguish nested var from block-scoped let', () => {
+  for (const keyword of ['var', 'let']) {
+    const local = `function local(flag) { let x; if (flag) { ${keyword} x; } return flag > cutoff; }`;
+    const exported = `if (flag) { ${keyword} x; } export { x }; const y = flag > cutoff;`;
+    const localResult = compare(local, { file: 'binding.js' });
+    assert.equal(localResult.path, keyword === 'var' ? 'diagnostic' : 'fallback');
+    if (keyword === 'var') assert.match(localResult.diagnostics[0].message, /already been declared/);
+    const exportResult = compare(exported, { file: 'binding.js' });
+    assert.equal(exportResult.path, keyword === 'var' ? 'fallback' : 'diagnostic');
+  }
+  const recovered = extractTypeScript('let x; if (flag) { var x; } const =', { file: 'binding.js' });
+  assert.equal(recovered.path, 'diagnostic');
+  assert.ok(recovered.diagnostics.some(diagnostic => /already been declared/.test(diagnostic.message)));
+});
+
 const decoratorContextRows = readFileSync(new URL('../verification/pict/decorator-context.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1);
 for (const row of decoratorContextRows) {
