@@ -121,3 +121,37 @@ for (const [pattern, mode, tail] of rows('pulse-regex-bmp')) {
     }
   });
 }
+
+for (const [context, flavor, body] of rows('pulse-generators')) {
+  test(`Pulse generator: ${context} ${flavor} ${body}`, () => {
+    const async = flavor === 'Async' ? 'async ' : '';
+    const statement = { Yield: 'yield item > cutoff;', Delegate: 'yield* [item > cutoff];', Broken: 'yield*;' }[body];
+    const core = `*walk(item) { ${statement} }`;
+    const source = {
+      Module: `export ${async}function${core}`,
+      Default: `export default ${async}function${core}`,
+      Script: `'use strict'; ${async}function${core}`,
+      Nested: `function outer() { ${async}function${core} }`,
+      Class: `class Model { ${async}${core} }`,
+      Object: `const model = { ${async}${core} };`,
+    }[context];
+    const options = { file: 'generator.js', mode: context === 'Script' ? 'script' : 'module' };
+    const result = compare(source, options);
+    assert.equal(result.path, body === 'Broken' ? 'diagnostic' : 'fast');
+    assert.equal(result.candidates.length, Number(body !== 'Broken'));
+  });
+}
+
+test('Pulse refuses generator constructors, accessors, fields and bodyless declarations', () => {
+  for (const source of [
+    'class A { *constructor() { yield a > b; } }',
+    'class A { *get name() { yield a > b; } }',
+    'class A { *value = a > b; }',
+    'function* declared(): Generator<number>;',
+    'declare function* declared() { yield a > b; }',
+    'function* declared(x = yield a > b) {}',
+    'const box = { *value: a > b };',
+  ]) {
+    assert.notEqual(extract(source, { file: 'generator.ts', requireNative: true }).path, 'fast', source);
+  }
+});

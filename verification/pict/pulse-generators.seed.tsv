@@ -1,0 +1,10 @@
+Context	Flavor	Body
+Module	Sync	Yield
+Default	Async	Delegate
+Script	Sync	Yield
+Nested	Async	Yield
+Class	Sync	Delegate
+Class	Async	Yield
+Object	Sync	Yield
+Object	Async	Delegate
+Module	Async	Broken

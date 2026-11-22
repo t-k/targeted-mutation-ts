@@ -784,6 +784,19 @@ TmtPulseParser_function_body(
   bool non_simple
 );
 
+typedef struct TmtPulseParser_generator_head_s
+{
+  TmtPulseParser_parser_state after_star;
+  bool generator;
+}
+TmtPulseParser_generator_head;
+
+TmtPulseParser_generator_head
+TmtPulseParser_read_generator_head(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state start
+);
+
 typedef struct TmtPulseParser_function_shape_s
 {
   TmtPulseParser_parser_state after_function;
@@ -859,6 +872,7 @@ typedef struct TmtPulseParser_class_key_s
   bool async_;
   bool readonly_;
   TmtPulseParser_parameter_arity arity;
+  bool generator_;
 }
 TmtPulseParser_class_key;
 
@@ -1900,7 +1914,8 @@ TmtPulseParser_module_function(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   uint32_t used,
-  bool async_
+  bool async_,
+  bool ambient
 );
 
 TmtPulseParser_named_state

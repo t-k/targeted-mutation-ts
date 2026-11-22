@@ -1513,6 +1513,15 @@ let function_start (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt cursor 
   else if byte = 97uy then async_function input #frame start
   else read_ret input #frame ({ at = start; ok = false; newline = false })
 
+type generator_head = { after_star:parser_state; generator:bool }
+
+let read_generator_head (input:tape) (#frame:slprop) (start:parser_state)
+  : Tot (stt generator_head (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! generator = (fun () -> same input #frame start.offset 42uy) in
+  let! after_star = (fun () -> if generator then skip input #frame { start with offset = next start.offset }
+    else read_ret input #frame start) in
+  read_ret input #frame { after_star; generator }
+
 let function_body (input:tape) (#frame:slprop) (state:parser_state) (non_simple:bool) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   if not non_simple || state.status <> 0ul then read_ret input #frame (state)
   else
@@ -1694,12 +1703,12 @@ let class_keyword (input:tape) (#frame:slprop) (offset:U32.t) : Tot (stt bool (i
   keyword input #frame offset 5ul 0x636c617373uL
 
 type class_key = {
-  after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool; readonly_:bool; arity:parameter_arity
+  after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool; readonly_:bool; arity:parameter_arity; generator_:bool
 }
 
 let class_key_start (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! byte = (fun () -> peek input #frame state.offset) in
-  read_ret input #frame (G.identifier_start byte || byte = 34uy || byte = 39uy)
+  read_ret input #frame (G.identifier_start byte || byte = 34uy || byte = 39uy || byte = 42uy)
 
 type class_prefix = { key_state:parser_state; flags:U32.t }
 
@@ -1741,7 +1750,8 @@ let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (st
   let after_async = if modifier.ok then { start with offset = modifier.at } else start in
   let! async_ = (fun () -> if modifier.ok then class_key_start input #frame after_async else read_ret input #frame (false)) in
   let method_start = if async_ then after_async else start in
-  let! accessor = (fun () -> accessor_modifier input #frame method_start) in
+  let! generator = (fun () -> read_generator_head input #frame method_start) in
+  let! accessor = (fun () -> accessor_modifier input #frame generator.after_star) in
   let key_start = accessor.key_start in
   let! byte = (fun () -> peek input #frame key_start.offset) in
   let quoted = byte = 34uy || byte = 39uy in
@@ -1749,7 +1759,7 @@ let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (st
   read_ret input #frame (let key_end = from_cursor key_start key in
   let first = if quoted then next key_start.offset else key_start.offset in
   let last = if quoted then minus key.at 1ul else key.at in
-  { after_key = key_end; first; last; async_; arity = accessor.arity;
+  { after_key = key_end; first; last; async_; arity = accessor.arity; generator_ = generator.generator;
     static_ = U32.logand prefix.flags 1ul <> 0ul; readonly_ = U32.logand prefix.flags 2ul <> 0ul })
 
 let constructor_property (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
@@ -2328,8 +2338,10 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bo
     let! modifier = (fun () -> async_modifier input st.offset) in
     let! method_byte = (fun () -> if modifier.ok then peek input modifier.at else ret input (0uy)) in
     let async_method = modifier.ok && (G.identifier_start method_byte || method_byte = 34uy ||
-      method_byte = 39uy || method_byte = 91uy) in
-    let key_start = if async_method then { st with offset = modifier.at } else head.key_start in
+      method_byte = 39uy || method_byte = 91uy || method_byte = 42uy) in
+    let method_start = if async_method then { st with offset = modifier.at } else head.key_start in
+    let! generator = (fun () -> read_generator_head input method_start) in
+    let key_start = generator.after_star in
     let! byte = (fun () -> peek input key_start.offset) in
     let quoted = byte = 34uy || byte = 39uy in
     let computed = byte = 91uy in
@@ -2350,15 +2362,16 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bo
     let! after_key = (fun () -> skip input end_key) in
     let! colon = (fun () -> same input after_key.offset 58uy) in
     if after_key.status <> 0ul then ret input (empty_range after_key)
-    else if colon && not async_method && not accessor then (let! anf_value_2 = (fun () -> (consume input after_key 58uy)) in comparison input anf_value_2 fuel)
+    else if colon && not async_method && not accessor && not generator.generator then (let! anf_value_2 = (fun () -> (consume input after_key 58uy)) in comparison input anf_value_2 fuel)
     else
       let! next_token = (fun () -> peek input after_key.offset) in
       if not colon_required && (next_token = 40uy || next_token = 60uy) then
         if fuel = 0ul then ret input (empty_range (failed after_key 3ul))
-        else if accessor then
-          (let! anf_value_3 = (fun () -> (let! anf_value_4 = (fun () -> (function_form input after_key (minus fuel 1ul) false MethodSuper false arity false)) in ret input (anf_value_4.after_function))) in ret input (empty_range anf_value_3))
+        else if accessor || generator.generator then
+          let! form = (fun () -> function_form input after_key (minus fuel 1ul) async_method MethodSuper false arity generator.generator) in
+          ret input (empty_range form.after_function)
         else (let! anf_value_5 = (fun () -> (function_tail input after_key (minus fuel 1ul) async_method NoSuper)) in ret input (empty_range anf_value_5))
-      else if computed || quoted || numeric || colon_required || async_method || accessor then ret input (empty_range (failed st 1ul))
+      else if computed || quoted || numeric || colon_required || async_method || accessor || generator.generator then ret input (empty_range (failed st 1ul))
       else
         let! shorthand = (fun () -> name input st.offset false false) in
         let! forbidden = (fun () -> forbidden_field_arguments input st) in
@@ -2710,9 +2723,12 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
     else
       let declared = record_binding_mode st LexicalLocals in
       let! named = (fun () -> skip input { declared with offset = plus function_head.at 8ul }) in
+      let! head = (fun () -> read_generator_head input named) in
+      let named = head.after_star in
       let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
       let start = { decl.state with local_names = decl.used } in
-      (let! anf_value_1 = (fun () -> function_tail input start (minus fuel 1ul) (st.offset <> function_head.at) NoSuper) in ret input ({ decl with state = anf_value_1 }))
+      let! form = (fun () -> function_form input start (minus fuel 1ul) (st.offset <> function_head.at) NoSuper false OrdinaryParameters head.generator) in
+      ret input ({ decl with state = form.after_function })
   else if class_ then
     if fuel = 0ul then ret input ({ state = failed st 3ul; used })
     else
@@ -2956,16 +2972,16 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
       let method = next_byte = 40uy || next_byte = 60uy in
       let accessor = key.arity <> OrdinaryParameters in
       if prototype || (constructor_name && not method) || (key.readonly_ && method) ||
-        (accessor && (key.async_ || constructor || next_byte <> 40uy)) ||
-        (constructor && (seen_constructor || key.async_ || next_byte <> 40uy)) then ret input (failed tail 1ul)
+        (accessor && (key.async_ || key.generator_ || constructor || next_byte <> 40uy)) ||
+        (constructor && (seen_constructor || key.async_ || key.generator_ || next_byte <> 40uy)) then ret input (failed tail 1ul)
       else
         let! after =
           (fun () -> if method then
             if fuel = 0ul then ret input (failed tail 3ul)
             else
               let mode = if not constructor then MethodSuper else if derived then DerivedConstructor else BaseConstructor in
-              (let! anf_value_2 = (fun () -> (function_form input tail (minus fuel 1ul) key.async_ mode false key.arity false)) in ret input (anf_value_2.after_function))
-          else if key.async_ then ret input (failed tail 1ul)
+              (let! anf_value_2 = (fun () -> (function_form input tail (minus fuel 1ul) key.async_ mode false key.arity key.generator_)) in ret input (anf_value_2.after_function))
+          else if key.async_ || key.generator_ then ret input (failed tail 1ul)
           else class_field_tail input key.after_key fuel) in
         class_members input after fuel (minus remaining 1ul) derived (seen_constructor || constructor)
 and class_tail (input:tape) (state:parser_state) (fuel:U32.t)
@@ -3138,10 +3154,12 @@ let declaration_start (input:tape) (#frame:slprop) (state:parser_state) : Tot (s
       else local_width input #frame st.offset)) in
   read_ret input #frame ({ after_modifiers = st; width; async_declaration = async_.ok; ambient_declaration = ambient.ok; class_declaration = class_ })
 
-let module_function (input:tape) (state:parser_state) (used:names_used) (async_:bool)
+let module_function (input:tape) (state:parser_state) (used:names_used) (async_ ambient:bool)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) =
+  let! head = (fun () -> read_generator_head input state) in
+  let state = if ambient && head.generator then failed head.after_star 1ul else head.after_star in
   let! named = (fun () -> (let! anf_value_1 = (fun () -> (name input state.offset false true)) in ret input (from_cursor state anf_value_1))) in
-  let! function_ = (fun () -> function_form input named 64ul async_ NoSuper true OrdinaryParameters false) in
+  let! function_ = (fun () -> function_form input named 64ul async_ NoSuper (not head.generator) OrdinaryParameters head.generator) in
   let after = function_.after_function in
   if after.status <> 0ul then ret input ({ state = after; used })
   else
@@ -3244,7 +3262,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
   else if width = 0ul then ret input ({ state = failed st 1ul; used })
   else
     let! start = (fun () -> skip input { st with offset = plus st.offset width }) in
-    if width = 8ul then module_function input start used head.async_declaration
+    if width = 8ul then module_function input start used head.async_declaration head.ambient_declaration
     else if (width = 3ul || width = 5ul) && not head.ambient_declaration && not head.class_declaration then
       let! enumeration = (fun () -> if width = 5ul then keyword input start.offset 4ul 0x656e756duL else ret input (false)) in
       if enumeration then enum_declaration input start used
@@ -3380,10 +3398,13 @@ let default_declaration (input:tape) (state:parser_state) (used:names_used) : To
     (let! anf_value_2 = (fun () -> class_tail input named.state 64ul) in ret input ({ named with state = anf_value_2 }))
   else if function_head.ok then
     let! start = (fun () -> skip input { state with offset = plus function_head.at 8ul }) in
+    let! head = (fun () -> read_generator_head input start) in
+    let start = head.after_star in
     let! byte = (fun () -> peek input start.offset) in
     let! name = (fun () -> if byte = 40uy || byte = 60uy then ret input ({ state = start; used })
       else bind_in_namespace input start 0ul 0ul used start.offset ValueName) in
-    (let! anf_value_3 = (fun () -> function_tail input name.state 64ul (state.offset <> function_head.at) NoSuper) in ret input ({ name with state = anf_value_3 }))
+    let! form = (fun () -> function_form input name.state 64ul (state.offset <> function_head.at) NoSuper false OrdinaryParameters head.generator) in
+    ret input ({ name with state = form.after_function })
   else
     let! value = (fun () -> comparison input state 64ul) in
     (let! anf_value_4 = (fun () -> statement_end input value.parser value.range.G.last false) in ret input ({ state = anf_value_4; used })))
