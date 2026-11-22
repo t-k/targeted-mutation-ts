@@ -1,0 +1,16 @@
+Scope	Member	Suffix
+Local	Alias	Valid
+Exported	Mixed	Valid
+Global	Interface	Valid
+Global	Alias	Valid
+Local	DuplicateAlias	Valid
+Exported	Runtime	Valid
+Exported	Interface	Broken
+Local	Mixed	Broken
+Local	Runtime	Broken
+Exported	Alias	Broken
+Exported	DuplicateAlias	Broken
+Global	Mixed	Broken
+Global	Runtime	Broken
+Local	Interface	Valid
+Global	DuplicateAlias	Broken

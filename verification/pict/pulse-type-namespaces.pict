@@ -1,0 +1,3 @@
+Scope: Local, Exported, Global
+Member: Interface, Alias, Mixed, DuplicateAlias, Runtime
+Suffix: Valid, Broken

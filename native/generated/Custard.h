@@ -2087,8 +2087,28 @@ uint32_t TmtPulseParser_ambient_variable_width(TmtPulseMemory_tape input, uint32
 TmtPulseParser_cursor
 TmtPulseParser_ambient_modifier(TmtPulseMemory_tape input, uint32_t start);
 
+typedef struct TmtPulseParser_namespace_head_s
+{
+  TmtPulseParser_parser_state body_start;
+  uint32_t name_start;
+}
+TmtPulseParser_namespace_head;
+
+TmtPulseParser_namespace_head
+TmtPulseParser_named_namespace_start(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
 TmtPulseParser_parser_state
 TmtPulseParser_interface_tail(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+TmtPulseParser_parser_state
+TmtPulseParser_ambient_interface(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  bool allow_exports
+);
 
 TmtPulseParser_parser_state
 TmtPulseParser_ambient_interfaces(
@@ -2096,6 +2116,13 @@ TmtPulseParser_ambient_interfaces(
   TmtPulseParser_parser_state state0,
   uint32_t remaining0,
   bool allow_exports0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_global_augmentation_members(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t remaining0
 );
 
 typedef struct TmtPulseParser_declaration_head_s
@@ -2124,6 +2151,14 @@ TmtPulseParser_enum_declaration(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   uint32_t used
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_type_namespace_members(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t used0,
+  uint32_t remaining0
 );
 
 TmtPulseParser_named_state

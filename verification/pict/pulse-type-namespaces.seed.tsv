@@ -1,0 +1,8 @@
+Scope	Member	Suffix
+Local	Alias	Valid
+Exported	Mixed	Valid
+Global	Interface	Valid
+Global	Alias	Valid
+Local	DuplicateAlias	Valid
+Exported	Runtime	Valid
+Exported	Interface	Broken

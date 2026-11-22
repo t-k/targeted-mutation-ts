@@ -3639,6 +3639,38 @@ let ambient_module_start (input:tape) (#frame:slprop) (state:parser_state) : Tot
     else read_ret input #frame (failed state 1ul))
   else read_ret input #frame (failed state 1ul))
 
+type namespace_head = { body_start:parser_state; name_start:U32.t }
+
+let named_namespace_start (input:tape) (#frame:slprop) (state:parser_state)
+  : Tot (stt namespace_head (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! prefix = (fun () -> word input #frame state.offset 8ul 0uL) in
+  let! present = (fun () -> if prefix = 0x6e616d6573706163uL then keyword input #frame (plus state.offset 8ul) 1ul 0x65uL
+    else read_ret input #frame false) in
+  if not present then read_ret input #frame { body_start = failed state 1ul; name_start = state.offset }
+  else
+    let! gap = (fun () -> trivia input #frame (plus state.offset 9ul)) in
+    let st = from_cursor state gap in
+    let! named = (fun () -> name input #frame st.offset false true) in
+    let! tail = (fun () -> skip input #frame (from_cursor st named)) in
+    let! body = (fun () -> if gap.newline then read_ret input #frame (failed tail 1ul) else consume input #frame tail 123uy) in
+    read_ret input #frame { body_start = body; name_start = st.offset }
+
+let ambient_interface (input:tape) (#frame:slprop) (st:parser_state) (allow_exports:bool)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! exported = (fun () -> if allow_exports then keyword input #frame st.offset 6ul 0x6578706f7274uL else read_ret input #frame false) in
+  let! member = (fun () -> if exported then skip input #frame { st with offset = plus st.offset 6ul } else read_ret input #frame st) in
+  let! width = (fun () -> type_declaration_width input #frame member.offset) in
+  if width <> 9ul then read_ret input #frame (failed member 1ul)
+  else
+    let! start = (fun () -> skip input #frame { member with offset = plus member.offset width }) in
+    let! ending = (fun () -> name input #frame start.offset false true) in
+    let declared = from_cursor start ending in
+    let! valid = (fun () -> admissible_type_binding input #frame start.offset declared.offset) in
+    if valid then
+      let! tail = (fun () -> skip input #frame declared) in
+      interface_tail input #frame tail
+    else read_ret input #frame (failed declared 1ul)
+
 let rec ambient_interfaces (input:tape) (#frame:slprop) (state:parser_state) (remaining:U32.t) (allow_exports:bool)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v remaining) =
   let! st = (fun () -> skip input #frame state) in
@@ -3646,15 +3678,45 @@ let rec ambient_interfaces (input:tape) (#frame:slprop) (state:parser_state) (re
   else (let! anf_value_1 = (fun () -> same input #frame st.offset 125uy) in if anf_value_1 then consume input #frame st 125uy
   else if remaining = 0ul then read_ret input #frame (failed st 3ul)
   else
-    let! exported = (fun () -> if allow_exports then keyword input #frame st.offset 6ul 0x6578706f7274uL else read_ret input #frame (false)) in
-    let! member = (fun () -> if exported then skip input #frame { st with offset = plus st.offset 6ul } else read_ret input #frame (st)) in
-    (let! anf_value_2 = (fun () -> (let! anf_value_3 = (fun () -> type_declaration_width input #frame member.offset) in read_ret input #frame (anf_value_3 = 9ul))) in if anf_value_2 then
-      let! start = (fun () -> skip input #frame { member with offset = plus member.offset 9ul }) in
-      let! declared = (fun () -> (let! anf_value_4 = (fun () -> (name input #frame start.offset false true)) in read_ret input #frame (from_cursor start anf_value_4))) in
-      let! valid = (fun () -> admissible_type_binding input #frame start.offset declared.offset) in
-      let! body = (fun () -> if valid then (let! anf_value_5 = (fun () -> (skip input #frame declared)) in interface_tail input #frame anf_value_5) else read_ret input #frame (failed declared 1ul)) in
-      ambient_interfaces input #frame body (minus remaining 1ul) allow_exports
-    else read_ret input #frame (failed member 1ul)))
+    let! member = (fun () -> ambient_interface input #frame st allow_exports) in
+    ambient_interfaces input #frame member (minus remaining 1ul) allow_exports)
+
+let rec global_augmentation_members (input:tape) (#frame:slprop) (state:parser_state) (remaining:U32.t)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v remaining) =
+  let! st = (fun () -> skip input #frame state) in
+  let! closing = (fun () -> same input #frame st.offset 125uy) in
+  if st.status <> 0ul || closing then consume input #frame st 125uy
+  else if remaining = 0ul then read_ret input #frame (failed st 3ul)
+  else
+    let! namespace_ = (fun () -> named_namespace_start input #frame st) in
+    let! body = (fun () -> if namespace_.body_start.status = 0ul then
+      ambient_interfaces input #frame namespace_.body_start remaining true
+      else ambient_interface input #frame st false) in
+    global_augmentation_members input #frame body (minus remaining 1ul)
+
+let rec type_namespace_members (input:tape) (state:parser_state) (used:names_used) (remaining:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
+  let! st = (fun () -> skip input state) in
+  let! byte = (fun () -> peek input st.offset) in
+  if st.status <> 0ul then ret input st
+  else if byte = 125uy then consume input st 125uy
+  else if remaining = 0ul then ret input (failed st 1ul)
+  else if byte = 59uy then
+    let! next_member = (fun () -> consume input st 59uy) in
+    type_namespace_members input next_member used (minus remaining 1ul)
+  else
+    let! exported = (fun () -> keyword input st.offset 6ul 0x6578706f7274uL) in
+    let! member = (fun () -> if exported then skip input { st with offset = plus st.offset 6ul } else ret input st) in
+    let! width = (fun () -> type_declaration_width input member.offset) in
+    if width = 0ul then ret input (failed member 1ul)
+    else
+      let! start = (fun () -> skip input { member with offset = plus member.offset width }) in
+      let! named = (fun () -> bind_in_namespace input start binding_region_width 0ul used start.offset TypeName) in
+      let! valid = (fun () -> admissible_type_binding input start.offset named.state.offset) in
+      let! body = (fun () -> if not valid then ret input (failed named.state 1ul)
+        else if width = 9ul then interface_tail input named.state
+        else type_alias_tail input named.state true) in
+      type_namespace_members input body named.used (minus remaining 1ul)
 
 let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! head = (fun () -> declaration_start input state) in
@@ -3663,7 +3725,16 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
   let! enumeration = (fun () -> if width = 0ul && not head.ambient_declaration then
     keyword input st.offset 4ul 0x656e756duL else ret input false) in
   if enumeration then enum_declaration input st used
-  else if width = 0ul then ret input ({ state = failed st 1ul; used })
+  else if width = 0ul then
+    let! namespace_ = (fun () -> if st.module_mode && not head.ambient_declaration then named_namespace_start input st
+      else ret input { body_start = failed st 1ul; name_start = st.offset }) in
+    if namespace_.body_start.status <> 0ul then ret input { state = failed st 1ul; used }
+    else
+      let! named = (fun () -> bind_at input st 0ul used namespace_.name_start) in
+      if named.state.status <> 0ul then ret input named
+      else
+        let! body = (fun () -> type_namespace_members input namespace_.body_start 0ul input.size) in
+        ret input { named with state = body }
   else
     let! start = (fun () -> skip input { st with offset = plus st.offset width }) in
     if width = 8ul then module_function input start used head.async_declaration head.ambient_declaration
@@ -3846,9 +3917,12 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
     else if first = 105uy || first = 116uy then
       let! width = (fun () -> type_declaration_width input st.offset) in ret input (width <> 0ul)
     else if first = 118uy && st.module_mode then keyword input st.offset 3ul 0x766172uL
+    else if first = 110uy && st.module_mode then
+      let! namespace_ = (fun () -> named_namespace_start input st) in
+      ret input (namespace_.body_start.status = 0ul)
     else
       let! width = (fun () -> local_width input st.offset) in ret input (width <> 0ul)) in
-  if augmentation.status = 0ul then (let! anf_value_4 = (fun () -> ambient_interfaces input augmentation input.size false) in ret input ({ state = anf_value_4; used }))
+  if augmentation.status = 0ul then (let! anf_value_4 = (fun () -> global_augmentation_members input augmentation input.size) in ret input ({ state = anf_value_4; used }))
   else if ambient_module.status = 0ul then (let! anf_value_5 = (fun () -> ambient_interfaces input ambient_module input.size true) in ret input ({ state = anf_value_5; used }))
   else if declared then module_declaration input st used
   else (let! anf_value_6 = (fun () -> (let! anf_value_7 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_7.state))) in ret input ({ state = anf_value_6; used }))
