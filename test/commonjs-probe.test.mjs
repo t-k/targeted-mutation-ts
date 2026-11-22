@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -119,6 +120,41 @@ test('focused audit requires a trace row proving activation in the probe run', (
     assert.equal(mutant.status, 'survived');
     assert.deepEqual(mutant.audit, { status: 'inconclusive', source: 'survived', probe: 'unevaluated' });
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('probe preflight reuses immutable syntax while rereading the package type', async () => {
+  const url = new URL('../src/probe.mjs', import.meta.url);
+  url.searchParams.set('probe-preflight', 'count');
+  const counter = Symbol.for('tmt.probe-preflight-parses');
+  const registration = registerHooks({ load(location, context, next) {
+    const result = next(location, context);
+    if (location !== url.href) return result;
+    return { ...result, source: String(result.source).replace(
+      '  const parsed = ts.createSourceFile',
+      "  globalThis[Symbol.for('tmt.probe-preflight-parses')]++;\n  const parsed = ts.createSourceFile",
+    ) };
+  } });
+  const { createProbePreloadCheck } = await import(url.href).finally(() => registration.deregister());
+  const root = mkdtempSync(join(tmpdir(), 'tmt-probe-preflight-'));
+  try {
+    const source = Buffer.from('export const value = 1;');
+    const file = join(root, 'subject.js');
+    const check = createProbePreloadCheck(source);
+    globalThis[counter] = 0;
+    assert.equal(check(root, file), false);
+    assert.equal(check(root, file), false);
+    assert.equal(globalThis[counter], 1);
+    writeFileSync(join(root, 'package.json'), '{"type":"commonjs"}');
+    assert.equal(check(root, file), true);
+    writeFileSync(join(root, 'package.json'), '{}');
+    assert.equal(check(root, file), false);
+    assert.equal(globalThis[counter], 1);
+    assert.equal(check(root, join(root, 'subject.ts')), false);
+    assert.equal(globalThis[counter], 2);
+  } finally {
+    delete globalThis[counter];
     rmSync(root, { recursive: true, force: true });
   }
 });

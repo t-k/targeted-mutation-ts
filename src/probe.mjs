@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, extname, relative, resolve, sep } from 'node:path';
+import { basename, dirname, extname, relative, resolve, sep } from 'node:path';
 import { loadTypeScript } from './typescript-compiler.mjs';
 
 export function rewrite(source, edit, replacement) {
@@ -72,13 +72,26 @@ function hasRuntimeModuleSyntax(file, source) {
   return false;
 }
 
-export function needsProbePreload(root, file, source) {
+function probePreload(root, file, hasModuleSyntax) {
   const extension = extname(file).toLowerCase();
   if (extension === '.cjs' || extension === '.cts') return true;
   if (extension !== '.js' && extension !== '.ts') return false;
   const type = explicitPackageType(root, file);
   if (type === 'module' || type === 'commonjs') return type === 'commonjs';
-  return !hasRuntimeModuleSyntax(file, source);
+  return !hasModuleSyntax();
+}
+
+export function needsProbePreload(root, file, source) {
+  return probePreload(root, file, () => hasRuntimeModuleSyntax(file, source));
+}
+
+export function createProbePreloadCheck(source) {
+  const byFilename = new Map();
+  return (root, file) => probePreload(root, file, () => {
+    const name = basename(file);
+    if (!byFilename.has(name)) byFilename.set(name, hasRuntimeModuleSyntax(name, source));
+    return byFilename.get(name);
+  });
 }
 
 export function freshProbeBinding(sources) {

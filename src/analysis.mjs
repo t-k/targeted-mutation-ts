@@ -6,7 +6,7 @@ import { comparisonThresholdSites } from './prototype.mjs';
 import { thresholdGaps } from './threshold.mjs';
 import { tightenComparison } from './displacement.mjs';
 import { inside, runVitest, withCopy } from './vitest.mjs';
-import { needsProbePreload, freshProbeBinding, instrument, installProbe, rewrite } from './probe.mjs';
+import { createProbePreloadCheck, freshProbeBinding, instrument, installProbe, rewrite } from './probe.mjs';
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
 import { checkReplay } from './lean-replay.mjs';
@@ -61,13 +61,13 @@ export function verdict(run, baseline) {
   return run.status === 'passed' ? 'survived' : 'killed';
 }
 
-function makeAttempt(root, subjects, runner, copyExclude, settings = {}) {
+function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings = {}) {
   const { tracing = false, activate, trial, witness, coverageSites, synchronousTrace } = settings;
   const attempt = withCopy(root, (workspace, temp) => {
     const trace = tracing ? resolve(temp, 'trace.jsonl') : undefined;
     if (trace) mkdirSync(pendingTraceDirectory(trace));
     const files = subjects.map(subject => ({ subject, file: inside(workspace, subject.file) }));
-    const preloaded = tracing ? new Set(files.filter(({ file, subject }) => needsProbePreload(workspace, file, subject.input))) : null;
+    const preloaded = tracing ? new Set(files.filter(({ file, subject }) => probeChecks.get(subject)(workspace, file))) : null;
     const binding = preloaded?.size ? freshProbeBinding([...preloaded].map(({ subject }) => subject.input)) : undefined;
     const probePreload = tracing ? installProbe(workspace, binding) : undefined;
     for (const entry of files) {
@@ -94,7 +94,7 @@ function makeAttempt(root, subjects, runner, copyExclude, settings = {}) {
     return { ...result, trace: rows, overlap, synchronousTrace };
   }, { exclude: copyExclude });
   if (attempt.overlap && !synchronousTrace && ['passed', 'failed'].includes(attempt.status)) {
-    return makeAttempt(root, subjects, runner, copyExclude, { ...settings, synchronousTrace: true });
+    return makeAttempt(root, subjects, runner, copyExclude, probeChecks, { ...settings, synchronousTrace: true });
   }
   return attempt;
 }
@@ -359,7 +359,8 @@ function verifyWitnessRuns(baseline, original, changed) {
 
 function analyzePlaywright(root, subjects, report, options, specification) {
   const runner = (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root });
-  const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], settings);
+  const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
+  const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
   const baseline = attempt();
   report.baseline = playwrightSummary(baseline);
   if (baseline.status !== 'passed') {
@@ -431,7 +432,8 @@ export function analyze(project, files, options) {
   const runner = (workspace, temp, settings) => runVitest(workspace, temp, {
     ...settings, config: options.config, testFiles: options.test,
   });
-  const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], settings);
+  const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
+  const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
   const baseline = attempt();
   if (baseline.status !== 'passed') {
     return { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors } };
