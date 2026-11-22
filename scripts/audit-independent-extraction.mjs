@@ -10,7 +10,7 @@ import { byteOffsets, normalize, sourceDialect } from '../src/source-text.mjs';
 import { createTypeScriptExtractor } from '../src/typescript-extraction.mjs';
 import { extractYuku } from '../test/support/yuku-extraction.mjs';
 
-const shards = [
+const established = [
   ['react', 'react/react', 'ae74234eae6ebd62f19190731278e20bc1c37d51',
     ['compiler/packages', 'compiler/apps/playground', 'packages/react', 'packages/react-dom', 'packages/scheduler'],
     /^(?:compiler\/packages\/[^/]+\/src\/|compiler\/apps\/playground\/|packages\/(?:react|react-dom|scheduler)\/)/],
@@ -23,18 +23,43 @@ const shards = [
   ['antd', 'ant-design/ant-design', 'a31d11d8a7ea7dbb54199975c48bfa246ac8b354', ['components']],
   ['material-ui', 'mui/material-ui', '28eadba9ec2899226ecbf4058b8fba1ddeab9e6d', ['packages/mui-material/src']],
 ];
+const server = [
+  ['express', 'expressjs/express', 'cd7d4397c398a3f3ecadeaf9ef6ac1377bd414c4', ['index.js', 'lib']],
+  ['commander', 'tj/commander.js', '395cf7145fe28122f5a69026b310e02df114f907', ['index.js', 'esm.mjs', 'lib', 'typings']],
+  ['undici', 'nodejs/undici', '7392d6f9f565e550e9047458c275ae77aeaefbb9', ['index.js', 'index-fetch.js', 'index.d.ts', 'lib', 'types']],
+  ['eslint', 'eslint/eslint', 'ac3a60dffc29d8d4d5031621bc062e77f891532a', ['bin', 'conf', 'lib', 'messages', 'packages']],
+  ['lodash', 'lodash/lodash', 'f299b52f39486275a9e6483b60a410e06520c538', ['lodash.js', 'fp']],
+  ['prettier', 'prettier/prettier', '7a8b05f41574633fd3af5298f3eeaf33567ad3d3', ['index.js', 'standalone.js', 'bin', 'src']],
+];
+const typed = [
+  ['hono', 'honojs/hono', '75ff8e3ea18485589816881c6278bc9783e56602',
+    ['src', 'adapters'], /^(?:src\/|adapters\/[^/]+\/src\/)/],
+  ['trpc', 'trpc/trpc', '0813cebf5c04e692e93f9cbc01b7f8678faa53b3', ['packages'], /^packages\/[^/]+\/src\//],
+  ['solid', 'solidjs/solid', 'da28cd5b0653d402defff26c3f4513f6503caedf',
+    ['packages'], /^packages\/[^/]+\/src\//],
+  ['tanstack-query', 'TanStack/query', '0827cf2cb22e2c81ef210271c25fc50e9f1e7328',
+    ['packages'], /^packages\/(?!query-test-utils\/)[^/]+\/src\//],
+  ['zustand', 'pmndrs/zustand', '9fed2eb2f3af672da9f7bf694b996df3831fc207', ['src']],
+  ['date-fns', 'date-fns/date-fns', 'a9739fb3e5384a810e90d7376446f6d84ecc5029',
+    ['pkgs/core/src', 'pkgs/tz/src', 'pkgs/utc/src']],
+];
+const ui = [
+  ['astro', 'withastro/astro', 'c302892e4a2434fb4d8e66702576f5406e63d986', ['packages/astro/src']],
+  ['svelte', 'sveltejs/svelte', '90ad4e870c72aa76db35ecc7e46f0b027ffe175a', ['packages/svelte/src']],
+];
+const suites = new Map(Object.entries({ established, server, typed, ui }));
 const swr = ['swr-firestore', 't-k/swr-firestore', '25e295e6150025bc9b234eea5119589dee473ded', ['src']];
 const extension = /\.(?:[jt]sx?|[cm][jt]s)$/;
-const testsAndFixtures = /(?:^|\/)(?:__tests__|__fixtures__|__snapshots__|__test-utils__|test|tests|spec|fixtures|dist|node_modules|demo|demos)\/|\.(?:test|spec|bench)(?:-d)?\.[^/]+$/;
+const testsAndFixtures = /(?:^|\/)(?:__tests__|__fixtures__|__snapshots__|__test-utils__|__mocks__|test|tests|spec|fixtures|dist|node_modules|demo|demos)\/|(?:^|\/)(?:test|tests)(?:\.tp)?\.[^/]+$|\.(?:test|spec|bench)(?:-d)?\.[^/]+$/;
 const flowDirective = /\/\*[^]*?@(?:no)?flow\b[^]*?\*\/|\/\/[^\n]*@(?:no)?flow\b/;
 const conformanceHarness = /^scripts\/(?:browser\/)?(?:[\w-]+-tests?|test[\w-]+|destructuring-fuzzer|parse-ts-files|verify-source-map)\.[jt]s$/;
 const maximumBlob = 2 * 1024 * 1024;
 const maximumBatch = 2 * maximumBlob;
 const replacements = new Map([['<', '<='], ['<=', '<'], ['>', '>='], ['>=', '>']]);
 const require = createRequire(import.meta.url);
-const usage = `Usage: node --max-old-space-size=512 scripts/audit-independent-extraction.mjs --checkouts PATH [--swr-firestore PATH]
-PATH must contain the pinned repositories in directories named ${shards.map(([name]) => name).join(', ')}.
-An existing PATH/swr-firestore is included by default. All repositories may be bare or cloned without checkout.
+const usage = `Usage: node --max-old-space-size=512 scripts/audit-independent-extraction.mjs --checkouts PATH [--suite ${[...suites.keys()].join('|')}] [--comparisons-only] [--swr-firestore PATH]
+Use directory names matching the selected cohort's pinned repositories. Checkouts may be bare or cloned without checkout.
+The established cohort includes an existing PATH/swr-firestore by default.
 Build the native addon and install this project's development dependencies before running.
 The audit writes JSON to stdout and exits 1 if it finds any disagreements.`;
 
@@ -93,13 +118,18 @@ function* readBatch(checkout, batch) {
   }
 }
 
-function classify(project, file) {
+function classify(project, file, text, declarationFile) {
+  if (project === 'undici' && /^lib\/llhttp\/llhttp(?:_simd)?-wasm\.js$/.test(file)) return 'excluded-generated';
+  if (project === 'eslint' && /^packages\/js\/src\/configs\//.test(file)) return 'excluded-generated';
+  if (project === 'date-fns' && /^\s*\/\/ This file is generated automatically by /.test(text)) return 'generated';
   if (project === 'esbuild' && conformanceHarness.test(file)) return 'conformance-harness';
   if (project === 'fastify' && file === 'lib/configValidator.js') return 'generated';
-  return /\.d\.[cm]?ts$/.test(file) ? 'declaration' : 'source';
+  return declarationFile ? 'declaration' : 'source';
 }
 
-function parseInput(ts, project, file, text) {
+const commonJSCohort = new Set(server.map(([name]) => name).filter(name => name !== 'prettier'));
+
+function parseInput(ts, project, file, text, logical) {
   const originalDialect = sourceDialect(file);
   let dialect = originalDialect;
   const parse = kind => ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false, kind);
@@ -112,12 +142,14 @@ function parseInput(ts, project, file, text) {
     }
   }
   const commonJS = /(?:^|\/)npm\/|^packages\/[^/]+\/index\.js$/.test(file);
-  const mode = /\.c[jt]s$/.test(file) || (!/\.m[jt]s$/.test(file) && !ts.isExternalModule(tree) &&
-    (commonJS || project === 'fastify' || project === 'esbuild')) ? 'script' : 'module';
-  return { tree, file, dialect, originalDialect, mode, logical: true, requireNative: true };
+  const external = ts.isExternalModule(tree);
+  const commonJSExtension = /\.c[jt]s$/.test(file) && !(tree.isDeclarationFile && external);
+  const script = commonJSExtension || (!/\.m[jt]s$/.test(file) && !external &&
+    (commonJS || commonJSCohort.has(project) || project === 'fastify' || project === 'esbuild'));
+  return { tree, file, dialect, originalDialect, mode: script ? 'script' : 'module', logical, requireNative: true };
 }
 
-function rawCandidates(ts, tree, text) {
+function rawCandidates(ts, tree, text, logical) {
   const offsets = byteOffsets(text);
   const span = node => [offsets[node.getStart(tree)], offsets[node.end]];
   const candidates = [];
@@ -129,7 +161,7 @@ function rawCandidates(ts, tree, text) {
       const replacement = replacements.get(operator);
       if (replacement) candidates.push({ rule: 'comparison-boundary/v1', operator, replacement,
         edit: span(node.operatorToken), left: span(node.left), right: span(node.right) });
-    } else if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === 'disabled') {
+    } else if (logical && ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && node.name.text === 'disabled') {
       const attribute = node.initializer;
       const value = attribute && ts.isJsxExpression(attribute) && attribute.expression;
       if (value && ts.isBinaryExpression(value) && value.operatorToken.kind === ts.SyntaxKind.BarBarToken) {
@@ -166,27 +198,31 @@ function increment(record, key) {
   record[key] = (record[key] ?? 0) + 1;
 }
 
-function audit(shard, checkout, ts, extractFull) {
+function audit(shard, checkout, ts, extractFull, logical) {
   const [name, upstream, revision, paths, include] = shard;
   const report = { name, upstream, revision, paths, include: include?.source, excluded: {}, classes: {}, fallbackReasons: {}, mismatches: [] };
   for (const { file, source } of blobs(checkout, revision, paths, include, report.excluded)) {
-    const kind = classify(name, file);
     const text = normalize(source);
-    if (text === null || (name === 'react' && /\.[cm]?jsx?$/.test(file) && flowDirective.test(text.slice(0, 4096)))) {
+    if (text === null || (/\.[cm]?jsx?$/.test(file) && flowDirective.test(text.slice(0, 4096)))) {
       increment(report.excluded, text === null ? 'invalid-utf8' : 'flow');
       continue;
     }
-    const { tree, originalDialect, ...options } = parseInput(ts, name, file, text);
+    const { tree, originalDialect, ...options } = parseInput(ts, name, file, text, logical);
+    const kind = classify(name, file, text, tree.isDeclarationFile);
+    if (kind === 'excluded-generated') {
+      increment(report.excluded, 'generated');
+      continue;
+    }
     const actual = extract(source, options);
     const full = extractFull(text, options);
-    const yuku = extractYuku(source, options);
+    const yuku = extractYuku(source, { ...options, declarationFile: tree.isDeclarationFile });
     const native = actual.path === 'fast';
-    const logical = actual.candidates.filter(candidate => candidate.operator === '||').length;
+    const logicalCandidates = actual.candidates.filter(candidate => candidate.operator === '||').length;
     const context = { file, class: kind, mode: options.mode, dialect: options.dialect };
     compare(report.mismatches, context, 'shipped/TypeScript', actual, full);
     compare(report.mismatches, context, 'TypeScript/Yuku', full, yuku);
     if (!tree.parseDiagnostics.length && full.path !== 'diagnostic') {
-      compare(report.mismatches, context, 'TypeScript/raw AST', full, { candidates: rawCandidates(ts, tree, text) });
+      compare(report.mismatches, context, 'TypeScript/raw AST', full, { candidates: rawCandidates(ts, tree, text, logical) });
     }
     for (const [parser, result] of [['shipped', actual], ['TypeScript', full], ['Yuku', yuku]]) {
       const bad = result.candidates.find(candidate => !validCandidate(source, candidate));
@@ -198,7 +234,7 @@ function audit(shard, checkout, ts, extractFull) {
     stats.files++;
     stats.bytes += source.length;
     stats.candidates += actual.candidates.length;
-    stats.logicalCandidates += logical;
+    stats.logicalCandidates += logicalCandidates;
     if (text.length !== source.length) stats.unicodeFiles++;
     if (actual.path === 'diagnostic') stats.diagnostics++;
     if (options.dialect === 'tsx') stats.tsxFiles++;
@@ -207,7 +243,7 @@ function audit(shard, checkout, ts, extractFull) {
       stats.nativeFiles++;
       stats.nativeBytes += source.length;
       stats.nativeCandidates += actual.candidates.length;
-      stats.nativeLogicalCandidates += logical;
+      stats.nativeLogicalCandidates += logicalCandidates;
       if (options.dialect === 'tsx') stats.nativeTsxFiles++;
     } else increment(report.fallbackReasons, actual.reason ?? actual.path);
   }
@@ -217,17 +253,22 @@ function audit(shard, checkout, ts, extractFull) {
 
 function main() {
   const { values } = parseArgs({ options: {
-    checkouts: { type: 'string' }, 'swr-firestore': { type: 'string' }, help: { type: 'boolean' },
+    checkouts: { type: 'string' }, suite: { type: 'string', default: 'established' },
+    'comparisons-only': { type: 'boolean' }, 'swr-firestore': { type: 'string' }, help: { type: 'boolean' },
   } });
   if (values.help) {
     console.log(usage);
     return;
   }
-  if (!values.checkouts || values['swr-firestore'] === '') throw new Error(usage);
+  const shards = suites.get(values.suite);
+  if (!values.checkouts || !shards || values['swr-firestore'] === '') throw new Error(usage);
+  if (values.suite !== 'established' && values['swr-firestore']) throw new Error(usage);
   const checkoutRoot = resolve(values.checkouts);
-  const swrCheckout = resolve(values['swr-firestore'] ?? resolve(checkoutRoot, swr[0]));
   const inputs = shards.map(shard => [shard, resolve(checkoutRoot, shard[0])]);
-  if (values['swr-firestore'] || existsSync(swrCheckout)) inputs.push([swr, swrCheckout]);
+  if (values.suite === 'established') {
+    const swrCheckout = resolve(values['swr-firestore'] ?? resolve(checkoutRoot, swr[0]));
+    if (values['swr-firestore'] || existsSync(swrCheckout)) inputs.push([swr, swrCheckout]);
+  }
   for (const [shard, checkout] of inputs) git(checkout, ['cat-file', '-e', shard[2] + '^{tree}']);
   const compiler = require.resolve('typescript');
   const alreadyLoaded = !!require.cache[compiler];
@@ -237,8 +278,9 @@ function main() {
   const extractFull = createTypeScriptExtractor(ts);
   const addon = readFileSync(new URL('../build/tmt.node', import.meta.url));
   const revision = git(fileURLToPath(new URL('..', import.meta.url)), ['rev-parse', 'HEAD']).toString().trim();
-  const reports = inputs.map(([shard, checkout]) => audit(shard, checkout, ts, extractFull));
-  const result = { revision, nativeSha256: createHash('sha256').update(addon).digest('hex'), node: process.version,
+  const logical = !values['comparisons-only'];
+  const reports = inputs.map(([shard, checkout]) => audit(shard, checkout, ts, extractFull, logical));
+  const result = { revision, suite: values.suite, logical, nativeSha256: createHash('sha256').update(addon).digest('hex'), node: process.version,
     typescript: ts.version, yuku: require('yuku-parser/package.json').version, reports };
   console.log(JSON.stringify(result, null, 2));
   if (reports.some(report => report.mismatches.length)) process.exitCode = 1;

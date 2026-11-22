@@ -30,7 +30,7 @@ export function extractYuku(input, options = {}, allowTokens = false) {
   const { dialect, mode } = optionsFor(options);
   const { parse, TokenKind } = load('yuku-parser');
   const parsed = parse(source, {
-    lang: dialect, sourceType: mode, path: options.file, tokens: true, preserveParens: true, semanticErrors: true,
+    lang: options.declarationFile ? 'dts' : dialect, sourceType: mode, path: options.file, tokens: true, preserveParens: true, semanticErrors: true,
   });
   const { diagnostics } = parsed;
   const hasErrors = diagnostics.some(diagnostic => diagnostic.severity === 'error');
