@@ -6,7 +6,6 @@ import { fileURLToPath } from 'node:url';
 import { types } from 'node:util';
 import { isMainThread } from 'node:worker_threads';
 import { invalidEncoding, normalize, optionsFor } from './source-text.mjs';
-import { extractTypeScript } from './typescript-extraction.mjs';
 
 export { byteOffsets, sourceDialect } from './source-text.mjs';
 
@@ -47,6 +46,7 @@ export function extractFallback(input, options = {}) {
   const parserOptions = { dialect, mode, logical: !!options.logical, file: options.file };
   if (isMainThread) {
     try {
+      const { extractTypeScript } = load('./typescript-extraction.mjs');
       return extractTypeScript(source, parserOptions);
     } catch (error) {
       if (!(error instanceof RangeError && error.message === 'Maximum call stack size exceeded')) throw error;

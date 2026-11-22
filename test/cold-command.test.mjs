@@ -27,6 +27,7 @@ for (const [command, addon, input] of scenarios) {
         if (command === 'Analyze') return false;
         return module !== command.toLowerCase();
       });
+      blocked.push('typescript-extraction', 'typescript-grammar', 'typescript-bindings');
       writeFileSync(hook, `import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier, context, next) {
   if (${JSON.stringify(blocked)}.some(name => specifier.endsWith('/' + name + '.mjs'))) {
