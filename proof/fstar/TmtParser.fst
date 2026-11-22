@@ -3165,12 +3165,23 @@ let export_identifier (input:tape) (state:parser_state) : Read parser_state inpu
   if G.identifier_start first then { state with offset = scan_class input state.offset G.Identifier }
   else failed state 1ul
 
-let rec reexport_members (input:tape) (state:parser_state) (used:names_used) (remaining:U32.t)
-  : Run named_state input (decreases U32.v remaining) =
+let rec export_string_name (input:tape) (state:parser_state) (delimiter:U8.t) (remaining:U32.t)
+  : Read parser_state input (decreases U32.v remaining) =
+  let byte = peek input state.offset in
+  if byte = delimiter then consume input state delimiter
+  else if remaining = 0ul then failed state 1ul
+  else if G.identifier_continue byte || byte = 46uy || byte = 45uy || byte = 32uy then
+    export_string_name input { state with offset = next state.offset } delimiter (minus remaining 1ul)
+  else failed state 1ul
+
+type resolved_exports = { named:named_state; locals_known:bool }
+
+let rec reexport_members (input:tape) (state:parser_state) (used locals:names_used) (remaining:U32.t) (locals_known:bool)
+  : Run resolved_exports input (decreases U32.v remaining) =
   let st = skip input state in
-  if st.status <> 0ul then { state = st; used }
-  else if same input st.offset 125uy then { state = consume input st 125uy; used }
-  else if remaining = 0ul then { state = failed st 1ul; used }
+  if st.status <> 0ul then { named = { state = st; used }; locals_known = false }
+  else if same input st.offset 125uy then { named = { state = consume input st 125uy; used }; locals_known }
+  else if remaining = 0ul then { named = { state = failed st 1ul; used }; locals_known = false }
   else
     let first = export_identifier input st in
     let tail = skip input first in
@@ -3180,23 +3191,34 @@ let rec reexport_members (input:tape) (state:parser_state) (used:names_used) (re
     let source, source_end =
       if type_ && not type_alias && G.identifier_start second then tail, export_identifier input tail
       else st, first in
+    let locals_known =
+      if locals_known && source_end.status = 0ul then
+        name_seen input 0ul 0ul locals source.offset (minus source_end.offset source.offset) BothNames
+      else false in
     let after_source = skip input source_end in
     let as_ = keyword input after_source.offset 2ul 0x6173uL in
     let first = if as_ then skip input { after_source with offset = plus after_source.offset 2ul } else source in
-    let last = if as_ then export_identifier input first else source_end in
-    let named = reserve_export input last used first.offset last.offset in
+    let delimiter = peek input first.offset in
+    let quoted = as_ && (delimiter = 34uy || delimiter = 39uy) in
+    let last =
+      if quoted then export_string_name input (consume input first delimiter) delimiter 256ul
+      else if as_ then export_identifier input first
+      else source_end in
+    let start, stop = if quoted then next first.offset, minus last.offset 1ul else first.offset, last.offset in
+    let named = reserve_export input last used start stop in
     let tail = skip input named.state in
     if same input tail.offset 44uy then
-      reexport_members input (consume input tail 44uy) named.used (minus remaining 1ul)
-    else { named with state = consume input tail 125uy }
+      reexport_members input (consume input tail 44uy) named.used locals (minus remaining 1ul) locals_known
+    else { named = { named with state = consume input tail 125uy }; locals_known }
 
-let named_reexport (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
-  let named = reexport_members input (consume input state 123uy) used 64ul in
+let named_reexport (input:tape) (state:parser_state) (used locals:names_used) : Run named_state input =
+  let resolved = reexport_members input (consume input state 123uy) used locals 64ul true in
+  let named = resolved.named in
   let tail = skip input named.state in
   let from = keyword input tail.offset 4ul 0x66726f6duL in
   let result =
     if from then import_source input { tail with offset = plus tail.offset 4ul }
-    else if named.used = used then statement_end input named.state named.state.offset false
+    else if resolved.locals_known then statement_end input named.state named.state.offset false
     else failed tail 1ul in
   { named with state = result }
 
@@ -3260,7 +3282,7 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
           else failed tail 1ul in
         { state = source; used }, exports
       else if exported.export_kind = 3ul then
-        let imported = named_reexport input exported.after_export exports in
+        let imported = named_reexport input exported.after_export exports used in
         { state = imported.state; used }, imported.used
       else if keyword input st.offset 6ul 0x696d706f7274uL then
         if import_expression_start input st then

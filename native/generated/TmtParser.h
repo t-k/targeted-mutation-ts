@@ -1500,16 +1500,38 @@ TmtParser_reserve_direct_exports(
 TmtParser_parser_state
 TmtParser_export_identifier(TmtParser_tape input, TmtParser_parser_state state);
 
-TmtParser_named_state
+TmtParser_parser_state
+TmtParser_export_string_name(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint8_t delimiter0,
+  uint32_t remaining0
+);
+
+typedef struct TmtParser_resolved_exports_s
+{
+  TmtParser_named_state named;
+  bool locals_known;
+}
+TmtParser_resolved_exports;
+
+TmtParser_resolved_exports
 TmtParser_reexport_members(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
   uint32_t used0,
-  uint32_t remaining0
+  uint32_t locals0,
+  uint32_t remaining0,
+  bool locals_known0
 );
 
 TmtParser_named_state
-TmtParser_named_reexport(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);
+TmtParser_named_reexport(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t used,
+  uint32_t locals
+);
 
 typedef struct TmtParser_export_prefix_s
 {

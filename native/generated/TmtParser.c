@@ -12270,6 +12270,52 @@ TmtParser_export_identifier(TmtParser_tape input, TmtParser_parser_state state)
     return TmtParser_failed(state, 1U);
 }
 
+TmtParser_parser_state
+TmtParser_export_string_name(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint8_t delimiter0,
+  uint32_t remaining0
+)
+{
+  TmtParser_tape input = input0;
+  TmtParser_parser_state state = state0;
+  uint8_t delimiter = delimiter0;
+  uint32_t remaining = remaining0;
+  while (true)
+  {
+    uint8_t byte = TmtParser_peek(input, state.offset);
+    if (byte == delimiter)
+      return TmtParser_consume(input, state, delimiter);
+    else if (remaining == 0U)
+      return TmtParser_failed(state, 1U);
+    else if (TmtGrammar_identifier_continue(byte) || byte == 46U || byte == 45U || byte == 32U)
+    {
+      TmtParser_parser_state
+      tmp0 =
+        {
+          .offset = TmtParser_next(state.offset), .count = state.count, .depth = state.depth,
+          .status = state.status, .local_names = state.local_names,
+          .await_allowed = state.await_allowed, .yield_allowed = state.yield_allowed,
+          .jsx_allowed = state.jsx_allowed, .module_mode = state.module_mode,
+          .in_allowed = state.in_allowed, .for_initializer = state.for_initializer,
+          .arrow_defaults_allowed = state.arrow_defaults_allowed, .binding_mode = state.binding_mode,
+          .super_context = state.super_context
+        };
+      uint32_t tmp = TmtParser_minus(remaining, 1U);
+      state = tmp0;
+      remaining = tmp;
+    }
+    else
+      return TmtParser_failed(state, 1U);
+  }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
 typedef struct __TmtParser_parser_state_TmtParser_parser_state_s
 {
   TmtParser_parser_state fst;
@@ -12277,27 +12323,56 @@ typedef struct __TmtParser_parser_state_TmtParser_parser_state_s
 }
 __TmtParser_parser_state_TmtParser_parser_state;
 
-TmtParser_named_state
+typedef struct __uint32_t_uint32_t_s
+{
+  uint32_t fst;
+  uint32_t snd;
+}
+__uint32_t_uint32_t;
+
+TmtParser_resolved_exports
 TmtParser_reexport_members(
   TmtParser_tape input0,
   TmtParser_parser_state state0,
   uint32_t used0,
-  uint32_t remaining0
+  uint32_t locals0,
+  uint32_t remaining0,
+  bool locals_known0
 )
 {
   TmtParser_tape input = input0;
   TmtParser_parser_state state = state0;
   uint32_t used = used0;
+  uint32_t locals = locals0;
   uint32_t remaining = remaining0;
+  bool locals_known = locals_known0;
   while (true)
   {
     TmtParser_parser_state st = TmtParser_skip(input, state);
     if (st.status != 0U)
-      return ((TmtParser_named_state){ .state = st, .used = used });
+      return
+        (
+          (TmtParser_resolved_exports){
+            .named = { .state = st, .used = used },
+            .locals_known = false
+          }
+        );
     else if (TmtParser_same(input, st.offset, 125U))
-      return ((TmtParser_named_state){ .state = TmtParser_consume(input, st, 125U), .used = used });
+      return
+        (
+          (TmtParser_resolved_exports){
+            .named = { .state = TmtParser_consume(input, st, 125U), .used = used },
+            .locals_known = locals_known
+          }
+        );
     else if (remaining == 0U)
-      return ((TmtParser_named_state){ .state = TmtParser_failed(st, 1U), .used = used });
+      return
+        (
+          (TmtParser_resolved_exports){
+            .named = { .state = TmtParser_failed(st, 1U), .used = used },
+            .locals_known = false
+          }
+        );
     else
     {
       TmtParser_parser_state first = TmtParser_export_identifier(input, st);
@@ -12309,9 +12384,9 @@ TmtParser_reexport_members(
       else
         type_alias = false;
       uint8_t second = TmtParser_peek(input, tail.offset);
-      __TmtParser_parser_state_TmtParser_parser_state scrut;
+      __TmtParser_parser_state_TmtParser_parser_state scrut0;
       if (type_ && !type_alias && TmtGrammar_identifier_start(second))
-        scrut =
+        scrut0 =
           (
             (__TmtParser_parser_state_TmtParser_parser_state){
               .fst = tail,
@@ -12319,9 +12394,21 @@ TmtParser_reexport_members(
             }
           );
       else
-        scrut = ((__TmtParser_parser_state_TmtParser_parser_state){ .fst = st, .snd = first });
-      TmtParser_parser_state source = scrut.fst;
-      TmtParser_parser_state source_end = scrut.snd;
+        scrut0 = ((__TmtParser_parser_state_TmtParser_parser_state){ .fst = st, .snd = first });
+      TmtParser_parser_state source = scrut0.fst;
+      TmtParser_parser_state source_end = scrut0.snd;
+      bool locals_known1;
+      if (locals_known && source_end.status == 0U)
+        locals_known1 =
+          TmtParser_name_seen(input,
+            0U,
+            0U,
+            locals,
+            source.offset,
+            TmtParser_minus(source_end.offset, source.offset),
+            TmtParser_BothNames);
+      else
+        locals_known1 = false;
       TmtParser_parser_state after_source = TmtParser_skip(input, source_end);
       bool as_ = TmtParser_keyword(input, after_source.offset, 2U, 0x6173ULL);
       TmtParser_parser_state first1;
@@ -12348,29 +12435,51 @@ TmtParser_reexport_members(
             ));
       else
         first1 = source;
+      uint8_t delimiter = TmtParser_peek(input, first1.offset);
+      bool quoted = as_ && (delimiter == 34U || delimiter == 39U);
       TmtParser_parser_state last;
-      if (as_)
+      if (quoted)
+        last =
+          TmtParser_export_string_name(input,
+            TmtParser_consume(input, first1, delimiter),
+            delimiter,
+            256U);
+      else if (as_)
         last = TmtParser_export_identifier(input, first1);
       else
         last = source_end;
-      TmtParser_named_state
-      named = TmtParser_reserve_export(input, last, used, first1.offset, last.offset);
+      __uint32_t_uint32_t scrut;
+      if (quoted)
+        scrut =
+          (
+            (__uint32_t_uint32_t){
+              .fst = TmtParser_next(first1.offset),
+              .snd = TmtParser_minus(last.offset, 1U)
+            }
+          );
+      else
+        scrut = ((__uint32_t_uint32_t){ .fst = first1.offset, .snd = last.offset });
+      uint32_t start = scrut.fst;
+      uint32_t stop = scrut.snd;
+      TmtParser_named_state named = TmtParser_reserve_export(input, last, used, start, stop);
       TmtParser_parser_state tail1 = TmtParser_skip(input, named.state);
       if (TmtParser_same(input, tail1.offset, 44U))
       {
         TmtParser_parser_state tmp0 = TmtParser_consume(input, tail1, 44U);
         uint32_t tmp1 = named.used;
-        uint32_t tmp = TmtParser_minus(remaining, 1U);
+        uint32_t tmp2 = TmtParser_minus(remaining, 1U);
+        bool tmp = locals_known1;
         state = tmp0;
         used = tmp1;
-        remaining = tmp;
+        remaining = tmp2;
+        locals_known = tmp;
       }
       else
         return
           (
-            (TmtParser_named_state){
-              .state = TmtParser_consume(input, tail1, 125U),
-              .used = named.used
+            (TmtParser_resolved_exports){
+              .named = { .state = TmtParser_consume(input, tail1, 125U), .used = named.used },
+              .locals_known = locals_known1
             }
           );
     }
@@ -12383,10 +12492,22 @@ TmtParser_reexport_members(
 }
 
 TmtParser_named_state
-TmtParser_named_reexport(TmtParser_tape input, TmtParser_parser_state state, uint32_t used)
+TmtParser_named_reexport(
+  TmtParser_tape input,
+  TmtParser_parser_state state,
+  uint32_t used,
+  uint32_t locals
+)
 {
-  TmtParser_named_state
-  named = TmtParser_reexport_members(input, TmtParser_consume(input, state, 123U), used, 64U);
+  TmtParser_resolved_exports
+  resolved =
+    TmtParser_reexport_members(input,
+      TmtParser_consume(input, state, 123U),
+      used,
+      locals,
+      64U,
+      true);
+  TmtParser_named_state named = resolved.named;
   TmtParser_parser_state tail = TmtParser_skip(input, named.state);
   bool from = TmtParser_keyword(input, tail.offset, 4U, 0x66726f6dULL);
   TmtParser_parser_state result;
@@ -12411,7 +12532,7 @@ TmtParser_named_reexport(TmtParser_tape input, TmtParser_parser_state state, uin
             .super_context = tail.super_context
           }
         ));
-  else if (named.used == used)
+  else if (resolved.locals_known)
     result = TmtParser_statement_end(input, named.state, named.state.offset, false);
   else
     result = TmtParser_failed(tail, 1U);
@@ -12733,7 +12854,7 @@ TmtParser_module_sequence(
       else if (exported.export_kind == 3U)
       {
         TmtParser_named_state
-        imported = TmtParser_named_reexport(input, exported.after_export, exports);
+        imported = TmtParser_named_reexport(input, exported.after_export, exports, used);
         scrut =
           (
             (__TmtParser_named_state_uint32_t){

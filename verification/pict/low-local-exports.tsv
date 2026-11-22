@@ -1,0 +1,9 @@
+Form	Binding	Tail
+Local	Bound	Valid
+Type	Bound	Valid
+Quoted	Bound	Valid
+External	Missing	Valid
+Quoted	Missing	Broken
+External	Bound	Broken
+Type	Missing	Broken
+Local	Missing	Broken

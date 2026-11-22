@@ -21,7 +21,7 @@ export function createTypeScriptGrammar(ts, bindings) {
     isSwitchStatement, isTaggedTemplateExpression, isTemplateLiteralTypeNode, isTemplateLiteralTypeSpan,
     isThrowStatement, isTupleTypeNode, isTypeAliasDeclaration, isTypeAssertionExpression, isTypeLiteralNode,
     isTypeNode, isTypeOperatorNode, isTypeParameterDeclaration, isVariableDeclaration, isVariableDeclarationList,
-    isVariableStatement, isWithStatement, isYieldExpression,
+    isVariableStatement, isWithStatement, isYieldExpression, stringToToken,
   } = ts;
   const strictReservedBindings = new Set(['implements', 'interface', 'let', 'package', 'private', 'protected', 'public', 'static', 'yield']);
   const strictRestrictedBindings = new Set(['eval', 'arguments']);
@@ -492,6 +492,19 @@ export function createTypeScriptGrammar(ts, bindings) {
       if (isBindingElement(node) && node.dotDotDotToken && node.initializer) add('A rest element cannot have an initializer');
       if (isExportDeclaration(node) && node.moduleSpecifier && !isStringLiteral(node.moduleSpecifier)) {
         add(`Expected module specifier, but found '${node.moduleSpecifier.getText(file)}'`);
+      }
+      if (isExportDeclaration(node) && !node.moduleSpecifier && node.exportClause?.kind === SyntaxKind.NamedExports) {
+        for (const element of node.exportClause.elements) {
+          const local = element.propertyName ?? element.name;
+          if (isStringLiteral(local)) {
+            add("A string literal cannot be used as an exported binding without 'from'", local);
+          } else if (isIdentifier(local)) {
+            const token = stringToToken(local.text);
+            if (token >= SyntaxKind.FirstReservedWord && token <= SyntaxKind.LastFutureReservedWord) {
+              add("A reserved word cannot be used as an exported binding without 'from'", local);
+            }
+          }
+        }
       }
       if (isSwitchStatement(node) && node.caseBlock.clauses.filter(isDefaultClause).length > 1) {
         add('A switch statement can only have one default clause');
