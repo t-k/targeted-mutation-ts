@@ -845,6 +845,16 @@ TmtPulseParser_record_private(
   TmtPulseMemory_binding_namespace namespace0
 );
 
+typedef struct TmtPulseParser_pending_overload_s
+{
+  TmtGrammar_span key_span;
+  uint32_t key_flags;
+  bool key_async;
+}
+TmtPulseParser_pending_overload;
+
+extern TmtPulseParser_pending_overload TmtPulseParser_no_overload;
+
 typedef struct TmtPulseParser_class_key_s
 {
   TmtPulseParser_parser_state after_key;
@@ -856,6 +866,8 @@ typedef struct TmtPulseParser_class_key_s
   TmtPulseParser_parameter_arity arity;
   bool generator_;
   bool private_;
+  bool quoted_;
+  uint32_t modifier_flags;
 }
 TmtPulseParser_class_key;
 
@@ -1347,6 +1359,14 @@ TmtPulseParser_class_field_tail(
   uint32_t fuel
 );
 
+typedef struct
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_pending_overload_s
+{
+  TmtPulseParser_parser_state _1;
+  TmtPulseParser_pending_overload _2;
+}
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_pending_overload;
+
 TmtPulseParser_parser_state
 TmtPulseParser_class_members(
   TmtPulseMemory_tape input0,
@@ -1354,7 +1374,8 @@ TmtPulseParser_class_members(
   uint32_t fuel0,
   uint32_t remaining0,
   bool derived0,
-  bool seen_constructor0
+  bool seen_constructor0,
+  TmtPulseParser_pending_overload pending0
 );
 
 TmtPulseParser_parser_state

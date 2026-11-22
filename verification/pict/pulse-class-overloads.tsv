@@ -1,0 +1,17 @@
+Modifier	Group	Tail
+Plain	Matching	Complete
+PublicAsync	Matching	Complete
+Static	Matching	Complete
+PublicAsync	Missing	Complete
+PublicAsync	WrongName	Complete
+PublicAsync	WrongModifier	Complete
+Static	Interleaved	Complete
+Plain	Matching	Broken
+Plain	WrongName	Broken
+Plain	Interleaved	Broken
+Plain	WrongModifier	Broken
+Static	WrongName	Broken
+Static	WrongModifier	Broken
+Plain	Missing	Broken
+PublicAsync	Interleaved	Broken
+Static	Missing	Broken

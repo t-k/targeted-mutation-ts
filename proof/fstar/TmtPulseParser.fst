@@ -1697,8 +1697,12 @@ let class_keyword (input:tape) (#frame:slprop) (offset:U32.t) : Tot (stt bool (i
 
 type class_key = {
   after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool; readonly_:bool; arity:parameter_arity;
-  generator_:bool; private_:bool
+  generator_:bool; private_:bool; quoted_:bool; modifier_flags:U32.t
 }
+
+type pending_overload = { key_span:G.span; key_flags:U32.t; key_async:bool }
+
+let no_overload : pending_overload = { key_span = { G.first = 0ul; G.last = 0ul }; key_flags = 0ul; key_async = false }
 
 let class_key_start (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! byte = (fun () -> peek input #frame state.offset) in
@@ -1756,6 +1760,7 @@ let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (st
   let first = if quoted then next key_start.offset else key_start.offset in
   let last = if quoted then minus key.at 1ul else key.at in
   { after_key = key_end; first; last; async_; arity = accessor.arity; generator_ = generator.generator; private_;
+    quoted_ = quoted; modifier_flags = prefix.flags;
     static_ = U32.logand prefix.flags 1ul <> 0ul; readonly_ = U32.logand prefix.flags 2ul <> 0ul })
 
 let constructor_property (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
@@ -2955,15 +2960,18 @@ and class_field_tail (input:tape) (state:parser_state) (fuel:U32.t)
     ret input ({ closed with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed;
       super_context = state.super_context; in_allowed = state.in_allowed })
 
-and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (derived seen_constructor:bool)
+and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (derived seen_constructor:bool) (pending:pending_overload)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 56; U32.v remaining]) =
   let! st = (fun () -> skip input state) in
   let! byte = (fun () -> peek input st.offset) in
+  let awaiting_body = pending.key_span.G.first <> pending.key_span.G.last in
   if st.status <> 0ul then ret input (st)
-  else if byte = 125uy then consume input st 125uy
+  else if byte = 125uy then
+    if awaiting_body then ret input (failed st 1ul) else consume input st 125uy
   else if remaining = 0ul then ret input (failed st 1ul)
   else if byte = 59uy then
-    (let! anf_value_1 = (fun () -> (consume input st 59uy)) in class_members input anf_value_1 fuel (minus remaining 1ul) derived seen_constructor)
+    if awaiting_body then ret input (failed st 1ul)
+    else (let! anf_value_1 = (fun () -> (consume input st 59uy)) in class_members input anf_value_1 fuel (minus remaining 1ul) derived seen_constructor no_overload)
   else
     let! key = (fun () -> class_member_key input st) in
     let! tail = (fun () -> skip input key.after_key) in
@@ -2977,21 +2985,35 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
       let! next_byte = (fun () -> peek input tail.offset) in
       let method = next_byte = 40uy || next_byte = 60uy in
       let accessor = key.arity <> OrdinaryParameters in
-      if (key.private_ && constructor_spelling) || prototype || (constructor_name && not method) || (key.readonly_ && method) ||
+      let! public_ = (fun () -> if method && U32.logand key.modifier_flags 4ul <> 0ul then keyword input st.offset 6ul 0x7075626c6963uL
+        else ret input true) in
+      let overload = method && public_ && U32.logand key.modifier_flags 10ul = 0ul &&
+        not constructor && not accessor && not key.private_ && not key.quoted_ && not key.generator_ in
+      let! compatible = (fun () -> if not awaiting_body then ret input true else
+          let length = minus key.last key.first in
+          if overload && pending.key_flags = key.modifier_flags && pending.key_async = key.async_ &&
+            length = minus pending.key_span.G.last pending.key_span.G.first then
+            same_bytes input key.first pending.key_span.G.first length
+          else ret input false) in
+      if not compatible || (key.private_ && constructor_spelling) || prototype || (constructor_name && not method) || (key.readonly_ && method) ||
         (accessor && (key.async_ || key.generator_ || constructor || next_byte <> 40uy)) ||
         (constructor && (seen_constructor || key.async_ || key.generator_ || next_byte <> 40uy)) then ret input (failed tail 1ul)
       else
         let! tail = (fun () -> if key.private_ then record_private input tail { G.first = key.first; G.last = key.last } PrivateDeclaration
           else ret input tail) in
-        let! after =
+        let! after, pending =
           (fun () -> if method then
-            if fuel = 0ul then ret input (failed tail 3ul)
+            if fuel = 0ul then ret input (failed tail 3ul, no_overload)
             else
               let mode = if not constructor then MethodSuper else if derived then DerivedConstructor else BaseConstructor in
-              (let! anf_value_2 = (fun () -> (function_form input tail (minus fuel 1ul) key.async_ mode false key.arity key.generator_)) in ret input (anf_value_2.after_function))
-          else if key.async_ || key.generator_ then ret input (failed tail 1ul)
-          else class_field_tail input { tail with offset = key.after_key.offset } fuel) in
-        class_members input after fuel (minus remaining 1ul) derived (seen_constructor || constructor)
+              let! result = (fun () -> function_form input tail (minus fuel 1ul) key.async_ mode overload key.arity key.generator_) in
+              let pending = if result.signature_only then
+                { key_span = { G.first = key.first; G.last = key.last }; key_flags = key.modifier_flags; key_async = key.async_ }
+                else no_overload in
+              ret input (result.after_function, pending)
+          else if key.async_ || key.generator_ then ret input (failed tail 1ul, no_overload)
+          else let! field = (fun () -> class_field_tail input { tail with offset = key.after_key.offset } fuel) in ret input (field, no_overload)) in
+        class_members input after fuel (minus remaining 1ul) derived (seen_constructor || constructor) pending
 and class_tail (input:tape) (state:parser_state) (fuel:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 57; 0]) =
   let! st = (fun () -> (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (skip input state)) in optional_type_parameters input anf_value_2))) in skip input anf_value_1)) in
@@ -3012,7 +3034,7 @@ and class_tail (input:tape) (state:parser_state) (fuel:U32.t)
   let! start = (fun () -> consume input ready 123uy) in
   let! start = (fun () -> if input.private_possible then record_private input start (start_range ready.offset) PrivateScope
     else ret input start) in
-  let! closed = (fun () -> class_members input start fuel input.size derived false) in
+  let! closed = (fun () -> class_members input start fuel input.size derived false no_overload) in
   ret input { closed with private_scope = state.private_scope }
 
 and pattern_names (input:tape) (state:parser_state) (base:names_base) (floor used:names_used)
