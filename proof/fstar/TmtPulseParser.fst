@@ -107,6 +107,30 @@ let keyword (input:tape) (#frame:slprop) (at:U32.t) (size:U32.t) (expected:U64.t
   let! following = (fun () -> peek input #frame (plus at size)) in
   read_ret input #frame (value = expected && not (G.identifier_continue following))
 
+// Recognize only raw directives with an unambiguous statement boundary.
+let strict_directive (input:tape) (#frame:slprop) (at:U32.t)
+  : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! delimiter = (fun () -> peek input #frame at) in
+  if delimiter <> 34uy && delimiter <> 39uy then read_ret input #frame false
+  else
+    let! first = (fun () -> word input #frame (next at) 8ul 0uL) in
+    if first <> 0x7573652073747269uL then read_ret input #frame false
+    else
+      let! last = (fun () -> word input #frame (plus at 9ul) 2ul 0uL) in
+      let! closes = (fun () -> same input #frame (plus at 11ul) delimiter) in
+      if last <> 0x6374uL || not closes then read_ret input #frame false
+      else
+        let! tail = (fun () -> trivia input #frame (plus at 12ul)) in
+        let! byte = (fun () -> peek input #frame tail.at) in
+        if not tail.ok then read_ret input #frame false
+        else if byte = 59uy then read_ret input #frame true
+        else if not tail.newline then read_ret input #frame false
+        else if byte = 99uy then keyword input #frame tail.at 5ul 0x636f6e7374uL
+        else if byte = 108uy then keyword input #frame tail.at 3ul 0x6c6574uL
+        else if byte = 118uy then keyword input #frame tail.at 3ul 0x766172uL
+        else if byte = 102uy then keyword input #frame tail.at 8ul 0x66756e6374696f6euL
+        else read_ret input #frame false
+
 let short_reserved (packed:U64.t) : bool =
   packed = 0x6177616974uL || packed = 0x627265616buL || packed = 0x63617365uL || packed = 0x6361746368uL || packed = 0x636c617373uL ||
   packed = 0x636f6e7374uL || packed = 0x636f6e74696e7565uL || packed = 0x6465627567676572uL || packed = 0x64656661756c74uL || packed = 0x64656c657465uL ||
@@ -156,7 +180,7 @@ type super_context =
 
 type parser_state = {
   offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used;
-  await_allowed:bool; yield_allowed:bool; jsx_allowed:bool; module_mode:bool; in_allowed:bool; for_initializer:bool;
+  await_allowed:bool; yield_allowed:bool; jsx_allowed:bool; module_mode:bool; strict_script:bool; in_allowed:bool; for_initializer:bool;
   arrow_defaults_allowed:bool; binding_mode:binding_mode; super_context:super_context
 }
 type assignment_target =
@@ -476,6 +500,8 @@ let rec regex_pattern (input:tape) (#frame:slprop) (at depth fuel:U32.t) (nested
         if index.count_ok && U32.(index.count_value <=^ captures.count) then
           regex_pattern input #frame index.count_end depth rest nested true captures
         else read_ret input #frame (regex_result_at at false captures)
+      else if first = 58uy then
+        regex_pattern input #frame (plus at 2ul) depth rest nested true { captures with legacy = true }
       else
         let! escaped = (fun () -> regex_escape input #frame at false) in
         if not escaped.unit_ok then read_ret input #frame (regex_result_at at false captures)
@@ -483,7 +509,12 @@ let rec regex_pattern (input:tape) (#frame:slprop) (at depth fuel:U32.t) (nested
     else if byte = 124uy || byte = 94uy || byte = 36uy then
       regex_pattern input #frame (next at) depth rest nested false captures
     else if byte = 43uy || byte = 42uy || byte = 63uy || byte = 123uy then
-      if not can_repeat then read_ret input #frame (regex_result_at at false captures)
+      let! literal_brace = (fun () -> if byte = 123uy then
+        let! first = (fun () -> peek input #frame (next at)) in
+        read_ret input #frame (not (G.decimal_digit first))
+        else read_ret input #frame false) in
+      if literal_brace then regex_pattern input #frame (next at) depth rest nested true { captures with legacy = true }
+      else if not can_repeat then read_ret input #frame (regex_result_at at false captures)
       else
         let! quantifier = (fun () -> if byte = 123uy then regex_counted input #frame at
           else read_ret input #frame ({ at = next at; ok = true; newline = false })) in
@@ -2641,7 +2672,7 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
   (floor used:names_used) (root_control:bool)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 48; 0]) =
   let! width = (fun () -> if root_control then ret input (0ul) else local_width input st.offset) in
-  let! function_head = (fun () -> if root_control || not st.module_mode then ret input ({ at = st.offset; ok = false; newline = false })
+  let! function_head = (fun () -> if root_control || not (st.module_mode || (in_function && st.strict_script)) then ret input ({ at = st.offset; ok = false; newline = false })
     else function_start input st.offset) in
   let! class_ = (fun () -> if root_control || not st.module_mode then ret input (false) else
     let! first = (fun () -> peek input st.offset) in if first = 99uy then class_keyword input st.offset else ret input (false)) in
@@ -3418,7 +3449,7 @@ private let parse_state (input:tape) (st:parser_state) (module_mode:bool) : Tot 
 
 let initial_state (jsx module_mode:bool) : parser_state = {
   offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
-  await_allowed = module_mode; yield_allowed = false; jsx_allowed = jsx; module_mode; in_allowed = true; for_initializer = false;
+  await_allowed = module_mode; yield_allowed = false; jsx_allowed = jsx; module_mode; strict_script = false; in_allowed = true; for_initializer = false;
   arrow_defaults_allowed = true; binding_mode = NoLocals; super_context = NoSuper
 }
 
@@ -3431,6 +3462,8 @@ type parse_result (input:tape) = r:parser_state{
 let parse_candidates (input:tape) (jsx module_mode:bool)
   : Tot (stt (parse_result input) (heap input) (fun _ -> heap input)) =
   let! initial = (fun () -> (let! anf_value_1 = (fun () -> (let! anf_value_2 = (fun () -> source_start input) in ret input ({ (initial_state jsx module_mode) with offset = anf_value_2 }))) in skip input anf_value_1)) in
+  let! strict_script = (fun () -> if module_mode then ret input false else strict_directive input initial.offset) in
+  let initial = { initial with strict_script } in
   let! state = (fun () -> parse_state input initial module_mode) in
   let! state : parser_state =
     (fun () -> if state.status = 1ul || (state.status = 0ul && state.offset <> input.size) then

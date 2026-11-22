@@ -89,6 +89,7 @@ typedef struct TmtPulseParser_parser_state_s
   bool yield_allowed;
   bool jsx_allowed;
   bool module_mode;
+  bool strict_script;
   bool in_allowed;
   bool for_initializer;
   bool arrow_defaults_allowed;
@@ -313,6 +314,8 @@ TmtPulseParser_parser_state TmtPulseParser_initial_state(bool jsx, bool module_m
 TmtPulseParser_lexical_conflict TmtPulseParser_lexical_duplicate(TmtPulseMemory_tape input);
 
 uint32_t TmtPulseParser_source_start(TmtPulseMemory_tape input);
+
+bool TmtPulseParser_strict_directive(TmtPulseMemory_tape input, uint32_t at);
 
 uint32_t TmtPulseParser_statement_kind(TmtPulseMemory_tape input, uint32_t at);
 

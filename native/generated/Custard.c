@@ -248,6 +248,7 @@ TmtPulseParser_failed(TmtPulseParser_parser_state state, uint32_t error)
                            .yield_allowed = state.yield_allowed,
                            .jsx_allowed = state.jsx_allowed,
                            .module_mode = state.module_mode,
+                           .strict_script = state.strict_script,
                            .in_allowed = state.in_allowed,
                            .for_initializer = state.for_initializer,
                            .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -276,6 +277,7 @@ TmtPulseParser_from_cursor(TmtPulseParser_parser_state state, TmtPulseParser_cur
           .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
+          .strict_script = state.strict_script,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
           .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -621,6 +623,7 @@ TmtPulseParser_consume(
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -885,6 +888,7 @@ TmtPulseParser_lexical_operand(TmtPulseMemory_tape input, TmtPulseParser_parser_
               .yield_allowed = value.yield_allowed,
               .jsx_allowed = value.jsx_allowed,
               .module_mode = value.module_mode,
+              .strict_script = value.strict_script,
               .in_allowed = value.in_allowed,
               .for_initializer = value.for_initializer,
               .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -1123,6 +1127,7 @@ TmtPulseParser_lexical_declarator_end(
               .yield_allowed = value4.yield_allowed,
               .jsx_allowed = value4.jsx_allowed,
               .module_mode = value4.module_mode,
+              .strict_script = value4.strict_script,
               .in_allowed = value4.in_allowed,
               .for_initializer = value4.for_initializer,
               .arrow_defaults_allowed = value4.arrow_defaults_allowed,
@@ -1285,6 +1290,7 @@ TmtPulseParser_read_lexical_conflict(
                 .yield_allowed = value.yield_allowed,
                 .jsx_allowed = value.jsx_allowed,
                 .module_mode = value.module_mode,
+                .strict_script = value.strict_script,
                 .in_allowed = value.in_allowed,
                 .for_initializer = value.for_initializer,
                 .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -1362,6 +1368,7 @@ TmtPulseParser_parser_state TmtPulseParser_initial_state(bool jsx, bool module_m
         .yield_allowed = false,
         .jsx_allowed = jsx,
         .module_mode = module_mode,
+        .strict_script = false,
         .in_allowed = true,
         .for_initializer = false,
         .arrow_defaults_allowed = true,
@@ -1407,6 +1414,47 @@ uint32_t TmtPulseParser_source_start(TmtPulseMemory_tape input)
   }
   else
     return 0U;
+}
+
+bool TmtPulseParser_strict_directive(TmtPulseMemory_tape input, uint32_t at)
+{
+  uint8_t value = TmtPulseMemory_peek(input, at);
+  if (value != 34U && value != 39U)
+    return false;
+  else
+  {
+    uint64_t value1 = TmtPulseParser_word(input, TmtPulseParser_next(at), 8U, 0ULL);
+    if (value1 != 0x7573652073747269ULL)
+      return false;
+    else
+    {
+      uint64_t value2 = TmtPulseParser_word(input, TmtPulseParser_plus(at, 9U), 2U, 0ULL);
+      bool value3 = TmtPulseParser_same(input, TmtPulseParser_plus(at, 11U), value);
+      if (value2 != 0x6374ULL || !value3)
+        return false;
+      else
+      {
+        TmtPulseParser_cursor value4 = TmtPulseParser_trivia(input, TmtPulseParser_plus(at, 12U));
+        uint8_t value5 = TmtPulseMemory_peek(input, value4.at);
+        if (!value4.ok)
+          return false;
+        else if (value5 == 59U)
+          return true;
+        else if (!value4.newline)
+          return false;
+        else if (value5 == 99U)
+          return TmtPulseParser_keyword(input, value4.at, 5U, 0x636f6e7374ULL);
+        else if (value5 == 108U)
+          return TmtPulseParser_keyword(input, value4.at, 3U, 0x6c6574ULL);
+        else if (value5 == 118U)
+          return TmtPulseParser_keyword(input, value4.at, 3U, 0x766172ULL);
+        else if (value5 == 102U)
+          return TmtPulseParser_keyword(input, value4.at, 8U, 0x66756e6374696f6eULL);
+        else
+          return false;
+      }
+    }
+  }
 }
 
 uint32_t TmtPulseParser_statement_kind(TmtPulseMemory_tape input, uint32_t at)
@@ -1523,6 +1571,7 @@ TmtPulseParser_record_binding_mode(
           .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
+          .strict_script = state.strict_script,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
           .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -2030,6 +2079,7 @@ TmtPulseParser_simple_default(TmtPulseMemory_tape input, TmtPulseParser_parser_s
               .yield_allowed = value2.yield_allowed,
               .jsx_allowed = value2.jsx_allowed,
               .module_mode = value2.module_mode,
+              .strict_script = value2.strict_script,
               .in_allowed = value2.in_allowed,
               .for_initializer = value2.for_initializer,
               .arrow_defaults_allowed = value2.arrow_defaults_allowed,
@@ -2108,6 +2158,7 @@ TmtPulseParser_pattern_names(
                     .yield_allowed = value.yield_allowed,
                     .jsx_allowed = value.jsx_allowed,
                     .module_mode = value.module_mode,
+                    .strict_script = value.strict_script,
                     .in_allowed = value.in_allowed,
                     .for_initializer = value.for_initializer,
                     .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -2298,6 +2349,7 @@ TmtPulseParser_read_type_term_head(
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -2373,6 +2425,7 @@ TmtPulseParser_constructor_type_start(
               .yield_allowed = st.yield_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
+              .strict_script = st.strict_script,
               .in_allowed = st.in_allowed,
               .for_initializer = st.for_initializer,
               .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -2404,6 +2457,7 @@ TmtPulseParser_constructor_type_start(
             .yield_allowed = value0.yield_allowed,
             .jsx_allowed = value0.jsx_allowed,
             .module_mode = value0.module_mode,
+            .strict_script = value0.strict_script,
             .in_allowed = value0.in_allowed,
             .for_initializer = value0.for_initializer,
             .arrow_defaults_allowed = value0.arrow_defaults_allowed,
@@ -2454,6 +2508,7 @@ TmtPulseParser_qualified_name(
                   .yield_allowed = st.yield_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
+                  .strict_script = st.strict_script,
                   .in_allowed = st.in_allowed,
                   .for_initializer = st.for_initializer,
                   .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -2475,7 +2530,8 @@ TmtPulseParser_qualified_name(
                 .status = value2.status, .local_names = value2.local_names,
                 .await_allowed = value2.await_allowed, .yield_allowed = value2.yield_allowed,
                 .jsx_allowed = value2.jsx_allowed, .module_mode = value2.module_mode,
-                .in_allowed = value2.in_allowed, .for_initializer = value2.for_initializer,
+                .strict_script = value2.strict_script, .in_allowed = value2.in_allowed,
+                .for_initializer = value2.for_initializer,
                 .arrow_defaults_allowed = value2.arrow_defaults_allowed,
                 .binding_mode = value2.binding_mode, .super_context = value2.super_context
               };
@@ -2513,6 +2569,7 @@ TmtPulseParser_import_type(TmtPulseMemory_tape input, TmtPulseParser_parser_stat
           .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
+          .strict_script = state.strict_script,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
           .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -2558,6 +2615,7 @@ TmtPulseParser_type_query(TmtPulseMemory_tape input, TmtPulseParser_parser_state
           .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
+          .strict_script = state.strict_script,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
           .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -2597,6 +2655,7 @@ TmtPulseParser_unique_symbol_type(TmtPulseMemory_tape input, TmtPulseParser_pars
           .yield_allowed = st.yield_allowed,
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
+          .strict_script = st.strict_script,
           .in_allowed = st.in_allowed,
           .for_initializer = st.for_initializer,
           .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -2618,6 +2677,7 @@ TmtPulseParser_unique_symbol_type(TmtPulseMemory_tape input, TmtPulseParser_pars
           .yield_allowed = value.yield_allowed,
           .jsx_allowed = value.jsx_allowed,
           .module_mode = value.module_mode,
+          .strict_script = value.strict_script,
           .in_allowed = value.in_allowed,
           .for_initializer = value.for_initializer,
           .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -2762,6 +2822,7 @@ TmtPulseParser_mapped_type_start(TmtPulseMemory_tape input, TmtPulseParser_parse
             .yield_allowed = value10.yield_allowed,
             .jsx_allowed = value10.jsx_allowed,
             .module_mode = value10.module_mode,
+            .strict_script = value10.strict_script,
             .in_allowed = value10.in_allowed,
             .for_initializer = value10.for_initializer,
             .arrow_defaults_allowed = value10.arrow_defaults_allowed,
@@ -2798,6 +2859,7 @@ TmtPulseParser_mapped_type_start(TmtPulseMemory_tape input, TmtPulseParser_parse
               .yield_allowed = value7.yield_allowed,
               .jsx_allowed = value7.jsx_allowed,
               .module_mode = value7.module_mode,
+              .strict_script = value7.strict_script,
               .in_allowed = value7.in_allowed,
               .for_initializer = value7.for_initializer,
               .arrow_defaults_allowed = value7.arrow_defaults_allowed,
@@ -2825,6 +2887,7 @@ TmtPulseParser_mapped_type_start(TmtPulseMemory_tape input, TmtPulseParser_parse
                 .yield_allowed = value10.yield_allowed,
                 .jsx_allowed = value10.jsx_allowed,
                 .module_mode = value10.module_mode,
+                .strict_script = value10.strict_script,
                 .in_allowed = value10.in_allowed,
                 .for_initializer = value10.for_initializer,
                 .arrow_defaults_allowed = value10.arrow_defaults_allowed,
@@ -2906,6 +2969,7 @@ TmtPulseParser_read_bracket_type_key(
               .yield_allowed = value1.yield_allowed,
               .jsx_allowed = value1.jsx_allowed,
               .module_mode = value1.module_mode,
+              .strict_script = value1.strict_script,
               .in_allowed = value1.in_allowed,
               .for_initializer = value1.for_initializer,
               .arrow_defaults_allowed = value1.arrow_defaults_allowed,
@@ -2968,7 +3032,8 @@ TmtPulseParser_type_list(
               .depth = value3.depth, .status = value3.status, .local_names = value3.local_names,
               .await_allowed = value3.await_allowed, .yield_allowed = value3.yield_allowed,
               .jsx_allowed = value3.jsx_allowed, .module_mode = value3.module_mode,
-              .in_allowed = value3.in_allowed, .for_initializer = value3.for_initializer,
+              .strict_script = value3.strict_script, .in_allowed = value3.in_allowed,
+              .for_initializer = value3.for_initializer,
               .arrow_defaults_allowed = value3.arrow_defaults_allowed,
               .binding_mode = value3.binding_mode, .super_context = value3.super_context
             };
@@ -3060,6 +3125,7 @@ TmtPulseParser_template_type(
               .yield_allowed = state.yield_allowed,
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
+              .strict_script = state.strict_script,
               .in_allowed = state.in_allowed,
               .for_initializer = state.for_initializer,
               .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -3091,6 +3157,7 @@ TmtPulseParser_template_type(
                   .yield_allowed = state.yield_allowed,
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
+                  .strict_script = state.strict_script,
                   .in_allowed = state.in_allowed,
                   .for_initializer = state.for_initializer,
                   .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -3121,6 +3188,7 @@ TmtPulseParser_template_type(
                 .yield_allowed = state.yield_allowed,
                 .jsx_allowed = state.jsx_allowed,
                 .module_mode = state.module_mode,
+                .strict_script = state.strict_script,
                 .in_allowed = state.in_allowed,
                 .for_initializer = state.for_initializer,
                 .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -3176,6 +3244,7 @@ TmtPulseParser_type_parameters(
                 .yield_allowed = value.yield_allowed,
                 .jsx_allowed = value.jsx_allowed,
                 .module_mode = value.module_mode,
+                .strict_script = value.strict_script,
                 .in_allowed = value.in_allowed,
                 .for_initializer = value.for_initializer,
                 .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -3212,6 +3281,7 @@ TmtPulseParser_type_parameters(
                   .yield_allowed = value6.yield_allowed,
                   .jsx_allowed = value6.jsx_allowed,
                   .module_mode = value6.module_mode,
+                  .strict_script = value6.strict_script,
                   .in_allowed = value6.in_allowed,
                   .for_initializer = value6.for_initializer,
                   .arrow_defaults_allowed = value6.arrow_defaults_allowed,
@@ -3311,6 +3381,7 @@ TmtPulseParser_signature_parameters(
                   .yield_allowed = value.yield_allowed,
                   .jsx_allowed = value.jsx_allowed,
                   .module_mode = value.module_mode,
+                  .strict_script = value.strict_script,
                   .in_allowed = value.in_allowed,
                   .for_initializer = value.for_initializer,
                   .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -3339,6 +3410,7 @@ TmtPulseParser_signature_parameters(
                 .yield_allowed = value3.yield_allowed,
                 .jsx_allowed = value3.jsx_allowed,
                 .module_mode = value3.module_mode,
+                .strict_script = value3.strict_script,
                 .in_allowed = value3.in_allowed,
                 .for_initializer = value3.for_initializer,
                 .arrow_defaults_allowed = value3.arrow_defaults_allowed,
@@ -3432,6 +3504,7 @@ TmtPulseParser_result_type(
               .yield_allowed = value.yield_allowed,
               .jsx_allowed = value.jsx_allowed,
               .module_mode = value.module_mode,
+              .strict_script = value.strict_script,
               .in_allowed = value.in_allowed,
               .for_initializer = value.for_initializer,
               .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -3454,6 +3527,7 @@ TmtPulseParser_result_type(
             .yield_allowed = value.yield_allowed,
             .jsx_allowed = value.jsx_allowed,
             .module_mode = value.module_mode,
+            .strict_script = value.strict_script,
             .in_allowed = value.in_allowed,
             .for_initializer = value.for_initializer,
             .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -3613,6 +3687,7 @@ TmtPulseParser_tuple_element(
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -3645,6 +3720,7 @@ TmtPulseParser_tuple_element(
             .yield_allowed = value1.yield_allowed,
             .jsx_allowed = value1.jsx_allowed,
             .module_mode = value1.module_mode,
+            .strict_script = value1.strict_script,
             .in_allowed = value1.in_allowed,
             .for_initializer = value1.for_initializer,
             .arrow_defaults_allowed = value1.arrow_defaults_allowed,
@@ -3797,6 +3873,7 @@ TmtPulseParser_mapped_type(
             .yield_allowed = value1.yield_allowed,
             .jsx_allowed = value1.jsx_allowed,
             .module_mode = value1.module_mode,
+            .strict_script = value1.strict_script,
             .in_allowed = value1.in_allowed,
             .for_initializer = value1.for_initializer,
             .arrow_defaults_allowed = value1.arrow_defaults_allowed,
@@ -3872,6 +3949,7 @@ TmtPulseParser_object_type_member(
             .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
+            .strict_script = st.strict_script,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
             .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -4082,6 +4160,7 @@ TmtPulseParser_type_term(
                 .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
+                .strict_script = st.strict_script,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
                 .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -4121,6 +4200,7 @@ TmtPulseParser_type_term(
               .yield_allowed = st.yield_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
+              .strict_script = st.strict_script,
               .in_allowed = st.in_allowed,
               .for_initializer = st.for_initializer,
               .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -4157,6 +4237,7 @@ TmtPulseParser_type_term(
                 .yield_allowed = tail.yield_allowed,
                 .jsx_allowed = tail.jsx_allowed,
                 .module_mode = tail.module_mode,
+                .strict_script = tail.strict_script,
                 .in_allowed = tail.in_allowed,
                 .for_initializer = tail.for_initializer,
                 .arrow_defaults_allowed = tail.arrow_defaults_allowed,
@@ -4204,6 +4285,7 @@ TmtPulseParser_type_term(
                 .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
+                .strict_script = st.strict_script,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
                 .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -4243,8 +4325,8 @@ TmtPulseParser_type_term(
             .offset = TmtPulseParser_next(st.offset), .count = st.count, .depth = st.depth,
             .status = st.status, .local_names = st.local_names, .await_allowed = st.await_allowed,
             .yield_allowed = st.yield_allowed, .jsx_allowed = st.jsx_allowed,
-            .module_mode = st.module_mode, .in_allowed = st.in_allowed,
-            .for_initializer = st.for_initializer,
+            .module_mode = st.module_mode, .strict_script = st.strict_script,
+            .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
             .arrow_defaults_allowed = st.arrow_defaults_allowed, .binding_mode = st.binding_mode,
             .super_context = st.super_context
           };
@@ -4332,7 +4414,8 @@ TmtPulseParser_type_terms(
               .depth = value1.depth, .status = value1.status, .local_names = value1.local_names,
               .await_allowed = value1.await_allowed, .yield_allowed = value1.yield_allowed,
               .jsx_allowed = value1.jsx_allowed, .module_mode = value1.module_mode,
-              .in_allowed = value1.in_allowed, .for_initializer = value1.for_initializer,
+              .strict_script = value1.strict_script, .in_allowed = value1.in_allowed,
+              .for_initializer = value1.for_initializer,
               .arrow_defaults_allowed = value1.arrow_defaults_allowed,
               .binding_mode = value1.binding_mode, .super_context = value1.super_context
             };
@@ -4395,6 +4478,7 @@ TmtPulseParser_annotation_type(
             .yield_allowed = tail.yield_allowed,
             .jsx_allowed = tail.jsx_allowed,
             .module_mode = tail.module_mode,
+            .strict_script = tail.strict_script,
             .in_allowed = tail.in_allowed,
             .for_initializer = tail.for_initializer,
             .arrow_defaults_allowed = tail.arrow_defaults_allowed,
@@ -4497,6 +4581,7 @@ TmtPulseParser_simple_annotation(TmtPulseMemory_tape input, TmtPulseParser_parse
             .yield_allowed = value.yield_allowed,
             .jsx_allowed = value.jsx_allowed,
             .module_mode = value.module_mode,
+            .strict_script = value.strict_script,
             .in_allowed = value.in_allowed,
             .for_initializer = value.for_initializer,
             .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -4530,6 +4615,7 @@ TmtPulseParser_rest_parameter(
           .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
+          .strict_script = state.strict_script,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
           .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -4620,6 +4706,7 @@ TmtPulseParser_arrow_token(TmtPulseMemory_tape input, TmtPulseParser_parser_stat
             .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
+            .strict_script = st.strict_script,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
             .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -4943,6 +5030,7 @@ TmtPulseParser_accessor_modifier(TmtPulseMemory_tape input, TmtPulseParser_parse
             .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
+            .strict_script = st.strict_script,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
             .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -4989,6 +5077,7 @@ TmtPulseParser_class_member_key(TmtPulseMemory_tape input, TmtPulseParser_parser
                   .yield_allowed = start.yield_allowed,
                   .jsx_allowed = start.jsx_allowed,
                   .module_mode = start.module_mode,
+                  .strict_script = start.strict_script,
                   .in_allowed = start.in_allowed,
                   .for_initializer = start.for_initializer,
                   .arrow_defaults_allowed = start.arrow_defaults_allowed,
@@ -5131,6 +5220,7 @@ TmtPulseParser_local_type_alias(
           .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
+          .strict_script = state.strict_script,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
           .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -5159,8 +5249,8 @@ TmtPulseParser_local_type_alias(
           .offset = value3.offset, .count = value3.count, .depth = value3.depth,
           .status = value3.status, .local_names = value1.used, .await_allowed = value3.await_allowed,
           .yield_allowed = value3.yield_allowed, .jsx_allowed = value3.jsx_allowed,
-          .module_mode = value3.module_mode, .in_allowed = value3.in_allowed,
-          .for_initializer = value3.for_initializer,
+          .module_mode = value3.module_mode, .strict_script = value3.strict_script,
+          .in_allowed = value3.in_allowed, .for_initializer = value3.for_initializer,
           .arrow_defaults_allowed = value3.arrow_defaults_allowed,
           .binding_mode = value3.binding_mode, .super_context = value3.super_context
         },
@@ -5206,6 +5296,7 @@ TmtPulseParser_collection_head(
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -5237,6 +5328,7 @@ TmtPulseParser_collection_head(
             .yield_allowed = value5.yield_allowed,
             .jsx_allowed = value5.jsx_allowed,
             .module_mode = value5.module_mode,
+            .strict_script = value5.strict_script,
             .in_allowed = value5.in_allowed,
             .for_initializer = value5.for_initializer,
             .arrow_defaults_allowed = value5.arrow_defaults_allowed,
@@ -5496,6 +5588,7 @@ TmtPulseParser_tag_space(TmtPulseMemory_tape input, TmtPulseParser_parser_state 
         .yield_allowed = state.yield_allowed,
         .jsx_allowed = state.jsx_allowed,
         .module_mode = state.module_mode,
+        .strict_script = state.strict_script,
         .in_allowed = state.in_allowed,
         .for_initializer = state.for_initializer,
         .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -6258,6 +6351,18 @@ TmtPulseParser_regex_pattern(
           else
             return TmtPulseParser_regex_result_at(at, false, captures);
         }
+        else if (value1 == 58U)
+        {
+          uint32_t tmp0 = TmtPulseParser_plus(at, 2U);
+          uint32_t tmp1 = rest;
+          bool tmp2 = true;
+          TmtPulseParser_regex_captures
+          tmp = { .names = captures.names, .count = captures.count, .legacy = true };
+          at = tmp0;
+          fuel = tmp1;
+          can_repeat = tmp2;
+          captures = tmp;
+        }
         else
         {
           TmtPulseParser_regex_unit value2 = TmtPulseParser_regex_escape(input, at, false);
@@ -6285,15 +6390,35 @@ TmtPulseParser_regex_pattern(
       }
       else if (value == 43U || value == 42U || value == 63U || value == 123U)
       {
-        if (!can_repeat)
+        bool value10;
+        if (value == 123U)
+        {
+          uint8_t value1 = TmtPulseMemory_peek(input, TmtPulseParser_next(at));
+          value10 = !TmtGrammar_decimal_digit(value1);
+        }
+        else
+          value10 = false;
+        if (value10)
+        {
+          uint32_t tmp0 = TmtPulseParser_next(at);
+          uint32_t tmp1 = rest;
+          bool tmp2 = true;
+          TmtPulseParser_regex_captures
+          tmp = { .names = captures.names, .count = captures.count, .legacy = true };
+          at = tmp0;
+          fuel = tmp1;
+          can_repeat = tmp2;
+          captures = tmp;
+        }
+        else if (!can_repeat)
           return TmtPulseParser_regex_result_at(at, false, captures);
         else
         {
-          TmtPulseParser_cursor value1;
+          TmtPulseParser_cursor value2;
           if (value == 123U)
-            value1 = TmtPulseParser_regex_counted(input, at);
+            value2 = TmtPulseParser_regex_counted(input, at);
           else
-            value1 =
+            value2 =
               (
                 (TmtPulseParser_cursor){
                   .at = TmtPulseParser_next(at),
@@ -6301,16 +6426,16 @@ TmtPulseParser_regex_pattern(
                   .newline = false
                 }
               );
-          if (!value1.ok)
-            return ((TmtPulseParser_regex_result){ .ending = value1, .captures = captures });
+          if (!value2.ok)
+            return ((TmtPulseParser_regex_result){ .ending = value2, .captures = captures });
           else
           {
-            bool value2 = TmtPulseParser_same(input, value1.at, 63U);
+            bool value3 = TmtPulseParser_same(input, value2.at, 63U);
             uint32_t after;
-            if (value2)
-              after = TmtPulseParser_next(value1.at);
+            if (value3)
+              after = TmtPulseParser_next(value2.at);
             else
-              after = value1.at;
+              after = value2.at;
             uint32_t tmp0 = after;
             uint32_t tmp1 = rest;
             bool tmp = false;
@@ -6667,6 +6792,7 @@ TmtPulseParser_arrow_parameter_list(
                       .yield_allowed = equal.yield_allowed,
                       .jsx_allowed = equal.jsx_allowed,
                       .module_mode = equal.module_mode,
+                      .strict_script = equal.strict_script,
                       .in_allowed = true,
                       .for_initializer = equal.for_initializer,
                       .arrow_defaults_allowed = false,
@@ -6696,6 +6822,7 @@ TmtPulseParser_arrow_parameter_list(
                     .yield_allowed = st.yield_allowed,
                     .jsx_allowed = st.jsx_allowed,
                     .module_mode = st.module_mode,
+                    .strict_script = st.strict_script,
                     .in_allowed = equal.in_allowed,
                     .for_initializer = st.for_initializer,
                     .arrow_defaults_allowed = equal.arrow_defaults_allowed,
@@ -6808,7 +6935,8 @@ TmtPulseParser_plain_arrow_parameters(
                   .status = uu____0.status, .local_names = uu____0.local_names,
                   .await_allowed = uu____0.await_allowed, .yield_allowed = uu____0.yield_allowed,
                   .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
-                  .in_allowed = uu____0.in_allowed, .for_initializer = uu____0.for_initializer,
+                  .strict_script = uu____0.strict_script, .in_allowed = uu____0.in_allowed,
+                  .for_initializer = uu____0.for_initializer,
                   .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
                   .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context
                 },
@@ -6848,6 +6976,7 @@ TmtPulseParser_arrow_parameters(
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -6872,6 +7001,7 @@ TmtPulseParser_arrow_parameters(
               .yield_allowed = state.yield_allowed,
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
+              .strict_script = state.strict_script,
               .in_allowed = state.in_allowed,
               .for_initializer = state.for_initializer,
               .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -6895,6 +7025,7 @@ TmtPulseParser_arrow_parameters(
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -6932,6 +7063,7 @@ TmtPulseParser_control_block(
           .yield_allowed = value1.yield_allowed,
           .jsx_allowed = value1.jsx_allowed,
           .module_mode = value1.module_mode,
+          .strict_script = value1.strict_script,
           .in_allowed = value1.in_allowed,
           .for_initializer = value1.for_initializer,
           .arrow_defaults_allowed = value1.arrow_defaults_allowed,
@@ -6959,6 +7091,7 @@ TmtPulseParser_control_block(
           .yield_allowed = value2.yield_allowed,
           .jsx_allowed = value2.jsx_allowed,
           .module_mode = value2.module_mode,
+          .strict_script = value2.strict_script,
           .in_allowed = value2.in_allowed,
           .for_initializer = value2.for_initializer,
           .arrow_defaults_allowed = value2.arrow_defaults_allowed,
@@ -7041,6 +7174,7 @@ TmtPulseParser_function_parameters(
                   .yield_allowed = value.yield_allowed,
                   .jsx_allowed = value.jsx_allowed,
                   .module_mode = value.module_mode,
+                  .strict_script = value.strict_script,
                   .in_allowed = value.in_allowed,
                   .for_initializer = value.for_initializer,
                   .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -7099,6 +7233,7 @@ TmtPulseParser_function_parameters(
                     .yield_allowed = st.yield_allowed,
                     .jsx_allowed = st.jsx_allowed,
                     .module_mode = st.module_mode,
+                    .strict_script = st.strict_script,
                     .in_allowed = st.in_allowed,
                     .for_initializer = st.for_initializer,
                     .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -7121,6 +7256,7 @@ TmtPulseParser_function_parameters(
                   .yield_allowed = uu____0.yield_allowed,
                   .jsx_allowed = uu____0.jsx_allowed,
                   .module_mode = uu____0.module_mode,
+                  .strict_script = uu____0.strict_script,
                   .in_allowed = uu____0.in_allowed,
                   .for_initializer = uu____0.for_initializer,
                   .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
@@ -7188,6 +7324,7 @@ TmtPulseParser_function_form(
                             .yield_allowed = state.yield_allowed,
                             .jsx_allowed = state.jsx_allowed,
                             .module_mode = state.module_mode,
+                            .strict_script = state.strict_script,
                             .in_allowed = state.in_allowed,
                             .for_initializer = state.for_initializer,
                             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -7202,7 +7339,8 @@ TmtPulseParser_function_form(
       .offset = start.offset, .count = start.count, .depth = start.depth, .status = start.status,
       .local_names = start.local_names, .await_allowed = start.await_allowed, .yield_allowed = false,
       .jsx_allowed = start.jsx_allowed, .module_mode = start.module_mode,
-      .in_allowed = start.in_allowed, .for_initializer = start.for_initializer,
+      .strict_script = start.strict_script, .in_allowed = start.in_allowed,
+      .for_initializer = start.for_initializer,
       .arrow_defaults_allowed = start.arrow_defaults_allowed, .binding_mode = start.binding_mode,
       .super_context = TmtPulseParser_NoSuper
     };
@@ -7297,7 +7435,7 @@ TmtPulseParser_function_form(
         .offset = value7.offset, .count = value7.count, .depth = value7.depth,
         .status = value7.status, .local_names = value7.local_names, .await_allowed = async_,
         .yield_allowed = generator, .jsx_allowed = value7.jsx_allowed,
-        .module_mode = value7.module_mode, .in_allowed = true,
+        .module_mode = value7.module_mode, .strict_script = value7.strict_script, .in_allowed = true,
         .for_initializer = value7.for_initializer,
         .arrow_defaults_allowed = value7.arrow_defaults_allowed,
         .binding_mode = TmtPulseParser_NoLocals, .super_context = super_
@@ -7321,7 +7459,8 @@ TmtPulseParser_function_form(
           .status = value9.status, .local_names = value9.local_names,
           .await_allowed = state.await_allowed, .yield_allowed = state.yield_allowed,
           .jsx_allowed = value9.jsx_allowed, .module_mode = value9.module_mode,
-          .in_allowed = state.in_allowed, .for_initializer = value9.for_initializer,
+          .strict_script = value9.strict_script, .in_allowed = state.in_allowed,
+          .for_initializer = value9.for_initializer,
           .arrow_defaults_allowed = value9.arrow_defaults_allowed,
           .binding_mode = state.binding_mode, .super_context = state.super_context
         },
@@ -7356,6 +7495,7 @@ TmtPulseParser_function_expression(
             .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
+            .strict_script = st.strict_script,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
             .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -7470,6 +7610,7 @@ TmtPulseParser_expression_list(
                   .yield_allowed = value.yield_allowed,
                   .jsx_allowed = value.jsx_allowed,
                   .module_mode = value.module_mode,
+                  .strict_script = value.strict_script,
                   .in_allowed = value.in_allowed,
                   .for_initializer = value.for_initializer,
                   .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -7573,6 +7714,7 @@ TmtPulseParser_template_body(
               .yield_allowed = state.yield_allowed,
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
+              .strict_script = state.strict_script,
               .in_allowed = state.in_allowed,
               .for_initializer = state.for_initializer,
               .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -7599,6 +7741,7 @@ TmtPulseParser_template_body(
                   .yield_allowed = state.yield_allowed,
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
+                  .strict_script = state.strict_script,
                   .in_allowed = true,
                   .for_initializer = state.for_initializer,
                   .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -7621,6 +7764,7 @@ TmtPulseParser_template_body(
                   .yield_allowed = uu____0.yield_allowed,
                   .jsx_allowed = uu____0.jsx_allowed,
                   .module_mode = uu____0.module_mode,
+                  .strict_script = uu____0.strict_script,
                   .in_allowed = state.in_allowed,
                   .for_initializer = uu____0.for_initializer,
                   .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
@@ -7645,6 +7789,7 @@ TmtPulseParser_template_body(
                   .yield_allowed = state.yield_allowed,
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
+                  .strict_script = state.strict_script,
                   .in_allowed = state.in_allowed,
                   .for_initializer = state.for_initializer,
                   .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -7671,6 +7816,7 @@ TmtPulseParser_template_body(
                 .yield_allowed = state.yield_allowed,
                 .jsx_allowed = state.jsx_allowed,
                 .module_mode = state.module_mode,
+                .strict_script = state.strict_script,
                 .in_allowed = state.in_allowed,
                 .for_initializer = state.for_initializer,
                 .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -7755,8 +7901,8 @@ TmtPulseParser_postfix(
                   .offset = end_at, .count = st.count, .depth = st.depth, .status = st.status,
                   .local_names = st.local_names, .await_allowed = st.await_allowed,
                   .yield_allowed = st.yield_allowed, .jsx_allowed = st.jsx_allowed,
-                  .module_mode = st.module_mode, .in_allowed = st.in_allowed,
-                  .for_initializer = st.for_initializer,
+                  .module_mode = st.module_mode, .strict_script = st.strict_script,
+                  .in_allowed = st.in_allowed, .for_initializer = st.for_initializer,
                   .arrow_defaults_allowed = st.arrow_defaults_allowed,
                   .binding_mode = st.binding_mode, .super_context = st.super_context
                 },
@@ -7807,6 +7953,7 @@ TmtPulseParser_postfix(
                   .yield_allowed = st.yield_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
+                  .strict_script = st.strict_script,
                   .in_allowed = st.in_allowed,
                   .for_initializer = st.for_initializer,
                   .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -7847,7 +7994,8 @@ TmtPulseParser_postfix(
                 .depth = depth1, .status = value10.status, .local_names = value10.local_names,
                 .await_allowed = value10.await_allowed, .yield_allowed = value10.yield_allowed,
                 .jsx_allowed = value10.jsx_allowed, .module_mode = value10.module_mode,
-                .in_allowed = value10.in_allowed, .for_initializer = value10.for_initializer,
+                .strict_script = value10.strict_script, .in_allowed = value10.in_allowed,
+                .for_initializer = value10.for_initializer,
                 .arrow_defaults_allowed = value10.arrow_defaults_allowed,
                 .binding_mode = value10.binding_mode, .super_context = value10.super_context
               };
@@ -7897,6 +8045,7 @@ TmtPulseParser_postfix(
                     .yield_allowed = st.yield_allowed,
                     .jsx_allowed = st.jsx_allowed,
                     .module_mode = st.module_mode,
+                    .strict_script = st.strict_script,
                     .in_allowed = st.in_allowed,
                     .for_initializer = st.for_initializer,
                     .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -7923,6 +8072,7 @@ TmtPulseParser_postfix(
                   .yield_allowed = value3.yield_allowed,
                   .jsx_allowed = value3.jsx_allowed,
                   .module_mode = value3.module_mode,
+                  .strict_script = value3.strict_script,
                   .in_allowed = value3.in_allowed,
                   .for_initializer = value3.for_initializer,
                   .arrow_defaults_allowed = value3.arrow_defaults_allowed,
@@ -7945,6 +8095,7 @@ TmtPulseParser_postfix(
                 .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
+                .strict_script = st.strict_script,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
                 .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -8016,6 +8167,7 @@ TmtPulseParser_class_field_tail(
             .yield_allowed = false,
             .jsx_allowed = value4.jsx_allowed,
             .module_mode = value4.module_mode,
+            .strict_script = value4.strict_script,
             .in_allowed = true,
             .for_initializer = value4.for_initializer,
             .arrow_defaults_allowed = value4.arrow_defaults_allowed,
@@ -8039,6 +8191,7 @@ TmtPulseParser_class_field_tail(
           .yield_allowed = state.yield_allowed,
           .jsx_allowed = value8.jsx_allowed,
           .module_mode = value8.module_mode,
+          .strict_script = value8.strict_script,
           .in_allowed = state.in_allowed,
           .for_initializer = value8.for_initializer,
           .arrow_defaults_allowed = value8.arrow_defaults_allowed,
@@ -8197,6 +8350,7 @@ TmtPulseParser_class_tail(
             .yield_allowed = value2.yield_allowed,
             .jsx_allowed = value2.jsx_allowed,
             .module_mode = value2.module_mode,
+            .strict_script = value2.strict_script,
             .in_allowed = value2.in_allowed,
             .for_initializer = value2.for_initializer,
             .arrow_defaults_allowed = value2.arrow_defaults_allowed,
@@ -8235,6 +8389,7 @@ TmtPulseParser_class_tail(
             .yield_allowed = value40.yield_allowed,
             .jsx_allowed = value40.jsx_allowed,
             .module_mode = value40.module_mode,
+            .strict_script = value40.strict_script,
             .in_allowed = value40.in_allowed,
             .for_initializer = value40.for_initializer,
             .arrow_defaults_allowed = value40.arrow_defaults_allowed,
@@ -8259,6 +8414,7 @@ TmtPulseParser_class_tail(
                              .yield_allowed = value7.yield_allowed,
                              .jsx_allowed = value7.jsx_allowed,
                              .module_mode = value7.module_mode,
+                             .strict_script = value7.strict_script,
                              .in_allowed = value7.in_allowed,
                              .for_initializer = value7.for_initializer,
                              .arrow_defaults_allowed = value7.arrow_defaults_allowed,
@@ -8296,6 +8452,7 @@ TmtPulseParser_class_expression(
             .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
+            .strict_script = st.strict_script,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
             .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -8343,6 +8500,7 @@ TmtPulseParser_super_expression(
           .yield_allowed = st.yield_allowed,
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
+          .strict_script = st.strict_script,
           .in_allowed = st.in_allowed,
           .for_initializer = st.for_initializer,
           .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -8372,6 +8530,7 @@ TmtPulseParser_super_expression(
                                 .yield_allowed = value.yield_allowed,
                                 .jsx_allowed = value.jsx_allowed,
                                 .module_mode = value.module_mode,
+                                .strict_script = value.strict_script,
                                 .in_allowed = value.in_allowed,
                                 .for_initializer = value.for_initializer,
                                 .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -8405,6 +8564,7 @@ TmtPulseParser_super_expression(
           .yield_allowed = st.yield_allowed,
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
+          .strict_script = st.strict_script,
           .in_allowed = st.in_allowed,
           .for_initializer = st.for_initializer,
           .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -8514,6 +8674,7 @@ TmtPulseParser_jsx_children(
                   .yield_allowed = state.yield_allowed,
                   .jsx_allowed = state.jsx_allowed,
                   .module_mode = state.module_mode,
+                  .strict_script = state.strict_script,
                   .in_allowed = state.in_allowed,
                   .for_initializer = state.for_initializer,
                   .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -8584,7 +8745,8 @@ TmtPulseParser_jsx_children(
             .status = state.status, .local_names = state.local_names,
             .await_allowed = state.await_allowed, .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed, .module_mode = state.module_mode,
-            .in_allowed = state.in_allowed, .for_initializer = state.for_initializer,
+            .strict_script = state.strict_script, .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode, .super_context = state.super_context
           };
@@ -8631,6 +8793,7 @@ TmtPulseParser_jsx_attribute(
               .yield_allowed = value2.yield_allowed,
               .jsx_allowed = value2.jsx_allowed,
               .module_mode = value2.module_mode,
+              .strict_script = value2.strict_script,
               .in_allowed = value2.in_allowed,
               .for_initializer = value2.for_initializer,
               .arrow_defaults_allowed = value2.arrow_defaults_allowed,
@@ -8677,6 +8840,7 @@ TmtPulseParser_jsx_attribute(
                 .yield_allowed = value5.yield_allowed,
                 .jsx_allowed = value5.jsx_allowed,
                 .module_mode = value5.module_mode,
+                .strict_script = value5.strict_script,
                 .in_allowed = value5.in_allowed,
                 .for_initializer = value5.for_initializer,
                 .arrow_defaults_allowed = value5.arrow_defaults_allowed,
@@ -8706,6 +8870,7 @@ TmtPulseParser_jsx_attribute(
                   .yield_allowed = value5.yield_allowed,
                   .jsx_allowed = value5.jsx_allowed,
                   .module_mode = value5.module_mode,
+                  .strict_script = value5.strict_script,
                   .in_allowed = value5.in_allowed,
                   .for_initializer = value5.for_initializer,
                   .arrow_defaults_allowed = value5.arrow_defaults_allowed,
@@ -8821,6 +8986,7 @@ TmtPulseParser_jsx_element(
                             .yield_allowed = state.yield_allowed,
                             .jsx_allowed = state.jsx_allowed,
                             .module_mode = state.module_mode,
+                            .strict_script = state.strict_script,
                             .in_allowed = state.in_allowed,
                             .for_initializer = state.for_initializer,
                             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -8894,6 +9060,7 @@ TmtPulseParser_deep_array_literal(
             .yield_allowed = uu____0.yield_allowed,
             .jsx_allowed = uu____0.jsx_allowed,
             .module_mode = uu____0.module_mode,
+            .strict_script = uu____0.strict_script,
             .in_allowed = uu____0.in_allowed,
             .for_initializer = uu____0.for_initializer,
             .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
@@ -8925,6 +9092,7 @@ TmtPulseParser_deep_array_literal(
             .yield_allowed = value3.yield_allowed,
             .jsx_allowed = value3.jsx_allowed,
             .module_mode = value3.module_mode,
+            .strict_script = value3.strict_script,
             .in_allowed = value3.in_allowed,
             .for_initializer = value3.for_initializer,
             .arrow_defaults_allowed = value3.arrow_defaults_allowed,
@@ -8980,6 +9148,7 @@ TmtPulseParser_object_member(
             .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
+            .strict_script = st.strict_script,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
             .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -9016,6 +9185,7 @@ TmtPulseParser_object_member(
                        .yield_allowed = st.yield_allowed,
                        .jsx_allowed = st.jsx_allowed,
                        .module_mode = st.module_mode,
+                       .strict_script = st.strict_script,
                        .in_allowed = st.in_allowed,
                        .for_initializer = st.for_initializer,
                        .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -9045,6 +9215,7 @@ TmtPulseParser_object_member(
               .yield_allowed = key_start.yield_allowed,
               .jsx_allowed = key_start.jsx_allowed,
               .module_mode = key_start.module_mode,
+              .strict_script = key_start.strict_script,
               .in_allowed = true,
               .for_initializer = key_start.for_initializer,
               .arrow_defaults_allowed = key_start.arrow_defaults_allowed,
@@ -9067,6 +9238,7 @@ TmtPulseParser_object_member(
             .yield_allowed = value7.yield_allowed,
             .jsx_allowed = value7.jsx_allowed,
             .module_mode = value7.module_mode,
+            .strict_script = value7.strict_script,
             .in_allowed = st.in_allowed,
             .for_initializer = value7.for_initializer,
             .arrow_defaults_allowed = value7.arrow_defaults_allowed,
@@ -9300,6 +9472,7 @@ TmtPulseParser_atom(
                   .yield_allowed = value.yield_allowed,
                   .jsx_allowed = value.jsx_allowed,
                   .module_mode = value.module_mode,
+                  .strict_script = value.strict_script,
                   .in_allowed = value.in_allowed,
                   .for_initializer = value.for_initializer,
                   .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -9387,6 +9560,7 @@ TmtPulseParser_atom(
                 .yield_allowed = value.yield_allowed,
                 .jsx_allowed = value.jsx_allowed,
                 .module_mode = value.module_mode,
+                .strict_script = value.strict_script,
                 .in_allowed = value.in_allowed,
                 .for_initializer = value.for_initializer,
                 .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -9416,6 +9590,7 @@ TmtPulseParser_atom(
                                        .yield_allowed = value3.yield_allowed,
                                        .jsx_allowed = value3.jsx_allowed,
                                        .module_mode = value3.module_mode,
+                                       .strict_script = value3.strict_script,
                                        .in_allowed = value3.in_allowed,
                                        .for_initializer = value3.for_initializer,
                                        .arrow_defaults_allowed = value3.arrow_defaults_allowed,
@@ -9446,6 +9621,7 @@ TmtPulseParser_atom(
                   .yield_allowed = value6.yield_allowed,
                   .jsx_allowed = value6.jsx_allowed,
                   .module_mode = value6.module_mode,
+                  .strict_script = value6.strict_script,
                   .in_allowed = value6.in_allowed,
                   .for_initializer = value6.for_initializer,
                   .arrow_defaults_allowed = value6.arrow_defaults_allowed,
@@ -9526,6 +9702,7 @@ TmtPulseParser_atom(
                     .yield_allowed = value.yield_allowed,
                     .jsx_allowed = value.jsx_allowed,
                     .module_mode = value.module_mode,
+                    .strict_script = value.strict_script,
                     .in_allowed = value.in_allowed,
                     .for_initializer = value.for_initializer,
                     .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -9572,7 +9749,8 @@ TmtPulseParser_atom(
                 .status = value.status, .local_names = value.local_names,
                 .await_allowed = value.await_allowed, .yield_allowed = value.yield_allowed,
                 .jsx_allowed = value.jsx_allowed, .module_mode = value.module_mode,
-                .in_allowed = value.in_allowed, .for_initializer = value.for_initializer,
+                .strict_script = value.strict_script, .in_allowed = value.in_allowed,
+                .for_initializer = value.for_initializer,
                 .arrow_defaults_allowed = value.arrow_defaults_allowed,
                 .binding_mode = value.binding_mode, .super_context = value.super_context
               };
@@ -9670,6 +9848,7 @@ TmtPulseParser_atom(
                   .yield_allowed = value.yield_allowed,
                   .jsx_allowed = value.jsx_allowed,
                   .module_mode = value.module_mode,
+                  .strict_script = value.strict_script,
                   .in_allowed = true,
                   .for_initializer = value.for_initializer,
                   .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -9701,7 +9880,8 @@ TmtPulseParser_atom(
               .status = value60.status, .local_names = value60.local_names,
               .await_allowed = value60.await_allowed, .yield_allowed = value60.yield_allowed,
               .jsx_allowed = value60.jsx_allowed, .module_mode = value60.module_mode,
-              .in_allowed = value.in_allowed, .for_initializer = value60.for_initializer,
+              .strict_script = value60.strict_script, .in_allowed = value.in_allowed,
+              .for_initializer = value60.for_initializer,
               .arrow_defaults_allowed = value60.arrow_defaults_allowed,
               .binding_mode = value60.binding_mode, .super_context = value60.super_context
             };
@@ -9815,7 +9995,8 @@ TmtPulseParser_atom(
                     .depth = value.depth, .status = value.status, .local_names = value.local_names,
                     .await_allowed = value.await_allowed, .yield_allowed = value.yield_allowed,
                     .jsx_allowed = value.jsx_allowed, .module_mode = value.module_mode,
-                    .in_allowed = value.in_allowed, .for_initializer = value.for_initializer,
+                    .strict_script = value.strict_script, .in_allowed = value.in_allowed,
+                    .for_initializer = value.for_initializer,
                     .arrow_defaults_allowed = value.arrow_defaults_allowed,
                     .binding_mode = value.binding_mode, .super_context = value.super_context
                   },
@@ -9922,6 +10103,7 @@ TmtPulseParser_binary_tail(
                   .yield_allowed = value.yield_allowed,
                   .jsx_allowed = value.jsx_allowed,
                   .module_mode = value.module_mode,
+                  .strict_script = value.strict_script,
                   .in_allowed = value.in_allowed,
                   .for_initializer = value.for_initializer,
                   .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -9977,6 +10159,7 @@ TmtPulseParser_binary_tail(
                   .yield_allowed = value.yield_allowed,
                   .jsx_allowed = value.jsx_allowed,
                   .module_mode = value.module_mode,
+                  .strict_script = value.strict_script,
                   .in_allowed = value.in_allowed,
                   .for_initializer = value.for_initializer,
                   .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -10031,7 +10214,8 @@ TmtPulseParser_binary_tail(
               .depth = value.depth, .status = value.status, .local_names = value.local_names,
               .await_allowed = value.await_allowed, .yield_allowed = value.yield_allowed,
               .jsx_allowed = value.jsx_allowed, .module_mode = value.module_mode,
-              .in_allowed = value.in_allowed, .for_initializer = value.for_initializer,
+              .strict_script = value.strict_script, .in_allowed = value.in_allowed,
+              .for_initializer = value.for_initializer,
               .arrow_defaults_allowed = value.arrow_defaults_allowed,
               .binding_mode = value.binding_mode, .super_context = value.super_context
             };
@@ -10100,6 +10284,7 @@ TmtPulseParser_comparison(
           .yield_allowed = false,
           .jsx_allowed = value.jsx_allowed,
           .module_mode = value.module_mode,
+          .strict_script = value.strict_script,
           .in_allowed = value.in_allowed,
           .for_initializer = value.for_initializer,
           .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -10125,6 +10310,7 @@ TmtPulseParser_comparison(
             .yield_allowed = uu____0.yield_allowed,
             .jsx_allowed = uu____0.jsx_allowed,
             .module_mode = uu____0.module_mode,
+            .strict_script = uu____0.strict_script,
             .in_allowed = uu____0.in_allowed,
             .for_initializer = uu____0.for_initializer,
             .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
@@ -10149,8 +10335,8 @@ TmtPulseParser_comparison(
             .offset = value2.offset, .count = value2.count, .depth = depth1, .status = value2.status,
             .local_names = value2.local_names, .await_allowed = value2.await_allowed,
             .yield_allowed = value2.yield_allowed, .jsx_allowed = value2.jsx_allowed,
-            .module_mode = value2.module_mode, .in_allowed = true,
-            .for_initializer = value2.for_initializer,
+            .module_mode = value2.module_mode, .strict_script = value2.strict_script,
+            .in_allowed = true, .for_initializer = value2.for_initializer,
             .arrow_defaults_allowed = value2.arrow_defaults_allowed,
             .binding_mode = value2.binding_mode, .super_context = value2.super_context
           };
@@ -10183,6 +10369,7 @@ TmtPulseParser_comparison(
                 .yield_allowed = value2.yield_allowed,
                 .jsx_allowed = value2.jsx_allowed,
                 .module_mode = value2.module_mode,
+                .strict_script = value2.strict_script,
                 .in_allowed = in_allowed,
                 .for_initializer = value2.for_initializer,
                 .arrow_defaults_allowed = value2.arrow_defaults_allowed,
@@ -10201,7 +10388,8 @@ TmtPulseParser_comparison(
               .status = uu____1.status, .local_names = value.local_names,
               .await_allowed = value.await_allowed, .yield_allowed = value.yield_allowed,
               .jsx_allowed = uu____1.jsx_allowed, .module_mode = uu____1.module_mode,
-              .in_allowed = value.in_allowed, .for_initializer = uu____1.for_initializer,
+              .strict_script = uu____1.strict_script, .in_allowed = value.in_allowed,
+              .for_initializer = uu____1.for_initializer,
               .arrow_defaults_allowed = uu____1.arrow_defaults_allowed,
               .binding_mode = value.binding_mode, .super_context = uu____1.super_context
             },
@@ -10232,6 +10420,7 @@ TmtPulseParser_comparison(
               .yield_allowed = st.yield_allowed,
               .jsx_allowed = st.jsx_allowed,
               .module_mode = st.module_mode,
+              .strict_script = st.strict_script,
               .in_allowed = st.in_allowed,
               .for_initializer = st.for_initializer,
               .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -10273,6 +10462,7 @@ TmtPulseParser_comparison(
                   .yield_allowed = st.yield_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
+                  .strict_script = st.strict_script,
                   .in_allowed = st.in_allowed,
                   .for_initializer = st.for_initializer,
                   .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -10316,6 +10506,7 @@ TmtPulseParser_comparison(
                 .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
+                .strict_script = st.strict_script,
                 .in_allowed = true,
                 .for_initializer = st.for_initializer,
                 .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -10339,6 +10530,7 @@ TmtPulseParser_comparison(
                 .yield_allowed = uu____2.yield_allowed,
                 .jsx_allowed = uu____2.jsx_allowed,
                 .module_mode = uu____2.module_mode,
+                .strict_script = uu____2.strict_script,
                 .in_allowed = st.in_allowed,
                 .for_initializer = uu____2.for_initializer,
                 .arrow_defaults_allowed = uu____2.arrow_defaults_allowed,
@@ -10464,7 +10656,8 @@ TmtPulseParser_local_declarators(
           .status = uu____0.status, .local_names = value2.used,
           .await_allowed = uu____0.await_allowed, .yield_allowed = uu____0.yield_allowed,
           .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
-          .in_allowed = uu____0.in_allowed, .for_initializer = uu____0.for_initializer,
+          .strict_script = uu____0.strict_script, .in_allowed = uu____0.in_allowed,
+          .for_initializer = uu____0.for_initializer,
           .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
           .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context
         };
@@ -10540,6 +10733,7 @@ TmtPulseParser_local_declaration(
           .yield_allowed = state1.yield_allowed,
           .jsx_allowed = state1.jsx_allowed,
           .module_mode = state1.module_mode,
+          .strict_script = state1.strict_script,
           .in_allowed = state1.in_allowed,
           .for_initializer = state1.for_initializer,
           .arrow_defaults_allowed = state1.arrow_defaults_allowed,
@@ -10590,6 +10784,7 @@ TmtPulseParser_local_var_declaration(
           .yield_allowed = st.yield_allowed,
           .jsx_allowed = st.jsx_allowed,
           .module_mode = st.module_mode,
+          .strict_script = st.strict_script,
           .in_allowed = st.in_allowed,
           .for_initializer = st.for_initializer,
           .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -10847,6 +11042,7 @@ TmtPulseParser_for_bindings(
               .yield_allowed = uu____0.yield_allowed,
               .jsx_allowed = uu____0.jsx_allowed,
               .module_mode = uu____0.module_mode,
+              .strict_script = uu____0.strict_script,
               .in_allowed = uu____0.in_allowed,
               .for_initializer = uu____0.for_initializer,
               .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
@@ -10873,6 +11069,7 @@ TmtPulseParser_for_bindings(
                 .yield_allowed = value4.yield_allowed,
                 .jsx_allowed = value4.jsx_allowed,
                 .module_mode = value4.module_mode,
+                .strict_script = value4.strict_script,
                 .in_allowed = false,
                 .for_initializer = true,
                 .arrow_defaults_allowed = value4.arrow_defaults_allowed,
@@ -10895,6 +11092,7 @@ TmtPulseParser_for_bindings(
               .yield_allowed = uu____1.yield_allowed,
               .jsx_allowed = uu____1.jsx_allowed,
               .module_mode = uu____1.module_mode,
+              .strict_script = uu____1.strict_script,
               .in_allowed = state.in_allowed,
               .for_initializer = state.for_initializer,
               .arrow_defaults_allowed = uu____1.arrow_defaults_allowed,
@@ -10956,6 +11154,7 @@ TmtPulseParser_binding(
           .yield_allowed = value4.yield_allowed,
           .jsx_allowed = value4.jsx_allowed,
           .module_mode = value4.module_mode,
+          .strict_script = value4.strict_script,
           .in_allowed = in_allowed,
           .for_initializer = for_initializer,
           .arrow_defaults_allowed = value4.arrow_defaults_allowed,
@@ -10977,6 +11176,7 @@ TmtPulseParser_binding(
         .yield_allowed = uu____0.yield_allowed,
         .jsx_allowed = uu____0.jsx_allowed,
         .module_mode = uu____0.module_mode,
+        .strict_script = uu____0.strict_script,
         .in_allowed = state.in_allowed,
         .for_initializer = state.for_initializer,
         .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
@@ -11022,6 +11222,7 @@ TmtPulseParser_for_expressions(
               .yield_allowed = state.yield_allowed,
               .jsx_allowed = state.jsx_allowed,
               .module_mode = state.module_mode,
+              .strict_script = state.strict_script,
               .in_allowed = in_allowed,
               .for_initializer = for_initializer,
               .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -11045,6 +11246,7 @@ TmtPulseParser_for_expressions(
               .yield_allowed = uu____0.yield_allowed,
               .jsx_allowed = uu____0.jsx_allowed,
               .module_mode = uu____0.module_mode,
+              .strict_script = uu____0.strict_script,
               .in_allowed = state.in_allowed,
               .for_initializer = state.for_initializer,
               .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
@@ -11110,6 +11312,7 @@ TmtPulseParser_classic_for_header(
             .yield_allowed = st1.yield_allowed,
             .jsx_allowed = st1.jsx_allowed,
             .module_mode = st1.module_mode,
+            .strict_script = st1.strict_script,
             .in_allowed = st1.in_allowed,
             .for_initializer = st1.for_initializer,
             .arrow_defaults_allowed = st1.arrow_defaults_allowed,
@@ -11142,6 +11345,7 @@ TmtPulseParser_classic_for_header(
             .yield_allowed = st1.yield_allowed,
             .jsx_allowed = st1.jsx_allowed,
             .module_mode = st1.module_mode,
+            .strict_script = st1.strict_script,
             .in_allowed = st1.in_allowed,
             .for_initializer = st1.for_initializer,
             .arrow_defaults_allowed = st1.arrow_defaults_allowed,
@@ -11206,6 +11410,7 @@ TmtPulseParser_for_header(
             .yield_allowed = value.yield_allowed,
             .jsx_allowed = value.jsx_allowed,
             .module_mode = value.module_mode,
+            .strict_script = value.strict_script,
             .in_allowed = value.in_allowed,
             .for_initializer = value.for_initializer,
             .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -11311,6 +11516,7 @@ TmtPulseParser_try_statement(
               .yield_allowed = value1.yield_allowed,
               .jsx_allowed = value1.jsx_allowed,
               .module_mode = value1.module_mode,
+              .strict_script = value1.strict_script,
               .in_allowed = value1.in_allowed,
               .for_initializer = value1.for_initializer,
               .arrow_defaults_allowed = value1.arrow_defaults_allowed,
@@ -11341,6 +11547,7 @@ TmtPulseParser_try_statement(
               .yield_allowed = value30.yield_allowed,
               .jsx_allowed = value30.jsx_allowed,
               .module_mode = value30.module_mode,
+              .strict_script = value30.strict_script,
               .in_allowed = value30.in_allowed,
               .for_initializer = value30.for_initializer,
               .arrow_defaults_allowed = value30.arrow_defaults_allowed,
@@ -11400,6 +11607,7 @@ TmtPulseParser_switch_sequence(
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -11442,6 +11650,7 @@ TmtPulseParser_switch_sequence(
                 .yield_allowed = value.yield_allowed,
                 .jsx_allowed = value.jsx_allowed,
                 .module_mode = value.module_mode,
+                .strict_script = value.strict_script,
                 .in_allowed = value.in_allowed,
                 .for_initializer = value.for_initializer,
                 .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -11479,6 +11688,7 @@ TmtPulseParser_switch_sequence(
                   .yield_allowed = value.yield_allowed,
                   .jsx_allowed = value.jsx_allowed,
                   .module_mode = value.module_mode,
+                  .strict_script = value.strict_script,
                   .in_allowed = value.in_allowed,
                   .for_initializer = value.for_initializer,
                   .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -11595,6 +11805,7 @@ TmtPulseParser_control_statement(
                               .yield_allowed = state.yield_allowed,
                               .jsx_allowed = state.jsx_allowed,
                               .module_mode = state.module_mode,
+                              .strict_script = state.strict_script,
                               .in_allowed = state.in_allowed,
                               .for_initializer = state.for_initializer,
                               .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -11620,6 +11831,7 @@ TmtPulseParser_control_statement(
               .yield_allowed = state1.yield_allowed,
               .jsx_allowed = state1.jsx_allowed,
               .module_mode = state1.module_mode,
+              .strict_script = state1.strict_script,
               .in_allowed = state1.in_allowed,
               .for_initializer = state1.for_initializer,
               .arrow_defaults_allowed = state1.arrow_defaults_allowed,
@@ -11658,6 +11870,7 @@ TmtPulseParser_control_statement(
                 .yield_allowed = value3.yield_allowed,
                 .jsx_allowed = value3.jsx_allowed,
                 .module_mode = value3.module_mode,
+                .strict_script = value3.strict_script,
                 .in_allowed = value3.in_allowed,
                 .for_initializer = value3.for_initializer,
                 .arrow_defaults_allowed = value3.arrow_defaults_allowed,
@@ -11689,6 +11902,7 @@ TmtPulseParser_control_statement(
               .yield_allowed = state1.yield_allowed,
               .jsx_allowed = state1.jsx_allowed,
               .module_mode = state1.module_mode,
+              .strict_script = state1.strict_script,
               .in_allowed = state1.in_allowed,
               .for_initializer = state1.for_initializer,
               .arrow_defaults_allowed = state1.arrow_defaults_allowed,
@@ -11722,6 +11936,7 @@ TmtPulseParser_control_statement(
                 .yield_allowed = value2.yield_allowed,
                 .jsx_allowed = value2.jsx_allowed,
                 .module_mode = value2.module_mode,
+                .strict_script = value2.strict_script,
                 .in_allowed = value2.in_allowed,
                 .for_initializer = value2.for_initializer,
                 .arrow_defaults_allowed = value2.arrow_defaults_allowed,
@@ -11758,6 +11973,7 @@ TmtPulseParser_control_statement(
                 .yield_allowed = state1.yield_allowed,
                 .jsx_allowed = state1.jsx_allowed,
                 .module_mode = state1.module_mode,
+                .strict_script = state1.strict_script,
                 .in_allowed = state1.in_allowed,
                 .for_initializer = state1.for_initializer,
                 .arrow_defaults_allowed = state1.arrow_defaults_allowed,
@@ -11790,6 +12006,7 @@ TmtPulseParser_control_statement(
               .yield_allowed = uu____0.yield_allowed,
               .jsx_allowed = uu____0.jsx_allowed,
               .module_mode = uu____0.module_mode,
+              .strict_script = uu____0.strict_script,
               .in_allowed = uu____0.in_allowed,
               .for_initializer = uu____0.for_initializer,
               .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
@@ -11812,6 +12029,7 @@ TmtPulseParser_control_statement(
                 .yield_allowed = state1.yield_allowed,
                 .jsx_allowed = state1.jsx_allowed,
                 .module_mode = state1.module_mode,
+                .strict_script = state1.strict_script,
                 .in_allowed = state1.in_allowed,
                 .for_initializer = state1.for_initializer,
                 .arrow_defaults_allowed = state1.arrow_defaults_allowed,
@@ -11841,6 +12059,7 @@ TmtPulseParser_control_statement(
                 .yield_allowed = state1.yield_allowed,
                 .jsx_allowed = state1.jsx_allowed,
                 .module_mode = state1.module_mode,
+                .strict_script = state1.strict_script,
                 .in_allowed = state1.in_allowed,
                 .for_initializer = state1.for_initializer,
                 .arrow_defaults_allowed = state1.arrow_defaults_allowed,
@@ -11880,6 +12099,7 @@ TmtPulseParser_control_statement(
                 .yield_allowed = value4.yield_allowed,
                 .jsx_allowed = value4.jsx_allowed,
                 .module_mode = value4.module_mode,
+                .strict_script = value4.strict_script,
                 .in_allowed = value4.in_allowed,
                 .for_initializer = value4.for_initializer,
                 .arrow_defaults_allowed = value4.arrow_defaults_allowed,
@@ -11912,7 +12132,7 @@ TmtPulseParser_scope_statement(
   else
     value = TmtPulseParser_local_width(input, st.offset);
   TmtPulseParser_cursor value1;
-  if (root_control || !st.module_mode)
+  if (root_control || !(st.module_mode || in_function && st.strict_script))
     value1 = ((TmtPulseParser_cursor){ .at = st.offset, .ok = false, .newline = false });
   else
     value1 = TmtPulseParser_function_start(input, st.offset);
@@ -11951,6 +12171,7 @@ TmtPulseParser_scope_statement(
               .yield_allowed = declared.yield_allowed,
               .jsx_allowed = declared.jsx_allowed,
               .module_mode = declared.module_mode,
+              .strict_script = declared.strict_script,
               .in_allowed = declared.in_allowed,
               .for_initializer = declared.for_initializer,
               .arrow_defaults_allowed = declared.arrow_defaults_allowed,
@@ -11974,7 +12195,8 @@ TmtPulseParser_scope_statement(
           .status = uu____0.status, .local_names = value4.used,
           .await_allowed = uu____0.await_allowed, .yield_allowed = uu____0.yield_allowed,
           .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
-          .in_allowed = uu____0.in_allowed, .for_initializer = uu____0.for_initializer,
+          .strict_script = uu____0.strict_script, .in_allowed = uu____0.in_allowed,
+          .for_initializer = uu____0.for_initializer,
           .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
           .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context
         };
@@ -12010,6 +12232,7 @@ TmtPulseParser_scope_statement(
               .yield_allowed = declared.yield_allowed,
               .jsx_allowed = declared.jsx_allowed,
               .module_mode = declared.module_mode,
+              .strict_script = declared.strict_script,
               .in_allowed = declared.in_allowed,
               .for_initializer = declared.for_initializer,
               .arrow_defaults_allowed = declared.arrow_defaults_allowed,
@@ -12033,7 +12256,8 @@ TmtPulseParser_scope_statement(
           .status = uu____1.status, .local_names = value4.used,
           .await_allowed = uu____1.await_allowed, .yield_allowed = uu____1.yield_allowed,
           .jsx_allowed = uu____1.jsx_allowed, .module_mode = uu____1.module_mode,
-          .in_allowed = uu____1.in_allowed, .for_initializer = uu____1.for_initializer,
+          .strict_script = uu____1.strict_script, .in_allowed = uu____1.in_allowed,
+          .for_initializer = uu____1.for_initializer,
           .arrow_defaults_allowed = uu____1.arrow_defaults_allowed,
           .binding_mode = uu____1.binding_mode, .super_context = uu____1.super_context
         };
@@ -12092,6 +12316,7 @@ TmtPulseParser_control_sequence(
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -12153,6 +12378,7 @@ TmtPulseParser_declaration(TmtPulseMemory_tape input, TmtPulseParser_parser_stat
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -12208,6 +12434,7 @@ parse_state(TmtPulseMemory_tape input, TmtPulseParser_parser_state st, bool modu
                 .yield_allowed = st.yield_allowed,
                 .jsx_allowed = st.jsx_allowed,
                 .module_mode = st.module_mode,
+                .strict_script = st.strict_script,
                 .in_allowed = st.in_allowed,
                 .for_initializer = st.for_initializer,
                 .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -12259,6 +12486,7 @@ parse_state(TmtPulseMemory_tape input, TmtPulseParser_parser_state st, bool modu
                   .yield_allowed = st.yield_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
+                  .strict_script = st.strict_script,
                   .in_allowed = st.in_allowed,
                   .for_initializer = st.for_initializer,
                   .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -12288,6 +12516,7 @@ parse_state(TmtPulseMemory_tape input, TmtPulseParser_parser_state st, bool modu
                 .yield_allowed = value5.yield_allowed,
                 .jsx_allowed = value5.jsx_allowed,
                 .module_mode = value5.module_mode,
+                .strict_script = value5.strict_script,
                 .in_allowed = value5.in_allowed,
                 .for_initializer = value5.for_initializer,
                 .arrow_defaults_allowed = value5.arrow_defaults_allowed,
@@ -12353,6 +12582,7 @@ TmtPulseParser_module_export(TmtPulseMemory_tape input, TmtPulseParser_parser_st
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -12388,6 +12618,7 @@ TmtPulseParser_module_export(TmtPulseMemory_tape input, TmtPulseParser_parser_st
                 .yield_allowed = value2.yield_allowed,
                 .jsx_allowed = value2.jsx_allowed,
                 .module_mode = value2.module_mode,
+                .strict_script = value2.strict_script,
                 .in_allowed = value2.in_allowed,
                 .for_initializer = value2.for_initializer,
                 .arrow_defaults_allowed = value2.arrow_defaults_allowed,
@@ -12514,6 +12745,7 @@ TmtPulseParser_default_declaration(
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -12547,6 +12779,7 @@ TmtPulseParser_default_declaration(
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -12605,6 +12838,7 @@ TmtPulseParser_static_import_attributes(
           .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
+          .strict_script = state.strict_script,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
           .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -12639,6 +12873,7 @@ TmtPulseParser_static_import_attributes(
               .yield_allowed = value2.yield_allowed,
               .jsx_allowed = value2.jsx_allowed,
               .module_mode = value2.module_mode,
+              .strict_script = value2.strict_script,
               .in_allowed = value2.in_allowed,
               .for_initializer = value2.for_initializer,
               .arrow_defaults_allowed = value2.arrow_defaults_allowed,
@@ -12728,6 +12963,7 @@ TmtPulseParser_export_identifier(TmtPulseMemory_tape input, TmtPulseParser_parse
           .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
+          .strict_script = state.strict_script,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
           .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -12768,7 +13004,8 @@ TmtPulseParser_export_string_name(
           .status = state.status, .local_names = state.local_names,
           .await_allowed = state.await_allowed, .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed, .module_mode = state.module_mode,
-          .in_allowed = state.in_allowed, .for_initializer = state.for_initializer,
+          .strict_script = state.strict_script, .in_allowed = state.in_allowed,
+          .for_initializer = state.for_initializer,
           .arrow_defaults_allowed = state.arrow_defaults_allowed, .binding_mode = state.binding_mode,
           .super_context = state.super_context
         };
@@ -12893,6 +13130,7 @@ TmtPulseParser_reexport_members(
                   .yield_allowed = value9.yield_allowed,
                   .jsx_allowed = value9.jsx_allowed,
                   .module_mode = value9.module_mode,
+                  .strict_script = value9.strict_script,
                   .in_allowed = value9.in_allowed,
                   .for_initializer = value9.for_initializer,
                   .arrow_defaults_allowed = value9.arrow_defaults_allowed,
@@ -12994,6 +13232,7 @@ TmtPulseParser_named_reexport(
             .yield_allowed = value2.yield_allowed,
             .jsx_allowed = value2.jsx_allowed,
             .module_mode = value2.module_mode,
+            .strict_script = value2.strict_script,
             .in_allowed = value2.in_allowed,
             .for_initializer = value2.for_initializer,
             .arrow_defaults_allowed = value2.arrow_defaults_allowed,
@@ -13071,6 +13310,7 @@ TmtPulseParser_import_members(
                   .yield_allowed = value.yield_allowed,
                   .jsx_allowed = value.jsx_allowed,
                   .module_mode = value.module_mode,
+                  .strict_script = value.strict_script,
                   .in_allowed = value.in_allowed,
                   .for_initializer = value.for_initializer,
                   .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -13113,6 +13353,7 @@ TmtPulseParser_import_members(
                   .yield_allowed = value30.yield_allowed,
                   .jsx_allowed = value30.jsx_allowed,
                   .module_mode = value30.module_mode,
+                  .strict_script = value30.strict_script,
                   .in_allowed = value30.in_allowed,
                   .for_initializer = value30.for_initializer,
                   .arrow_defaults_allowed = value30.arrow_defaults_allowed,
@@ -13138,6 +13379,7 @@ TmtPulseParser_import_members(
                     .yield_allowed = value6.yield_allowed,
                     .jsx_allowed = value6.jsx_allowed,
                     .module_mode = value6.module_mode,
+                    .strict_script = value6.strict_script,
                     .in_allowed = value6.in_allowed,
                     .for_initializer = value6.for_initializer,
                     .arrow_defaults_allowed = value6.arrow_defaults_allowed,
@@ -13210,6 +13452,7 @@ TmtPulseParser_import_bindings(
             .yield_allowed = value.yield_allowed,
             .jsx_allowed = value.jsx_allowed,
             .module_mode = value.module_mode,
+            .strict_script = value.strict_script,
             .in_allowed = value.in_allowed,
             .for_initializer = value.for_initializer,
             .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -13234,6 +13477,7 @@ TmtPulseParser_import_bindings(
               .yield_allowed = value2.yield_allowed,
               .jsx_allowed = value2.jsx_allowed,
               .module_mode = value2.module_mode,
+              .strict_script = value2.strict_script,
               .in_allowed = value2.in_allowed,
               .for_initializer = value2.for_initializer,
               .arrow_defaults_allowed = value2.arrow_defaults_allowed,
@@ -13273,6 +13517,7 @@ TmtPulseParser_import_declaration(
           .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
+          .strict_script = state.strict_script,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
           .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -13304,6 +13549,7 @@ TmtPulseParser_import_declaration(
               .yield_allowed = value.yield_allowed,
               .jsx_allowed = value.jsx_allowed,
               .module_mode = value.module_mode,
+              .strict_script = value.strict_script,
               .in_allowed = value.in_allowed,
               .for_initializer = value.for_initializer,
               .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -13340,6 +13586,7 @@ TmtPulseParser_import_declaration(
                   .yield_allowed = value3.yield_allowed,
                   .jsx_allowed = value3.jsx_allowed,
                   .module_mode = value3.module_mode,
+                  .strict_script = value3.strict_script,
                   .in_allowed = value3.in_allowed,
                   .for_initializer = value3.for_initializer,
                   .arrow_defaults_allowed = value3.arrow_defaults_allowed,
@@ -13396,6 +13643,7 @@ TmtPulseParser_import_declaration(
               .yield_allowed = value6.yield_allowed,
               .jsx_allowed = value6.jsx_allowed,
               .module_mode = value6.module_mode,
+              .strict_script = value6.strict_script,
               .in_allowed = value6.in_allowed,
               .for_initializer = value6.for_initializer,
               .arrow_defaults_allowed = value6.arrow_defaults_allowed,
@@ -13432,6 +13680,7 @@ TmtPulseParser_global_augmentation_start(
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -13456,6 +13705,7 @@ TmtPulseParser_global_augmentation_start(
               .yield_allowed = value1.yield_allowed,
               .jsx_allowed = value1.jsx_allowed,
               .module_mode = value1.module_mode,
+              .strict_script = value1.strict_script,
               .in_allowed = value1.in_allowed,
               .for_initializer = value1.for_initializer,
               .arrow_defaults_allowed = value1.arrow_defaults_allowed,
@@ -13495,6 +13745,7 @@ TmtPulseParser_ambient_module_start(
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -13519,6 +13770,7 @@ TmtPulseParser_ambient_module_start(
               .yield_allowed = value1.yield_allowed,
               .jsx_allowed = value1.jsx_allowed,
               .module_mode = value1.module_mode,
+              .strict_script = value1.strict_script,
               .in_allowed = value1.in_allowed,
               .for_initializer = value1.for_initializer,
               .arrow_defaults_allowed = value1.arrow_defaults_allowed,
@@ -13604,6 +13856,7 @@ TmtPulseParser_interface_tail(TmtPulseMemory_tape input, TmtPulseParser_parser_s
             .yield_allowed = value1.yield_allowed,
             .jsx_allowed = value1.jsx_allowed,
             .module_mode = value1.module_mode,
+            .strict_script = value1.strict_script,
             .in_allowed = value1.in_allowed,
             .for_initializer = value1.for_initializer,
             .arrow_defaults_allowed = value1.arrow_defaults_allowed,
@@ -13664,6 +13917,7 @@ TmtPulseParser_ambient_interfaces(
                   .yield_allowed = value.yield_allowed,
                   .jsx_allowed = value.jsx_allowed,
                   .module_mode = value.module_mode,
+                  .strict_script = value.strict_script,
                   .in_allowed = value.in_allowed,
                   .for_initializer = value.for_initializer,
                   .arrow_defaults_allowed = value.arrow_defaults_allowed,
@@ -13691,6 +13945,7 @@ TmtPulseParser_ambient_interfaces(
                   .yield_allowed = value3.yield_allowed,
                   .jsx_allowed = value3.jsx_allowed,
                   .module_mode = value3.module_mode,
+                  .strict_script = value3.strict_script,
                   .in_allowed = value3.in_allowed,
                   .for_initializer = value3.for_initializer,
                   .arrow_defaults_allowed = value3.arrow_defaults_allowed,
@@ -13745,6 +14000,7 @@ TmtPulseParser_declaration_start(TmtPulseMemory_tape input, TmtPulseParser_parse
             .yield_allowed = state.yield_allowed,
             .jsx_allowed = state.jsx_allowed,
             .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
             .in_allowed = state.in_allowed,
             .for_initializer = state.for_initializer,
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -13768,6 +14024,7 @@ TmtPulseParser_declaration_start(TmtPulseMemory_tape input, TmtPulseParser_parse
                   .yield_allowed = value1.yield_allowed,
                   .jsx_allowed = value1.jsx_allowed,
                   .module_mode = value1.module_mode,
+                  .strict_script = value1.strict_script,
                   .in_allowed = value1.in_allowed,
                   .for_initializer = value1.for_initializer,
                   .arrow_defaults_allowed = value1.arrow_defaults_allowed,
@@ -13790,6 +14047,7 @@ TmtPulseParser_declaration_start(TmtPulseMemory_tape input, TmtPulseParser_parse
                   .yield_allowed = st.yield_allowed,
                   .jsx_allowed = st.jsx_allowed,
                   .module_mode = st.module_mode,
+                  .strict_script = st.strict_script,
                   .in_allowed = st.in_allowed,
                   .for_initializer = st.for_initializer,
                   .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -13919,6 +14177,7 @@ TmtPulseParser_enum_declaration(
           .yield_allowed = state.yield_allowed,
           .jsx_allowed = state.jsx_allowed,
           .module_mode = state.module_mode,
+          .strict_script = state.strict_script,
           .in_allowed = state.in_allowed,
           .for_initializer = state.for_initializer,
           .arrow_defaults_allowed = state.arrow_defaults_allowed,
@@ -14077,6 +14336,7 @@ TmtPulseParser_module_declaration(
             .yield_allowed = st.yield_allowed,
             .jsx_allowed = st.jsx_allowed,
             .module_mode = st.module_mode,
+            .strict_script = st.strict_script,
             .in_allowed = st.in_allowed,
             .for_initializer = st.for_initializer,
             .arrow_defaults_allowed = st.arrow_defaults_allowed,
@@ -14144,7 +14404,8 @@ TmtPulseParser_module_declaration(
               .status = value50.status, .local_names = value50.local_names,
               .await_allowed = state.await_allowed, .yield_allowed = value50.yield_allowed,
               .jsx_allowed = value50.jsx_allowed, .module_mode = value50.module_mode,
-              .in_allowed = value50.in_allowed, .for_initializer = value50.for_initializer,
+              .strict_script = value50.strict_script, .in_allowed = value50.in_allowed,
+              .for_initializer = value50.for_initializer,
               .arrow_defaults_allowed = value50.arrow_defaults_allowed,
               .binding_mode = value50.binding_mode, .super_context = value50.super_context
             },
@@ -14360,6 +14621,7 @@ TmtPulseParser_module_sequence(
                   .yield_allowed = uu____0.yield_allowed,
                   .jsx_allowed = uu____0.jsx_allowed,
                   .module_mode = uu____0.module_mode,
+                  .strict_script = uu____0.strict_script,
                   .in_allowed = uu____0.in_allowed,
                   .for_initializer = uu____0.for_initializer,
                   .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
@@ -14396,6 +14658,7 @@ TmtPulseParser_module_sequence(
                     .yield_allowed = tail.yield_allowed,
                     .jsx_allowed = tail.jsx_allowed,
                     .module_mode = tail.module_mode,
+                    .strict_script = tail.strict_script,
                     .in_allowed = tail.in_allowed,
                     .for_initializer = tail.for_initializer,
                     .arrow_defaults_allowed = tail.arrow_defaults_allowed,
@@ -14527,26 +14790,42 @@ TmtPulseParser_parse_candidates(TmtPulseMemory_tape input, bool jsx, bool module
       .offset = value, .count = uu____0.count, .depth = uu____0.depth, .status = uu____0.status,
       .local_names = uu____0.local_names, .await_allowed = uu____0.await_allowed,
       .yield_allowed = uu____0.yield_allowed, .jsx_allowed = uu____0.jsx_allowed,
-      .module_mode = uu____0.module_mode, .in_allowed = uu____0.in_allowed,
-      .for_initializer = uu____0.for_initializer,
+      .module_mode = uu____0.module_mode, .strict_script = uu____0.strict_script,
+      .in_allowed = uu____0.in_allowed, .for_initializer = uu____0.for_initializer,
       .arrow_defaults_allowed = uu____0.arrow_defaults_allowed, .binding_mode = uu____0.binding_mode,
       .super_context = uu____0.super_context
     };
   TmtPulseParser_parser_state value2 = TmtPulseParser_skip(input, value1);
-  TmtPulseParser_parser_state value3 = parse_state(input, value2, module_mode);
-  TmtPulseParser_parser_state value4;
-  if (value3.status == 1U || value3.status == 0U && value3.offset != input.size)
+  bool value3;
+  if (module_mode)
+    value3 = false;
+  else
+    value3 = TmtPulseParser_strict_directive(input, value2.offset);
+  TmtPulseParser_parser_state
+  initial =
+    {
+      .offset = value2.offset, .count = value2.count, .depth = value2.depth, .status = value2.status,
+      .local_names = value2.local_names, .await_allowed = value2.await_allowed,
+      .yield_allowed = value2.yield_allowed, .jsx_allowed = value2.jsx_allowed,
+      .module_mode = value2.module_mode, .strict_script = value3, .in_allowed = value2.in_allowed,
+      .for_initializer = value2.for_initializer,
+      .arrow_defaults_allowed = value2.arrow_defaults_allowed, .binding_mode = value2.binding_mode,
+      .super_context = value2.super_context
+    };
+  TmtPulseParser_parser_state value4 = parse_state(input, initial, module_mode);
+  TmtPulseParser_parser_state value5;
+  if (value4.status == 1U || value4.status == 0U && value4.offset != input.size)
   {
     TmtPulseMemory_clear_marks(input);
     TmtPulseParser_parser_state
-    value5 = TmtPulseParser_module_sequence(input, value2, 0U, input.size, 0U);
-    value4 = value5.status == 1U ? value3 : value5;
+    value6 = TmtPulseParser_module_sequence(input, initial, 0U, input.size, 0U);
+    value5 = value6.status == 1U ? value4 : value6;
   }
   else
-    value4 = value3;
-  if (value4.status != 0U || value4.offset != input.size)
+    value5 = value4;
+  if (value5.status != 0U || value5.offset != input.size)
   {
-    TmtPulseParser_parser_state uu____1 = TmtPulseParser_failed(value4, 1U);
+    TmtPulseParser_parser_state uu____1 = TmtPulseParser_failed(value5, 1U);
     return
       (
         (TmtPulseParser_parser_state){
@@ -14559,6 +14838,7 @@ TmtPulseParser_parse_candidates(TmtPulseMemory_tape input, bool jsx, bool module
           .yield_allowed = uu____1.yield_allowed,
           .jsx_allowed = uu____1.jsx_allowed,
           .module_mode = uu____1.module_mode,
+          .strict_script = uu____1.strict_script,
           .in_allowed = uu____1.in_allowed,
           .for_initializer = uu____1.for_initializer,
           .arrow_defaults_allowed = uu____1.arrow_defaults_allowed,
@@ -14567,9 +14847,9 @@ TmtPulseParser_parse_candidates(TmtPulseMemory_tape input, bool jsx, bool module
         }
       );
   }
-  else if (value4.count > input.capacity)
+  else if (value5.count > input.capacity)
   {
-    TmtPulseParser_parser_state uu____2 = TmtPulseParser_failed(value4, 4U);
+    TmtPulseParser_parser_state uu____2 = TmtPulseParser_failed(value5, 4U);
     return
       (
         (TmtPulseParser_parser_state){
@@ -14582,6 +14862,7 @@ TmtPulseParser_parse_candidates(TmtPulseMemory_tape input, bool jsx, bool module
           .yield_allowed = uu____2.yield_allowed,
           .jsx_allowed = uu____2.jsx_allowed,
           .module_mode = uu____2.module_mode,
+          .strict_script = uu____2.strict_script,
           .in_allowed = uu____2.in_allowed,
           .for_initializer = uu____2.for_initializer,
           .arrow_defaults_allowed = uu____2.arrow_defaults_allowed,
@@ -14591,7 +14872,7 @@ TmtPulseParser_parse_candidates(TmtPulseMemory_tape input, bool jsx, bool module
       );
   }
   else
-    return value4;
+    return value5;
 }
 
 bool TmtPulseMemory_prefix_marked(uint8_t *marks, uint32_t count)
@@ -14646,6 +14927,7 @@ TmtPulseParser_parse(TmtPulseMemory_tape input, bool jsx, bool module_mode)
             .yield_allowed = uu____0.yield_allowed,
             .jsx_allowed = uu____0.jsx_allowed,
             .module_mode = uu____0.module_mode,
+            .strict_script = uu____0.strict_script,
             .in_allowed = uu____0.in_allowed,
             .for_initializer = uu____0.for_initializer,
             .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,

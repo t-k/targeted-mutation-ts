@@ -1,0 +1,3 @@
+Directive: Semicolon, ASI, Absent, Extended, Escaped
+Form: FunctionBody, NestedBlock, WhileBody
+Mode: Script, Module

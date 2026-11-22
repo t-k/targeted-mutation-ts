@@ -47,3 +47,53 @@ for (const [form, member, tail] of rows('pulse-enum')) {
     assert.equal(actual.candidates.length, tail === 'Invalid' ? 0 : member === 'Comparison' ? 2 : 1);
   });
 }
+
+for (const [directive, form, mode] of rows('pulse-strict-script')) {
+  test(`Pulse nested functions: ${directive} ${form} ${mode}`, () => {
+    const prefix = {
+      Semicolon: "/* before */ 'use strict';\n",
+      ASI: '"use strict" /* newline\n */\n',
+      Absent: '',
+      Extended: "'use strict'\n+ value;\n",
+      Escaped: String.raw`'use\x20strict';` + '\n',
+    }[directive];
+    const nested = 'function compare() { return value >= limit; }';
+    const body = {
+      FunctionBody: nested,
+      NestedBlock: 'if (flag) { ' + nested + ' }',
+      WhileBody: 'while (flag) ' + nested,
+    }[form];
+    const source = prefix + 'const limit = 18; function main(value) { ' + body + ' }';
+    const actual = compare(source, { file: 'nested.js', mode: mode.toLowerCase() });
+    const strict = ['Semicolon', 'ASI'].includes(directive);
+    assert.equal(actual.path, form === 'WhileBody' ? 'diagnostic' : mode === 'Module' || strict ? 'fast' : 'fallback');
+    assert.equal(actual.candidates.length, Number(form !== 'WhileBody'));
+  });
+}
+
+for (const [pattern, mode, tail] of rows('pulse-legacy-regex')) {
+  test(`Pulse regex: ${pattern} ${mode} ${tail}`, () => {
+    const regex = {
+      IdentityColon: String.raw`^\:`,
+      BareBrace: String.raw`^\s*{`,
+      Counted: '^x{1,3}$',
+      Backwards: '^x{3,1}$',
+    }[pattern];
+    const source = 'const keep = a > b; const pattern = /' + regex + '/' + (mode === 'Unicode' ? 'u' : '') + ';' +
+      (tail === 'Invalid' ? '\nconst =' : '');
+    const actual = compare(source, { file: 'regex.js', mode: 'script' });
+    const allowed = tail === 'Complete' && pattern !== 'Backwards' &&
+      (mode === 'Legacy' || pattern === 'Counted');
+    if (allowed) {
+      assert.doesNotThrow(() => new RegExp(regex, mode === 'Unicode' ? 'u' : ''));
+      assert.equal(actual.path, 'fast');
+      assert.equal(actual.candidates.length, 1);
+    } else if (tail === 'Invalid') {
+      assert.equal(actual.path, 'diagnostic');
+      assert.equal(actual.candidates.length, 0);
+    } else {
+      assert.throws(() => new RegExp(regex, mode === 'Unicode' ? 'u' : ''), SyntaxError);
+      assert.notEqual(actual.path, 'fast');
+    }
+  });
+}

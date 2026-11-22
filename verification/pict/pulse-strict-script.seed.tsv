@@ -1,0 +1,9 @@
+Directive	Form	Mode
+Semicolon	FunctionBody	Script
+Semicolon	NestedBlock	Script
+ASI	FunctionBody	Script
+Absent	FunctionBody	Script
+Extended	NestedBlock	Script
+Escaped	FunctionBody	Script
+Semicolon	WhileBody	Script
+Absent	NestedBlock	Module

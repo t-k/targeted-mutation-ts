@@ -1,0 +1,8 @@
+Pattern	Mode	Tail
+IdentityColon	Legacy	Complete
+IdentityColon	Unicode	Complete
+BareBrace	Legacy	Complete
+BareBrace	Unicode	Complete
+Counted	Unicode	Complete
+Backwards	Legacy	Complete
+BareBrace	Legacy	Invalid
