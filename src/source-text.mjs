@@ -1,13 +1,20 @@
 export function byteOffsets(source) {
   const offsets = new Uint32Array(source.length + 1);
-  let unit = 0;
   let byte = 0;
-  for (const char of source) {
+  for (let unit = 0; unit < source.length; unit++) {
     offsets[unit] = byte;
-    unit += char.length;
-    byte += Buffer.byteLength(char);
+    const code = source.charCodeAt(unit);
+    if (code < 0x80) byte++;
+    else if (code < 0x800) byte += 2;
+    else if (code >= 0xd800 && code <= 0xdbff) {
+      const next = source.charCodeAt(unit + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        byte += 4;
+        unit++;
+      } else byte += 3;
+    } else byte += 3;
   }
-  offsets[unit] = byte;
+  offsets[source.length] = byte;
   return offsets;
 }
 
