@@ -6145,7 +6145,8 @@ TmtPulseParser_regex_flags(
   uint32_t at0,
   uint32_t seen0,
   uint32_t fuel0,
-  bool legacy0
+  bool legacy0,
+  bool unicode_only0
 )
 {
   TmtPulseMemory_tape input = input0;
@@ -6153,6 +6154,7 @@ TmtPulseParser_regex_flags(
   uint32_t seen = seen0;
   uint32_t fuel = fuel0;
   bool legacy = legacy0;
+  bool unicode_only = unicode_only0;
   while (true)
   {
     uint8_t value = TmtPulseMemory_peek(input, at);
@@ -6162,7 +6164,8 @@ TmtPulseParser_regex_flags(
         (
           (TmtPulseParser_cursor){
             .at = at,
-            .ok = !(TmtGrammar_identifier_continue(value) || value == 92U),
+            .ok = !(TmtGrammar_identifier_continue(value) || value == 92U) &&
+              (!unicode_only || (seen & 32U) != 0U),
             .newline = false
           }
         );
@@ -6220,6 +6223,42 @@ TmtPulseParser_capture_hash(
 
 uint32_t TmtPulseParser_no_character = 65536U;
 
+uint32_t TmtPulseParser_category_class = 65537U;
+
+TmtPulseParser_regex_unit
+TmtPulseParser_regex_category(TmtPulseMemory_tape input, uint32_t at, uint32_t opening)
+{
+  bool value = TmtPulseParser_same(input, opening, 123U);
+  uint8_t value1 = TmtPulseMemory_peek(input, TmtPulseParser_next(opening));
+  uint8_t value2 = TmtPulseMemory_peek(input, TmtPulseParser_plus(opening, 2U));
+  bool letter = value1 == 76U && value2 == 125U;
+  bool value3;
+  if (value1 == 77U && (value2 == 99U || value2 == 101U || value2 == 110U))
+    value3 = TmtPulseParser_same(input, TmtPulseParser_plus(opening, 3U), 125U);
+  else
+    value3 = false;
+  if (value && (letter || value3))
+    return
+      (
+        (TmtPulseParser_regex_unit){
+          .unit_end = TmtPulseParser_plus(opening, letter ? 3U : 4U),
+          .unit_ok = true,
+          .character = TmtPulseParser_category_class,
+          .repeatable = true
+        }
+      );
+  else
+    return
+      (
+        (TmtPulseParser_regex_unit){
+          .unit_end = at,
+          .unit_ok = false,
+          .character = TmtPulseParser_no_character,
+          .repeatable = false
+        }
+      );
+}
+
 TmtPulseParser_regex_unit
 TmtPulseParser_regex_escape(TmtPulseMemory_tape input, uint32_t at, bool in_class)
 {
@@ -6261,7 +6300,9 @@ TmtPulseParser_regex_escape(TmtPulseMemory_tape input, uint32_t at, bool in_clas
                                                                                                     98U ? 8U
                                                                                                         : value10 ? 0U
                                                                                                                   : TmtPulseParser_no_character;
-  if (value == 120U)
+  if (value == 112U || value == 80U)
+    return TmtPulseParser_regex_category(input, at, finish);
+  else if (value == 120U)
   {
     uint8_t value2 = TmtPulseMemory_peek(input, finish);
     uint32_t high = TmtPulseParser_hex_value(value2);
@@ -6425,26 +6466,49 @@ TmtPulseParser_regex_class_unit(TmtPulseMemory_tape input, uint32_t at)
       );
 }
 
-TmtPulseParser_cursor
-TmtPulseParser_regex_class(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0)
+FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool
+TmtPulseParser_regex_class(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t fuel0,
+  bool unicode_only0
+)
 {
   TmtPulseMemory_tape input = input0;
   uint32_t at = at0;
   uint32_t fuel = fuel0;
+  bool unicode_only = unicode_only0;
   while (true)
     if (fuel == 0U)
-      return ((TmtPulseParser_cursor){ .at = at, .ok = false, .newline = false });
+      return
+        (
+          (FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool){
+            ._1 = { .at = at, .ok = false, .newline = false },
+            ._2 = unicode_only
+          }
+        );
     else
     {
       bool value = TmtPulseParser_same(input, at, 93U);
       if (value)
         return
-          ((TmtPulseParser_cursor){ .at = TmtPulseParser_next(at), .ok = true, .newline = false });
+          (
+            (FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool){
+              ._1 = { .at = TmtPulseParser_next(at), .ok = true, .newline = false },
+              ._2 = unicode_only
+            }
+          );
       else
       {
         TmtPulseParser_regex_unit value1 = TmtPulseParser_regex_class_unit(input, at);
         if (!value1.unit_ok)
-          return ((TmtPulseParser_cursor){ .at = at, .ok = false, .newline = false });
+          return
+            (
+              (FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool){
+                ._1 = { .at = at, .ok = false, .newline = false },
+                ._2 = unicode_only
+              }
+            );
         else
         {
           bool value2 = TmtPulseParser_same(input, value1.unit_end, 45U);
@@ -6466,14 +6530,22 @@ TmtPulseParser_regex_class(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fu
               fuel = tmp;
             }
             else
-              return ((TmtPulseParser_cursor){ .at = at, .ok = false, .newline = false });
+              return
+                (
+                  (FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool){
+                    ._1 = { .at = at, .ok = false, .newline = false },
+                    ._2 = unicode_only
+                  }
+                );
           }
           else
           {
             uint32_t tmp0 = value1.unit_end;
-            uint32_t tmp = TmtPulseParser_minus(fuel, 1U);
+            uint32_t tmp1 = TmtPulseParser_minus(fuel, 1U);
+            bool tmp = unicode_only || value1.character == TmtPulseParser_category_class;
             at = tmp0;
-            fuel = tmp;
+            fuel = tmp1;
+            unicode_only = tmp;
           }
         }
       }
@@ -6691,7 +6763,8 @@ TmtPulseParser_regex_group(
           (TmtPulseParser_regex_captures){
             .names = names1,
             .count = count,
-            .legacy = captures.legacy
+            .legacy = captures.legacy,
+            .unicode_only = captures.unicode_only
           }
         ));
   }
@@ -6729,7 +6802,13 @@ TmtPulseParser_regex_pattern(
       if (value == 47U && !nested)
       {
         TmtPulseParser_cursor
-        value1 = TmtPulseParser_regex_flags(input, TmtPulseParser_next(at), 0U, 7U, captures.legacy);
+        value1 =
+          TmtPulseParser_regex_flags(input,
+            TmtPulseParser_next(at),
+            0U,
+            7U,
+            captures.legacy,
+            captures.unicode_only);
         return ((TmtPulseParser_regex_result){ .ending = value1, .captures = captures });
       }
       else if (value == 41U && nested)
@@ -6756,18 +6835,33 @@ TmtPulseParser_regex_pattern(
       else if (value == 91U)
       {
         bool value1 = TmtPulseParser_same(input, TmtPulseParser_next(at), 94U);
-        TmtPulseParser_cursor
-        value2 = TmtPulseParser_regex_class(input, TmtPulseParser_plus(at, value1 ? 2U : 1U), rest);
-        if (!value2.ok)
-          return ((TmtPulseParser_regex_result){ .ending = value2, .captures = captures });
+        FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool
+        value2 =
+          TmtPulseParser_regex_class(input,
+            TmtPulseParser_plus(at, value1 ? 2U : 1U),
+            rest,
+            captures.unicode_only);
+        TmtPulseParser_cursor class_ = value2._1;
+        bool unicode_only = value2._2;
+        if (!class_.ok)
+          return ((TmtPulseParser_regex_result){ .ending = class_, .captures = captures });
         else
         {
-          uint32_t tmp0 = value2.at;
+          uint32_t tmp0 = class_.at;
           uint32_t tmp1 = rest;
-          bool tmp = true;
+          bool tmp2 = true;
+          TmtPulseParser_regex_captures
+          tmp =
+            {
+              .names = captures.names,
+              .count = captures.count,
+              .legacy = captures.legacy,
+              .unicode_only = unicode_only
+            };
           at = tmp0;
           fuel = tmp1;
-          can_repeat = tmp;
+          can_repeat = tmp2;
+          captures = tmp;
         }
       }
       else if (value == 92U)
@@ -6795,7 +6889,13 @@ TmtPulseParser_regex_pattern(
           uint32_t tmp1 = rest;
           bool tmp2 = true;
           TmtPulseParser_regex_captures
-          tmp = { .names = captures.names, .count = captures.count, .legacy = true };
+          tmp =
+            {
+              .names = captures.names,
+              .count = captures.count,
+              .legacy = true,
+              .unicode_only = captures.unicode_only
+            };
           at = tmp0;
           fuel = tmp1;
           can_repeat = tmp2;
@@ -6810,10 +6910,20 @@ TmtPulseParser_regex_pattern(
           {
             uint32_t tmp0 = value2.unit_end;
             uint32_t tmp1 = rest;
-            bool tmp = value2.repeatable;
+            bool tmp2 = value2.repeatable;
+            TmtPulseParser_regex_captures
+            tmp =
+              {
+                .names = captures.names,
+                .count = captures.count,
+                .legacy = captures.legacy,
+                .unicode_only = captures.unicode_only ||
+                  value2.character == TmtPulseParser_category_class
+              };
             at = tmp0;
             fuel = tmp1;
-            can_repeat = tmp;
+            can_repeat = tmp2;
+            captures = tmp;
           }
         }
       }
@@ -6842,7 +6952,13 @@ TmtPulseParser_regex_pattern(
           uint32_t tmp1 = rest;
           bool tmp2 = true;
           TmtPulseParser_regex_captures
-          tmp = { .names = captures.names, .count = captures.count, .legacy = true };
+          tmp =
+            {
+              .names = captures.names,
+              .count = captures.count,
+              .legacy = true,
+              .unicode_only = captures.unicode_only
+            };
           at = tmp0;
           fuel = tmp1;
           can_repeat = tmp2;
@@ -6892,7 +7008,8 @@ TmtPulseParser_regex_pattern(
                           (TmtPulseParser_regex_captures){
                             .names = captures.names,
                             .count = captures.count,
-                            .legacy = true
+                            .legacy = true,
+                            .unicode_only = captures.unicode_only
                           }
                         )
                         : captures;
@@ -6940,7 +7057,14 @@ TmtPulseParser_cursor TmtPulseParser_regex_end(TmtPulseMemory_tape input, uint32
       input.size,
       false,
       false,
-      ((TmtPulseParser_regex_captures){ .names = 0ULL, .count = 0U, .legacy = false }));
+      (
+        (TmtPulseParser_regex_captures){
+          .names = 0ULL,
+          .count = 0U,
+          .legacy = false,
+          .unicode_only = false
+        }
+      ));
   return value.ending;
 }
 

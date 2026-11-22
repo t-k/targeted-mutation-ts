@@ -364,8 +364,21 @@ let rec string_end (input:tape) (#frame:slprop) (at:U32.t) (delimiter:U8.t) (fue
 let regex_printable (ch:U8.t) : bool = U8.(ch >=^ 32uy && ch <=^ 126uy)
 
 let no_character : U32.t = 65536ul
+let category_class : U32.t = 65537ul
 
 type regex_unit = { unit_end:U32.t; unit_ok:bool; character:U32.t; repeatable:bool }
+
+let regex_category (input:tape) (#frame:slprop) (at opening:U32.t)
+  : Tot (stt regex_unit (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! brace = (fun () -> same input #frame opening 123uy) in
+  let! first = (fun () -> peek input #frame (next opening)) in
+  let! second = (fun () -> peek input #frame (plus opening 2ul)) in
+  let letter = first = 76uy && second = 125uy in
+  let! marks = (fun () -> if first = 77uy && (second = 99uy || second = 101uy || second = 110uy) then
+    same input #frame (plus opening 3ul) 125uy else read_ret input #frame false) in
+  read_ret input #frame (if brace && (letter || marks) then
+    { unit_end = plus opening (if letter then 3ul else 4ul); unit_ok = true; character = category_class; repeatable = true }
+  else { unit_end = at; unit_ok = false; character = no_character; repeatable = false })
 
 let regex_escape (input:tape) (#frame:slprop) (at:U32.t) (in_class:bool) : Tot (stt regex_unit (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! escape = (fun () -> peek input #frame (next at)) in
@@ -388,7 +401,8 @@ let regex_escape (input:tape) (#frame:slprop) (at:U32.t) (in_class:bool) : Tot (
     else if in_class && escape = 98uy then 8ul
     else if nul then 0ul
     else no_character in
-  if escape = 120uy then
+  if escape = 112uy || escape = 80uy then regex_category input #frame at finish
+  else if escape = 120uy then
     let! anf_value_1 = (fun () -> peek input #frame finish) in
     let high = hex_value anf_value_1 in
     let! anf_value_2 = (fun () -> peek input #frame (next finish)) in
@@ -447,21 +461,23 @@ let regex_class_unit (input:tape) (#frame:slprop) (at:U32.t) : Tot (stt regex_un
   else read_ret input #frame ({ unit_end = next at; unit_ok = regex_printable byte && byte <> 93uy;
     character = Cast.uint8_to_uint32 byte; repeatable = true })
 
-let rec regex_class (input:tape) (#frame:slprop) (at fuel:U32.t) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
-  if fuel = 0ul then read_ret input #frame ({ at; ok = false; newline = false })
-  else (let! anf_value_1 = (fun () -> same input #frame at 93uy) in if anf_value_1 then read_ret input #frame ({ at = next at; ok = true; newline = false })
+let rec regex_class (input:tape) (#frame:slprop) (at fuel:U32.t) (unicode_only:bool)
+  : Tot (stt (cursor & bool) (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
+  if fuel = 0ul then read_ret input #frame ({ at; ok = false; newline = false }, unicode_only)
+  else (let! anf_value_1 = (fun () -> same input #frame at 93uy) in if anf_value_1 then
+    read_ret input #frame ({ at = next at; ok = true; newline = false }, unicode_only)
   else
     let! lhs = (fun () -> regex_class_unit input #frame at) in
-    if not lhs.unit_ok then read_ret input #frame ({ at; ok = false; newline = false })
+    if not lhs.unit_ok then read_ret input #frame ({ at; ok = false; newline = false }, unicode_only)
     else
       let! dash = (fun () -> same input #frame lhs.unit_end 45uy) in
       let! close = (fun () -> same input #frame (next lhs.unit_end) 93uy) in
       if dash && not close then
         let! rhs = (fun () -> regex_class_unit input #frame (next lhs.unit_end)) in
         if rhs.unit_ok && U32.(lhs.character <=^ rhs.character && rhs.character <^ no_character) then
-          regex_class input #frame rhs.unit_end (minus fuel 1ul)
-        else read_ret input #frame ({ at; ok = false; newline = false })
-      else regex_class input #frame lhs.unit_end (minus fuel 1ul))
+          regex_class input #frame rhs.unit_end (minus fuel 1ul) unicode_only
+        else read_ret input #frame ({ at; ok = false; newline = false }, unicode_only)
+      else regex_class input #frame lhs.unit_end (minus fuel 1ul) (unicode_only || lhs.character = category_class))
 
 type regex_count = { count_end:U32.t; count_value:U32.t; count_ok:bool }
 
@@ -497,14 +513,15 @@ let regex_flag_bit (byte:U8.t) : U32.t =
   else if byte = 121uy then 64ul
   else 0ul
 
-let rec regex_flags (input:tape) (#frame:slprop) (at seen fuel:U32.t) (legacy:bool) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
+let rec regex_flags (input:tape) (#frame:slprop) (at seen fuel:U32.t) (legacy unicode_only:bool) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
   let! byte = (fun () -> peek input #frame at) in
   let bit = regex_flag_bit byte in
-  if bit = 0ul then read_ret input #frame ({ at; ok = not (G.identifier_continue byte || byte = 92uy); newline = false })
+  if bit = 0ul then read_ret input #frame ({ at; ok = not (G.identifier_continue byte || byte = 92uy) &&
+    (not unicode_only || U32.logand seen 32ul <> 0ul); newline = false })
   else if fuel = 0ul || U32.logand bit seen <> 0ul || (legacy && bit = 32ul) then read_ret input #frame ({ at; ok = false; newline = false })
-  else regex_flags input #frame (next at) (U32.logor bit seen) (minus fuel 1ul) legacy
+  else regex_flags input #frame (next at) (U32.logor bit seen) (minus fuel 1ul) legacy unicode_only
 
-type regex_captures = { names:U64.t; count:U32.t; legacy:bool }
+type regex_captures = { names:U64.t; count:U32.t; legacy:bool; unicode_only:bool }
 type regex_result = { ending:cursor; captures:regex_captures }
 type regex_group_result = { pattern:regex_result; repeatable_group:bool }
 
@@ -526,7 +543,7 @@ let rec regex_pattern (input:tape) (#frame:slprop) (at depth fuel:U32.t) (nested
     let! byte = (fun () -> peek input #frame at) in
     let rest = minus fuel 1ul in
     if byte = 47uy && not nested then
-      let! ending = (fun () -> regex_flags input #frame (next at) 0ul 7ul captures.legacy) in read_ret input #frame ({ ending; captures })
+      let! ending = (fun () -> regex_flags input #frame (next at) 0ul 7ul captures.legacy captures.unicode_only) in read_ret input #frame ({ ending; captures })
     else if byte = 41uy && nested then read_ret input #frame (regex_result_at (next at) true captures)
     else if byte = 40uy then
       let! group = (fun () -> regex_group input #frame at depth rest captures) in
@@ -535,9 +552,9 @@ let rec regex_pattern (input:tape) (#frame:slprop) (at depth fuel:U32.t) (nested
       else regex_pattern input #frame parsed.ending.at depth rest nested group.repeatable_group parsed.captures
     else if byte = 91uy then
       let! negated = (fun () -> same input #frame (next at) 94uy) in
-      let! class_ = (fun () -> regex_class input #frame (plus at (if negated then 2ul else 1ul)) rest) in
+      let! class_, unicode_only = (fun () -> regex_class input #frame (plus at (if negated then 2ul else 1ul)) rest captures.unicode_only) in
       if not class_.ok then read_ret input #frame ({ ending = class_; captures })
-      else regex_pattern input #frame class_.at depth rest nested true captures
+      else regex_pattern input #frame class_.at depth rest nested true { captures with unicode_only }
     else if byte = 92uy then
       let! first = (fun () -> peek input #frame (next at)) in
       if U8.(first >=^ 49uy && first <=^ 57uy) then
@@ -550,7 +567,8 @@ let rec regex_pattern (input:tape) (#frame:slprop) (at depth fuel:U32.t) (nested
       else
         let! escaped = (fun () -> regex_escape input #frame at false) in
         if not escaped.unit_ok then read_ret input #frame (regex_result_at at false captures)
-        else regex_pattern input #frame escaped.unit_end depth rest nested escaped.repeatable captures
+        else regex_pattern input #frame escaped.unit_end depth rest nested escaped.repeatable
+          { captures with unicode_only = captures.unicode_only || escaped.character = category_class }
     else if byte = 124uy || byte = 94uy || byte = 36uy then
       regex_pattern input #frame (next at) depth rest nested false captures
     else if byte = 43uy || byte = 42uy || byte = 63uy || byte = 123uy then
@@ -612,7 +630,7 @@ and regex_group (input:tape) (#frame:slprop) (at depth fuel:U32.t) (captures:reg
   read_ret input #frame ({ pattern; repeatable_group })
 
 let regex_end (input:tape) (#frame:slprop) (at:U32.t) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  let! parsed = (fun () -> regex_pattern input #frame at 32ul input.size false false { names = 0uL; count = 0ul; legacy = false }) in
+  let! parsed = (fun () -> regex_pattern input #frame at 32ul input.size false false { names = 0uL; count = 0ul; legacy = false; unicode_only = false }) in
   read_ret input #frame (parsed.ending)
 
 type precedence = p:U32.t{1 <= U32.v p /\ U32.v p <= 11}

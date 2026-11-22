@@ -1,0 +1,9 @@
+Name	Place	Flags
+L	Atom	Unicode
+Mc	Class	Unicode
+Me	Class	Combined
+Mn	Group	Combined
+Invalid	Atom	Unicode
+L	Range	Unicode
+L	Atom	NoUnicode
+L	Class	UnicodeSets
