@@ -1,0 +1,3 @@
+Form: Protected, Declared, Infer, Concrete, Implementation, MissingType
+Prelude: Direct, Import
+Tail: Comparison, Broken

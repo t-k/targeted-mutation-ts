@@ -1,0 +1,13 @@
+Form	Prelude	Tail
+Protected	Direct	Comparison
+Declared	Import	Comparison
+Infer	Direct	Comparison
+Concrete	Import	Comparison
+Implementation	Import	Comparison
+MissingType	Direct	Comparison
+Infer	Import	Broken
+Concrete	Direct	Broken
+Implementation	Direct	Broken
+Protected	Import	Broken
+Declared	Direct	Broken
+MissingType	Import	Broken

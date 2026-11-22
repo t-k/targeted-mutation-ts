@@ -1129,7 +1129,12 @@ and type_list (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining:
   else if closed && allow_empty then consume input #frame st close
   else if remaining = 0ul then read_ret input #frame (failed st 1ul)
   else
-    let! st = (fun () -> (let! anf_value_1 = (fun () -> (annotation_type input #frame st fuel 64ul)) in skip input #frame anf_value_1)) in
+    let! annotated = (fun () -> annotation_type input #frame st fuel 64ul) in
+    let! annotated = (fun () -> if annotated.status <> 0ul then
+      let! infer_ = (fun () -> keyword input #frame st.offset 5ul 0x696e666572uL) in
+      if infer_ then type_terms input #frame st fuel 64ul false true else read_ret input #frame annotated
+      else read_ret input #frame annotated) in
+    let! st = (fun () -> skip input #frame annotated) in
     if st.status <> 0ul then read_ret input #frame (st)
     else (let! anf_value_2 = (fun () -> same input #frame st.offset 44uy) in if anf_value_2 then
       type_list input #frame { st with offset = next st.offset } fuel (minus remaining 1ul) close true
@@ -1825,12 +1830,12 @@ let abstract_modifier (input:tape) (#frame:slprop) (offset:U32.t)
     let! after = (fun () -> trivia input #frame (plus offset 8ul)) in
     read_ret input #frame { after with ok = after.ok && not after.newline }
 
-let abstract_class_start (input:tape) (#frame:slprop) (state:parser_state)
+let abstract_class_start (input:tape) (#frame:slprop) (offset:U32.t)
   : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  let! first = (fun () -> peek input #frame state.offset) in
-  if first <> 97uy then read_ret input #frame { at = state.offset; ok = false; newline = false }
+  let! first = (fun () -> peek input #frame offset) in
+  if first <> 97uy then read_ret input #frame { at = offset; ok = false; newline = false }
   else
-    let! modifier = (fun () -> abstract_modifier input #frame state.offset) in
+    let! modifier = (fun () -> abstract_modifier input #frame offset) in
     let! class_ = (fun () -> if modifier.ok then class_keyword input #frame modifier.at else read_ret input #frame false) in
     read_ret input #frame { modifier with ok = class_ }
 
@@ -1839,9 +1844,13 @@ let abstract_member_modifier (input:tape) (#frame:slprop) (start:U32.t) (byte:U8
   if byte = 97uy then abstract_modifier input #frame start
   else
     let! public_ = (fun () -> keyword input #frame start 6ul 0x7075626c6963uL) in
-    if not public_ then read_ret input #frame { at = start; ok = false; newline = false }
+    let! protected_ = (fun () -> if public_ then read_ret input #frame false else
+      let! prefix = (fun () -> word input #frame start 8ul 0uL) in
+      if prefix = 0x70726f7465637465uL then keyword input #frame (plus start 8ul) 1ul 0x64uL
+      else read_ret input #frame false) in
+    if not public_ && not protected_ then read_ret input #frame { at = start; ok = false; newline = false }
     else
-      let! after = (fun () -> trivia input #frame (plus start 6ul)) in
+      let! after = (fun () -> trivia input #frame (plus start (if public_ then 6ul else 9ul))) in
       if after.ok && not after.newline then abstract_modifier input #frame after.at
       else read_ret input #frame { after with ok = false }
 
@@ -1849,6 +1858,8 @@ type class_key = {
   after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool; readonly_:bool; arity:parameter_arity;
   generator_:bool; private_:bool; quoted_:bool; computed:bool; modifier_flags:U32.t
 }
+
+type class_kind = | OrdinaryClass | AbstractClass | AmbientAbstractClass
 
 type pending_overload = { key_span:G.span; key_flags:U32.t; key_async:bool }
 
@@ -2224,7 +2235,7 @@ and class_expression (input:tape) (st:parser_state) (fuel:U32.t)
     let! named =
       (fun () -> if inherited || next_ = 60uy || next_ = 123uy then ret input (body)
       else (let! anf_value_1 = (fun () -> (name input body.offset false true)) in ret input (from_cursor body anf_value_1))) in
-    class_tail input named (minus fuel 1ul) false
+    class_tail input named (minus fuel 1ul) OrdinaryClass
 and super_expression (input:tape) (st:parser_state) (fuel:U32.t)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 1; U32.v input.size + 1]) =
   let start_pos = st.offset in
@@ -2975,7 +2986,7 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
       let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
       let start = { tracked with local_names = decl.used } in
-      (let! anf_value_2 = (fun () -> class_tail input start (minus fuel 1ul) false) in ret input ({ decl with state = anf_value_2 }))
+      (let! anf_value_2 = (fun () -> class_tail input start (minus fuel 1ul) OrdinaryClass) in ret input ({ decl with state = anf_value_2 }))
   else control_statement input st fuel in_function jumps floor used root_control
 and control_sequence (input:tape) (state:parser_state) (fuel remaining:U32.t) (in_function:bool) (jumps:jump_context)
   (floor used:names_used) (root_control:bool)
@@ -3200,7 +3211,7 @@ and class_field_tail (input:tape) (state:parser_state) (fuel:U32.t)
     ret input ({ closed with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed;
       super_context = state.super_context; in_allowed = state.in_allowed })
 
-and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (derived seen_constructor abstract_class:bool) (pending:pending_overload)
+and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (derived seen_constructor:bool) (kind:class_kind) (pending:pending_overload)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 56; U32.v remaining]) =
   let! st = (fun () -> skip input state) in
   let! byte = (fun () -> peek input st.offset) in
@@ -3211,10 +3222,10 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
   else if remaining = 0ul then ret input (failed st 1ul)
   else if byte = 59uy then
     if awaiting_body then ret input (failed st 1ul)
-    else (let! anf_value_1 = (fun () -> (consume input st 59uy)) in class_members input anf_value_1 fuel (minus remaining 1ul) derived seen_constructor abstract_class no_overload)
+    else (let! anf_value_1 = (fun () -> consume input st 59uy) in class_members input anf_value_1 fuel (minus remaining 1ul) derived seen_constructor kind no_overload)
   else
     let! member_head =
-      (fun () -> if abstract_class && (byte = 97uy || byte = 112uy) then
+      (fun () -> if kind <> OrdinaryClass && (byte = 97uy || byte = 112uy) then
         let! modifier = (fun () -> abstract_member_modifier input st.offset byte) in
         let! has_key = (fun () -> if modifier.ok then class_key_start input { st with offset = modifier.at } else ret input false) in
         ret input (if has_key then { modifier with ok = true } else { modifier with at = st.offset; ok = false })
@@ -3241,7 +3252,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             length = minus pending.key_span.G.last pending.key_span.G.first then
             same_bytes input key.first pending.key_span.G.first length
           else ret input false) in
-      if member_head.ok then
+      if member_head.ok || kind = AmbientAbstractClass then
         let! closed =
           (fun () -> if awaiting_body || constructor_name || accessor || key.private_ || key.quoted_ || key.computed ||
             key.async_ || key.generator_ || U32.logand key.modifier_flags 13ul <> 0ul then ret input (failed tail 1ul)
@@ -3257,7 +3268,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             let! initializer = (fun () -> same input following.offset 61uy) in
             if initializer then ret input (failed following 1ul)
             else statement_end input typed typed.offset true) in
-        class_members input closed fuel (minus remaining 1ul) derived seen_constructor abstract_class no_overload
+        class_members input closed fuel (minus remaining 1ul) derived seen_constructor kind no_overload
       else if not compatible || (key.private_ && constructor_spelling) || prototype || ((constructor_name || key.computed) && not method) || (key.readonly_ && method) ||
         (accessor && (key.async_ || key.generator_ || constructor || next_byte <> 40uy)) ||
         (constructor && (seen_constructor || key.async_ || key.generator_ || next_byte <> 40uy)) then ret input (failed tail 1ul)
@@ -3276,8 +3287,8 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
               ret input (result.after_function, pending)
           else if key.async_ || key.generator_ then ret input (failed tail 1ul, no_overload)
           else let! field = (fun () -> class_field_tail input { tail with offset = key.after_key.offset } fuel) in ret input (field, no_overload)) in
-        class_members input after fuel (minus remaining 1ul) derived (seen_constructor || constructor) abstract_class pending
-and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (abstract_class:bool)
+        class_members input after fuel (minus remaining 1ul) derived (seen_constructor || constructor) kind pending
+and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (kind:class_kind)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 57; 0]) =
   let! st = (fun () -> (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (skip input state)) in optional_type_parameters input anf_value_2))) in skip input anf_value_1)) in
   let! derived = (fun () -> keyword input st.offset 7ul 0x657874656e6473uL) in
@@ -3297,7 +3308,7 @@ and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (abstract_class:bo
   let! start = (fun () -> consume input ready 123uy) in
   let! start = (fun () -> if input.private_possible then record_private input start (start_range ready.offset) PrivateScope
     else ret input start) in
-  let! closed = (fun () -> class_members input start fuel input.size derived false abstract_class no_overload) in
+  let! closed = (fun () -> class_members input start fuel input.size derived false kind no_overload) in
   ret input { closed with private_scope = state.private_scope }
 
 and pattern_names (input:tape) (state:parser_state) (base:names_base) (floor used:names_used)
@@ -3529,7 +3540,10 @@ let ambient_modifier (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt curso
     let! after = (fun () -> trivia input #frame (plus start 7ul)) in
     let! width = (fun () -> ambient_variable_width input #frame after.at) in
     let! alias = (fun () -> if width = 0ul then type_declaration_width input #frame after.at else read_ret input #frame 0ul) in
-    read_ret input #frame ({ after with ok = after.ok && not after.newline && (width <> 0ul || alias = 4ul) })
+    let! class_ = (fun () -> if width = 0ul && alias = 0ul then
+      let! abstract_ = (fun () -> abstract_class_start input #frame after.at) in
+      read_ret input #frame abstract_.ok else read_ret input #frame false) in
+    read_ret input #frame ({ after with ok = after.ok && not after.newline && (width <> 0ul || alias = 4ul || class_) })
   else read_ret input #frame ({ at = start; ok = false; newline = false }))
 
 type declaration_head = {
@@ -3544,7 +3558,7 @@ let declaration_start (input:tape) (#frame:slprop) (state:parser_state) : Tot (s
   let st = if async_.ok then { st with offset = async_.at } else st in
   let! ambient = (fun () -> ambient_modifier input #frame st.offset) in
   let st = if ambient.ok then { st with offset = ambient.at } else st in
-  let! abstract_ = (fun () -> abstract_class_start input #frame st) in
+  let! abstract_ = (fun () -> abstract_class_start input #frame st.offset) in
   let st = if abstract_.ok then { st with offset = abstract_.at } else st in
   let! class_ = (fun () -> if abstract_.ok then read_ret input #frame true else class_keyword input #frame st.offset) in
   let! width =
@@ -3749,7 +3763,9 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
         else bind_in_namespace input start 0ul 0ul used start.offset (if type_only then TypeName else ValueName)) in
       let! st = (fun () -> skip input decl.state) in
       let! result =
-        (fun () -> if head.class_declaration then class_tail input st 64ul head.abstract_class
+        (fun () -> if head.class_declaration then
+          let kind = if head.ambient_declaration then AmbientAbstractClass else if head.abstract_class then AbstractClass else OrdinaryClass in
+          class_tail input st 64ul kind
         else if type_only then
           let! valid = (fun () -> admissible_type_binding input start.offset decl.state.offset) in
           if not valid then ret input (failed st 1ul)
@@ -3884,7 +3900,7 @@ let default_declaration (input:tape) (state:parser_state) (used:names_used) : To
     let! derives = (fun () -> keyword input start.offset 7ul 0x657874656e6473uL) in
     let! named = (fun () -> if byte = 123uy || byte = 60uy || derives then ret input ({ state = start; used })
       else bind_at input start 0ul used start.offset) in
-    (let! anf_value_2 = (fun () -> class_tail input named.state 64ul false) in ret input ({ named with state = anf_value_2 }))
+    (let! anf_value_2 = (fun () -> class_tail input named.state 64ul OrdinaryClass) in ret input ({ named with state = anf_value_2 }))
   else if function_head.ok then
     let! start = (fun () -> skip input { state with offset = plus function_head.at 8ul }) in
     let! head = (fun () -> read_generator_head input start) in
@@ -3908,7 +3924,7 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
       if enumeration then ret input true else keyword input st.offset 6ul 0x6578706f7274uL
     else if first = 102uy then keyword input st.offset 8ul 0x66756e6374696f6euL
     else if first = 97uy then
-      let! abstract_ = (fun () -> abstract_class_start input st) in
+      let! abstract_ = (fun () -> abstract_class_start input st.offset) in
       if abstract_.ok then ret input true else (let! anf_value_1 = (fun () -> (async_function input st.offset)) in ret input (anf_value_1.ok))
     else if first = 100uy then (let! anf_value_2 = (fun () -> (ambient_modifier input st.offset)) in ret input (anf_value_2.ok))
     else if first = 99uy then

@@ -892,6 +892,12 @@ TmtPulseParser_leave_function_locals(
   TmtPulseParser_parser_state outer
 );
 
+#define TmtPulseParser_OrdinaryClass 0
+#define TmtPulseParser_AbstractClass 1
+#define TmtPulseParser_AmbientAbstractClass 2
+
+typedef uint8_t TmtPulseParser_class_kind;
+
 TmtPulseParser_parser_state
 TmtPulseParser_interface_bases(
   TmtPulseMemory_tape input0,
@@ -1507,7 +1513,7 @@ TmtPulseParser_class_members(
   uint32_t remaining0,
   bool derived0,
   bool seen_constructor0,
-  bool abstract_class0,
+  TmtPulseParser_class_kind kind0,
   TmtPulseParser_pending_overload pending0
 );
 
@@ -1516,7 +1522,7 @@ TmtPulseParser_class_tail(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   uint32_t fuel,
-  bool abstract_class
+  TmtPulseParser_class_kind kind
 );
 
 TmtPulseParser_parser_state
@@ -2077,10 +2083,7 @@ TmtPulseParser_ambient_module_start(
 );
 
 TmtPulseParser_cursor
-TmtPulseParser_abstract_class_start(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state
-);
+TmtPulseParser_abstract_class_start(TmtPulseMemory_tape input, uint32_t offset);
 
 uint32_t TmtPulseParser_ambient_variable_width(TmtPulseMemory_tape input, uint32_t start);
 
