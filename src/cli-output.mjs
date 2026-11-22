@@ -11,10 +11,11 @@ Scope (analyze):
   --copy-exclude PATH           Leave a project path out of the temporary copies. Repeatable.
 
 Profiles (analyze):
-  --mutators focused|operators|standard|all
+  --mutators focused|operators|full|standard|all
                                 focused (default) edits comparison boundaries and thresholds.
-                                operators adds equality, logical and arithmetic operator swaps (no extra package).
-                                standard and all need @stryker-mutator/instrumenter@10.1.1.
+                                operators adds equality, logical and arithmetic operator swaps.
+                                full adds the complete built-in mutation set (the StrykerJS mutators).
+                                standard and all use @stryker-mutator/instrumenter@10.1.1 instead.
   --witnesses                   Search for edits that survive and confirm a distinguishing test.
   --spec FILE                   Specification with expected thresholds or witness plans.
   --deterministic               Declare a deterministic suite so recorded comparisons can decide a trial.

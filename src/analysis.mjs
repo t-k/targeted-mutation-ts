@@ -11,6 +11,7 @@ import { createProbePreloadCheck, freshProbeBinding, instrument, installProbe, r
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
 import { checkReplay } from './lean-replay.mjs';
+import { renderBuiltinSwitches } from './builtin-switches.mjs';
 import { collectOperatorSites } from './operator-sites.mjs';
 import { inspectTrace, pendingTraceDirectory, sameObservations } from './trace-buffer.mjs';
 
@@ -28,9 +29,19 @@ function compare(operator, left, right) {
 }
 
 // The Playwright extraction reports a logical operator with an operand-dropping edit. The operator swap is a different edit at the same position.
-function withOperatorSites(comparisons, input, file, dialect) {
+// The complete built-in set as plain source edits, for runners that cannot use runtime switches.
+// A comparison boundary that the focused analysis already edits is left to it.
+function builtInSites(comparisons, input, file, dialect, selected) {
+  const focused = new Set(comparisons.map(candidate => `${candidate.edit[0]}:${candidate.replacement}`));
+  return renderBuiltinSwitches(input, file, selected, { dialect }).mutants
+    .filter(mutant => !(mutant.operatorSwap && focused.has(mutant.operatorSwap.join(':'))))
+    .map(mutant => ({ rule: mutant.mutatorName, original: mutant.original, replacement: mutant.replacement, edit: mutant.edit,
+      left: [mutant.edit[0], mutant.edit[0]], right: [mutant.edit[1], mutant.edit[1]], source: mutant.source, unobserved: true }));
+}
+
+function withOperatorSites(comparisons, input, file, { mutators, dialect }, selected) {
   const start = candidate => (candidate.operatorEdit ?? candidate.edit)[0];
-  const added = collectOperatorSites(input, file, { dialect });
+  const added = mutators === 'full' ? builtInSites(comparisons, input, file, dialect, selected) : collectOperatorSites(input, file, { dialect });
   return added.length ? [...comparisons, ...added].sort((a, b) => start(a) - start(b)) : comparisons;
 }
 
@@ -42,7 +53,7 @@ export function collectComparisons(root, files, options) {
     const { path, fallback, reason, candidates: comparisons, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, requireNative: true, logical: options.runner === 'playwright' });
     extraction.push({ file, path, reason, diagnostics, ...(fallback === undefined ? {} : { fallback }) });
     if (path === 'diagnostic') continue;
-    const candidates = options.mutators === 'operators' ? withOperatorSites(comparisons, input, file, options.dialect) : comparisons;
+    const candidates = ['operators', 'full'].includes(options.mutators) ? withOperatorSites(comparisons, input, file, options, selected) : comparisons;
     const positions = byteLocations(input, candidates.map(candidate => (candidate.operatorEdit ?? candidate.edit)[0]));
     let digest;
     const sites = candidates.flatMap((candidate, index) => {
@@ -382,7 +393,7 @@ function analyzePlaywright(root, subjects, report, options, specification) {
       const trial = { site, edit: site.edit, replacement: site.replacement, source: site.source };
       const mutant = attempt({ trial });
       const result = {
-        site: site.id, location: site.location, rule: site.rule, operator: site.operator, edit: site.edit,
+        site: site.id, location: site.location, rule: site.rule, operator: site.operator, original: site.original, edit: site.edit,
         replacement: site.replacement, status: verdict(mutant, baseline), evidence: 'reexecuted', run: playwrightSummary(mutant),
       };
       if (result.status === 'killed') result.tests = mutant.tests.filter(test => test.status === 'failed').map(testcase);
@@ -430,7 +441,7 @@ export function analyze(project, files, options) {
   const root = realpathSync(project);
   const { subjects, extraction } = collectComparisons(root, files, options);
   const report = { schemaVersion: 1, runner: options.runner ?? 'vitest', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
-  if (options.mutators === 'operators') report.mutators = 'operators';
+  if (['operators', 'full'].includes(options.mutators)) report.mutators = options.mutators;
   if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
     report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
   }
@@ -470,7 +481,7 @@ export function analyze(project, files, options) {
     const predicted = skips.has(index);
     const { site } = trial;
     const result = {
-      site: site.id, location: site.location, rule: trial.rule, operator: site.operator,
+      site: site.id, location: site.location, rule: trial.rule, operator: site.operator, original: site.original,
       edit: trial.edit, replacement: trial.replacement, equivalentOnSafeIntegers: trial.equivalentOnSafeIntegers,
       status: predicted ? 'survived' : 'unevaluated', evidence: predicted ? 'predicted' : 'reexecuted',
     };

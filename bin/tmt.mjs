@@ -44,12 +44,12 @@ try {
     if (values.runner && !['vitest', 'playwright'].includes(values.runner)) throw new Error('Expected --runner vitest|playwright');
     if (values.runner === 'playwright' && values.test?.length) throw new Error('--test selects Vitest files');
     if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
-    if (values.mutators && !['focused', 'operators', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|operators|standard|all');
+    if (values.mutators && !['focused', 'operators', 'full', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|operators|full|standard|all');
     const format = chooseFormat(values.format, process.stdout.isTTY === true);
     enablePreparedTypeScript();
     let result;
     if (values.witnesses) {
-      if (values.runner === 'playwright' || ['operators', 'standard', 'all'].includes(values.mutators) ||
+      if (values.runner === 'playwright' || ['operators', 'full', 'standard', 'all'].includes(values.mutators) ||
           values.deterministic || values.project || values.audit || values['displace-thresholds']) throw new Error('--witnesses runs its own Vitest source trials');
       const { analyzeWitnesses } = await import('../src/witness-analysis.mjs');
       result = analyzeWitnesses(project, files, values);
@@ -60,7 +60,7 @@ try {
       }
       const { analyzeConventional } = await import('../src/conventional.mjs');
       result = await analyzeConventional(project, files, values);
-    } else if (values.mutators === 'operators') {
+    } else if (values.mutators === 'operators' || values.mutators === 'full') {
       const { analyzeOperators } = await import('../src/operator-analysis.mjs');
       result = await analyzeOperators(project, files, values);
     } else {

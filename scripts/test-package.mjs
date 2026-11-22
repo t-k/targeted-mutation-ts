@@ -102,6 +102,13 @@ registerHooks({ load(url, context, next) {
     All: ['fixture', 'src/strict.ts', '--mutators', 'all', '--deterministic', '--test', 'test/strict.test.ts'],
   };
   install('vitest@4.0.18');
+  // The complete built-in set needs neither the instrumenter nor any other package.
+  assert.equal(existsSync(join(cwd, 'node_modules/@stryker-mutator')), false);
+  const builtIn = JSON.parse(run(process.execPath, [entry, 'analyze', 'fixture', 'src/eligibility.ts', '--mutators', 'full', '--test', 'test/eligibility.test.ts']));
+  assert.deepEqual([builtIn.evaluation, builtIn.operatorExecution], ['evaluated', 'session']);
+  assert.ok(builtIn.mutants.some(mutant => mutant.mutatorName === 'ArrowFunction' && mutant.status === 'killed'));
+  assert.ok(builtIn.mutants.some(mutant => mutant.mutatorName === 'EqualityOperator' && mutant.replacement === 'age < 18' && mutant.status === 'killed'));
+  assert.ok(builtIn.mutants.some(mutant => mutant.rule === 'comparison-boundary/v1' && mutant.status === 'survived'));
   const vitest = join(cwd, 'node_modules/vitest');
   const hiddenVitest = join(cwd, 'hidden-vitest');
   const instrumenter = join(cwd, 'node_modules/@stryker-mutator/instrumenter');

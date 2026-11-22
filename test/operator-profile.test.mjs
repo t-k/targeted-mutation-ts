@@ -3,7 +3,7 @@ import test from 'node:test';
 import { analyzeOperators } from '../src/operator-analysis.mjs';
 
 const location = (file, start) => ({ file, line: 1, column: start + 1, start, end: start + 2 });
-const comparison = { site: 'c', location: location('a.ts', 20), rule: 'comparison-boundary/v1', operator: '>=', replacement: '>', status: 'survived' };
+const comparison = { site: 'c', location: location('a.ts', 20), rule: 'comparison-boundary/v1', operator: '>=', edit: [20, 22], replacement: '>', status: 'survived' };
 const focusedReport = { schemaVersion: 1, runner: 'vitest', extraction: [{ file: 'a.ts', path: 'fast' }], mutants: [comparison],
   diagnostics: [{ kind: 'INPUT GAP', site: 'c' }], evaluation: 'evaluated', baseline: { status: 'passed', tests: 2 } };
 const swap = { id: 's1', mutatorName: 'equality-negation/v1', location: location('a.ts', 5), edit: [5, 8], original: '===', replacement: '!==',
@@ -74,4 +74,27 @@ test('Playwright and sessions that cannot start fall back to one source rewrite 
   const fallback = await analyzeOperators('.', [], options, unsupported);
   assert.deepEqual(unsupported.calls.map(call => call[0] === 'analyze' ? call[1] : 'session'), [undefined, 'session', 'operators']);
   assert.equal(fallback.operatorExecution, 'source-rewrite');
+});
+
+test('the full profile reports built-in mutations in their own shape and keeps one result per comparison boundary', async () => {
+  const builtIn = (id, mutatorName, start, end, original, replacement, extra = {}) => ({ id, mutatorName, location: { file: 'a.ts', line: 1, column: start + 1, start, end },
+    edit: [start, end], original, replacement, status: 'killed', evidence: 'reexecuted', source: { edit: [start, end], replacement }, ...extra });
+  const session = { ...sessionReport, mutators: 'full', mutants: [
+    builtIn('b1', 'BlockStatement', 0, 60, '{ ... }', '{}'),
+    builtIn('e1', 'EqualityOperator', 14, 28, 'total >= 100', 'total > 100', { operatorSwap: [20, '>'] }),
+    builtIn('e2', 'EqualityOperator', 14, 28, 'total >= 100', 'total < 100', { operatorSwap: [20, '<'] }),
+    builtIn('c1', 'ConditionalExpression', 14, 28, 'total >= 100', 'true'),
+  ] };
+  const run = runners(focusedReport, session);
+  const report = await analyzeOperators('.', ['a.ts'], { ...options, mutators: 'full' }, run);
+  assert.equal(run.calls[1][1].mutators, 'full');
+  assert.deepEqual([report.mutators, report.operatorExecution], ['full', 'session']);
+  assert.deepEqual(report.mutants.map(mutant => [mutant.id ?? mutant.site, mutant.mutatorName ?? mutant.rule, mutant.replacement]), [
+    ['b1', 'BlockStatement', '{}'],
+    ['e2', 'EqualityOperator', 'total < 100'],
+    ['c1', 'ConditionalExpression', 'true'],
+    ['c', 'comparison-boundary/v1', '>'],
+  ]);
+  for (const mutant of report.mutants) assert.equal(mutant.source ?? mutant.operatorSwap, undefined);
+  assert.equal(report.mutants[0].original, '{ ... }');
 });

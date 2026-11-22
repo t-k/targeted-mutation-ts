@@ -84,5 +84,33 @@ test('the operators profile is refused with the witness profile and unknown prof
   assert.equal(witnesses.stderr, '--witnesses runs its own Vitest source trials\n');
   const unknown = analyze('--mutators', 'everything');
   assert.equal(unknown.status, 1);
-  assert.equal(unknown.stderr, 'Expected --mutators focused|operators|standard|all\n');
+  assert.equal(unknown.stderr, 'Expected --mutators focused|operators|full|standard|all\n');
+});
+
+test('the full profile runs the complete built-in mutation set without an extra package', () => {
+  const run = analyze('--mutators', 'full');
+  assert.equal(run.status, 0, run.stderr + run.stdout);
+  const report = JSON.parse(run.stdout);
+  assert.deepEqual([report.mutators, report.operatorExecution, report.evaluation], ['full', 'session', 'evaluated']);
+  const byName = {};
+  for (const mutant of report.mutants) (byName[mutant.mutatorName ?? mutant.rule] ??= []).push(mutant.status);
+  assert.deepEqual(Object.keys(byName).sort(), ['ArithmeticOperator', 'BlockStatement', 'BooleanLiteral', 'ConditionalExpression',
+    'EqualityOperator', 'LogicalOperator', 'comparison-boundary/v1']);
+  // `total >= 100` -> `total > 100` is reported once, by the focused analysis with its missing input.
+  assert.deepEqual(byName['comparison-boundary/v1'], ['survived']);
+  assert.deepEqual(report.diagnostics.map(gap => [gap.kind, gap.location.line]), [['INPUT GAP', 3]]);
+  const equality = report.mutants.filter(mutant => mutant.mutatorName === 'EqualityOperator').map(mutant => [mutant.original, mutant.replacement, mutant.status]);
+  assert.deepEqual(equality, [['member === true', 'member !== true', 'killed'], ['total >= 100', 'total < 100', 'killed']]);
+  // Nothing calls `unused`, so per-test coverage reports its mutations as unreached.
+  const unused = report.mutants.filter(mutant => mutant.location.line >= 6);
+  assert.deepEqual(unused.map(mutant => [mutant.mutatorName, mutant.status]), [['BlockStatement', 'unreached'], ['ArithmeticOperator', 'unreached']]);
+  assert.equal(report.mutants.find(mutant => mutant.mutatorName === 'BlockStatement' && mutant.location.line === 1).status, 'killed');
+  assert.equal(report.mutants.every(mutant => mutant.source === undefined && mutant.operatorSwap === undefined), true);
+  assert.equal(new Set(report.mutants.map(mutant => mutant.id ?? mutant.site)).size, report.mutants.length);
+});
+
+test('the full profile reads as mutator, original and replacement in the text report', () => {
+  const run = analyze('--mutators', 'full', '--lines', 'src/price.ts:7', '--format', 'text');
+  assert.equal(run.status, 0, run.stderr + run.stdout);
+  assert.match(run.stdout, /^src\/price\.ts:7:10 {2}unreached {2}ArithmeticOperator: a \+ b -> a - b$/m);
 });

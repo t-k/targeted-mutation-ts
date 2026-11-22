@@ -1,0 +1,17 @@
+Placement	Position	Dialect
+Expression	Nested	Ts
+Statement	Nested	Js
+Expression	AfterUnterminatedLine	Js
+Block	StatementStart	Tsx
+Case	Nested	Js
+Chain	Nested	Ts
+Block	AfterUnterminatedLine	Ts
+Chain	StatementStart	Js
+Chain	AfterUnterminatedLine	Tsx
+Statement	StatementStart	Ts
+Block	Nested	Tsx
+Case	AfterUnterminatedLine	Ts
+Statement	AfterUnterminatedLine	Tsx
+Block	Nested	Js
+Case	StatementStart	Tsx
+Expression	StatementStart	Tsx

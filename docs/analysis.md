@@ -48,6 +48,14 @@ With Vitest 4 and its default runner, the tool rewrites each operator into a swi
 
 With Playwright, or when the session cannot start (another Vitest major, a custom runner, browser mode or type checking), each swap is a source rewrite followed by one run of the suite, and `operatorExecution` is `source-rewrite`. Reach is not measured on that path, so a swap in code that no test executes is reported as `survived`. Use `--lines` or `--since` to bound the number of runs.
 
+### Complete built-in mutation set
+
+`--mutators full` adds every StrykerJS mutator to the focused profile without the StrykerJS packages: ArithmeticOperator, ArrayDeclaration, ArrowFunction, AssignmentOperator, BlockStatement, BooleanLiteral, CallExpression (removal of a call or `throw new` statement), ConditionalExpression, EqualityOperator, LogicalOperator, MethodExpression, ObjectLiteral, OptionalChaining, Regex, StringLiteral, UnaryOperator and UpdateOperator. The mutations are found in the TypeScript syntax tree and reported with the StrykerJS mutator names, the original text and the replacement. The repository's tests compare the set with the StrykerJS instrumenter's on TypeScript, TSX and JavaScript sources.
+
+Execution is the same as for `operators`: on Vitest 4 one switched session with per-test coverage, otherwise one source rewrite per mutation (`operatorExecution` tells which). A comparison boundary such as `>=` to `>` is reported once, by the focused analysis, with its missing input.
+
+Differences from a StrykerJS run: `// Stryker disable` comments are not read, so those mutations are included; a `for (;;)` loop directly under a label keeps its missing condition; and like StrykerJS the set leaves types, imports, enums, ambient declarations, decorators, directives, property names and the inside of `x as T` alone.
+
 ### Standard mutation profile
 
 `--mutators standard` enables the pinned StrykerJS instrumenter's default TypeScript and TSX mutation families, including source comments that disable mutation. The profile applies a line range to complete mutable syntax nodes. It runs a disabled-switch baseline and trials in a disposable project workspace with isolated Vitest workers. On Vitest 4.1, covered tests are selected by task ID. Import-time hits run the selected suite with the mutation active at module load. An unreached mutation uses baseline coverage evidence. A partial session reports any remaining trials as unevaluated and exits with an error.
