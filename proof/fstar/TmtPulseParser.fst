@@ -2854,11 +2854,6 @@ and condition (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt parser_s
   let! tested = (fun () -> comparison input st fuel) in
   (let! anf_value_2 = (fun () -> (skip input tested.parser)) in consume input anf_value_2 41uy)
 
-and variable_initializer (input:tape) (state:parser_state) (fuel:U32.t) (optional before_brace:bool)
-  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 43; 0]) =
-  let! value = (fun () -> declarator_value input state fuel optional) in
-  statement_end input value.parser value.range.G.last before_brace
-
 and declarator_value (input:tape) (state:parser_state) (fuel:U32.t) (optional:bool)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 42; 0]) =
   let! after_name = (fun () -> trivia input state.offset) in

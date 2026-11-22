@@ -37,5 +37,5 @@ test('jump permission is scoped to loop bodies and resets at functions', () => {
   ]) differential(source, 'diagnostic');
   differential('while (a < b) { run(() => { while (b < c) break; }); continue; }', 'fast');
   differential('while (a < b) { if (b < c) continue/*\n*/run(); }', 'fast');
-  differential('outer: while (a < b) { if (a >= x) continue outer; }', 'fallback');
+  differential('outer: while (a < b) { if (a >= x) continue outer; }', 'fast');
 });
