@@ -17,15 +17,21 @@ type binding_namespace =
   | BothNames
   | FunctionSignature
   | FunctionImplementation
+  | PrivateScope
+  | PrivateDeclaration
+  | PrivateReference
 
-type binding_name = { span:G.span; namespace:binding_namespace }
+type binding_name = { span:G.span; namespace:binding_namespace; owner:U8.t }
 
 let binding_region_width : U32.t = 512ul
 let export_region_base : U32.t = 1024ul
+let private_region_base : U32.t = 1536ul
+let binding_capacity : U32.t = 1791ul
 
 noeq type tape = {
   source : array U8.t;
   size : n:U32.t { U32.v n <= 1048576 };
+  private_possible : bool;
   output : array G.candidate;
   capacity : U32.t;
   bindings : array binding_name;
@@ -54,7 +60,7 @@ let marks_sound (marks:Seq.seq U8.t) (candidates:Seq.seq (option G.candidate)) :
 let workspace_at (input:tape) (names:Seq.seq binding_name) (candidates:Seq.seq (option G.candidate))
   (marks:Seq.seq U8.t) : slprop =
   pts_to input.bindings names ** Array.pts_to_mask input.output candidates owned **
-  pts_to input.marks marks ** pure (Seq.length names == 1536 /\
+  pts_to input.marks marks ** pure (Seq.length names == U32.v binding_capacity /\
     Seq.length marks == U32.v input.capacity /\ marks_sound marks candidates)
 
 let workspace_ready (input:tape) : slprop =
@@ -148,7 +154,7 @@ fn scan_class (input:tape) (#frame:slprop) (offset:U32.t{U32.v offset <= U32.v i
   stop
 }
 
-fn get_binding (input:tape) (offset:U32.t{U32.v offset < 1536})
+fn get_binding (input:tape) (offset:U32.t{U32.v offset < U32.v binding_capacity})
   requires heap input
   returns binding:binding_name
   ensures heap input
@@ -163,7 +169,7 @@ fn get_binding (input:tape) (offset:U32.t{U32.v offset < 1536})
   binding
 }
 
-fn set_binding (input:tape) (offset:U32.t{U32.v offset < 1536}) (binding:binding_name)
+fn set_binding (input:tape) (offset:U32.t{U32.v offset < U32.v binding_capacity}) (binding:binding_name)
   requires heap input
   ensures heap input
 {

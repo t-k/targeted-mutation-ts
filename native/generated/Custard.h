@@ -35,6 +35,9 @@ TmtGrammar_candidate;
 #define TmtPulseMemory_BothNames 2
 #define TmtPulseMemory_FunctionSignature 3
 #define TmtPulseMemory_FunctionImplementation 4
+#define TmtPulseMemory_PrivateScope 5
+#define TmtPulseMemory_PrivateDeclaration 6
+#define TmtPulseMemory_PrivateReference 7
 
 typedef uint8_t TmtPulseMemory_binding_namespace;
 
@@ -42,6 +45,7 @@ typedef struct TmtPulseMemory_binding_name_s
 {
   TmtGrammar_span span;
   TmtPulseMemory_binding_namespace namespace0;
+  uint8_t owner;
 }
 TmtPulseMemory_binding_name;
 
@@ -49,6 +53,7 @@ typedef struct TmtPulseMemory_tape_s
 {
   uint8_t *source;
   uint32_t size;
+  bool private_possible;
   TmtGrammar_candidate *output;
   uint32_t capacity;
   TmtPulseMemory_binding_name *bindings;
@@ -95,6 +100,8 @@ typedef struct TmtPulseParser_parser_state_s
   bool arrow_defaults_allowed;
   TmtPulseParser_binding_mode binding_mode;
   TmtPulseParser_super_context super_context;
+  uint8_t private_scope;
+  uint8_t private_count;
 }
 TmtPulseParser_parser_state;
 
@@ -467,9 +474,11 @@ TmtPulseParser_pattern_binding(
 #define TmtPulseParser_NotAssignable 0
 #define TmtPulseParser_Assignable 1
 #define TmtPulseParser_MemberTarget 2
-#define TmtPulseParser_OptionalChain 3
-#define TmtPulseParser_AssertedTarget 4
-#define TmtPulseParser_ArrayTarget 5
+#define TmtPulseParser_PrivateTarget 3
+#define TmtPulseParser_BareSuper 4
+#define TmtPulseParser_OptionalChain 5
+#define TmtPulseParser_AssertedTarget 6
+#define TmtPulseParser_ArrayTarget 7
 
 typedef uint8_t TmtPulseParser_assignment_target;
 
@@ -863,6 +872,18 @@ TmtPulseParser_interface_bases(
   uint32_t remaining0
 );
 
+extern uint32_t TmtPulseMemory_private_region_base;
+
+uint32_t TmtPulseParser_private_slot(uint8_t index);
+
+TmtPulseParser_parser_state
+TmtPulseParser_record_private(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  TmtGrammar_span span,
+  TmtPulseMemory_binding_namespace namespace0
+);
+
 typedef struct TmtPulseParser_class_key_s
 {
   TmtPulseParser_parser_state after_key;
@@ -873,6 +894,7 @@ typedef struct TmtPulseParser_class_key_s
   bool readonly_;
   TmtPulseParser_parameter_arity arity;
   bool generator_;
+  bool private_;
 }
 TmtPulseParser_class_key;
 
@@ -885,6 +907,9 @@ TmtPulseParser_accessor_head;
 
 TmtPulseParser_accessor_head
 TmtPulseParser_accessor_modifier(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
+
+TmtPulseParser_cursor
+TmtPulseParser_private_identifier(TmtPulseMemory_tape input, uint32_t start);
 
 TmtPulseParser_class_key
 TmtPulseParser_class_member_key(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
@@ -1958,6 +1983,25 @@ TmtPulseParser_module_sequence(
   uint32_t fuel0,
   uint32_t exports0
 );
+
+bool
+TmtPulseParser_has_private_declaration(
+  TmtPulseMemory_tape input0,
+  TmtGrammar_span span0,
+  uint8_t owner0,
+  uint8_t count0
+);
+
+bool
+TmtPulseParser_private_visible(
+  TmtPulseMemory_tape input0,
+  TmtGrammar_span span0,
+  uint8_t owner0,
+  uint8_t limit0
+);
+
+bool
+TmtPulseParser_valid_private_log(TmtPulseMemory_tape input0, uint8_t limit0, uint8_t count0);
 
 TmtPulseParser_parser_state
 TmtPulseParser_parse_candidates(TmtPulseMemory_tape input, bool jsx, bool module_mode);

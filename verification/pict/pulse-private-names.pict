@@ -1,0 +1,4 @@
+Shape: Field, Method, Inner, Sibling
+Order: Before, Forward, Duplicate, Undeclared
+Tail: Complete, Broken
+Prefix: ASCII, UTF8

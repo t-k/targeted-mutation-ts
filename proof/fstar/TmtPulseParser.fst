@@ -181,12 +181,15 @@ type super_context =
 type parser_state = {
   offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used;
   await_allowed:bool; yield_allowed:bool; jsx_allowed:bool; module_mode:bool; strict_script:bool; in_allowed:bool; for_initializer:bool;
-  arrow_defaults_allowed:bool; binding_mode:binding_mode; super_context:super_context
+  arrow_defaults_allowed:bool; binding_mode:binding_mode; super_context:super_context;
+  private_scope:U8.t; private_count:U8.t
 }
 type assignment_target =
   | NotAssignable
   | Assignable
   | MemberTarget
+  | PrivateTarget
+  | BareSuper
   | OptionalChain
   | AssertedTarget
   | ArrayTarget
@@ -196,7 +199,7 @@ type jump_context =
   | BreakOnly
   | LoopJump
 
-let can_assign (target:assignment_target) : bool = target = Assignable || target = MemberTarget
+let can_assign (target:assignment_target) : bool = target = Assignable || target = MemberTarget || target = PrivateTarget
 let can_assign_expression (target:assignment_target) : bool = can_assign target || target = AssertedTarget
 type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:bool; right_shift:bool; shortcut:U32.t; target:assignment_target }
 type expression_items = { list_end:parser_state; valid_array_target:bool }
@@ -692,7 +695,7 @@ let bind_in_namespace (input:tape) (st:parser_state) (base:names_base) (floor us
   else (let! anf_value_1 = (fun () -> name_seen input base floor used pos length namespace) in if anf_value_1 then
     ret input (let status = if base = 0ul && namespace = ValueName then 5ul else 1ul in
     { state = failed st status; used })
-  else (let! _ = (fun () -> set_binding input (U32.add base used) { span = { G.first = pos; G.last = st.offset }; namespace }) in
+  else (let! _ = (fun () -> set_binding input (U32.add base used) { span = { G.first = pos; G.last = st.offset }; namespace; owner = 0uy }) in
     ret input ({ state = st; used = U32.add used 1ul })))
 
 let bind_since (input:tape) (st:parser_state) (base:names_base) (floor used:names_used) (pos:U32.t)
@@ -705,6 +708,67 @@ let bind_pattern_name (input:tape) (st:parser_state) (base:names_base) (floor us
 
 let bind_at (input:tape) (st:parser_state) (base:names_base) (used:names_used) (pos:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) = bind_since input st base 0ul used pos
+
+let private_identifier (input:tape) (#frame:slprop) (start:U32.t)
+  : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let at = next start in
+  let! first = (fun () -> peek input #frame at) in
+  if G.identifier_start first then
+    let! stop = (fun () -> scan_class input #frame at G.Identifier) in
+    read_ret input #frame { at = stop; ok = true; newline = false }
+  else read_ret input #frame { at = start; ok = false; newline = false }
+
+let private_slot (index:U8.t{U8.v index < 255}) : at:U32.t{U32.v at < U32.v binding_capacity} =
+  U32.add private_region_base (Cast.uint8_to_uint32 index)
+
+let record_private (input:tape) (st:parser_state) (span:G.span) (namespace:binding_namespace)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  if st.status <> 0ul then ret input st
+  else if st.private_count = 255uy || (namespace <> PrivateScope && st.private_scope = 0uy) then ret input (failed st 1ul)
+  else
+    let! _ = (fun () -> set_binding input (private_slot st.private_count) { span; namespace; owner = st.private_scope }) in
+    let private_count = U8.add st.private_count 1uy in
+    ret input { st with private_count; private_scope = if namespace = PrivateScope then private_count else st.private_scope }
+
+let rec has_private_declaration (input:tape) (span:G.span) (owner count:U8.t)
+  : Tot (stt bool (heap input) (fun _ -> heap input)) (decreases U8.v count) =
+  if U8.(count <=^ owner) then ret input false
+  else
+    let index = U8.sub count 1uy in
+    let! entry = (fun () -> get_binding input (private_slot index)) in
+    let length = minus span.G.last span.G.first in
+    let! equal = (fun () -> if entry.namespace = PrivateDeclaration && entry.owner = owner &&
+      length = minus entry.span.G.last entry.span.G.first then
+      same_bytes input span.G.first entry.span.G.first length else ret input false) in
+    if equal then ret input true else has_private_declaration input span owner index
+
+let rec private_visible (input:tape) (span:G.span) (owner limit:U8.t)
+  : Tot (stt bool (heap input) (fun _ -> heap input)) (decreases U8.v owner) =
+  if owner = 0uy || U8.(owner >^ limit) then ret input false
+  else
+    let! scope = (fun () -> get_binding input (private_slot (U8.sub owner 1uy))) in
+    if scope.namespace <> PrivateScope || U8.(scope.owner >=^ owner) then ret input false
+    else
+      let! declared = (fun () -> has_private_declaration input span owner limit) in
+      if declared then ret input true else private_visible input span scope.owner limit
+
+let rec valid_private_log (input:tape) (limit count:U8.t)
+  : Tot (stt bool (heap input) (fun _ -> heap input)) (decreases U8.v count) =
+  if count = 0uy then ret input true
+  else
+    let index = U8.sub count 1uy in
+    let! entry = (fun () -> get_binding input (private_slot index)) in
+    if U8.(entry.owner >^ index) then ret input false
+    else
+      let! valid = (fun () -> if entry.namespace = PrivateScope then ret input true
+        else if entry.owner = 0uy then ret input false
+        else if entry.namespace = PrivateReference then private_visible input entry.span entry.owner limit
+        else if entry.namespace = PrivateDeclaration then
+          let! scope = (fun () -> get_binding input (private_slot (U8.sub entry.owner 1uy))) in
+          let! duplicate = (fun () -> has_private_declaration input entry.span entry.owner index) in
+          ret input (scope.namespace = PrivateScope && not duplicate)
+        else ret input false) in
+      if valid then valid_private_log input limit index else ret input false
 
 let type_operator (packed:U64.t) : bool =
   packed = 0x6b65796f66uL || packed = 0x696e666572uL ||
@@ -1703,12 +1767,13 @@ let class_keyword (input:tape) (#frame:slprop) (offset:U32.t) : Tot (stt bool (i
   keyword input #frame offset 5ul 0x636c617373uL
 
 type class_key = {
-  after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool; readonly_:bool; arity:parameter_arity; generator_:bool
+  after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool; readonly_:bool; arity:parameter_arity;
+  generator_:bool; private_:bool
 }
 
 let class_key_start (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! byte = (fun () -> peek input #frame state.offset) in
-  read_ret input #frame (G.identifier_start byte || byte = 34uy || byte = 39uy || byte = 42uy)
+  read_ret input #frame (G.identifier_start byte || byte = 34uy || byte = 39uy || byte = 42uy || byte = 35uy)
 
 type class_prefix = { key_state:parser_state; flags:U32.t }
 
@@ -1755,11 +1820,13 @@ let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (st
   let key_start = accessor.key_start in
   let! byte = (fun () -> peek input #frame key_start.offset) in
   let quoted = byte = 34uy || byte = 39uy in
-  let! key = (fun () -> property_name input #frame key_start) in
-  read_ret input #frame (let key_end = from_cursor key_start key in
+  let private_ = byte = 35uy in
+  let! key = (fun () -> if private_ then private_identifier input #frame key_start.offset else property_name input #frame key_start) in
+  read_ret input #frame (let key_end = if private_ && U32.logand prefix.flags 12ul <> 0ul then failed key_start 1ul
+    else from_cursor key_start key in
   let first = if quoted then next key_start.offset else key_start.offset in
   let last = if quoted then minus key.at 1ul else key.at in
-  { after_key = key_end; first; last; async_; arity = accessor.arity; generator_ = generator.generator;
+  { after_key = key_end; first; last; async_; arity = accessor.arity; generator_ = generator.generator; private_;
     static_ = U32.logand prefix.flags 1ul <> 0ul; readonly_ = U32.logand prefix.flags 2ul <> 0ul })
 
 let constructor_property (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
@@ -2031,7 +2098,8 @@ and super_expression (input:tape) (st:parser_state) (fuel:U32.t)
     else ret input (if byte = 46uy || byte = 91uy then { st with offset = plus start_pos 5ul }
     else failed after 1ul)) in
   postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset };
-    open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
+    open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul;
+    target = if byte = 46uy || byte = 91uy then BareSuper else NotAssignable } fuel input.size
 and arrow_parameter_list (input:tape) (state:parser_state) (floor used:names_used)
   (fuel remaining:U32.t) (non_simple:bool)
   : Tot (stt parameter_list (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 22; U32.v remaining]) =
@@ -2239,27 +2307,34 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
           (let! anf_value_1 = (fun () -> same input after.offset 60uy) in if anf_value_1 then call_type_arguments input after else ret input (after))
         else ret input (st)) in
       let! kind = (fun () -> if typed then ret input (40uy) else if optional then peek input operand.offset else ret input (byte)) in
-      let! next_st =
+      let! next_st, private_access =
         (fun () -> if kind = 40uy || kind = 91uy || kind = 96uy then
-          if kind = 96uy && (optional || base.target = OptionalChain) then ret input (failed st 1ul)
-          else if fuel = 0ul then ret input (failed st 3ul)
+          if kind = 96uy && (optional || base.target = OptionalChain) then ret input (failed st 1ul, false)
+          else if fuel = 0ul then ret input (failed st 3ul, false)
           else
             let depth = minus 65ul fuel in
             let depth = if U32.(depth >^ st.depth) then depth else st.depth in
             let inside = { operand with offset = next operand.offset; depth } in
-            if kind = 40uy then (let! anf_value_2 = (fun () -> (expression_list input inside (minus fuel 1ul) input.size 41uy false)) in ret input (anf_value_2.list_end))
-            else if kind = 96uy then template_body input inside (minus fuel 1ul) input.size true
+            if kind = 40uy then (let! anf_value_2 = (fun () -> (expression_list input inside (minus fuel 1ul) input.size 41uy false)) in ret input (anf_value_2.list_end, false))
+            else if kind = 96uy then
+              let! tail = (fun () -> template_body input inside (minus fuel 1ul) input.size true) in ret input (tail, false)
             else
               let! index = (fun () -> comparison input inside (minus fuel 1ul)) in
-              consume input index.parser 93uy
+              let! tail = (fun () -> consume input index.parser 93uy) in ret input (tail, false)
         else if optional || byte = 46uy then
           let! property = (fun () -> if optional then ret input (operand) else skip input { st with offset = next st.offset }) in
           let! first = (fun () -> peek input property.offset) in
-          if not (G.identifier_start first) then ret input (failed property 1ul)
-          else (let! anf_value_3 = (fun () -> scan_class input property.offset G.Identifier) in ret input ({ property with offset = anf_value_3 }))
-        else ret input ({ st with offset = next st.offset })) in
+          if first = 35uy && not optional && base.target <> OptionalChain && base.target <> BareSuper then
+            let! name_ = (fun () -> private_identifier input property.offset) in
+            let! recorded = (fun () -> record_private input (from_cursor property name_)
+              { G.first = property.offset; G.last = name_.at } PrivateReference) in
+            ret input (recorded, true)
+          else if not (G.identifier_start first) then ret input (failed property 1ul, false)
+          else (let! anf_value_3 = (fun () -> scan_class input property.offset G.Identifier) in ret input ({ property with offset = anf_value_3 }, false))
+        else ret input ({ st with offset = next st.offset }, false)) in
       let target =
         if optional || base.target = OptionalChain then OptionalChain
+        else if private_access then PrivateTarget
         else if kind = 46uy || kind = 91uy then MemberTarget
         else NotAssignable in
       postfix input { base with parser = next_st; range = { base.range with G.last = next_st.offset }; target }
@@ -2965,16 +3040,20 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
     let! tail = (fun () -> skip input key.after_key) in
     if tail.status <> 0ul then ret input (tail)
     else
-      let! constructor_name = (fun () -> wide_key_matches input key 3ul 0x636f6e7374727563uL 0x746f72uL) in
+      let! constructor_spelling = (fun () -> wide_key_matches input (if key.private_ then { key with first = next key.first } else key)
+        3ul 0x636f6e7374727563uL 0x746f72uL) in
+      let constructor_name = not key.private_ && constructor_spelling in
       let constructor = constructor_name && not key.static_ in
       let! prototype = (fun () -> if key.static_ then wide_key_matches input key 1ul 0x70726f746f747970uL 0x65uL else ret input (false)) in
       let! next_byte = (fun () -> peek input tail.offset) in
       let method = next_byte = 40uy || next_byte = 60uy in
       let accessor = key.arity <> OrdinaryParameters in
-      if prototype || (constructor_name && not method) || (key.readonly_ && method) ||
+      if (key.private_ && constructor_spelling) || prototype || (constructor_name && not method) || (key.readonly_ && method) ||
         (accessor && (key.async_ || key.generator_ || constructor || next_byte <> 40uy)) ||
         (constructor && (seen_constructor || key.async_ || key.generator_ || next_byte <> 40uy)) then ret input (failed tail 1ul)
       else
+        let! tail = (fun () -> if key.private_ then record_private input tail { G.first = key.first; G.last = key.last } PrivateDeclaration
+          else ret input tail) in
         let! after =
           (fun () -> if method then
             if fuel = 0ul then ret input (failed tail 3ul)
@@ -2982,7 +3061,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
               let mode = if not constructor then MethodSuper else if derived then DerivedConstructor else BaseConstructor in
               (let! anf_value_2 = (fun () -> (function_form input tail (minus fuel 1ul) key.async_ mode false key.arity key.generator_)) in ret input (anf_value_2.after_function))
           else if key.async_ || key.generator_ then ret input (failed tail 1ul)
-          else class_field_tail input key.after_key fuel) in
+          else class_field_tail input { tail with offset = key.after_key.offset } fuel) in
         class_members input after fuel (minus remaining 1ul) derived (seen_constructor || constructor)
 and class_tail (input:tape) (state:parser_state) (fuel:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 57; 0]) =
@@ -3001,7 +3080,11 @@ and class_tail (input:tape) (state:parser_state) (fuel:U32.t)
   let! ready = (fun () -> if implements then interface_bases input { inherited with offset = plus inherited.offset 10ul } 64ul else ret input (inherited)) in
   let depth = minus 65ul fuel in
   let ready = if U32.(depth >^ ready.depth) then { ready with depth } else ready in
-  (let! anf_value_4 = (fun () -> (consume input ready 123uy)) in class_members input anf_value_4 fuel input.size derived false)
+  let! start = (fun () -> consume input ready 123uy) in
+  let! start = (fun () -> if input.private_possible then record_private input start (start_range ready.offset) PrivateScope
+    else ret input start) in
+  let! closed = (fun () -> class_members input start fuel input.size derived false) in
+  ret input { closed with private_scope = state.private_scope }
 
 #pop-options
 
@@ -3294,7 +3377,7 @@ let reserve_export (input:tape) (state:parser_state) (used:names_used) (first la
     ret input ({ state = failed state 1ul; used })
   else (let! anf_value_1 = (fun () -> name_seen input export_region_base 0ul used first length BothNames) in if anf_value_1 then
     ret input ({ state = failed state 1ul; used })
-  else (let! _ = (fun () -> set_binding input (U32.add export_region_base used) { span = { G.first = first; G.last = last }; namespace = BothNames }) in
+  else (let! _ = (fun () -> set_binding input (U32.add export_region_base used) { span = { G.first = first; G.last = last }; namespace = BothNames; owner = 0uy }) in
     ret input ({ state; used = U32.add used 1ul })))
 
 let rec reserve_direct_exports (input:tape) (state:parser_state) (used previous current:names_used)
@@ -3499,7 +3582,7 @@ private let parse_state (input:tape) (st:parser_state) (module_mode:bool) : Tot 
 let initial_state (jsx module_mode:bool) : parser_state = {
   offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
   await_allowed = module_mode; yield_allowed = false; jsx_allowed = jsx; module_mode; strict_script = false; in_allowed = true; for_initializer = false;
-  arrow_defaults_allowed = true; binding_mode = NoLocals; super_context = NoSuper
+  arrow_defaults_allowed = true; binding_mode = NoLocals; super_context = NoSuper; private_scope = 0uy; private_count = 0uy
 }
 
 // Successful results consume the buffer and expose a bounded candidate count.
@@ -3520,7 +3603,9 @@ let parse_candidates (input:tape) (jsx module_mode:bool)
       let! expanded = (fun () -> module_sequence input initial 0ul input.size 0ul) in
       ret input (if expanded.status = 1ul then state else expanded)
     else ret input (state)) in
-  ret #(parse_result input) input (if state.status <> 0ul || state.offset <> input.size then
+  let! private_ok = (fun () -> if state.status = 0ul && state.offset = input.size && state.private_count <> 0uy then
+    valid_private_log input state.private_count state.private_count else ret input true) in
+  ret #(parse_result input) input (if state.status <> 0ul || state.offset <> input.size || not private_ok then
     { (failed state 1ul) with count = 0ul }
   else if U32.(state.count >^ input.capacity) then
     { (failed state 4ul) with count = 0ul }
@@ -3620,7 +3705,7 @@ let rec read_lexical_conflict (input:tape) (state:parser_state) (used:names_used
         if end_.status <> 0ul then ret input (no_conflict ())
         else
           let! previous = (fun () -> previous_lexical_name input used span) in
-          if previous.G.first = previous.G.last then (let! _ = (fun () -> set_binding input used { span; namespace = ValueName }) in
+          if previous.G.first = previous.G.last then (let! _ = (fun () -> set_binding input used { span; namespace = ValueName; owner = 0uy }) in
             read_lexical_conflict input end_ (U32.add used 1ul) found (minus fuel 1ul)) else if found.repeated_name.G.first <> found.repeated_name.G.last then ret input (no_conflict ())
           else read_lexical_conflict input end_ used { first_name = previous; repeated_name = span; checked = 0ul }
             (minus fuel 1ul)
