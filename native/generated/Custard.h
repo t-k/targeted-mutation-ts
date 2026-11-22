@@ -1164,6 +1164,8 @@ TmtPulseParser_flat_assignment_head(
   TmtPulseParser_parser_state state
 );
 
+bool TmtPulseParser_can_assign_expression(TmtPulseParser_assignment_target target);
+
 typedef struct TmtPulseParser_regex_captures_s
 {
   uint64_t names;
@@ -1312,8 +1314,6 @@ TmtPulseParser_ambiguous_assertion_update(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state
 );
-
-bool TmtPulseParser_can_assign_expression(TmtPulseParser_assignment_target target);
 
 bool
 TmtPulseParser_exponent_base(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);

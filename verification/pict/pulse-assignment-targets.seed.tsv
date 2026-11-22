@@ -1,0 +1,9 @@
+Target	Grouping	Operator
+Identifier	Single	Assign
+Member	Nested	Compound
+Index	Single	Compound
+Call	Single	Update
+Array	Nested	Assign
+Restricted	Nested	Compound
+Member	Comma	Assign
+Identifier	Single	Update

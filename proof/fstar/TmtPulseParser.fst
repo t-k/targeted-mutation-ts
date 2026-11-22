@@ -2059,7 +2059,9 @@ let rec flat_assignment_members (input:tape) (#frame:slprop) (state:parser_state
         skip input #frame colon
       else read_ret input #frame st) in
     let! named = (fun () -> name input #frame target.offset false true) in
-    let! after = (fun () -> skip input #frame (from_cursor target named)) in
+    let named = from_cursor target named in
+    let! target = (fun () -> if renamed then qualified_name input #frame named 16ul else read_ret input #frame named) in
+    let! after = (fun () -> skip input #frame target) in
     let! comma = (fun () -> same input #frame after.offset 44uy) in
     if comma then
       let! next_member = (fun () -> consume input #frame after 44uy) in
@@ -2189,7 +2191,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           else if inner.open_angle then ret input (failed consumed 1ul)
           else (let! anf_value_12 = (fun () -> (consume input consumed 44uy)) in grouped_tail input anf_value_12 (minus fuel 1ul) input.size)) in
         let done_ = { done_ with in_allowed = st.in_allowed } in
-        let target = if assignment.status <> 0ul && not comma && inner.target = AssertedTarget then AssertedTarget else NotAssignable in
+        let target = if assignment.status <> 0ul && not comma && can_assign_expression inner.target then inner.target else NotAssignable in
         postfix input { parser = done_; range = { G.first = start_pos; G.last = done_.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target }
           fuel input.size
     else if G.decimal_digit ch || ch = 46uy then

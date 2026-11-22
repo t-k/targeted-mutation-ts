@@ -37,7 +37,7 @@ test('ordinary object literals and equality use the ordinary expression path', (
 
 test('restricted assignment targets and operators stay on the compatibility path', () => {
   for (const source of [
-    '({ name: record.value } = data);', '({ name = fallback } = data);',
+    '({ name: record[key] } = data);', '({ name = fallback } = data);',
     '({ ...rest } = data);', '({ name } += data);', '({ name } = data) = x;',
     '({ name } = a < b, c > (d));', '({ name } = );',
   ]) compare(source, false);

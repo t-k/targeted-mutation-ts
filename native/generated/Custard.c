@@ -6319,19 +6319,24 @@ TmtPulseParser_flat_assignment_members(
       else
         value50 = value;
       TmtPulseParser_cursor value6 = TmtPulseParser_name(input, value50.offset, false, true);
-      TmtPulseParser_parser_state
-      value7 = TmtPulseParser_skip(input, TmtPulseParser_from_cursor(value50, value6));
-      bool value8 = TmtPulseParser_same(input, value7.offset, 44U);
-      if (value8)
+      TmtPulseParser_parser_state named = TmtPulseParser_from_cursor(value50, value6);
+      TmtPulseParser_parser_state value7;
+      if (value4)
+        value7 = TmtPulseParser_qualified_name(input, named, 16U);
+      else
+        value7 = named;
+      TmtPulseParser_parser_state value8 = TmtPulseParser_skip(input, value7);
+      bool value9 = TmtPulseParser_same(input, value8.offset, 44U);
+      if (value9)
       {
-        TmtPulseParser_parser_state value9 = TmtPulseParser_consume(input, value7, 44U);
-        TmtPulseParser_parser_state tmp0 = value9;
+        TmtPulseParser_parser_state value10 = TmtPulseParser_consume(input, value8, 44U);
+        TmtPulseParser_parser_state tmp0 = value10;
         uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
         state = tmp0;
         remaining = tmp;
       }
       else
-        return TmtPulseParser_consume(input, value7, 125U);
+        return TmtPulseParser_consume(input, value8, 125U);
     }
   }
   KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
@@ -6363,6 +6368,11 @@ TmtPulseParser_flat_assignment_head(
     else
       return value4;
   }
+}
+
+bool TmtPulseParser_can_assign_expression(TmtPulseParser_assignment_target target)
+{
+  return TmtPulseParser_can_assign(target) || target == TmtPulseParser_AssertedTarget;
 }
 
 TmtPulseParser_regex_result
@@ -7351,11 +7361,6 @@ TmtPulseParser_ambiguous_assertion_update(
     uint32_t value5 = TmtPulseParser_update_width(input, value3.offset, value4);
     return value3.status == 0U && value5 != 0U;
   }
-}
-
-bool TmtPulseParser_can_assign_expression(TmtPulseParser_assignment_target target)
-{
-  return TmtPulseParser_can_assign(target) || target == TmtPulseParser_AssertedTarget;
 }
 
 bool TmtPulseParser_exponent_base(TmtPulseMemory_tape input, TmtPulseParser_parser_state state)
@@ -11537,10 +11542,11 @@ TmtPulseParser_atom(
               .private_scope = value70.private_scope, .private_count = value70.private_count,
               .local_log_floor = value70.local_log_floor, .local_log_used = value70.local_log_used
             };
-          TmtPulseParser_assignment_target
-          target =
-            value3.status != 0U && !value6 && value4.target == TmtPulseParser_AssertedTarget ? TmtPulseParser_AssertedTarget
-                                                                                             : TmtPulseParser_NotAssignable;
+          TmtPulseParser_assignment_target target;
+          if (value3.status != 0U && !value6 && TmtPulseParser_can_assign_expression(value4.target))
+            target = value4.target;
+          else
+            target = TmtPulseParser_NotAssignable;
           return
             TmtPulseParser_postfix(input,
               (
