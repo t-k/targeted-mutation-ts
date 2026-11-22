@@ -12,6 +12,7 @@ for module in TmtGrammar TmtPulseScan TmtPulseMemory TmtPulseParser TmtPulseComp
 done
 "$fstar" --include proof/fstar --cache_dir "$cache" --codegen KrmlC \
   --custard_entry TmtPulseCompiler.read_plan --custard_entry TmtPulseCompiler.blank_range \
+  --custard_entry TmtPulseCompiler.type_only_module \
   -o "$scratch/compiler.krml" proof/fstar/TmtPulseCompiler.fst
 "$krml" -minimal -drop Prims -ftail-calls -add-early-include '"tmt_krml_runtime.h"' \
   -skip-compilation -tmpdir "$scratch" "$scratch/compiler.krml"

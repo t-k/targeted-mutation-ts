@@ -3,3 +3,5 @@ Literal	Compact	Clean
 Arrow	CRLF	Clean
 Return	UTF8	Clean
 Return	Compact	Malformed
+TypeModule	Compact	Clean
+TypeModule	UTF8	Malformed

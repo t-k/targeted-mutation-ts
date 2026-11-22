@@ -237,3 +237,58 @@ fn blank_range (output:array U8.t) (#before:FStar.Ghost.erased (Seq.seq U8.t))
     true
   } else { false }
 }
+
+open TmtPulseMemory
+
+let type_declaration (input:tape) (state:P.parser_state) (used:P.names_used) (width:U32.t)
+  : Tot (stt P.named_state (heap input) (fun _ -> heap input)) =
+  let! start = (fun () -> P.skip input { state with offset = P.plus state.offset width }) in
+  let namespace = if width = 9ul then InterfaceName else TypeName in
+  let! named = (fun () -> P.bind_in_namespace input start 0ul 0ul used start.offset namespace) in
+  let! valid = (fun () -> P.admissible_type_binding input start.offset named.state.offset) in
+  let! tail = (fun () -> if not valid then ret input (P.failed named.state 1ul)
+    else if width = 9ul then P.interface_tail input named.state
+    else P.type_alias_tail input named.state false) in
+  ret input { named with state = tail }
+
+let rec type_only_statements (input:tape) (state:P.parser_state) (used:P.names_used) (module_seen:bool) (fuel:U32.t)
+  : Tot (stt bool (heap input) (fun _ -> heap input)) (decreases U32.v fuel) =
+  let! st = (fun () -> P.skip input state) in
+  if st.status <> 0ul then ret input false
+  else if st.offset = input.size then ret input module_seen
+  else if fuel = 0ul then ret input false
+  else
+    let! imported = (fun () -> P.keyword input st.offset 6ul 0x696d706f7274uL) in
+    if imported then
+      let! kind = (fun () -> P.skip input { st with offset = P.plus st.offset 6ul }) in
+      let! typed = (fun () -> P.keyword input kind.offset 4ul 0x74797065uL) in
+      let! first = (fun () -> P.skip input { kind with offset = P.plus kind.offset 4ul }) in
+      let! value_import = (fun () -> P.keyword input first.offset 4ul 0x66726f6duL) in
+      let! byte = (fun () -> peek input first.offset) in
+      if not typed || value_import || first.status <> 0ul ||
+        (not (G.identifier_start byte) && byte <> 123uy && byte <> 42uy) then ret input false
+      else
+        let! next = (fun () -> P.import_declaration input st used) in
+        type_only_statements input next.state next.used true (P.minus fuel 1ul)
+    else
+      let! exported = (fun () -> P.keyword input st.offset 6ul 0x6578706f7274uL) in
+      let! start = (fun () -> if exported then P.skip input { st with offset = P.plus st.offset 6ul } else ret input st) in
+      let! empty = (fun () -> P.same input start.offset 59uy) in
+      let! prefix = (fun () -> P.word input start.offset 8ul 0uL) in
+      let! interface = (fun () -> if prefix = 0x696e746572666163uL then
+        P.keyword input (P.plus start.offset 8ul) 1ul 0x65uL else ret input false) in
+      let! alias = (fun () -> P.keyword input start.offset 4ul 0x74797065uL) in
+      if empty && not exported then
+        type_only_statements input { start with offset = P.next start.offset } used module_seen (P.minus fuel 1ul)
+      else if not (interface || alias) then ret input false
+      else
+        let! next = (fun () -> type_declaration input start used (if interface then 9ul else 4ul)) in
+        type_only_statements input next.state next.used (module_seen || exported) (P.minus fuel 1ul)
+
+fn type_only_module (input:tape)
+  requires heap input
+  returns accepted:bool
+  ensures heap input
+{
+  type_only_statements input (P.initial_state false true P.primary_locals) 0ul false 512ul
+}

@@ -5,7 +5,7 @@
 #include "generated/Custard.h"
 
 #define NAPI(call) do { if ((call) != napi_ok) goto error; } while (0)
-enum { source_limit = 1048576 };
+enum { source_limit = 1048576, binding_capacity = 2367 };
 
 static bool ordered(TmtGrammar_span span, uint32_t size, uint32_t *previous) {
   if (span.first == span.last) return span.last <= size;
@@ -14,14 +14,34 @@ static bool ordered(TmtGrammar_span span, uint32_t size, uint32_t *previous) {
   return true;
 }
 
+static bool contains_comment_marker(const uint8_t *source, uint32_t size) {
+  for (uint32_t index = 0; index + 1 < size; index++) {
+    if (source[index] == '/' && (source[index + 1] == '/' || source[index + 1] == '*')) return true;
+  }
+  return false;
+}
+
+static bool type_only_module(uint8_t *source, uint32_t size) {
+  TmtPulseMemory_binding_name bindings[binding_capacity] = {0};
+  TmtGrammar_candidate output;
+  uint8_t mark;
+  const TmtPulseMemory_tape input = {
+    .source = source, .size = size, .output = &output, .bindings = bindings, .marks = &mark,
+  };
+  return TmtPulseCompiler_type_only_module(input);
+}
+
 static napi_value compile_source(napi_env env, napi_callback_info info) {
-  napi_value arg, result;
-  size_t argc = 1, size;
+  napi_value args[2], result;
+  size_t argc = 2, size;
+  uint32_t type_only_output;
   void *source;
   uint8_t *output = NULL;
-  NAPI(napi_get_cb_info(env, info, &argc, &arg, NULL, NULL));
-  if (argc != 1) goto error;
-  NAPI(napi_get_buffer_info(env, arg, &source, &size));
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc != 2) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &source, &size));
+  NAPI(napi_get_value_uint32(env, args[1], &type_only_output));
+  if (type_only_output > 2) goto error;
   if (size <= source_limit) {
     const uint32_t width = (uint32_t)size;
     const TmtPulseMemory_tape input = { .source = source, .size = width };
@@ -40,6 +60,11 @@ static napi_value compile_source(napi_env env, napi_callback_info info) {
       }
       NAPI(napi_create_string_utf8(env, output ? (char *)output : (char *)source, size, &result));
       free(output);
+      return result;
+    }
+    if (type_only_output != 0 && type_only_module(source, width) && !contains_comment_marker(source, width)) {
+      const char *code = type_only_output == 2 ? "export {};\n" : "";
+      NAPI(napi_create_string_utf8(env, code, NAPI_AUTO_LENGTH, &result));
       return result;
     }
   }
