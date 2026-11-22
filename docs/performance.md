@@ -159,6 +159,19 @@ The benchmark uses seven rotating warm runs and seven fresh-process runs on offl
 
 TMT has the lowest first-extraction median on nine workloads and the lowest warm median on six. In this run Oxc lazy leads warm Hono and ESLint by 0.08 and 0.05 ms, respectively. The larger gaps are Redux Toolkit in both metrics and mreact in warm extraction. The shared TypeScript traversal reduced warm medians by 3.7–5.9% on the earlier Redux Toolkit, mreact and tachyon-dom compatibility inputs. It preserves the relative order of context and statement diagnostics at the same byte range. The [raw measurements and audit records](../evidence/m1/script-native-comparison.json) include parser versions, exact input fingerprints and the before-and-after candidate coverage.
 
+### Complete typed ecosystem workloads
+
+Pulse handles every selected Redux Toolkit and mreact implementation file and emits all 34 and 1,001 candidates, respectively. The typed extensions cover interface variance, type getters, local interfaces, adjacent class overloads and selected global declarations. The TypeScript compatibility reader now recognizes private names during its existing AST walk and omits the separate private-name validation walk when it found none.
+
+The same ten pinned workloads had identical ordered comparison candidates and UTF-8 spans in TMT, Yuku 0.19.0, SWC Next 0.7.0, and Oxc 0.159.0 in both AST modes. TMT had the lowest warm and first-extraction medians on all ten workloads in this run. The table shows the workloads newly reaching complete native coverage. Times are milliseconds for warm / first extraction, with preloaded input buffers and the Node compile cache disabled. The Linux arm64 Podman run used Node 24.14.0 on an Apple M5 Max. Host load varied substantially, so use the raw paired samples to compare these results.
+
+| Workload | Native files | Previous TMT | TMT | Yuku | SWC Next | Oxc lazy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Redux Toolkit | 106 / 106 | 304.27 / 581.65 | 36.51 / 50.04 | 432.77 / 352.42 | 386.28 / 416.64 | 148.89 / 806.47 |
+| mreact | 321 / 321 | 193.84 / 190.34 | 169.41 / 97.16 | 907.65 / 851.22 | 711.18 / 551.17 | 297.70 / 330.81 |
+
+On Redux Toolkit, TMT improved on its prior extractor in all seven pairs for both measurements. TMT led Oxc lazy in four warm Redux Toolkit pairs and six warm mreact pairs. The independent 28-project audit produced zero mismatches across 7,784 inputs in both logical-rule settings. The [pinned inputs, native coverage, and all measured results](../evidence/m1/complete-typed-corpora.json) record every corpus and competitor.
+
 ## Analysis throughput
 
 Measurements on Apple M5 Max with Node 24.14.0 alternate baseline and current samples. The Git and CLI benchmarks use nine pairs. The coverage planner uses eleven pairs. CLI samples start a fresh Node process with the compile cache disabled.
