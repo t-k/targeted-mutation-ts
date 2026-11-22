@@ -17,7 +17,7 @@ test('the ordinary addon has no external native parser', () => {
 
 const inputs = {
   Plain: 'function ready(state: { count: number }) { if (ready <number>(state.count /* > */) >= 3) return true; }',
-  Nested: 'const name = "🧪"; const fit = (a < b) <= (c > d);',
+  Nested: 'const name = "🧪"; const fit = (a < b) <= (c > d); namespace Model { export type Name = string; }',
   Logical: 'const label = "🐈"; export const view = <button disabled={saving || (!valid)}>{label}</button>;',
   None: 'const label = join <string>("no comparison"); label.trim();',
 };

@@ -3125,7 +3125,7 @@ let rec enum_members (input:tape) (state:parser_state) (remaining:U32.t)
       else (let! anf_value_5 = (fun () -> (consume input tail 44uy)) in enum_members input anf_value_5 (minus remaining 1ul))
     else consume input tail 125uy))
 
-let const_enum (input:tape) (state:parser_state) (used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
+let enum_declaration (input:tape) (state:parser_state) (used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! start = (fun () -> skip input { state with offset = plus state.offset 4ul }) in
   let! named = (fun () -> bind_at input start 0ul used start.offset) in
   let! opening = (fun () -> (let! anf_value_1 = (fun () -> (skip input named.state)) in consume input anf_value_1 123uy)) in
@@ -3179,13 +3179,16 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
   let! head = (fun () -> declaration_start input state) in
   let st = head.after_modifiers in
   let width = head.width in
-  if width = 0ul then ret input ({ state = failed st 1ul; used })
+  let! enumeration = (fun () -> if width = 0ul && not head.ambient_declaration then
+    keyword input st.offset 4ul 0x656e756duL else ret input false) in
+  if enumeration then enum_declaration input st used
+  else if width = 0ul then ret input ({ state = failed st 1ul; used })
   else
     let! start = (fun () -> skip input { st with offset = plus st.offset width }) in
     if width = 8ul then module_function input start used head.async_declaration
     else if (width = 3ul || width = 5ul) && not head.ambient_declaration && not head.class_declaration then
       let! enumeration = (fun () -> if width = 5ul then keyword input start.offset 4ul 0x656e756duL else ret input (false)) in
-      if enumeration then const_enum input start used
+      if enumeration then enum_declaration input start used
       else module_lexical_list input start used (width = 5ul) input.size
     else
       let type_only = width = 4ul || width = 9ul in
@@ -3331,7 +3334,9 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
   let! augmentation = (fun () -> if first = 100uy then global_augmentation_start input st else ret input (failed st 1ul)) in
   let! ambient_module = (fun () -> if first = 100uy && augmentation.status <> 0ul then ambient_module_start input st else ret input (failed st 1ul)) in
   let! declared =
-    (fun () -> if first = 101uy then keyword input st.offset 6ul 0x6578706f7274uL
+    (fun () -> if first = 101uy then
+      let! enumeration = (fun () -> keyword input st.offset 4ul 0x656e756duL) in
+      if enumeration then ret input true else keyword input st.offset 6ul 0x6578706f7274uL
     else if first = 102uy then keyword input st.offset 8ul 0x66756e6374696f6euL
     else if first = 97uy then (let! anf_value_1 = (fun () -> (async_function input st.offset)) in ret input (anf_value_1.ok))
     else if first = 100uy then (let! anf_value_2 = (fun () -> (ambient_modifier input st.offset)) in ret input (anf_value_2.ok))
@@ -3357,7 +3362,9 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
   else
     let! exported = (fun () -> module_export input st) in
     let! decl, exports =
-      (fun () -> if exported.export_kind = 1ul then
+      (fun () -> if not st.module_mode && (exported.direct || exported.export_kind <> 0ul) then
+        ret input ({ state = failed st 1ul; used }, exports)
+      else if exported.export_kind = 1ul then
         let name = exported.after_export in
         let end_ = plus name.offset 7ul in
         let! reserved = (fun () -> reserve_export input name exports name.offset end_) in
@@ -3375,7 +3382,9 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
       else (let! anf_value_5 = (fun () -> keyword input st.offset 6ul 0x696d706f7274uL) in if anf_value_5 then
         (let! anf_value_6 = (fun () -> import_expression_start input st) in if anf_value_6 then
           (let! anf_value_7 = (fun () -> (let! anf_value_8 = (fun () -> (let! anf_value_9 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_9.state))) in ret input ({ state = anf_value_8; used }))) in ret input (anf_value_7, exports))
-        else (let! anf_value_10 = (fun () -> import_declaration input st used) in ret input (anf_value_10, exports)))
+        else if st.module_mode then
+          (let! anf_value_10 = (fun () -> import_declaration input st used) in ret input (anf_value_10, exports))
+        else ret input ({ state = failed st 1ul; used }, exports))
       else
         (let! anf_value_11 = (fun () -> module_plain_declaration input st used) in ret input (anf_value_11, exports)))) in
     let! reserved = (fun () -> if exported.direct then reserve_direct_exports input decl.state exports used decl.used
@@ -3424,7 +3433,7 @@ let parse_candidates (input:tape) (jsx module_mode:bool)
   let! initial = (fun () -> (let! anf_value_1 = (fun () -> (let! anf_value_2 = (fun () -> source_start input) in ret input ({ (initial_state jsx module_mode) with offset = anf_value_2 }))) in skip input anf_value_1)) in
   let! state = (fun () -> parse_state input initial module_mode) in
   let! state : parser_state =
-    (fun () -> if module_mode && (state.status = 1ul || (state.status = 0ul && state.offset <> input.size)) then
+    (fun () -> if state.status = 1ul || (state.status = 0ul && state.offset <> input.size) then
       let! _ = (fun () -> clear_marks input) in
       let! expanded = (fun () -> module_sequence input initial 0ul input.size 0ul) in
       ret input (if expanded.status = 1ul then state else expanded)

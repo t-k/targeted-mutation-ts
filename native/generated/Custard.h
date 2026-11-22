@@ -1871,14 +1871,6 @@ TmtPulseParser_declaration_head;
 TmtPulseParser_declaration_head
 TmtPulseParser_declaration_start(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
 
-TmtPulseParser_named_state
-TmtPulseParser_module_function(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t used,
-  bool async_
-);
-
 TmtPulseParser_parser_state
 TmtPulseParser_enum_members(
   TmtPulseMemory_tape input0,
@@ -1887,10 +1879,18 @@ TmtPulseParser_enum_members(
 );
 
 TmtPulseParser_named_state
-TmtPulseParser_const_enum(
+TmtPulseParser_enum_declaration(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   uint32_t used
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_module_function(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t used,
+  bool async_
 );
 
 TmtPulseParser_named_state

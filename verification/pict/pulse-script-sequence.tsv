@@ -1,0 +1,13 @@
+Mode	Directive	Shape
+Script	Strict	CommonJS
+Script	Absent	CommonJS
+Script	Absent	DynamicImport
+Script	Strict	StaticImport
+Script	Strict	Export
+Module	Strict	StaticImport
+Script	Strict	Broken
+Module	Absent	Broken
+Module	Absent	StaticImport
+Module	Strict	DynamicImport
+Module	Strict	CommonJS
+Module	Absent	Export

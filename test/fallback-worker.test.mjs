@@ -57,7 +57,7 @@ test('an isolated parser exit preserves the cause of the child startup failure',
 });
 
 test('fallback output is separate from Node preload output and preserves the compatibility route', () => {
-  const sample = { source: 'declare const values: Array<number>; for (let i = 0; i < values.length; i++) {}', file: 'values.ts' };
+  const sample = { source: 'namespace Model { export type Value = number; } declare const values: Array<number>; for (let i = 0; i < values.length; i++) {}', file: 'values.ts' };
   const options = { file: sample.file, mode: 'script', logical: true };
   const expected = extract(sample.source, options);
   assert.equal(expected.fallback, 'typescript');

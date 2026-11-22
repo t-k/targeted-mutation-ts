@@ -1,0 +1,3 @@
+Mode: Module, Script
+Directive: Absent, Strict
+Shape: CommonJS, DynamicImport, StaticImport, Export, Broken

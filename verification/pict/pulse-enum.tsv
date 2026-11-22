@@ -1,0 +1,11 @@
+Form	Member	Tail
+Regular	Empty	Complete
+Regular	Comparison	Complete
+Exported	Comparison	Complete
+Const	Quoted	Complete
+Exported	Empty	Invalid
+Regular	Comparison	Invalid
+Const	Comparison	Invalid
+Regular	Quoted	Invalid
+Const	Empty	Invalid
+Exported	Quoted	Invalid
