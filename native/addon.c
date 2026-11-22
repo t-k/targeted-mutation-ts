@@ -13,14 +13,15 @@ static napi_value parse(napi_env env, napi_callback_info info) {
   void *source;
   size_t size;
   bool tsx, module;
-  TmtGrammar_candidate initial[64];
+  TmtGrammar_candidate initial[128];
   TmtGrammar_candidate *output = NULL;
   NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
   if (argc != 3) goto error;
   NAPI(napi_get_buffer_info(env, args[0], &source, &size));
   NAPI(napi_get_value_bool(env, args[1], &tsx));
   NAPI(napi_get_value_bool(env, args[2], &module));
-  uint32_t capacity = (uint32_t)(sizeof(initial) / sizeof(*initial));
+  // Larger inputs can amortize a bigger stack reserve to avoid parsing twice.
+  uint32_t capacity = size < 16 * 1024 ? 64 : sizeof(initial) / sizeof(*initial);
   uint32_t heap_bytes = 0;
   tmt_result result = size > TMT_SOURCE_MAX ? (tmt_result){ .status = TMT_SOURCE_LIMIT } :
     tmt_parse(source, (uint32_t)size, tsx, module, initial, capacity);

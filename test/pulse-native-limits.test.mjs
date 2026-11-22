@@ -31,3 +31,18 @@ console.log(JSON.stringify([...addon.parse(input, ${dialect === 'TSX'}, true)]))
   assert.equal(astNodes, 0);
   assert.equal(candidates.length, kind === 'Identifier' && size !== 'OverLimit' ? 8 : 0);
 });
+
+test('larger sources can emit up to 128 records without a heap retry', async () => {
+  const { createRequire } = await import('node:module');
+  const { parse } = createRequire(addon.href)('./tmt.node');
+  for (const count of [64, 65, 128, 129]) {
+    for (const large of [false, true]) {
+      const padding = large ? '// ' + 'x'.repeat(16 * 1024) + '\n' : '';
+      const source = Buffer.from(padding + 'record(a < b);\n'.repeat(count));
+      const [status, , , heap, ...records] = parse(source, false, true);
+      assert.equal(status, 0);
+      assert.equal(records.length, 8 * count);
+      assert.equal(heap === 0, count <= (large ? 128 : 64), `large=${large}, count=${count}`);
+    }
+  }
+});

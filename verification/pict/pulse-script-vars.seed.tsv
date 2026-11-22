@@ -1,0 +1,7 @@
+Mode	Scope	Binding
+Script	Root	Var
+Script	DirectiveFunction	Var
+Script	Nested	Conflict
+StrictScript	Function	Var
+StrictScript	Function	Conflict
+Module	Function	Var

@@ -61,7 +61,8 @@ test('tuple grammar declines ambiguous modifiers and malformed elements', () => 
     compare(`const before = a < b; type Row<T, U> = [T?, ${tail}?];`, 'diagnostic');
   }
   compare('type Row<T> = [T[]?, api.Value?]; const ok = a < b;', 'fast');
-  compare('type Row<T> = [Array<T>?]; const ok = a < b;');
+  compare('type Row<T> = [Array<T>?]; const ok = a < b;', 'fast');
+  compare('type Row<T> = [api.Value<Array<T>>[]?]; const ok = a < b;', 'fast');
 });
 
 test('labeled tuples check the element count independently of the label count', () => {

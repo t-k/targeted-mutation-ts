@@ -230,12 +230,15 @@ let record_binding_mode (state:parser_state) (kind:binding_mode) : parser_state 
   else { state with binding_mode = MixedLocals }
 
 let enter_function_locals (state:parser_state) : parser_state =
-  let local_log_floor = if state.local_log_floor = primary_locals || not state.module_mode then state.local_log_floor
+  let local_log_floor = if state.local_log_floor = primary_locals then state.local_log_floor
     else state.local_log_used in
   { state with binding_mode = NoLocals; local_log_floor }
 
 let leave_function_locals (state outer:parser_state) : parser_state =
-  { state with binding_mode = outer.binding_mode; local_log_floor = outer.local_log_floor; local_log_used = outer.local_log_used }
+  { state with binding_mode = outer.binding_mode; local_log_floor = outer.local_log_floor; local_log_used = outer.local_log_used;
+    strict_script = outer.strict_script }
+
+let strict_locals (state:parser_state) : bool = state.module_mode || state.strict_script
 
 let start_range (pos:U32.t) : G.span = { G.first = pos; G.last = pos }
 let empty_range (state:parser_state) : parsed =
@@ -1202,7 +1205,8 @@ and type_arguments (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t
   let tail = from_cursor state after in
   if tail.status <> 0ul then read_ret input #frame (tail)
   else (let! anf_value_1 = (fun () -> same input #frame tail.offset 60uy) in if anf_value_1 then
-    if (after.newline && not allow_newline) || fuel = 0ul then read_ret input #frame (failed tail 1ul)
+    if after.newline && not allow_newline then read_ret input #frame state
+    else if fuel = 0ul then read_ret input #frame (failed tail 1ul)
     else (let! anf_value_2 = (fun () -> (consume input #frame tail 60uy)) in type_list input #frame anf_value_2 (minus fuel 1ul) 64ul 62uy false)
   else read_ret input #frame (state))
 and type_list (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining:U32.t) (close:U8.t) (allow_empty:bool)
@@ -1247,7 +1251,7 @@ and tuple_element (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t)
   let! item_end = (fun () -> if rest_item && optional_item then read_ret input #frame (failed annotated 1ul)
     else if optional_suffix then
       // A question mark after a composite type may belong to its final operand.
-      let! primary = (fun () -> (let! anf_value_2 = (fun () -> (type_reference input #frame start 0ul)) in type_suffixes input #frame anf_value_2 0ul 16ul false)) in
+      let! primary = (fun () -> (let! anf_value_2 = (fun () -> (type_reference input #frame start fuel)) in type_suffixes input #frame anf_value_2 0ul 16ul false)) in
       if after_value.newline || primary.status <> 0ul || primary.offset <> value.offset then read_ret input #frame (failed annotated 1ul)
       else (let! anf_value_3 = (fun () -> (consume input #frame annotated 63uy)) in skip input #frame anf_value_3)
     else read_ret input #frame (annotated)) in
@@ -1697,12 +1701,16 @@ let read_generator_head (input:tape) (#frame:slprop) (start:parser_state)
   read_ret input #frame { after_star; generator }
 
 let function_body (input:tape) (#frame:slprop) (state:parser_state) (non_simple:bool) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  if not non_simple || state.status <> 0ul then read_ret input #frame (state)
+  if state.status <> 0ul || (not non_simple && strict_locals state) then read_ret input #frame (state)
   else
-    // Non-simple parameters have an early error for a strict directive in the prologue.
     let! first = (fun () -> (let! anf_value_1 = (fun () -> (consume input #frame state 123uy)) in skip input #frame anf_value_1)) in
     let! byte = (fun () -> peek input #frame first.offset) in
-    read_ret input #frame (if byte = 34uy || byte = 39uy then failed state 1ul else state)
+    if first.status <> 0ul || (byte <> 34uy && byte <> 39uy) then read_ret input #frame state
+    // Non-simple parameters have an early error for a strict directive in the prologue.
+    else if non_simple then read_ret input #frame (failed state 1ul)
+    else
+      let! strict = (fun () -> strict_directive input #frame first.offset) in
+      read_ret input #frame ({ state with strict_script = strict })
 
 let proto_key (input:tape) (#frame:slprop) (first last:U32.t) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   if minus last first <> 9ul then read_ret input #frame (false)
@@ -1874,7 +1882,9 @@ type postfix_head = {
 
 let instantiation_follower (input:tape) (#frame:slprop) (type_end after:parser_state) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! byte = (fun () -> peek input #frame after.offset) in
-  if byte = 60uy || (byte = 62uy && type_end.offset <> after.offset) then
+  if after.offset = input.size || byte = 59uy || byte = 41uy || byte = 93uy || byte = 125uy || byte = 44uy then
+    read_ret input #frame true
+  else if byte = 60uy || (byte = 62uy && type_end.offset <> after.offset) then
     let! second = (fun () -> peek input #frame (next after.offset)) in
     read_ret input #frame (second = byte || second = 61uy)
   else read_ret input #frame (false)
@@ -2278,6 +2288,12 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
                   else if next_token = 108uy then keyword input tail.offset 3ul 0x6c6574uL
                   else if next_token = 99uy then keyword input tail.offset 5ul 0x636f6e7374uL
                   else if next_token = 118uy then keyword input tail.offset 3ul 0x766172uL
+                  else if next_token = 102uy then
+                    let! function_ = (fun () -> keyword input tail.offset 8ul 0x66756e6374696f6euL) in
+                    if function_ then ret input true else keyword input tail.offset 3ul 0x666f72uL
+                  else if G.identifier_start next_token then
+                    let! name_end = (fun () -> scan_class input tail.offset G.Identifier) in
+                    same input name_end 46uy
                   else ret input false) in
                 let closed = tail.offset = input.size || next_token = 59uy || next_token = 44uy ||
                   next_token = 41uy || next_token = 93uy || next_token = 125uy in
@@ -3115,8 +3131,10 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
       let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
       let start = { tracked with local_names = decl.used } in
-      let! form = (fun () -> function_form input start (minus fuel 1ul) (st.offset <> function_head.at) NoSuper false OrdinaryParameters head.generator) in
-      ret input ({ decl with state = form.after_function })
+      let name_span = { G.first = named.offset; G.last = decl.state.offset } in
+      let! after = (fun () -> local_function_group input start (minus fuel 1ul) (st.offset <> function_head.at)
+        head.generator name_span 64ul) in
+      ret input ({ decl with state = after })
   else if class_ then
     if fuel = 0ul then ret input ({ state = failed st 3ul; used })
     else
@@ -3127,6 +3145,26 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       let start = { tracked with local_names = decl.used } in
       (let! anf_value_2 = (fun () -> class_tail input start (minus fuel 1ul) OrdinaryClass) in ret input ({ decl with state = anf_value_2 }))
   else control_statement input st fuel in_function jumps floor used root_control
+
+and local_function_group (input:tape) (start:parser_state) (fuel:U32.t) (async_ generator:bool) (expected:G.span) (remaining:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 54; U32.v remaining]) =
+  let! form = (fun () -> function_form input start fuel async_ NoSuper (start.module_mode && not generator) OrdinaryParameters generator) in
+  let after = form.after_function in
+  if after.status <> 0ul || not form.signature_only then ret input after
+  else if remaining = 0ul then ret input (failed after 3ul)
+  else
+    let! following = (fun () -> skip input after) in
+    let! head = (fun () -> function_start input following.offset) in
+    if not head.ok || (following.offset <> head.at) <> async_ then ret input (failed following 1ul)
+    else
+      let! start = (fun () -> skip input { following with offset = plus head.at 8ul }) in
+      let! named = (fun () -> name input start.offset false true) in
+      let length = minus expected.G.last expected.G.first in
+      let! matches = (fun () -> if named.ok && minus named.at start.offset = length then
+        same_bytes input expected.G.first start.offset length else ret input false) in
+      if not matches then ret input (failed start 1ul)
+      else local_function_group input (from_cursor start named) fuel async_ false expected (minus remaining 1ul)
+
 and control_sequence (input:tape) (state:parser_state) (fuel remaining:U32.t) (in_function:bool) (jumps:jump_context)
   (floor used:names_used) (root_control:bool)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 49; U32.v remaining]) =
@@ -3173,7 +3211,7 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
   let! kind = (fun () -> statement_kind input state.offset) in
   if state.status <> 0ul then ret input ({ state; used })
   else if kind = 0ul then
-    let local_var = in_function && state.module_mode in
+    let local_var = in_function && strict_locals state in
     let! first = (fun () -> peek input state.offset) in
     let! alias = (fun () -> if local_var && first = 116uy then (let! anf_value_1 = (fun () -> type_declaration_width input state.offset) in ret input (anf_value_1 = 4ul)) else ret input (false)) in
     let! var = (fun () -> if local_var && first = 118uy then keyword input state.offset 3ul 0x766172uL else ret input (false)) in
@@ -3222,7 +3260,7 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
     else
       let! result =
         (fun () -> if kind = 4ul then
-          let! tested = (fun () -> for_header input { state with offset = plus state.offset 3ul } allow_var (in_function && state.module_mode) fuel) in
+          let! tested = (fun () -> for_header input { state with offset = plus state.offset 3ul } allow_var (in_function && strict_locals state) fuel) in
           let! body = (fun () -> control_body input tested inner in_function (loop_jumps jumps) tested.local_names tested.local_names) in
           finish_local_scope input { body.state with local_names = state.local_names } state.local_log_used
         else if kind = 5ul then
@@ -3726,8 +3764,7 @@ let declaration_start (input:tape) (#frame:slprop) (state:parser_state) : Tot (s
     else
       let! declared = (fun () -> type_declaration_width input #frame st.offset) in
       if declared <> 0ul then read_ret input #frame (declared)
-      else if ambient.ok || st.module_mode then ambient_variable_width input #frame st.offset
-      else local_width input #frame st.offset)) in
+      else ambient_variable_width input #frame st.offset)) in
   read_ret input #frame ({ after_modifiers = st; width; async_declaration = async_.ok; ambient_declaration = ambient.ok;
     class_declaration = class_; abstract_class = abstract_.ok })
 
@@ -3854,6 +3891,15 @@ let rec ambient_interfaces (input:tape) (#frame:slprop) (state:parser_state) (re
     let! member = (fun () -> ambient_interface input #frame st allow_exports) in
     ambient_interfaces input #frame member (minus remaining 1ul) allow_exports)
 
+let ambient_global_var (input:tape) (#frame:slprop) (st:parser_state)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! start = (fun () -> skip input #frame { st with offset = plus st.offset 3ul }) in
+  let! named = (fun () -> name input #frame start.offset false true) in
+  let! colon = (fun () -> skip input #frame (from_cursor start named)) in
+  let! typed = (fun () -> consume input #frame colon 58uy) in
+  let! annotation = (fun () -> annotation_type input #frame typed 16ul 64ul) in
+  statement_end input #frame annotation annotation.offset true
+
 let rec global_augmentation_members (input:tape) (#frame:slprop) (state:parser_state) (remaining:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v remaining) =
   let! st = (fun () -> skip input #frame state) in
@@ -3864,7 +3910,9 @@ let rec global_augmentation_members (input:tape) (#frame:slprop) (state:parser_s
     let! namespace_ = (fun () -> named_namespace_start input #frame st) in
     let! body = (fun () -> if namespace_.body_start.status = 0ul then
       ambient_interfaces input #frame namespace_.body_start remaining true
-      else ambient_interface input #frame st false) in
+      else
+        let! var = (fun () -> keyword input #frame st.offset 3ul 0x766172uL) in
+        if var then ambient_global_var input #frame st else ambient_interface input #frame st false) in
     global_augmentation_members input #frame body (minus remaining 1ul)
 
 let rec type_namespace_members (input:tape) (state:parser_state) (used:names_used) (remaining:U32.t)
@@ -4117,7 +4165,7 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
       if class_ then ret input (true) else (let! anf_value_3 = (fun () -> local_width input st.offset) in ret input (anf_value_3 <> 0ul))
     else if first = 105uy || first = 116uy then
       let! width = (fun () -> type_declaration_width input st.offset) in ret input (width <> 0ul)
-    else if first = 118uy && st.module_mode then keyword input st.offset 3ul 0x766172uL
+    else if first = 118uy then keyword input st.offset 3ul 0x766172uL
     else if first = 110uy && st.module_mode then
       let! namespace_ = (fun () -> named_namespace_start input st) in
       ret input (namespace_.body_start.status = 0ul)
@@ -4208,13 +4256,24 @@ let parse_attempt (input:tape) (jsx module_mode:bool) (local_log_floor:U16.t)
   let! initial = (fun () -> (let! anf_value_1 = (fun () -> (let! anf_value_2 = (fun () -> source_start input) in ret input ({ (initial_state jsx module_mode local_log_floor) with offset = anf_value_2 }))) in skip input anf_value_1)) in
   let! strict_script = (fun () -> if module_mode then ret input false else strict_directive input initial.offset) in
   let initial = { initial with strict_script } in
-  let! state = (fun () -> parse_state input initial module_mode) in
+  let! script_var = (fun () -> if module_mode || initial.status <> 0ul then ret input false
+    else keyword input initial.offset 3ul 0x766172uL) in
   let! state : parser_state =
-    (fun () -> if state.status = 1ul || (state.status = 0ul && state.offset <> input.size) then
-      let! _ = (fun () -> clear_marks input) in
+    (fun () -> if script_var then
+      // A long script may end its first var declaration by ASI after a large initializer.
       let! expanded = (fun () -> module_sequence input initial 0ul input.size 0ul 0ul) in
-      ret input (if expanded.status = 1ul then state else expanded)
-    else ret input (state)) in
+      if (expanded.status = 0ul && expanded.offset = input.size) || expanded.status = mixed_locals_status then ret input expanded
+      else
+        let! _ = (fun () -> clear_marks input) in
+        let! legacy = (fun () -> parse_state input initial module_mode) in
+        ret input (if legacy.status <> 1ul && (legacy.status <> 0ul || legacy.offset = input.size) then legacy else expanded)
+    else
+      let! legacy = (fun () -> parse_state input initial module_mode) in
+      if legacy.status = 1ul || (legacy.status = 0ul && legacy.offset <> input.size) then
+        let! _ = (fun () -> clear_marks input) in
+        let! expanded = (fun () -> module_sequence input initial 0ul input.size 0ul 0ul) in
+        ret input (if expanded.status = 1ul then legacy else expanded)
+      else ret input legacy) in
   let! private_ok = (fun () -> if state.status = 0ul && state.offset = input.size && state.private_count <> 0uy then
     valid_private_log input state.private_count state.private_count else ret input true) in
   ret #(parse_result input) input (if state.status <> 0ul || state.offset <> input.size || not private_ok then

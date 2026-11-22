@@ -1,0 +1,3 @@
+Mode: Module, Script, StrictScript
+Scope: Root, Function, DirectiveFunction, Nested
+Binding: Var, Lexical, Conflict

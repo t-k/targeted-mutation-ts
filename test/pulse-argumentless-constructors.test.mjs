@@ -51,3 +51,10 @@ test('the right operand ends before trailing constructor trivia', () => {
   const [{ right }] = extract(source, options).candidates;
   assert.equal(Buffer.from(source).toString('utf8', ...right), 'new library.C');
 });
+
+test('a control statement or function declaration can follow a bare constructor across a newline', () => {
+  compare('const seen = new Set\nfor (const item of values) seen.add(item < limit);', true);
+  compare('const seen = new Set /*\n*/ function check() { return n < limit; }', true);
+  compare('store.seen = new Set\n/* attribute */store.matches = n < limit;', true);
+  compare('const seen = new Set for (const item of values) seen.add(item < limit);', false);
+});

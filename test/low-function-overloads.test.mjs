@@ -44,3 +44,14 @@ test('bodyless signatures use ASI but do not reserve runtime export names', () =
   compare('type select = boolean; function select(x: Ready): select; function select(x: Ready): select { return x.count > 0; }', true);
   compare('function select(value = a < b): boolean;\nconst keep = x < y;', false);
 });
+
+test('adjacent local signatures resolve to one function binding', () => {
+  compare('function forms() { function bind<T>(x: T): T; function bind(x: string): string; function bind(x: string) { return x.length < limit; } return p <= q; }', true);
+  compare('function forms() { var result; function bind(x: number): number\nfunction bind(x: number) { return x < limit; } return p <= q; }', true);
+  for (const tail of [
+    'function other(x: number) { return x < limit; }',
+    'const middle = a < b; function bind(x: number) { return x < limit; }',
+    'async function bind(x: number) { return x < limit; }',
+    '',
+  ]) compare(`function forms() { function bind(x: number): number; ${tail} }`, false);
+});

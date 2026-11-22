@@ -52,3 +52,8 @@ test('signature members remain separate from ordinary properties and executable 
     compare(source);
   }
 });
+
+test('a generic call signature starts after a line break following a type reference', () => {
+  compare('interface Factory { (x: number): Result\n<T>(x: T): T; } const check = a < b;', 'fast');
+  compare('interface Factory { (x: number): Result<T>(x: T): T; } const check = a < b;', 'diagnostic');
+});

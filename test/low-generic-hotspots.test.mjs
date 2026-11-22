@@ -69,3 +69,12 @@ test('ambient interface names preserve module and script restrictions', () => {
   }
   check('declare global { interface eval {} } const keep = a < b;', 'fallback');
 });
+
+test('global augmentations accept typed vars without reserving module bindings', () => {
+  check('const globalValue = a < b; declare global { var globalValue: SomeType | undefined; } const keep = c < d;', 'fast');
+  check('import "setup"; declare global { var globalValue: number\ninterface More {} } const keep = a < b;', 'fast');
+  for (const member of ['var value;', 'var value: number = 1;', 'var { value }: number;']) {
+    const source = `declare global { ${member} } const keep = a < b;`;
+    assert.notEqual(extract(source, { requireNative: true }).path, 'fast', source);
+  }
+});

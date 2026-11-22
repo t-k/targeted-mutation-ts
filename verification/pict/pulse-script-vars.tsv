@@ -1,0 +1,15 @@
+Mode	Scope	Binding
+Script	Root	Var
+Script	DirectiveFunction	Var
+Script	Nested	Conflict
+StrictScript	Function	Var
+StrictScript	Function	Conflict
+Module	Function	Var
+StrictScript	DirectiveFunction	Lexical
+StrictScript	Root	Conflict
+Module	Nested	Lexical
+Script	Function	Lexical
+Module	Root	Conflict
+Module	DirectiveFunction	Conflict
+StrictScript	Root	Lexical
+StrictScript	Nested	Var

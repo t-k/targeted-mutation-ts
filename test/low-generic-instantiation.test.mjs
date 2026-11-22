@@ -36,3 +36,10 @@ test('compound closers, unsupported followers and nearby comparisons keep their 
   compare('const out = id<T> = value; const other = a >= b;', false);
   compare('const out = (id<A<B>> / x) >= n; const other = a >= b;', false);
 });
+
+test('instantiations before delimiters retain complete comparison operands', () => {
+  compare('const check = (object.id<T>) >= bound;', true);
+  compare('const check = x >= id<T>;', true);
+  compare('const row = [item ?? id<T>, x < bound];', true);
+  compare('const last = other ?? object.id<T>', true);
+});
