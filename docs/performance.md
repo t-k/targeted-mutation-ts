@@ -32,6 +32,34 @@ First extraction on the established Vite, mreact, and tachyon-dom inputs changed
 
 Run the [independent corpus audit](../scripts/audit-independent-extraction.mjs) against local checkouts at the recorded revisions. See the [pinned revisions, exact counts, and paired samples](../evidence/m1/independent-extraction.json).
 
+### Server, typed library, and framework cohorts
+
+The three additional cohorts cover 4,275 pinned files from 14 repositories. The extractor agrees with full TypeScript and Yuku on acceptance and ordered candidate records with the logical rule both enabled and disabled. A separate TypeScript AST walk checks the byte ranges. With the nine established repositories, the same audit covers 7,171 files. The counts in the table exclude declaration and generated files.
+
+| Cohort | Native source files | Native candidates |
+| --- | ---: | ---: |
+| Express, Commander, Undici, ESLint, Lodash, Prettier | 770 / 910 | 1,046 / 1,679 |
+| Hono, tRPC, Solid, TanStack Query, Zustand, date-fns | 1,638 / 1,837 | 1,131 / 1,561 |
+| Astro and Svelte | 859 / 1,018 | 580 / 881 |
+
+The Pulse grammar changes raised native coverage from 568 files and 648 candidates to 770 files and 1,046 candidates in the server cohort. Declaration-file handling fixed six valid inputs previously rejected by the compatibility parser. The framework cohorts cover the repositories' JS and TS implementation sources. Astro and Svelte template files are outside this audit.
+
+| Workload | Source files | Warm extraction | First extraction |
+| --- | ---: | ---: | ---: |
+| ESLint | 421 | 125.33 → 41.01 ms | 244.71 → 121.08 ms |
+| Undici | 102 | 47.63 → 42.87 ms | 133.43 → 127.69 ms |
+| Hono | 223 | 28.96 → 27.86 ms | 100.23 → 95.30 ms |
+| Astro | 642 | 41.32 → 40.94 ms | 109.10 → 107.99 ms |
+| Svelte | 376 | 70.46 → 65.40 ms | 168.00 → 157.65 ms |
+
+This comparison uses `55e3975` as the baseline, nine alternating pairs, fixture-trained PGO on Apple M5 Max, and Node 24.14.0. Cold timings include parser loading and use in-memory source buffers with the Node compile cache disabled. Acceptance and ordered candidate records match across both versions. The Vite, mreact, and tachyon-dom cold medians changed by at most 1.1%. A verified packed-byte reader experiment showed no consistent benefit on the measured corpora and was dropped.
+
+The audit accepts bare repositories and reads regular Git blobs at fixed revisions. Use bare fetches from the listed upstream URLs. This keeps upstream package scripts, Git hooks, and automation instructions out of the workflow. For unfamiliar corpora, run the audit in a rootless container with no network, a read-only root, explicit read-only input mounts, a bounded temporary directory, dropped capabilities, and memory and process limits. Use a snapshot of this tool and its lockfile-pinned oracle dependencies. The package for the target platform can be verified against the lockfile's SHA-512 integrity before extraction, with lifecycle scripts disabled.
+
+The audit was repeated on Linux arm64 in rootless Podman for all 14 new repositories with both logical-rule settings. The addon was built from checked-in generated C inside the isolated process, and the same audit produced zero differences.
+
+The [audit results, pinned revisions, and paired samples](../evidence/m1/wider-extraction.json) include the exact checked paths. The oracles can share gaps in JavaScript acceptance. For example, Node rejects some invalid Unicode regex escapes that both compatibility oracles accept. The native path declines the tested invalid forms.
+
 ## Analysis throughput
 
 Measurements on Apple M5 Max with Node 24.14.0 alternate baseline and current samples. The Git and CLI benchmarks use nine pairs. The coverage planner uses eleven pairs. CLI samples start a fresh Node process with the compile cache disabled.

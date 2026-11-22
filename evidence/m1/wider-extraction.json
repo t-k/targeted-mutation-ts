@@ -1,0 +1,1973 @@
+{
+  "auditedImplementation": "7742f917a10aaa03d5c6c031f26989f8a98e703b",
+  "baseline": "55e3975",
+  "baselineSources": {
+    "server": {
+      "files": 910,
+      "nativeFiles": 568,
+      "candidates": 1679,
+      "nativeCandidates": 648
+    },
+    "typed": {
+      "files": 1837,
+      "nativeFiles": 1636,
+      "candidates": 1561,
+      "nativeCandidates": 1119
+    }
+  },
+  "hostAudit": {
+    "platform": "macOS arm64",
+    "node": "v24.14.0",
+    "typescript": "6.0.3",
+    "yuku": "0.19.0",
+    "runs": [
+      {
+        "suite": "established",
+        "logical": true,
+        "nativeSha256": "8d99403d42304c745b5ac700c009ead8632eadd8a5c4854dbbb0285b83be0f8c",
+        "files": 2896,
+        "mismatches": 0
+      },
+      {
+        "suite": "established",
+        "logical": false,
+        "nativeSha256": "8d99403d42304c745b5ac700c009ead8632eadd8a5c4854dbbb0285b83be0f8c",
+        "files": 2896,
+        "mismatches": 0
+      },
+      {
+        "suite": "server",
+        "logical": true,
+        "nativeSha256": "8d99403d42304c745b5ac700c009ead8632eadd8a5c4854dbbb0285b83be0f8c",
+        "files": 972,
+        "mismatches": 0
+      },
+      {
+        "suite": "server",
+        "logical": false,
+        "nativeSha256": "8d99403d42304c745b5ac700c009ead8632eadd8a5c4854dbbb0285b83be0f8c",
+        "files": 972,
+        "mismatches": 0
+      },
+      {
+        "suite": "typed",
+        "logical": true,
+        "nativeSha256": "8d99403d42304c745b5ac700c009ead8632eadd8a5c4854dbbb0285b83be0f8c",
+        "files": 2247,
+        "mismatches": 0
+      },
+      {
+        "suite": "typed",
+        "logical": false,
+        "nativeSha256": "8d99403d42304c745b5ac700c009ead8632eadd8a5c4854dbbb0285b83be0f8c",
+        "files": 2247,
+        "mismatches": 0
+      },
+      {
+        "suite": "ui",
+        "logical": true,
+        "nativeSha256": "8d99403d42304c745b5ac700c009ead8632eadd8a5c4854dbbb0285b83be0f8c",
+        "files": 1056,
+        "mismatches": 0
+      },
+      {
+        "suite": "ui",
+        "logical": false,
+        "nativeSha256": "8d99403d42304c745b5ac700c009ead8632eadd8a5c4854dbbb0285b83be0f8c",
+        "files": 1056,
+        "mismatches": 0
+      }
+    ],
+    "cohorts": [
+      {
+        "suite": "established",
+        "sourceTotals": {
+          "files": 2530,
+          "nativeFiles": 2327,
+          "candidates": 1375,
+          "nativeCandidates": 854
+        },
+        "projects": [
+          {
+            "name": "react",
+            "upstream": "react/react",
+            "revision": "ae74234eae6ebd62f19190731278e20bc1c37d51",
+            "paths": [
+              "compiler/packages",
+              "compiler/apps/playground",
+              "packages/react",
+              "packages/react-dom",
+              "packages/scheduler"
+            ],
+            "include": "^(?:compiler\\/packages\\/[^/]+\\/src\\/|compiler\\/apps\\/playground\\/|packages\\/(?:react|react-dom|scheduler)\\/)",
+            "excluded": {
+              "tests-fixtures-distribution": 1951,
+              "flow": 100
+            },
+            "classes": {
+              "source": {
+                "files": 241,
+                "bytes": 1980569,
+                "nativeFiles": 193,
+                "nativeBytes": 1204100,
+                "candidates": 236,
+                "nativeCandidates": 136,
+                "tsxFiles": 15,
+                "nativeTsxFiles": 12,
+                "dialectOverrides": 0,
+                "unicodeFiles": 20,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 6,
+                "bytes": 4236,
+                "nativeFiles": 2,
+                "nativeBytes": 545,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 52
+            },
+            "mismatches": []
+          },
+          {
+            "name": "vue",
+            "upstream": "vuejs/core",
+            "revision": "5a8aa0b2ba575e098cbb63b396e9bcb751eb3a0f",
+            "paths": [
+              "packages"
+            ],
+            "include": "^packages\\/[^/]+\\/src\\/",
+            "excluded": {},
+            "classes": {
+              "source": {
+                "files": 232,
+                "bytes": 1556793,
+                "nativeFiles": 209,
+                "nativeBytes": 1205158,
+                "candidates": 400,
+                "nativeCandidates": 249,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 1,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 1,
+                "bytes": 110,
+                "nativeFiles": 0,
+                "nativeBytes": 0,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 24
+            },
+            "mismatches": []
+          },
+          {
+            "name": "fastify",
+            "upstream": "fastify/fastify",
+            "revision": "91414fecaa0ad383c7f97c91f86bee87bf4f06c0",
+            "paths": [
+              "fastify.js",
+              "lib",
+              "types"
+            ],
+            "excluded": {},
+            "classes": {
+              "source": {
+                "files": 29,
+                "bytes": 210199,
+                "nativeFiles": 27,
+                "nativeBytes": 167554,
+                "candidates": 32,
+                "nativeCandidates": 29,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 1,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "generated": {
+                "files": 1,
+                "bytes": 34331,
+                "nativeFiles": 0,
+                "nativeBytes": 0,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 15,
+                "bytes": 141339,
+                "nativeFiles": 13,
+                "nativeBytes": 134651,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 5
+            },
+            "mismatches": []
+          },
+          {
+            "name": "zod",
+            "upstream": "colinhacks/zod",
+            "revision": "3b946107b6c94b2ac8ff9fb451160c34dc4dd794",
+            "paths": [
+              "packages/zod/src",
+              "packages/docs/app",
+              "packages/docs/components"
+            ],
+            "excluded": {
+              "tests-fixtures-distribution": 148
+            },
+            "classes": {
+              "source": {
+                "files": 138,
+                "bytes": 979226,
+                "nativeFiles": 116,
+                "nativeBytes": 438729,
+                "candidates": 155,
+                "nativeCandidates": 79,
+                "tsxFiles": 27,
+                "nativeTsxFiles": 25,
+                "dialectOverrides": 0,
+                "unicodeFiles": 48,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 22
+            },
+            "mismatches": []
+          },
+          {
+            "name": "rxjs",
+            "upstream": "ReactiveX/rxjs",
+            "revision": "e5351d02e225e275ac0e497c7b66eaa5f0c88791",
+            "paths": [
+              "src"
+            ],
+            "excluded": {},
+            "classes": {
+              "source": {
+                "files": 252,
+                "bytes": 814480,
+                "nativeFiles": 238,
+                "nativeBytes": 684212,
+                "candidates": 98,
+                "nativeCandidates": 88,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 1,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 14
+            },
+            "mismatches": []
+          },
+          {
+            "name": "esbuild",
+            "upstream": "evanw/esbuild",
+            "revision": "609683d892977362a0f99026cb74b96263d728a9",
+            "paths": [
+              "lib",
+              "scripts",
+              "compat-table/src"
+            ],
+            "excluded": {},
+            "classes": {
+              "source": {
+                "files": 20,
+                "bytes": 285467,
+                "nativeFiles": 6,
+                "nativeBytes": 54542,
+                "candidates": 91,
+                "nativeCandidates": 15,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 3,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 2,
+                "bytes": 302,
+                "nativeFiles": 0,
+                "nativeBytes": 0,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "conformance-harness": {
+                "files": 19,
+                "bytes": 1289385,
+                "nativeFiles": 9,
+                "nativeBytes": 434487,
+                "candidates": 104,
+                "nativeCandidates": 22,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 15,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 26
+            },
+            "mismatches": []
+          },
+          {
+            "name": "antd",
+            "upstream": "ant-design/ant-design",
+            "revision": "a31d11d8a7ea7dbb54199975c48bfa246ac8b354",
+            "paths": [
+              "components"
+            ],
+            "excluded": {
+              "tests-fixtures-distribution": 1496
+            },
+            "classes": {
+              "source": {
+                "files": 898,
+                "bytes": 2742199,
+                "nativeFiles": 846,
+                "nativeBytes": 2428395,
+                "candidates": 198,
+                "nativeCandidates": 149,
+                "tsxFiles": 281,
+                "nativeTsxFiles": 235,
+                "dialectOverrides": 0,
+                "unicodeFiles": 270,
+                "diagnostics": 0,
+                "logicalCandidates": 7,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 52
+            },
+            "mismatches": []
+          },
+          {
+            "name": "material-ui",
+            "upstream": "mui/material-ui",
+            "revision": "28eadba9ec2899226ecbf4058b8fba1ddeab9e6d",
+            "paths": [
+              "packages/mui-material/src"
+            ],
+            "excluded": {
+              "tests-fixtures-distribution": 243
+            },
+            "classes": {
+              "declaration": {
+                "files": 322,
+                "bytes": 564929,
+                "nativeFiles": 237,
+                "nativeBytes": 298286,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 6,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "source": {
+                "files": 635,
+                "bytes": 1999638,
+                "nativeFiles": 607,
+                "nativeBytes": 1666028,
+                "candidates": 161,
+                "nativeCandidates": 105,
+                "tsxFiles": 175,
+                "nativeTsxFiles": 158,
+                "dialectOverrides": 157,
+                "unicodeFiles": 195,
+                "diagnostics": 0,
+                "logicalCandidates": 6,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 113
+            },
+            "mismatches": []
+          },
+          {
+            "name": "swr-firestore",
+            "upstream": "t-k/swr-firestore",
+            "revision": "25e295e6150025bc9b234eea5119589dee473ded",
+            "paths": [
+              "src"
+            ],
+            "excluded": {},
+            "classes": {
+              "source": {
+                "files": 85,
+                "bytes": 112739,
+                "nativeFiles": 85,
+                "nativeBytes": 112739,
+                "candidates": 4,
+                "nativeCandidates": 4,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {},
+            "mismatches": []
+          }
+        ]
+      },
+      {
+        "suite": "server",
+        "sourceTotals": {
+          "files": 910,
+          "nativeFiles": 770,
+          "candidates": 1679,
+          "nativeCandidates": 1046
+        },
+        "projects": [
+          {
+            "name": "express",
+            "upstream": "expressjs/express",
+            "revision": "cd7d4397c398a3f3ecadeaf9ef6ac1377bd414c4",
+            "paths": [
+              "index.js",
+              "lib"
+            ],
+            "excluded": {},
+            "classes": {
+              "source": {
+                "files": 7,
+                "bytes": 61182,
+                "nativeFiles": 1,
+                "nativeBytes": 224,
+                "candidates": 17,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 6
+            },
+            "mismatches": []
+          },
+          {
+            "name": "commander",
+            "upstream": "tj/commander.js",
+            "revision": "395cf7145fe28122f5a69026b310e02df114f907",
+            "paths": [
+              "index.js",
+              "esm.mjs",
+              "lib",
+              "typings"
+            ],
+            "excluded": {
+              "tests-fixtures-distribution": 1
+            },
+            "classes": {
+              "source": {
+                "files": 8,
+                "bytes": 126938,
+                "nativeFiles": 6,
+                "nativeBytes": 18564,
+                "candidates": 32,
+                "nativeCandidates": 12,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 1,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 2,
+                "bytes": 34853,
+                "nativeFiles": 1,
+                "nativeBytes": 168,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 3
+            },
+            "mismatches": []
+          },
+          {
+            "name": "undici",
+            "upstream": "nodejs/undici",
+            "revision": "7392d6f9f565e550e9047458c275ae77aeaefbb9",
+            "paths": [
+              "index.js",
+              "index-fetch.js",
+              "index.d.ts",
+              "lib",
+              "types"
+            ],
+            "excluded": {
+              "generated": 2
+            },
+            "classes": {
+              "source": {
+                "files": 102,
+                "bytes": 964355,
+                "nativeFiles": 48,
+                "nativeBytes": 340871,
+                "candidates": 459,
+                "nativeCandidates": 254,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 16,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 45,
+                "bytes": 111949,
+                "nativeFiles": 9,
+                "nativeBytes": 18650,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 90
+            },
+            "mismatches": []
+          },
+          {
+            "name": "eslint",
+            "upstream": "eslint/eslint",
+            "revision": "ac3a60dffc29d8d4d5031621bc062e77f891532a",
+            "paths": [
+              "bin",
+              "conf",
+              "lib",
+              "messages",
+              "packages"
+            ],
+            "excluded": {
+              "tests-fixtures-distribution": 3,
+              "generated": 2
+            },
+            "classes": {
+              "source": {
+                "files": 421,
+                "bytes": 2801706,
+                "nativeFiles": 385,
+                "nativeBytes": 2192957,
+                "candidates": 636,
+                "nativeCandidates": 509,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 28,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 11,
+                "bytes": 172808,
+                "nativeFiles": 3,
+                "nativeBytes": 511,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 1,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 44
+            },
+            "mismatches": []
+          },
+          {
+            "name": "lodash",
+            "upstream": "lodash/lodash",
+            "revision": "f299b52f39486275a9e6483b60a410e06520c538",
+            "paths": [
+              "lodash.js",
+              "fp"
+            ],
+            "excluded": {},
+            "classes": {
+              "source": {
+                "files": 5,
+                "bytes": 571187,
+                "nativeFiles": 1,
+                "nativeBytes": 105,
+                "candidates": 202,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 1,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 4
+            },
+            "mismatches": []
+          },
+          {
+            "name": "prettier",
+            "upstream": "prettier/prettier",
+            "revision": "7a8b05f41574633fd3af5298f3eeaf33567ad3d3",
+            "paths": [
+              "index.js",
+              "standalone.js",
+              "bin",
+              "src"
+            ],
+            "excluded": {},
+            "classes": {
+              "source": {
+                "files": 367,
+                "bytes": 1082639,
+                "nativeFiles": 329,
+                "nativeBytes": 935446,
+                "candidates": 333,
+                "nativeCandidates": 271,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 7,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 4,
+                "bytes": 38698,
+                "nativeFiles": 2,
+                "nativeBytes": 3831,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 40
+            },
+            "mismatches": []
+          }
+        ]
+      },
+      {
+        "suite": "typed",
+        "sourceTotals": {
+          "files": 1837,
+          "nativeFiles": 1638,
+          "candidates": 1561,
+          "nativeCandidates": 1131
+        },
+        "projects": [
+          {
+            "name": "hono",
+            "upstream": "honojs/hono",
+            "revision": "75ff8e3ea18485589816881c6278bc9783e56602",
+            "paths": [
+              "src",
+              "adapters"
+            ],
+            "include": "^(?:src\\/|adapters\\/[^/]+\\/src\\/)",
+            "excluded": {
+              "tests-fixtures-distribution": 142
+            },
+            "classes": {
+              "source": {
+                "files": 223,
+                "bytes": 864076,
+                "nativeFiles": 194,
+                "nativeBytes": 513347,
+                "candidates": 175,
+                "nativeCandidates": 144,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 10,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 2,
+                "bytes": 4460,
+                "nativeFiles": 0,
+                "nativeBytes": 0,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 31
+            },
+            "mismatches": []
+          },
+          {
+            "name": "trpc",
+            "upstream": "trpc/trpc",
+            "revision": "0813cebf5c04e692e93f9cbc01b7f8678faa53b3",
+            "paths": [
+              "packages"
+            ],
+            "include": "^packages\\/[^/]+\\/src\\/",
+            "excluded": {
+              "tests-fixtures-distribution": 47
+            },
+            "classes": {
+              "source": {
+                "files": 189,
+                "bytes": 985712,
+                "nativeFiles": 158,
+                "nativeBytes": 621407,
+                "candidates": 74,
+                "nativeCandidates": 40,
+                "tsxFiles": 11,
+                "nativeTsxFiles": 10,
+                "dialectOverrides": 0,
+                "unicodeFiles": 12,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 31
+            },
+            "mismatches": []
+          },
+          {
+            "name": "solid",
+            "upstream": "solidjs/solid",
+            "revision": "da28cd5b0653d402defff26c3f4513f6503caedf",
+            "paths": [
+              "packages"
+            ],
+            "include": "^packages\\/[^/]+\\/src\\/",
+            "excluded": {},
+            "classes": {
+              "source": {
+                "files": 142,
+                "bytes": 3198431,
+                "nativeFiles": 123,
+                "nativeBytes": 2074967,
+                "candidates": 789,
+                "nativeCandidates": 466,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 125,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 2,
+                "bytes": 1267,
+                "nativeFiles": 0,
+                "nativeBytes": 0,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 1,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 21
+            },
+            "mismatches": []
+          },
+          {
+            "name": "tanstack-query",
+            "upstream": "TanStack/query",
+            "revision": "0827cf2cb22e2c81ef210271c25fc50e9f1e7328",
+            "paths": [
+              "packages"
+            ],
+            "include": "^packages\\/(?!query-test-utils\\/)[^/]+\\/src\\/",
+            "excluded": {
+              "tests-fixtures-distribution": 290
+            },
+            "classes": {
+              "source": {
+                "files": 320,
+                "bytes": 1854208,
+                "nativeFiles": 290,
+                "nativeBytes": 1457580,
+                "candidates": 96,
+                "nativeCandidates": 70,
+                "tsxFiles": 71,
+                "nativeTsxFiles": 67,
+                "dialectOverrides": 0,
+                "unicodeFiles": 95,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 1,
+                "bytes": 38,
+                "nativeFiles": 1,
+                "nativeBytes": 38,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 30
+            },
+            "mismatches": []
+          },
+          {
+            "name": "zustand",
+            "upstream": "pmndrs/zustand",
+            "revision": "9fed2eb2f3af672da9f7bf694b996df3831fc207",
+            "paths": [
+              "src"
+            ],
+            "excluded": {},
+            "classes": {
+              "source": {
+                "files": 15,
+                "bytes": 54495,
+                "nativeFiles": 14,
+                "nativeBytes": 30282,
+                "candidates": 1,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 1,
+                "bytes": 64,
+                "nativeFiles": 0,
+                "nativeBytes": 0,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 2
+            },
+            "mismatches": []
+          },
+          {
+            "name": "date-fns",
+            "upstream": "date-fns/date-fns",
+            "revision": "a9739fb3e5384a810e90d7376446f6d84ecc5029",
+            "paths": [
+              "pkgs/core/src",
+              "pkgs/tz/src",
+              "pkgs/utc/src"
+            ],
+            "excluded": {
+              "tests-fixtures-distribution": 332
+            },
+            "classes": {
+              "source": {
+                "files": 948,
+                "bytes": 1900279,
+                "nativeFiles": 859,
+                "nativeBytes": 1539710,
+                "candidates": 426,
+                "nativeCandidates": 411,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 368,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "declaration": {
+                "files": 5,
+                "bytes": 10146,
+                "nativeFiles": 0,
+                "nativeBytes": 0,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "generated": {
+                "files": 399,
+                "bytes": 140816,
+                "nativeFiles": 399,
+                "nativeBytes": 140816,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 0,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 94
+            },
+            "mismatches": []
+          }
+        ]
+      },
+      {
+        "suite": "ui",
+        "sourceTotals": {
+          "files": 1018,
+          "nativeFiles": 859,
+          "candidates": 881,
+          "nativeCandidates": 580
+        },
+        "projects": [
+          {
+            "name": "astro",
+            "upstream": "withastro/astro",
+            "revision": "c302892e4a2434fb4d8e66702576f5406e63d986",
+            "paths": [
+              "packages/astro/src"
+            ],
+            "excluded": {},
+            "classes": {
+              "source": {
+                "files": 642,
+                "bytes": 2550182,
+                "nativeFiles": 570,
+                "nativeBytes": 2008432,
+                "candidates": 351,
+                "nativeCandidates": 262,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 104,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 72
+            },
+            "mismatches": []
+          },
+          {
+            "name": "svelte",
+            "upstream": "sveltejs/svelte",
+            "revision": "90ad4e870c72aa76db35ecc7e46f0b027ffe175a",
+            "paths": [
+              "packages/svelte/src"
+            ],
+            "excluded": {
+              "tests-fixtures-distribution": 12
+            },
+            "classes": {
+              "declaration": {
+                "files": 38,
+                "bytes": 119859,
+                "nativeFiles": 32,
+                "nativeBytes": 64806,
+                "candidates": 0,
+                "nativeCandidates": 0,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 6,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              },
+              "source": {
+                "files": 376,
+                "bytes": 1963021,
+                "nativeFiles": 289,
+                "nativeBytes": 1063771,
+                "candidates": 530,
+                "nativeCandidates": 318,
+                "tsxFiles": 0,
+                "nativeTsxFiles": 0,
+                "dialectOverrides": 0,
+                "unicodeFiles": 60,
+                "diagnostics": 0,
+                "logicalCandidates": 0,
+                "nativeLogicalCandidates": 0
+              }
+            },
+            "fallbackReasons": {
+              "outside-l1": 93
+            },
+            "mismatches": []
+          }
+        ]
+      }
+    ]
+  },
+  "isolatedAudit": {
+    "platform": "Linux arm64",
+    "runtime": "rootless Podman",
+    "image": "docker.io/library/node@sha256:331ad6e34f622a7f9eefdff9351b2aa1fa32f035e3c1ac84f27d90f5c86d6ee0",
+    "node": "v24.14.0",
+    "network": "none",
+    "rootFilesystem": "read-only",
+    "inputs": "read-only pinned Git object stores and tool snapshot",
+    "user": "1000:1000",
+    "capabilities": [],
+    "noNewPrivileges": true,
+    "memoryMiB": 1536,
+    "swapMiB": 0,
+    "pidsLimit": 96,
+    "tmpfsMiB": 256,
+    "dependencyIntegrity": {
+      "package": "@yuku-core/binding-linux-arm64-gnu",
+      "version": "0.19.0",
+      "verifiedAgainst": "package-lock.json",
+      "lifecycleScripts": false
+    },
+    "addon": "GCC build from the checked-in generated C within the container",
+    "sameReportsAsHost": true,
+    "runs": [
+      {
+        "suite": "server",
+        "logical": true,
+        "nativeSha256": "06d6405505a4503cd820c03a2564778d6cde815b201bad4c266597e16b61f8eb",
+        "files": 972,
+        "mismatches": 0
+      },
+      {
+        "suite": "server",
+        "logical": false,
+        "nativeSha256": "06d6405505a4503cd820c03a2564778d6cde815b201bad4c266597e16b61f8eb",
+        "files": 972,
+        "mismatches": 0
+      },
+      {
+        "suite": "typed",
+        "logical": true,
+        "nativeSha256": "06d6405505a4503cd820c03a2564778d6cde815b201bad4c266597e16b61f8eb",
+        "files": 2247,
+        "mismatches": 0
+      },
+      {
+        "suite": "typed",
+        "logical": false,
+        "nativeSha256": "06d6405505a4503cd820c03a2564778d6cde815b201bad4c266597e16b61f8eb",
+        "files": 2247,
+        "mismatches": 0
+      },
+      {
+        "suite": "ui",
+        "logical": true,
+        "nativeSha256": "06d6405505a4503cd820c03a2564778d6cde815b201bad4c266597e16b61f8eb",
+        "files": 1056,
+        "mismatches": 0
+      },
+      {
+        "suite": "ui",
+        "logical": false,
+        "nativeSha256": "06d6405505a4503cd820c03a2564778d6cde815b201bad4c266597e16b61f8eb",
+        "files": 1056,
+        "mismatches": 0
+      }
+    ]
+  },
+  "benchmarks": {
+    "widePairedExtraction": {
+      "node": "v24.14.0",
+      "cpu": "Apple M5 Max",
+      "baseline": "55e3975",
+      "repetitions": 9,
+      "records": [
+        {
+          "project": "eslint",
+          "files": 421,
+          "candidates": 636,
+          "fingerprint": "31a6d9b7164c17a2f01c42ef57b021400a871e50a232c6df6da3d16e2967c637",
+          "warm": {
+            "samples": [
+              [
+                130.63202385714285,
+                127.0804047142857,
+                125.32836900000004,
+                125.90826185714273,
+                125.97280357142856,
+                119.3584464285715,
+                119.669505857143,
+                118.21977385714283,
+                118.04770828571444
+              ],
+              [
+                45.6956845714286,
+                44.400636857142835,
+                42.56652385714291,
+                42.576107142857055,
+                41.01136899999983,
+                39.722256000000144,
+                39.89714285714295,
+                39.3542441428573,
+                39.89732142857143
+              ]
+            ],
+            "medians": [
+              125.32836900000004,
+              41.01136899999983
+            ]
+          },
+          "cold": {
+            "samples": [
+              [
+                245.89333299999998,
+                252.06433299999998,
+                247.477125,
+                248.09099999999998,
+                244.707167,
+                232.506542,
+                229.012875,
+                229.92575,
+                231.61029200000002
+              ],
+              [
+                126.30741600000002,
+                129.550375,
+                129.962791,
+                132.4595,
+                117.59541599999999,
+                118.5095,
+                114.906125,
+                121.080667,
+                119.510625
+              ]
+            ],
+            "medians": [
+              244.707167,
+              121.080667
+            ]
+          }
+        },
+        {
+          "project": "undici",
+          "files": 102,
+          "candidates": 459,
+          "fingerprint": "68b381277e853bd6020160cd9fc205cb97b4e96b44552ae45182622305b11f29",
+          "warm": {
+            "samples": [
+              [
+                50.171946428571445,
+                47.23110714285732,
+                46.645952428571555,
+                46.83054171428531,
+                47.69330357142878,
+                47.63308928571392,
+                47.84126199999965,
+                47.35386914285742,
+                48.112178571428686
+              ],
+              [
+                47.89280942857139,
+                43.571500000000015,
+                42.87135114285723,
+                42.87432728571418,
+                44.151380857143,
+                44.38595842857155,
+                42.34330357142816,
+                42.33383928571441,
+                42.56455957142888
+              ]
+            ],
+            "medians": [
+              47.63308928571392,
+              42.87432728571418
+            ]
+          },
+          "cold": {
+            "samples": [
+              [
+                133.658375,
+                130.503625,
+                134.92362500000002,
+                132.684584,
+                133.40441700000002,
+                134.93883399999999,
+                135.010208,
+                133.432542,
+                128.165584
+              ],
+              [
+                127.95837499999999,
+                127.377916,
+                126.32558399999999,
+                129.114125,
+                128.44791700000002,
+                127.11925,
+                127.121416,
+                127.69379099999999,
+                128.20325
+              ]
+            ],
+            "medians": [
+              133.432542,
+              127.69379099999999
+            ]
+          }
+        },
+        {
+          "project": "hono",
+          "files": 223,
+          "candidates": 175,
+          "fingerprint": "a3fb868a15e0e6df46d83080dfdbd31e5fb346ac4eb50ff5c93d1970033bb99b",
+          "warm": {
+            "samples": [
+              [
+                30.48261314285732,
+                30.53619042857151,
+                28.957982142857613,
+                29.179422714285465,
+                28.54958342857156,
+                28.684619000000176,
+                29.593309571428108,
+                28.672827285714447,
+                28.516136857143074
+              ],
+              [
+                28.90881542857148,
+                28.64411300000003,
+                28.383464285714062,
+                27.538362999999663,
+                27.864880999999773,
+                27.477381000000086,
+                27.2196071428568,
+                29.17224399999967,
+                27.360743999999872
+              ]
+            ],
+            "medians": [
+              28.957982142857613,
+              27.864880999999773
+            ]
+          },
+          "cold": {
+            "samples": [
+              [
+                99.739667,
+                99.971334,
+                100.770167,
+                98.871625,
+                100.938167,
+                100.23066599999999,
+                98.230666,
+                100.40162500000001,
+                100.86975
+              ],
+              [
+                94.878375,
+                96.806375,
+                95.160416,
+                95.163917,
+                95.684917,
+                93.572375,
+                95.29895900000001,
+                97.019292,
+                96.79416699999999
+              ]
+            ],
+            "medians": [
+              100.23066599999999,
+              95.29895900000001
+            ]
+          }
+        },
+        {
+          "project": "astro",
+          "files": 642,
+          "candidates": 351,
+          "fingerprint": "5ff9dbbdb3d6c6c77c3b156b1472fdd3a04dabd950dad7485489c3b170b3c229",
+          "warm": {
+            "samples": [
+              [
+                46.251279714285715,
+                43.96822628571427,
+                42.60488085714282,
+                41.31754157142859,
+                41.370791714285716,
+                41.214208285714186,
+                40.745452428571426,
+                40.89013099999998,
+                41.05692857142848
+              ],
+              [
+                44.167839285714294,
+                42.234047571428555,
+                43.136303571428535,
+                41.29893442857143,
+                40.8950834285714,
+                40.763684571428584,
+                40.94098814285722,
+                40.871071428571405,
+                40.80083342857142
+              ]
+            ],
+            "medians": [
+              41.31754157142859,
+              40.94098814285722
+            ]
+          },
+          "cold": {
+            "samples": [
+              [
+                107.963125,
+                108.18775,
+                109.980625,
+                109.100042,
+                109.927583,
+                107.371708,
+                110.49370900000001,
+                109.24175,
+                107.392459
+              ],
+              [
+                108.5205,
+                107.838209,
+                107.40145799999999,
+                108.82916700000001,
+                107.990625,
+                107.586833,
+                106.83325,
+                108.358208,
+                108.606958
+              ]
+            ],
+            "medians": [
+              109.100042,
+              107.990625
+            ]
+          }
+        },
+        {
+          "project": "svelte",
+          "files": 376,
+          "candidates": 530,
+          "fingerprint": "a9640ae11603b4b9c1401678f2ffe7269c5c8578b2dcf6009fdd4dcdf2081e40",
+          "warm": {
+            "samples": [
+              [
+                72.23408328571415,
+                70.23952371428562,
+                70.30950600000013,
+                70.76680942857145,
+                70.45570828571441,
+                73.1543631428571,
+                71.36048214285698,
+                69.87362500000017,
+                70.32045828571427
+              ],
+              [
+                66.27763100000006,
+                65.21151185714292,
+                65.48583328571424,
+                65.0995774285714,
+                65.57011314285695,
+                65.3954345714288,
+                67.44245842857137,
+                65.32143457142853,
+                65.31661914285723
+              ]
+            ],
+            "medians": [
+              70.45570828571441,
+              65.3954345714288
+            ]
+          },
+          "cold": {
+            "samples": [
+              [
+                167.315291,
+                164.922041,
+                167.205625,
+                168.000083,
+                169.877584,
+                167.816666,
+                170.883,
+                169.75191600000002,
+                169.417709
+              ],
+              [
+                154.241458,
+                159.27695799999998,
+                156.32225,
+                158.166792,
+                158.470916,
+                156.644375,
+                157.015667,
+                157.64974999999998,
+                160.598166
+              ]
+            ],
+            "medians": [
+              168.000083,
+              157.64974999999998
+            ]
+          }
+        }
+      ]
+    },
+    "establishedFirstExtraction": {
+      "node": "v24.14.0",
+      "os": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "repetitions": 9,
+      "files": [
+        {
+          "checkout": "vite-corpus",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 482,
+          "candidates": 201,
+          "diagnostics": 1,
+          "fingerprint": "3fc4fc01fd691cabf2cf3678a80fc1551b048c7dba32256d7763a564dea03220",
+          "medianMs": [
+            43.55212499999999,
+            43.540875
+          ],
+          "samplesMs": [
+            [
+              47.799541999999995,
+              45.048666999999995,
+              42.660250000000005,
+              42.629166000000005,
+              42.963375,
+              43.992625000000004,
+              44.300583,
+              43.55212499999999,
+              43.247041
+            ],
+            [
+              45.74508300000001,
+              45.247125000000004,
+              42.348917,
+              42.312,
+              42.68299999999999,
+              43.41024999999999,
+              44.849124999999994,
+              46.398542,
+              43.540875
+            ]
+          ]
+        },
+        {
+          "checkout": "mreact",
+          "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+          "files": 1193,
+          "candidates": 1550,
+          "diagnostics": 0,
+          "fingerprint": "22cc2394184fd508ce2017be0162ec21740de2e5b2738e93b4a50b31e79eab82",
+          "medianMs": [
+            124.739666,
+            124.10924999999999
+          ],
+          "samplesMs": [
+            [
+              127.4795,
+              129.402334,
+              124.73654099999999,
+              124.713167,
+              122.944083,
+              122.419667,
+              126.231292,
+              126.24125000000001,
+              124.739666
+            ],
+            [
+              124.543833,
+              130.6865,
+              122.89095800000001,
+              124.524875,
+              124.10924999999999,
+              120.81866699999999,
+              124.73299999999999,
+              123.626375,
+              121.93674999999999
+            ]
+          ]
+        },
+        {
+          "checkout": "tachyon-dom",
+          "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+          "files": 373,
+          "candidates": 654,
+          "diagnostics": 0,
+          "fingerprint": "4c7b7385f68f972185410948d674c9d6c03c9d5408bb4480ba77c81c507090be",
+          "medianMs": [
+            69.782292,
+            69.08487500000001
+          ],
+          "samplesMs": [
+            [
+              68.997708,
+              69.152,
+              70.207208,
+              70.065,
+              71.603584,
+              69.782292,
+              69.639792,
+              68.721958,
+              73.36325
+            ],
+            [
+              69.053125,
+              69.423417,
+              70.92291700000001,
+              67.572416,
+              69.846625,
+              66.44725,
+              67.3655,
+              69.08487500000001,
+              71.686542
+            ]
+          ]
+        }
+      ]
+    },
+    "discardedPackedByteReader": {
+      "node": "v24.14.0",
+      "cpu": "Apple M5 Max",
+      "baseline": "55e3975",
+      "repetitions": 9,
+      "records": [
+        {
+          "project": "fastify-commonjs",
+          "files": 29,
+          "candidates": 32,
+          "fingerprint": "35efeb12c762a674c2ecccb226e3d95d7db0422b98383191e5142905931138e6",
+          "warm": {
+            "samples": [
+              [
+                12.674374999999998,
+                11.810077285714296,
+                10.826476142857148,
+                10.250261857142862,
+                10.197624999999984,
+                10.477535714285684,
+                10.12759528571431,
+                9.741398857142874,
+                9.642821428571422
+              ],
+              [
+                11.356345285714294,
+                10.71161914285715,
+                11.185976285714267,
+                10.876541571428593,
+                10.320708285714286,
+                10.573928571428562,
+                9.607267857142817,
+                9.69622028571426,
+                9.65470828571428
+              ]
+            ],
+            "medians": [
+              10.250261857142862,
+              10.573928571428562
+            ]
+          },
+          "cold": {
+            "samples": [
+              [
+                53.01841700000001,
+                59.261209,
+                56.993584,
+                58.499750000000006,
+                57.830042,
+                57.108083,
+                52.961166999999996,
+                53.291917000000005,
+                53.252666999999995
+              ],
+              [
+                54.38175,
+                55.555083,
+                57.541916,
+                57.31337499999999,
+                58.710916,
+                56.9195,
+                53.309834,
+                53.072041,
+                53.264375
+              ]
+            ],
+            "medians": [
+              56.993584,
+              55.555083
+            ]
+          }
+        },
+        {
+          "project": "vue",
+          "files": 232,
+          "candidates": 400,
+          "fingerprint": "4b1dbc18ac4ca2eedf6429859644becae44bfd36a9f9649b9e4a20507ebcfe10",
+          "warm": {
+            "samples": [
+              [
+                31.62930942857143,
+                28.16214285714289,
+                28.026869,
+                28.111982142857155,
+                28.094220142857143,
+                27.931410714285708,
+                27.79157142857145,
+                27.900333285714233,
+                27.911922571428608
+              ],
+              [
+                30.190946428571415,
+                28.506118999999995,
+                28.178071428571457,
+                27.96896428571433,
+                27.979303571428577,
+                27.970428571428524,
+                27.97872614285708,
+                28.033976285714353,
+                28.12991071428561
+              ]
+            ],
+            "medians": [
+              28.026869,
+              28.033976285714353
+            ]
+          },
+          "cold": {
+            "samples": [
+              [
+                88.773083,
+                88.418584,
+                89.247125,
+                89.063333,
+                89.044333,
+                89.666167,
+                89.19775,
+                89.31691699999999,
+                88.85787499999999
+              ],
+              [
+                89.325,
+                89.552333,
+                89.463,
+                88.763667,
+                88.839292,
+                88.246375,
+                89.11025,
+                88.648,
+                88.5145
+              ]
+            ],
+            "medians": [
+              89.063333,
+              88.839292
+            ]
+          }
+        },
+        {
+          "project": "react",
+          "files": 241,
+          "candidates": 236,
+          "fingerprint": "54e3634988e9b2efd5a154ee0371d9cf9b181d4b15cc61718f425ba8847645b7",
+          "warm": {
+            "samples": [
+              [
+                51.54689885714288,
+                51.02984528571427,
+                50.67725600000007,
+                50.05272014285713,
+                50.11279757142854,
+                53.97724414285715,
+                51.82752385714308,
+                50.23979157142873,
+                51.23773214285757
+              ],
+              [
+                51.427321428571304,
+                50.61471428571427,
+                50.35955957142869,
+                50.458256000000155,
+                50.870696428571264,
+                53.1733332857145,
+                50.16488685714285,
+                50.45492857142848,
+                50.20974999999972
+              ]
+            ],
+            "medians": [
+              51.02984528571427,
+              50.458256000000155
+            ]
+          },
+          "cold": {
+            "samples": [
+              [
+                129.877333,
+                134.673833,
+                130.83599999999998,
+                133.21599999999998,
+                129.47975,
+                141.823375,
+                135.265042,
+                132.44825,
+                135.041084
+              ],
+              [
+                132.801292,
+                133.67891699999998,
+                132.6685,
+                130.546875,
+                144.02883400000002,
+                143.981625,
+                135.709958,
+                130.42758400000002,
+                136.13804199999998
+              ]
+            ],
+            "medians": [
+              133.21599999999998,
+              133.67891699999998
+            ]
+          }
+        }
+      ]
+    }
+  },
+  "establishedFiveCorpora": [
+    {
+      "logical": true,
+      "oracle": "yuku-parser 0.19.0",
+      "mismatches": 0,
+      "projects": [
+        {
+          "project": "vite-corpus",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 482,
+          "candidates": 201,
+          "fastFiles": 472,
+          "fastCandidates": 196
+        },
+        {
+          "project": "preact-corpus",
+          "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+          "files": 22,
+          "candidates": 1,
+          "fastFiles": 17,
+          "fastCandidates": 0
+        },
+        {
+          "project": "typescript-corpus",
+          "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+          "files": 6479,
+          "candidates": 562,
+          "fastFiles": 2178,
+          "fastCandidates": 176
+        },
+        {
+          "project": "mreact",
+          "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+          "files": 1193,
+          "candidates": 1550,
+          "fastFiles": 1169,
+          "fastCandidates": 1511
+        },
+        {
+          "project": "tachyon-dom",
+          "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+          "files": 373,
+          "candidates": 654,
+          "fastFiles": 365,
+          "fastCandidates": 610
+        }
+      ]
+    },
+    {
+      "logical": false,
+      "oracle": "yuku-parser 0.19.0",
+      "mismatches": 0,
+      "projects": [
+        {
+          "project": "vite-corpus",
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 482,
+          "candidates": 201,
+          "fastFiles": 472,
+          "fastCandidates": 196
+        },
+        {
+          "project": "preact-corpus",
+          "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+          "files": 22,
+          "candidates": 1,
+          "fastFiles": 17,
+          "fastCandidates": 0
+        },
+        {
+          "project": "typescript-corpus",
+          "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+          "files": 6479,
+          "candidates": 562,
+          "fastFiles": 2178,
+          "fastCandidates": 176
+        },
+        {
+          "project": "mreact",
+          "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+          "files": 1193,
+          "candidates": 1550,
+          "fastFiles": 1169,
+          "fastCandidates": 1511
+        },
+        {
+          "project": "tachyon-dom",
+          "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+          "files": 373,
+          "candidates": 654,
+          "fastFiles": 365,
+          "fastCandidates": 610
+        }
+      ]
+    }
+  ]
+}
