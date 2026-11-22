@@ -13,7 +13,7 @@ Scope (analyze):
 Profiles (analyze):
   --mutators focused|operators|standard|all
                                 focused (default) edits comparison boundaries and thresholds.
-                                operators adds equality, logical and arithmetic operator edits.
+                                operators adds equality, logical and arithmetic operator swaps (no extra package).
                                 standard and all need @stryker-mutator/instrumenter@10.1.1.
   --witnesses                   Search for edits that survive and confirm a distinguishing test.
   --spec FILE                   Specification with expected thresholds or witness plans.

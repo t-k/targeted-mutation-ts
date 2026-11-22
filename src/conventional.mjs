@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { byteOffsets } from './extract.mjs';
 import { collectComparisons } from './analysis.mjs';
+import { prepareOperatorSwitches } from './operator-switches.mjs';
 import { selectScope } from './scope.mjs';
 import { inside, resolveOptional, runnerPackage, withCopy } from './vitest.mjs';
 
@@ -93,7 +94,9 @@ export async function prepareConventional(subjects, print, entry = compatibility
 export async function analyzeConventional(project, files, options) {
   const root = realpathSync(project);
   const combined = options.mutators === 'all';
-  const entry = compatibilityEntry(root);
+  // The built-in operator switches use the same session and need no instrumenter package.
+  const builtIn = options.mutators === 'operators';
+  const entry = builtIn ? null : compatibilityEntry(root);
   const prefix = '.tmt-session-' + randomUUID();
   const runtime = prefix + '-focus.mjs';
   const targets = selectScope(root, files, options).map(subject => ({
@@ -106,7 +109,7 @@ export async function analyzeConventional(project, files, options) {
   const focus = combined ? await import('./focused-switch.mjs') : null;
   const require = combined ? createRequire(entry) : null;
   const babel = require && { types: require('@babel/core').types, generate: require('@babel/generator').generate };
-  const { sources, mutants } = await prepareConventional(targets, focus &&
+  const { sources, mutants } = builtIn ? prepareOperatorSwitches(targets, { dialect: options.dialect }) : await prepareConventional(targets, focus &&
     ((source, { starts, bytes }) => focus.printWithFocusedSwitches(
       source, starts, bytes, byFile.get(source.originFileName) ?? [], runtime, preparedFocused, babel,
     )), entry);

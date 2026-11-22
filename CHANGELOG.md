@@ -6,6 +6,6 @@ First public release.
 
 - `targeted-mutation` command with the alias `tmts`: `analyze`, `extract` and `prototype`.
 - Focused comparison and threshold edits, the witness profile, and the standard StrykerJS mutator set for Vitest; focused edits for Playwright.
-- `--mutators operators`: built-in equality, logical and arithmetic operator edits with no extra package.
+- `--mutators operators`: built-in equality, logical and arithmetic operator swaps with no extra package, run in one switched session with per-test coverage on Vitest 4.
 - Text report on a terminal, JSON report (`schemaVersion: 1`) when piped, `--format` to choose.
-- Prebuilt native parser and Lean decision executable for macOS and Linux (glibc) on arm64 and x64.
+- Prebuilt native parser and a 2 MB Lean decision executable for macOS and Linux (glibc) on arm64 and x64.

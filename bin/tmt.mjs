@@ -60,6 +60,9 @@ try {
       }
       const { analyzeConventional } = await import('../src/conventional.mjs');
       result = await analyzeConventional(project, files, values);
+    } else if (values.mutators === 'operators') {
+      const { analyzeOperators } = await import('../src/operator-analysis.mjs');
+      result = await analyzeOperators(project, files, values);
     } else {
       const { analyze } = await import('../src/analysis.mjs');
       result = analyze(project, files, values);

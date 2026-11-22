@@ -50,15 +50,15 @@ test('the operators profile edits equality, logical and arithmetic operators wit
     [3, '&&', '||', 'survived'],
     [3, '>=', '>', 'survived'],
     [3, '-', '+', 'killed'],
-    // Never called: the edit survives and reach is not measured for operator edits.
-    [7, '+', '-', 'survived'],
+    // Never called: per-test coverage from the session shows that no test reaches it.
+    [7, '+', '-', 'unreached'],
   ]);
   const rules = Object.fromEntries(report.mutants.map(mutant => [mutant.operator, mutant.rule]));
   assert.deepEqual(rules, { '*': 'arithmetic-operator/v1', '===': 'equality-negation/v1', '&&': 'logical-operator/v1',
     '>=': 'comparison-boundary/v1', '-': 'arithmetic-operator/v1', '+': 'arithmetic-operator/v1' });
   const unreached = report.mutants.at(-1);
-  assert.equal(unreached.evidence, 'reexecuted');
-  assert.equal(unreached.sourceVerdict, undefined);
+  assert.equal(unreached.evidence, 'coverage');
+  assert.equal(report.operatorExecution, 'session');
   assert.ok(report.mutants[0].tests.length > 0);
   assert.deepEqual(report.diagnostics.map(gap => [gap.kind, gap.location.line]), [['INPUT GAP', 3]]);
   assert.deepEqual(report.instrumented, { status: 'passed' });
@@ -75,7 +75,7 @@ test('the default profile keeps reporting comparison edits only', () => {
 test('the text report shows an operator edit as an operator change', () => {
   const run = analyze('--mutators', 'operators', '--lines', 'src/price.ts:7', '--format', 'text');
   assert.equal(run.status, 0, run.stderr + run.stdout);
-  assert.match(run.stdout, /^src\/price\.ts:7:12 {2}survived {2}arithmetic-operator\/v1: \+ -> -$/m);
+  assert.match(run.stdout, /^src\/price\.ts:7:12 {2}unreached {2}arithmetic-operator\/v1: \+ -> -$/m);
 });
 
 test('the operators profile is refused with the witness profile and unknown profiles keep their error', () => {

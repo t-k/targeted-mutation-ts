@@ -28,7 +28,9 @@ export function collectOperatorSites(input, file, { dialect, ts = loadTypeScript
   // An operator character next to the token would merge with the replacement (`a*/* c */b` -> `a//* c */b`).
   const merges = unit => '+-*/=&|?!<>%'.includes(text[unit] ?? ' ');
   const found = [];
-  (function visit(node, parent) {
+  (function visit(node, parent, constant) {
+    // An enum member initializer must stay a constant expression for const and ambient enums.
+    constant ||= ts.isEnumDeclaration(node);
     if (ts.isBinaryExpression(node)) {
       const token = node.operatorToken;
       const start = token.getStart(tree);
@@ -41,11 +43,12 @@ export function collectOperatorSites(input, file, { dialect, ts = loadTypeScript
       if (entry && !concatenation && !chained) {
         const replacement = (merges(start - 1) ? ' ' : '') + entry[1] + (merges(token.end) ? ' ' : '');
         found.push({ rule: entry[0], operator, replacement,
+          ...(parent && ts.isExpressionStatement(parent) ? { statement: true } : {}), ...(constant ? { constant: true } : {}),
           spans: [start, token.end, node.left.getStart(tree), node.left.end, node.right.getStart(tree), node.right.end] });
       }
     }
-    ts.forEachChild(node, child => visit(child, node));
-  })(tree, undefined);
+    ts.forEachChild(node, child => visit(child, node, constant));
+  })(tree, undefined, false);
   if (!found.length) return [];
   const bytes = byteOffsets(text);
   return found.sort((a, b) => a.spans[0] - b.spans[0]).map(({ spans, ...site }) => {
