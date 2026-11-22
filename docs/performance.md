@@ -98,6 +98,20 @@ Vite’s remaining files entered the native path through the new destructuring d
 
 The [pinned comparison records, native subset, and feasibility probes](../evidence/m1/native-overtake.json) contain all raw samples.
 
+### Complete ESLint and Vite extraction
+
+On the same pinned inputs, the Pulse parser now covers every ESLint and Vite source file. Both workloads have the lowest warm and fresh-process extraction median of all five engines in the same rootless Linux arm64 comparison. All five corpora still match on all 1,853 comparison candidates, including their order, replacements and UTF-8 spans. The table gives warm and first-extraction medians in milliseconds per complete corpus.
+
+| Workload | Native files | TMT | Yuku | SWC Next | Oxc standard | Oxc lazy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Hono | 210 / 223 | 26.49 / 79.95 | 30.81 / 62.94 | 26.58 / 58.34 | 57.39 / 83.52 | 8.24 / 30.26 |
+| ESLint | 421 / 421 | 14.13 / 16.09 | 51.22 / 89.79 | 36.44 / 74.55 | 91.12 / 114.16 | 15.58 / 37.60 |
+| Astro | 631 / 642 | 26.62 / 72.81 | 69.69 / 121.72 | 51.96 / 83.81 | 127.78 / 170.56 | 18.91 / 45.59 |
+| Svelte | 354 / 376 | 49.40 / 125.39 | 54.90 / 92.64 | 36.53 / 81.91 | 93.42 / 122.04 | 15.39 / 40.90 |
+| Vite | 122 / 122 | 8.85 / 10.54 | 38.87 / 82.11 | 30.43 / 62.17 | 72.32 / 101.34 | 9.50 / 33.06 |
+
+The complete ESLint lead follows native support for computed class method names, a single prototype setter, strict-script block functions, constructor expressions, trailing argument commas, four Unicode regular-expression category aliases and flat object assignments. Function-local and module-level `var` support moved much of Svelte to Pulse. The complete Hono, Astro and Svelte workloads still include compatibility parsing and trail Oxc lazy. The 23-repository independent extraction audit agreed with the development references for both logical-rule settings. See the [native coverage, parser samples, and audit results](../evidence/m1/native-grammar-coverage.json).
+
 ## Analysis throughput
 
 Measurements on Apple M5 Max with Node 24.14.0 alternate baseline and current samples. The Git and CLI benchmarks use nine pairs. The coverage planner uses eleven pairs. CLI samples start a fresh Node process with the compile cache disabled.
