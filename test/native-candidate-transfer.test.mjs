@@ -6,7 +6,7 @@ import { extract, extractFallback } from '../src/extract.mjs';
 
 const load = createRequire(import.meta.url);
 const addon = load('../build/tmt.node');
-const edits = { Empty: 0, Direct: 16, Retry: 17, Capacity: 4096, OverCapacity: 4097, BadSuffix: 2 };
+const edits = { Empty: 0, Direct: 64, Retry: 65, Capacity: 4096, OverCapacity: 4097, BadSuffix: 2 };
 const rows = readFileSync(new URL('../verification/pict/native-candidate-transfer.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1);
 
@@ -28,7 +28,7 @@ for (const row of rows) {
     assert.deepEqual(actual.diagnostics, reference.diagnostics);
     assert.equal(native.length, 4 + (expectedStatus === 0 ? 8 * edits[outcome] : 0));
     assert.equal(native[3], actual.metrics.candidateBytes);
-    if (edits[outcome] > 16) assert.ok(native[3] > 0);
+    assert.equal(native[3] > 0, edits[outcome] > 64);
     if (expectedStatus === 0 && edits[outcome]) {
       const site = actual.candidates[0];
       assert.deepEqual(Array.from(native.subarray(4, 12)), [1, 2, ...site.edit, ...site.left, ...site.right]);

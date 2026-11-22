@@ -58,12 +58,12 @@ test('default expressions use the arrow parameter lexical context', () => {
 
 test('typed and async default heads retry when the candidate buffer fills', () => {
   for (const prefix of ['(prior, value: Item = ', 'async (value: Item = ']) {
-    for (const count of [16, 17, 4096, 4097]) {
+    for (const count of [64, 65, 4096, 4097]) {
       const source = `const f = ${prefix}[${Array(count).fill('(left < right)').join(',')}]) => value;`;
       compare(source, count <= 4096, 'arrow.ts');
       const result = extract(source, { file: 'arrow.ts', requireNative: true });
       assert.equal(result.candidates.length, count);
-      if (count > 16) assert.ok(result.metrics.candidateBytes > 0);
+      assert.equal(result.metrics.candidateBytes > 0, count > 64);
       if (count > 4096) assert.equal(result.reason, 'candidate-limit');
     }
   }

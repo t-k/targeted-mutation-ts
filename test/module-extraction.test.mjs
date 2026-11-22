@@ -153,7 +153,7 @@ test('call depth and candidate allocation preserve complete results at their lim
     if (depth > 64) assert.equal(result.reason, 'depth-limit');
     assert.deepEqual(result.candidates, extractFallback(source).candidates);
   }
-  for (const count of [16, 17, 4_096, 4_097]) {
+  for (const count of [64, 65, 4_096, 4_097]) {
     const args = Array(count).fill('(a < b)').join(', ');
     const result = extract(`const result = pick(${args});`, { requireNative: true });
     assert.equal(result.path, count <= 4_096 ? 'fast' : 'fallback');

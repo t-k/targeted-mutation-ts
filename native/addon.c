@@ -13,7 +13,7 @@ static napi_value parse(napi_env env, napi_callback_info info) {
   void *source;
   size_t size;
   bool tsx, module;
-  TmtGrammar_candidate initial[16];
+  TmtGrammar_candidate initial[64];
   TmtGrammar_candidate *output = NULL;
   NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
   if (argc != 3) goto error;
