@@ -1,0 +1,435 @@
+{
+  "baseline": "8fbd469",
+  "parser": "F* 2026.11.15 Pulse",
+  "backend": "Custard KrmlC and KaRaMeL -ftail-calls",
+  "method": "The native addons use Clang LTO and fixture PGO. Each comparison alternates nine pairs. The Node compile cache is disabled. Warm samples do not force garbage collection between runs.",
+  "cold": [
+    {
+      "baseline": "8fbd469",
+      "node": "v24.14.0",
+      "os": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "repetitions": 9,
+      "files": [
+        {
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 482,
+          "candidates": 201,
+          "diagnostics": 1,
+          "fingerprint": "3fc4fc01fd691cabf2cf3678a80fc1551b048c7dba32256d7763a564dea03220",
+          "medianMs": [
+            42.061834000000005,
+            42.626209
+          ],
+          "samplesMs": [
+            [
+              41.846667000000004,
+              41.841875,
+              42.061834000000005,
+              42.45370799999999,
+              42.227042,
+              42.518958999999995,
+              41.889042,
+              42.477999999999994,
+              41.999167
+            ],
+            [
+              239.915209,
+              42.658958,
+              42.379334,
+              42.626209,
+              42.47970900000001,
+              43.215875,
+              42.529375,
+              42.478125,
+              42.636208
+            ]
+          ],
+          "project": "vite-corpus"
+        },
+        {
+          "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+          "files": 1193,
+          "candidates": 1550,
+          "diagnostics": 0,
+          "fingerprint": "22cc2394184fd508ce2017be0162ec21740de2e5b2738e93b4a50b31e79eab82",
+          "medianMs": [
+            116.1575,
+            117.782916
+          ],
+          "samplesMs": [
+            [
+              116.180125,
+              116.72200000000001,
+              116.10745899999999,
+              115.657459,
+              115.62816699999999,
+              115.73066700000001,
+              116.1575,
+              116.38737499999999,
+              116.21616700000001
+            ],
+            [
+              118.83849999999998,
+              117.61991599999999,
+              118.32708399999999,
+              117.578,
+              117.782916,
+              118.55795900000001,
+              117.72845799999999,
+              118.509083,
+              117.55800000000002
+            ]
+          ],
+          "project": "mreact"
+        },
+        {
+          "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+          "files": 373,
+          "candidates": 654,
+          "diagnostics": 0,
+          "fingerprint": "4c7b7385f68f972185410948d674c9d6c03c9d5408bb4480ba77c81c507090be",
+          "medianMs": [
+            66.311917,
+            66.978375
+          ],
+          "samplesMs": [
+            [
+              65.646458,
+              65.838292,
+              67.290292,
+              67.051958,
+              65.99404200000001,
+              66.419416,
+              66.364959,
+              66.297,
+              66.311917
+            ],
+            [
+              66.978375,
+              67.58462499999999,
+              66.580209,
+              68.092083,
+              67.17083299999999,
+              66.709541,
+              66.2225,
+              66.908292,
+              67.526459
+            ]
+          ],
+          "project": "tachyon-dom"
+        }
+      ]
+    },
+    {
+      "baseline": "8592705",
+      "node": "v24.14.0",
+      "os": "darwin 27.2.0 arm64",
+      "cpu": "Apple M5 Max",
+      "repetitions": 9,
+      "files": [
+        {
+          "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+          "files": 482,
+          "candidates": 201,
+          "diagnostics": 1,
+          "fingerprint": "3fc4fc01fd691cabf2cf3678a80fc1551b048c7dba32256d7763a564dea03220",
+          "medianMs": [
+            46.642625,
+            42.427082999999996
+          ],
+          "samplesMs": [
+            [
+              45.189917,
+              46.27445900000001,
+              46.67254199999999,
+              47.04412500000001,
+              46.657833,
+              46.56554200000001,
+              46.674958999999994,
+              45.711749999999995,
+              46.642625
+            ],
+            [
+              42.219458,
+              42.805083,
+              42.07341600000001,
+              42.38933299999999,
+              42.564667,
+              42.253542,
+              42.452875000000006,
+              42.564375,
+              42.427082999999996
+            ]
+          ],
+          "project": "vite-corpus"
+        },
+        {
+          "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+          "files": 1193,
+          "candidates": 1550,
+          "diagnostics": 0,
+          "fingerprint": "22cc2394184fd508ce2017be0162ec21740de2e5b2738e93b4a50b31e79eab82",
+          "medianMs": [
+            147.102125,
+            117.78200000000001
+          ],
+          "samplesMs": [
+            [
+              131.98612500000002,
+              131.720542,
+              148.202333,
+              132.35233300000002,
+              147.800459,
+              148.74983300000002,
+              147.102125,
+              148.052417,
+              132.15491699999998
+            ],
+            [
+              117.86095800000001,
+              117.78200000000001,
+              117.735791,
+              117.75245799999999,
+              117.45024999999998,
+              117.760459,
+              118.69104200000001,
+              117.863166,
+              117.92649999999999
+            ]
+          ],
+          "project": "mreact"
+        },
+        {
+          "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+          "files": 373,
+          "candidates": 654,
+          "diagnostics": 0,
+          "fingerprint": "4c7b7385f68f972185410948d674c9d6c03c9d5408bb4480ba77c81c507090be",
+          "medianMs": [
+            70.087375,
+            66.97762499999999
+          ],
+          "samplesMs": [
+            [
+              70.20070799999999,
+              69.553041,
+              70.087375,
+              69.84895800000001,
+              70.56016600000001,
+              69.911792,
+              69.188334,
+              71.009208,
+              70.502834
+            ],
+            [
+              66.68658400000001,
+              66.92733299999999,
+              66.9605,
+              66.97762499999999,
+              67.418375,
+              66.702667,
+              68.161459,
+              68.628709,
+              67.440708
+            ]
+          ],
+          "project": "tachyon-dom"
+        }
+      ]
+    }
+  ],
+  "warm": [
+    {
+      "project": "vite-corpus",
+      "workload": "repository",
+      "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+      "files": 482,
+      "bytes": 2207415,
+      "turnsPerRepetition": 7,
+      "fastFiles": 472,
+      "fastCandidates": 196,
+      "nativeFiles": 0,
+      "nativeCandidates": 0,
+      "nativeDiagnosticFiles": 0,
+      "compatibilityFiles": 10,
+      "compatibilityCandidates": 5,
+      "baseline": {
+        "medianMs": 11.02323214285715,
+        "p25Ms": 10.955428571428554,
+        "p75Ms": 11.13524414285715
+      },
+      "optimized": {
+        "medianMs": 11.466809428571423,
+        "p25Ms": 11.112303571428551,
+        "p75Ms": 11.600904714285718
+      },
+      "samplesMs": [
+        [
+          11.565172571428572,
+          11.453345285714297,
+          11.13524414285715,
+          11.02323214285715,
+          10.886922571428565,
+          10.955428571428554,
+          10.726125000000009,
+          10.986083428571451,
+          11.12273814285712
+        ],
+        [
+          11.871892857142857,
+          11.600904714285718,
+          11.466809428571423,
+          11.515309571428572,
+          11.155881000000006,
+          11.030006000000023,
+          11.112303571428551,
+          10.975172571428564,
+          11.77748814285714
+        ]
+      ]
+    },
+    {
+      "project": "mreact",
+      "workload": "repository",
+      "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+      "files": 1193,
+      "bytes": 12465294,
+      "turnsPerRepetition": 7,
+      "fastFiles": 1169,
+      "fastCandidates": 1511,
+      "nativeFiles": 0,
+      "nativeCandidates": 0,
+      "nativeDiagnosticFiles": 0,
+      "compatibilityFiles": 24,
+      "compatibilityCandidates": 39,
+      "baseline": {
+        "medianMs": 58.75093457142858,
+        "p25Ms": 58.010166571428535,
+        "p75Ms": 58.99663685714287
+      },
+      "optimized": {
+        "medianMs": 59.917410714285715,
+        "p25Ms": 59.62617257142853,
+        "p75Ms": 60.55444057142852
+      },
+      "samplesMs": [
+        [
+          59.13618457142856,
+          58.99663685714287,
+          58.75093457142858,
+          58.11427971428572,
+          59.38185114285716,
+          58.79272014285717,
+          57.74694642857139,
+          58.010166571428535,
+          57.96188099999991
+        ],
+        [
+          60.75402371428569,
+          60.23896428571431,
+          60.55444057142852,
+          59.62617257142853,
+          61.41248214285705,
+          59.54514871428572,
+          59.909868999999944,
+          59.61963700000005,
+          59.917410714285715
+        ]
+      ]
+    },
+    {
+      "project": "tachyon-dom",
+      "workload": "repository",
+      "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+      "files": 373,
+      "bytes": 3431318,
+      "turnsPerRepetition": 7,
+      "fastFiles": 365,
+      "fastCandidates": 610,
+      "nativeFiles": 0,
+      "nativeCandidates": 0,
+      "nativeDiagnosticFiles": 0,
+      "compatibilityFiles": 8,
+      "compatibilityCandidates": 44,
+      "baseline": {
+        "medianMs": 21.4118511428571,
+        "p25Ms": 21.18772028571428,
+        "p75Ms": 21.449749999999995
+      },
+      "optimized": {
+        "medianMs": 22.118523857142886,
+        "p25Ms": 22.038285714285717,
+        "p75Ms": 22.382172571428573
+      },
+      "samplesMs": [
+        [
+          22.338410714285715,
+          21.693136857142868,
+          21.4162142857143,
+          21.449749999999995,
+          21.18772028571428,
+          21.282333428571423,
+          21.11815485714286,
+          21.4118511428571,
+          20.98374400000005
+        ],
+        [
+          22.75054757142857,
+          22.382172571428573,
+          22.306232142857134,
+          22.038285714285717,
+          22.118523857142886,
+          21.88951785714289,
+          22.04873800000002,
+          22.464124999999967,
+          21.908934428571424
+        ]
+      ]
+    }
+  ],
+  "exactCorpusParity": [
+    {
+      "project": "vite-corpus",
+      "files": 482,
+      "logicalModes": 2,
+      "mismatches": 0
+    },
+    {
+      "project": "preact-corpus",
+      "files": 22,
+      "logicalModes": 2,
+      "mismatches": 0
+    },
+    {
+      "project": "typescript-corpus",
+      "files": 6479,
+      "logicalModes": 2,
+      "mismatches": 0
+    },
+    {
+      "project": "mreact",
+      "files": 1193,
+      "logicalModes": 2,
+      "mismatches": 0
+    },
+    {
+      "project": "tachyon-dom",
+      "files": 373,
+      "logicalModes": 2,
+      "mismatches": 0
+    },
+    {
+      "project": "all-captured-fallback-inputs.jsonl",
+      "files": 3303,
+      "logicalModes": 2,
+      "mismatches": 0
+    }
+  ],
+  "limits": {
+    "maximumSourceBytes": 1048576,
+    "pictRows": 18,
+    "directCustardCWhitespaceFailure": "SIGSEGV",
+    "adoptedPipelinePasses": true
+  }
+}

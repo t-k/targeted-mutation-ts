@@ -1,5 +1,19 @@
 # Performance measurements
 
+## Full Pulse parser migration
+
+The ordinary and standalone builds now compile the complete parser extracted from F★ and Pulse. The generated C uses KaRaMeL's tail-call loop lowering. The direct Custard C experiment exhausted the stack on a 1 MiB whitespace source. The adopted pipeline passed the source-limit regression matrix, including the same input.
+
+Each comparison alternates nine samples on an Apple M5 Max with Node 24.14.0 and fixture-trained PGO. The first-process runs start with source buffers in memory and disable the Node compile cache. The warm run does not force garbage collection between samples. The former Low★ implementation is `8fbd469` and the former Yuku runtime is `8592705`.
+
+| Workload | Warm, Low★ → Pulse | First extraction, Low★ → Pulse | First extraction, Yuku → Pulse |
+| --- | ---: | ---: | ---: |
+| Vite | 11.02 → 11.47 ms | 42.06 → 42.63 ms | 46.64 → 42.43 ms |
+| mreact | 58.75 → 59.92 ms | 116.16 → 117.78 ms | 147.10 → 117.78 ms |
+| tachyon-dom | 21.41 → 22.12 ms | 66.31 → 66.98 ms | 70.09 → 66.98 ms |
+
+Warm medians rose by 2.0–4.0%, and cold medians rose by 1.0–1.4% relative to Low★. First extraction remains 4.4–19.9% faster than the former Yuku runtime. Both implementations returned identical candidate, diagnostic and extraction metadata records for 8,549 tracked files and 3,303 unique captured inputs with each logical-rule setting. See the [paired samples and corpus details](../evidence/m1/pulse-parser.json).
+
 ## Pulse byte-class scanner pilot
 
 The Pulse build replaces only the Low★ byte-class scanner. The scanner predicate, parser, compatibility route and Node-API interface are shared. Both variants use native LTO and fixture-trained PGO. Each column compares nine alternating samples on an Apple M5 Max with Node 24.14.0. First extraction starts a new process for each sample and disables the Node compile cache. Both measurements parse pre-read source buffers.
@@ -10,7 +24,7 @@ The Pulse build replaces only the Low★ byte-class scanner. The scanner predica
 | mreact | 79.12 → 78.22 ms | 150.98 → 147.87 ms |
 | tachyon-dom | 31.92 → 31.55 ms | 79.79 → 79.59 ms |
 
-The pilot showed comparable throughput. An earlier run with a different C representation of the class parameter had up to a 3% increase in the median warm time. The final build removes that enum conversion and verifies the equivalence of its byte-code predicate in F★. Both variants produced identical complete extraction results, including diagnostics, for 8,549 tracked files across five corpora and 3,303 unique captured inputs, each with both logical-rule settings. The [raw paired samples and corpus revisions](../evidence/m1/pulse-scan.json) record the final variant. The [Pulse build commands](l1.md#pulse-scanner-pilot) leave the ordinary runtime build available.
+The pilot showed comparable throughput. An earlier run with a different C representation of the class parameter had up to a 3% increase in the median warm time. The final build removes that enum conversion and verifies the equivalence of its byte-code predicate in F★. Both variants produced identical complete extraction results, including diagnostics, for 8,549 tracked files across five corpora and 3,303 unique captured inputs, each with both logical-rule settings. The [raw paired samples and corpus revisions](../evidence/m1/pulse-scan.json) record the final variant. The optional scanner pilot is reproducible at commit `116527f`.
 
 ## Cache-free first extraction compared with Yuku
 

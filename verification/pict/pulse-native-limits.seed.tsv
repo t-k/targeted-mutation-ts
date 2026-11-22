@@ -1,0 +1,8 @@
+Source	Size	Dialect
+Whitespace	Limit	TS
+LineComment	Limit	TS
+BlockComment	Limit	TSX
+EmptyStatements	Limit	TS
+Regex	Limit	TS
+Identifier	Limit	TSX
+Identifier	OverLimit	TS

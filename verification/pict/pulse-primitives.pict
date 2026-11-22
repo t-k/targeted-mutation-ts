@@ -1,0 +1,6 @@
+Operation: Peek, Separator, Boundary, Save
+Size: Empty, Short, Long
+Offset: Start, Middle, End, Extreme
+IF [Size] = "Empty" THEN [Offset] <> "Middle";
+IF [Size] = "Short" THEN [Offset] <> "Middle";
+IF [Operation] = "Save" THEN [Size] <> "Empty" AND [Offset] <> "End" AND [Offset] <> "Extreme";

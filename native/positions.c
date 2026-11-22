@@ -1,7 +1,11 @@
 #include <stddef.h>
 
 #include "parser.h"
-#include "TmtScan.h"
+
+static bool unicode_line_separator(const uint8_t *source, uint32_t limit, uint32_t offset) {
+  // The Pulse source view is read-only even though the generated parameter has a mutable pointer type.
+  return TmtPulseScan_unicode_line_separator((uint8_t *)source, limit, offset);
+}
 
 #if !defined(TMT_DISABLE_SIMD) && defined(__aarch64__)
 #include <arm_neon.h>
@@ -42,7 +46,7 @@ bool tmt_locate_positions(const uint8_t *source, uint32_t size, const uint32_t *
       if (byte == 13 || byte == 10) {
         if (byte == 13 || at == 0 || source[at - 1] != 13) line++;
         column = 1;
-      } else if (byte == 226 && TmtScan_unicode_line_separator(source, target, at)) {
+      } else if (byte == 226 && unicode_line_separator(source, target, at)) {
         at += 2;
         line++;
         column = 1;

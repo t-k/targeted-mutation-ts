@@ -1,0 +1,3 @@
+Source: Whitespace, LineComment, BlockComment, EmptyStatements, Regex, Identifier
+Size: Small, Limit, OverLimit
+Dialect: TS, TSX

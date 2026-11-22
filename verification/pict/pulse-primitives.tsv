@@ -1,0 +1,16 @@
+Operation	Size	Offset
+Peek	Empty	Start
+Peek	Long	Extreme
+Separator	Short	Start
+Separator	Long	Middle
+Boundary	Long	End
+Save	Short	Start
+Save	Long	Middle
+Boundary	Empty	Start
+Separator	Empty	Extreme
+Boundary	Long	Middle
+Peek	Short	End
+Separator	Empty	End
+Peek	Long	Middle
+Separator	Long	Start
+Boundary	Short	Extreme

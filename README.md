@@ -25,11 +25,11 @@ npm run verify:fstar
 npm run audit:extraction -- /path/to/vite /path/to/preact /path/to/typescript
 ```
 
-The native build uses a C compiler, the checked-in KaRaMeL C files, and Node-API headers. Set `TMT_NODE_INCLUDE` if Node's headers are outside the standard paths. The F★ verification command uses F★ 2025.12.15 and the KaRaMeL executable shipped with F★ 2026.11.15. Set `FSTAR_EXE` and `KARAMEL_EXE` to their paths. It verifies the sources and checks regeneration against the checked-in C files.
+The native build uses a C compiler, the checked-in KaRaMeL C files, and Node-API headers. Set `TMT_NODE_INCLUDE` if Node's headers are outside the standard paths. The verification command uses F★ 2026.11.15 with Pulse and the KaRaMeL executable from the same release. Set `FSTAR_EXE` and `KARAMEL_EXE` to their paths. It verifies the parser and reference proofs, regenerates C, and compares the generated files with the checked-in copies.
 
-The [L1 grammar and trust boundary](docs/l1.md) describe the AST-free Low★ parser and TypeScript compatibility path. `build:typescript-syntax` prepares the smaller compatibility parser for local runs. The [performance measurements](docs/performance.md) cover Vite, Preact, TypeScript compiler fixtures, mreact, and tachyon-dom.
+The [L1 grammar and trust boundary](docs/l1.md) describe the AST-free Pulse parser and TypeScript compatibility path. `build:typescript-syntax` prepares the smaller compatibility parser for local runs. The [performance measurements](docs/performance.md) cover Vite, Preact, TypeScript compiler fixtures, mreact, and tachyon-dom.
 
-To build the standalone comparison extractor, run `npm run build:native -- --low-only` and then `node bin/tmt.mjs extract source.ts`. This build uses Node and a C compiler and writes `build/tmt.node`. Supported files use the generated Low★ parser directly, including typed modules, nested functions, exception handling, switch clauses, generic calls, async callbacks, nested bindings, computed object members, tagged templates, bounded class declarations, and nested TSX. Outside its grammar or resource limits, the standalone CLI exits with a diagnostic and no candidates. Run `npm run build:native` to restore the normal build with TypeScript compatibility parsing.
+To build the standalone comparison extractor, run `npm run build:native -- --low-only` and then `node bin/tmt.mjs extract source.ts`. This build uses Node and a C compiler and writes `build/tmt.node`. Supported files use the generated Pulse parser directly, including typed modules, nested functions, exception handling, switch clauses, generic calls, async callbacks, nested bindings, computed object members, tagged templates, bounded class declarations, and nested TSX. Outside its grammar or resource limits, the standalone CLI exits with a diagnostic and no candidates. Run `npm run build:native` to restore the normal build with TypeScript compatibility parsing.
 
 ## Analyze a Vitest project
 

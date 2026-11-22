@@ -1,6 +1,10 @@
 module TmtReferenceExamples
+#lang-pulse
+
+open Pulse.Lib.Pervasives
 
 open TmtReference
+open FStar.List.Tot
 module G = TmtGrammar
 module U32 = FStar.UInt32
 
@@ -25,3 +29,12 @@ let exact_badge () : Lemma (reference tsx_module badge_tokens ==
 
 let reject_partial () : Lemma (reference tsx_module (badge_tokens @ [RBrace]) == None) =
   assert_norm (reference tsx_module (badge_tokens @ [RBrace]) == None)
+
+// The lexer can run without binding or candidate workspace ownership.
+fn source_only_trivia (input:TmtPulseMemory.tape) (start:U32.t)
+  requires TmtPulseMemory.input_ready input
+  returns result:TmtPulseParser.cursor
+  ensures TmtPulseMemory.input_ready input
+{
+  TmtPulseParser.trivia input #emp start
+}
