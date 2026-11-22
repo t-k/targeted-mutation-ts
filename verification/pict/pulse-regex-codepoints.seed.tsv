@@ -1,0 +1,9 @@
+Escape	Place	Flags
+Upper	Atom	Unicode
+IdentifierStart	Class	Unicode
+IdentifierContinue	Class	Unicode
+Astral	Range	Unicode
+Astral	Atom	Legacy
+TooLarge	Class	Unicode
+Upper	Range	Unicode
+IdentifierStart	Atom	UnicodeSets

@@ -1,0 +1,3 @@
+Escape: Upper, IdentifierStart, IdentifierContinue, Astral, TooLarge
+Place: Atom, Class, Range
+Flags: Unicode, Legacy, UnicodeSets

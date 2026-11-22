@@ -1221,21 +1221,39 @@ TmtPulseParser_capture_hash(
   uint32_t value0
 );
 
+typedef struct TmtPulseParser_regex_class_end_s
+{
+  TmtPulseParser_cursor ending;
+  bool class_unicode;
+  bool class_legacy;
+}
+TmtPulseParser_regex_class_end;
+
 typedef struct TmtPulseParser_regex_unit_s
 {
   uint32_t unit_end;
   bool unit_ok;
   uint32_t character;
   bool repeatable;
+  bool unicode_only;
 }
 TmtPulseParser_regex_unit;
 
 extern uint32_t TmtPulseParser_no_character;
 
-extern uint32_t TmtPulseParser_category_class;
+TmtPulseParser_regex_unit TmtPulseParser_invalid_regex_unit(uint32_t at);
 
 TmtPulseParser_regex_unit
 TmtPulseParser_regex_category(TmtPulseMemory_tape input, uint32_t at, uint32_t opening);
+
+TmtPulseParser_regex_unit
+TmtPulseParser_regex_codepoint(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t value0,
+  uint32_t fuel0,
+  bool seen0
+);
 
 TmtPulseParser_regex_unit
 TmtPulseParser_regex_escape(TmtPulseMemory_tape input, uint32_t at, bool in_class);
@@ -1252,19 +1270,13 @@ bool TmtPulseParser_regex_printable(uint8_t ch);
 TmtPulseParser_regex_unit
 TmtPulseParser_regex_class_unit(TmtPulseMemory_tape input, uint32_t at);
 
-typedef struct FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool_s
-{
-  TmtPulseParser_cursor _1;
-  bool _2;
-}
-FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool;
-
-FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool
+TmtPulseParser_regex_class_end
 TmtPulseParser_regex_class(
   TmtPulseMemory_tape input0,
   uint32_t at0,
   uint32_t fuel0,
-  bool unicode_only0
+  bool unicode_only0,
+  bool legacy0
 );
 
 typedef struct TmtPulseParser_regex_count_s

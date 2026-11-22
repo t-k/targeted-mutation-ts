@@ -6500,9 +6500,21 @@ TmtPulseParser_capture_hash(
   KRML_HOST_EXIT(255U);
 }
 
-uint32_t TmtPulseParser_no_character = 65536U;
+uint32_t TmtPulseParser_no_character = 0x110000U;
 
-uint32_t TmtPulseParser_category_class = 65537U;
+TmtPulseParser_regex_unit TmtPulseParser_invalid_regex_unit(uint32_t at)
+{
+  return
+    (
+      (TmtPulseParser_regex_unit){
+        .unit_end = at,
+        .unit_ok = false,
+        .character = TmtPulseParser_no_character,
+        .repeatable = false,
+        .unicode_only = false
+      }
+    );
+}
 
 TmtPulseParser_regex_unit
 TmtPulseParser_regex_category(TmtPulseMemory_tape input, uint32_t at, uint32_t opening)
@@ -6512,30 +6524,106 @@ TmtPulseParser_regex_category(TmtPulseMemory_tape input, uint32_t at, uint32_t o
   uint8_t value2 = TmtPulseMemory_peek(input, TmtPulseParser_plus(opening, 2U));
   bool letter = value1 == 76U && value2 == 125U;
   bool value3;
-  if (value1 == 77U && (value2 == 99U || value2 == 101U || value2 == 110U))
+  if
+  (
+    value1 == 77U && (value2 == 99U || value2 == 101U || value2 == 110U) ||
+      value1 == 76U && value2 == 117U
+  )
     value3 = TmtPulseParser_same(input, TmtPulseParser_plus(opening, 3U), 125U);
   else
     value3 = false;
-  if (value && (letter || value3))
+  uint32_t value40;
+  if (letter)
+    value40 = 3U;
+  else if (value3)
+    value40 = 4U;
+  else if (value1 != 73U)
+    value40 = 0U;
+  else
+  {
+    uint64_t value4 = TmtPulseParser_word(input, TmtPulseParser_next(opening), 8U, 0ULL);
+    if (value4 == 0x49445f5374617274ULL)
+    {
+      bool value5 = TmtPulseParser_same(input, TmtPulseParser_plus(opening, 9U), 125U);
+      value40 = value5 ? 10U : 0U;
+    }
+    else if (value4 == 0x49445f436f6e7469ULL)
+    {
+      uint64_t value5 = TmtPulseParser_word(input, TmtPulseParser_plus(opening, 9U), 4U, 0ULL);
+      value40 = value5 == 0x6e75657dULL ? 13U : 0U;
+    }
+    else
+      value40 = 0U;
+  }
+  if (value && value40 != 0U)
     return
       (
         (TmtPulseParser_regex_unit){
-          .unit_end = TmtPulseParser_plus(opening, letter ? 3U : 4U),
+          .unit_end = TmtPulseParser_plus(opening, value40),
           .unit_ok = true,
-          .character = TmtPulseParser_category_class,
-          .repeatable = true
+          .character = TmtPulseParser_no_character,
+          .repeatable = true,
+          .unicode_only = true
         }
       );
   else
-    return
-      (
-        (TmtPulseParser_regex_unit){
-          .unit_end = at,
-          .unit_ok = false,
-          .character = TmtPulseParser_no_character,
-          .repeatable = false
+    return TmtPulseParser_invalid_regex_unit(at);
+}
+
+TmtPulseParser_regex_unit
+TmtPulseParser_regex_codepoint(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t value0,
+  uint32_t fuel0,
+  bool seen0
+)
+{
+  TmtPulseMemory_tape input = input0;
+  uint32_t at = at0;
+  uint32_t value = value0;
+  uint32_t fuel = fuel0;
+  bool seen = seen0;
+  while (true)
+    if (fuel == 0U || value >= TmtPulseParser_no_character)
+      return TmtPulseParser_invalid_regex_unit(at);
+    else
+    {
+      uint8_t value1 = TmtPulseMemory_peek(input, at);
+      if (value1 == 125U && seen && (value < 55296U || value > 57343U))
+        return
+          (
+            (TmtPulseParser_regex_unit){
+              .unit_end = TmtPulseParser_next(at),
+              .unit_ok = true,
+              .character = value,
+              .repeatable = true,
+              .unicode_only = true
+            }
+          );
+      else
+      {
+        uint32_t digit = TmtPulseParser_hex_value(value1);
+        if (digit == 16U)
+          return TmtPulseParser_invalid_regex_unit(at);
+        else
+        {
+          uint32_t tmp0 = TmtPulseParser_next(at);
+          uint32_t tmp1 = value * 16U + digit;
+          uint32_t tmp2 = TmtPulseParser_minus(fuel, 1U);
+          bool tmp = true;
+          at = tmp0;
+          value = tmp1;
+          fuel = tmp2;
+          seen = tmp;
         }
-      );
+      }
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
 }
 
 TmtPulseParser_regex_unit
@@ -6588,15 +6676,7 @@ TmtPulseParser_regex_escape(TmtPulseMemory_tape input, uint32_t at, bool in_clas
     uint8_t value3 = TmtPulseMemory_peek(input, TmtPulseParser_next(finish));
     uint32_t low = TmtPulseParser_hex_value(value3);
     if (high == 16U || low == 16U)
-      return
-        (
-          (TmtPulseParser_regex_unit){
-            .unit_end = at,
-            .unit_ok = false,
-            .character = TmtPulseParser_no_character,
-            .repeatable = false
-          }
-        );
+      return TmtPulseParser_invalid_regex_unit(at);
     else
       return
         (
@@ -6604,32 +6684,45 @@ TmtPulseParser_regex_escape(TmtPulseMemory_tape input, uint32_t at, bool in_clas
             .unit_end = TmtPulseParser_plus(at, 4U),
             .unit_ok = true,
             .character = high * 16U + low,
-            .repeatable = true
+            .repeatable = true,
+            .unicode_only = false
           }
         );
   }
   else if (value == 117U)
   {
-    uint8_t value2 = TmtPulseMemory_peek(input, finish);
-    uint32_t a = TmtPulseParser_hex_value(value2);
-    uint8_t value3 = TmtPulseMemory_peek(input, TmtPulseParser_plus(finish, 1U));
-    uint32_t b = TmtPulseParser_hex_value(value3);
-    uint8_t value4 = TmtPulseMemory_peek(input, TmtPulseParser_plus(finish, 2U));
-    uint32_t c = TmtPulseParser_hex_value(value4);
-    uint8_t value5 = TmtPulseMemory_peek(input, TmtPulseParser_plus(finish, 3U));
-    uint32_t d = TmtPulseParser_hex_value(value5);
-    uint32_t value6 = a << 12U | b << 8U | c << 4U | d;
-    bool scalar = value6 < 55296U || value6 > 57343U;
-    bool valid = a != 16U && b != 16U && c != 16U && d != 16U && scalar;
-    return
-      (
-        (TmtPulseParser_regex_unit){
-          .unit_end = TmtPulseParser_plus(at, 6U),
-          .unit_ok = valid,
-          .character = valid ? value6 : TmtPulseParser_no_character,
-          .repeatable = valid
-        }
-      );
+    bool value2 = TmtPulseParser_same(input, finish, 123U);
+    if (value2)
+      return
+        TmtPulseParser_regex_codepoint(input,
+          TmtPulseParser_next(finish),
+          0U,
+          input.size,
+          false);
+    else
+    {
+      uint8_t value3 = TmtPulseMemory_peek(input, finish);
+      uint32_t a = TmtPulseParser_hex_value(value3);
+      uint8_t value4 = TmtPulseMemory_peek(input, TmtPulseParser_plus(finish, 1U));
+      uint32_t b = TmtPulseParser_hex_value(value4);
+      uint8_t value5 = TmtPulseMemory_peek(input, TmtPulseParser_plus(finish, 2U));
+      uint32_t c = TmtPulseParser_hex_value(value5);
+      uint8_t value6 = TmtPulseMemory_peek(input, TmtPulseParser_plus(finish, 3U));
+      uint32_t d = TmtPulseParser_hex_value(value6);
+      uint32_t value7 = a << 12U | b << 8U | c << 4U | d;
+      bool scalar = value7 < 55296U || value7 > 57343U;
+      bool valid = a != 16U && b != 16U && c != 16U && d != 16U && scalar;
+      return
+        (
+          (TmtPulseParser_regex_unit){
+            .unit_end = TmtPulseParser_plus(at, 6U),
+            .unit_ok = valid,
+            .character = valid ? value7 : TmtPulseParser_no_character,
+            .repeatable = valid,
+            .unicode_only = false
+          }
+        );
+    }
   }
   else
   {
@@ -6644,7 +6737,8 @@ TmtPulseParser_regex_escape(TmtPulseMemory_tape input, uint32_t at, bool in_clas
           .unit_end = finish,
           .unit_ok = character != TmtPulseParser_no_character || group || boundary,
           .character = character,
-          .repeatable = !boundary
+          .repeatable = !boundary,
+          .unicode_only = false
         }
       );
   }
@@ -6663,14 +6757,7 @@ uint32_t TmtPulseParser_utf8_bits(uint8_t byte, uint32_t mask)
 TmtPulseParser_regex_unit
 TmtPulseParser_regex_bmp_unit(TmtPulseMemory_tape input, uint32_t at, uint8_t first)
 {
-  TmtPulseParser_regex_unit
-  invalid =
-    {
-      .unit_end = at,
-      .unit_ok = false,
-      .character = TmtPulseParser_no_character,
-      .repeatable = false
-    };
+  TmtPulseParser_regex_unit invalid = TmtPulseParser_invalid_regex_unit(at);
   if (first < 194U || first >= 240U)
     return invalid;
   else
@@ -6688,7 +6775,8 @@ TmtPulseParser_regex_bmp_unit(TmtPulseMemory_tape input, uint32_t at, uint8_t fi
             .unit_end = TmtPulseParser_plus(at, 2U),
             .unit_ok = true,
             .character = value1,
-            .repeatable = true
+            .repeatable = true,
+            .unicode_only = false
           }
         );
     }
@@ -6711,7 +6799,8 @@ TmtPulseParser_regex_bmp_unit(TmtPulseMemory_tape input, uint32_t at, uint8_t fi
               .unit_end = TmtPulseParser_plus(at, 3U),
               .unit_ok = true,
               .character = value2,
-              .repeatable = true
+              .repeatable = true,
+              .unicode_only = false
             }
           );
       else
@@ -6740,54 +6829,54 @@ TmtPulseParser_regex_class_unit(TmtPulseMemory_tape input, uint32_t at)
           .unit_end = TmtPulseParser_next(at),
           .unit_ok = TmtPulseParser_regex_printable(value) && value != 93U,
           .character = (uint32_t)value,
-          .repeatable = true
+          .repeatable = true,
+          .unicode_only = false
         }
       );
 }
 
-FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool
+TmtPulseParser_regex_class_end
 TmtPulseParser_regex_class(
   TmtPulseMemory_tape input0,
   uint32_t at0,
   uint32_t fuel0,
-  bool unicode_only0
+  bool unicode_only0,
+  bool legacy0
 )
 {
   TmtPulseMemory_tape input = input0;
   uint32_t at = at0;
   uint32_t fuel = fuel0;
   bool unicode_only = unicode_only0;
+  bool legacy = legacy0;
   while (true)
+  {
+    TmtPulseParser_regex_class_end
+    invalid =
+      {
+        .ending = { .at = at, .ok = false, .newline = false },
+        .class_unicode = unicode_only,
+        .class_legacy = legacy
+      };
     if (fuel == 0U)
-      return
-        (
-          (FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool){
-            ._1 = { .at = at, .ok = false, .newline = false },
-            ._2 = unicode_only
-          }
-        );
+      return invalid;
     else
     {
       bool value = TmtPulseParser_same(input, at, 93U);
       if (value)
         return
           (
-            (FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool){
-              ._1 = { .at = TmtPulseParser_next(at), .ok = true, .newline = false },
-              ._2 = unicode_only
+            (TmtPulseParser_regex_class_end){
+              .ending = { .at = TmtPulseParser_next(at), .ok = true, .newline = false },
+              .class_unicode = invalid.class_unicode,
+              .class_legacy = invalid.class_legacy
             }
           );
       else
       {
         TmtPulseParser_regex_unit value1 = TmtPulseParser_regex_class_unit(input, at);
         if (!value1.unit_ok)
-          return
-            (
-              (FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool){
-                ._1 = { .at = at, .ok = false, .newline = false },
-                ._2 = unicode_only
-              }
-            );
+          return invalid;
         else
         {
           bool value2 = TmtPulseParser_same(input, value1.unit_end, 45U);
@@ -6796,32 +6885,44 @@ TmtPulseParser_regex_class(
           {
             TmtPulseParser_regex_unit
             value4 = TmtPulseParser_regex_class_unit(input, TmtPulseParser_next(value1.unit_end));
-            if
-            (
-              value4.unit_ok &&
-                value1.character <= value4.character &&
-                  value4.character < TmtPulseParser_no_character
-            )
+            bool unicode = value1.unicode_only || value4.unicode_only;
+            bool
+            class_range =
+              value1.character == TmtPulseParser_no_character ||
+                value4.character == TmtPulseParser_no_character;
+            if (!value4.unit_ok)
+              return invalid;
+            else if (class_range)
+            {
+              if (unicode)
+                return invalid;
+              else
+              {
+                uint32_t tmp0 = value4.unit_end;
+                uint32_t tmp1 = TmtPulseParser_minus(fuel, 1U);
+                bool tmp = true;
+                at = tmp0;
+                fuel = tmp1;
+                legacy = tmp;
+              }
+            }
+            else if (value1.character <= value4.character)
             {
               uint32_t tmp0 = value4.unit_end;
-              uint32_t tmp = TmtPulseParser_minus(fuel, 1U);
+              uint32_t tmp1 = TmtPulseParser_minus(fuel, 1U);
+              bool tmp = unicode_only || unicode;
               at = tmp0;
-              fuel = tmp;
+              fuel = tmp1;
+              unicode_only = tmp;
             }
             else
-              return
-                (
-                  (FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool){
-                    ._1 = { .at = at, .ok = false, .newline = false },
-                    ._2 = unicode_only
-                  }
-                );
+              return invalid;
           }
           else
           {
             uint32_t tmp0 = value1.unit_end;
             uint32_t tmp1 = TmtPulseParser_minus(fuel, 1U);
-            bool tmp = unicode_only || value1.character == TmtPulseParser_category_class;
+            bool tmp = unicode_only || value1.unicode_only;
             at = tmp0;
             fuel = tmp1;
             unicode_only = tmp;
@@ -6829,6 +6930,7 @@ TmtPulseParser_regex_class(
         }
       }
     }
+  }
   KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
     __FILE__,
     __LINE__,
@@ -7114,19 +7216,18 @@ TmtPulseParser_regex_pattern(
       else if (value == 91U)
       {
         bool value1 = TmtPulseParser_same(input, TmtPulseParser_next(at), 94U);
-        FStar_Pervasives_Native_tuple2__TmtPulseParser_cursor_bool
+        TmtPulseParser_regex_class_end
         value2 =
           TmtPulseParser_regex_class(input,
             TmtPulseParser_plus(at, value1 ? 2U : 1U),
             rest,
-            captures.unicode_only);
-        TmtPulseParser_cursor class_ = value2._1;
-        bool unicode_only = value2._2;
-        if (!class_.ok)
-          return ((TmtPulseParser_regex_result){ .ending = class_, .captures = captures });
+            captures.unicode_only,
+            captures.legacy);
+        if (!value2.ending.ok)
+          return ((TmtPulseParser_regex_result){ .ending = value2.ending, .captures = captures });
         else
         {
-          uint32_t tmp0 = class_.at;
+          uint32_t tmp0 = value2.ending.at;
           uint32_t tmp1 = rest;
           bool tmp2 = true;
           TmtPulseParser_regex_captures
@@ -7134,8 +7235,8 @@ TmtPulseParser_regex_pattern(
             {
               .names = captures.names,
               .count = captures.count,
-              .legacy = captures.legacy,
-              .unicode_only = unicode_only
+              .legacy = value2.class_legacy,
+              .unicode_only = value2.class_unicode
             };
           at = tmp0;
           fuel = tmp1;
@@ -7196,8 +7297,7 @@ TmtPulseParser_regex_pattern(
                 .names = captures.names,
                 .count = captures.count,
                 .legacy = captures.legacy,
-                .unicode_only = captures.unicode_only ||
-                  value2.character == TmtPulseParser_category_class
+                .unicode_only = captures.unicode_only || value2.unicode_only
               };
             at = tmp0;
             fuel = tmp1;
