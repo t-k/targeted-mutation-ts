@@ -25,6 +25,8 @@ export function createTypeScriptGrammar(ts, bindings) {
   } = ts;
   const strictReservedBindings = new Set(['implements', 'interface', 'let', 'package', 'private', 'protected', 'public', 'static', 'yield']);
   const strictRestrictedBindings = new Set(['eval', 'arguments']);
+  const accessModifiers = new Set([SyntaxKind.PublicKeyword, SyntaxKind.ProtectedKeyword, SyntaxKind.PrivateKeyword]);
+  const exclusiveModifiers = new Set([SyntaxKind.PublicKeyword, SyntaxKind.StaticKeyword, SyntaxKind.ReadonlyKeyword, SyntaxKind.OverrideKeyword]);
   const isInstanceConstructor = node => isConstructorDeclaration(node) &&
     !node.modifiers?.some(modifier => modifier.kind === SyntaxKind.StaticKeyword);
 
@@ -265,6 +267,18 @@ export function createTypeScriptGrammar(ts, bindings) {
       if (nodeModifiers.filter(flag => flag.kind === SyntaxKind.DeclareKeyword).length > 1) {
         add("Expected a semicolon or an implicit semicolon after a statement, but found 'declare'");
       }
+      if (nodeModifiers.length > 1 && parent && isClassLike(parent)) {
+        const seen = new Set();
+        for (const modifier of nodeModifiers) {
+          const group = accessModifiers.has(modifier.kind) ? SyntaxKind.PublicKeyword : modifier.kind;
+          if (!exclusiveModifiers.has(group)) continue;
+          if (seen.has(group)) {
+            add(`Expected ';' after class field, but found '${tokenAt(modifier.end)}'`);
+            break;
+          }
+          seen.add(group);
+        }
+      }
       if (isCatchClause(node) && node.variableDeclaration?.initializer) {
         add("Expected ')' after catch parameter, but found '='");
       }
@@ -367,9 +381,17 @@ export function createTypeScriptGrammar(ts, bindings) {
         const field = nodeModifiers.find(flag => [SyntaxKind.ConstKeyword, SyntaxKind.InKeyword, SyntaxKind.OutKeyword].includes(flag.kind));
         if (field) add(`Expected ';' after class field, but found '${tokenAt(field.end)}'`, field);
       }
-      if ((isMethodDeclaration(node) || isMethodSignature(node) || isAccessor(node)) &&
+      if ((isMethodDeclaration(node) || isMethodSignature(node) || isAccessor(node) || isConstructorDeclaration(node)) &&
           nodeModifiers.some(m => m.kind === SyntaxKind.ReadonlyKeyword)) {
         add("A 'readonly' modifier can only appear on a property declaration or index signature");
+      }
+      if (isMethodDeclaration(node) && parent && isClassLike(parent)) {
+        if (nodeModifiers.some(modifier => modifier.kind === SyntaxKind.DeclareKeyword)) {
+          add("A 'declare' modifier cannot appear on a class element of this kind");
+        }
+        if (node.body && nodeModifiers.some(modifier => modifier.kind === SyntaxKind.AbstractKeyword)) {
+          add('An abstract method cannot have an implementation');
+        }
       }
       if (isMappedTypeNode(node) && node.members?.length) {
         add(`Expected '}' to close a mapped type, but found '${node.members[0].name?.getText(file) ?? tokenAt(node.members.pos)}'`);
@@ -407,8 +429,9 @@ export function createTypeScriptGrammar(ts, bindings) {
             nodeModifiers.some(m => m.kind === SyntaxKind.StaticKeyword)) {
           add("Classes may not have a static field named 'constructor'", node.name);
         }
-        const access = nodeModifiers.filter(flag => [SyntaxKind.PublicKeyword, SyntaxKind.ProtectedKeyword, SyntaxKind.PrivateKeyword].includes(flag.kind));
-        if (access.length > 1) add(`Expected ';' after class field, but found '${tokenAt(access[1].end)}'`);
+        if (node.initializer && nodeModifiers.some(modifier => modifier.kind === SyntaxKind.AbstractKeyword)) {
+          add('An abstract property cannot have an initializer');
+        }
         const unusual = nodeModifiers.find(flag => [SyntaxKind.ConstKeyword, SyntaxKind.ExportKeyword].includes(flag.kind));
         if (unusual) add(`Expected ';' after class field, but found '${tokenAt(unusual.end)}'`);
       }

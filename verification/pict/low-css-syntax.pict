@@ -1,0 +1,3 @@
+Feature: Enum, NumericKey, Override, RegexBMP
+Placement: Module, Export, Nearby
+Suffix: Valid, Broken

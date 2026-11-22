@@ -1406,6 +1406,16 @@ TmtParser_module_lexical_list(
   uint32_t remaining0
 );
 
+TmtParser_parser_state
+TmtParser_enum_members(
+  TmtParser_tape input0,
+  TmtParser_parser_state state0,
+  uint32_t remaining0
+);
+
+TmtParser_named_state
+TmtParser_const_enum(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);
+
 TmtParser_named_state
 TmtParser_module_declaration(TmtParser_tape input, TmtParser_parser_state state, uint32_t used);
 

@@ -1,0 +1,13 @@
+Feature	Placement	Suffix
+Enum	Export	Valid
+NumericKey	Module	Valid
+Override	Nearby	Valid
+RegexBMP	Module	Valid
+RegexBMP	Export	Broken
+Enum	Module	Broken
+Override	Module	Broken
+Enum	Nearby	Broken
+Override	Export	Valid
+RegexBMP	Nearby	Broken
+NumericKey	Export	Broken
+NumericKey	Nearby	Broken

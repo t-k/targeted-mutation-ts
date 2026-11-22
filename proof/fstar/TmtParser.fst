@@ -302,7 +302,7 @@ let rec string_end (input:tape) (at:U32.t) (delimiter:U8.t) (fuel:U32.t) (extend
 
 let regex_printable (ch:U8.t) : bool = U8.(ch >=^ 32uy && ch <=^ 126uy)
 
-let no_character : U32.t = 256ul
+let no_character : U32.t = 65536ul
 
 type regex_unit = { unit_end:U32.t; unit_ok:bool; character:U32.t; repeatable:bool }
 
@@ -334,6 +334,16 @@ let regex_escape (input:tape) (at:U32.t) (in_class:bool) : Read regex_unit input
       { unit_end = at; unit_ok = false; character = no_character; repeatable = false }
     else { unit_end = plus at 4ul; unit_ok = true;
       character = U32.add (U32.mul high 16ul) low; repeatable = true }
+  else if escape = 117uy then
+    let a = hex_value (peek input finish) in
+    let b = hex_value (peek input (plus finish 1ul)) in
+    let c = hex_value (peek input (plus finish 2ul)) in
+    let d = hex_value (peek input (plus finish 3ul)) in
+    let value = U32.(logor (logor (shift_left a 12ul) (shift_left b 8ul)) (logor (shift_left c 4ul) d)) in
+    let scalar = U32.(value <^ 55296ul || value >^ 57343ul) in
+    let valid = a <> 16ul && b <> 16ul && c <> 16ul && d <> 16ul && scalar in
+    { unit_end = plus at 6ul; unit_ok = valid;
+      character = if valid then value else no_character; repeatable = valid }
   else
     let group = escape = 115uy || escape = 83uy || escape = 100uy || escape = 68uy || escape = 119uy || escape = 87uy in
     let boundary = not in_class && (escape = 98uy || escape = 66uy) in
@@ -1582,6 +1592,7 @@ type class_prefix = { key_state:parser_state; flags:U32.t }
 let class_modifier_width (input:tape) (at:U32.t) (first:U8.t) : Read U32.t input =
   if first = 115uy then (if keyword input at 6ul 0x737461746963uL then 6ul else 0ul)
   else if first = 114uy then (if keyword input at 8ul 0x726561646f6e6c79uL then 8ul else 0ul)
+  else if first = 111uy then (if keyword input at 8ul 0x6f76657272696465uL then 8ul else 0ul)
   else if first <> 112uy then 0ul
   else if keyword input at 6ul 0x7075626c6963uL then 6ul
   else if keyword input at 7ul 0x70726976617465uL then 7ul
@@ -1605,12 +1616,12 @@ let rec class_modifiers (input:tape) (st:parser_state) (flags fuel:U32.t)
       let modifier = class_key_start input after in
       if not modifier || (gap.newline && first <> 115uy) then ordinary
       else
-        let bit = if first = 115uy then 1ul else if first = 114uy then 2ul else 4ul in
+        let bit = if first = 115uy then 1ul else if first = 114uy then 2ul else if first = 111uy then 8ul else 4ul in
         if fuel = 0ul || U32.logand bit flags <> 0ul then { ordinary with key_state = failed st 1ul }
         else class_modifiers input after (U32.logor bit flags) (minus fuel 1ul)
 
 let class_member_key (input:tape) (state:parser_state) : Read class_key input =
-  let prefix = class_modifiers input state 0ul 3ul in
+  let prefix = class_modifiers input state 0ul 4ul in
   let start = prefix.key_state in
   let modifier = async_modifier input start.offset in
   let after_async = if modifier.ok then { start with offset = modifier.at } else start in
@@ -2176,6 +2187,7 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bo
     let byte = peek input key_start.offset in
     let quoted = byte = 34uy || byte = 39uy in
     let computed = byte = 91uy in
+    let numeric = G.decimal_digit byte || byte = 46uy in
     let end_key =
       if computed then
         let key = comparison input { key_start with offset = next key_start.offset; in_allowed = true } fuel in
@@ -2183,7 +2195,7 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bo
         { closed with in_allowed = st.in_allowed }
       else
         let key =
-          if accessor && (G.decimal_digit byte || byte = 46uy) then number_end input key_start.offset
+          if numeric then number_end input key_start.offset
           else property_name input key_start in
         let first = if quoted then next key_start.offset else key_start.offset in
         let last = if quoted then minus key.at 1ul else key.at in
@@ -2200,7 +2212,7 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required:bo
         else if accessor then
           empty_range (function_form input after_key (minus fuel 1ul) false MethodSuper false arity false).after_function
         else empty_range (function_tail input after_key (minus fuel 1ul) async_method NoSuper)
-      else if computed || quoted || colon_required || async_method || accessor then empty_range (failed st 1ul)
+      else if computed || quoted || numeric || colon_required || async_method || accessor then empty_range (failed st 1ul)
       else
         let shorthand = name input st.offset false false in
         let forbidden = forbidden_field_arguments input st in
@@ -2987,6 +2999,31 @@ let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) 
     else if value.open_angle then { decl with state = failed tail 1ul }
     else module_lexical_list input (consume input tail 44uy) decl.used constant (minus remaining 1ul)
 
+let rec enum_members (input:tape) (state:parser_state) (remaining:U32.t)
+  : Run parser_state input (decreases U32.v remaining) =
+  let st = skip input state in
+  if st.status <> 0ul then st
+  else if same input st.offset 125uy then consume input st 125uy
+  else if remaining = 0ul then failed st 3ul
+  else
+    let key = property_name input st in
+    let tail = skip input (from_cursor st key) in
+    let value =
+      if same input tail.offset 61uy then comparison input (consume input tail 61uy) 64ul
+      else empty_range tail in
+    let tail = skip input value.parser in
+    if tail.status <> 0ul then tail
+    else if same input tail.offset 44uy then
+      if value.open_angle then failed tail 1ul
+      else enum_members input (consume input tail 44uy) (minus remaining 1ul)
+    else consume input tail 125uy
+
+let const_enum (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
+  let start = skip input { state with offset = plus state.offset 4ul } in
+  let named = bind_at input start 0ul used start.offset in
+  let opening = consume input (skip input named.state) 123uy in
+  { named with state = enum_members input opening input.size }
+
 let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run named_state input =
   let head = declaration_start input state in
   let st = head.after_modifiers in
@@ -2996,7 +3033,9 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Run
     let start = skip input { st with offset = plus st.offset width } in
     if width = 8ul then module_function input start used head.async_declaration
     else if (width = 3ul || width = 5ul) && not head.ambient_declaration && not head.class_declaration then
-      module_lexical_list input start used (width = 5ul) input.size
+      let enumeration = if width = 5ul then keyword input start.offset 4ul 0x656e756duL else false in
+      if enumeration then const_enum input start used
+      else module_lexical_list input start used (width = 5ul) input.size
     else
       let type_only = width = 4ul || width = 9ul in
       let decl =
