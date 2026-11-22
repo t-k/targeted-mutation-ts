@@ -548,6 +548,7 @@ bool TmtPulseParser_type_operator(uint64_t packed);
 typedef struct TmtPulseParser_signature_names_s
 {
   uint64_t low_bits;
+  uint64_t middle_bits;
   uint64_t high_bits;
 }
 TmtPulseParser_signature_names;

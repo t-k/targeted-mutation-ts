@@ -3021,19 +3021,28 @@ TmtPulseParser_mark_signature_name(
   uint64_t bits = value ^ value1 << 13U ^ (uint64_t)width;
   uint64_t hash = (bits ^ bits >> 23U) * 0x9e3779b185ebca87ULL;
   uint64_t low = TmtPulseParser_signature_name_bit(hash);
+  uint64_t middle = TmtPulseParser_signature_name_bit(hash >> 28U);
   uint64_t high = TmtPulseParser_signature_name_bit(hash >> 41U);
-  bool collision = (names.low_bits & low) != 0ULL && (names.high_bits & high) != 0ULL;
+  bool
+  collision =
+    (names.low_bits & low) != 0ULL && (names.middle_bits & middle) != 0ULL &&
+      (names.high_bits & high) != 0ULL;
   return
     (
       (FStar_Pervasives_Native_tuple2__TmtPulseParser_signature_names_bool){
-        ._1 = { .low_bits = names.low_bits | low, .high_bits = names.high_bits | high },
+        ._1 = {
+          .low_bits = names.low_bits | low,
+          .middle_bits = names.middle_bits | middle,
+          .high_bits = names.high_bits | high
+        },
         ._2 = collision
       }
     );
 }
 
 TmtPulseParser_signature_names
-TmtPulseParser_empty_signature_names = { .low_bits = 0ULL, .high_bits = 0ULL };
+TmtPulseParser_empty_signature_names =
+  { .low_bits = 0ULL, .middle_bits = 0ULL, .high_bits = 0ULL };
 
 TmtPulseParser_cursor TmtPulseParser_predicate_name(TmtPulseMemory_tape input, uint32_t at)
 {

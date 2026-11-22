@@ -78,3 +78,11 @@ test('declared namespaces can export previously bound module names without leaki
   compare('import type { Item } from "types"; export declare namespace Models { export { Item as Value } }', false);
   compare('declare interface Entry { key?: number } const hit = a < b;', true);
 });
+
+test('a two-lane signature fingerprint collision does not defer distinct parameters', () => {
+  const helper = 'export const below = () => value < limit;';
+  const signature = (name) => 'export type Fetch = (id: string, importer?: string, ' + name + '?: Options) => Result;';
+  compare(signature('options') + helper, true);
+  compare(signature('importer') + helper, false);
+  compare('export type Fetch = (code: string, expression: Expr, componentNames: Names, target: Target, diagnostics: Diagnostic[], bodyStatementJsx: Mode, serverRenderValueWrapper?: string, localJsxReturnFunctionNames?: Names, serverOutput?: string) => Result;' + helper, true);
+});

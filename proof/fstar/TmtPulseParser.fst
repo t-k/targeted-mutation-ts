@@ -1265,9 +1265,9 @@ let rec signature_shorthand_names (input:tape) (#frame:slprop) (key:parser_state
         if comma && not closes then signature_shorthand_names input #frame following origin (minus remaining 1ul)
         else consume input #frame following 125uy
 
-type signature_names = { low_bits:U64.t; high_bits:U64.t }
+type signature_names = { low_bits:U64.t; middle_bits:U64.t; high_bits:U64.t }
 
-let empty_signature_names : signature_names = { low_bits = 0uL; high_bits = 0uL }
+let empty_signature_names : signature_names = { low_bits = 0uL; middle_bits = 0uL; high_bits = 0uL }
 
 let signature_name_bit (word_:U64.t) : U64.t =
   let lane = Cast.uint64_to_uint32 (U64.logand word_ 63uL) in
@@ -1282,9 +1282,15 @@ let mark_signature_name (input:tape) (#frame:slprop) (names:signature_names) (fi
   let bits = U64.logxor prefix (U64.logxor (U64.shift_left suffix 13ul) (Cast.uint32_to_uint64 width)) in
   let hash = U64.mul_mod (U64.logxor bits (U64.shift_right bits 23ul)) 0x9e3779b185ebca87uL in
   let low = signature_name_bit hash in
+  let middle = signature_name_bit (U64.shift_right hash 28ul) in
   let high = signature_name_bit (U64.shift_right hash 41ul) in
-  let collision = U64.logand names.low_bits low <> 0uL && U64.logand names.high_bits high <> 0uL in
-  read_ret input #frame ({ low_bits = U64.logor names.low_bits low; high_bits = U64.logor names.high_bits high }, collision)
+  let collision = U64.logand names.low_bits low <> 0uL &&
+    U64.logand names.middle_bits middle <> 0uL && U64.logand names.high_bits high <> 0uL in
+  read_ret input #frame ({
+    low_bits = U64.logor names.low_bits low;
+    middle_bits = U64.logor names.middle_bits middle;
+    high_bits = U64.logor names.high_bits high
+  }, collision)
 
 let variance_prefix (input:tape) (#frame:slprop) (st:parser_state) (allow_variance:bool)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
