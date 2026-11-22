@@ -1,5 +1,35 @@
 # Performance measurements
 
+## First extraction and focused analysis planning
+
+The CLI loads only the selected command, and native-only extraction leaves the TypeScript compatibility parser and grammar unloaded. Low★ handles right-associative exponentiation, common static import attributes and more regular expressions with named captures. Across the five pinned TS/TSX corpora, Low★ covered 2,490 of 2,968 candidates, up from 2,424. Both logical-rule settings matched the Yuku reference on source acceptance and every ordered candidate field. A further 3,303 captured inputs passed the same checks.
+
+| Workload | Previous Low★ candidates | Current Low★ candidates | Low★ files |
+| --- | ---: | ---: | ---: |
+| Vite | 194 / 201 | 196 / 201 | 470 / 482 |
+| mreact | 1,452 / 1,550 | 1,510 / 1,550 | 1,166 / 1,193 |
+| tachyon-dom | 604 / 654 | 610 / 654 | 364 / 373 |
+
+First extraction measures the initial module load and parsing in a fresh process for every sample. Source buffers are already in memory. Nine samples alternate baseline and current versions per checkout on an Apple M5 Max with Node 24.14.0. Each experiment has its own paired baseline. The host was running other workloads, and absolute times vary between experiments.
+
+| Workload | First extraction, previous → current | First extraction with local cache, previous → current | Warm extraction, previous → current |
+| --- | ---: | ---: | ---: |
+| Vite | 210.45 → 204.39 ms | 203.25 → 116.40 ms | 30.50 → 28.44 ms |
+| mreact | 438.00 → 358.89 ms | 503.36 → 277.47 ms | 189.02 → 144.06 ms |
+| tachyon-dom | 251.71 → 240.03 ms | 504.41 → 274.52 ms | 61.07 → 54.99 ms |
+
+| Workload | Former Yuku → current, first extraction | Former Yuku → current, first extraction with local cache |
+| --- | ---: | ---: |
+| Vite | 133.99 → 228.14 ms | 113.34 → 143.03 ms |
+| mreact | 357.20 → 520.27 ms | 292.37 → 290.45 ms |
+| tachyon-dom | 117.92 → 197.98 ms | 217.71 → 260.07 ms |
+
+The local checkout can opt into the Node module compile cache with `npm run build:typescript-cache` on Node 24.12 or later. It still reads and parses the supplied sources on every extraction. The runtime archive uses the normal Node compiler load. Node 26.12 selects different cache directories for portable and portable read-only activation. See the [Node implementation](https://github.com/nodejs/node/blob/v26.12.0/src/compile_cache.cc#L43-L59).
+
+Focused analysis now indexes trace observations by site and reuses observed test identities and threshold metadata. With 200 comparison sites and 2,000 observations, generating the complete trial plan dropped from 357.70 to 40.64 ms over nine alternating samples. The full trial records matched. This measurement excludes running the tests.
+
+The [recorded samples and corpus details](../evidence/m1/cold-start.json) use `4fb291a` and the former Yuku runtime `8592705` as baselines. Reproduce first-process measurements with `node scripts/bench-first-extraction.mjs BASELINE/src/extract.mjs GIT_CHECKOUT...`. Set `NODE_DISABLE_COMPILE_CACHE=1` for the unprepared experiment. Warm measurements use `--expose-gc scripts/bench-extraction.mjs` with both native addons built using `--pgo`.
+
 ## Extraction compared with the former Yuku runtime
 
 At `69a4a22`, repeated extraction on an Apple M5 Max with Node 24.14.0 is faster than the former Yuku runtime `8592705` on all three measured projects. Each of the nine alternating samples parses every file anew from an in-memory buffer. Source results are never cached. The current binary uses Clang LTO and profile data trained on 19 repository fixtures. The measured corpora are outside that training set.
