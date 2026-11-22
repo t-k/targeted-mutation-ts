@@ -47,7 +47,13 @@ const ui = [
   ['astro', 'withastro/astro', 'c302892e4a2434fb4d8e66702576f5406e63d986', ['packages/astro/src']],
   ['svelte', 'sveltejs/svelte', '90ad4e870c72aa76db35ecc7e46f0b027ffe175a', ['packages/svelte/src']],
 ];
-const suites = new Map(Object.entries({ established, server, typed, ui }));
+const ecosystem = [
+  ['htmx', 'bigskysoftware/htmx', '51c3e67bcedc5568b2a968b079888f13aedf4eb7', ['src']],
+  ['alpine', 'alpinejs/alpine', '8d3d9a2f98385d4c879f4b5be080a0221279ed4d',
+    ['packages'], /^packages\/[^/]+\/src\//],
+  ['redux-toolkit', 'reduxjs/redux-toolkit', '4a3ad9ab235a09420dc923f3325f813b11eecb0c', ['packages/toolkit/src']],
+];
+const suites = new Map(Object.entries({ established, server, typed, ui, ecosystem }));
 const swr = ['swr-firestore', 't-k/swr-firestore', '25e295e6150025bc9b234eea5119589dee473ded', ['src']];
 const extension = /\.(?:[jt]sx?|[cm][jt]s)$/;
 const testsAndFixtures = /(?:^|\/)(?:__tests__|__fixtures__|__snapshots__|__test-utils__|__mocks__|test|tests|spec|fixtures|dist|node_modules|demo|demos)\/|(?:^|\/)(?:test|tests)(?:\.tp)?\.[^/]+$|\.(?:test|spec|bench)(?:-d)?\.[^/]+$/;
@@ -145,7 +151,7 @@ function parseInput(ts, project, file, text, logical) {
   const external = ts.isExternalModule(tree);
   const commonJSExtension = /\.c[jt]s$/.test(file) && !(tree.isDeclarationFile && external);
   const script = commonJSExtension || (!/\.m[jt]s$/.test(file) && !external &&
-    (commonJS || commonJSCohort.has(project) || project === 'fastify' || project === 'esbuild'));
+    (commonJS || commonJSCohort.has(project) || project === 'fastify' || project === 'esbuild' || project === 'htmx'));
   return { tree, file, dialect, originalDialect, mode: script ? 'script' : 'module', logical, requireNative: true };
 }
 

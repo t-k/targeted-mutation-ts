@@ -1118,6 +1118,8 @@ typedef struct TmtPulseParser_expression_items_s
 }
 TmtPulseParser_expression_items;
 
+bool TmtPulseParser_can_assign_expression(TmtPulseParser_assignment_target target);
+
 TmtPulseParser_parser_state
 TmtPulseParser_tag_space(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
 
@@ -1182,8 +1184,6 @@ TmtPulseParser_flat_assignment_head(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state
 );
-
-bool TmtPulseParser_can_assign_expression(TmtPulseParser_assignment_target target);
 
 typedef struct TmtPulseParser_regex_captures_s
 {

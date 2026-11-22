@@ -1,0 +1,11 @@
+Target	Assertion	Operator
+Identifier	Single	Plain
+Member	Single	BitOr
+Index	Single	Add
+Member	Repeated	BitOr
+Member	Grouped	Plain
+Chain	Grouped	BitOr
+Call	Single	Plain
+Restricted	Single	Plain
+Member	Newline	Add
+Member	Single	Incomplete

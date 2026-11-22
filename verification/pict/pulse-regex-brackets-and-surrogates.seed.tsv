@@ -1,0 +1,11 @@
+Pattern	Flags	Tail
+ClosingBracket	Legacy	Complete
+ClosingBracket	Unicode	Complete
+QuantifiedBracket	Legacy	Complete
+Escape	Unicode	Complete
+Range	Unicode	Complete
+Range	Legacy	Complete
+Reversed	Unicode	Complete
+Paired	Unicode	Complete
+BrokenDigit	Unicode	Complete
+Range	Unicode	Broken

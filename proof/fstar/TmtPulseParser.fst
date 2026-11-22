@@ -456,11 +456,20 @@ let regex_escape (input:tape) (#frame:slprop) (at:U32.t) (in_class:bool) : Tot (
     let c = hex_value anf_value_5 in
     let! anf_value_6 = (fun () -> peek input #frame (plus finish 3ul)) in
     let d = hex_value anf_value_6 in
-    read_ret input #frame (let value = U32.(logor (logor (shift_left a 12ul) (shift_left b 8ul)) (logor (shift_left c 4ul) d)) in
+    let value = U32.(logor (logor (shift_left a 12ul) (shift_left b 8ul)) (logor (shift_left c 4ul) d)) in
     let scalar = U32.(value <^ 55296ul || value >^ 57343ul) in
-    let valid = a <> 16ul && b <> 16ul && c <> 16ul && d <> 16ul && scalar in
-    { unit_end = plus at 6ul; unit_ok = valid;
-      character = if valid then value else no_character; repeatable = valid; unicode_only = false })
+    let after = plus at 6ul in
+    // In Unicode mode, adjacent fixed-width escapes can form one class endpoint.
+    let! separate = (fun () ->
+      if scalar || not in_class then read_ret input #frame false
+      else if U32.(value >=^ 56320ul) then read_ret input #frame true
+      else
+        let! backslash = (fun () -> same input #frame after 92uy) in
+        if not backslash then read_ret input #frame true
+        else let! unicode = (fun () -> same input #frame (next after) 117uy) in read_ret input #frame (not unicode)) in
+    let valid = a <> 16ul && b <> 16ul && c <> 16ul && d <> 16ul && (scalar || separate) in
+    read_ret input #frame { unit_end = after; unit_ok = valid;
+      character = if valid then value else no_character; repeatable = valid; unicode_only = false }
   else
     read_ret input #frame (let group = escape = 115uy || escape = 83uy || escape = 100uy || escape = 68uy || escape = 119uy || escape = 87uy in
     let boundary = not in_class && (escape = 98uy || escape = 66uy) in
@@ -632,8 +641,8 @@ let rec regex_pattern (input:tape) (#frame:slprop) (at depth fuel:U32.t) (nested
           let! lazy_ = (fun () -> same input #frame quantifier.at 63uy) in
           let after = if lazy_ then next quantifier.at else quantifier.at in
           regex_pattern input #frame after depth rest nested false captures
-    else if regex_printable byte && byte <> 47uy && byte <> 41uy && byte <> 93uy then
-      let captures = if byte = 125uy then { captures with legacy = true } else captures in
+    else if regex_printable byte && byte <> 47uy && byte <> 41uy then
+      let captures = if byte = 125uy || byte = 93uy then { captures with legacy = true } else captures in
       regex_pattern input #frame (next at) depth rest nested true captures
     else if not (U8.lt byte 128uy) then
       let! atom = (fun () -> regex_bmp_unit input #frame at byte) in
@@ -2254,12 +2263,26 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
                   else (let! anf_value_5 = (fun () -> forbidden_field_arguments input target) in if anf_value_5 then ret input (failed target 1ul)
                   else (let! anf_value_6 = (fun () -> (name input target.offset false false)) in ret input (from_cursor target anf_value_6)))) in
               let! named = (fun () -> qualified_name input named 64ul) in
-              let! tail = (fun () -> skip input named) in
+              let! boundary = (fun () -> trivia input named.offset) in
+              let tail = from_cursor named boundary in
               let! typed = (fun () -> same input tail.offset 60uy) in
               let! tail = (fun () -> if typed && tail.offset = named.offset then call_type_arguments input tail else ret input (tail)) in
-              let! args = (fun () -> consume input tail 40uy) in
-              let! list = (fun () -> expression_list input args inner input.size 41uy false) in
-              ret input (list.list_end, NotAssignable)
+              let! next_token = (fun () -> peek input tail.offset) in
+              if next_token = 40uy then
+                let! args = (fun () -> consume input tail 40uy) in
+                let! list = (fun () -> expression_list input args inner input.size 41uy false) in
+                ret input (list.list_end, NotAssignable)
+              else if tail.status <> 0ul || head = 40uy || typed then ret input (failed tail 1ul, NotAssignable)
+              else
+                let! declaration = (fun () -> if not boundary.newline then ret input false
+                  else if next_token = 108uy then keyword input tail.offset 3ul 0x6c6574uL
+                  else if next_token = 99uy then keyword input tail.offset 5ul 0x636f6e7374uL
+                  else if next_token = 118uy then keyword input tail.offset 3ul 0x766172uL
+                  else ret input false) in
+                let closed = tail.offset = input.size || next_token = 59uy || next_token = 44uy ||
+                  next_token = 41uy || next_token = 93uy || next_token = 125uy in
+                // Keep the constructor operand's end separate from the enclosing expression's trivia.
+                ret input (if closed || declaration then (named, NotAssignable) else (failed tail 1ul, NotAssignable))
           else
             let inside = { st with offset = next start_pos } in
             if ch = 96uy then (let! anf_value_9 = (fun () -> template_body input inside inner input.size false) in ret input (anf_value_9, NotAssignable))
@@ -2584,6 +2607,7 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
         else ret input ({ st with offset = next st.offset }, false)) in
       let target =
         if optional || base.target = OptionalChain then OptionalChain
+        else if bang && can_assign_expression base.target then AssertedTarget
         else if private_access then PrivateTarget
         else if kind = 46uy || kind = 91uy then MemberTarget
         else NotAssignable in
@@ -2761,11 +2785,11 @@ and jsx_attribute (input:tape) (state:parser_state) (fuel:U32.t)
   else
     let! named = (fun () -> name input state.offset true false) in
     let named_state = from_cursor state named in
-    let! tail = (fun () -> tag_space input named_state) in
+    let! tail = (fun () -> skip input named_state) in
     let! equal = (fun () -> same input tail.offset 61uy) in
     if named_state.status <> 0ul || not equal then ret input (named_state)
     else
-      let! st = (fun () -> (let! anf_value_3 = (fun () -> (consume input tail 61uy)) in tag_space input anf_value_3)) in
+      let! st = (fun () -> (let! anf_value_3 = (fun () -> (consume input tail 61uy)) in skip input anf_value_3)) in
       let! byte = (fun () -> peek input st.offset) in
       if byte = 34uy || byte = 39uy then
         let! pos = (fun () -> quote_end input (next st.offset) byte input.size) in
@@ -2776,7 +2800,7 @@ and jsx_attribute (input:tape) (state:parser_state) (fuel:U32.t)
           let! opening = (fun () -> tag_space input { st with offset = next st.offset }) in
           let! fragment = (fun () -> same input opening.offset 62uy) in
           let! nested = (fun () -> jsx_element input st (minus fuel 1ul)) in
-          let! next_attr = (fun () -> tag_space input nested) in
+          let! next_attr = (fun () -> skip input nested) in
           let! first = (fun () -> peek input next_attr.offset) in
           ret input (if fragment && G.identifier_start first then failed nested 1ul else nested)
       else
@@ -2790,7 +2814,7 @@ and jsx_attribute (input:tape) (state:parser_state) (fuel:U32.t)
 
 and jsx_attributes (input:tape) (state:parser_state) (fuel remaining:U32.t)
   : Tot (stt jsx_opening (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 31; U32.v remaining]) =
-  let! st = (fun () -> tag_space input state) in
+  let! st = (fun () -> skip input state) in
   let! byte = (fun () -> peek input st.offset) in
   if st.status <> 0ul then ret input ({ after_tag = st; self_closing = false })
   else if byte = 62uy then (let! anf_value_1 = (fun () -> consume input st 62uy) in ret input ({ after_tag = anf_value_1; self_closing = false }))

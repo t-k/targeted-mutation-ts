@@ -1,0 +1,16 @@
+Placement	Comment	Closing
+First	Block	SelfClosing
+Between	Line	SelfClosing
+BeforeEqual	Line	Children
+AfterEqual	Block	SelfClosing
+Final	Block	Children
+Final	Unclosed	SelfClosing
+Between	Unclosed	Children
+AfterEqual	Unclosed	Children
+AfterEqual	Line	Children
+BeforeEqual	Block	SelfClosing
+First	Unclosed	Children
+Final	Line	Children
+Between	Block	Children
+BeforeEqual	Unclosed	Children
+First	Line	SelfClosing

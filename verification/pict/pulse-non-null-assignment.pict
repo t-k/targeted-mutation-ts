@@ -1,0 +1,3 @@
+Target: Identifier, Member, Index, Call, Chain, Restricted
+Assertion: Single, Repeated, Grouped, Newline
+Operator: Plain, Add, BitOr, Incomplete

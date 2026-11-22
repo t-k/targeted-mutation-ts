@@ -1,0 +1,3 @@
+Target: Identifier, Qualified
+Trivia: None, Comment
+Boundary: Statement, Eof, Object, Argument, NextDeclaration, Broken

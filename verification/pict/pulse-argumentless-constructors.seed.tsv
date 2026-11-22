@@ -1,0 +1,7 @@
+Target	Trivia	Boundary
+Identifier	None	Statement
+Identifier	None	Eof
+Identifier	None	NextDeclaration
+Qualified	Comment	Object
+Qualified	None	Argument
+Identifier	Comment	Broken

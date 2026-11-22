@@ -45,7 +45,7 @@ test('numeric keys, override and regex escapes keep their context', () => {
   verify('class C { override override run() { return a < b; } }', 'diagnostic');
   verify('class C { override readonly size = a < b; }', 'fast');
   verify(String.raw`const match = /\u03bb/u.test(value) && a < b;`, 'fast');
-  verify(String.raw`const match = /[\ud800-\udfff]/u.test(value) && a < b;`, 'fallback');
+  verify(String.raw`const match = /[\ud800-\udfff]/u.test(value) && a < b;`, 'fast');
 });
 
 test('override retains early diagnostics for invalid modifier combinations', () => {
