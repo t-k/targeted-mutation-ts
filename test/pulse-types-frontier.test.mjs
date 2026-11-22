@@ -58,6 +58,9 @@ test('a typed callback can end in a simple object binding', () => {
   check('type Read = (input: unknown, { key, }: { key: string },) => number; const hit = a < b;', true);
   check('type Read = ({ key }: { key: string }) => number; const hit = a < b;', true);
   check('type Read = ({ key, other }: Input) => number; const hit = a < b;', true);
+  check('type Read = (first: T, second: T, { key }: T) => T; const hit = a < b;', true);
+  check('type Read = (x: T, x: T, { y }: T) => T; const hit = a < b;', false);
+  check('type Read = (left: T, right: T, left: T) => T; const hit = a < b;', false);
   for (const params of ['key: unknown, { key }: Input', '{ key = 1 }: Input',
     '{ key }: Input, other: number', '...{ key }: Input']) {
     check(`type Read = (${params}) => number; const hit = a < b;`, false);

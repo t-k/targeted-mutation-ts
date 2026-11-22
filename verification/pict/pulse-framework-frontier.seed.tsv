@@ -1,0 +1,11 @@
+Surface	Input	Suffix
+Decimal	Supported	Complete
+Angle	Supported	Complete
+AmbientClass	Supported	Complete
+AmbientNamespace	Supported	Complete
+AmbientEnum	Supported	Complete
+InterfaceMerge	Supported	Complete
+CallComma	Supported	Complete
+CallComma	Deferred	Complete
+InterfaceMerge	Deferred	Complete
+Angle	Supported	Broken

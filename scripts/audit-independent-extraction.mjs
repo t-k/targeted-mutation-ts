@@ -202,10 +202,12 @@ function validCandidate(source, candidate) {
     candidate.left[1] <= operator[0] && operator[1] <= candidate.right[0] && source.toString('utf8', ...operator) === candidate.operator;
 }
 
-function compare(mismatches, context, pair, actual, expected) {
+function compare(mismatches, context, pair, actual, expected, exactDiagnostics = false) {
   if ((actual.path === 'diagnostic') !== (expected.path === 'diagnostic')) {
     mismatches.push({ ...context, check: pair + ' acceptance', actual: actual.path, expected: expected.path,
       actualDiagnostic: actual.diagnostics?.[0], expectedDiagnostic: expected.diagnostics?.[0] });
+  } else if (exactDiagnostics && actual.path === 'diagnostic' && !isDeepStrictEqual(actual.diagnostics, expected.diagnostics)) {
+    mismatches.push({ ...context, check: pair + ' diagnostics', actual: actual.diagnostics, expected: expected.diagnostics });
   } else if (!isDeepStrictEqual(actual.candidates, expected.candidates)) {
     const index = actual.candidates.findIndex((item, i) => !isDeepStrictEqual(item, expected.candidates[i]));
     const firstDifference = index < 0 ? actual.candidates.length : index;
@@ -240,7 +242,7 @@ function audit(shard, checkout, ts, extractFull, logical) {
     const native = actual.path === 'fast';
     const logicalCandidates = actual.candidates.filter(candidate => candidate.operator === '||').length;
     const context = { file, class: kind, mode: options.mode, dialect: options.dialect };
-    compare(report.mismatches, context, 'shipped/TypeScript', actual, full);
+    compare(report.mismatches, context, 'shipped/TypeScript', actual, full, true);
     compare(report.mismatches, context, 'TypeScript/Yuku', full, yuku);
     if (!tree.parseDiagnostics.length && full.path !== 'diagnostic') {
       compare(report.mismatches, context, 'TypeScript/raw AST', full, { candidates: rawCandidates(ts, tree, text, logical) });

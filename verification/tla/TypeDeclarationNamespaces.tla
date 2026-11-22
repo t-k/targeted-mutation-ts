@@ -1,16 +1,18 @@
 ---------------------- MODULE TypeDeclarationNamespaces ----------------------
 EXTENDS FiniteSets
 
-Kinds == {"Interface", "Alias", "Namespace", "Value"}
+Kinds == {"Interface", "ExportedInterface", "Alias", "Namespace", "Value"}
+Types == {"Interface", "ExportedInterface", "Alias"}
 Families == {"Var", "Function"}
 Entries == [name: {"a", "b"}, kind: Kinds]
 VARIABLES entries, family, phase
 vars == <<entries, family, phase>>
 
 Overlap(a, b) ==
-  CASE {a, b} = {"Interface", "Namespace"} -> FALSE
+  CASE a = "ExportedInterface" /\ b = "ExportedInterface" -> FALSE
+    [] {a, b} \in {{"Interface", "Namespace"}, {"ExportedInterface", "Namespace"}} -> FALSE
     [] "Namespace" \in {a, b} -> TRUE
-    [] a \in {"Interface", "Alias"} /\ b \in {"Interface", "Alias"} -> TRUE
+    [] a \in Types /\ b \in Types -> TRUE
     [] OTHER -> a = b
 
 Init == /\ entries = {} /\ family = "Empty" /\ phase = "open"
@@ -36,7 +38,7 @@ NoCollidingNames ==
 
 ReservedExports == {e.name : e \in {x \in entries: x.kind \in {"Namespace", "Value"}}}
 TypeOnlyNames ==
-  \A e \in entries: (e.kind \in {"Alias", "Interface"} /\ e.name \in ReservedExports) =>
+  \A e \in entries: (e.kind \in Types /\ e.name \in ReservedExports) =>
     \E value \in entries: value.name = e.name /\ value.kind \in {"Namespace", "Value"}
 
 AmbientFamilyStable == family \in Families \cup {"Empty"}
