@@ -1,0 +1,5 @@
+Asset: Ready, Missing, Invalid, WrongVersion, ParserFailure, CompilerLoaded
+Dialect: TS, TSX
+Mode: Module, Script
+Source: Valid, Diagnostic, Repair
+IF [Source] = "Repair" THEN [Dialect] = "TSX";

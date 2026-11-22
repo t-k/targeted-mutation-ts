@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path';
 const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
 const output = resolve('build');
 const addon = 'build/tmt.node';
+const syntax = 'build/typescript-syntax/';
 mkdirSync(output, { recursive: true });
 const staging = mkdtempSync(join(output, '.tmt-runtime-'));
 try {
@@ -12,8 +13,12 @@ try {
     { encoding: 'utf8' });
   if (compiled.status !== 0) throw new Error(compiled.error?.message ?? compiled.stderr + compiled.stdout);
   process.stderr.write(compiled.stdout + compiled.stderr);
+  const projected = spawnSync(process.execPath, ['scripts/build-typescript-syntax.mjs', join(staging, syntax)], {
+    encoding: 'utf8', timeout: 60_000,
+  });
+  if (projected.status !== 0) throw new Error(projected.error?.message ?? projected.stderr + projected.stdout);
   for (const file of manifest.files) {
-    if (file === addon) continue;
+    if (file === addon || file === syntax) continue;
     const target = join(staging, file);
     mkdirSync(dirname(target), { recursive: true });
     cpSync(resolve(file), target, { recursive: true });

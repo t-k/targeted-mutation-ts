@@ -31,6 +31,10 @@ try {
   const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
   assert.deepEqual(manifest.dependencies, { typescript: '6.0.3' });
   assert.equal(existsSync(join(installed, 'build/typescript-cache')), false);
+  const syntax = join(installed, 'build/typescript-syntax');
+  assert.match(readFileSync(join(syntax, 'typescript-syntax.cjs'), 'utf8'), /Copyright \(c\) Microsoft Corporation/);
+  assert.match(readFileSync(join(syntax, 'LICENSE.txt'), 'utf8'), /Apache License/);
+  assert.ok(readFileSync(join(syntax, 'ThirdPartyNoticeText.txt')).length);
   const lock = JSON.parse(readFileSync(join(cwd, 'package-lock.json'), 'utf8'));
   assert.deepEqual(Object.keys(lock.packages).filter(path => path.startsWith('node_modules/')).sort(),
     ['node_modules/targeted-mutation-ts', 'node_modules/typescript']);
@@ -40,7 +44,13 @@ try {
   const entry = join(installed, 'bin/tmt.mjs');
   assert.match(run(process.execPath, [entry, '--help']), /tmt-ts analyze/);
   writeFileSync(join(cwd, 'broad.ts'), 'export const a = {}; export const b = a <number>().value < 2;');
-  const broad = JSON.parse(run(process.execPath, [entry, 'extract', 'broad.ts']));
+  const hook = join(cwd, 'reject-full-parser.mjs');
+  writeFileSync(hook, `import { registerHooks } from 'node:module';
+registerHooks({ load(url, context, next) {
+  if (url.endsWith('/typescript/lib/typescript.js')) throw new Error('Full compiler loaded during extraction');
+  return next(url, context);
+} });\n`);
+  const broad = JSON.parse(run(process.execPath, ['--import', hook, entry, 'extract', 'broad.ts']));
   assert.equal(broad.path, 'fallback');
   assert.equal(broad.fallback, 'typescript');
   assert.equal(broad.metrics.astNodes, 0);

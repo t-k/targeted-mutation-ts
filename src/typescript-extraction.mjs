@@ -1,9 +1,16 @@
+import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { byteOffsets, sourceDialect } from './source-text.mjs';
 import { createTypeScriptBindings } from './typescript-bindings.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
 import { createTypeScriptGrammar } from './typescript-grammar.mjs';
 
+const require = createRequire(import.meta.url);
+const syntaxPath = fileURLToPath(new URL('../build/typescript-syntax/typescript-syntax.cjs', import.meta.url));
+let compilerPath;
 let extractWithCompiler;
+let extractWithSyntax;
 
 export function createTypeScriptExtractor(ts) {
   const {
@@ -343,6 +350,21 @@ export function createTypeScriptExtractor(ts) {
 }
 
 export function extractTypeScript(source, options = {}) {
+  compilerPath ??= require.resolve('typescript');
+  if (!require.cache[compilerPath]) {
+    try {
+      if (extractWithSyntax === undefined) {
+        const parser = existsSync(syntaxPath) ? require(syntaxPath) : null;
+        extractWithSyntax = parser?.version === require('typescript/package.json').version
+          ? createTypeScriptExtractor(parser) : null;
+      }
+      if (extractWithSyntax) return extractWithSyntax(source, options);
+    } catch (error) {
+      if (error instanceof RangeError && error.message === 'Maximum call stack size exceeded') throw error;
+      // The full compiler owns error recovery when the optional parser cannot complete.
+      extractWithSyntax = null;
+    }
+  }
   extractWithCompiler ??= createTypeScriptExtractor(loadTypeScript());
   return extractWithCompiler(source, options);
 }

@@ -82,7 +82,7 @@ test('a complete control program does not load TypeScript on initial extraction'
     import assert from 'node:assert/strict';
     import { registerHooks } from 'node:module';
     registerHooks({ resolve(specifier, context, nextResolve) {
-      if (specifier === 'typescript') throw new Error('Unexpected TypeScript load');
+      if (specifier === 'typescript' || specifier.endsWith('/typescript-syntax.cjs')) throw new Error('Unexpected TypeScript load');
       return nextResolve(specifier, context);
     } });
     const { extract } = await import(${JSON.stringify(module)});

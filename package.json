@@ -13,8 +13,9 @@
     "test": "node --test test/*.test.mjs",
     "evidence:m0": "node scripts/evidence-m0.mjs",
     "build:native": "node scripts/build-native.mjs",
+    "build:typescript-syntax": "node scripts/build-typescript-syntax.mjs",
     "verify:fstar": "sh scripts/verify-fstar.sh",
-    "pretest": "npm run build:native && npm run build:lean",
+    "pretest": "npm run build:native && npm run build:typescript-syntax && npm run build:lean",
     "audit:extraction": "node scripts/audit-extraction.mjs",
     "build:lean": "node scripts/build-lean.mjs",
     "build:typescript-cache": "node scripts/prepare-typescript.mjs",
@@ -33,6 +34,7 @@
     "@playwright/test": "1.65.1",
     "@stryker-mutator/core": "10.1.1",
     "@stryker-mutator/instrumenter": "10.1.1",
+    "esbuild": "0.28.2",
     "vitest": "4.0.18",
     "yuku-parser": "0.19.0"
   },
@@ -41,6 +43,7 @@
     "src/",
     "build/tmt.node",
     "build/tmt-decide",
+    "build/typescript-syntax/",
     "README.md",
     "docs/",
     "evidence/"
