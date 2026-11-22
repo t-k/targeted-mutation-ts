@@ -128,6 +128,22 @@ Each run uses seven rotating warm trials and seven alternating fresh-process tri
 
 The final Svelte coverage comes from validating hoisted names at each lexical scope boundary. The second-pass log reclaims block-local lexical entries and retains the variables hoisted to the parent. The grammar also handles nested loop labels, collection assignment targets, regular-expression code points and `new.target`. Hono and Astro gained type-only namespace handling, stronger type annotation coverage and completed-module resolution of forward exports. These are extraction measurements for the pinned files. The TypeScript compatibility parser remains available for sources outside the supported grammar.
 
+### Ecosystem expansion
+
+The new `ecosystem` audit covers pinned htmx, Alpine.js and Redux Toolkit implementation sources. Additional runs cover mreact and tachyon-dom. Argumentless constructors bring four more Alpine.js files onto the Pulse path. TypeScript non-null assignments move 52 Vue candidates onto Pulse, bringing coverage to 376 of 400. JSX opening attribute trivia brings TanStack Query to 96 of 96 candidates. Legacy regex brackets and escaped surrogate ranges bring tachyon-dom to 338 of 338 candidates across all 94 selected implementation files.
+
+The table gives warm and first-extraction medians in milliseconds. The baseline is `c673659`. The run uses seven repetitions under offline rootless Linux arm64 Podman on an Apple M5 Max with Node 24.14.0, with the same candidate comparison as the five-workload benchmark. All six implementations agreed on all ordered records for these sources. First extraction includes parser loading and excludes file I/O. The comparison uses implementation sources and excludes declaration files.
+
+| Workload | Native candidates before → after | TMT baseline | TMT | Oxc lazy |
+| --- | ---: | ---: | ---: | ---: |
+| htmx | 0 → 0 / 68 | 20.03 / 76.83 | 19.72 / 76.67 | 1.39 / 22.06 |
+| Alpine.js | 39 → 46 / 51 | 8.84 / 42.80 | 4.70 / 32.05 | 2.60 / 25.20 |
+| Redux Toolkit | 31 → 31 / 34 | 18.72 / 65.41 | 17.84 / 65.21 | 4.39 / 29.11 |
+| mreact | 988 → 988 / 1,001 | 40.34 / 79.80 | 39.73 / 79.11 | 30.99 / 69.25 |
+| tachyon-dom | 316 → 338 / 338 | 18.39 / 54.08 | 9.18 / 10.78 | 9.30 / 36.16 |
+
+TMT kept the lowest median in both metrics on Hono, ESLint, Astro, Svelte and Vite. On tachyon-dom it also led both medians, with a 0.12 ms warm lead over Oxc lazy and four wins in seven warm rounds. SWC Next had the fastest first extraction on htmx and Alpine.js. Oxc lazy led both medians on Redux Toolkit and mreact. An independent audit compares the full TypeScript parser and Yuku against TMT with and without logical rules. The [pinned inputs, audit results and raw samples](../evidence/m1/ecosystem-expansion.json) include all compared engines and a separate macOS run.
+
 ## Analysis throughput
 
 Measurements on Apple M5 Max with Node 24.14.0 alternate baseline and current samples. The Git and CLI benchmarks use nine pairs. The coverage planner uses eleven pairs. CLI samples start a fresh Node process with the compile cache disabled.
