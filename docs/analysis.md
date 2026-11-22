@@ -1,19 +1,19 @@
 # Analyzing a project
 
-Install the locked dependencies with `npm ci` and build the native extractor with `npm run build:native`. Build the Lean decision executable with `npm run build:lean` using the pinned Lean toolchain. The analysis runs the binaries in `build/` directly.
+Install `targeted-mutation` in the project as described in the [README](../README.md). The examples below use files from this repository's `fixtures/`. In a checkout of this repository, build with `npm ci`, `npm run build:native` and `npm run build:lean`, and run `npx targeted-mutation` in place of `targeted-mutation`.
 
 ```sh
-node bin/tmt.mjs analyze fixtures/eligibility src/eligibility.ts --spec spec.json --deterministic --audit
-node bin/tmt.mjs analyze . --lines src/eligibility.ts:1-8 --audit
-node bin/tmt.mjs analyze . --since "$(git merge-base origin/main HEAD)"
+npx targeted-mutation analyze fixtures/eligibility src/eligibility.ts --spec spec.json --deterministic --audit
+npx targeted-mutation analyze . --lines src/eligibility.ts:1-8 --audit
+npx targeted-mutation analyze . --since "$(git merge-base origin/main HEAD)"
 ```
 
-Arguments after the project root select source files. Without files, the CLI discovers TypeScript and TSX sources. The scope comes from explicit line ranges and added or changed lines relative to a Git commit. The CLI parses each selected file before filtering candidate operator positions. Output is JSON with a schema version, extraction outcomes, candidate IDs, trial verdicts and diagnostics. An extraction diagnostic or a baseline failure exits with status 1. A successful analysis exits with status 0.
+Arguments after the project root select source files. Without files, the CLI discovers TypeScript and TSX sources. The scope comes from explicit line ranges and added or changed lines relative to a Git commit. The CLI parses each selected file before filtering candidate operator positions. The JSON report has a schema version, extraction outcomes, candidate IDs, trial verdicts and diagnostics. A terminal shows a text summary of the same report; a pipe or `--format json` receives the JSON. `--lines FILE:N` selects a single line. A failed baseline lists the failed tests and their messages under `baseline.failedTests`. An extraction diagnostic or a baseline failure exits with status 1. A successful analysis exits with status 0.
 
 ### Limit a dogfood or CI run
 
 ```sh
-node bin/tmt.mjs analyze . packages/example/src/ranges.ts --since HEAD^ \
+npx targeted-mutation analyze . packages/example/src/ranges.ts --since HEAD^ \
   --config vitest.config.ts --test packages/example/test/ranges.test.ts \
   --copy-exclude benchmarks --audit
 ```
@@ -62,7 +62,7 @@ With `--mutators all --deterministic`, Lean can certify survival for a standard 
 
 ```sh
 npx playwright install --only-shell chromium
-node bin/tmt.mjs analyze . src/button.tsx --runner playwright --project chromium --audit
+npx targeted-mutation analyze . src/button.tsx --runner playwright --project chromium --audit
 ```
 
 Use `--config` for a nonstandard Playwright config path. Each trial launches a separate Playwright runtime in a temporary checkout with one worker. The config wrapper disables web server reuse. Trial output identifies the attempt, runner process, project, browser, worker and test. A cooperating local server can write its process ID to `TMT_SERVER_PID_FILE`. A test whose attempt is unstable, timed out, has changed inventory or failed setup has a separate outcome.
@@ -80,9 +80,9 @@ For the pending Save fixture, StrykerJS 10.1.1's command runner killed its five 
 `--witnesses` runs the Vitest witness profile. It searches for a source rewrite that survives the selected tests, then checks an input edit or assertion that distinguishes it. It runs each trial in a fresh copy and reports a confirmed gap when the original passes and the attributed assertion fails with the expected alternate value. Source and fixture edit offsets are half-open UTF-8 byte ranges.
 
 ```sh
-node bin/tmt.mjs analyze fixtures/witnesses src/queries.ts --witnesses --test test/queries.test.ts
-node bin/tmt.mjs analyze fixtures/witnesses src/text-order.ts --witnesses --test test/text-order.test.ts --spec order-spec.json
-node bin/tmt.mjs analyze fixtures/witnesses src/contracts.ts --witnesses --test test/contracts.test.ts
+npx targeted-mutation analyze fixtures/witnesses src/queries.ts --witnesses --test test/queries.test.ts
+npx targeted-mutation analyze fixtures/witnesses src/text-order.ts --witnesses --test test/text-order.test.ts --spec order-spec.json
+npx targeted-mutation analyze fixtures/witnesses src/contracts.ts --witnesses --test test/contracts.test.ts
 ```
 
 The automatic rules handle same-type safe integer arguments and numeric fields of an inline object type in an ordered comparison, `indexOf` versus `lastIndexOf` on numeric arrays, any versus all bits in a nonnegative 31-bit mask, and one extra element in a `slice(0, count).reduce(...)` sum. They use direct Vitest calls with literal arguments and a scalar `toBe` assertion as seeds. Calls may appear inside nested `describe` or `suite` blocks with literal titles. JavaScript named exports can use JSDoc parameter annotations, and the numeric-array `indexOf` rule can use an unannotated function with literal numeric fixtures. A finding includes a minimized single-literal edit where the observed assertion still holds for the original implementation. Otherwise it can verify a separate assertion in the selected test file. Automatic expectations come from the original implementation. The automatic search evaluates up to 32 eligible rewrites and four one-edit proposals per surviving rewrite.

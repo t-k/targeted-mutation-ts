@@ -1,0 +1,15 @@
+targeted-mutation
+Copyright 2026 The targeted-mutation authors
+
+This product is licensed under the Apache License, Version 2.0.
+
+It includes a syntax parser generated from the TypeScript compiler
+(Copyright Microsoft Corporation, Apache License 2.0). The license and
+third-party notices are in build/typescript-syntax/.
+
+The platform packages (@targeted-mutation/tmt-<os>-<cpu>) contain an
+executable linked with the Lean 4 runtime and the libraries it bundles,
+including GMP (LGPL-3.0-or-later or GPL-2.0-or-later) and libuv (MIT).
+Their licenses are in the lean/ directory of each platform package. The
+proof sources and build scripts needed to relink that executable are in
+the source repository under proof/lean and scripts/.

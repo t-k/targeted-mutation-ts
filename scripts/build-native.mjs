@@ -89,7 +89,10 @@ function parserSource(scratch) {
 const args = [
   '-std=c11', '-O3', '-Wall', '-Wextra', '-Werror', '-Wno-parentheses', '-fPIC',
   ...nativeOptimizationFlags(compiler),
+  // Compiler-recorded source paths would otherwise carry the build directory into the published binary.
+  `-ffile-prefix-map=${outputDirectory}=build`, `-ffile-prefix-map=${root}=./`,
   ...(macOS ? [
+    `-mmacosx-version-min=${process.env.MACOSX_DEPLOYMENT_TARGET ?? '11.0'}`,
     '-bundle', '-undefined', 'dynamic_lookup', '-Wl,-dead_strip',
     '-Wl,-exported_symbol,_napi_register_module_v1', '-Wl,-exported_symbol,_node_api_module_get_api_version_v1',
   ] : ['-shared', '-Wl,--exclude-libs,ALL']),

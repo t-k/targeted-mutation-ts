@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -29,7 +29,7 @@ require('node:fs').writeFileSync(args[args.lastIndexOf('-o') + 1], 'compiled add
       const child = spawnSync(process.execPath, [build, '--low-only', '--output', target], {
         encoding: 'utf8', timeout: 20_000,
         env: { ...process.env, CC: compiler, TMT_NODE_INCLUDE: root, TMT_COMPILER_LOG: log,
-          TMT_ACCEPT_LTO: ltoAvailable ? 'yes' : 'no' },
+          TMT_ACCEPT_LTO: ltoAvailable ? 'yes' : 'no', MACOSX_DEPLOYMENT_TARGET: undefined },
       });
       assert.equal(child.status, 0, child.error?.message ?? child.stderr);
       const invocations = readFileSync(log, 'utf8').trim().split('\n').map(JSON.parse);
@@ -39,6 +39,9 @@ require('node:fs').writeFileSync(args[args.lastIndexOf('-o') + 1], 'compiled add
       assert.ok(probe.includes(mode) && probe.includes('-flto'));
       assert.ok(selected.includes(mode) && selected.includes('-fvisibility=hidden'));
       assert.equal(selected.includes('-flto'), ltoAvailable);
+      assert.ok(selected.includes(`-ffile-prefix-map=${join(realpathSync(root), 'isolated')}=build`) ||
+        selected.includes(`-ffile-prefix-map=${join(root, 'isolated')}=build`), selected.join(' '));
+      if (process.platform === 'darwin') assert.ok(selected.includes('-mmacosx-version-min=11.0'));
       assert.equal(readFileSync(target, 'utf8'), 'compiled addon');
       assert.deepEqual(readdirSync(join(root, 'isolated')), ['tmt.node']);
     }

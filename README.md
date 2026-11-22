@@ -1,62 +1,89 @@
-# Targeted Mutation Testing for TypeScript
+# targeted-mutation
 
-Targeted Mutation Testing watches the inputs exercised by tests and proposes a concrete wrong implementation and a test that would catch it.
+`targeted-mutation` finds the tests your suite is missing. It watches the values your tests actually pass through comparisons, tries the smallest wrong implementation those values cannot tell apart from yours, and prints the test that would catch it.
 
-## Shipping threshold experiment
-
-Use Node.js 24.11 or later and run `npm ci`, then `npm test` or `npm run evidence:m0`. The experiment runs Vitest against original, instrumented, and actually rewritten source in temporary project copies. It also reproduces the comparison with StrykerJS 10.1.1 and Vitest 4.0.18.
-
-```sh
-node bin/tmt.mjs prototype fixtures/shipping src/shipping.ts --spec spec.json
-npm run evidence:m0
+```ts
+export const isAdult = (age: number) => age >= 18;
+// tests check isAdult(20) and isAdult(10)
 ```
 
-The [recorded runs](evidence/m0) used Node.js 24.14.0 on macOS arm64. Both StrykerJS reports contain five killed mutants. In both reports the generated replacements are `true`, `false`, `yen > 5000`, `yen < 5000`, and `() => undefined`. TMT observed orders of ¥4,800 and ¥5,000. The existing tests passed against the original and the nearest alternative, `yen >= 4999`. The added ¥4,999 case passed against the original and failed against the alternative. Within the stated whole-yen domain it detects every feasible alternative threshold from ¥4,801 through ¥4,999.
+```text
+src/cart.ts:15:45  survived  comparison-boundary/v1: >= -> >
+src/cart.ts:15:45  survived  comparison-threshold/v1: replace with 17
 
-The prototype accepts exported unary arrow functions with an expression body of the form `parameter >= integer`. A report without a matching specification uses the current implementation as the source of an expected value. The generated witness runs in the project's `test` directory. The report marks its outcome unconfirmed when the runner does not execute that test alongside the original suite. The runner executes the project's test code and configuration locally.
-
-## Extract comparison candidates
-
-```sh
-npm run build:native
-npm run build:typescript-syntax
-node bin/tmt.mjs extract source.tsx
-npm run verify:fstar
-npm run audit:extraction -- /path/to/vite /path/to/preact /path/to/typescript
+Test gaps:
+INPUT GAP src/cart.ts:15:45
+  operands (18, 18): original true, edited false
+  suggested test: expect(isAdult(18)).toBe(true)
+INPUT GAP src/cart.ts:15:45
+  operands (17, 18): original false, edited true
+  suggested test: expect(isAdult(17)).toBe(false)
 ```
 
-The native build uses a C compiler, the checked-in KaRaMeL C files, and Node-API headers. Set `TMT_NODE_INCLUDE` if Node's headers are outside the standard paths. The verification command uses F★ 2026.11.15 with Pulse and the KaRaMeL executable from the same release. Set `FSTAR_EXE` and `KARAMEL_EXE` to their paths. It verifies the parser and reference proofs, rejects admitted obligations, regenerates C, and compares both generated files with the checked-in copies. The F* proofs and generated C pull request check runs this command when proof and native extraction files change.
+A conventional mutation run replaces `>=` with `>` or `<`. It does not try `age >= 17`, the nearest implementation that the inputs 10 and 20 leave open. The [shipping threshold experiment](docs/development.md#shipping-threshold-experiment) compares both approaches on the same suite.
 
-The [L1 grammar and trust boundary](docs/l1.md) describe the AST-free Pulse parser and TypeScript compatibility path. `build:typescript-syntax` prepares the smaller compatibility parser for local runs. The [performance measurements](docs/performance.md) cover the prior corpora and nine additional pinned JavaScript and TypeScript projects.
-
-To build the standalone comparison extractor, run `npm run build:native -- --low-only` and then `node bin/tmt.mjs extract source.ts`. This build uses Node and a C compiler and writes `build/tmt.node`. Supported files use the generated Pulse parser directly, including typed modules, nested functions, exception handling, switch clauses, generic calls, async callbacks, nested bindings, computed object members, tagged templates, bounded class declarations, and nested TSX. Outside its grammar or resource limits, the standalone CLI exits with a diagnostic and no candidates. Run `npm run build:native` to restore the normal build with TypeScript compatibility parsing.
-
-## Analyze a Vitest project
-
-See the [analysis guide](docs/analysis.md) for project scope, Lean-backed replay, and source rewrite auditing.
-
-The `--witnesses` profile finds source edits that survive the current suite and verifies a distinguishing test. Run `node bin/tmt.mjs analyze fixtures/witnesses src/queries.ts --witnesses` to see a first-versus-last index gap and the one-literal edit that exposes it.
+## Install
 
 ```sh
-npm run build:lean
-node bin/tmt.mjs analyze fixtures/eligibility src/eligibility.ts --spec spec.json --deterministic --audit
+npm install --save-dev targeted-mutation
 ```
 
-## Analyze a Playwright project
+Requirements:
+
+- Node.js 22.15 or later.
+- [Vitest](https://vitest.dev/) or [Playwright](https://playwright.dev/) installed in the project or its workspace. Releases are tested with Vitest 4.0 and Playwright 1.65.
+- Prebuilt binaries are installed automatically on macOS (arm64, x64) and Linux with glibc (arm64, x64). On other platforms the tool parses with TypeScript and decides every trial by running the tests, which is slower. Those platforms are not tested.
+
+The tool copies the project to a temporary directory and runs the project's own test code and configuration there. Run it only on code you trust, as you would run the test suite.
+
+## Use
 
 ```sh
-node bin/tmt.mjs analyze . src/button.tsx --runner playwright --project chromium --audit
+npx targeted-mutation analyze                      # every source file in the current project
+npx targeted-mutation analyze . src/cart.ts        # selected files
+npx targeted-mutation analyze --lines src/cart.ts:10-40
+npx targeted-mutation analyze --since origin/main  # lines changed since a revision
 ```
 
-The [Playwright guide](docs/analysis.md#playwright-projects) describes runner isolation, witness specifications, and Git scope.
+`tmts` is a short alias for the same command. `targeted-mutation --help` lists every option.
 
-## Build a runtime package
+The exit status is 0 after a completed analysis, including one that reports gaps, and 1 when the suite fails before any edit, a file cannot be parsed, or the arguments are invalid.
 
-```sh
-npm ci
-npm run pack:runtime
-```
+### Reading the report
 
-The archive written to `build/` has the OS and CPU in its filename and npm metadata. It contains the native parser, the generated TypeScript syntax parser and the Lean decision executable for the build machine's OS and architecture. The installed `tmt-ts` command runs them directly. Building another platform's package requires its C and pinned Lean toolchains. See [performance measurements](docs/performance.md) for the evaluated workloads.
+Each line is one source edit and what the suite did with it:
 
-The archive installs TypeScript for compatibility parsing and witness AST analysis. TMT uses the test runner installed in the target project or its workspace. The `standard` and `all` profiles also require `@stryker-mutator/instrumenter@10.1.1`.
+| Status | Meaning |
+|--------|---------|
+| `killed` | A test failed on the edit. The suite distinguishes it. |
+| `survived` | Every test passed on the edit. A `Test gaps` entry shows the missing input. |
+| `unreached` | No test executed the edited expression. |
+
+A test gap gives the operand values that separate your code from the edit and, for an exported single-argument function, a ready assertion under `suggested test`.
+
+On a terminal the report is text. When the output is piped or redirected it is JSON with a `schemaVersion`, so scripts can rely on it. `--format text` or `--format json` selects one explicitly.
+
+### Profiles
+
+| Option | What it edits |
+|--------|---------------|
+| (default) `--mutators focused` | `<`, `<=`, `>`, `>=` boundaries and integer thresholds. Equality operators (`==`, `===`, `!=`, `!==`) are not edited. |
+| `--witnesses` | Value substitutions such as a neighbouring field, the first or last index, or a sort key, each confirmed by a test that tells them apart. Reports `No edit sites` when a file has no such pattern. |
+| `--mutators standard` | The StrykerJS mutator set. Install `@stryker-mutator/instrumenter@10.1.1` in the project first. |
+| `--mutators all` | `standard` and `focused` together. |
+
+`--deterministic` declares that the suite runs from the same state every time. Recorded comparison values then decide many trials without re-running the tests, and each such decision is checked by an executable extracted from a Lean proof. `--audit` re-runs those trials against the rewritten source and reports any disagreement.
+
+The [analysis guide](docs/analysis.md) covers scope selection, specifications, Playwright projects and the witness profile in detail.
+
+## Documentation
+
+- [Analysis guide](docs/analysis.md)
+- [Parser grammar and trust boundary](docs/l1.md)
+- [Performance measurements](docs/performance.md)
+- [Development and verification](docs/development.md)
+- [Releasing](docs/releasing.md)
+
+## License
+
+[Apache-2.0](LICENSE). Third-party notices are in [NOTICE](NOTICE).
