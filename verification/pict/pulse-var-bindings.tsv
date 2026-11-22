@@ -1,0 +1,13 @@
+Context	Shape	Scope
+Statement	Names	VarOnly
+Statement	Object	Disjoint
+Statement	Array	Conflict
+Classic	Names	Disjoint
+Classic	Object	Nested
+Collection	Array	Disjoint
+Collection	Object	Conflict
+Collection	Names	Nested
+Statement	Array	Nested
+Collection	Object	VarOnly
+Classic	Array	VarOnly
+Classic	Names	Conflict

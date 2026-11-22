@@ -1,0 +1,3 @@
+Context: Statement, Classic, Collection
+Shape: Names, Array, Object
+Scope: VarOnly, Disjoint, Conflict, Nested

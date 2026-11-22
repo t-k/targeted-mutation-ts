@@ -780,13 +780,17 @@ let record_local (input:tape) (st:parser_state) (span:G.span) (namespace:binding
       let! _ = (fun () -> set_binding input (local_slot st.local_log_used) { span; namespace; owner = 0uy }) in
       ret input { st with local_log_used = U16.add st.local_log_used 1us }
 
-let rec record_local_pattern (input:tape) (st:parser_state) (first used:names_used)
+let rec record_local_pattern_kind (input:tape) (st:parser_state) (first used:names_used) (kind:binding_namespace)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases (U32.v used - U32.v first)) =
   if st.status <> 0ul || U16.(st.local_log_floor >^ local_log_capacity) || U32.(first >=^ used) then ret input st
   else
     let! entry = (fun () -> get_binding input (U32.add binding_region_width first)) in
-    let! tracked = (fun () -> record_local input st entry.span LocalLexicalName) in
-    record_local_pattern input tracked (U32.add first 1ul) used
+    let! tracked = (fun () -> record_local input st entry.span kind) in
+    record_local_pattern_kind input tracked (U32.add first 1ul) used kind
+
+let record_local_pattern (input:tape) (st:parser_state) (first used:names_used)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  record_local_pattern_kind input st first used LocalLexicalName
 
 let read_local_var_name (input:tape) (st:parser_state) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
   let! named = (fun () -> name input st.offset false true) in
@@ -2828,6 +2832,31 @@ and for_expressions (input:tape) (state:parser_state) (fuel remaining:U32.t) (in
       (let! anf_value_2 = (fun () -> (consume input tail 44uy)) in for_expressions input anf_value_2 fuel (minus remaining 1ul) in_allowed)
     else ret input (tail))
 
+and function_var_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (classic:bool)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 44; U32.v remaining]) =
+  let! st = (fun () -> skip input state) in
+  if st.status <> 0ul || remaining = 0ul then ret input (failed st 1ul)
+  else
+    let! first = (fun () -> peek input st.offset) in
+    let destructured = first = 91uy || first = 123uy in
+    let! named = (fun () -> if destructured then
+      let mark = st.local_names in
+      let! bound = (fun () -> pattern_binding input st binding_region_width mark mark fuel) in
+      record_local_pattern_kind input bound.state mark bound.used LocalVarName
+      else read_local_var_name input st) in
+    let! value = (fun () -> declarator_value input { named with in_allowed = state.in_allowed && not classic;
+      for_initializer = state.for_initializer || classic } fuel (not destructured)) in
+    let restored = { value.parser with in_allowed = state.in_allowed; for_initializer = state.for_initializer } in
+    let! tail = (fun () -> skip input restored) in
+    let! comma = (fun () -> same input tail.offset 44uy) in
+    if tail.status <> 0ul then ret input tail
+    else if not comma then
+      if classic then ret input tail else statement_end input restored value.range.G.last true
+    else if value.open_angle then ret input (failed tail 1ul)
+    else
+      let! next_item = (fun () -> consume input tail 44uy) in
+      function_var_list input next_item fuel (minus remaining 1ul) classic
+
 and classic_for_header (input:tape) (st:parser_state) (top_level local_var:bool) (fuel:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 45; 0]) =
   let! lexical = (fun () -> local_width input st.offset) in
@@ -2838,8 +2867,8 @@ and classic_for_header (input:tape) (st:parser_state) (top_level local_var:bool)
       let st = if local_var then record_binding_mode st LexicalLocals else st in
       for_bindings input { st with offset = plus st.offset lexical } fuel 64ul st.local_names (lexical = 5ul)
     else if var then
-      let st = if local_var then record_binding_mode st VarLocals else st in
-      binding input { st with offset = plus st.offset 3ul } fuel false
+      if local_var then function_var_list input { (record_binding_mode st VarLocals) with offset = plus st.offset 3ul } fuel 64ul true
+      else binding input { st with offset = plus st.offset 3ul } fuel false
     else for_expressions input st fuel 64ul false)) in
   let! st = (fun () -> (let! anf_value_2 = (fun () -> (skip input st)) in consume input anf_value_2 59uy)) in
   let! st = (fun () -> skip input st) in
@@ -2933,9 +2962,7 @@ and simple_statement (input:tape) (state:parser_state) (in_function:bool) (jumps
 and local_var_declaration (input:tape) (state:parser_state) (fuel:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 45; 0]) =
   let st = record_binding_mode state VarLocals in
-  let! start = (fun () -> skip input { st with offset = plus st.offset 3ul }) in
-  let! named = (fun () -> read_local_var_name input start) in
-  variable_initializer input named fuel true true
+  function_var_list input { st with offset = plus st.offset 3ul } fuel 64ul false
 
 and local_declarators (input:tape) (state:parser_state) (constant:bool) (floor used:names_used) (fuel remaining:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 44; U32.v remaining]) =
@@ -3386,7 +3413,10 @@ and collection_head (input:tape) (state:parser_state) (allow_in local_var:bool) 
   else
     let! start = (fun () -> if width = 0ul then ret input state else skip input { state with offset = plus state.offset width }) in
     let mark = state.local_names in
-    let! bound = (fun () -> if constant || lexical then pattern_binding input start binding_region_width mark mark fuel
+    let! var_pattern = (fun () -> if var then
+      let! first = (fun () -> peek input start.offset) in ret input (first = 91uy || first = 123uy)
+      else ret input false) in
+    let! bound = (fun () -> if constant || lexical || var_pattern then pattern_binding input start binding_region_width mark mark fuel
       else let! target = (fun () -> name input start.offset false true) in ret input { state = from_cursor start target; used = mark }) in
     let! next_token = (fun () -> skip input bound.state) in
     let! of_token = (fun () -> keyword input next_token.offset 2ul 0x6f66uL) in
@@ -3396,8 +3426,9 @@ and collection_head (input:tape) (state:parser_state) (allow_in local_var:bool) 
     if next_token.status <> 0ul || async_target || not (of_token || (allow_in && in_token)) then ret input (false, failed state 1ul)
     else
       let value = { next_token with offset = plus next_token.offset 2ul } in
-      let! tracked = (fun () -> if var then
-        record_local input (record_binding_mode value VarLocals) { G.first = start.offset; G.last = bound.state.offset } LocalVarName
+      let! tracked = (fun () -> if var_pattern then
+        record_local_pattern_kind input (record_binding_mode value VarLocals) mark bound.used LocalVarName
+      else if var then record_local input (record_binding_mode value VarLocals) { G.first = start.offset; G.last = bound.state.offset } LocalVarName
       else if local_var && (constant || lexical) then
         record_local_pattern input (record_binding_mode value LexicalLocals) mark bound.used
       else ret input value) in

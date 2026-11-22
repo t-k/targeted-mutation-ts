@@ -807,11 +807,20 @@ TmtPulseParser_record_local(
 );
 
 TmtPulseParser_parser_state
-TmtPulseParser_record_local_pattern(
+TmtPulseParser_record_local_pattern_kind(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state st0,
   uint32_t first0,
-  uint32_t used0
+  uint32_t used0,
+  TmtPulseMemory_binding_namespace kind0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_record_local_pattern(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t first,
+  uint32_t used
 );
 
 typedef struct TmtPulseParser_generator_head_s
@@ -1723,12 +1732,12 @@ TmtPulseParser_local_declaration(
 );
 
 TmtPulseParser_parser_state
-TmtPulseParser_variable_initializer(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t fuel,
-  bool optional,
-  bool before_brace
+TmtPulseParser_function_var_list(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  bool classic0
 );
 
 TmtPulseParser_parser_state
