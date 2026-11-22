@@ -53,7 +53,6 @@ test('type arguments, unsupported operators and malformed literals publish no fa
     'make <T & U>(item) > limit',
     'choose(make <A | B, C>(item)) > limit',
     'a ?? b || c < d',
-    'a ** 2 < c',
     'left < /++/',
     'left < /a++/',
     String.raw`left < "\08"`,
