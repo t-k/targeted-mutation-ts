@@ -1,0 +1,5 @@
+Shape: Both, Below, Above, Exact, Empty, InvalidTail
+Position: Lower, Interior, Upper
+Domain: Small, Safe, Outside
+IF [Shape] = "Both" THEN [Position] = "Interior";
+IF [Shape] = "Below" THEN [Position] <> "Lower";

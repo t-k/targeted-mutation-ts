@@ -1,0 +1,9 @@
+Shape	Position	Domain
+Both	Interior	Small
+Both	Interior	Safe
+Below	Upper	Safe
+Above	Lower	Safe
+Exact	Interior	Small
+InvalidTail	Interior	Safe
+Empty	Lower	Small
+InvalidTail	Upper	Outside

@@ -238,6 +238,54 @@ theorem bounds_exact (threshold lo hi candidate : Int) (xs : List Int) :
       · rintro ⟨lower, upper, same, rest⟩
         exact ⟨lower, ⟨upper, by omega⟩, rest⟩
 
+theorem feasible_extrema (threshold lo hi candidate : Int) (observations extrema : List Int)
+    (subset : ∀ x ∈ extrema, x ∈ observations)
+    (covers : ∀ x ∈ observations,
+      (x < threshold → ∃ y ∈ extrema, x ≤ y ∧ y < threshold) ∧
+      (threshold ≤ x → ∃ y ∈ extrema, threshold ≤ y ∧ y ≤ x)) :
+    Feasible threshold lo hi candidate observations ↔ Feasible threshold lo hi candidate extrema := by
+  constructor
+  · rintro ⟨lower, upper, agrees⟩
+    exact ⟨lower, upper, fun x hx => agrees x (subset x hx)⟩
+  · rintro ⟨lower, upper, agrees⟩
+    refine ⟨lower, upper, ?_⟩
+    intro x hx
+    by_cases side : x < threshold
+    · obtain ⟨y, hy, atLeast, below⟩ := (covers x hx).1 side
+      have witness := agrees y hy
+      omega
+    · obtain ⟨y, hy, above, atMost⟩ := (covers x hx).2 (by omega)
+      have witness := agrees y hy
+      omega
+
+theorem bounds_extrema (threshold lo hi : Int) (observations extrema : List Int)
+    (inside : lo ≤ threshold ∧ threshold ≤ hi)
+    (subset : ∀ x ∈ extrema, x ∈ observations)
+    (covers : ∀ x ∈ observations,
+      (x < threshold → ∃ y ∈ extrema, x ≤ y ∧ y < threshold) ∧
+      (threshold ≤ x → ∃ y ∈ extrema, threshold ≤ y ∧ y ≤ x)) :
+    bounds threshold lo hi observations = bounds threshold lo hi extrema := by
+  let full := bounds threshold lo hi observations
+  let reduced := bounds threshold lo hi extrema
+  have equal (candidate : Int) :
+      (full.1 ≤ candidate ∧ candidate ≤ full.2) ↔
+        (reduced.1 ≤ candidate ∧ candidate ≤ reduced.2) :=
+    (bounds_exact threshold lo hi candidate observations).trans
+      ((feasible_extrema threshold lo hi candidate observations extrema subset covers).trans
+        (bounds_exact threshold lo hi candidate extrema).symm)
+  have feasible : Feasible threshold lo hi threshold observations := ⟨inside.1, inside.2, by simp⟩
+  have fullIn : full.1 ≤ threshold ∧ threshold ≤ full.2 :=
+    (bounds_exact threshold lo hi threshold observations).mpr feasible
+  have reducedIn := (equal threshold).mp fullIn
+  change full = reduced
+  apply Prod.ext
+  · have forFull := (equal full.1).mp ⟨Int.le_refl _, by omega⟩
+    have forReduced := (equal reduced.1).mpr ⟨Int.le_refl _, by omega⟩
+    omega
+  · have forFull := (equal full.2).mp ⟨by omega, Int.le_refl _⟩
+    have forReduced := (equal reduced.2).mpr ⟨by omega, Int.le_refl _⟩
+    omega
+
 structure Gap where
   interval : Int × Int
   alternate : Int
@@ -337,6 +385,7 @@ def main (args : List String) : IO UInt32 := do
 #print axioms maySkipBoundary_replays
 
 #print axioms Threshold.bounds_exact
+#print axioms Threshold.bounds_extrema
 #print axioms Threshold.choose_correct
 
 #print axioms Threshold.no_gap_iff_unique
