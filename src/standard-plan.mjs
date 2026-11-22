@@ -31,6 +31,10 @@ export function indexCoverage(records, tests) {
   return id => plans.get(String(id)) ?? { hits: 0, staticActivation: false, covered: new Set(), perTestHits: new Map() };
 }
 
+export function coveredTests(id, records, tests) {
+  return indexCoverage(records, tests)(id);
+}
+
 export function agreesWithCoverage(rows, plan) {
   if (!rows || plan.staticActivation || rows.length !== plan.hits) return false;
   const rowCounts = new Map();

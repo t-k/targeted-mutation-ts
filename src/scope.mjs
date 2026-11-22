@@ -123,6 +123,8 @@ function diffRanges(root, revision, files) {
 
 function changedRanges(root, revision, files) {
   const ranges = new Map();
+  // Leave room for Git's fixed arguments, workspace path and quoting on Windows.
+  const pathBudget = process.platform === 'win32' ? Math.min(16 * 1024, Math.max(0, 30_000 - root.length)) : 32 * 1024;
   let batch = [];
   let bytes = 0;
   function readBatch() {
@@ -138,8 +140,8 @@ function changedRanges(root, revision, files) {
     bytes = 0;
   }
   for (const file of files) {
-    const size = Buffer.byteLength(file) + 1;
-    if (bytes + size > 32 * 1024) readBatch();
+    const size = Buffer.byteLength(file) + 3;
+    if (bytes + size > pathBudget) readBatch();
     batch.push(file);
     bytes += size;
   }

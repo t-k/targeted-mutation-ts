@@ -56,3 +56,11 @@ for (const [activation, inventory, recordsShape, replay] of rows) {
     assert.equal(agreesWithCoverage(observations, plan), replay === 'Exact' && !staticHit && inventory === 'Known');
   });
 }
+
+test('the shipped coverage lookup retains its single-ID entry point', async () => {
+  const { coveredTests } = await import('../src/standard-plan.mjs');
+  const records = [{ coverage: { perTest: { b: { 20: 3 }, a: { 20: 1 } }, static: { 20: 1 } } }];
+  const tests = new Map([['a', {}], ['b', {}]]);
+  assert.deepEqual(coveredTests(20, records, tests), scanCoverage(20, records, tests));
+  assert.deepEqual([...coveredTests('20', records, tests).covered], ['b', 'a']);
+});

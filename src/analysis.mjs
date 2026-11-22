@@ -10,7 +10,7 @@ import { needsProbePreload, freshProbeBinding, instrument, installProbe, rewrite
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
 import { checkReplay } from './lean-replay.mjs';
-import { pendingTraceDirectory, readCompletedTrace } from './trace-buffer.mjs';
+import { inspectTrace, pendingTraceDirectory } from './trace-buffer.mjs';
 
 const sha = source => createHash('sha256').update(source).digest('hex');
 const identity = test => JSON.stringify([test.project, test.file, test.id]);
@@ -61,8 +61,9 @@ export function verdict(run, baseline) {
   return run.status === 'passed' ? 'survived' : 'killed';
 }
 
-function makeAttempt(root, subjects, runner, copyExclude, { tracing = false, activate, trial, witness, coverageSites } = {}) {
-  return withCopy(root, (workspace, temp) => {
+function makeAttempt(root, subjects, runner, copyExclude, settings = {}) {
+  const { tracing = false, activate, trial, witness, coverageSites, synchronousTrace } = settings;
+  const attempt = withCopy(root, (workspace, temp) => {
     const trace = tracing ? resolve(temp, 'trace.jsonl') : undefined;
     if (trace) mkdirSync(pendingTraceDirectory(trace));
     const files = subjects.map(subject => ({ subject, file: inside(workspace, subject.file) }));
@@ -87,9 +88,15 @@ function makeAttempt(root, subjects, runner, copyExclude, { tracing = false, act
       writeFileSync(path, readFileSync(inside(workspace, witness.content)), { flag: 'wx' });
       witnessFile = relative(workspace, path);
     }
-    const result = runner(workspace, temp, { trace, active: activate, product: true, probePreload });
-    return tracing ? { ...result, trace: readCompletedTrace(trace) } : { ...result, witnessFile, witnessName: witness?.testName };
+    const result = runner(workspace, temp, { trace, active: activate, product: true, probePreload, synchronousTrace });
+    if (!tracing) return { ...result, witnessFile, witnessName: witness?.testName };
+    const { rows, overlap } = inspectTrace(trace);
+    return { ...result, trace: rows, overlap, synchronousTrace };
   }, { exclude: copyExclude });
+  if (attempt.overlap && !synchronousTrace && ['passed', 'failed'].includes(attempt.status)) {
+    return makeAttempt(root, subjects, runner, copyExclude, { ...settings, synchronousTrace: true });
+  }
+  return attempt;
 }
 
 function indexObservations(trace, baseline) {
@@ -438,7 +445,7 @@ export function analyze(project, files, options) {
   let coverage = new Map();
   if (trace && (options.deterministic || options.audit)) {
     const coverageSites = options.deterministic ? sitesForIndependentCoverage(subjects, trace, baseline) : new Set();
-    const replay = attempt({ tracing: true, coverageSites });
+    const replay = attempt({ tracing: true, coverageSites, synchronousTrace: traced.synchronousTrace });
     report.instrumented.stable = verdict(replay, baseline) === 'survived' && traceSignature(trace) === traceSignature(replay.trace);
     if (!report.instrumented.stable) trace = null;
     else if (coverageSites.size) coverage = indexFocusedCoverage(replay.trace, coverageSites);
@@ -467,7 +474,7 @@ export function analyze(project, files, options) {
 
       if (options.audit) {
         const focused = trial.rule === site.rule && trace && trial.observation.rows.length
-          ? attempt({ tracing: true, activate: site.id }) : null;
+          ? attempt({ tracing: true, activate: site.id, synchronousTrace: traced.synchronousTrace }) : null;
         const activation = focused?.trace?.some(row => row.site === site.id && row.operator === site.replacement);
         audit = { source: actual, probe: focused ? (activation ? verdict(focused, baseline) : 'unevaluated') : null };
       }
