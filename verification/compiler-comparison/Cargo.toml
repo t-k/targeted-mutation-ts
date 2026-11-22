@@ -1,0 +1,14 @@
+[package]
+name = "tmt-swc-next-reference"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+swc_next_core = { version = "=0.7.0", default-features = false, features = ["js_transformer"] }
+
+[profile.release]
+lto = "thin"
