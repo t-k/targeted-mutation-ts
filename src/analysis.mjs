@@ -5,7 +5,7 @@ import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mj
 import { comparisonThresholdSites } from './prototype.mjs';
 import { thresholdGaps } from './threshold.mjs';
 import { tightenComparison } from './displacement.mjs';
-import { inside, runVitest, withCopy } from './vitest.mjs';
+import { failedTests, inside, runVitest, withCopy } from './vitest.mjs';
 import { createProbePreloadCheck, freshProbeBinding, instrument, installProbe, rewrite } from './probe.mjs';
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
@@ -432,7 +432,7 @@ export function analyze(project, files, options) {
   const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
   const baseline = attempt();
   if (baseline.status !== 'passed') {
-    return { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors } };
+    return { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } };
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
 

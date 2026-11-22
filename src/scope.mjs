@@ -161,7 +161,8 @@ export function selectScope(root, files, { lines = [], since, 'copy-exclude': co
 
   const ranges = new Map();
   for (const entry of lines) {
-    const match = /^(.*):(\d+)-(\d+)$/.exec(entry);
+    const match = /^(.*):(\d+)(?:-(\d+))?$/.exec(entry);
+    if (match) match[3] ??= match[2];
     if (!match || !Number.isSafeInteger(+match[2]) || !Number.isSafeInteger(+match[3]) || +match[2] < 1 || +match[2] > +match[3]) {
       throw new Error('Expected --lines FILE:FROM-TO');
     }

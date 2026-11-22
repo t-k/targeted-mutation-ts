@@ -1,16 +1,16 @@
 import { isUtf8 } from 'node:buffer';
-import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { types } from 'node:util';
 import { isMainThread } from 'node:worker_threads';
+import { binaryPath } from './runtime-binaries.mjs';
 import { invalidEncoding, normalize, optionsFor } from './source-text.mjs';
 
 export { byteOffsets, sourceDialect } from './source-text.mjs';
 
 const load = createRequire(import.meta.url);
-const nativePath = new URL('../build/tmt.node', import.meta.url);
-const native = existsSync(nativePath) ? load('../build/tmt.node') : null;
+const nativePath = binaryPath('tmt.node');
+const native = nativePath ? load(nativePath) : null;
 const operators = ['', '<', '<=', '>', '>='];
 const reasons = ['', 'outside-l1', 'source-limit', 'depth-limit', 'candidate-limit', 'duplicate-lexical'];
 export const rule = 'comparison-boundary/v1';

@@ -1,0 +1,96 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { cpSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import test from 'node:test';
+
+const cli = (...args) => spawnSync(process.execPath, ['bin/tmt.mjs', ...args], { encoding: 'utf8', timeout: 120_000 });
+const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+
+function withProject(run) {
+  const scratch = mkdtempSync(join(tmpdir(), 'tmt-cli-usability-'));
+  try {
+    const project = join(scratch, 'fixtures', 'eligibility');
+    cpSync('fixtures/eligibility', project, { recursive: true });
+    symlinkSync(resolve('node_modules'), join(scratch, 'node_modules'), 'junction');
+    return run(project);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+for (const flag of ['--version', '-v']) {
+  test(`${flag} prints the package version`, () => {
+    const run = cli(flag);
+    assert.equal(run.status, 0, run.stderr);
+    assert.equal(run.stdout, `${version}\n`);
+  });
+}
+
+test('a version flag after a command still prints the version', () => {
+  assert.equal(cli('analyze', '--version').stdout, `${version}\n`);
+});
+
+test('an unknown command is named before the usage', () => {
+  const run = cli('analyse');
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /^Unknown command: analyse\n\nUsage: targeted-mutation /);
+  assert.equal(run.stdout, '');
+});
+
+test('a known command with the wrong arguments says so', () => {
+  const run = cli('extract');
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /^Unexpected arguments for extract\.\n\nUsage: /);
+});
+
+test('an unknown report format fails before any test run', () => {
+  const run = cli('analyze', 'fixtures/eligibility', 'src/eligibility.ts', '--format', 'yaml');
+  assert.equal(run.status, 1);
+  assert.equal(run.stderr, 'Expected --format text|json\n');
+});
+
+test('a single line selects the same site as a one-line range', () => {
+  const [single, range] = ['1', '1-1'].map(lines => {
+    const run = cli('analyze', 'fixtures/eligibility', '--lines', `src/eligibility.ts:${lines}`);
+    assert.equal(run.status, 0, run.stderr);
+    return JSON.parse(run.stdout);
+  });
+  assert.ok(single.mutants.length > 0);
+  assert.deepEqual(single.mutants, range.mutants);
+  for (const malformed of ['src/eligibility.ts', 'src/eligibility.ts:0', 'src/eligibility.ts:2-1', 'src/eligibility.ts:1-']) {
+    const run = cli('analyze', 'fixtures/eligibility', '--lines', malformed);
+    assert.equal(run.status, 1);
+    assert.equal(run.stderr, 'Expected --lines FILE:FROM-TO\n');
+  }
+});
+
+test('a piped analysis prints JSON and --format text prints the readable report', () => {
+  const piped = cli('analyze', 'fixtures/eligibility', 'src/eligibility.ts');
+  assert.equal(piped.status, 0, piped.stderr);
+  const report = JSON.parse(piped.stdout);
+  assert.equal(report.evaluation, 'evaluated');
+  const text = cli('analyze', 'fixtures/eligibility', 'src/eligibility.ts', '--format', 'text');
+  assert.equal(text.status, 0, text.stderr);
+  assert.match(text.stdout, /^src\/eligibility\.ts:1:\d+ {2}survived {2}comparison-boundary\/v1: >= -> >$/m);
+  assert.match(text.stdout, /^ {2}suggested test: expect\(eligible\(18\)\)\.toBe\(true\)$/m);
+  assert.match(text.stdout, new RegExp(`^vitest, 2 baseline tests: ${report.mutants.length} edits .*${report.diagnostics.length} test gaps$`, 'm'));
+});
+
+test('a failed baseline names the failed test in both formats', () => withProject(project => {
+  writeFileSync(join(project, 'test/broken.test.ts'),
+    "import { expect, it } from 'vitest'; it('adds', () => expect(1 + 1).toBe(3));");
+  const json = cli('analyze', project, 'src/eligibility.ts');
+  assert.equal(json.status, 1, json.stderr);
+  const report = JSON.parse(json.stdout);
+  assert.equal(report.evaluation, 'baseline_error');
+  assert.equal(report.baseline.status, 'failed');
+  assert.equal(report.baseline.failedTests.length, 1);
+  const [failed] = report.baseline.failedTests;
+  assert.deepEqual([failed.file, failed.name], ['test/broken.test.ts', 'adds']);
+  assert.match(failed.failures[0], /expected 2 to be 3/);
+  const text = cli('analyze', project, 'src/eligibility.ts', '--format', 'text');
+  assert.equal(text.status, 1);
+  assert.match(text.stdout, /^ {2}FAILED test\/broken\.test\.ts > adds\n {4}.*expected 2 to be 3/m);
+}));

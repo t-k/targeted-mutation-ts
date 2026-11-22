@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync }
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { verdict } from './analysis.mjs';
 import { selectScope } from './scope.mjs';
-import { inside, runVitest, withCopy } from './vitest.mjs';
+import { failedTests, inside, runVitest, withCopy } from './vitest.mjs';
 import { parseSource, discoverWitnessRules } from './witness-rules.mjs';
 import { fixtureCalls, witnessProposals } from './witness-fixtures.mjs';
 import { prepareContracts, evaluateContracts } from './witness-contracts.mjs';
@@ -164,7 +164,7 @@ export function analyzeWitnesses(project, files, options) {
   const attempt = (edits, append) => runAttempt(root, options, snapshots, edits, append);
   const baseline = runAttempt(root, options, snapshots, [], undefined, true);
   if (baseline.status !== 'passed') return { ...report, evaluation: 'baseline_error',
-    baseline: { status: baseline.status, errors: baseline.errors, output: baseline.output } };
+    baseline: { status: baseline.status, errors: baseline.errors, output: baseline.output, failedTests: failedTests(baseline) } };
   report.baseline = { status: 'passed', tests: baseline.tests.length };
   const testFiles = new Set(baseline.tests.map(test => test.file));
   const fixtureSources = [...testFiles].flatMap(file => {

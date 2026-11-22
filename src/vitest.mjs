@@ -226,3 +226,10 @@ export function runVitest(root, temp, { trace, config, testFiles = [], product =
       ? 'failed' : 'error';
   return { status, tests, output: result.stderr + result.stdout };
 }
+
+// A baseline report names what failed so the suite can be fixed without a second run.
+export function failedTests(run, limit = 20) {
+  return (run.tests ?? []).filter(test => test.status === 'failed').slice(0, limit).map(test => ({
+    file: test.file, name: test.name, failures: (test.failures ?? []).slice(0, 5).map(failure => String(failure).slice(0, 2000)),
+  }));
+}

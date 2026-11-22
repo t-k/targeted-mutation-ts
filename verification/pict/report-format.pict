@@ -1,0 +1,3 @@
+Format: Unset, Text, Json
+Terminal: Tty, Pipe
+Outcome: Gaps, Clean, BaselineFailed, NoSites

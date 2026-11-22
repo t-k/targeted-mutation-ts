@@ -1,0 +1,14 @@
+Format	Terminal	Outcome
+Unset	Pipe	Gaps
+Unset	Tty	Gaps
+Text	Pipe	BaselineFailed
+Json	Tty	Clean
+Unset	Tty	NoSites
+Unset	Pipe	Clean
+Text	Pipe	NoSites
+Json	Pipe	Gaps
+Text	Tty	Gaps
+Unset	Tty	BaselineFailed
+Json	Pipe	NoSites
+Text	Pipe	Clean
+Json	Tty	BaselineFailed
