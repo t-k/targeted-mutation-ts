@@ -286,3 +286,18 @@ test('var declarations stay visible through statement edges in the same scope', 
   compare('let broken; const broken = 0;', options);
   compare('const value = a || b;', { ...options, logical: true });
 });
+
+test('a method decorator inherits lexical context rather than entering its method body', () => {
+  const options = { file: 'decorator-context.ts', mode: 'module' };
+  for (const source of [
+    'async function outer(p = class { @dec(await x < y) method() {} }) {}',
+    'function* outer(p = class { @dec((yield x) < y) method() {} }) {}',
+    'class C { @dec(await new.target, x < y) method() {} }',
+    'class C { @dec(await super.x, x < y) method() {} }',
+    'class Outer { field = class { @dec(arguments, x < y) method() {} }; }',
+  ]) assert.equal(compare(source, options).path, 'diagnostic', source);
+  for (const source of [
+    'function outer() { class C { @dec(new.target, x < y) method() {} } }',
+    'class Outer extends Base { outer() { class Inner { @dec(super.x, x < y) method() {} } } }',
+  ]) assert.equal(compare(source, options).candidates.length, 1, source);
+});

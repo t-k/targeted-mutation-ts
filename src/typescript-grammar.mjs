@@ -211,11 +211,12 @@ export function createTypeScriptGrammar(ts, bindings) {
           childLabels = [{ name: node.label.text, iteration: isIterationStatement(child, true) }, ...labels];
         }
         let childSuper = super_;
-        if (isConstructorDeclaration(node) && child !== node.name) {
+        const usesMethodContext = child !== node.name && child.kind !== SyntaxKind.Decorator;
+        if (isConstructorDeclaration(node) && usesMethodContext) {
           const derived = isInstanceConstructor(node) && parent && isClassLike(parent) &&
             parent.heritageClauses?.some(c => c.token === SyntaxKind.ExtendsKeyword);
           childSuper = derived ? 'constructor' : 'property';
-        } else if ((isMethodDeclaration(node) || isAccessor(node)) && child !== node.name) childSuper = 'property';
+        } else if ((isMethodDeclaration(node) || isAccessor(node)) && usesMethodContext) childSuper = 'property';
         else if (isFunctionDeclaration(node) || isFunctionExpression(node)) childSuper = 'none';
         else if (isClassStaticBlockDeclaration(node) || (isPropertyDeclaration(node) && child === node.initializer)) childSuper = 'property';
         pending.push({ node: child, parent: node, loop: childLoop, switch_: childSwitch, super_: childSuper, labels: childLabels,
@@ -868,11 +869,12 @@ export function createTypeScriptGrammar(ts, bindings) {
         const inField = isClassStaticBlockDeclaration(node) || (isPropertyDeclaration(node) && node.initializer === child);
         const fn = isFunctionLike(node);
         const arrow = isArrowFunction(node);
-        const nextField = inField || (field && (!fn || arrow || node.name === child));
-        const usesFunctionContext = fn && node.name !== child && child.kind !== SyntaxKind.Decorator;
+        const decorator = child.kind === SyntaxKind.Decorator;
+        const usesFunctionContext = fn && node.name !== child && !decorator;
+        const nextField = inField || (field && (!usesFunctionContext || arrow));
         const nextAwait = inField ? false : usesFunctionContext ? hasModifier(node, SyntaxKind.AsyncKeyword) : canAwait;
         const nextYield = inField ? false : usesFunctionContext ? !!node.asteriskToken : canYield;
-        const nextFormal = fn ? node.parameters.includes(child) : formal;
+        const nextFormal = fn && !decorator ? node.parameters.includes(child) : formal;
         const parentPattern = assignmentPattern && (isArrayLiteralExpression(node) || isObjectLiteralExpression(node) ||
           isParenthesizedExpression(node) || isPropertyAssignment(node) && node.initializer === child ||
           isSpreadAssignment(node) || isSpreadElement(node));
@@ -880,7 +882,7 @@ export function createTypeScriptGrammar(ts, bindings) {
           (isForInOrOfStatement(node) && node.initializer === child);
         pending.push({node: child, parent: node, canAwait: nextAwait, field: nextField, formal: nextFormal,
           canYield: nextYield, ambient, assignmentPattern: nextPattern, strict, jsxAttribute: childAttribute,
-          newTarget: inField || newTarget || fn && !arrow && node.name !== child,
+          newTarget: inField || newTarget || usesFunctionContext && !arrow,
           forInitializer: forInitializer || isForStatement(node) && node.initializer === child});
       });
     }
