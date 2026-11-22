@@ -49,4 +49,5 @@ extract direct native/compiler/generated/direct "$@"
 extract module native/compiler/generated "$@" \
   --custard_entry TmtPulseCompiler.type_only_module \
   --custard_entry TmtPulseCompiler.runtime_module_marker \
-  --custard_entry TmtPulseCompiler.supported_module --custard_entry TmtPulseCompiler.next_module_item
+  --custard_entry TmtPulseCompiler.supported_module --custard_entry TmtPulseCompiler.next_module_item \
+  --custard_entry TmtPulseCompiler.jsx_expression_end

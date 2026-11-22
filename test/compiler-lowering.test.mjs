@@ -185,3 +185,32 @@ test('JSX functions decline an ASI return and extra unhandled statements', () =>
     assert.equal(result.backend, 'typescript', body);
   }
 });
+
+test('mixed TSX keeps directives and complex JavaScript expressions in place', async () => {
+  const source = '"use client";\n' +
+    'const attrs = () => ({ hidden: true });\nconst format = (x: number) => [x, x + 1].join(":");\n' +
+    'export function View(x: number) { return <article {...attrs()} onClick={() => format(x)}>{format(x)}</article>; }';
+  const actual = compile(source, { file: 'component.tsx' });
+  assert.equal(actual.backend, 'pulse+node-strip');
+  assert.match(actual.code, /^"use client";/);
+  const reference = compile(source, { file: 'component.tsx', sourceMap: true });
+  for (const result of [actual, reference]) {
+    const view = (await load(result.code)).View(42);
+    assert.equal(view.props.children, '42:43');
+    assert.equal(view.props.onClick(), '42:43');
+    assert.equal(view.props.hidden, true);
+  }
+});
+
+test('mixed JSX expression copies cannot publish unlowered nested JSX', () => {
+  const source = 'const visible = true; export const View = () => <i>{visible ? <b/> : null}</i>;';
+  assert.equal(compile(source, { file: 'component.tsx' }).backend, 'typescript');
+});
+
+test('the runtime import lands on its statement boundary after an earlier JSX edit', async () => {
+  const source = 'const view = <div>longer output</div>;\nexport const getView = () => view;';
+  const actual = compile(source, { file: 'component.tsx' });
+  assert.equal(actual.backend, 'pulse+node-strip');
+  assert.match(actual.code, /;\s*import\{[\s\S]+\nexport const getView/);
+  assert.deepEqual((await load(actual.code)).getView(), { type: 'div', props: { children: 'longer output' } });
+});

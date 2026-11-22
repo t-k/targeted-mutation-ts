@@ -250,6 +250,9 @@ TmtGrammar_span TmtPulseCompiler_range(uint32_t first, uint32_t last);
 TmtPulseCompiler_annotation
 TmtPulseCompiler_annotation_after(TmtPulseMemory_tape input, uint32_t start);
 
+bool
+TmtPulseCompiler_jsx_group_start(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0);
+
 TmtPulseCompiler_runtime_head
 TmtPulseCompiler_jsx_callable_body(
   TmtPulseMemory_tape input,

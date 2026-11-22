@@ -965,6 +965,34 @@ TmtPulseCompiler_annotation_after(TmtPulseMemory_tape input, uint32_t start)
   }
 }
 
+bool TmtPulseCompiler_jsx_group_start(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0)
+{
+  TmtPulseMemory_tape input = input0;
+  uint32_t at = at0;
+  uint32_t fuel = fuel0;
+  while (true)
+  {
+    TmtPulseParser_cursor value = TmtPulseParser_trivia(input, at);
+    uint8_t value1 = TmtPulseMemory_peek(input, value.at);
+    if (!value.ok)
+      return false;
+    else if (value1 == 40U && fuel > 0U)
+    {
+      uint32_t tmp0 = TmtPulseParser_next(value.at);
+      uint32_t tmp = TmtPulseParser_minus(fuel, 1U);
+      at = tmp0;
+      fuel = tmp;
+    }
+    else
+      return value1 == 60U;
+  }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
 TmtPulseCompiler_runtime_head
 TmtPulseCompiler_jsx_callable_body(
   TmtPulseMemory_tape input,
@@ -1042,9 +1070,8 @@ TmtPulseCompiler_jsx_callable_body(
             }
           );
       }
-      bool element = TmtPulseParser_same(input, body.at, 60U);
-      bool grouped = TmtPulseParser_same(input, body.at, 40U);
-      if (body.ok && (element || grouped))
+      bool element = TmtPulseCompiler_jsx_group_start(input, body.at, 32U);
+      if (body.ok && element)
         return
           TmtPulseCompiler_runtime_head_of(function_ ? 4U : 2U,
             declaration,
@@ -1173,10 +1200,8 @@ TmtPulseCompiler_read_runtime_head(
               TmtPulseCompiler_empty_span);
         else if (arrow)
         {
-          TmtPulseParser_cursor first = TmtPulseParser_trivia(input, TmtPulseParser_next(init.at));
-          bool grouped_element = TmtPulseParser_same(input, first.at, 60U);
-          bool grouped = TmtPulseParser_same(input, first.at, 40U);
-          if (first.ok && (grouped_element || grouped))
+          bool grouped_element = TmtPulseCompiler_jsx_group_start(input, init.at, 32U);
+          if (grouped_element)
             return
               TmtPulseCompiler_runtime_head_of(2U,
                 start.at,

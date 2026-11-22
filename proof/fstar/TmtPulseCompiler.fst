@@ -304,6 +304,14 @@ let runtime_head_of (kind:U8.t) (declaration body:U32.t)
 
 let declined_runtime () = runtime_head_of 0uy 0ul 0ul empty_span empty_span empty_span empty_span
 
+let rec jsx_group_start (input:tape) (#frame:slprop) (at fuel:U32.t)
+  : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
+  let! start = (fun () -> P.trivia input #frame at) in
+  let! byte = (fun () -> peek input #frame start.at) in
+  if not start.ok then read_ret input #frame false
+  else if byte = 40uy && U32.gt fuel 0ul then jsx_group_start input #frame (P.next start.at) (P.minus fuel 1ul)
+  else read_ret input #frame (byte = 60uy)
+
 fn jsx_callable_body (input:tape) (#frame:slprop)
   (declaration opening:U32.t) (name_span:G.span) (binding_type:G.span) (typescript function_:bool)
   requires input_ready input ** frame
@@ -342,9 +350,8 @@ fn jsx_callable_body (input:tape) (#frame:slprop)
         let value = P.trivia input #frame (P.plus separator.at 2ul);
         ({ value with P.ok = not separator.newline && equals && greater && value.ok })
       };
-      let element = P.same input #frame body.at 60uy;
-      let grouped = P.same input #frame body.at 40uy;
-      if (body.ok && (element || grouped)) {
+      let element = jsx_group_start input #frame body.at 32ul;
+      if (body.ok && element) {
         runtime_head_of (if function_ then 4uy else 2uy) declaration body.at name_span binding_type parameter.erased result.erased
       } else { declined_runtime () }
     }
@@ -399,10 +406,8 @@ fn read_runtime_head (input:tape) (#frame:slprop) (at:U32.t) (jsx typescript loc
         else if (element) {
           runtime_head_of 2uy start.at init.at name_span annotation.erased empty_span empty_span
         } else if (arrow) {
-          let first = P.trivia input #frame (P.next init.at);
-          let grouped_element = P.same input #frame first.at 60uy;
-          let grouped = P.same input #frame first.at 40uy;
-          if (first.ok && (grouped_element || grouped)) {
+          let grouped_element = jsx_group_start input #frame init.at 32ul;
+          if (grouped_element) {
             runtime_head_of 2uy start.at init.at name_span annotation.erased empty_span empty_span
           } else {
             jsx_callable_body input #frame start.at init.at name_span annotation.erased typescript false
@@ -512,4 +517,18 @@ fn next_module_item (input:tape) (jsx:bool) (at:U32.t)
   ensures heap input
 {
   next_module_boundary input jsx at
+}
+
+fn jsx_expression_end (input:tape) (at:U32.t)
+  requires heap input
+  returns end_:P.cursor
+  ensures heap input
+{
+  let initial = P.initial_state true true P.primary_locals;
+  let value = P.comparison input { initial with P.offset = at } 64ul;
+  unfold heap;
+  let end_ = P.skip input #(workspace_ready input) value.P.parser;
+  let closed = P.same input #(workspace_ready input) end_.P.offset 125uy;
+  fold heap;
+  plain_cursor end_.P.offset (end_.P.status = 0ul && U32.gt end_.P.offset at && closed)
 }

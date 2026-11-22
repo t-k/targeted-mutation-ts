@@ -17,7 +17,7 @@ typedef struct {
   TmtPulseMemory_tape input;
   uint32_t at;
   writer output;
-  bool classic;
+  bool classic, mixed;
   unsigned helpers;
 } lowering;
 
@@ -239,6 +239,15 @@ static bool jsx_value(lowering *lower, uint32_t depth) {
   if (!trivia(lower)) return false;
   if (peek(lower) == '<') {
     if (!jsx_element(lower, depth)) return false;
+#ifndef TMT_DIRECT
+  } else if (lower->mixed) {
+    const TmtPulseParser_cursor end = TmtPulseCompiler_jsx_expression_end(lower->input, lower->at);
+    if (!end.ok || end.at <= lower->at || end.at >= lower->input.size) return false;
+    put(&lower->output, "(");
+    source_bytes(lower, lower->at, end.at);
+    put(&lower->output, ")");
+    lower->at = end.at;
+#endif
   } else {
     if (!js_atom(lower) || !trivia(lower)) return false;
     if (peek(lower) == '<' || peek(lower) == '>') {
@@ -560,20 +569,20 @@ static TmtPulseMemory_tape with_workspace(uint8_t *source, uint32_t size, module
   };
 }
 
-static bool find_marker(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
+static uint32_t find_marker(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
   while (at < input.size) {
-    if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
+    if (TmtPulseCompiler_runtime_module_marker(input, at)) return at;
     const uint32_t next = TmtPulseCompiler_next_module_item(input, jsx, at);
-    if (next <= at || next > input.size) return false;
+    if (next <= at || next > input.size) break;
     at = next;
   }
-  return false;
+  return input.size;
 }
 
 static bool module_after_prelude(uint8_t *source, uint32_t size, uint32_t at, bool first, bool validate) {
   module_workspace memory = {0};
   const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
-  return (!validate || TmtPulseCompiler_supported_module(input, false)) && (first || find_marker(input, at, false));
+  return (!validate || TmtPulseCompiler_supported_module(input, false)) && (first || find_marker(input, at, false) < input.size);
 }
 
 bool tmt_module_marker(uint8_t *source, uint32_t size, bool validate) {
@@ -602,11 +611,14 @@ static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic,
   module_workspace memory = {0};
   const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
-  if (!first.ok || !TmtPulseCompiler_runtime_module_marker(input, first.at) ||
-      !TmtPulseCompiler_supported_module(input, jsx)) return NULL;
-  lowering lower = { .input = input, .classic = classic, .output.limit = (size_t)size * 32 + 1024 };
+  if (!first.ok || !TmtPulseCompiler_supported_module(input, jsx)) return NULL;
+  const uint32_t marker = find_marker(input, first.at, jsx);
+  if (marker == size) return NULL;
+  lowering lower = { .input = input, .classic = classic, .mixed = true, .output.limit = (size_t)size * 32 + 1024 };
   uint32_t keep = 0;
+  size_t runtime_at = SIZE_MAX;
   for (uint32_t cursor = first.at; cursor < size;) {
+    if (cursor == marker) runtime_at = lower.output.length + marker - keep;
     const uint32_t end = TmtPulseCompiler_next_module_item(input, jsx, cursor);
     if (end <= cursor || end > size) goto decline;
     lower.input.size = end;
@@ -625,10 +637,10 @@ static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic,
     }
     cursor = end;
   }
-  if (!keep) return NULL;
+  if (!keep || runtime_at == SIZE_MAX) goto decline;
   lower.input.size = size;
   source_bytes(&lower, keep, size);
-  if (lower.output.failed || !inject_jsx_runtime(&lower, first.at)) goto decline;
+  if (lower.output.failed || !inject_jsx_runtime(&lower, runtime_at)) goto decline;
   *length = lower.output.length;
   return lower.output.code;
 decline:
