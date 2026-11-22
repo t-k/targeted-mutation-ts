@@ -1,0 +1,3 @@
+Var: Statement, ClassicFor, Collection
+Lexical: Let, Pattern, ClassicFor, Collection, Catch, Function, Class
+Placement: VarFirst, LexicalFirst, ConflictVarFirst, ConflictLexicalFirst, NestedFunction

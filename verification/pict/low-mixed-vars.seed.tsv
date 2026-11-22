@@ -1,0 +1,9 @@
+Var	Lexical	Placement
+Statement	Let	VarFirst
+Statement	Let	LexicalFirst
+Statement	Pattern	ConflictLexicalFirst
+ClassicFor	ClassicFor	ConflictVarFirst
+Collection	Collection	LexicalFirst
+Statement	Catch	ConflictLexicalFirst
+Statement	Function	NestedFunction
+Statement	Class	ConflictVarFirst

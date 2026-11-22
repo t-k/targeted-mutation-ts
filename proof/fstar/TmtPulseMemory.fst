@@ -20,13 +20,16 @@ type binding_namespace =
   | PrivateScope
   | PrivateDeclaration
   | PrivateReference
+  | LocalLexicalName
+  | LocalVarName
 
 type binding_name = { span:G.span; namespace:binding_namespace; owner:U8.t }
 
 let binding_region_width : U32.t = 512ul
 let export_region_base : U32.t = 1024ul
 let private_region_base : U32.t = 1536ul
-let binding_capacity : U32.t = 1791ul
+let local_region_base : U32.t = 1791ul
+let binding_capacity : U32.t = 2303ul
 
 noeq type tape = {
   source : array U8.t;

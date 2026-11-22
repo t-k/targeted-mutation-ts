@@ -13,7 +13,7 @@ for (const row of rows) {
   test(`Pulse collection: ${target} ${loop} ${tail}`, () => {
     const prefix = { Existing: '', Var: 'var ', Let: 'let ', ConflictingVar: 'var ' }[target];
     const head = loop === 'AwaitOf' ? 'for await' : 'for';
-    const before = target === 'ConflictingVar' ? 'const bound = 1; ' : '';
+    const before = target === 'ConflictingVar' ? '{ const value = 1; } ' : '';
     const token = loop === 'In' ? 'in' : 'of';
     const source = `/* 🧪 */ async function scan() { ${before}${head} (${prefix}value ${token} items) { check(value < max); } }` +
       (tail === 'Broken' ? ' const =' : '');

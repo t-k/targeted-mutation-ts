@@ -4,6 +4,7 @@ module TmtPulseParser
 open Pulse.Lib.Pervasives
 open TmtPulseMemory
 module U8 = FStar.UInt8
+module U16 = FStar.UInt16
 module U32 = FStar.UInt32
 module U64 = FStar.UInt64
 module Cast = FStar.Int.Cast
@@ -170,6 +171,13 @@ type binding_mode =
   | NoLocals
   | LexicalLocals
   | VarLocals
+  | MixedLocals
+
+let local_log_capacity : U16.t = 512us
+let primary_locals : U16.t = 513us
+let inactive_locals : U16.t = 514us
+let mixed_locals_status : U32.t = 6ul
+type local_log_used = n:U16.t{U16.v n <= U16.v local_log_capacity}
 
 type super_context =
   | NoSuper
@@ -182,7 +190,7 @@ type parser_state = {
   offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used;
   await_allowed:bool; yield_allowed:bool; jsx_allowed:bool; module_mode:bool; strict_script:bool; in_allowed:bool; for_initializer:bool;
   arrow_defaults_allowed:bool; binding_mode:binding_mode; super_context:super_context;
-  private_scope:U8.t; private_count:U8.t
+  private_scope:U8.t; private_count:U8.t; local_log_floor:U16.t; local_log_used:local_log_used
 }
 type assignment_target =
   | NotAssignable
@@ -209,7 +217,16 @@ let failed (state:parser_state) (error:U32.t) : parser_state =
 
 let record_binding_mode (state:parser_state) (kind:binding_mode) : parser_state =
   if state.binding_mode = NoLocals || state.binding_mode = kind then { state with binding_mode = kind }
-  else failed state 1ul
+  else if state.local_log_floor = primary_locals then failed state mixed_locals_status
+  else { state with binding_mode = MixedLocals }
+
+let enter_function_locals (state:parser_state) : parser_state =
+  let local_log_floor = if state.local_log_floor = primary_locals || not state.module_mode then state.local_log_floor
+    else state.local_log_used in
+  { state with binding_mode = NoLocals; local_log_floor }
+
+let leave_function_locals (state outer:parser_state) : parser_state =
+  { state with binding_mode = outer.binding_mode; local_log_floor = outer.local_log_floor; local_log_used = outer.local_log_used }
 
 let start_range (pos:U32.t) : G.span = { G.first = pos; G.last = pos }
 let empty_range (state:parser_state) : parsed =
@@ -708,6 +725,47 @@ let bind_pattern_name (input:tape) (st:parser_state) (base:names_base) (floor us
 
 let bind_at (input:tape) (st:parser_state) (base:names_base) (used:names_used) (pos:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) = bind_since input st base 0ul used pos
+
+let local_slot (index:U16.t{U16.v index < U16.v local_log_capacity})
+  : at:U32.t{U32.v at < U32.v binding_capacity} =
+  U32.add local_region_base (Cast.uint16_to_uint32 index)
+
+// The live slice survives block exits and gets popped only on function exit.
+// Entries written by a discarded alternative lie beyond its checkpoint.
+let rec local_conflict (input:tape) (floor:U16.t) (used:local_log_used) (span:G.span) (namespace:binding_namespace)
+  : Tot (stt bool (heap input) (fun _ -> heap input)) (decreases U16.v used) =
+  if U16.(used <=^ floor) then ret input false
+  else
+    let previous = U16.sub used 1us in
+    let! saved = (fun () -> get_binding input (local_slot previous)) in
+    let length = minus span.G.last span.G.first in
+    let! equal = (fun () -> if namespace <> saved.namespace && length = minus saved.span.G.last saved.span.G.first then
+      same_bytes input span.G.first saved.span.G.first length else ret input false) in
+    if equal then ret input true else local_conflict input floor previous span namespace
+
+let record_local (input:tape) (st:parser_state) (span:G.span) (namespace:binding_namespace)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  if st.status <> 0ul || U16.(st.local_log_floor >^ local_log_capacity) then ret input st
+  else if st.local_log_used = local_log_capacity || U32.(minus span.G.last span.G.first >^ 256ul) then ret input (failed st 1ul)
+  else
+    let! conflict = (fun () -> if st.binding_mode = MixedLocals then
+      local_conflict input st.local_log_floor st.local_log_used span namespace else ret input false) in
+    if conflict then ret input (failed st 1ul)
+    else
+      let! _ = (fun () -> set_binding input (local_slot st.local_log_used) { span; namespace; owner = 0uy }) in
+      ret input { st with local_log_used = U16.add st.local_log_used 1us }
+
+let rec record_local_pattern (input:tape) (st:parser_state) (first used:names_used)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases (U32.v used - U32.v first)) =
+  if st.status <> 0ul || U16.(st.local_log_floor >^ local_log_capacity) || U32.(first >=^ used) then ret input st
+  else
+    let! entry = (fun () -> get_binding input (U32.add binding_region_width first)) in
+    let! tracked = (fun () -> record_local input st entry.span LocalLexicalName) in
+    record_local_pattern input tracked (U32.add first 1ul) used
+
+let read_local_var_name (input:tape) (st:parser_state) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  let! named = (fun () -> name input st.offset false true) in
+  record_local input (from_cursor st named) { G.first = st.offset; G.last = named.at } LocalVarName
 
 let private_identifier (input:tape) (#frame:slprop) (start:U32.t)
   : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
@@ -2133,7 +2191,7 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   let! start = (fun () -> skip input current) in
   let! arrow = (fun () -> arrow_parameters input { start with yield_allowed = false } fuel) in
   if arrow.names.state.status = 0ul then
-    let! body = (fun () -> skip input { arrow.names.state with local_names = arrow.names.used; binding_mode = NoLocals }) in
+    let! body = (fun () -> skip input (enter_function_locals { arrow.names.state with local_names = arrow.names.used })) in
     if fuel = 0ul then ret input (empty_range (failed body 3ul))
     else
       let depth = minus 65ul fuel in
@@ -2149,8 +2207,8 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
         else
           let in_allowed = body.in_allowed && not body.for_initializer in
           comparison input { body with in_allowed } inner) in
-      ret input ({ result with parser = { result.parser with local_names = start.local_names; await_allowed = start.await_allowed;
-          yield_allowed = start.yield_allowed; in_allowed = start.in_allowed; binding_mode = start.binding_mode };
+      ret input ({ result with parser = leave_function_locals { result.parser with local_names = start.local_names; await_allowed = start.await_allowed;
+          yield_allowed = start.yield_allowed; in_allowed = start.in_allowed } start;
         range = { result.range with G.first = start.offset }; outer_or = false; shortcut = 0ul; target = NotAssignable })
   else
   let! lhs = (fun () -> binary input start fuel 1ul) in
@@ -2577,7 +2635,7 @@ and declarator_value (input:tape) (state:parser_state) (fuel:U32.t) (optional:bo
 
 and binding (input:tape) (state:parser_state) (fuel:U32.t) (in_allowed:bool) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 43; 0]) =
   let! st = (fun () -> skip input state) in
-  let! st = (fun () -> (let! anf_value_1 = (fun () -> (name input st.offset false true)) in ret input (from_cursor st anf_value_1))) in
+  let! st = (fun () -> read_local_var_name input st) in
   let! st = (fun () -> (let! anf_value_2 = (fun () -> (skip input st)) in consume input anf_value_2 61uy)) in
   let for_initializer = state.for_initializer || not in_allowed in
   let! value = (fun () -> comparison input { st with in_allowed; for_initializer } fuel) in
@@ -2591,7 +2649,8 @@ and for_bindings (input:tape) (state:parser_state) (fuel remaining:U32.t) (floor
   else
     let! first = (fun () -> peek input st.offset) in
     let! declared = (fun () -> pattern_binding input st binding_region_width floor st.local_names fuel) in
-    let! annotated = (fun () -> simple_annotation input { declared.state with local_names = declared.used }) in
+    let! tracked = (fun () -> record_local_pattern input declared.state st.local_names declared.used) in
+    let! annotated = (fun () -> simple_annotation input { tracked with local_names = declared.used }) in
     let! tail = (fun () -> skip input annotated) in
     let! equal = (fun () -> same input tail.offset 61uy) in
     let! initialized =
@@ -2644,8 +2703,8 @@ and for_header (input:tape) (state:parser_state) (top_level local_var:bool) (fue
   let! async_ = (fun () -> if head.await_allowed then keyword input head.offset 5ul 0x6177616974uL else ret input (false)) in
   let! head = (fun () -> if async_ then skip input { head with offset = plus head.offset 5ul } else ret input (head)) in
   let! st = (fun () -> (let! anf_value_1 = (fun () -> (consume input head 40uy)) in skip input anf_value_1)) in
-  let! collection = (fun () -> collection_head input st (not async_) local_var fuel) in
-  if collection.status = 0ul then
+  let! found, collection = (fun () -> collection_head input st (not async_) local_var fuel) in
+  if found then
     let! value = (fun () -> comparison input collection fuel) in
     (let! anf_value_2 = (fun () -> (skip input value.parser)) in consume input anf_value_2 41uy)
   else if async_ then ret input (collection)
@@ -2715,7 +2774,7 @@ and local_var_declaration (input:tape) (state:parser_state) (fuel:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 45; 0]) =
   let st = record_binding_mode state VarLocals in
   let! start = (fun () -> skip input { st with offset = plus st.offset 3ul }) in
-  let! named = (fun () -> (let! anf_value_1 = (fun () -> (name input start.offset false true)) in ret input (from_cursor start anf_value_1))) in
+  let! named = (fun () -> read_local_var_name input start) in
   variable_initializer input named fuel true true
 
 and local_declarators (input:tape) (state:parser_state) (constant:bool) (floor used:names_used) (fuel remaining:U32.t)
@@ -2725,7 +2784,8 @@ and local_declarators (input:tape) (state:parser_state) (constant:bool) (floor u
   else
     let! first = (fun () -> peek input start.offset) in
     let! decl = (fun () -> pattern_binding input start binding_region_width floor used fuel) in
-    let named = { decl.state with local_names = decl.used } in
+    let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
+    let named = { tracked with local_names = decl.used } in
     let! value = (fun () -> declarator_value input named fuel (not constant && G.identifier_start first)) in
     let! tail = (fun () -> skip input value.parser) in
     if tail.status <> 0ul then ret input ({ decl with state = tail })
@@ -2756,7 +2816,8 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       let! head = (fun () -> read_generator_head input named) in
       let named = head.after_star in
       let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
-      let start = { decl.state with local_names = decl.used } in
+      let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
+      let start = { tracked with local_names = decl.used } in
       let! form = (fun () -> function_form input start (minus fuel 1ul) (st.offset <> function_head.at) NoSuper false OrdinaryParameters head.generator) in
       ret input ({ decl with state = form.after_function })
   else if class_ then
@@ -2765,7 +2826,8 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       let declared = record_binding_mode st LexicalLocals in
       let! named = (fun () -> skip input { declared with offset = plus st.offset 5ul }) in
       let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
-      let start = { decl.state with local_names = decl.used } in
+      let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
+      let start = { tracked with local_names = decl.used } in
       (let! anf_value_2 = (fun () -> class_tail input start (minus fuel 1ul) false) in ret input ({ decl with state = anf_value_2 }))
   else control_statement input st fuel in_function jumps floor used root_control
 and control_sequence (input:tape) (state:parser_state) (fuel remaining:U32.t) (in_function:bool) (jumps:jump_context)
@@ -2873,7 +2935,8 @@ and catch_block (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bool
     let st = record_binding_mode st LexicalLocals in
     let! start = (fun () -> (let! anf_value_2 = (fun () -> (consume input st 40uy)) in skip input anf_value_2)) in
     let! bound = (fun () -> pattern_binding input start binding_region_width used used fuel) in
-    let! annotated = (fun () -> (let! anf_value_3 = (fun () -> (simple_annotation input bound.state)) in skip input anf_value_3)) in
+    let! tracked = (fun () -> record_local_pattern input bound.state used bound.used) in
+    let! annotated = (fun () -> (let! anf_value_3 = (fun () -> (simple_annotation input tracked)) in skip input anf_value_3)) in
     let! body = (fun () -> consume input annotated 41uy) in
     control_block input body fuel in_function jumps used bound.used
   else control_block input st fuel in_function jumps used used)
@@ -2956,10 +3019,10 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
     (fun () -> if signature_only then
       signature_end input state opening params annotation st
     else
-      let st = { st with await_allowed = async_; yield_allowed = generator; in_allowed = true; binding_mode = NoLocals; super_context = super_ } in
+      let st = enter_function_locals { st with await_allowed = async_; yield_allowed = generator; in_allowed = true; super_context = super_ } in
       (let! anf_value_5 = (fun () -> (function_body input st params.non_simple)) in control_block input anf_value_5 fuel true NoJump floor params.names.used)) in
-  ret input ({ after_function = { closed with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed; in_allowed = state.in_allowed;
-      binding_mode = state.binding_mode; super_context = state.super_context }; signature_only })
+  ret input ({ after_function = leave_function_locals { closed with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed;
+      in_allowed = state.in_allowed; super_context = state.super_context } state; signature_only })
 
 and class_field_tail (input:tape) (state:parser_state) (fuel:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 55; 0]) =
@@ -3142,34 +3205,32 @@ and pattern_binding (input:tape) (state:parser_state) (base:names_base) (floor u
   pattern_binding_at input state base floor used fuel 16ul
 
 and collection_head (input:tape) (state:parser_state) (allow_in local_var:bool) (fuel:U32.t)
-  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 18; 0]) =
+  : Tot (stt (bool & parser_state) (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 18; 0]) =
   let! byte = (fun () -> peek input state.offset) in
-  let! constant = (fun () -> if byte = 99uy then keyword input state.offset 5ul 0x636f6e7374uL else ret input (false)) in
-  let! lexical = (fun () -> if byte = 108uy then keyword input state.offset 3ul 0x6c6574uL else ret input (false)) in
+  let! constant = (fun () -> if byte = 99uy then keyword input state.offset 5ul 0x636f6e7374uL else ret input false) in
+  let! lexical = (fun () -> if byte = 108uy then keyword input state.offset 3ul 0x6c6574uL else ret input false) in
   let! var = (fun () -> if local_var && byte = 118uy then keyword input state.offset 3ul 0x766172uL else ret input false) in
-  let width =
-    if constant then 5ul
-    else if lexical || var then 3ul
-    else 0ul in
-  if state.status <> 0ul then ret input state
+  let width = if constant then 5ul else if lexical || var then 3ul else 0ul in
+  if state.status <> 0ul then ret input (false, state)
   else
     let! start = (fun () -> if width = 0ul then ret input state else skip input { state with offset = plus state.offset width }) in
-    let! bound = (fun () -> if constant || lexical then
-      let mark = state.local_names in
-      let! binding = (fun () -> pattern_binding input start binding_region_width mark mark fuel) in
-      ret input binding.state
-      else let! target = (fun () -> name input start.offset false true) in ret input (from_cursor start target)) in
-    let! next_token = (fun () -> skip input bound) in
+    let mark = state.local_names in
+    let! bound = (fun () -> if constant || lexical then pattern_binding input start binding_region_width mark mark fuel
+      else let! target = (fun () -> name input start.offset false true) in ret input { state = from_cursor start target; used = mark }) in
+    let! next_token = (fun () -> skip input bound.state) in
     let! of_token = (fun () -> keyword input next_token.offset 2ul 0x6f66uL) in
     let! in_token = (fun () -> keyword input next_token.offset 2ul 0x696euL) in
     let! async_target = (fun () -> if allow_in && of_token && width = 0ul && byte = 97uy then
       keyword input start.offset 5ul 0x6173796e63uL else ret input false) in
-    if next_token.status <> 0ul || async_target || not (of_token || (allow_in && in_token)) then ret input (failed state 1ul)
+    if next_token.status <> 0ul || async_target || not (of_token || (allow_in && in_token)) then ret input (false, failed state 1ul)
     else
       let value = { next_token with offset = plus next_token.offset 2ul } in
-      let value = if var then record_binding_mode value VarLocals
-        else if local_var && (constant || lexical) then record_binding_mode value LexicalLocals else value in
-      ret input value
+      let! tracked = (fun () -> if var then
+        record_local input (record_binding_mode value VarLocals) { G.first = start.offset; G.last = bound.state.offset } LocalVarName
+      else if local_var && (constant || lexical) then
+        record_local_pattern input (record_binding_mode value LexicalLocals) mark bound.used
+      else ret input value) in
+      ret input (true, tracked)
 
 and parameter_prefix (input:tape) (state:parser_state) (floor used:names_used) (fuel:U32.t)
   : Tot (stt parameter_list (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 18; 0]) =
@@ -3691,10 +3752,11 @@ private let parse_state (input:tape) (st:parser_state) (module_mode:bool) : Tot 
       let! semicolon = (fun () -> same input st.offset 59uy) in
       if semicolon && st.status = 0ul then skip input { st with offset = next st.offset } else ret input (st)
 
-let initial_state (jsx module_mode:bool) : parser_state = {
+let initial_state (jsx module_mode:bool) (local_log_floor:U16.t) : parser_state = {
   offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
   await_allowed = module_mode; yield_allowed = false; jsx_allowed = jsx; module_mode; strict_script = false; in_allowed = true; for_initializer = false;
-  arrow_defaults_allowed = true; binding_mode = NoLocals; super_context = NoSuper; private_scope = 0uy; private_count = 0uy
+  arrow_defaults_allowed = true; binding_mode = NoLocals; super_context = NoSuper; private_scope = 0uy; private_count = 0uy;
+  local_log_floor; local_log_used = 0us
 }
 
 // Successful results consume the buffer and expose a bounded candidate count.
@@ -3703,9 +3765,9 @@ type parse_result (input:tape) = r:parser_state{
   (r.status <> 0ul ==> r.count = 0ul)
 }
 
-let parse_candidates (input:tape) (jsx module_mode:bool)
+let parse_attempt (input:tape) (jsx module_mode:bool) (local_log_floor:U16.t)
   : Tot (stt (parse_result input) (heap input) (fun _ -> heap input)) =
-  let! initial = (fun () -> (let! anf_value_1 = (fun () -> (let! anf_value_2 = (fun () -> source_start input) in ret input ({ (initial_state jsx module_mode) with offset = anf_value_2 }))) in skip input anf_value_1)) in
+  let! initial = (fun () -> (let! anf_value_1 = (fun () -> (let! anf_value_2 = (fun () -> source_start input) in ret input ({ (initial_state jsx module_mode local_log_floor) with offset = anf_value_2 }))) in skip input anf_value_1)) in
   let! strict_script = (fun () -> if module_mode then ret input false else strict_directive input initial.offset) in
   let initial = { initial with strict_script } in
   let! state = (fun () -> parse_state input initial module_mode) in
@@ -3722,6 +3784,16 @@ let parse_candidates (input:tape) (jsx module_mode:bool)
   else if U32.(state.count >^ input.capacity) then
     { (failed state 4ul) with count = 0ul }
   else state)
+
+// Most inputs use one kind of function-local declaration. Only a mixed
+// function needs a second pass with exact declaration spelling checks.
+let parse_candidates (input:tape) (jsx module_mode:bool)
+  : Tot (stt (parse_result input) (heap input) (fun _ -> heap input)) =
+  let! first = (fun () -> parse_attempt input jsx module_mode primary_locals) in
+  if first.status <> mixed_locals_status then ret #(parse_result input) input first
+  else
+    let! _ = (fun () -> clear_marks input) in
+    parse_attempt input jsx module_mode inactive_locals
 
 fn parse (input:tape) (jsx module_mode:bool)
   requires heap input
@@ -3833,7 +3905,7 @@ type checked_conflict (input:tape) = r:lexical_conflict{
 
 let lexical_duplicate (input:tape)
   : Tot (stt (checked_conflict input) (heap input) (fun _ -> heap input)) =
-  let! conflict = (fun () -> read_lexical_conflict input (initial_state false true) 0ul (no_conflict ()) input.size) in
+  let! conflict = (fun () -> read_lexical_conflict input (initial_state false true primary_locals) 0ul (no_conflict ()) input.size) in
   ret #(checked_conflict input) input (let first = conflict.first_name in
   let second = conflict.repeated_name in
   if U32.(first.G.first <^ first.G.last && first.G.last <=^ second.G.first &&
