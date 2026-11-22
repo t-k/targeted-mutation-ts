@@ -25,7 +25,7 @@ test('the fixture exercises every placement and runs to completion', () => {
   assert.equal(original.length, 11);
   assert.ok(original.every(entry => typeof entry === 'string'), JSON.stringify(original));
   assert.ok(mutants.length > 150, `${mutants.length} mutations`);
-  for (const marker of ['; if (__tmtOn(', '{ if (__tmtOn(', '\nvoid 0, (__tmtOn(', '(() => { const identity = ', '{ __tmtCover(']) {
+  for (const marker of ['; if (__tmtOn(', '{ if (__tmtOn(', '\n void 0, (__tmtOn(', '({ identity: ', '{ __tmtCover(']) {
     assert.ok(output.includes(marker), marker);
   }
 });
@@ -135,6 +135,42 @@ for (const [placement, position, dialect] of placements) {
     assert.equal(calls({ code: rendered.output }), expected);
     for (const mutant of rendered.mutants) {
       assert.equal(calls({ code: rendered.output, state: { activeMutant: mutant.id } }), calls({ code: edited(mutant) }),
+        `${mutant.mutatorName} ${mutant.original} -> ${mutant.replacement}`);
+    }
+  });
+}
+
+// Programs for which a naive rewrite changes behaviour or fails to parse. Each returns a value through `result`.
+const hazards = {
+  'an anchor-only regular expression': 'var result = [/^/.test("x"), /$/.test("x"), /^$/.test("")]',
+  'a function body that declares a variable and a function of one name': '"use strict"; function f() { var x; function x() {} return typeof x } var result = f()',
+  'a function body whose declarations are used before the block': 'function f(n) { return g(n) + h; var h = 1; function g(v) { return v * 2 } } var result = [f(2), f.length]',
+  'case clauses that share a lexical declaration': 'function pick(n) { switch (n) { case 0: let x = 1; case 1: return typeof x === "number" ? x : -1; default: return 9 } } var result = [pick(0), pick(5)]',
+  'an arrow function that reads its own variable later': 'let f = () => f; const g = f; f = 1; var result = [g() === 1, g.name]',
+  'arrow functions named by a property or a class field': 'const o = { f: () => 1, "g h": () => 2 }; class C { k = () => this.v; v = 3 } var result = [o.f.name, o.f(), new C().k.name, new C().k()]',
+  'an update expression directly after a keyword': 'let x = 0; do++x;while(false); var result = x',
+  'a generator and an async function body': 'function* gen() { yield 1; yield 2 } async function later() { return 3 } var result = [[...gen()], typeof later().then]',
+  'a derived constructor and a getter': 'class A { constructor() { this.a = 1 } get twice() { return this.a * 2 } } class B extends A { constructor() { super(); this.b = 2 } } var result = [new B().twice, new B().b]',
+};
+
+for (const [name, source] of Object.entries(hazards)) {
+  test(`switches preserve ${name}`, () => {
+    const run = (code, state = {}) => {
+      const context = vm.createContext({ __stryker__: state });
+      try {
+        vm.runInContext(code, context, { timeout: 1_000 });
+        return JSON.stringify(context.result);
+      } catch (error) {
+        return error.constructor.name;
+      }
+    };
+    const rendered = renderBuiltinSwitches(Buffer.from(source), 'hazard.js');
+    const expected = run(source);
+    assert.doesNotMatch(expected, /Error$/, expected);
+    assert.equal(run(rendered.output), expected, rendered.output);
+    for (const mutant of rendered.mutants) {
+      const edited = source.slice(0, mutant.source.edit[0]) + mutant.source.replacement + source.slice(mutant.source.edit[1]);
+      assert.equal(run(rendered.output, { activeMutant: mutant.id }), run(edited),
         `${mutant.mutatorName} ${mutant.original} -> ${mutant.replacement}`);
     }
   });

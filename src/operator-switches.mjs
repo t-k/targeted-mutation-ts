@@ -54,7 +54,8 @@ export function renderOperatorSwitches(input, file, selected = () => true, optio
       const id = JSON.stringify(site.id);
       const choice = `${on}(${id}) ? ${edited} : (${cover}(${id}), ${original})`;
       // A statement that starts with `(` could continue the previous line as a call.
-      out += site.statement ? choice : site.leading ? `void 0, (${choice})` : `(${choice})`;
+      // The leading space separates the switch from a keyword such as `do` or `else`.
+      out += site.statement ? ` ${choice}` : site.leading ? ` void 0, (${choice})` : `(${choice})`;
       from = last;
     }
     return out + slice(from, end);

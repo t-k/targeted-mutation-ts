@@ -101,8 +101,10 @@ export function collectMutations(text, file, { dialect, selected = () => true, t
     const start = begin(holder);
     const [parent, child] = up(holder);
     const statement = ts.isExpressionStatement(holder.parent);
-    const named = ts.isArrowFunction(holder) && ts.isVariableDeclaration(parent) && parent.initializer === child &&
-      ts.isIdentifier(parent.name) ? parent.name.text : undefined;
+    // An arrow function takes its name from the variable, property or field it initializes.
+    const names = ts.isArrowFunction(holder) && parent.initializer === child && parent.name && ts.isIdentifier(parent.name) &&
+      (ts.isVariableDeclaration(parent) || ts.isPropertyAssignment(parent) || ts.isPropertyDeclaration(parent));
+    const named = names ? parent.name.text : undefined;
     return {
       kind: 'expression', placement: [start, holder.end], statement, leading: !statement && start === statementStart, named,
       // Spaces keep the replacement from merging with a neighbouring token.
@@ -169,7 +171,8 @@ export function collectMutations(text, file, { dialect, selected = () => true, t
       if (parameterProperty || initialized) return;
     }
     const bodyStart = directives ? node.statements[directives - 1].end : begin(node) + 1;
-    add('BlockStatement', node, '{}', { kind: 'block', placement: [begin(node), node.end], bodyStart, bodyEnd: node.end - 1, mutated: '{}' });
+    add('BlockStatement', node, '{}', { kind: 'block', placement: [begin(node), node.end], bodyStart, bodyEnd: node.end - 1, mutated: '{}',
+      functionBody: ts.isFunctionLike(node.parent) });
   }
 
   function literal(node) {
@@ -210,6 +213,10 @@ export function collectMutations(text, file, { dialect, selected = () => true, t
     const replacement = ts.isPropertyAccessExpression(node) ? '.' : '';
     add('OptionalChaining', node, text.slice(begin(node), begin(token)) + replacement + text.slice(token.end, node.end));
   }
+
+  // A declaration in a case clause is visible in the clauses after it, so such a clause cannot move into a block.
+  const lexical = statement => ts.isClassDeclaration(statement) || ts.isFunctionDeclaration(statement) ||
+    (ts.isVariableStatement(statement) && (statement.declarationList.flags & ts.NodeFlags.BlockScoped) !== 0);
 
   function statementMutation(node, replacement, mutated) {
     add('CallExpression', node, replacement, { kind: 'statement', placement: [begin(node), node.end], mutated });
@@ -255,14 +262,15 @@ export function collectMutations(text, file, { dialect, selected = () => true, t
     else if (node.kind === K.RegularExpressionLiteral) {
       const raw = source(node);
       const close = raw.lastIndexOf('/');
-      for (const pattern of mutatePattern(raw.slice(1, close), raw.slice(close + 1))) add('Regex', node, `/${pattern}/${raw.slice(close + 1)}`);
+      // An empty pattern is written as an empty group: `//` would start a comment.
+      for (const pattern of mutatePattern(raw.slice(1, close), raw.slice(close + 1))) add('Regex', node, `/${pattern || '(?:)'}/${raw.slice(close + 1)}`);
     } else if (ts.isCallExpression(node) || ts.isNewExpression(node)) call(node);
     if ((isMember(node) || ts.isCallExpression(node)) && node.questionDotToken) withoutQuestionDot(node);
     if (ts.isForStatement(node) && !node.condition && !ts.isLabeledStatement(node.parent)) {
       const semicolon = node.getChildren(tree).find(child => child.kind === K.SemicolonToken);
       const mutated = text.slice(begin(node), semicolon.end) + ' false' + text.slice(semicolon.end, node.end);
       add('ConditionalExpression', node, mutated, { kind: 'statement', placement: [begin(node), node.end], mutated });
-    } else if ((ts.isCaseClause(node) || ts.isDefaultClause(node)) && node.statements.length) {
+    } else if ((ts.isCaseClause(node) || ts.isDefaultClause(node)) && node.statements.length && !node.statements.some(lexical)) {
       const head = text.slice(begin(node), node.statements.pos);
       add('ConditionalExpression', node, head, { kind: 'case', placement: [begin(node), node.end], bodyStart: node.statements.pos, mutated: head });
     }

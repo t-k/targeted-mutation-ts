@@ -31,7 +31,7 @@ function unusedName(text, base) {
 function asStatementStart(mutant, text) {
   const edited = mutant.mutated.trimStart();
   const risky = (mutant.statement || mutant.leading) && '([`+-/'.includes(edited[0]) && edited[0] !== text[mutant.placement[0]];
-  return risky ? 'void 0, ' + edited : mutant.mutated;
+  return risky ? ' void 0, ' + edited : mutant.mutated;
 }
 
 export function renderBuiltinSwitches(input, file, selected = () => true, options = {}) {
@@ -72,20 +72,26 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
       if (group.kind === 'expression') {
         const inner = render(first, last);
         // An arrow function bound to a variable keeps the variable's name through an inner binding.
-        const keepName = body => group.named ? `(() => { const ${group.named} = ${body}; return ${group.named}; })()` : body;
+        // A property initializer names the function without adding a binding the function body could see.
+        const keepName = body => group.named ? `({ ${group.named}: ${body} }).${group.named}` : body;
         const choice = group.mutants.map(mutant => `${on}(${JSON.stringify(mutant.id)}) ? ${keepName(mutant.mutated)} : `).join('') +
           `(${cover}(${ids.join(', ')}), ${keepName(inner)})`;
         // A statement that starts with `(` could continue the previous line as a call.
-        out += group.statement ? choice : group.leading ? `void 0, (${choice})` : `(${choice})`;
+        // The leading space separates the switch from a keyword such as `do` or `else`.
+        out += group.statement ? ` ${choice}` : group.leading ? ` void 0, (${choice})` : `(${choice})`;
       } else if (group.kind === 'block') {
         // The semicolon ends a directive prologue that relies on a line break.
-        out += `${text.slice(first, group.bodyStart)}; if (${on}(${ids[0]})) {} else { ${cover}(${ids[0]});` +
-          `${render(group.bodyStart, group.bodyEnd)}\n} ${text.slice(group.bodyEnd, last)}`;
+        // A function body returns early instead of moving into a block, which would change how its declarations are scoped.
+        out += group.functionBody
+          ? `${text.slice(first, group.bodyStart)}; if (${on}(${ids[0]})) return; ${cover}(${ids[0]});` +
+            `${render(group.bodyStart, group.bodyEnd)}${text.slice(group.bodyEnd, last)}`
+          : `${text.slice(first, group.bodyStart)}; if (${on}(${ids[0]})) {} else { ${cover}(${ids[0]});` +
+            `${render(group.bodyStart, group.bodyEnd)}\n} ${text.slice(group.bodyEnd, last)}`;
       } else if (group.kind === 'case') {
         // The case expression can hold switches of its own, so the head is rendered too.
         out += `${render(first, group.bodyStart)} if (${on}(${ids[0]})) {} else { ${cover}(${ids[0]});${render(group.bodyStart, last)}\n}`;
       } else {
-        out += '{ ' + group.mutants.map(mutant => `if (${on}(${JSON.stringify(mutant.id)})) { ${mutant.mutated} } else `).join('') +
+        out += ' { ' + group.mutants.map(mutant => `if (${on}(${JSON.stringify(mutant.id)})) { ${mutant.mutated} } else `).join('') +
           `{ ${cover}(${ids.join(', ')}); ${render(first, last)}\n} }`;
       }
       from = last;

@@ -58,7 +58,7 @@ test('a statement that starts with an operator expression cannot attach to the p
   const { call, mutants, output } = load('let hits = 0\nconst ready = true\nready === true && hits++\nhits + 1\n');
   assert.equal(call('hits'), 1);
   assert.equal(mutants.length, 3);
-  assert.match(output, /\n__tmtOn\("[0-9a-f]{16}"\) \? ready === true \|\| hits\+\+ : \(__tmtCover/);
+  assert.match(output, /\n __tmtOn\("[0-9a-f]{16}"\) \? ready === true \|\| hits\+\+ : \(__tmtCover/);
 });
 
 test('the hit limit stops a loop that an edit makes endless', () => {
@@ -109,7 +109,7 @@ test('an operator at the start of a statement cannot attach to the previous line
   assert.equal(call('f()'), 1);
   assert.equal(call('hits'), 1);
   assert.equal(mutants.length, 2);
-  assert.match(output, /\nvoid 0, \(__tmtOn\("[0-9a-f]{16}"\) \? 2 - 3 : /);
+  assert.match(output, /\n void 0, \(__tmtOn\("[0-9a-f]{16}"\) \? 2 - 3 : /);
   assert.equal(load(source, { activeMutant: byOperator(mutants, '===').id }).call('hits'), 0);
 });
 
