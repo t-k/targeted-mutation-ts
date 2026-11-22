@@ -1,0 +1,10 @@
+Key	Member	Suffix
+Identifier	Field	Valid
+String	Field	Valid
+String	Method	Valid
+String	Optional	Valid
+String	Binding	Valid
+Prototype	Field	Valid
+Escaped	Method	Valid
+Comparison	Field	Valid
+String	Field	Broken

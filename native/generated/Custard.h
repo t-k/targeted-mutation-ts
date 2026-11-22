@@ -982,7 +982,7 @@ TmtPulseParser_cursor
 TmtPulseParser_private_identifier(TmtPulseMemory_tape input, uint32_t start);
 
 TmtPulseParser_cursor
-TmtPulseParser_computed_method_key(
+TmtPulseParser_computed_property_name(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state
 );
@@ -2179,6 +2179,15 @@ TmtPulseParser_class_tail(
   TmtPulseParser_class_kind kind
 );
 
+TmtPulseParser_parser_state
+TmtPulseParser_default_function_body(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  TmtGrammar_span spelling0,
+  bool async_0,
+  uint32_t remaining0
+);
+
 TmtPulseParser_named_state
 TmtPulseParser_default_declaration(
   TmtPulseMemory_tape input,
@@ -2294,10 +2303,12 @@ TmtPulseParser_enum_declaration(
 
 TmtPulseParser_parser_state
 TmtPulseParser_type_namespace_members(
-  TmtPulseMemory_tape input0,
-  TmtPulseParser_parser_state state0,
-  uint32_t used0,
-  uint32_t remaining0
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t depth,
+  uint32_t remaining
 );
 
 TmtPulseParser_named_state

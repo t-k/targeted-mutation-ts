@@ -53,7 +53,22 @@ const ecosystem = [
     ['packages'], /^packages\/[^/]+\/src\//],
   ['redux-toolkit', 'reduxjs/redux-toolkit', '4a3ad9ab235a09420dc923f3325f813b11eecb0c', ['packages/toolkit/src']],
 ];
-const suites = new Map(Object.entries({ established, server, typed, ui, ecosystem }));
+const frameworks = [
+  ['react-router', 'remix-run/react-router', '9916920a490c018eb78d7cc8c55a0efd6e9feac9',
+    ['packages/react-router/lib', 'packages/react-router-dom']],
+  ['immer', 'immerjs/immer', '784c86bb234e805566481c9425fcb2a3897e8bcc', ['src']],
+  ['lit', 'lit/lit', 'b17fb14470c69a68205c10b69451883da07f4dde',
+    ['packages/lit/src', 'packages/lit-html/src', 'packages/lit-element/src', 'packages/reactive-element/src',
+      'packages/task/src', 'packages/context/src', 'packages/react/src']],
+];
+const buildtools = [
+  ['vitest', 'vitest-dev/vitest', '8b0ca603a8342aff1851a37ce0c0ae8cf4fa6b56',
+    ['packages'], /^packages\/[^/]+\/src\//],
+  ['rollup', 'rollup/rollup', '173cfd3ac9f35acd1defc2b2dfe075b9c2759df0', ['src']],
+  ['tailwindcss', 'tailwindlabs/tailwindcss', '511c82a2ce4431b16fc72cd0580da9964497a2f1',
+    ['packages'], /^packages\/[^/]+\/src\//],
+];
+const suites = new Map(Object.entries({ established, server, typed, ui, ecosystem, frameworks, buildtools }));
 const swr = ['swr-firestore', 't-k/swr-firestore', '25e295e6150025bc9b234eea5119589dee473ded', ['src']];
 const extension = /\.(?:[jt]sx?|[cm][jt]s)$/;
 const testsAndFixtures = /(?:^|\/)(?:__tests__|__fixtures__|__snapshots__|__test-utils__|__mocks__|test|tests|spec|fixtures|dist|node_modules|demo|demos)\/|(?:^|\/)(?:test|tests)(?:\.tp)?\.[^/]+$|\.(?:test|spec|bench)(?:-d)?\.[^/]+$/;
