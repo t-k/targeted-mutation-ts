@@ -1,5 +1,25 @@
 # Performance measurements
 
+## Cache-free first extraction compared with Yuku
+
+The runtime archive includes a 639,522-byte syntax-only build generated from the pinned TypeScript compiler. It handles compatibility extraction, while the installed full compiler supplies witness and other compiler APIs. Low★ also handles byte-zero hashbangs and interface bodies in quoted ambient modules, moving two previously declined Vite files into native extraction.
+
+Two independent runs alternate nine fresh processes per version with `NODE_DISABLE_COMPILE_CACHE=1`. The clock starts with file buffers already in memory and includes extractor import, native parsing, and loading and running the compatibility parser. Each pair matches source acceptance and every ordered candidate field. Both runs used an Apple M5 Max and Node 24.14.0. Sample times varied with unrelated host load.
+
+| Workload | Former Yuku → current, run 1 | Former Yuku → current, run 2 |
+| --- | ---: | ---: |
+| Vite | 57.49 → 53.64 ms | 47.74 → 42.51 ms |
+| mreact | 161.68 → 139.30 ms | 142.07 → 119.86 ms |
+| tachyon-dom | 75.25 → 70.47 ms | 72.34 → 68.07 ms |
+
+The projected parser also matched all candidate fields and diagnostic records of full TypeScript in both logical-rule settings for 8,540 decodable corpus files and 4,251 decodable captured inputs. Invalid UTF-8 remains rejected before either parser. The [paired samples and extraction audits](../evidence/m1/cold-yuku-parity.json) record the exact checkout revisions.
+
+Use `npm run build:native -- --pgo` and `npm run build:typescript-syntax` in the current checkout. Build the former runtime at `8592705` in a separate checkout and pass its module to the benchmark.
+
+```sh
+NODE_DISABLE_COMPILE_CACHE=1 node scripts/bench-first-extraction.mjs BASELINE/src/extract.mjs /path/to/vite /path/to/mreact /path/to/tachyon-dom
+```
+
 ## First extraction and focused analysis planning
 
 The CLI loads only the selected command, and native-only extraction leaves the TypeScript compatibility parser and grammar unloaded. Low★ handles right-associative exponentiation, common static import attributes and more regular expressions with named captures. Across the five pinned TS/TSX corpora, Low★ covered 2,490 of 2,968 candidates, up from 2,424. Both logical-rule settings matched the Yuku reference on source acceptance and every ordered candidate field. A further 3,303 captured inputs passed the same checks.
@@ -24,7 +44,7 @@ First extraction measures the initial module load and parsing in a fresh process
 | mreact | 357.20 → 520.27 ms | 292.37 → 290.45 ms |
 | tachyon-dom | 117.92 → 197.98 ms | 217.71 → 260.07 ms |
 
-The local checkout can opt into the Node module compile cache with `npm run build:typescript-cache` on Node 24.12 or later. It still reads and parses the supplied sources on every extraction. The runtime archive uses the normal Node compiler load. Node 26.12 selects different cache directories for portable and portable read-only activation. See the [Node implementation](https://github.com/nodejs/node/blob/v26.12.0/src/compile_cache.cc#L43-L59).
+At `be13ba8`, the local checkout could opt into the Node module compile cache with `npm run build:typescript-cache` on Node 24.12 or later. It still read and parsed the supplied sources on every extraction. That runtime archive used the normal Node compiler load. Node 26.12 selects different cache directories for portable and portable read-only activation. See the [Node implementation](https://github.com/nodejs/node/blob/v26.12.0/src/compile_cache.cc#L43-L59).
 
 Focused analysis now indexes trace observations by site and reuses observed test identities and threshold metadata. With 200 comparison sites and 2,000 observations, generating the complete trial plan dropped from 357.70 to 40.64 ms over nine alternating samples. The full trial records matched. This measurement excludes running the tests.
 

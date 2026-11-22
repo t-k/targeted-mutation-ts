@@ -19,6 +19,7 @@ The prototype accepts exported unary arrow functions with an expression body of 
 
 ```sh
 npm run build:native
+npm run build:typescript-syntax
 node bin/tmt.mjs extract source.tsx
 npm run verify:fstar
 npm run audit:extraction -- /path/to/vite /path/to/preact /path/to/typescript
@@ -26,7 +27,7 @@ npm run audit:extraction -- /path/to/vite /path/to/preact /path/to/typescript
 
 The native build uses a C compiler, the checked-in KaRaMeL C files, and Node-API headers. Set `TMT_NODE_INCLUDE` if Node's headers are outside the standard paths. The F★ verification command uses F★ 2025.12.15 and the KaRaMeL executable shipped with F★ 2026.11.15. Set `FSTAR_EXE` and `KARAMEL_EXE` to their paths. It verifies the sources and checks regeneration against the checked-in C files.
 
-The [L1 grammar and trust boundary](docs/l1.md) describe the AST-free Low★ parser and TypeScript compatibility path. The [performance measurements](docs/performance.md) cover Vite, Preact, TypeScript compiler fixtures, mreact, and tachyon-dom.
+The [L1 grammar and trust boundary](docs/l1.md) describe the AST-free Low★ parser and TypeScript compatibility path. `build:typescript-syntax` prepares the smaller compatibility parser for local runs. The [performance measurements](docs/performance.md) cover Vite, Preact, TypeScript compiler fixtures, mreact, and tachyon-dom.
 
 To build the standalone comparison extractor, run `npm run build:native -- --low-only` and then `node bin/tmt.mjs extract source.ts`. This build uses Node and a C compiler and writes `build/tmt.node`. Supported files use the generated Low★ parser directly, including typed modules, nested functions, exception handling, switch clauses, generic calls, async callbacks, nested bindings, computed object members, tagged templates, bounded class declarations, and nested TSX. Outside its grammar or resource limits, the standalone CLI exits with a diagnostic and no candidates. Run `npm run build:native` to restore the normal build with TypeScript compatibility parsing.
 
@@ -56,6 +57,6 @@ npm ci
 npm run pack:runtime
 ```
 
-The archive written to `build/` has the OS and CPU in its filename and npm metadata. It contains the native parser and Lean decision executable for the build machine's OS and architecture. The installed `tmt-ts` command runs them directly. Building another platform's package requires its C and Rust toolchains and the pinned Lean toolchain. See [performance measurements](docs/performance.md) for the evaluated workloads.
+The archive written to `build/` has the OS and CPU in its filename and npm metadata. It contains the native parser, the generated TypeScript syntax parser and the Lean decision executable for the build machine's OS and architecture. The installed `tmt-ts` command runs them directly. Building another platform's package requires its C and pinned Lean toolchains. See [performance measurements](docs/performance.md) for the evaluated workloads.
 
 The archive installs TypeScript for compatibility parsing and witness AST analysis. TMT uses the test runner installed in the target project or its workspace. The `standard` and `all` profiles also require `@stryker-mutator/instrumenter@10.1.1`.

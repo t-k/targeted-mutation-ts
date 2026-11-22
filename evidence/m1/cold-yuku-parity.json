@@ -1,0 +1,527 @@
+{
+  "syntaxProjection": {
+    "typescript": "6.0.3",
+    "sourceDigest": "569177652966bd528c319171c7dd22860dbf72bde116cbc4f644f1d02bb12e39",
+    "bytes": 639522
+  },
+  "measurement": {
+    "cache": "NODE_DISABLE_COMPILE_CACHE=1; each process reads and parses the supplied sources afresh",
+    "timedScope": "initial extractor and parser loading plus extraction from pre-read source buffers",
+    "firstProcess": [
+      {
+        "baseline": "8592705",
+        "node": "v24.14.0",
+        "os": "darwin 27.2.0 arm64",
+        "cpu": "Apple M5 Max",
+        "repetitions": 9,
+        "files": [
+          {
+            "project": "Vite",
+            "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+            "files": 482,
+            "candidates": 201,
+            "diagnostics": 1,
+            "fingerprint": "3fc4fc01fd691cabf2cf3678a80fc1551b048c7dba32256d7763a564dea03220",
+            "medianMs": [
+              57.490333,
+              53.642167
+            ],
+            "samplesMs": [
+              [
+                57.399708000000004,
+                57.490333,
+                58.595334,
+                55.382707999999994,
+                57.05870899999999,
+                58.570584,
+                58.017958,
+                56.965666999999996,
+                57.828333
+              ],
+              [
+                50.69533299999999,
+                52.173792,
+                53.364582999999996,
+                54.015249999999995,
+                53.897167,
+                53.642167,
+                53.89754099999999,
+                53.677917,
+                53.11083299999999
+              ]
+            ]
+          },
+          {
+            "project": "mreact",
+            "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+            "files": 1193,
+            "candidates": 1550,
+            "diagnostics": 0,
+            "fingerprint": "22cc2394184fd508ce2017be0162ec21740de2e5b2738e93b4a50b31e79eab82",
+            "medianMs": [
+              161.681084,
+              139.296417
+            ],
+            "samplesMs": [
+              [
+                161.681084,
+                163.612167,
+                162.971083,
+                155.792875,
+                156.499125,
+                157.670625,
+                166.606,
+                163.841,
+                150.01675
+              ],
+              [
+                146.945417,
+                144.695625,
+                140.737208,
+                139.296417,
+                140.011541,
+                137.25650000000002,
+                125.0395,
+                123.51708400000001,
+                126.086334
+              ]
+            ]
+          },
+          {
+            "project": "tachyon-dom",
+            "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+            "files": 373,
+            "candidates": 654,
+            "diagnostics": 0,
+            "fingerprint": "4c7b7385f68f972185410948d674c9d6c03c9d5408bb4480ba77c81c507090be",
+            "medianMs": [
+              75.25370899999999,
+              70.47241700000001
+            ],
+            "samplesMs": [
+              [
+                77.066208,
+                76.493375,
+                74.394458,
+                75.25370899999999,
+                74.689125,
+                77.50887499999999,
+                76.221875,
+                74.90604200000001,
+                75.004041
+              ],
+              [
+                70.49000000000001,
+                70.24133400000001,
+                69.032708,
+                71.05024999999999,
+                69.082625,
+                70.424791,
+                70.924208,
+                70.47241700000001,
+                71.41333300000001
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "baseline": "8592705",
+        "node": "v24.14.0",
+        "os": "darwin 27.2.0 arm64",
+        "cpu": "Apple M5 Max",
+        "repetitions": 9,
+        "files": [
+          {
+            "project": "Vite",
+            "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+            "files": 482,
+            "candidates": 201,
+            "diagnostics": 1,
+            "fingerprint": "3fc4fc01fd691cabf2cf3678a80fc1551b048c7dba32256d7763a564dea03220",
+            "medianMs": [
+              47.737584,
+              42.511834
+            ],
+            "samplesMs": [
+              [
+                49.231167,
+                47.17491700000001,
+                46.820916,
+                46.083,
+                48.713167,
+                48.702625,
+                47.737584,
+                48.535583,
+                46.937250000000006
+              ],
+              [
+                45.312916,
+                43.616084,
+                43.467665999999994,
+                42.62441700000001,
+                42.433625,
+                42.511834,
+                42.138834,
+                42.18825,
+                42.447084
+              ]
+            ]
+          },
+          {
+            "project": "mreact",
+            "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+            "files": 1193,
+            "candidates": 1550,
+            "diagnostics": 0,
+            "fingerprint": "22cc2394184fd508ce2017be0162ec21740de2e5b2738e93b4a50b31e79eab82",
+            "medianMs": [
+              142.071208,
+              119.861416
+            ],
+            "samplesMs": [
+              [
+                138.826959,
+                140.37225,
+                153.117458,
+                142.071208,
+                143.72395799999998,
+                156.033083,
+                154.706375,
+                134.70149999999998,
+                140.179667
+              ],
+              [
+                118.94808400000002,
+                119.423,
+                118.99666700000002,
+                120.57495800000001,
+                119.861416,
+                121.15420800000001,
+                119.969583,
+                121.073792,
+                119.57683300000001
+              ]
+            ]
+          },
+          {
+            "project": "tachyon-dom",
+            "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+            "files": 373,
+            "candidates": 654,
+            "diagnostics": 0,
+            "fingerprint": "4c7b7385f68f972185410948d674c9d6c03c9d5408bb4480ba77c81c507090be",
+            "medianMs": [
+              72.336084,
+              68.06524999999999
+            ],
+            "samplesMs": [
+              [
+                74.123042,
+                72.552625,
+                71.255708,
+                71.53579200000001,
+                72.336084,
+                71.582292,
+                72.968625,
+                71.764625,
+                74.006125
+              ],
+              [
+                72.679666,
+                70.802458,
+                68.06524999999999,
+                70.094042,
+                67.058875,
+                66.292875,
+                65.83,
+                65.791125,
+                69.538167
+              ]
+            ]
+          }
+        ]
+      },
+      {
+        "baseline": "be13ba8",
+        "node": "v24.14.0",
+        "os": "darwin 27.2.0 arm64",
+        "cpu": "Apple M5 Max",
+        "repetitions": 9,
+        "files": [
+          {
+            "project": "Vite",
+            "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+            "files": 482,
+            "candidates": 201,
+            "diagnostics": 1,
+            "fingerprint": "3fc4fc01fd691cabf2cf3678a80fc1551b048c7dba32256d7763a564dea03220",
+            "medianMs": [
+              102.114083,
+              42.25179200000001
+            ],
+            "samplesMs": [
+              [
+                326.670917,
+                101.137584,
+                102.114083,
+                102.646125,
+                102.22562500000001,
+                101.911833,
+                101.41408400000002,
+                102.255291,
+                101.775042
+              ],
+              [
+                42.41766700000001,
+                42.21849999999999,
+                42.049665999999995,
+                42.25179200000001,
+                42.31,
+                42.273709,
+                41.90474999999999,
+                41.979541000000005,
+                42.578292000000005
+              ]
+            ]
+          },
+          {
+            "project": "mreact",
+            "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+            "files": 1193,
+            "candidates": 1550,
+            "diagnostics": 0,
+            "fingerprint": "22cc2394184fd508ce2017be0162ec21740de2e5b2738e93b4a50b31e79eab82",
+            "medianMs": [
+              172.73575,
+              116.30433299999999
+            ],
+            "samplesMs": [
+              [
+                171.678583,
+                172.73575,
+                173.182083,
+                172.776584,
+                172.99895899999999,
+                171.89991600000002,
+                172.182542,
+                173.60225000000003,
+                172.39979100000002
+              ],
+              [
+                116.22804099999999,
+                116.76958299999998,
+                116.265458,
+                115.22349999999999,
+                117.022625,
+                117.28354100000001,
+                115.27029099999999,
+                116.90620799999999,
+                116.30433299999999
+              ]
+            ]
+          },
+          {
+            "project": "tachyon-dom",
+            "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+            "files": 373,
+            "candidates": 654,
+            "diagnostics": 0,
+            "fingerprint": "4c7b7385f68f972185410948d674c9d6c03c9d5408bb4480ba77c81c507090be",
+            "medianMs": [
+              120.08929100000002,
+              66.402167
+            ],
+            "samplesMs": [
+              [
+                119.96154200000001,
+                119.922042,
+                120.11874999999999,
+                120.063625,
+                119.894417,
+                120.08929100000002,
+                120.56595899999999,
+                121.035417,
+                120.24249999999999
+              ],
+              [
+                66.65645900000001,
+                66.42612500000001,
+                65.536667,
+                66.11375000000001,
+                66.402167,
+                66.611,
+                65.73675,
+                66.106584,
+                66.69862499999999
+              ]
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "validation": {
+    "againstYuku": {
+      "comparison": [
+        {
+          "runtime": "v24.14.0",
+          "reference": "yuku-parser 0.19.0",
+          "scope": {
+            "prefix": "",
+            "sourceOnly": false,
+            "logical": false
+          },
+          "corpora": [
+            {
+              "project": "vite-corpus",
+              "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+              "files": 482,
+              "fastFiles": 472,
+              "fastCandidates": 196,
+              "candidates": 201,
+              "diagnostics": 1
+            },
+            {
+              "project": "preact-corpus",
+              "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+              "files": 22,
+              "fastFiles": 17,
+              "fastCandidates": 0,
+              "candidates": 1,
+              "diagnostics": 0
+            },
+            {
+              "project": "typescript-corpus",
+              "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+              "files": 6479,
+              "fastFiles": 2120,
+              "fastCandidates": 174,
+              "candidates": 562,
+              "diagnostics": 952
+            },
+            {
+              "project": "mreact",
+              "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+              "files": 1193,
+              "fastFiles": 1169,
+              "fastCandidates": 1511,
+              "candidates": 1550,
+              "diagnostics": 0
+            },
+            {
+              "project": "tachyon-dom",
+              "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+              "files": 373,
+              "fastFiles": 365,
+              "fastCandidates": 610,
+              "candidates": 654,
+              "diagnostics": 0
+            }
+          ]
+        },
+        {
+          "runtime": "v24.14.0",
+          "reference": "yuku-parser 0.19.0",
+          "scope": {
+            "prefix": "",
+            "sourceOnly": false,
+            "logical": true
+          },
+          "corpora": [
+            {
+              "project": "vite-corpus",
+              "revision": "572aaca4594ed2377a4f63443a449e4bf3c0468c",
+              "files": 482,
+              "fastFiles": 472,
+              "fastCandidates": 196,
+              "candidates": 201,
+              "diagnostics": 1
+            },
+            {
+              "project": "preact-corpus",
+              "revision": "0dbe6367842c055637ba67814b37f488a9ad7211",
+              "files": 22,
+              "fastFiles": 17,
+              "fastCandidates": 0,
+              "candidates": 1,
+              "diagnostics": 0
+            },
+            {
+              "project": "typescript-corpus",
+              "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+              "files": 6479,
+              "fastFiles": 2120,
+              "fastCandidates": 174,
+              "candidates": 562,
+              "diagnostics": 952
+            },
+            {
+              "project": "mreact",
+              "revision": "de7fa8ae423d391f47c61effa13c3e9ea85a6e2a",
+              "files": 1193,
+              "fastFiles": 1169,
+              "fastCandidates": 1511,
+              "candidates": 1550,
+              "diagnostics": 0
+            },
+            {
+              "project": "tachyon-dom",
+              "revision": "384aaedb2758e172631ff38dbb21ce03419eb9b8",
+              "files": 373,
+              "fastFiles": 365,
+              "fastCandidates": 610,
+              "candidates": 654,
+              "diagnostics": 0
+            }
+          ]
+        }
+      ],
+      "capturedInputs": {
+        "cases": 3303,
+        "mismatches": 0
+      }
+    },
+    "againstFullTypeScript": {
+      "fullCompiler": [
+        {
+          "scope": "vite-corpus",
+          "files": 482,
+          "skipped": 0,
+          "logicalModes": 2
+        },
+        {
+          "scope": "preact-corpus",
+          "files": 22,
+          "skipped": 0,
+          "logicalModes": 2
+        },
+        {
+          "scope": "typescript-corpus",
+          "files": 6470,
+          "skipped": 9,
+          "logicalModes": 2
+        },
+        {
+          "scope": "mreact",
+          "files": 1193,
+          "skipped": 0,
+          "logicalModes": 2
+        },
+        {
+          "scope": "tachyon-dom",
+          "files": 373,
+          "skipped": 0,
+          "logicalModes": 2
+        },
+        {
+          "scope": "all-captured-fallback-inputs.jsonl",
+          "files": 4251,
+          "skipped": 5,
+          "logicalModes": 2
+        }
+      ],
+      "match": "complete extraction results, including diagnostic records"
+    }
+  }
+}
