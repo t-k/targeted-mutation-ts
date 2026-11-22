@@ -1,0 +1,13 @@
+Layout	Name	Change
+Root	Plain	Replacement
+Nested	Spaces	StagedAndUnstaged
+Root	Unicode	Replacement
+Nested	QuotedControls	Deletion
+Root	QuotedControls	StagedAndUnstaged
+Root	Spaces	Replacement
+Nested	Unicode	Deletion
+Nested	Plain	StagedAndUnstaged
+Root	Plain	Deletion
+Root	Unicode	StagedAndUnstaged
+Nested	QuotedControls	Replacement
+Nested	Spaces	Deletion
