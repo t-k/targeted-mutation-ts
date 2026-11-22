@@ -60,6 +60,26 @@ The audit was repeated on Linux arm64 in rootless Podman for all 14 new reposito
 
 The [audit results, pinned revisions, and paired samples](../evidence/m1/wider-extraction.json) include the exact checked paths. The oracles can share gaps in JavaScript acceptance. For example, Node rejects some invalid Unicode regex escapes that both compatibility oracles accept. The native path declines the tested invalid forms.
 
+## Direct parser comparison
+
+These measurements use 1,784 pinned source files from Hono, ESLint, Astro, Svelte and Vite. TMT, Yuku 0.19.0, SWC Next `@swc-next/parser` 0.7.0, and Oxc 0.159.0 returned identical ordered results for 1,853 comparison candidates. Each range and replacement is checked before timing. The table reports milliseconds per corpus as warm extraction / first extraction.
+
+| Workload | TMT baseline | Current TMT | Yuku | SWC Next | Oxc standard | Oxc lazy |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Hono | 45.60 / 119.65 | 43.12 / 118.43 | 30.33 / 63.54 | 26.76 / 57.42 | 57.15 / 84.67 | 8.01 / 30.17 |
+| ESLint | 62.57 / 143.33 | 48.48 / 131.20 | 51.63 / 92.46 | 36.86 / 75.05 | 92.98 / 115.01 | 14.35 / 37.84 |
+| Astro | 66.92 / 145.87 | 55.07 / 134.24 | 69.40 / 122.42 | 51.02 / 84.11 | 135.68 / 170.65 | 20.28 / 45.97 |
+| Svelte | 94.42 / 211.64 | 86.14 / 204.59 | 52.57 / 94.37 | 36.03 / 78.39 | 91.12 / 121.87 | 16.51 / 41.09 |
+| Vite | 16.45 / 50.04 | 13.57 / 48.90 | 35.96 / 81.75 | 28.30 / 60.14 | 69.63 / 98.27 | 9.48 / 32.16 |
+
+The benchmark used seven rotating warm trials and seven fresh-process trials on Linux arm64 under rootless Podman on an Apple M5 Max with Node 24.14.0. Fresh-process timing begins with sources in memory, before the parser import, with the Node compile cache disabled. Warm extraction includes syntax and early-error checking and candidate collection from each parser. Yuku and SWC Next use the public JS AST, and both Oxc modes use their public visitors. The raw JSON separately records warm parse-to-program timings for all external parsers. These timings include reading diagnostics and `program.body.length`. Lazy-return APIs can defer materializing child AST nodes.
+
+Oxc lazy has the lowest median on every complete corpus. On the 1,572 files accepted directly by Pulse, TMT has the lowest first-extraction median in all five cohorts and the lowest warm median in four. Warm ESLint medians on that subset are 12.37 ms for TMT and 12.29 ms for Oxc lazy. This slice isolates the native route. It excludes the costs of handling files outside its grammar.
+
+The new BMP regex production moved 77 date-fns files into Pulse. The generator changes moved another 12 ESLint files and five Astro files onto the native route. The full 23-repository independent audit still agrees in both rule settings. The largest identified remaining fallback family was a private identifier in a class field declaration. The refusal probe identified this as the first stopping token in 84 inputs before the generator change. The count covers first refusals. In a separate feasibility probe, replacing only private-name prefixes in scratch copies let 70 files with 136 candidates transfer to native extraction with exact output parity. Production support must also validate private names against the correct enclosing class, including forward declarations and duplicate or undeclared names.
+
+Use [the pinned input builder](../scripts/prepare-parser-benchmark.mjs) with a directory of Git repositories named `hono`, `eslint`, `astro`, `svelte`, and `vite`. Set `TMT_BENCH_INPUTS` to its output directory and `TMT_BENCH_BASELINE` to the built baseline’s `src/extract.mjs`, then run `node scripts/bench-parser-comparison.mjs hono eslint astro svelte vite`. Add `--native-only` before the cohort names to reproduce the native slice. The external parsers are benchmark inputs only. The recorded run used fixed package versions and verified their registry integrity, with no package lifecycle scripts and no network access during execution. See the [exact inputs, package digests, audit counts, and timing samples](../evidence/m1/parser-comparison.json).
+
 ## Analysis throughput
 
 Measurements on Apple M5 Max with Node 24.14.0 alternate baseline and current samples. The Git and CLI benchmarks use nine pairs. The coverage planner uses eleven pairs. CLI samples start a fresh Node process with the compile cache disabled.
