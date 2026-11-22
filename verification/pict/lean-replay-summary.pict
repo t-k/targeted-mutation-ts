@@ -1,0 +1,3 @@
+Flip: LT, LE, GT, GE
+Pair: Unequal, Equal, Unsafe, Empty
+Trace: Ready, Partial, Mismatched, Nondeterministic

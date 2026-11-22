@@ -54,22 +54,81 @@ theorem replay_eq (program : Program) (rules changed : Nat → Op)
 
 def safe (n : Int) : Bool := -9007199254740991 ≤ n && n ≤ 9007199254740991
 
-structure Request where
+structure ReplayHeader where
   candidate : String
   traceCandidate : String
   complete : Bool
   deterministic : Bool
   original : Op
   replacement : Op
+
+structure Request extends ReplayHeader where
   observations : List (Int × Int)
 
 def checkedPair (original replacement : Op) (pair : Int × Int) : Bool :=
   safe pair.1 && safe pair.2 && (compareBy original pair.1 pair.2 == compareBy replacement pair.1 pair.2)
 
-def maySkip (request : Request) : Bool :=
+def readyToReplay (request : ReplayHeader) : Bool :=
   request.candidate != "" && request.candidate == request.traceCandidate &&
-  request.complete && request.deterministic && !request.observations.isEmpty &&
+  request.complete && request.deterministic
+
+def maySkip (request : Request) : Bool :=
+  readyToReplay request.toReplayHeader && !request.observations.isEmpty &&
   request.observations.all (checkedPair request.original request.replacement)
+
+def boundaryFlip (original replacement : Op) : Bool :=
+  match original, replacement with
+  | .lt, .le | .le, .lt | .gt, .ge | .ge, .gt => true
+  | _, _ => false
+
+def safeAndUnequal (pair : Int × Int) : Bool :=
+  safe pair.1 && safe pair.2 && pair.1 != pair.2
+
+structure BoundarySummary where
+  count : Nat
+  safeAndUnequal : Bool
+
+def summarizeBoundary (observations : List (Int × Int)) : BoundarySummary :=
+  ⟨observations.length, observations.all safeAndUnequal⟩
+
+def maySkipBoundary (request : ReplayHeader) (summary : BoundarySummary) : Bool :=
+  readyToReplay request && boundaryFlip request.original request.replacement &&
+  summary.count != 0 && summary.safeAndUnequal
+
+private theorem strict_inclusive_agreement (left right : Int) :
+    (decide (left < right) == decide (left ≤ right)) = (left != right) := by
+  by_cases less : left < right
+  · have le : left ≤ right := by omega
+    have different : left ≠ right := by omega
+    simp [less, le, different]
+  · by_cases equal : left = right
+    · subst right
+      simp
+    · have notLe : ¬ left ≤ right := by omega
+      simp [less, notLe, equal]
+
+private theorem boundary_pair (original replacement : Op) (pair : Int × Int)
+    (flip : boundaryFlip original replacement = true) :
+    checkedPair original replacement pair = safeAndUnequal pair := by
+  have swapped : (pair.2 != pair.1) = (pair.1 != pair.2) := by
+    simp only [bne, Bool.beq_comm]
+  cases original <;> cases replacement <;> simp [boundaryFlip] at flip
+  all_goals simp only [checkedPair, safeAndUnequal, compareBy]
+  · rw [strict_inclusive_agreement]
+  · rw [Bool.beq_comm (a := decide (pair.1 ≤ pair.2)), strict_inclusive_agreement]
+  · rw [strict_inclusive_agreement, swapped]
+  · rw [Bool.beq_comm (a := decide (pair.2 ≤ pair.1)), strict_inclusive_agreement, swapped]
+
+theorem maySkipBoundary_eq (request : Request)
+    (flip : boundaryFlip request.original request.replacement = true) :
+    maySkipBoundary request.toReplayHeader (summarizeBoundary request.observations) = maySkip request := by
+  have pairs : checkedPair request.original request.replacement = safeAndUnequal := by
+    funext pair
+    exact boundary_pair _ _ pair flip
+  have nonempty : (request.observations.length != 0) = !request.observations.isEmpty := by
+    cases request.observations <;> simp
+  simp only [maySkipBoundary, maySkip, summarizeBoundary, pairs, nonempty]
+  simp [flip]
 
 def applyMutation (rules : Nat → Op) (site : Nat) (replacement : Op) : Nat → Op :=
   fun index => if index = site then replacement else rules index
@@ -104,6 +163,14 @@ theorem maySkip_replays (program : Program) (rules : Nat → Op) (site : Nat) (r
   have observations := (Bool.and_eq_true_iff.mp (show (_ && _) = true from accepted)).2
   simpa only [original, ← complete] using observations
 
+theorem maySkipBoundary_replays (program : Program) (rules : Nat → Op) (site : Nat) (request : Request)
+    (original : rules site = request.original)
+    (complete : request.observations = atSite site (run rules program).2)
+    (flip : boundaryFlip request.original request.replacement = true)
+    (accepted : maySkipBoundary request.toReplayHeader (summarizeBoundary request.observations) = true) :
+    run (applyMutation rules site request.replacement) program = run rules program := by
+  exact maySkip_replays program rules site request original complete ((maySkipBoundary_eq request flip) ▸ accepted)
+
 def decodeOp (op : String) : Except String Op :=
   match op with
   | "<" => .ok .lt
@@ -113,7 +180,7 @@ def decodeOp (op : String) : Except String Op :=
   | "true" => .ok .constantTrue
   | _ => .error "unknown operator"
 
-def decodeRequest (input : Json) : Except String Request := do
+def decodeReplayHeader (input : Json) : Except String ReplayHeader := do
   let candidate ← input.getObjValAs? String "candidate"
   let traceCandidate ← input.getObjValAs? String "traceCandidate"
   let complete ← input.getObjValAs? Bool "complete"
@@ -126,8 +193,19 @@ def decodeRequest (input : Json) : Except String Request := do
       let literal ← encoded.getObjValAs? Int "geLiteral"
       unless original == .ge && safe literal do throw "invalid literal threshold"
       pure (.geLiteral literal)
-  let observations ← input.getObjValAs? (List (Int × Int)) "observations"
-  pure { candidate, traceCandidate, complete, deterministic, original, replacement, observations }
+  pure { candidate, traceCandidate, complete, deterministic, original, replacement }
+
+def decideReplay (input : Json) : Except String Bool := do
+  let header ← decodeReplayHeader input
+  match input.getObjVal? "boundarySummary" with
+  | .ok encoded =>
+    if (input.getObjVal? "observations").toOption.isSome then throw "ambiguous replay observations"
+    let count ← encoded.getObjValAs? Nat "count"
+    let safeAndUnequal ← encoded.getObjValAs? Bool "safeAndUnequal"
+    pure (maySkipBoundary header { count, safeAndUnequal })
+  | .error _ =>
+    let observations ← input.getObjValAs? (List (Int × Int)) "observations"
+    pure (maySkip { toReplayHeader := header, observations })
 
 namespace Threshold
 
@@ -251,14 +329,12 @@ def main (args : List String) : IO UInt32 := do
       let gaps := requests.map fun request => (Threshold.decodeGap request).toOption.join
       (← IO.getStdout).putStrLn (toJson gaps).compress
       return 0
-    let decisions := requests.map fun request =>
-      match decodeRequest request with
-      | .ok decoded => maySkip decoded
-      | .error _ => false
+    let decisions := requests.map fun request => (decideReplay request).toOption.getD false
     (← IO.getStdout).putStrLn (toJson decisions).compress
     return 0
 
 #print axioms maySkip_replays
+#print axioms maySkipBoundary_replays
 
 #print axioms Threshold.bounds_exact
 #print axioms Threshold.choose_correct

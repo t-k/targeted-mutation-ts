@@ -1,0 +1,9 @@
+Flip	Pair	Trace
+LT	Unequal	Ready
+LE	Unequal	Ready
+GT	Unequal	Ready
+GE	Unequal	Ready
+GE	Empty	Ready
+GT	Equal	Ready
+LT	Unsafe	Ready
+LE	Unequal	Partial

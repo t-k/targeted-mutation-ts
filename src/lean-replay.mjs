@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const executable = fileURLToPath(new URL('../build/tmt-decide', import.meta.url));
+const boundaryFlips = new Map([['<', '<='], ['<=', '<'], ['>', '>='], ['>=', '>']]);
 
 export function runDecisionBatch(requests, args = []) {
   if (!requests.length || !existsSync(executable)) return null;
@@ -19,5 +20,19 @@ export function runDecisionBatch(requests, args = []) {
 }
 
 export function checkReplay(requests) {
-  return runDecisionBatch(requests);
+  return runDecisionBatch(requests.map(request => {
+    if (request != null && Object.hasOwn(request, 'boundarySummary')) return null;
+    if (!Array.isArray(request?.observations) || !boundaryFlips.has(request.original) ||
+        boundaryFlips.get(request.original) !== request.replacement) return request;
+    const { observations, ...header } = request;
+    let safeAndUnequal = true;
+    for (const pair of observations) {
+      if (!Array.isArray(pair) || pair.length !== 2 || !Number.isSafeInteger(pair[0]) ||
+          !Number.isSafeInteger(pair[1]) || pair[0] === pair[1]) {
+        safeAndUnequal = false;
+        break;
+      }
+    }
+    return { ...header, boundarySummary: { count: observations.length, safeAndUnequal } };
+  }));
 }
