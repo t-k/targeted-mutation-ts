@@ -208,10 +208,11 @@ type jump_context =
   | BreakOnly
   | LoopJump
   | NamedLoop : U32.t -> jump_context
+  | NestedNamedLoops : U32.t -> U32.t -> jump_context
 
 let loop_jumps (jumps:jump_context) : jump_context =
   match jumps with
-  | NamedLoop _ -> jumps
+  | NamedLoop _ | NestedNamedLoops _ _ -> jumps
   | _ -> LoopJump
 
 let can_assign (target:assignment_target) : bool = target = Assignable || target = MemberTarget || target = PrivateTarget
@@ -1731,6 +1732,13 @@ let statement_end (input:tape) (#frame:slprop) (state:parser_state) (end_at:U32.
     else read_ret input #frame (if tail.newline || st.offset = input.size || (before_brace && byte = 125uy) then st
     else failed st 1ul)
 
+let same_label_name (input:tape) (#frame:slprop) (start first last:U32.t)
+  : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! original_name = (fun () -> name input #frame start false false) in
+  let length = minus last first in
+  if original_name.ok && length = minus original_name.at start then same_bytes input #frame start first length
+  else read_ret input #frame false
+
 let jump_statement (input:tape) (#frame:slprop) (state:parser_state) (jumps:jump_context) (width:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let end_at = plus state.offset width in
@@ -1738,16 +1746,18 @@ let jump_statement (input:tape) (#frame:slprop) (state:parser_state) (jumps:jump
   | NoJump -> read_ret input #frame (failed state 1ul)
   | BreakOnly -> if width = 5ul then statement_end input #frame state end_at true else read_ret input #frame (failed state 1ul)
   | LoopJump -> statement_end input #frame state end_at true
-  | NamedLoop start ->
+  | NamedLoop _ | NestedNamedLoops _ _ ->
     let! after = (fun () -> trivia input #frame end_at) in
     let! target = (fun () -> if after.ok && not after.newline then name input #frame after.at false false
       else read_ret input #frame { at = after.at; ok = false; newline = after.newline }) in
     if not target.ok then statement_end input #frame state end_at true
     else
-      let! original_name = (fun () -> name input #frame start false false) in
-      let length = minus target.at after.at in
-      let! equal = (fun () -> if original_name.ok && length = minus original_name.at start then same_bytes input #frame start after.at length
-        else read_ret input #frame false) in
+      let! equal = (fun () -> match jumps with
+        | NamedLoop start -> same_label_name input #frame start after.at target.at
+        | NestedNamedLoops outer inner ->
+          let! matches = (fun () -> same_label_name input #frame inner after.at target.at) in
+          if matches then read_ret input #frame true else same_label_name input #frame outer after.at target.at
+        | _ -> read_ret input #frame false) in
       if equal then statement_end input #frame state target.at true
       else read_ret input #frame (failed state 1ul)
 
@@ -3117,12 +3127,20 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
     else if var then (let! anf_value_2 = (fun () -> local_var_declaration input state fuel) in ret input ({ state = anf_value_2; used }))
     else
       let! ordinary = (fun () -> simple_statement input state in_function jumps fuel) in
-      let named = match jumps with | NamedLoop _ -> true | _ -> false in
-      if ordinary.status <> 1ul || fuel = 0ul || named then ret input { state = ordinary; used }
+      let full = match jumps with | NestedNamedLoops _ _ -> true | _ -> false in
+      if ordinary.status <> 1ul || fuel = 0ul || full then ret input { state = ordinary; used }
       else
         let! opening = (fun () -> labeled_loop_start input state) in
         if opening.status <> 0ul then ret input { state = ordinary; used }
-        else control_statement input opening (minus fuel 1ul) in_function (NamedLoop state.offset) floor used allow_var
+        else
+          let! context, valid = (fun () -> match jumps with
+            | NamedLoop outer ->
+              let! end_ = (fun () -> name input state.offset false false) in
+              let! duplicate = (fun () -> same_label_name input outer state.offset end_.at) in
+              ret input (NestedNamedLoops outer state.offset, not duplicate)
+            | _ -> ret input (NamedLoop state.offset, true)) in
+          if valid then control_statement input opening (minus fuel 1ul) in_function context floor used allow_var
+          else ret input { state = ordinary; used }
   else if fuel = 0ul then ret input ({ state = failed state 3ul; used })
   else
     let inner = minus fuel 1ul in
@@ -3465,6 +3483,10 @@ and collection_head (input:tape) (state:parser_state) (allow_in local_var:bool) 
       let! first = (fun () -> peek input start.offset) in ret input (first = 91uy || first = 123uy)
       else ret input false) in
     let! bound = (fun () -> if constant || lexical || var_pattern then pattern_binding input start binding_region_width mark mark fuel
+      else if width = 0ul && byte = 91uy then
+        let! target = (fun () -> atom input { start with in_allowed = false } fuel) in
+        let st = { target.parser with in_allowed = start.in_allowed } in
+        ret input { state = if target.target = ArrayTarget then st else failed st 1ul; used = mark }
       else let! target = (fun () -> name input start.offset false true) in ret input { state = from_cursor start target; used = mark }) in
     let! next_token = (fun () -> skip input bound.state) in
     let! of_token = (fun () -> keyword input next_token.offset 2ul 0x6f66uL) in

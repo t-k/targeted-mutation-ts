@@ -22,6 +22,7 @@ for (const row of rows) {
     }[jump];
     const placed = {
       Direct: action, Nested: `for (const entry of items) { ${action} }`,
+      NestedNamed: `inner: for (const entry of items) { ${action} }`,
       Switch: `switch (state) { case 1: ${action} }`,
       Function: `invoke(() => { ${action} });`,
     }[placement];
@@ -34,7 +35,9 @@ for (const row of rows) {
 
 test('a label only belongs to its loop and a function gets an independent context', () => {
   compare('outer: while (x > 1) { break outer; } while (y < 2) { break outer; }', false);
-  compare('outer: while (x > 1) { inner: while (y < 2) { break outer; } }', false);
+  compare('outer: while (x > 1) { inner: while (y < 2) { continue inner; break outer; } }', true);
+  compare('outer: while (x > 1) { outer: while (y < 2) { break outer; } }', false);
+  compare('one: while (a < b) { two: for (;;) { three: do { break one; } while (x >= y); } }', false);
   compare('outer: if (x > 1) { break outer; }', false);
   compare('outer: while (a > b) { run(() => { outer: for (;;) { break outer; } }); }', true);
   compare('outer: while (a > b) { continue\nouter; }', true);

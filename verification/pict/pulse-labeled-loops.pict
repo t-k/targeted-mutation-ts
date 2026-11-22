@@ -1,3 +1,3 @@
 Loop: For, While, Do
-Place: Direct, Nested, Switch, Function
+Place: Direct, Nested, NestedNamed, Switch, Function
 Jump: Break, Continue, Unknown, Unlabeled

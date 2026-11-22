@@ -6,3 +6,5 @@ For	Switch	Break
 Do	Function	Unknown
 For	Function	Continue
 While	Direct	Unlabeled
+For	NestedNamed	Continue
+Do	NestedNamed	Break

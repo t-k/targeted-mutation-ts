@@ -1,0 +1,13 @@
+Head	Target	Tail
+Of	Hole	Complete
+In	Member	Complete
+AwaitOf	Hole	Complete
+Of	Spread	Complete
+Of	Invalid	Complete
+AwaitOf	Member	Broken
+In	Hole	Broken
+Of	Member	Broken
+AwaitOf	Invalid	Broken
+In	Spread	Broken
+In	Invalid	Broken
+AwaitOf	Spread	Broken

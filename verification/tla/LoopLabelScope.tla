@@ -1,11 +1,11 @@
 ----------------------------- MODULE LoopLabelScope -----------------------------
-EXTENDS Naturals, Sequences
+EXTENDS FiniteSets, Naturals, Sequences
 
 CONSTANTS Depth, Names, NoLabel
 VARIABLES stack, last
 
 vars == <<stack, last>>
-Root == [kind |-> "function", label |-> NoLabel]
+Root == [kind |-> "function", label |-> NoLabel, visible |-> {}]
 top == stack[Len(stack)]
 
 Init ==
@@ -14,7 +14,7 @@ Init ==
 
 EnterBlock ==
   /\ Len(stack) < Depth
-  /\ stack' = Append(stack, [kind |-> "block", label |-> top.label])
+  /\ stack' = Append(stack, [kind |-> "block", label |-> NoLabel, visible |-> top.visible])
   /\ last' = [target |-> NoLabel, accepted |-> FALSE]
 
 EnterFunction ==
@@ -24,9 +24,9 @@ EnterFunction ==
 
 EnterLoop ==
   /\ Len(stack) < Depth
-  /\ top.label = NoLabel
-  /\ \E label \in Names:
-       stack' = Append(stack, [kind |-> "loop", label |-> label])
+  /\ Cardinality(top.visible) < 2
+  /\ \E label \in Names \ top.visible:
+       stack' = Append(stack, [kind |-> "loop", label |-> label, visible |-> top.visible \cup {label}])
   /\ last' = [target |-> NoLabel, accepted |-> FALSE]
 
 Close ==
@@ -36,7 +36,7 @@ Close ==
 
 Jump ==
   /\ \E name \in Names:
-       last' = [target |-> name, accepted |-> top.label = name]
+       last' = [target |-> name, accepted |-> name \in top.visible]
   /\ UNCHANGED stack
 
 Next == EnterBlock \/ EnterFunction \/ EnterLoop \/ Close \/ Jump
@@ -48,6 +48,6 @@ VisibleLoop(name) ==
     /\ stack[i].label = name
     /\ \A j \in (i+1)..Len(stack): stack[j].kind # "function"
 
-ScopeCorrect == \A label \in Names: (top.label = label) <=> VisibleLoop(label)
+ScopeCorrect == \A label \in Names: (label \in top.visible) <=> VisibleLoop(label)
 JumpCorrect == last.target # NoLabel => (last.accepted <=> VisibleLoop(last.target))
 =================================================================================

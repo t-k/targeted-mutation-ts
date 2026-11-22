@@ -5804,6 +5804,22 @@ TmtPulseParser_read_local_var_name(TmtPulseMemory_tape input, TmtPulseParser_par
       TmtPulseMemory_LocalVarName);
 }
 
+bool
+TmtPulseParser_same_label_name(
+  TmtPulseMemory_tape input,
+  uint32_t start,
+  uint32_t first,
+  uint32_t last
+)
+{
+  TmtPulseParser_cursor value = TmtPulseParser_name(input, start, false, false);
+  uint32_t length = TmtPulseParser_minus(last, first);
+  if (value.ok && length == TmtPulseParser_minus(value.at, start))
+    return TmtPulseParser_same_bytes(input, start, first, length);
+  else
+    return false;
+}
+
 TmtPulseParser_parser_state
 TmtPulseParser_jump_statement(
   TmtPulseMemory_tape input,
@@ -5826,7 +5842,6 @@ TmtPulseParser_jump_statement(
     return TmtPulseParser_statement_end(input, state, end_at, true);
   else if (jumps.tag == TmtPulseParser_NamedLoop)
   {
-    uint32_t start = jumps._0;
     TmtPulseParser_cursor value = TmtPulseParser_trivia(input, end_at);
     TmtPulseParser_cursor value1;
     if (value.ok && !value.newline)
@@ -5837,14 +5852,61 @@ TmtPulseParser_jump_statement(
       return TmtPulseParser_statement_end(input, state, end_at, true);
     else
     {
-      TmtPulseParser_cursor value2 = TmtPulseParser_name(input, start, false, false);
-      uint32_t length = TmtPulseParser_minus(value1.at, value.at);
-      bool value3;
-      if (value2.ok && length == TmtPulseParser_minus(value2.at, start))
-        value3 = TmtPulseParser_same_bytes(input, start, value.at, length);
+      bool value20;
+      if (jumps.tag == TmtPulseParser_NamedLoop)
+      {
+        uint32_t start = jumps.case_NamedLoop;
+        value20 = TmtPulseParser_same_label_name(input, start, value.at, value1.at);
+      }
+      else if (jumps.tag == TmtPulseParser_NestedNamedLoops)
+      {
+        uint32_t inner = jumps.case_NestedNamedLoops._1;
+        uint32_t outer = jumps.case_NestedNamedLoops._0;
+        bool value2 = TmtPulseParser_same_label_name(input, inner, value.at, value1.at);
+        if (value2)
+          value20 = true;
+        else
+          value20 = TmtPulseParser_same_label_name(input, outer, value.at, value1.at);
+      }
       else
-        value3 = false;
-      if (value3)
+        value20 = false;
+      if (value20)
+        return TmtPulseParser_statement_end(input, state, value1.at, true);
+      else
+        return TmtPulseParser_failed(state, 1U);
+    }
+  }
+  else if (jumps.tag == TmtPulseParser_NestedNamedLoops)
+  {
+    TmtPulseParser_cursor value = TmtPulseParser_trivia(input, end_at);
+    TmtPulseParser_cursor value1;
+    if (value.ok && !value.newline)
+      value1 = TmtPulseParser_name(input, value.at, false, false);
+    else
+      value1 = ((TmtPulseParser_cursor){ .at = value.at, .ok = false, .newline = value.newline });
+    if (!value1.ok)
+      return TmtPulseParser_statement_end(input, state, end_at, true);
+    else
+    {
+      bool value20;
+      if (jumps.tag == TmtPulseParser_NamedLoop)
+      {
+        uint32_t start = jumps.case_NamedLoop;
+        value20 = TmtPulseParser_same_label_name(input, start, value.at, value1.at);
+      }
+      else if (jumps.tag == TmtPulseParser_NestedNamedLoops)
+      {
+        uint32_t inner = jumps.case_NestedNamedLoops._1;
+        uint32_t outer = jumps.case_NestedNamedLoops._0;
+        bool value2 = TmtPulseParser_same_label_name(input, inner, value.at, value1.at);
+        if (value2)
+          value20 = true;
+        else
+          value20 = TmtPulseParser_same_label_name(input, outer, value.at, value1.at);
+      }
+      else
+        value20 = false;
+      if (value20)
         return TmtPulseParser_statement_end(input, state, value1.at, true);
       else
         return TmtPulseParser_failed(state, 1U);
@@ -5884,11 +5946,12 @@ TmtPulseParser_jump_context TmtPulseParser_loop_jumps(TmtPulseParser_jump_contex
 {
   return
     jumps.tag == TmtPulseParser_NamedLoop ? jumps
-                                          : (
-                                            (TmtPulseParser_jump_context){
-                                              .tag = TmtPulseParser_LoopJump
-                                            }
-                                          );
+                                          : jumps.tag == TmtPulseParser_NestedNamedLoops ? jumps
+                                                                                         : (
+                                                                                           (TmtPulseParser_jump_context){
+                                                                                             .tag = TmtPulseParser_LoopJump
+                                                                                           }
+                                                                                         );
 }
 
 uint32_t TmtPulseParser_update_width(TmtPulseMemory_tape input, uint32_t at, uint8_t byte)
@@ -13406,6 +13469,57 @@ TmtPulseParser_collection_head(
           mark,
           mark,
           fuel);
+    else if (width == 0U && value == 91U)
+    {
+      TmtPulseParser_parsed
+      value6 =
+        TmtPulseParser_atom(input,
+          (
+            (TmtPulseParser_parser_state){
+              .offset = value4.offset,
+              .count = value4.count,
+              .depth = value4.depth,
+              .status = value4.status,
+              .local_names = value4.local_names,
+              .await_allowed = value4.await_allowed,
+              .yield_allowed = value4.yield_allowed,
+              .jsx_allowed = value4.jsx_allowed,
+              .module_mode = value4.module_mode,
+              .strict_script = value4.strict_script,
+              .in_allowed = false,
+              .for_initializer = value4.for_initializer,
+              .arrow_defaults_allowed = value4.arrow_defaults_allowed,
+              .binding_mode = value4.binding_mode,
+              .super_context = value4.super_context,
+              .private_scope = value4.private_scope,
+              .private_count = value4.private_count,
+              .local_log_floor = value4.local_log_floor,
+              .local_log_used = value4.local_log_used
+            }
+          ),
+          fuel);
+      TmtPulseParser_parser_state uu____0 = value6.parser;
+      TmtPulseParser_parser_state
+      st =
+        {
+          .offset = uu____0.offset, .count = uu____0.count, .depth = uu____0.depth,
+          .status = uu____0.status, .local_names = uu____0.local_names,
+          .await_allowed = uu____0.await_allowed, .yield_allowed = uu____0.yield_allowed,
+          .jsx_allowed = uu____0.jsx_allowed, .module_mode = uu____0.module_mode,
+          .strict_script = uu____0.strict_script, .in_allowed = value4.in_allowed,
+          .for_initializer = uu____0.for_initializer,
+          .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
+          .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context,
+          .private_scope = uu____0.private_scope, .private_count = uu____0.private_count,
+          .local_log_floor = uu____0.local_log_floor, .local_log_used = uu____0.local_log_used
+        };
+      TmtPulseParser_parser_state ite;
+      if (value6.target == TmtPulseParser_ArrayTarget)
+        ite = st;
+      else
+        ite = TmtPulseParser_failed(st, 1U);
+      value60 = ((TmtPulseParser_named_state){ .state = ite, .used = mark });
+    }
     else
     {
       TmtPulseParser_cursor value6 = TmtPulseParser_name(input, value4.offset, false, true);
@@ -14376,8 +14490,8 @@ TmtPulseParser_control_statement(
       {
         TmtPulseParser_parser_state
         value4 = TmtPulseParser_simple_statement(input, state, in_function, jumps, fuel);
-        bool named = jumps.tag == TmtPulseParser_NamedLoop;
-        if (value4.status != 1U || fuel == 0U || named)
+        bool full = jumps.tag == TmtPulseParser_NestedNamedLoops;
+        if (value4.status != 1U || fuel == 0U || full)
           return ((TmtPulseParser_named_state){ .state = value4, .used = used });
         else
         {
@@ -14386,13 +14500,44 @@ TmtPulseParser_control_statement(
             return ((TmtPulseParser_named_state){ .state = value4, .used = used });
           else
           {
-            TmtPulseParser_parser_state tmp0 = value5;
-            uint32_t tmp1 = TmtPulseParser_minus(fuel, 1U);
-            TmtPulseParser_jump_context
-            tmp = { .tag = TmtPulseParser_NamedLoop, ._0 = state.offset };
-            state = tmp0;
-            fuel = tmp1;
-            jumps = tmp;
+            FStar_Pervasives_Native_tuple2__TmtPulseParser_jump_context_bool value60;
+            if (jumps.tag == TmtPulseParser_NamedLoop)
+            {
+              uint32_t outer = jumps.case_NamedLoop;
+              TmtPulseParser_cursor value6 = TmtPulseParser_name(input, state.offset, false, false);
+              bool value7 = TmtPulseParser_same_label_name(input, outer, state.offset, value6.at);
+              value60 =
+                (
+                  (FStar_Pervasives_Native_tuple2__TmtPulseParser_jump_context_bool){
+                    ._1 = {
+                      .tag = TmtPulseParser_NestedNamedLoops,
+                      { .case_NestedNamedLoops = { ._0 = outer, ._1 = state.offset } }
+                    },
+                    ._2 = !value7
+                  }
+                );
+            }
+            else
+              value60 =
+                (
+                  (FStar_Pervasives_Native_tuple2__TmtPulseParser_jump_context_bool){
+                    ._1 = { .tag = TmtPulseParser_NamedLoop, { .case_NamedLoop = state.offset } },
+                    ._2 = true
+                  }
+                );
+            TmtPulseParser_jump_context context = value60._1;
+            bool valid = value60._2;
+            if (valid)
+            {
+              TmtPulseParser_parser_state tmp0 = value5;
+              uint32_t tmp1 = TmtPulseParser_minus(fuel, 1U);
+              TmtPulseParser_jump_context tmp = context;
+              state = tmp0;
+              fuel = tmp1;
+              jumps = tmp;
+            }
+            else
+              return ((TmtPulseParser_named_state){ .state = value4, .used = used });
           }
         }
       }

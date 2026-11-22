@@ -339,13 +339,23 @@ uint32_t TmtPulseParser_statement_kind(TmtPulseMemory_tape input, uint32_t at);
 #define TmtPulseParser_BreakOnly 1
 #define TmtPulseParser_LoopJump 2
 #define TmtPulseParser_NamedLoop 3
+#define TmtPulseParser_NestedNamedLoops 4
 
 typedef uint8_t TmtPulseParser_jump_context_tags;
 
 typedef struct TmtPulseParser_jump_context_s
 {
   TmtPulseParser_jump_context_tags tag;
-  uint32_t _0;
+  union {
+    uint32_t case_NamedLoop;
+    struct
+    {
+      uint32_t _0;
+      uint32_t _1;
+    }
+    case_NestedNamedLoops;
+  }
+  ;
 }
 TmtPulseParser_jump_context;
 
@@ -1015,6 +1025,14 @@ TmtPulseParser_local_type_alias(
 
 TmtPulseParser_parser_state
 TmtPulseParser_read_local_var_name(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
+
+bool
+TmtPulseParser_same_label_name(
+  TmtPulseMemory_tape input,
+  uint32_t start,
+  uint32_t first,
+  uint32_t last
+);
 
 TmtPulseParser_parser_state
 TmtPulseParser_jump_statement(
@@ -1910,6 +1928,13 @@ TmtPulseParser_switch_sequence(
   bool has_label0,
   bool seen_default0
 );
+
+typedef struct FStar_Pervasives_Native_tuple2__TmtPulseParser_jump_context_bool_s
+{
+  TmtPulseParser_jump_context _1;
+  bool _2;
+}
+FStar_Pervasives_Native_tuple2__TmtPulseParser_jump_context_bool;
 
 TmtPulseParser_named_state
 TmtPulseParser_control_statement(
