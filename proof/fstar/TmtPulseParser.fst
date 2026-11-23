@@ -791,13 +791,15 @@ let is_interface_binding (namespace:binding_namespace) : bool =
   namespace = InterfaceName || namespace = ExportedInterfaceName
 
 let names_overlap (left right:binding_namespace) : bool =
-  if is_function_binding left && is_function_binding right then
+  if left = RuntimeExport then right = ValueName || right = BothNames || right = FunctionImplementation
+  else if is_function_binding left && is_function_binding right then
     left = FunctionImplementation && right = FunctionImplementation
   else if left = ExportedInterfaceName && right = ExportedInterfaceName then false
   else if (is_interface_binding left && right = TypeNamespace) || (left = TypeNamespace && is_interface_binding right) then false
   else
     let effective binding = if is_function_binding binding then ValueName
-      else if is_interface_binding binding then TypeName else if binding = TypeNamespace then BothNames else binding in
+      else if is_interface_binding binding then TypeName
+      else if binding = TypeNamespace || binding = TypeOnlyImport then BothNames else binding in
     let left = effective left in
     let right = effective right in
     left = BothNames || right = BothNames || left = right
@@ -4129,11 +4131,12 @@ let rec import_members (input:tape) (state:parser_state) (used:names_used) (fuel
     else
       let! imported = (fun () -> scan_class input st.offset G.Identifier) in
       let! tail = (fun () -> skip input { st with offset = imported }) in
+      let namespace = if input.capture_types && (type_only || not allow_type) then TypeOnlyImport else BothNames in
       let! local =
         (fun () -> (let! anf_value_3 = (fun () -> keyword input tail.offset 2ul 0x6173uL) in if anf_value_3 then
           let! start = (fun () -> skip input { tail with offset = plus tail.offset 2ul }) in
-          bind_at input start 0ul used start.offset
-        else bind_at input st 0ul used st.offset)) in
+          bind_in_namespace input start 0ul 0ul used start.offset namespace
+        else bind_in_namespace input st 0ul 0ul used st.offset namespace)) in
       let! st = (fun () -> skip input local.state) in
       (let! comma = (fun () -> same input st.offset 44uy) in
       let! end_ = (fun () -> if comma then consume input st 44uy else ret input st) in
@@ -4152,7 +4155,8 @@ let import_bindings (input:tape) (state:parser_state) (used:names_used) (allow_t
     let! as_ = (fun () -> skip input { st with offset = next st.offset }) in
     (let! anf_value_2 = (fun () -> keyword input as_.offset 2ul 0x6173uL) in if anf_value_2 then
       let! local = (fun () -> skip input { as_ with offset = plus as_.offset 2ul }) in
-      bind_at input local 0ul used local.offset
+      let namespace = if input.capture_types && not allow_type then TypeOnlyImport else BothNames in
+      bind_in_namespace input local 0ul 0ul used local.offset namespace
     else ret input ({ state = failed st 1ul; used }))
   else ret input ({ state = failed st 1ul; used })
 
@@ -4180,7 +4184,9 @@ let import_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
       else if type_only then
         let! first = (fun () -> peek input after_type.offset) in
         if first = 123uy || first = 42uy then import_bindings input after_type used false
-        else bind_at input after_type 0ul used after_type.offset
+        else
+          let namespace = if input.capture_types then TypeOnlyImport else BothNames in
+          bind_in_namespace input after_type 0ul 0ul used after_type.offset namespace
       else
         let! default_ = (fun () -> bind_at input st 0ul used st.offset) in
         let! after = (fun () -> skip input default_.state) in
@@ -4630,7 +4636,8 @@ let rec reexport_members (input:tape) (state:parser_state) (used locals:names_us
       else ret input (st, first)) in
     let! locals_known =
       (fun () -> if locals_known && source_end.status = 0ul then
-        name_seen input 0ul 0ul locals source.offset (minus source_end.offset source.offset) BothNames
+        let namespace = if input.capture_types && not type_statement && source.offset = st.offset then RuntimeExport else BothNames in
+        name_seen input 0ul 0ul locals source.offset (minus source_end.offset source.offset) namespace
       else ret input (false)) in
     let! after_source = (fun () -> skip input source_end) in
     let! as_ = (fun () -> keyword input after_source.offset 2ul 0x6173uL) in
@@ -4679,7 +4686,8 @@ let named_reexport (input:tape) (state:parser_state) (used locals:names_used) (p
     else if pending = deferred_export_limit then ret input ({ named with state = failed complete 1ul }, pending)
     else
       let span = { G.first = start.offset; G.last = named.state.offset } in
-      let! _ = (fun () -> set_binding input (deferred_export_slot pending) { span; namespace = BothNames; owner = 0uy }) in
+      let namespace = if type_statement then TypeName else BothNames in
+      let! _ = (fun () -> set_binding input (deferred_export_slot pending) { span; namespace; owner = 0uy }) in
       let more:pending_exports = U32.add pending 1ul in
       ret input ({ named with state = complete }, more)
 
@@ -4691,10 +4699,10 @@ let rec check_local_exports (input:tape) (state:parser_state) (locals:names_used
   else
     let index = U32.sub pending 1ul in
     let! saved = (fun () -> get_binding input (deferred_export_slot index)) in
-    let! checked = (fun () -> reexport_members input { state with offset = saved.span.G.first } 0ul locals 64ul true false false) in
+    let! checked = (fun () -> reexport_members input { state with offset = saved.span.G.first } 0ul locals 64ul true false (saved.namespace = TypeName)) in
     if checked.named.state.status = 0ul && checked.named.state.offset = saved.span.G.last then
       if checked.locals_known then check_local_exports input state locals index
-      else ret input (failed state (if input.capture_jsx then unbound_runtime_export_status else 1ul))
+      else ret input (failed state (if input.capture_jsx || input.capture_types then unbound_runtime_export_status else 1ul))
     else ret input (failed state 1ul)
 
 type export_prefix = { after_export:parser_state; export_kind:U32.t; direct:bool; type_only:bool }

@@ -1,0 +1,6 @@
+Binding	Order	Export
+Alias	Before	Plain
+NamedImport	After	Plain
+Interface	After	TypeStatement
+InlineImport	Before	InlineType
+Runtime	After	Plain

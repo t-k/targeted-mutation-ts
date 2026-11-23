@@ -25,6 +25,8 @@ type binding_namespace =
   | PrivateReference
   | LocalLexicalName
   | LocalVarName
+  | TypeOnlyImport
+  | RuntimeExport
 
 type binding_name = { span:G.span; namespace:binding_namespace; owner:U8.t }
 

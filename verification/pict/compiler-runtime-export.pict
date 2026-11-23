@@ -1,0 +1,3 @@
+Binding: Alias, Interface, NamedImport, DefaultImport, NamespaceImport, InlineImport, Runtime
+Order: Before, After
+Export: Plain, TypeStatement, InlineType
