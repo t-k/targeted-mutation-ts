@@ -855,13 +855,23 @@ static bool comparison_angle(TmtPulseMemory_tape input, uint32_t at, bool certai
   return true;
 }
 
+static bool dotted_property(const uint8_t *code, uint32_t first) {
+  return first && code[first - 1] == '.' && (first == 1 || code[first - 2] != '.');
+}
+
+static bool assertion_keyword_value(const uint8_t *code, uint32_t size, uint32_t first, uint32_t end) {
+  if (dotted_property(code, first)) return true;
+  while (end < size && space(code[end])) end++;
+  return end < size && code[end] == ':';
+}
+
 static bool value_keyword(const uint8_t *code, uint32_t size, uint32_t first, uint32_t end) {
-  if (first && code[first - 1] == '.' && (first == 1 || code[first - 2] != '.')) return true;
+  if (dotted_property(code, first)) return true;
   if (first && end < size && (code[end] == '"' || code[end] == '\'') && code[first - 1] == code[end]) end++;
   while (end < size && space(code[end])) end++;
   if (end == size) return false;
   const uint8_t byte = code[end];
-  return byte == ':' || byte == '=' || byte == ',' || byte == ';' || byte == ')' || byte == '}' || byte == '.' ||
+  return byte == ':' || byte == '=' || byte == ',' || byte == ';' || byte == ')' || byte == '}' || byte == '.' || byte == ']' || byte == '?' || byte == '(' ||
     (byte == '!' && size - end >= 2 && code[end + 1] == '=') ||
     ((byte == '&' || byte == '|') && size - end >= 2 && code[end + 1] == byte);
 }
@@ -890,9 +900,12 @@ static bool unambiguous_javascript(TmtPulseMemory_tape input, uint8_t *code, uin
     uint32_t end = first + 1;
     while (end < size && TmtGrammar_identifier_continue(code[end])) end++;
     const uint32_t width = end - first;
-    bool needs_module_context = (width == 2 && !memcmp(code + first, "as", 2)) ||
+    const bool assertion_keyword = (width == 2 && !memcmp(code + first, "as", 2)) ||
       (width == 9 && !memcmp(code + first, "satisfies", 9));
-    if (!needs_module_context && width >= 4 && width <= 10) {
+    bool needs_module_context = false;
+    if (assertion_keyword) {
+      needs_module_context = !assertion_keyword_value(code, size, first, end);
+    } else if (width >= 4 && width <= 10) {
       for (size_t index = 0; index < sizeof(reserved) / sizeof(*reserved); index++) {
         const char *word = reserved[index];
         if (code[first] == (uint8_t)word[0] && width == strlen(word) && !memcmp(code + first, word, width)) {

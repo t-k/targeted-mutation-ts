@@ -1,0 +1,14 @@
+Name	Form	Dialect
+As	Key	TS
+Satisfies	OptionalDot	TSX
+Type	Dot	TSX
+As	OptionalDot	TS
+Namespace	OptionalDot	TSX
+As	Dot	TS
+Namespace	Dot	TS
+Namespace	Key	TSX
+Type	Key	TS
+Satisfies	Dot	TS
+Satisfies	Key	TSX
+Type	OptionalDot	TS
+As	Dot	TSX
