@@ -16581,16 +16581,41 @@ TmtPulseParser_function_parameters(
           if (value8)
           {
             TmtPulseParser_parser_state value9 = TmtPulseParser_consume(input, value7, 44U);
-            TmtPulseParser_parser_state tmp0 = value9;
+            TmtPulseParser_parser_state value10;
+            if (!constructor && value5 == 58U)
+              value10 =
+                TmtPulseParser_record_jsx_span(input,
+                  value9,
+                  14U,
+                  value.offset,
+                  value9.offset);
+            else
+              value10 = value9;
+            TmtPulseParser_parser_state tmp0 = value10;
             uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
             state = tmp0;
             remaining = tmp;
           }
           else
           {
-            TmtPulseParser_parser_state value9 = TmtPulseParser_consume(input, value7, 41U);
-            TmtPulseParser_named_state value10 = { .state = value9, .used = used };
-            return ((TmtPulseParser_parameter_list){ .names = value10, .non_simple = non_simple });
+            TmtPulseParser_parser_state value9;
+            if (!constructor && value5 == 58U)
+              value9 =
+                TmtPulseParser_record_jsx_span(input,
+                  value7,
+                  14U,
+                  value.offset,
+                  value60.offset);
+            else
+              value9 = value7;
+            TmtPulseParser_parser_state value10 = TmtPulseParser_consume(input, value9, 41U);
+            return
+              (
+                (TmtPulseParser_parameter_list){
+                  .names = { .state = value10, .used = used },
+                  .non_simple = non_simple
+                }
+              );
           }
         }
         else if (value2)

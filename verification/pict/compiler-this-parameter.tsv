@@ -1,0 +1,10 @@
+Form	Following	Dialect
+Function	Only	TS
+Method	Variable	TSX
+Expression	Default	TS
+Expression	Variable	TS
+Function	Variable	TSX
+Function	Default	TSX
+Method	Default	TS
+Method	Only	TSX
+Expression	Only	TSX

@@ -3706,9 +3706,17 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
       let! typed = (fun () -> if not constructor && (mark = 41uy || mark = 44uy) then ret input colon
         else (let! anf_value_4 = (fun () -> consume input colon 58uy) in annotation_type input anf_value_4 16ul 64ul)) in
       let! end_ = (fun () -> skip input typed) in
-      (let! anf_value_5 = (fun () -> same input end_.offset 44uy) in if anf_value_5 then
-        (let! anf_value_6 = (fun () -> (consume input end_ 44uy)) in function_parameters input anf_value_6 floor used fuel (minus remaining 1ul) non_simple constructor)
-      else (let! anf_value_7 = (fun () -> (let! anf_value_8 = (fun () -> consume input end_ 41uy) in ret input ({ state = anf_value_8; used }))) in ret input ({ names = anf_value_7; non_simple })))
+      let! comma = (fun () -> same input end_.offset 44uy) in
+      if comma then
+        let! after = (fun () -> consume input end_ 44uy) in
+        let! after = (fun () -> if not constructor && mark = 58uy then
+          record_jsx_span input after 14ul st.offset after.offset else ret input after) in
+        function_parameters input after floor used fuel (minus remaining 1ul) non_simple constructor
+      else
+        let! end_ = (fun () -> if not constructor && mark = 58uy then
+          record_jsx_span input end_ 14ul st.offset typed.offset else ret input end_) in
+        let! closed = (fun () -> consume input end_ 41uy) in
+        ret input ({ names = { state = closed; used }; non_simple })
     else if spread then rest_parameter input st floor used
     else
       let! st = (fun () -> if constructor then constructor_property input st else ret input (st)) in

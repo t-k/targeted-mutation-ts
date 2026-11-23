@@ -777,7 +777,7 @@ enum {
   type_assertion = 11,
   type_marker = 12,
   runtime_enum = 13,
-  erased_module_member = 14,
+  erased_list_member = 14,
   class_modifiers = 15,
   generic_arrow = 16,
   lexical_text = 17,
@@ -1034,7 +1034,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
   *output = NULL;
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
-    const bool member = event.original == erased_module_member;
+    const bool member = event.original == erased_list_member;
     const bool modifiers = event.original == class_modifiers;
     const bool arrow = event.original == generic_arrow;
     const bool heritage = event.original == class_implements;
