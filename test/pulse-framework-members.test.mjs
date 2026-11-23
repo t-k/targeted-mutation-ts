@@ -48,7 +48,8 @@ test('nested exported type-only namespaces keep their bindings local', () => {
   compare('export namespace Outer { type Same = number; export namespace Inner { type Same = string; } type Last = Same; } const hit = a < b;', true);
   compare('export namespace Outer { export namespace One { type Same = string; } export namespace Two { type Same = number; } }', true);
   compare('export namespace Outer { export namespace Inner { type One = string; type One = number; } }', false);
-  compare('export namespace Outer { export namespace Inner { type One = string; } type Inner = number; }', false);
+  // A namespace of types merges with a type alias of its name.
+  compare('export namespace Outer { export namespace Inner { type One = string; } type Inner = number; }', true);
   compare('export namespace Outer { export namespace Inner { type One = string; } } export { Inner };', false);
   compare('export namespace Outer { export namespace Inner { const hit = a < b; } }', false);
   compare('export namespace Outer { export namespace Inner { type One = string; } const hit = a < b;', false);

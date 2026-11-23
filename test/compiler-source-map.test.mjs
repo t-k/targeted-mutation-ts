@@ -44,7 +44,8 @@ function decode(mappings) {
 
 const lines = text => text.split(/\r\n|[\n\r\u2028\u2029]/);
 
-const kind = character => /\s/.test(character) ? 0 : /[\w$\u0080-\uffff]/.test(character) ? 1 : 2;
+// Blank, word or punctuation. Only ASCII blanks separate runs, so a no-break space in a string counts as a word character.
+const kind = character => /[ \t\v\f]/.test(character) ? 0 : /[\w$\u0080-\uffff]/.test(character) ? 1 : 2;
 
 // Every segment sits on a token of the output and maps it to the same text in the source.
 // Returns the number of segments. Lowered output also holds generated text, which has no segment.
@@ -57,8 +58,9 @@ export function assertSegmentsFaithful(source, result, projection = false) {
     for (const [index, [column, sourceLine, sourceColumn]] of segments.entries()) {
       if (sourceLine === undefined) {
         // Generated text is marked once, where it first follows a mapped copy, on the same line or a later one.
-        assert.ok(!projection && previous?.length === 3 && (index === 0 || column > segments[index - 1][0]),
-          `unmapped segment at line ${row} column ${column}`);
+        // In a projection only a written separator or parenthesis is generated.
+        assert.ok(previous?.length === 3 && (index === 0 || column > segments[index - 1][0]) &&
+          (!projection || /[;()]/.test(generated[row][column])), `unmapped segment at line ${row} column ${column}`);
         previous = segments[index];
         continue;
       }
@@ -72,13 +74,20 @@ export function assertSegmentsFaithful(source, result, projection = false) {
       while (end < generated[row].length && kind(generated[row][end]) === kind(here)) end++;
       const run = generated[row].slice(column, end);
       const there = original[sourceLine]?.slice(sourceColumn, sourceColumn + run.length);
-      // A separator or a parenthesis written over erased syntax has no counterpart, and a copy may end inside a run.
-      assert.ok(there === run || /^[;()]/.test(run) || there?.[0] === here && !projection,
+      // A copy may end inside a run of lowered output, and may continue behind a written separator or parenthesis.
+      assert.ok(there === run || there?.[0] === here && (!projection || /[;()]/.test(run)),
         `segment at line ${row} column ${column} maps ${JSON.stringify(run)} to ${JSON.stringify(there)}`);
       count++;
     }
   }
   return count;
+}
+
+// Whether the output keeps every byte position of the source. A lowered output may have the same length by chance,
+// so the line breaks have to sit at the same offsets as well.
+export function isProjection(source, code) {
+  const from = Buffer.from(source), to = Buffer.from(code);
+  return from.length === to.length && from.every((byte, at) => (byte === 10 || byte === 13) === (to[at] === 10 || to[at] === 13));
 }
 
 // Every token of the output maps to the same token text in the source.
@@ -95,14 +104,16 @@ export function assertTokensMapped(source, result) {
     while (line + 1 < starts.length && starts[line + 1] <= at) line++;
     const column = at - starts[line];
     const segment = (table[line] ?? []).findLast(entry => entry[0] <= column);
+    // A written separator that opens a line has no segment when the text before it was generated as well.
+    if (!segment && /^[;()]$/.test(scanner.getTokenText())) continue;
     assert.ok(segment, `No mapping for line ${line} column ${column}`);
     // A string or template may span lines. Its first line is enough to identify it.
     // The scanner cannot tell a template tail from a brace, so it may run on. The first run of
     // characters without white space still identifies the position.
     const token = lines(scanner.getTokenText())[0].split(/\s/)[0];
-    const found = original[segment[1]].slice(segment[2] + column - segment[0]);
+    const found = segment.length === 1 ? '' : original[segment[1]].slice(segment[2] + column - segment[0]);
     // A separator or a parenthesis written over erased syntax has no counterpart in the source.
-    if (!found.startsWith(token)) {
+    if (segment.length === 1 || !found.startsWith(token)) {
       assert.ok(token === ';' || token === '(' || token === ')',
         `line ${line} column ${column}: ${JSON.stringify(token)} maps to ${JSON.stringify(found.slice(0, 20))}`);
     }
@@ -176,7 +187,7 @@ test('fixtures keep every token mapped', () => {
     const result = compile(Buffer.from(text), { file, sourceMap: true });
     if (result.backend !== 'pulse') continue;
     assert.equal(result.code, compile(Buffer.from(text), { file }).code, file);
-    if (Buffer.byteLength(result.code) === Buffer.byteLength(text)) assertTokensMapped(text, result);
+    if (isProjection(text, result.code)) assertTokensMapped(text, result);
     else if (result.sourceMap.mappings !== '') lowered += assertSegmentsFaithful(text, result) > 0;
     native++;
   }
@@ -345,7 +356,10 @@ test('only a projection of the source receives mappings', () => {
   assert.deepEqual(positions('let a: T = 1;\n', 'let a    = 1;\n'), [[[0, 0, 0], [4, 0, 4], [9, 0, 9], [11, 0, 11], [12, 0, 12]], []]);
   assert.deepEqual(positions('a\r\nb\u2028c\rd\u2029e\nf', 'a\r\nb\u2028c\rd\u2029e\nf'),
     [[[0, 0, 0]], [[0, 1, 0]], [[0, 2, 0]], [[0, 3, 0]], [[0, 4, 0]], [[0, 5, 0]]]);
-  assert.deepEqual(positions('x as T\n(y)', 'x     \n;y)'), [[[0, 0, 0]], [[0, 1, 0], [1, 1, 1], [2, 1, 2]]]);
+  // The separator written over the opening parenthesis is generated text.
+  assert.deepEqual(positions('x as T\n(y)', 'x     \n;y)'), [[[0, 0, 0]], [[0], [1, 1, 1], [2, 1, 2]]]);
+  assert.deepEqual(positions('a = 1\n  public [k]() {}', 'a = 1\n  ;      [k]() {}'),
+    [[[0, 0, 0], [2, 0, 2], [4, 0, 4]], [[2], [9, 1, 9], [10, 1, 10], [11, 1, 11], [15, 1, 15]]]);
   // Erased scalars keep their UTF-8 and UTF-16 width, so columns after them agree on both sides.
   assert.deepEqual(positions('let a: "\u00e9\u578b\u{20bb7}" = 1', 'let a   \u00a0\u2002 \ufeff  = 1'),
     [[[0, 0, 0], [4, 0, 4], [14, 0, 14], [16, 0, 16]]]);

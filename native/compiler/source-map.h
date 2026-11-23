@@ -203,7 +203,18 @@ static inline char *tmt_run_mappings(const uint8_t *source, size_t size, const u
         first = boundary = true;
         continue;
       }
-      if (tmt_map_blank(to)) boundary = true;
+      if (to != from && !tmt_map_blank(to)) {
+        /* A separator or a parenthesis written over erased text is generated, like the text between runs. */
+        if (mapped) {
+          if (!tmt_map_reserve(&map, 9)) goto mismatch;
+          if (!first) map.text[map.length++] = ',';
+          tmt_map_vlq(&map, (int64_t)generated - last_generated);
+          last_generated = generated;
+          first = false;
+          mapped = false;
+        }
+        boundary = true;
+      } else if (tmt_map_blank(to)) boundary = true;
       else if ((to & 0xC0) != 0x80) {
         const bool kind = tmt_map_word(to);
         if (boundary || kind != word) {

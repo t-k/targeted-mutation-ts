@@ -206,8 +206,15 @@ test('erased class-member starts keep neighbouring members apart in other arrang
     'export abstract class A {\n  a = f\n}\nexport default abstract class B {}',
     'class C {\n  constructor(private a: number, readonly b: string) {}\n  x = f\n  readonly [k] = this.a\n}\nexport const r = C;',
     'import { type A, b } from "./m.js";\nexport { type A, b };',
+    // A receiver parameter and a type-only list entry are erased like a member, but nothing may be written for them.
+    'export function sum(this: void, [a, b]: [number, number]) { return a + b; }',
+    'export function each(this: Window, ...rest: number[]) { return rest; }',
+    'import { type T, in as inside } from "./m.js";\nexport { inside };',
+    'const instanceofs = 1, inside = 2;\nexport { type T, inside as in, instanceofs as instanceof };\ntype T = number;',
   ]) {
-    assert.equal(sameAsTypeScript(source, 'member.ts').backend, 'pulse', source);
+    const result = sameAsTypeScript(source, 'member.ts');
+    assert.equal(result.backend, 'pulse', source);
+    if (!/class/.test(source)) assert.doesNotMatch(result.code.replace(/;\s*$|;\n|; \}/g, ''), /;\s*(?:\[|in\b|instanceof\b|\.\.\.)/, source);
   }
 });
 
@@ -279,4 +286,51 @@ test('yield outside a generator and a delegation split across lines are left to 
   ]) {
     assert.notEqual(compile(Buffer.from(source), { file: 'forms.ts' }).backend, 'pulse', source);
   }
+});
+
+test('an interface merges with a class and a namespace of types with other declarations', () => {
+  for (const source of [
+    'export interface X { a: number }\nexport class X { b = 1 }',
+    'export class X { b = 1 }\nexport interface X { a: number }',
+    'interface X { a: number }\nclass X { b = 1 }\nexport { X };',
+    'interface X { a: number }\nabstract class X { b = 1 }\nexport default X;',
+    'declare interface E { on(): this }\nclass E extends Base {}\nexport const e = new E();',
+    'export interface X<T> extends Q<T> {}\nexport class X<T> extends P<T> implements R<T> { static readonly [k]: string = "x"; }',
+    'export type B = A | C;\nexport declare namespace B { export type S = "a" | "b" }\nexport const x = 1;',
+    'export interface B {}\nexport namespace B { export type S = "a" }\nexport const y = 2;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'merge.ts').backend, 'pulse', source);
+  }
+});
+
+test('declarations that TypeScript does not merge stay off the native route', () => {
+  for (const source of [
+    'export interface X {}\nexport enum X { A }',
+    'import { X } from "./x.js";\nexport interface X {}\nexport class X {}',
+    'export type X = number;\nexport class X {}',
+    'class X {}\nclass X {}\nexport {};',
+    'import { B } from "./b.js";\ndeclare namespace B { type S = 1 }\nexport const y = B;',
+    'enum B { A }\ndeclare namespace B { type S = 1 }\nexport const y = B;',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'merge.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('parameter properties take override, need no type, and lower beside enums', () => {
+  for (const source of [
+    'export class C extends B { constructor(override readonly table: T, config: U) { super(config); } }',
+    'export class C extends B { constructor(public override readonly a: number, b: string) { super(b); this.a; } }',
+    'export class C { constructor(private doc, public readonly other = 1, protected last) {} }',
+    'export enum Mode { A, B = 1 << 2 }\nexport class C { constructor(public mode: Mode, private n = 1) {} }',
+    'export class C { constructor(public mode: Mode) {} }\nexport enum Mode { A, B }\n' +
+      'export class D extends C { constructor(readonly x: number) { super(Mode.A); } }\nconst enum K { Z = 9 }\nexport const k = K.Z;',
+    'export class C { constructor(public mode: number) {} }\nexport const enumerate = 1;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'property.ts').backend, 'pulse', source);
+  }
+  // A modifier word that is itself the parameter name is an ordinary parameter.
+  const plain = 'export class C { constructor(private, readonly: number) { this.x = [private, readonly]; } }';
+  const result = compile(Buffer.from(plain), { file: 'property.ts' });
+  assert.equal(typeof result.code, 'string');
+  assert.doesNotMatch(result.code, /this\.private|this\.readonly/);
 });

@@ -112,6 +112,13 @@ test('enum initializers outside the constant evaluator match TypeScript or leave
     ['export enum E { A = "x", B = A }', false],
     ['export enum E { A = B, B = 1 }', false],
     ['export enum E { A = 1, B = F.A }', false],
+    // A member named like a literal is not what the bare word means, and an update is not constant.
+    ['export enum E { false = 7, Default = +false }', false],
+    ['export enum E { true = 2, null = 3, A = true | null }', false],
+    ['export enum E { false = 7, Default = E.false + 1 }', true],
+    ['export enum E { A = 1, B = A++ + 2 }', false],
+    ['export enum E { A = 5, B = A-- - 2 }', false],
+    ['export enum E { A = 1, B = A + +2, C = A - -2, D = A + -B }', true],
   ]) {
     const result = compile(Buffer.from(source), { file: 'e.ts' });
     const expected = reference(source);

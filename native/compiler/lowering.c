@@ -320,13 +320,25 @@ static bool enum_literal(lowering *lower, int64_t *value, bool *decimal) {
   return true;
 }
 
+/* A member may be named like a literal or an operator word, which a bare reference would not reach. */
+static bool enum_reserved(const uint8_t *word, uint32_t width) {
+  static const char *const words[] = { "true", "false", "null", "this", "undefined", "NaN", "Infinity", "void", "typeof",
+    "new", "delete", "await", "yield", "super", "in", "instanceof", "function", "class", "async", "import" };
+  for (size_t index = 0; index < sizeof(words) / sizeof(*words); index++) {
+    if (strlen(words[index]) == width && !memcmp(word, words[index], width)) return true;
+  }
+  return false;
+}
+
 static bool enum_reference(lowering *lower, const enum_scope *scope, int64_t *value) {
   const uint8_t *source = lower->input.source;
   uint32_t first = lower->at;
   do { lower->at++; } while (TmtGrammar_identifier_continue(peek(lower)));
   uint32_t last = lower->at;
   const uint32_t binding = scope->binding.last - scope->binding.first;
-  if (last - first == binding && !memcmp(source + first, source + scope->binding.first, binding) && peek(lower) == '.') {
+  const bool qualified = last - first == binding && !memcmp(source + first, source + scope->binding.first, binding) && peek(lower) == '.';
+  if (!qualified && enum_reserved(source + first, last - first)) return false;
+  if (qualified) {
     lower->at++;
     first = lower->at;
     if (!TmtGrammar_identifier_start(peek(lower))) return false;
@@ -394,7 +406,8 @@ static unsigned enum_operator(const lowering *lower, uint32_t *width) {
       if (second != '>') return 0;
       *width = third == '>' ? 3 : 2;
       return rest > *width && source[*width] == '=' ? 0 : 4;
-    case '+': case '-': return 5;
+    /* A doubled sign is an update operator, which is not constant. */
+    case '+': case '-': return second == first ? 0 : 5;
     case '*': return second == '*' ? 0 : 6;
     case '/': case '%': return 6;
     default: return 0;
@@ -1566,7 +1579,8 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     } else if (!preserve_lines) memset(code + span.first, ' ', span.last - span.first);
     else if (!blank_lines((uint8_t *)code + span.first, input.source + span.first, span.last - span.first,
                           statement || local_type || annotation || event.original == erased_overload)) goto decline;
-    if (separate || (member && continues_initializer(input, span.last))) code[span.first] = ';';
+    /* Only a signature can be an erased class member. A receiver parameter or a list entry takes no separator. */
+    if (separate || (event.original == erased_overload && continues_initializer(input, span.last))) code[span.first] = ';';
     if (arrow && !preserve_generic_arrow(input, span, code)) goto decline;
     if (result && (memchr(input.source + span.first, '\n', span.last - span.first) ||
                   memchr(input.source + span.first, '\r', span.last - span.first))) {
@@ -1658,8 +1672,30 @@ static int compare_insertions(const void *lhs, const void *rhs) {
   return a->name.first < b->name.first ? -1 : a->name.first > b->name.first;
 }
 
+static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span);
+
+/* Copies a range of the projection and lowers the enum declarations recorded inside it. */
+static bool copy_lowering_enums(lowering *lower, uint32_t records, uint32_t *enum_index, uint32_t first, uint32_t last, bool enums) {
+  while (enums && *enum_index < records) {
+    const TmtGrammar_candidate event = lower->input.output[*enum_index];
+    if (event.original != runtime_enum) {
+      (*enum_index)++;
+      continue;
+    }
+    const TmtGrammar_span span = event.left;
+    if (span.first >= last) break;
+    if (span.first < first || span.last > last) return false;
+    source_bytes(lower, first, span.first);
+    if (!emit_recorded_enum(lower, span)) return false;
+    first = span.last;
+    (*enum_index)++;
+  }
+  source_bytes(lower, first, last);
+  return true;
+}
+
 static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *projected, uint32_t records,
-  uint32_t properties, size_t *length, tmt_run_log *runs)
+  uint32_t properties, bool enums, size_t *length, tmt_run_log *runs)
 {
   parameter_insertion *edits = malloc((size_t)properties * 2 * sizeof(*edits));
   if (!edits) return NULL;
@@ -1684,7 +1720,7 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
   qsort(edits, used, sizeof(*edits), compare_insertions);
   // Resolve statement boundaries in the original source. Copy only projected bytes.
   input.source = (uint8_t *)projected;
-  lowering lower = { .input = input, .output.limit = 1048576, .output.runs = runs };
+  lowering lower = { .input = input, .output.limit = enums ? (size_t)input.size * 32 + 1024 : 1048576, .output.runs = runs };
   if (reserve > lower.output.limit) {
     free(edits);
     return NULL;
@@ -1695,10 +1731,10 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
     return NULL;
   }
   lower.output.capacity = reserve;
-  uint32_t copied = 0;
+  uint32_t copied = 0, enum_index = 0;
   for (uint32_t index = 0; index < used; index++) {
     const parameter_insertion edit = edits[index];
-    source_bytes(&lower, copied, edit.at);
+    if (!copy_lowering_enums(&lower, records, &enum_index, copied, edit.at, enums)) lower.output.failed = true;
     if (edit.separate && copied != edit.at) put(&lower.output, ";");
     put(&lower.output, "\n");
     if (!edit.field) put(&lower.output, "this.");
@@ -1710,7 +1746,7 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
     put(&lower.output, ";");
     copied = edit.at;
   }
-  source_bytes(&lower, copied, input.size);
+  if (!copy_lowering_enums(&lower, records, &enum_index, copied, input.size, enums)) lower.output.failed = true;
   free(edits);
   if (lower.output.failed) {
     free(lower.output.code);
@@ -1798,16 +1834,17 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   if (module) audit_projection_guard(projected, records, "ts");
   *length = input.size;
   const bool needs_module_marker = code && esm && facts.remove_statement && !retained_module_marker(projected, marker, records);
+  bool unlowered_enum = facts.runtime_enums;
   if (facts.properties) {
-    if (!module || mentions_enum(input.source, input.size, enums)) goto enum_only;
-    char *lowered = emit_parameter_properties(input, code, records, facts.properties, length, runs);
+    if (!module) goto enum_only;
+    /* One pass inserts the property statements and lowers the enums between them. */
+    char *lowered = emit_parameter_properties(input, code, records, facts.properties, facts.runtime_enums, length, runs);
     if (!lowered) goto enum_only;
     free(code);
     code = lowered;
-  }
-  bool unlowered_enum = facts.runtime_enums;
-  /* A committed enum record implies the word, so an unknown hint needs no scan here. */
-  if (enums != TMT_ENUMS_ABSENT) {
+    unlowered_enum = false;
+  } else if (enums != TMT_ENUMS_ABSENT) {
+    /* A committed enum record implies the word, so an unknown hint needs no scan here. */
     char *lowered = lower_recorded_enums(projected, records, length, runs);
     if (lowered) {
       free(code);
