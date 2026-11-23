@@ -14,7 +14,8 @@ function signalChild(signal) {
     if (process.platform === 'win32') return child.kill(signal);
     return process.kill(-child.pid, signal);
   } catch (error) {
-    if (error.code !== 'ESRCH') throw error;
+    // macOS answers EPERM for a group whose only member has exited and is not reaped yet.
+    if (error.code !== 'ESRCH' && error.code !== 'EPERM') throw error;
     return false;
   }
 }

@@ -437,7 +437,15 @@ export function focusedAuditStatus(source, probe, predicted, status) {
   return 'inconclusive';
 }
 
+// The whole focused analysis in one call.
 export function analyze(project, files, options) {
+  const prepared = prepareAnalysis(project, files, options);
+  return prepared.trials ? completeAnalysis(prepared) : prepared.report;
+}
+
+// Everything up to the planned trials: extraction, the baseline and the recorded comparisons.
+// Returns { report } when the analysis already ended there.
+export function prepareAnalysis(project, files, options) {
   const root = realpathSync(project);
   const { subjects, extraction } = collectComparisons(root, files, options);
   const report = { schemaVersion: 1, runner: options.runner ?? 'vitest', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
@@ -445,10 +453,10 @@ export function analyze(project, files, options) {
   if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
     report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
   }
-  if (!subjects.length) return report;
+  if (!subjects.length) return { report };
 
   const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
-  if (report.runner === 'playwright') return analyzePlaywright(root, subjects, report, options, specification);
+  if (report.runner === 'playwright') return { report: analyzePlaywright(root, subjects, report, options, specification) };
   const runner = (workspace, temp, settings) => runVitest(workspace, temp, {
     ...settings, config: options.config, testFiles: options.test,
   });
@@ -456,7 +464,7 @@ export function analyze(project, files, options) {
   const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
   const baseline = attempt();
   if (baseline.status !== 'passed') {
-    return { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } };
+    return { report: { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } } };
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
 
@@ -475,6 +483,12 @@ export function analyze(project, files, options) {
 
   const trials = planFocusedTrials(subjects, trace, baseline, specification, options['displace-thresholds']);
   const skips = leanSkips(trials, baseline, !!options.deterministic, coverage);
+  return { root, report, options, attempt, baseline, traced, trace, trials, skips };
+}
+
+// Runs the planned trials. `settled` answers a trial that another run already decided: it returns
+// { status, tests } for the same edit, or nothing when this analysis has to run the edit itself.
+export function completeAnalysis({ root, report, options, attempt, baseline, traced, trace, trials, skips }, settled = () => undefined) {
   report.evaluation = 'evaluated';
 
   for (const [index, trial] of trials.entries()) {
@@ -487,11 +501,12 @@ export function analyze(project, files, options) {
     };
     let audit;
     if (!predicted || options.audit) {
-      const source = attempt({ trial });
-      const actual = verdict(source, baseline);
+      const known = options.audit ? undefined : settled(trial);
+      const source = known ? null : attempt({ trial });
+      const actual = known ? known.status : verdict(source, baseline);
       if (!predicted) {
         result.status = actual;
-        if (actual === 'killed') result.tests = source.tests.filter(test => test.status === 'failed').map(testcase);
+        if (actual === 'killed') result.tests = known ? known.tests : source.tests.filter(test => test.status === 'failed').map(testcase);
       }
 
       if (options.audit) {

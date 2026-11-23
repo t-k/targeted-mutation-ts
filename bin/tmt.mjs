@@ -18,6 +18,8 @@ try {
       'displace-thresholds': { type: 'boolean' },
       witnesses: { type: 'boolean' },
       mutators: { type: 'string' },
+      concurrency: { type: 'string' },
+      'isolated-trials': { type: 'boolean' },
       runner: { type: 'string' },
       project: { type: 'string', multiple: true },
       config: { type: 'string' },
@@ -45,6 +47,14 @@ try {
     if (values.runner === 'playwright' && values.test?.length) throw new Error('--test selects Vitest files');
     if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
     if (values.mutators && !['focused', 'operators', 'full', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|operators|full|standard|all');
+    const session = ['operators', 'full', 'standard', 'all'].includes(values.mutators) && values.runner !== 'playwright' && !values.witnesses;
+    if ((values.concurrency !== undefined || values['isolated-trials']) && !session) {
+      throw new Error('--concurrency and --isolated-trials apply to Vitest with --mutators operators|full|standard|all');
+    }
+    if (values.concurrency !== undefined) {
+      if (!/^[1-9]\d{0,3}$/.test(values.concurrency)) throw new Error('Expected --concurrency to be a positive integer');
+      values.concurrency = Number(values.concurrency);
+    }
     const format = chooseFormat(values.format, process.stdout.isTTY === true);
     enablePreparedTypeScript();
     let result;

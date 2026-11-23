@@ -138,6 +138,8 @@ export function withCopy(project, action, { exclude = [] } = {}) {
   const source = realpathSync(project);
   const exclusions = resolveCopyExclusions(source, exclude);
   const temp = realpathSync(mkdtempSync(resolve(tmpdir(), 'tmt-')));
+  const remove = () => rmSync(temp, { recursive: true, force: true });
+  let pending = false;
   try {
     const root = resolve(temp, 'project');
     const moduleTrees = [];
@@ -158,9 +160,12 @@ export function withCopy(project, action, { exclude = [] } = {}) {
       linkInstalledModules(source, root, modules, resolve(root, relative(source, modules)), modules === projectModules ? tools : []);
     }
     if (!hasLocalModules) linkModules(resolve(root, 'node_modules'), tools);
-    return action(root, temp);
+    const result = action(root, temp);
+    // An action that is still running keeps its copy until it settles.
+    pending = typeof result?.then === 'function';
+    return pending ? result.finally(remove) : result;
   } finally {
-    rmSync(temp, { recursive: true, force: true });
+    if (!pending) remove();
   }
 }
 
