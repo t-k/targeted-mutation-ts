@@ -1358,6 +1358,11 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
       return NULL;
     }
     const size_t width = event.right.last - event.right.first;
+    /* A class cannot declare a field named constructor. */
+    if (width == 11 && !memcmp(input.source + event.right.first, "constructor", 11)) {
+      free(edits);
+      return NULL;
+    }
     reserve += 3 * width + (sizeof("\n;") - 1) + (sizeof(";\nthis. = ;") - 1);
     used += 2;
   }
@@ -1484,8 +1489,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
     memcpy(code + *length, esm_marker, sizeof(esm_marker) - 1);
     *length += sizeof(esm_marker) - 1;
   }
-  /* Inserted parameter-property statements stay on the validated route. */
-  const bool certified = !facts.uncertified && !facts.properties;
+  const bool certified = !facts.uncertified;
   if (module && !publishable(certified, code ? code : (const char *)input.source, *length, "ts")) goto enum_only;
   if (!code) {
     code = malloc(*length);

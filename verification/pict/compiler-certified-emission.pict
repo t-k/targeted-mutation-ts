@@ -1,4 +1,4 @@
-Shape: annotation, arguments, assertion, markers, erased-statement, overload, modifiers, literal-enum, computed-enum, string-enum-implicit, constructor-this, ambient-class-export, ambient-const-export, parameter-property, ambient-enum-export, ambient-var-export-as, ambient-class-export-before, ambient-function-export, ambient-const-reference, ambient-class-default, ambient-const-duplicate, ambient-enum-duplicate
+Shape: annotation, arguments, assertion, markers, erased-statement, overload, modifiers, literal-enum, computed-enum, string-enum-implicit, constructor-this, ambient-class-export, ambient-const-export, parameter-property, parameter-property-derived, parameter-property-constructor, ambient-enum-export, ambient-var-export-as, ambient-class-export-before, ambient-function-export, ambient-const-reference, ambient-class-default, ambient-const-duplicate, ambient-enum-duplicate
 Dialect: ts, tsx
 Newline: lf, crlf
 Position: first, after-import, after-erased

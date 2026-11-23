@@ -12,3 +12,5 @@ ambient-enum-export	ts	lf	first
 ambient-class-export-before	ts	lf	after-import
 ambient-const-reference	ts	lf	first
 ambient-const-duplicate	ts	lf	after-erased
+parameter-property-derived	ts	crlf	first
+parameter-property-constructor	ts	lf	first

@@ -15,6 +15,12 @@ const fixtures = certificationCases();
 const byName = new Map(fixtures.map(fixture => [fixture.file, fixture]));
 const certifiedShapes = new Set(['annotation', 'arguments', 'assertion', 'markers', 'erased-statement', 'overload',
   'modifiers', 'literal-enum', 'ambient-const-reference', 'ambient-class-default']);
+// Parameter properties are lowered only on the TypeScript module route.
+const propertyShapes = new Set(['parameter-property', 'parameter-property-derived']);
+const isCertified = file => {
+  const shape = file.split('/')[1];
+  return certifiedShapes.has(shape) || (propertyShapes.has(shape) && file.endsWith('.ts'));
+};
 
 test('the certification matrix has one deterministic fixture for every PICT row', () => {
   assert.equal(byName.size, fixtures.length);
@@ -41,7 +47,7 @@ test('every certification fixture keeps the backend, code and diagnostics of the
       codeSha256: result.code === null ? null : createHash('sha256').update(result.code).digest('hex'),
       diagnostics: result.diagnostics.map(diagnostic => diagnostic.code),
     }, baseline[file], file);
-    if (certifiedShapes.has(file.split('/')[1])) assert.equal(result.backend, 'pulse', file);
+    if (isCertified(file)) assert.equal(result.backend, 'pulse', file);
   }
 });
 
@@ -57,7 +63,7 @@ test('the audit build certifies exactly the expected shapes and V8 accepts every
   for (const { shape, row, file } of selected) {
     const decisions = report.decisions.filter(decision => decision.file === file);
     const certified = decisions.filter(decision => decision.certified);
-    if (certifiedShapes.has(shape)) {
+    if (isCertified(file)) {
       assert.equal(certified.length, 1, row);
       assert.equal(certified[0].reason, 'accepted', row);
     } else {

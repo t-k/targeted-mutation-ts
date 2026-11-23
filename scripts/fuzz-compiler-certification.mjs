@@ -30,6 +30,27 @@ export const fragments = [
   'import "m";', 'label: ', 'of ', 'instanceof ', 'void ', 'null', 'undefined', '...', '??', '||=', '**', '<div/>', '<>x</>',
 ];
 
+// Complete statements that declare or use one shared name. A pair exercises binding rules that
+// single-token edits rarely reach, such as a local export of a declaration without a runtime value.
+export const statements = [
+  'declare const N: number;', 'declare let N: number;', 'declare var N: number;', 'declare class N {}',
+  'declare abstract class N {}', 'declare function N(): void;', 'declare enum N { A }', 'declare const enum N { A }',
+  'declare namespace N { const a: number; }', 'declare module N { const a: number; }', 'declare global { var N: number; }',
+  'interface N {}', 'type N = number;', 'function N(): void;', 'function N() {}', 'import type { N } from "n";',
+  'import { type N } from "n";', 'import { N } from "n";', 'import N from "n";', 'import * as N from "n";',
+  'const enum N { A }', 'enum N { A }', 'enum N { A = f() }', 'namespace N { export type T = number; }',
+  'namespace N { export const a = 1; }', 'class N {}', 'abstract class N {}', 'const N = 1;', 'let N;', 'var N;',
+  'export declare const N: number;', 'export interface N {}', 'export type N = number;', 'export class N {}',
+  'export { N };', 'export { N as M };', 'export { N as default };', 'export default N;', 'export type { N };',
+  'export { type N };', 'export { N } from "n";', 'export * as N from "n";', 'export = N;', 'import M = N;',
+  'console.log(N);', 'export const copy = N;', 'export const kind = typeof N;', 'N = 1;', 'new N();', 'N.A;',
+  'class D extends N {}', 'class D implements N {}', 'let v: N;', 'let w = <N>v;', 'label: N;', 'function g(N) {}',
+  'class C { constructor(public N: number) {} }', 'class C { constructor(public constructor: number) {} }',
+  'class C extends N { constructor(private readonly N: number, protected M = 1) { super(); } }',
+  'class C extends N { constructor(public N: number) { super()\n[N].length } }', 'class C { N?: number }', 'class C { declare N: number }',
+  'class C { constructor(this: N) {} }', 'function h(this: N) {}', 'try {} catch (N) {}', 'for (const N of []) {}',
+];
+
 function generator(seed) {
   let state = seed >>> 0 || 1;
   return bound => {
@@ -42,7 +63,16 @@ function generator(seed) {
 
 const boundary = /[A-Za-z_$][\w$]*|\d+|\s+|[^\w\s]/g;
 
+export function pairStatements(source, random) {
+  const lines = source.split('\n');
+  for (let count = 2 + random(2); count > 0; count--) {
+    lines.splice(random(lines.length + 1), 0, statements[random(statements.length)]);
+  }
+  return lines.join('\n');
+}
+
 export function mutate(source, random) {
+  if (random(4) === 0) return pairStatements(source, random);
   const tokens = source.match(boundary) ?? [''];
   const edits = 1 + random(3);
   for (let edit = 0; edit < edits; edit++) {

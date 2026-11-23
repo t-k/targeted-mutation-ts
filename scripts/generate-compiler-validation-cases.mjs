@@ -72,6 +72,8 @@ const certificationShapes = new Map([
   ['ambient-class-export', 'declare class Ambient {}\\LINE\\export { Ambient };\\LINE\\const result = 42;'],
   ['ambient-const-export', 'declare const ambient: number;\\LINE\\export { ambient };\\LINE\\const result = 42;'],
   ['parameter-property', 'class Box { constructor(public value: number) {} }\\LINE\\const result = new Box(42);'],
+  ['parameter-property-derived', 'class Base {}\\LINE\\class Box extends Base { constructor(private readonly value: number, protected other = 1) { super()\\LINE\\} }\\LINE\\const result = new Box(42);'],
+  ['parameter-property-constructor', 'class Box { constructor(public constructor: number) {} }\\LINE\\const result = 42;'],
   ['ambient-enum-export', 'declare enum Ambient { A }\\LINE\\export { Ambient };\\LINE\\const result = 42;'],
   ['ambient-var-export-as', 'declare var ambient: number;\\LINE\\export { ambient as renamed };\\LINE\\const result = 42;'],
   ['ambient-class-export-before', 'export { Ambient };\\LINE\\declare abstract class Ambient {}\\LINE\\const result = 42;'],
