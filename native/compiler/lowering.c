@@ -1012,7 +1012,7 @@ decline:
   return NULL;
 }
 
-static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, bool enums,
+static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, bool enums, bool esm,
   size_t *length, bool *complete)
 {
   char *code = NULL;
@@ -1029,7 +1029,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
     }
   }
   if (!code || *length > 1048576 || !unambiguous_javascript((uint8_t *)code, (uint32_t)*length)) goto enum_only;
-  if (remove_statement && !tmt_module_marker((uint8_t *)code, (uint32_t)*length, false)) {
+  if (esm && remove_statement && !tmt_module_marker((uint8_t *)code, (uint32_t)*length, false)) {
     char *with_marker = realloc(code, *length + sizeof(esm_marker));
     if (!with_marker) goto enum_only;
     code = with_marker;
@@ -1045,7 +1045,7 @@ enum_only:
 }
 #endif
 
-char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, size_t *length, bool *checked, bool *complete) {
+char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool esm, size_t *length, bool *checked, bool *complete) {
   *checked = false;
   *complete = false;
 #ifdef TMT_V8_VALIDATOR
@@ -1074,7 +1074,7 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, size
   char *code = NULL;
   if (parsed.status == 0 && parsed.count <= input.capacity) {
     *checked = true;
-    code = erase_annotation_records(input, parsed.count, enums, length, complete);
+    code = erase_annotation_records(input, parsed.count, enums, esm, length, complete);
   }
   free(records);
   free(marks);
@@ -1083,6 +1083,7 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, size
   (void)source;
   (void)size;
   (void)enums;
+  (void)esm;
   (void)length;
   return NULL;
 #endif

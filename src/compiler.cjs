@@ -281,7 +281,7 @@ function compile(input, options = {}) {
           const empty = !jsxFile ? addon.eraseTypeModule(source, format === 'esm') : null;
           if (empty !== null) return { backend: 'pulse', code: empty, sourceMap: null, diagnostics: [] };
           const annotated = !jsxFile && (runtime || source.includes(':') || source.includes('<') || source.includes('type')) ?
-            addon.emitAnnotatedModule(source, runtime) : null;
+            addon.emitAnnotatedModule(source, runtime, format === 'esm') : null;
           if (typeof annotated === 'string') {
             return { backend: 'pulse', code: annotated, sourceMap: null, diagnostics: [] };
           }

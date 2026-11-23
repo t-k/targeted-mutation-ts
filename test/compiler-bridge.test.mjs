@@ -310,11 +310,14 @@ test('delimited assertions can span lines and contextual words can be value bind
   assert.notEqual(compile(modifier).backend, 'pulse');
 });
 
-test('an erased type-only import keeps a runtime module and its directives', () => {
+test('an erased type-only import keeps the requested module format and its directives', () => {
   const source = 'import type { T } from "unused";\n"use client";\nconst value: T = Math.abs(-6);';
   const result = compile(source);
   assert.equal(result.backend, 'pulse');
-  assert.equal(result.code, stripTypeScriptTypes(source) + '\nexport {};\n');
+  assert.equal(result.code, stripTypeScriptTypes(source));
+  const esm = compile(source, { module: 'esm' });
+  assert.equal(esm.backend, 'pulse');
+  assert.equal(esm.code, result.code + '\nexport {};\n');
   const late = 'export const value: number = 1;\nvalue\ntype T = number\n(3);';
   assert.notEqual(compile(late).backend, 'pulse');
 });
