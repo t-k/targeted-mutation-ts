@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "lowering.h"
+#include "source-map.h"
 
 bool tmt_valid_javascript_module(const char *code, size_t length) {
   (void)code;
@@ -28,6 +29,17 @@ static void check_projection(const uint8_t *source, const char *code, size_t siz
   }
 }
 
+/* The mapping scan must stay inside both buffers for any output and the run log that came with it. */
+static void check_mappings(const uint8_t *source, size_t size, const char *code, size_t length, const tmt_run_log *runs) {
+  size_t written = 0;
+  char *mappings = runs->failed ? NULL : runs->count ?
+    tmt_run_mappings(source, size, (const uint8_t *)code, length, runs->items, runs->count, &written) :
+    tmt_projection_mappings(source, (const uint8_t *)code, size, length, &written);
+  /* Reading every byte lets the sanitizer see a length that exceeds the allocation. */
+  for (size_t at = 0; mappings && at < written; at++) if (!mappings[at]) __builtin_trap();
+  free(mappings);
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   if (size < 2 || size > 65537) return 0;
   const uint8_t flags = data[0];
@@ -41,13 +53,18 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   bool checked, complete, script;
   tmt_parameter_route property;
   const tmt_enum_hint hint = flags & 1 ? TMT_ENUMS_UNKNOWN : flags & 2 ? TMT_ENUMS_PRESENT : TMT_ENUMS_ABSENT;
-  char *code = tmt_emit_annotated_module(source, width, hint, flags & 4, flags & 8, &length, &checked, &complete, &script, &property, NULL);
-  if (code && complete && length == size) check_projection(source, code, size);
+  tmt_run_log runs = { 0 };
+  char *code = tmt_emit_annotated_module(source, width, hint, flags & 4, flags & 8, &length, &checked, &complete, &script, &property, &runs);
+  if (code && complete && length == size && !runs.count) check_projection(source, code, size);
+  if (code && complete) check_mappings(source, size, code, length, &runs);
   free(code);
-  code = tmt_lower_runtime(source, width, flags & 16, flags & 32, flags & 64, true, &length, &complete, NULL);
+  code = tmt_lower_runtime(source, width, flags & 16, flags & 32, flags & 64, true, &length, &complete, &runs);
+  if (code) check_mappings(source, size, code, length, &runs);
   free(code);
-  code = tmt_lower_runtime(source, width, flags & 16, true, flags & 64, false, &length, &complete, NULL);
+  code = tmt_lower_runtime(source, width, flags & 16, true, flags & 64, false, &length, &complete, &runs);
+  if (code) check_mappings(source, size, code, length, &runs);
   free(code);
+  free(runs.items);
   (void)tmt_module_marker(source, width, flags & 128);
   (void)tmt_unbound_export(source, width);
   (void)tmt_plain_script(source, width);
