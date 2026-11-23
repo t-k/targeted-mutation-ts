@@ -5,10 +5,14 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { simdSource } from './native-simd-source.mjs';
 
-const { values } = parseArgs({ options: { 'scalar-scans': { type: 'boolean' } } });
+const { values } = parseArgs({ options: {
+  'scalar-scans': { type: 'boolean' },
+  'audit-v8': { type: 'boolean' },
+} });
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const output = resolve(root, 'build');
+const output = resolve(root, values['audit-v8'] ? 'build/compiler-v8-audit' : 'build');
+const auditFlags = values['audit-v8'] ? ['-DTMT_AUDIT_V8'] : [];
 const headers = [
   process.env.TMT_NODE_INCLUDE,
   resolve(dirname(process.execPath), '../include/node'),
@@ -26,8 +30,9 @@ const scratch = mkdtempSync(resolve(output, '.compiler-'));
 try {
   const validator = resolve(scratch, 'validate-js.o');
   const checked = spawnSync(cpp, ['-std=c++20', '-O3', '-fPIC', '-fvisibility=hidden',
-    '-isystem', headers, '-c', 'native/compiler/validate-js.cc', '-o', validator], { cwd: root, encoding: 'utf8' });
-  const moduleFlags = checked.status === 0 ? ['-DTMT_V8_VALIDATOR', validator] : [];
+    ...auditFlags, '-isystem', headers, '-c', 'native/compiler/validate-js.cc', '-o', validator], { cwd: root, encoding: 'utf8' });
+  if (values['audit-v8'] && checked.status !== 0) throw new Error(checked.stderr || checked.error?.message);
+  const moduleFlags = checked.status === 0 ? ['-DTMT_V8_VALIDATOR', ...auditFlags, validator] : [];
   const common = ['-std=c11', '-O3', '-fPIC', '-fvisibility=hidden', '-Wall', '-Wextra', '-Werror',
     '-Wno-parentheses', '-I', headers, '-I', 'native/runtime',
     ...(values['scalar-scans'] ? ['-DTMT_SCALAR_SCANS'] : []),

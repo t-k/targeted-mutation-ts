@@ -760,7 +760,13 @@ bool tmt_module_marker(uint8_t *source, uint32_t size, bool validate) {
 }
 
 #ifdef TMT_V8_VALIDATOR
+#ifdef TMT_AUDIT_V8
+bool tmt_audit_javascript_module(const char *code, size_t length, const char *phase);
+#define validate_emission(code, length, phase) tmt_audit_javascript_module(code, length, phase)
+#else
 bool tmt_valid_javascript_module(const char *code, size_t length);
+#define validate_emission(code, length, phase) tmt_valid_javascript_module(code, length)
+#endif
 static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records);
 
 enum {
@@ -1157,7 +1163,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
     memcpy(code + *length, esm_marker, sizeof(esm_marker) - 1);
     *length += sizeof(esm_marker) - 1;
   }
-  if (!tmt_valid_javascript_module(code, *length)) goto enum_only;
+  if (!validate_emission(code, *length, "ts")) goto enum_only;
   *complete = true;
   return code;
 enum_only:
@@ -1441,7 +1447,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
 #ifdef TMT_V8_VALIDATOR
   if (!typescript) {
     char *code = render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0);
-    if (code && tmt_valid_javascript_module(code, *length)) {
+    if (code && validate_emission(code, *length, "jsx")) {
       *complete = true;
       return code;
     }
@@ -1457,7 +1463,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
       if (unambiguous_projection(projected, records)) {
         char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length, enum_records);
         if (code && (!remove_statement || (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&
-            tmt_valid_javascript_module(code, *length)) {
+            validate_emission(code, *length, "tsx")) {
           *complete = true;
           free(masked);
           return code;
@@ -1486,7 +1492,7 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, b
   const uint32_t insertion = module ? marker : jsx_script_prelude(input, first.at);
 #ifdef TMT_V8_VALIDATOR
   if (!typescript && !memchr(source, '<', size)) {
-    if (!tmt_valid_javascript_module((const char *)source, size)) return NULL;
+    if (!validate_emission((const char *)source, size, "passthrough")) return NULL;
     char *code = malloc(size);
     if (!code) return NULL;
     memcpy(code, source, size);

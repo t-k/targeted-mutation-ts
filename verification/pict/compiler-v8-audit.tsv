@@ -1,0 +1,9 @@
+Phase	Verdict	Fixture
+TS	Reject	Initial
+TSX	Reject	Subsequent
+JSX	Accept	Initial
+PassThrough	Accept	Subsequent
+PassThrough	Reject	Initial
+TS	Accept	Subsequent
+JSX	Reject	Subsequent
+TSX	Accept	Initial

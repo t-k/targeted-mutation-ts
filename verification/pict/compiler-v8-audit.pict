@@ -1,0 +1,3 @@
+Phase: TS, JSX, TSX, PassThrough
+Verdict: Accept, Reject
+Fixture: Initial, Subsequent
