@@ -5,6 +5,28 @@
 
 #include "parser.h"
 
+#if defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))
+#include "tmt_simd_scan.h"
+
+static void check_jsx_blocks(void)
+{
+  uint8_t bytes[16];
+  for (unsigned lane = 0; lane < sizeof(bytes); lane++) {
+    for (unsigned byte = 0; byte < 256; byte++) {
+      memset(bytes, 'a', sizeof(bytes));
+      bytes[lane] = (uint8_t)byte;
+      const bool quote = byte >= 32 && byte != '"' && byte != '\\';
+      const bool decode = quote && byte != '&' && byte != 226;
+      const bool text = byte > 32 && byte < 128 && byte != '<' && byte != '>' && byte != '{' && byte != '}';
+      assert(tmt_jsx_quote_run(bytes, false) == quote);
+      assert(tmt_jsx_quote_run(bytes, true) == decode);
+      assert(tmt_jsx_text_run(bytes) == text);
+    }
+  }
+  puts("SIMD JSX predicates matched all bytes in every lane");
+}
+#endif
+
 enum { SPACE, IDENTIFIER, DECIMAL_DIGITS };
 
 static bool matches(uint8_t cls, uint8_t byte)
@@ -148,6 +170,9 @@ int main(int argc, char **argv)
   check_primitives(argv[2]);
   check_publication(argv[3]);
   check_parser_publication();
+#if defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))
+  check_jsx_blocks();
+#endif
   for (uint8_t cls = SPACE; cls <= DECIMAL_DIGITS; cls++)
   {
     compare(buffer, 0, 0, cls);
