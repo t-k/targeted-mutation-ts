@@ -1,0 +1,10 @@
+LineEnding	NonAscii	Edit	Input	Name
+LF	None	None	Bytes	TS
+LF	None	Annotation	Bytes	TS
+LF	None	ErasedStatement	Text	TS
+CRLF	None	Annotation	Bytes	TS
+LF	ErasedAstral	Annotation	Bytes	TS
+LF	KeptAstral	Annotation	Text	Nested
+LF	None	Lowered	Bytes	TS
+LS	ErasedBmp	Separator	Bytes	MTS
+CR	None	Parenthesis	Bytes	Omitted

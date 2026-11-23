@@ -1,0 +1,5 @@
+LineEnding: LF, CRLF, CR, LS, PS
+NonAscii: None, KeptBmp, KeptAstral, ErasedBmp, ErasedAstral
+Edit: None, Annotation, ErasedStatement, Separator, Parenthesis, Lowered
+Input: Bytes, Text
+Name: TS, MTS, Nested, Omitted

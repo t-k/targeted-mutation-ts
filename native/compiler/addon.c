@@ -4,6 +4,7 @@
 
 #include "Custard.h"
 #include "lowering.h"
+#include "source-map.h"
 
 #define NAPI(call) do { if ((call) != napi_ok) goto error; } while (0)
 enum { source_limit = 1048576, binding_capacity = 2367 };
@@ -500,7 +501,36 @@ static bool contains(const uint8_t *text, size_t size, const char *needle, bool 
   return false;
 }
 
-enum { emit_tsx = 1, emit_esm = 2, emit_classic = 4 };
+enum { emit_tsx = 1, emit_esm = 2, emit_classic = 4, emit_mapped = 16 };
+
+/*
+ * Publishes [code, mappings] for an output that is a projection of the source. Any other output
+ * yields undefined, and the caller's compatibility route then produces the code and its map.
+ */
+static napi_status create_mapped_result(napi_env env, const uint8_t *source, size_t size, const char *code, size_t length,
+  napi_value *result)
+{
+  size_t written = 0;
+  char *mappings = tmt_projection_mappings(source, (const uint8_t *)code, size, length, &written);
+  if (!mappings) {
+    /* A module of types alone leaves comments and line breaks, which need no mapping. */
+    bool trivia = length == 0;
+    if (length && length <= source_limit) {
+      const TmtPulseMemory_tape output = { .source = (uint8_t *)code, .size = (uint32_t)length };
+      const TmtPulseParser_cursor end = TmtPulseCompiler_runtime_source_start(output);
+      trivia = end.ok && end.at == length;
+    }
+    if (!trivia) return napi_get_undefined(env, result);
+  }
+  napi_value text, map;
+  napi_status status = create_source_string(env, code, length, &text);
+  if (status == napi_ok) status = napi_create_string_latin1(env, mappings ? mappings : "", written, &map);
+  free(mappings);
+  if (status == napi_ok) status = napi_create_array_with_length(env, 2, result);
+  if (status == napi_ok) status = napi_set_element(env, *result, 0, text);
+  if (status == napi_ok) status = napi_set_element(env, *result, 1, map);
+  return status;
+}
 
 /*
  * The default-option TypeScript route in one call. The steps and their order mirror compile() in
@@ -527,7 +557,9 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     uint8_t *planned;
     bool failed;
     if (direct_plan(source, size, &planned, &failed)) {
-      const napi_status created = create_source_string(env, planned ? (char *)planned : (char *)source, size, &result);
+      const char *code = planned ? (char *)planned : (char *)source;
+      const napi_status created = flags & emit_mapped ? create_mapped_result(env, source, size, code, size, &result) :
+        create_source_string(env, code, size, &result);
       free(planned);
       NAPI(created);
       return result;
@@ -564,7 +596,8 @@ decline:
   return result;
 publish:
   {
-    const napi_status created = create_source_string(env, output, length, &result);
+    const napi_status created = flags & emit_mapped ? create_mapped_result(env, source, size, output, length, &result) :
+      create_source_string(env, output, length, &result);
     free(output);
     output = NULL;
     NAPI(created);
@@ -620,6 +653,29 @@ decline:
 error:
   free(output);
   napi_throw_error(env, NULL, "Native JavaScript emission arguments or allocation failed");
+  return NULL;
+}
+
+/* The mappings for a source and its projection, or undefined when the second buffer is not a projection of the first. */
+static napi_value projection_mappings(napi_env env, napi_callback_info info) {
+  napi_value args[2], result;
+  size_t argc = 2, size, length, written = 0;
+  void *source, *code;
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc != 2) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &source, &size));
+  NAPI(napi_get_buffer_info(env, args[1], &code, &length));
+  char *mappings = tmt_projection_mappings(source, code, size, length, &written);
+  if (!mappings) {
+    NAPI(napi_get_undefined(env, &result));
+    return result;
+  }
+  const napi_status created = napi_create_string_latin1(env, mappings, written, &result);
+  free(mappings);
+  NAPI(created);
+  return result;
+error:
+  napi_throw_type_error(env, NULL, "Expected a source buffer and a code buffer");
   return NULL;
 }
 
@@ -711,6 +767,8 @@ static napi_value init(napi_env env, napi_value exports) {
   NAPI(napi_set_named_property(env, exports, "emitJavaScriptModule", entry));
   NAPI(napi_create_function(env, "emitTypeScript", NAPI_AUTO_LENGTH, emit_typescript, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "emitTypeScript", entry));
+  NAPI(napi_create_function(env, "projectionMappings", NAPI_AUTO_LENGTH, projection_mappings, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "projectionMappings", entry));
   NAPI(napi_create_function(env, "triviaOnly", NAPI_AUTO_LENGTH, trivia_only, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "triviaOnly", entry));
 #endif

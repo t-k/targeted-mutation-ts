@@ -48,17 +48,38 @@ function sourceKind(file) {
   return -1;
 }
 
+// A type-erased output keeps every byte position, so its map comes from one native scan.
+// Lowered output, a byte order mark and unusual names take the router, which asks TypeScript.
+function mappedTypeScript(input, file, flags) {
+  const slash = file.lastIndexOf('/');
+  const name = slash < 0 ? file : file.slice(slash + 1);
+  const module = name.endsWith('.mts');
+  if (!module && !name.endsWith('.ts') || name.includes('\\')) return undefined;
+  const text = typeof input === 'string' ? input : Buffer.isBuffer(input) ? undefined : null;
+  if (text === null || text !== undefined && (!text.isWellFormed() || text.charCodeAt(0) === 0xFEFF)) return undefined;
+  const source = text === undefined ? input : Buffer.from(text);
+  if (source[0] === 0xEF) return undefined;
+  const emit = (pulse ??= nativeAddon('compiler-module.node')).emitTypeScript;
+  const result = emit === undefined ? undefined : emit(source, flags | 16);
+  if (result === undefined) return undefined;
+  return { backend: 'pulse', code: result[0], sourceMap: {
+    version: 3, file: name.slice(0, module ? -4 : -3) + (module ? '.mjs' : '.js'), sourceRoot: '', sources: [name], names: [],
+    mappings: result[1], sourcesContent: [text ?? source.toString()],
+  }, diagnostics: [] };
+}
+
 let routes;
 function compile(input, options) {
   let file = 'input.ts';
   let flags = 0;
   let defaults = options === undefined;
   let explicitModule = false;
+  let mapped = false;
   // An option spelled out with its default value selects the same route as an omitted one.
   if (!defaults && options !== null && typeof options === 'object' &&
       (options.mode === undefined || options.mode === 'transform') &&
       (options.target === undefined || options.target === 'esnext') &&
-      (options.sourceMap === undefined || options.sourceMap === false)) {
+      (options.sourceMap === undefined || typeof options.sourceMap === 'boolean')) {
     const name = options.file;
     const jsx = options.jsx;
     const format = options.module;
@@ -68,11 +89,15 @@ function compile(input, options) {
       if (name !== undefined) file = name;
       if (jsx === 'classic') flags = classic;
       if (format === 'esm') explicitModule = true;
+      if (options.sourceMap === true) mapped = true;
     }
   }
   if (defaults) {
     const kind = sourceKind(file);
-    if (kind === script && explicitModule) {
+    if (mapped) {
+      const result = kind === 0 || kind === esm ? mappedTypeScript(input, file, kind | (explicitModule ? esm : 0)) : undefined;
+      if (result !== undefined) return result;
+    } else if (kind === script && explicitModule) {
       // An explicit module format for a .js name disables the script route, which the router decides.
     } else if (kind >= script) {
       if (Buffer.isBuffer(input)) {
@@ -99,3 +124,4 @@ function compile(input, options) {
 }
 
 exports.compile = compile;
+exports.mappedTypeScript = mappedTypeScript;
