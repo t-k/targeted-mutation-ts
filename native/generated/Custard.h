@@ -45,6 +45,8 @@ TmtGrammar_candidate;
 #define TmtPulseMemory_LocalVarName 12
 #define TmtPulseMemory_TypeOnlyImport 13
 #define TmtPulseMemory_RuntimeExport 14
+#define TmtPulseMemory_AmbientValueName 15
+#define TmtPulseMemory_AmbientBothNames 16
 
 typedef uint8_t TmtPulseMemory_binding_namespace;
 

@@ -814,9 +814,9 @@ let names_overlap (left right:binding_namespace) : bool =
   else if left = ExportedInterfaceName && right = ExportedInterfaceName then false
   else if (is_interface_binding left && right = TypeNamespace) || (left = TypeNamespace && is_interface_binding right) then false
   else
-    let effective binding = if is_function_binding binding then ValueName
+    let effective binding = if is_function_binding binding || binding = AmbientValueName then ValueName
       else if is_interface_binding binding then TypeName
-      else if binding = TypeNamespace || binding = TypeOnlyImport then BothNames else binding in
+      else if binding = TypeNamespace || binding = TypeOnlyImport || binding = AmbientBothNames then BothNames else binding in
     let left = effective left in
     let right = effective right in
     left = BothNames || right = BothNames || left = right
@@ -839,7 +839,7 @@ let bind_in_namespace (input:tape) (st:parser_state) (base:names_base) (floor us
   let length = minus st.offset pos in
   if st.status <> 0ul || used = binding_region_width || U32.(length >^ 256ul) then ret input ({ state = failed st 1ul; used })
   else (let! anf_value_1 = (fun () -> name_seen input base floor used pos length namespace) in if anf_value_1 then
-    ret input (let status = if base = 0ul && namespace = ValueName then 5ul else 1ul in
+    ret input (let status = if base = 0ul && (namespace = ValueName || namespace = AmbientValueName) then 5ul else 1ul in
     { state = failed st status; used })
   else (let! _ = (fun () -> set_binding input (U32.add base used) { span = { G.first = pos; G.last = st.offset }; namespace; owner = 0uy }) in
     ret input ({ state = st; used = U32.add used 1ul })))
@@ -4385,7 +4385,7 @@ let rec enum_members (input:tape) (state:parser_state) (remaining:U32.t) (ambien
 
 let enum_declaration (input:tape) (state:parser_state) (used:names_used) (ambient:bool) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! start = (fun () -> skip input { state with offset = plus state.offset 4ul }) in
-  let! named = (fun () -> bind_at input start 0ul used start.offset) in
+  let! named = (fun () -> bind_in_namespace input start 0ul 0ul used start.offset (if ambient then AmbientBothNames else BothNames)) in
   let! opening = (fun () -> (let! anf_value_1 = (fun () -> (skip input named.state)) in consume input anf_value_1 123uy)) in
   (let! anf_value_2 = (fun () -> enum_members input opening input.size ambient) in ret input ({ named with state = anf_value_2 }))
 
@@ -4601,9 +4601,11 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
     else
       let type_only = width = 4ul || width = 9ul in
       let! decl =
-        (fun () -> if head.class_declaration then bind_at input start 0ul used start.offset
+        (fun () -> if head.class_declaration then
+          bind_in_namespace input start 0ul 0ul used start.offset (if head.ambient_declaration then AmbientBothNames else BothNames)
         else
-          let! namespace = (fun () -> if width <> 9ul then ret input (if type_only then TypeName else ValueName)
+          let! namespace = (fun () -> if width <> 9ul then
+              ret input (if type_only then TypeName else if head.ambient_declaration then AmbientValueName else ValueName)
             else
               let! exported = (fun () -> if head.ambient_declaration then ret input false
                 else keyword input state.offset 6ul 0x6578706f7274uL) in
@@ -4629,9 +4631,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
           statement_end input annotation annotation.offset false) in
       let! result =
         (fun () -> if input.capture_types && head.ambient_declaration then
-          let! erased = (fun () -> record_jsx_span input { result with count = state.count } 8ul state.offset result.offset) in
-          // An ambient class or variable binds a value name that has no runtime declaration.
-          if type_only then ret input erased else record_jsx_span input erased 29ul state.offset result.offset
+          record_jsx_span input { result with count = state.count } 8ul state.offset result.offset
         else if type_only then record_jsx_span input result 8ul state.offset result.offset
         else ret input result) in
       ret input ({ decl with state = { result with await_allowed = state.await_allowed } })

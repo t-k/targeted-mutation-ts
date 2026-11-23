@@ -72,6 +72,14 @@ const certificationShapes = new Map([
   ['ambient-class-export', 'declare class Ambient {}\\LINE\\export { Ambient };\\LINE\\const result = 42;'],
   ['ambient-const-export', 'declare const ambient: number;\\LINE\\export { ambient };\\LINE\\const result = 42;'],
   ['parameter-property', 'class Box { constructor(public value: number) {} }\\LINE\\const result = new Box(42);'],
+  ['ambient-enum-export', 'declare enum Ambient { A }\\LINE\\export { Ambient };\\LINE\\const result = 42;'],
+  ['ambient-var-export-as', 'declare var ambient: number;\\LINE\\export { ambient as renamed };\\LINE\\const result = 42;'],
+  ['ambient-class-export-before', 'export { Ambient };\\LINE\\declare abstract class Ambient {}\\LINE\\const result = 42;'],
+  ['ambient-function-export', 'declare function ambient(): void;\\LINE\\export { ambient };\\LINE\\const result = 42;'],
+  ['ambient-const-reference', 'declare const ambient: number;\\LINE\\const result = typeof ambient;'],
+  ['ambient-class-default', 'declare class Ambient {}\\LINE\\export default Ambient;\\LINE\\const result = 42;'],
+  ['ambient-const-duplicate', 'declare const ambient: number;\\LINE\\const ambient = 1;\\LINE\\const result = ambient;'],
+  ['ambient-enum-duplicate', 'declare enum Ambient { A }\\LINE\\class Ambient {}\\LINE\\const result = 42;'],
 ]);
 
 // Shapes that the emitter certifies, and shapes that only V8 or a compatibility route can decide.

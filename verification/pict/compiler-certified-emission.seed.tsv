@@ -8,3 +8,7 @@ ambient-const-export	ts	lf	after-import
 literal-enum	tsx	lf	after-import
 parameter-property	ts	lf	first
 modifiers	tsx	crlf	after-erased
+ambient-enum-export	ts	lf	first
+ambient-class-export-before	ts	lf	after-import
+ambient-const-reference	ts	lf	first
+ambient-const-duplicate	ts	lf	after-erased

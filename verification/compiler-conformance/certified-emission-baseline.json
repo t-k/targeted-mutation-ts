@@ -443,6 +443,294 @@
   "codeSha256": "807ffe9d000f21e05d46b8b1788d9554134820c1f5277b51daa4b29324cc5529",
   "diagnostics": []
  },
+ "certification/ambient-enum-export/lf/first.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-enum-export/lf/after-import.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-enum-export/lf/after-erased.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-enum-export/crlf/first.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-enum-export/crlf/after-import.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-enum-export/crlf/after-erased.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-var-export-as/lf/first.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-var-export-as/lf/after-import.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-var-export-as/lf/after-erased.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-var-export-as/crlf/first.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-var-export-as/crlf/after-import.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-var-export-as/crlf/after-erased.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-class-export-before/lf/first.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-class-export-before/lf/after-import.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-class-export-before/lf/after-erased.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-class-export-before/crlf/first.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-class-export-before/crlf/after-import.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-class-export-before/crlf/after-erased.ts": {
+  "backend": "node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-function-export/lf/first.ts": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-function-export/lf/after-import.ts": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-function-export/lf/after-erased.ts": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-function-export/crlf/first.ts": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-function-export/crlf/after-import.ts": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-function-export/crlf/after-erased.ts": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-const-reference/lf/first.ts": {
+  "backend": "pulse",
+  "codeSha256": "c6e0ccb622f6787aef0ddf4f527380aecfa4d046c729c6ae65f9c924a14c79a8",
+  "diagnostics": []
+ },
+ "certification/ambient-const-reference/lf/after-import.ts": {
+  "backend": "pulse",
+  "codeSha256": "c02c87dbfd6c3f64a6ac73d7f4e731f2940e8481abff7dbc07e0a3848db2aa43",
+  "diagnostics": []
+ },
+ "certification/ambient-const-reference/lf/after-erased.ts": {
+  "backend": "pulse",
+  "codeSha256": "338b9a29e70d2862d4069d70d7ab58887bcf442f19b5563030ff018b0a065485",
+  "diagnostics": []
+ },
+ "certification/ambient-const-reference/crlf/first.ts": {
+  "backend": "pulse",
+  "codeSha256": "6e972f143af544ef96738343b84fb9877427762107a58925aded2e23ede573bb",
+  "diagnostics": []
+ },
+ "certification/ambient-const-reference/crlf/after-import.ts": {
+  "backend": "pulse",
+  "codeSha256": "be9b1020d136591715afbc9ca4d765eb6eb498e3252bb034d042bcd81bde05da",
+  "diagnostics": []
+ },
+ "certification/ambient-const-reference/crlf/after-erased.ts": {
+  "backend": "pulse",
+  "codeSha256": "97a08df21ae1acf1011086fca39a0e635abe7855d944f1d70a73cec660b8f320",
+  "diagnostics": []
+ },
+ "certification/ambient-class-default/lf/first.ts": {
+  "backend": "pulse",
+  "codeSha256": "88d0a98f502701fb53271e6883408bf458221e6c4783a008f6b39dc60cfff09a",
+  "diagnostics": []
+ },
+ "certification/ambient-class-default/lf/after-import.ts": {
+  "backend": "pulse",
+  "codeSha256": "467b2ad2ee6e3533c976449bcd378722f3a7c9b5ac4741a766eacb0fdb33ec5e",
+  "diagnostics": []
+ },
+ "certification/ambient-class-default/lf/after-erased.ts": {
+  "backend": "pulse",
+  "codeSha256": "3db98fef5e44f2d4598ee2ecfd534a210777cc7e07fea02ff5a546582e2f83dd",
+  "diagnostics": []
+ },
+ "certification/ambient-class-default/crlf/first.ts": {
+  "backend": "pulse",
+  "codeSha256": "9927909a5c6035824d61d2c59f8d763137c24d0b03b4669e816d31ebe0fab25d",
+  "diagnostics": []
+ },
+ "certification/ambient-class-default/crlf/after-import.ts": {
+  "backend": "pulse",
+  "codeSha256": "f4f347b4eb546b05cbff526be903fc0d18db1d52e809dbe501218448da9a4c26",
+  "diagnostics": []
+ },
+ "certification/ambient-class-default/crlf/after-erased.ts": {
+  "backend": "pulse",
+  "codeSha256": "08087010b50d5a68eee5b6991f183840f14ed1ffb8ae0609cefc08d590187ee3",
+  "diagnostics": []
+ },
+ "certification/ambient-const-duplicate/lf/first.ts": {
+  "backend": "typescript",
+  "codeSha256": "8ebfcf5fb8fff7f72101241d25131e75e1d9050e66a3af78cda435c67bf766be",
+  "diagnostics": []
+ },
+ "certification/ambient-const-duplicate/lf/after-import.ts": {
+  "backend": "typescript",
+  "codeSha256": "ae7943649749777b5196f9887eec90a1686d105febf23585cf80582221b2b0b5",
+  "diagnostics": []
+ },
+ "certification/ambient-const-duplicate/lf/after-erased.ts": {
+  "backend": "typescript",
+  "codeSha256": "8ebfcf5fb8fff7f72101241d25131e75e1d9050e66a3af78cda435c67bf766be",
+  "diagnostics": []
+ },
+ "certification/ambient-const-duplicate/crlf/first.ts": {
+  "backend": "typescript",
+  "codeSha256": "8ebfcf5fb8fff7f72101241d25131e75e1d9050e66a3af78cda435c67bf766be",
+  "diagnostics": []
+ },
+ "certification/ambient-const-duplicate/crlf/after-import.ts": {
+  "backend": "typescript",
+  "codeSha256": "ae7943649749777b5196f9887eec90a1686d105febf23585cf80582221b2b0b5",
+  "diagnostics": []
+ },
+ "certification/ambient-const-duplicate/crlf/after-erased.ts": {
+  "backend": "typescript",
+  "codeSha256": "8ebfcf5fb8fff7f72101241d25131e75e1d9050e66a3af78cda435c67bf766be",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-duplicate/lf/first.ts": {
+  "backend": "typescript",
+  "codeSha256": "edb5c10f52fe7b6fd425e5062e0690144300da99496e1be62244eb6f88cbecbc",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-duplicate/lf/after-import.ts": {
+  "backend": "typescript",
+  "codeSha256": "9c5353b10e55e946a19dfe28de64c3f0c75786bab6c5e8dd967732ee185e755c",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-duplicate/lf/after-erased.ts": {
+  "backend": "typescript",
+  "codeSha256": "edb5c10f52fe7b6fd425e5062e0690144300da99496e1be62244eb6f88cbecbc",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-duplicate/crlf/first.ts": {
+  "backend": "typescript",
+  "codeSha256": "edb5c10f52fe7b6fd425e5062e0690144300da99496e1be62244eb6f88cbecbc",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-duplicate/crlf/after-import.ts": {
+  "backend": "typescript",
+  "codeSha256": "9c5353b10e55e946a19dfe28de64c3f0c75786bab6c5e8dd967732ee185e755c",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-duplicate/crlf/after-erased.ts": {
+  "backend": "typescript",
+  "codeSha256": "edb5c10f52fe7b6fd425e5062e0690144300da99496e1be62244eb6f88cbecbc",
+  "diagnostics": []
+ },
  "certification/annotation/lf/first.tsx": {
   "backend": "pulse",
   "codeSha256": "555e17326ab0d90f1b5f034b6f1eb8ced447e6e1dad512f1ceb8a5dddda3a224",
@@ -885,6 +1173,294 @@
  "certification/parameter-property/crlf/after-erased.tsx": {
   "backend": "typescript",
   "codeSha256": "30a6f7e75dc8b45a1eb5433eddba32a899764f305efdf1dae87a024dcd9f860f",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-export/lf/first.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-enum-export/lf/after-import.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-enum-export/lf/after-erased.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-enum-export/crlf/first.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-enum-export/crlf/after-import.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-enum-export/crlf/after-erased.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-var-export-as/lf/first.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-var-export-as/lf/after-import.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-var-export-as/lf/after-erased.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-var-export-as/crlf/first.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-var-export-as/crlf/after-import.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-var-export-as/crlf/after-erased.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-class-export-before/lf/first.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-class-export-before/lf/after-import.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-class-export-before/lf/after-erased.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-class-export-before/crlf/first.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-class-export-before/crlf/after-import.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-class-export-before/crlf/after-erased.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-function-export/lf/first.tsx": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-function-export/lf/after-import.tsx": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-function-export/lf/after-erased.tsx": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-function-export/crlf/first.tsx": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-function-export/crlf/after-import.tsx": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-function-export/crlf/after-erased.tsx": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   "UNBOUND_RUNTIME_EXPORT"
+  ]
+ },
+ "certification/ambient-const-reference/lf/first.tsx": {
+  "backend": "pulse",
+  "codeSha256": "8493be15be196cc32bf47367a29ef1ade147fab34994e3051f9a228ba3fc0c32",
+  "diagnostics": []
+ },
+ "certification/ambient-const-reference/lf/after-import.tsx": {
+  "backend": "pulse",
+  "codeSha256": "8b839fc32c1bede5b9bcd09ba53bc3a9132f3cd857b50521dc3bdff53fc792b8",
+  "diagnostics": []
+ },
+ "certification/ambient-const-reference/lf/after-erased.tsx": {
+  "backend": "pulse",
+  "codeSha256": "686750014acc96d4938dcba03f62fd128b7b541c2c9ee340d28382c2fc36f8fd",
+  "diagnostics": []
+ },
+ "certification/ambient-const-reference/crlf/first.tsx": {
+  "backend": "pulse",
+  "codeSha256": "92fa3f5cfd7e849f06ba5d5fcbbc8328d8a12ec41bbe52819fc3ed0eb084b00f",
+  "diagnostics": []
+ },
+ "certification/ambient-const-reference/crlf/after-import.tsx": {
+  "backend": "pulse",
+  "codeSha256": "a313c623d6a1d7c7b5bb342b1d81d3d0372b0f077b0a77fe8b3994a1f1d74c62",
+  "diagnostics": []
+ },
+ "certification/ambient-const-reference/crlf/after-erased.tsx": {
+  "backend": "pulse",
+  "codeSha256": "c4887cfe31525c97055707b80ed52a01da049c8da14014ca46211e9419046a8e",
+  "diagnostics": []
+ },
+ "certification/ambient-class-default/lf/first.tsx": {
+  "backend": "pulse",
+  "codeSha256": "91176ae95fab9149a8110e7e7dbca7416df3e924a20febcc7c43d90632ecfb18",
+  "diagnostics": []
+ },
+ "certification/ambient-class-default/lf/after-import.tsx": {
+  "backend": "pulse",
+  "codeSha256": "bd5f8ce70162960ff96e65efc69779454f7184cc2d1ca564f5db6f5e9d363840",
+  "diagnostics": []
+ },
+ "certification/ambient-class-default/lf/after-erased.tsx": {
+  "backend": "pulse",
+  "codeSha256": "90c21d5273610b8046d503493c25dd7fb06f55732efd2ea0e04412caeabaa651",
+  "diagnostics": []
+ },
+ "certification/ambient-class-default/crlf/first.tsx": {
+  "backend": "pulse",
+  "codeSha256": "4501c3eb27b23607dc36026e7dfd858ae92bcc3cb9d1fbca7666b58088ea14f7",
+  "diagnostics": []
+ },
+ "certification/ambient-class-default/crlf/after-import.tsx": {
+  "backend": "pulse",
+  "codeSha256": "ae20d114a7af06636b4beb54ffff3066e034ad5474ac0d3cbdfa93aef4c91482",
+  "diagnostics": []
+ },
+ "certification/ambient-class-default/crlf/after-erased.tsx": {
+  "backend": "pulse",
+  "codeSha256": "4b3be9a2b27c3b036e85b8b33871533c13c4cc2b6ac52490bc14666a9e115e20",
+  "diagnostics": []
+ },
+ "certification/ambient-const-duplicate/lf/first.tsx": {
+  "backend": "typescript",
+  "codeSha256": "1f3511b258479303d854151687c0ae7dc615bc86de3a029d9a2a4ee5bba368ef",
+  "diagnostics": []
+ },
+ "certification/ambient-const-duplicate/lf/after-import.tsx": {
+  "backend": "typescript",
+  "codeSha256": "c54a886c144acb5773e6d75f7b89b49ef7c95ee4c59ccd9907623a68884c2c52",
+  "diagnostics": []
+ },
+ "certification/ambient-const-duplicate/lf/after-erased.tsx": {
+  "backend": "typescript",
+  "codeSha256": "1f3511b258479303d854151687c0ae7dc615bc86de3a029d9a2a4ee5bba368ef",
+  "diagnostics": []
+ },
+ "certification/ambient-const-duplicate/crlf/first.tsx": {
+  "backend": "typescript",
+  "codeSha256": "1f3511b258479303d854151687c0ae7dc615bc86de3a029d9a2a4ee5bba368ef",
+  "diagnostics": []
+ },
+ "certification/ambient-const-duplicate/crlf/after-import.tsx": {
+  "backend": "typescript",
+  "codeSha256": "c54a886c144acb5773e6d75f7b89b49ef7c95ee4c59ccd9907623a68884c2c52",
+  "diagnostics": []
+ },
+ "certification/ambient-const-duplicate/crlf/after-erased.tsx": {
+  "backend": "typescript",
+  "codeSha256": "1f3511b258479303d854151687c0ae7dc615bc86de3a029d9a2a4ee5bba368ef",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-duplicate/lf/first.tsx": {
+  "backend": "typescript",
+  "codeSha256": "f22e15d8e1e1b3ed9a1b3263df1b1cf84eccd01fbe93d6510999e198dbbd05da",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-duplicate/lf/after-import.tsx": {
+  "backend": "typescript",
+  "codeSha256": "cf7830dffa51c3808d3e41c239cecd4582af095a85c30083e4ac085d901a089c",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-duplicate/lf/after-erased.tsx": {
+  "backend": "typescript",
+  "codeSha256": "f22e15d8e1e1b3ed9a1b3263df1b1cf84eccd01fbe93d6510999e198dbbd05da",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-duplicate/crlf/first.tsx": {
+  "backend": "typescript",
+  "codeSha256": "f22e15d8e1e1b3ed9a1b3263df1b1cf84eccd01fbe93d6510999e198dbbd05da",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-duplicate/crlf/after-import.tsx": {
+  "backend": "typescript",
+  "codeSha256": "cf7830dffa51c3808d3e41c239cecd4582af095a85c30083e4ac085d901a089c",
+  "diagnostics": []
+ },
+ "certification/ambient-enum-duplicate/crlf/after-erased.tsx": {
+  "backend": "typescript",
+  "codeSha256": "f22e15d8e1e1b3ed9a1b3263df1b1cf84eccd01fbe93d6510999e198dbbd05da",
   "diagnostics": []
  }
 }

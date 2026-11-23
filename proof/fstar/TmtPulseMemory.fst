@@ -27,6 +27,9 @@ type binding_namespace =
   | LocalVarName
   | TypeOnlyImport
   | RuntimeExport
+  // Ambient declarations conflict like their runtime forms but leave no runtime binding to export.
+  | AmbientValueName
+  | AmbientBothNames
 
 type binding_name = { span:G.span; namespace:binding_namespace; owner:U8.t }
 
