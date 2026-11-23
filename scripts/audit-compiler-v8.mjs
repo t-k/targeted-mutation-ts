@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url';
 
 const entry = fileURLToPath(import.meta.url);
 const auditAddon = new URL('../build/compiler-v8-audit/compiler-module.node', import.meta.url);
-const ordinaryAddon = fileURLToPath(new URL('../build/compiler-module.node', import.meta.url));
+const ordinaryAddon = '../build/compiler-module.node';
 const compilerEntry = new URL('../src/compiler.cjs', import.meta.url);
-const phases = new Set(['ts', 'jsx', 'tsx', 'passthrough']);
+const phases = new Set(['ts', 'jsx', 'tsx', 'passthrough', 'javascript']);
 const reasons = new Set(['accepted', 'unavailable', 'string-allocation', 'no-diagnostic',
   'unbound-export', 'redeclaration', 'strict-mode', 'unexpected-token', 'syntax']);
 
