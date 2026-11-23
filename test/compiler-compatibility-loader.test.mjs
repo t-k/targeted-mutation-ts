@@ -28,7 +28,7 @@ test('native calls do not initialize the general compatibility emitter', () => {
     assert.equal(native.backend, 'pulse');
     assert.ok(native.sourceMap.mappings);
     assert.equal(compatibilityLoads, 0);
-    const mapped = compile('export const View = () => <i/>;', { file: 'a.tsx', sourceMap: true });
+    const mapped = compile('export const View = () => <i/>;', { file: 'a.tsx', sourceMap: true, jsx: 'preserve' });
     assert.equal(mapped.backend, 'typescript');
     assert.ok(mapped.sourceMap);
     assert.equal(compatibilityLoads, 1);

@@ -17,7 +17,7 @@ typedef struct {
 } tmt_run_log;
 
 char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescript, bool classic,
-  bool mixed, size_t *length, bool *complete);
+  bool mixed, size_t *length, bool *complete, tmt_run_log *runs);
 
 bool tmt_unbound_export(uint8_t *source, uint32_t size);
 bool tmt_plain_script(uint8_t *source, uint32_t size);

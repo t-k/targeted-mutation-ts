@@ -115,6 +115,30 @@ static void log_run(tmt_run_log *runs, size_t out, uint32_t src, uint32_t length
   runs->items[runs->count++] = (tmt_run){ (uint32_t)out, src, length };
 }
 
+/* Text inserted at an output offset moves every later copy, and splits a copy that spans the offset. */
+static void shift_runs(tmt_run_log *runs, size_t at, size_t width) {
+  for (size_t index = 0; index < runs->count && !runs->failed; index++) {
+    tmt_run *run = &runs->items[index];
+    if (run->out >= at) run->out += (uint32_t)width;
+    else if (run->out + run->length > at) {
+      const uint32_t head = (uint32_t)(at - run->out);
+      const tmt_run tail = { (uint32_t)(at + width), run->src + head, run->length - head };
+      run->length = head;
+      if (runs->count == runs->capacity) {
+        const size_t capacity = runs->capacity * 2;
+        tmt_run *grown = realloc(runs->items, capacity * sizeof(*grown));
+        if (!grown) { runs->failed = true; return; }
+        runs->items = grown;
+        runs->capacity = capacity;
+      }
+      memmove(runs->items + index + 2, runs->items + index + 1, (runs->count - index - 1) * sizeof(*runs->items));
+      runs->items[index + 1] = tail;
+      runs->count++;
+      index++;
+    }
+  }
+}
+
 static void source_bytes(lowering *lower, uint32_t first, uint32_t last) {
   if (first > last || last > lower->input.size) { lower->output.failed = true; return; }
   if (lower->output.runs && first < last && !lower->output.failed) log_run(lower->output.runs, lower->output.length, first, last - first);
@@ -738,14 +762,18 @@ static bool inject_jsx_runtime(lowering *lower, size_t at) {
   if (out->failed) return false;
   memmove(out->code + at + size, out->code + at, before - at);
   memcpy(out->code + at, import, (size_t)size);
+  if (out->runs) shift_runs(out->runs, at, (size_t)size);
   return true;
 }
 
-static char *lower_one(uint8_t *source, uint32_t size, bool jsx, bool typescript, bool classic, size_t *length) {
+static char *lower_one(uint8_t *source, uint32_t size, bool jsx, bool typescript, bool classic, size_t *length,
+  tmt_run_log *runs)
+{
   const TmtPulseMemory_tape input = { .source = source, .size = size };
   const TmtPulseCompiler_runtime_head head = TmtPulseCompiler_read_runtime_head(input, 0, jsx, typescript, false);
   if (!head.kind) return NULL;
-  lowering lower = { .input = input, .at = head.body, .classic = classic, .output.limit = (size_t)size * 32 + 1024 };
+  lowering lower = { .input = input, .at = head.body, .classic = classic, .output.limit = (size_t)size * 32 + 1024,
+    .output.runs = runs };
   source_bytes(&lower, 0, head.declaration);
   const bool emitted = head.kind == 1 ? emit_enum(&lower, head.name_span, true) : emit_jsx(&lower, head);
   const uint32_t suffix = lower.at;
@@ -1567,6 +1595,10 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   *checked = false;
   *complete = false;
   *script = false;
+  if (runs) {
+    runs->count = 0;
+    runs->failed = false;
+  }
   *property = TMT_PARAMETER_NONE;
 #ifdef TMT_V8_VALIDATOR
   module_workspace memory = {0};
@@ -1668,14 +1700,16 @@ bool tmt_leading_directive(uint8_t *source, uint32_t size) {
 }
 
 #ifndef TMT_DIRECT
-static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic, size_t *length) {
+static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic, size_t *length, tmt_run_log *runs) {
   module_workspace memory = {0};
   const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok || !TmtPulseCompiler_supported_module(input, jsx)) return NULL;
   const uint32_t marker = find_marker(input, first.at, jsx);
   if (marker == size) return NULL;
-  lowering lower = { .input = input, .classic = classic, .mixed = true, .output.limit = (size_t)size * 32 + 1024 };
+  if (runs) runs->count = 0;
+  lowering lower = { .input = input, .classic = classic, .mixed = true, .output.limit = (size_t)size * 32 + 1024,
+    .output.runs = runs };
   uint32_t keep = 0;
   size_t runtime_at = SIZE_MAX;
   for (uint32_t cursor = first.at; cursor < size;) {
@@ -1766,11 +1800,13 @@ static bool source_jsx_with_enums(lowering *lower, uint32_t first, uint32_t last
 
 static char *render_jsx_spans(TmtPulseMemory_tape input, const TmtGrammar_span *tags, size_t tag_count,
   const TmtGrammar_span *expressions, size_t expression_count, uint32_t insertion, bool classic, size_t *length,
-  uint32_t enum_records)
+  uint32_t enum_records, tmt_run_log *runs)
 {
+  /* Each attempt starts its own log. */
+  if (runs) runs->count = 0;
   lowering lower = { .input = input, .classic = classic, .jsx_spans = tags, .jsx_count = tag_count,
     .expressions = expressions, .expression_count = expression_count,
-    .output.limit = (size_t)input.size * 32 + 1024 };
+    .output.limit = (size_t)input.size * 32 + 1024, .output.runs = runs };
   uint32_t enum_index = 0;
   if (source_jsx_with_enums(&lower, 0, insertion, enum_records, &enum_index)) {
     const size_t runtime_at = lower.output.length;
@@ -1851,7 +1887,7 @@ static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records) 
 #endif
 
 static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans, uint32_t records,
-  uint32_t insertion, bool typescript, bool classic, size_t *length, bool *complete)
+  uint32_t insertion, bool typescript, bool classic, size_t *length, bool *complete, tmt_run_log *runs)
 {
   size_t elements = 0, expression_begin = records;
 #ifdef TMT_V8_VALIDATOR
@@ -1870,7 +1906,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   qsort(expressions, expression_count, sizeof(*spans), compare_spans);
 #ifdef TMT_V8_VALIDATOR
   if (!typescript) {
-    char *code = render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0);
+    char *code = render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0, runs);
     if (code && validate_emission(code, *length, "jsx")) {
       *complete = true;
       return code;
@@ -1886,7 +1922,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
       if (masked) projected.source = (uint8_t *)masked;
       {
         audit_projection_guard(projected, records, "tsx");
-        char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length, enum_records);
+        char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length, enum_records, runs);
         if (code && (!facts.remove_statement || retained_module_marker(projected, insertion, records) ||
                      (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&
             publishable(!facts.uncertified, code, *length, "tsx")) {
@@ -1904,10 +1940,12 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   if (!typescript) return NULL;
   (void)complete;
 #endif
-  return render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0);
+  return render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0, runs);
 }
 
-static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, bool classic, size_t *length, bool *complete) {
+static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, bool classic, size_t *length, bool *complete,
+  tmt_run_log *runs)
+{
   module_workspace memory = {0};
   TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
@@ -1936,7 +1974,7 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, b
     }
     if (small.status == 0 && small.count <= input.capacity) {
       TmtGrammar_span spans[sizeof(memory.marks)];
-      return render_jsx_module(input, spans, small.count, insertion, typescript, classic, length, complete);
+      return render_jsx_module(input, spans, small.count, insertion, typescript, classic, length, complete, runs);
     }
     if (small.status != 4) return NULL;
   }
@@ -1954,7 +1992,7 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, b
       parsed = capture_jsx(input, module);
     }
     if (parsed.status == 0 && parsed.count <= capacity) {
-      result = render_jsx_module(input, spans, parsed.count, insertion, typescript, classic, length, complete);
+      result = render_jsx_module(input, spans, parsed.count, insertion, typescript, classic, length, complete, runs);
     }
   }
   free(input.output);
@@ -1966,20 +2004,24 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, b
 #endif
 
 char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescript, bool classic,
-  bool mixed, size_t *length, bool *complete)
+  bool mixed, size_t *length, bool *complete, tmt_run_log *runs)
 {
   *complete = false;
+  if (runs) {
+    runs->count = 0;
+    runs->failed = false;
+  }
   if (!size) return NULL;
   if (mixed) {
 #ifdef TMT_DIRECT
     return NULL;
 #else
     if (jsx) {
-      char *general = lower_jsx_module(source, size, typescript, classic, length, complete);
+      char *general = lower_jsx_module(source, size, typescript, classic, length, complete, runs);
       if (general || !typescript) return general;
     }
-    return lower_mixed(source, size, jsx, classic, length);
+    return lower_mixed(source, size, jsx, classic, length, runs);
 #endif
   }
-  return lower_one(source, size, jsx, typescript, classic, length);
+  return lower_one(source, size, jsx, typescript, classic, length, runs);
 }

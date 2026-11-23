@@ -44,9 +44,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   char *code = tmt_emit_annotated_module(source, width, hint, flags & 4, flags & 8, &length, &checked, &complete, &script, &property, NULL);
   if (code && complete && length == size) check_projection(source, code, size);
   free(code);
-  code = tmt_lower_runtime(source, width, flags & 16, flags & 32, flags & 64, true, &length, &complete);
+  code = tmt_lower_runtime(source, width, flags & 16, flags & 32, flags & 64, true, &length, &complete, NULL);
   free(code);
-  code = tmt_lower_runtime(source, width, flags & 16, true, flags & 64, false, &length, &complete);
+  code = tmt_lower_runtime(source, width, flags & 16, true, flags & 64, false, &length, &complete, NULL);
   free(code);
   (void)tmt_module_marker(source, width, flags & 128);
   (void)tmt_unbound_export(source, width);

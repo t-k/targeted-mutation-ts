@@ -264,9 +264,10 @@ function compile(input, options = {}) {
   const format = outputFormat(file, module);
   const typed = /\.(?:m?ts|tsx)$/i.test(file);
   const jsxFile = /\.[jt]sx$/i.test(file);
-  if (sourceMap && typed && !jsxFile && target === 'esnext' && format !== 'cjs') {
+  if (sourceMap && typed && jsx !== 'preserve' && target === 'esnext' && format !== 'cjs') {
     // The entry owns the native map so that both callers publish the same result.
-    const result = require('./compiler.cjs').mappedTypeScript(input, file, format === 'esm' ? 2 : 0);
+    const result = require('./compiler.cjs').mappedTypeScript(input, file,
+      (format === 'esm' ? 2 : 0) | (jsxFile ? 1 : 0) | (jsxFile && jsx === 'classic' ? 4 : 0));
     if (result !== undefined) return result;
   }
   let direct;

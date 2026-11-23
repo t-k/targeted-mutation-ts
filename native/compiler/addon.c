@@ -334,7 +334,7 @@ static napi_value lower_source(napi_env env, napi_callback_info info) {
   NAPI(napi_get_value_bool(env, args[2], &typescript));
   NAPI(napi_get_value_bool(env, args[3], &classic));
   NAPI(napi_get_value_bool(env, args[4], &mixed));
-  if (size <= source_limit) output = tmt_lower_runtime(source, (uint32_t)size, jsx, typescript, classic, mixed, &length, &complete);
+  if (size <= source_limit) output = tmt_lower_runtime(source, (uint32_t)size, jsx, typescript, classic, mixed, &length, &complete, NULL);
   if (output) {
     NAPI(create_source_string(env, output, length, &result));
     if (complete) {
@@ -577,7 +577,7 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     !contains(source, size, "_tmt", false);
   bool complete;
   if (restricted && (!jsx || runtime)) {
-    output = tmt_lower_runtime(source, width, jsx, true, classic, false, &length, &complete);
+    output = tmt_lower_runtime(source, width, jsx, true, classic, false, &length, &complete, flags & emit_mapped ? &runs : NULL);
     if (output) goto publish;
   }
   if (!jsx || !memchr(source, '<', size)) {
@@ -593,7 +593,7 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     goto decline;
   }
   if (runtime && !contains(source, size, "\\u", false)) {
-    output = tmt_lower_runtime(source, width, true, true, classic, true, &length, &complete);
+    output = tmt_lower_runtime(source, width, true, true, classic, true, &length, &complete, flags & emit_mapped ? &runs : NULL);
     if (output && complete) goto publish;
   }
 decline:

@@ -54,7 +54,8 @@ function mappedTypeScript(input, file, flags) {
   const slash = file.lastIndexOf('/');
   const name = slash < 0 ? file : file.slice(slash + 1);
   const module = name.endsWith('.mts');
-  if (!module && !name.endsWith('.ts') || name.includes('\\')) return undefined;
+  const width = module || name.endsWith('.tsx') ? 4 : 3;
+  if (!module && !name.endsWith('.ts') && !name.endsWith('.tsx') || name.includes('\\')) return undefined;
   const text = typeof input === 'string' ? input : Buffer.isBuffer(input) ? undefined : null;
   if (text === null || text !== undefined && (!text.isWellFormed() || text.charCodeAt(0) === 0xFEFF)) return undefined;
   const source = text === undefined ? input : Buffer.from(text);
@@ -63,7 +64,7 @@ function mappedTypeScript(input, file, flags) {
   const result = emit === undefined ? undefined : emit(source, flags | 16);
   if (result === undefined) return undefined;
   return { backend: 'pulse', code: result[0], sourceMap: {
-    version: 3, file: name.slice(0, module ? -4 : -3) + (module ? '.mjs' : '.js'), sourceRoot: '', sources: [name], names: [],
+    version: 3, file: name.slice(0, -width) + (module ? '.mjs' : '.js'), sourceRoot: '', sources: [name], names: [],
     mappings: result[1], sourcesContent: [text ?? source.toString()],
   }, diagnostics: [] };
 }
@@ -95,7 +96,7 @@ function compile(input, options) {
   if (defaults) {
     const kind = sourceKind(file);
     if (mapped) {
-      const result = kind === 0 || kind === esm ? mappedTypeScript(input, file, kind | (explicitModule ? esm : 0)) : undefined;
+      const result = kind < script ? mappedTypeScript(input, file, kind | flags | (explicitModule ? esm : 0)) : undefined;
       if (result !== undefined) return result;
     } else if (kind === script && explicitModule) {
       // An explicit module format for a .js name disables the script route, which the router decides.

@@ -177,7 +177,7 @@ test('fixtures keep every token mapped', () => {
 test('outputs that are not projections and unusual inputs take the router', () => {
   const typed = 'const n: number = 1;\nexport const result = n;\n';
   for (const [source, file] of [
-    ['export const view = <i/>;\n', 'a.tsx'],
+    ['export const view = <i {...{ a: 1 }}/>;\n', 'a.tsx'],
     ['\ufeff' + typed, 'a.ts'],
     [typed, 'a.cts'],
     [typed, 'A.TS'],
@@ -213,6 +213,47 @@ test('parameter properties map the copied names and the text around the inserted
   // Text after the insertions on the constructor's line keeps its own columns.
   const body = generated.findIndex(line => line.includes('this.first; }'));
   assert.deepEqual(at(body, 'this.first; }'), [generated[body].indexOf('this.first; }'), 1, 67]);
+});
+
+test('lowered JSX maps the copied names and expressions on both sides of the inserted import', () => {
+  const source = [
+    '// lead',
+    'const prefix: string = "p";',
+    'import { useState } from "react";',
+    'type Props = { name: string };',
+    'export function View({ name }: Props) {',
+    '  const [count, setCount] = useState<number>(0);',
+    '  return <div className="box" onClick={() => setCount(count + 1)}>',
+    '    Hello {name}: {prefix}',
+    '  </div>;',
+    '}',
+    '',
+  ].join('\n');
+  for (const jsx of ['automatic', 'classic']) {
+    const options = { file: 'view.tsx', sourceMap: true, jsx };
+    const result = compile(source, options);
+    assert.equal(result.backend, 'pulse');
+    assert.deepEqual(router(source, options), result);
+    assert.equal(result.code, compile(source, { file: 'view.tsx', jsx }).code);
+    assert.equal(result.sourceMap.file, 'view.js');
+    assert.ok(assertSegmentsFaithful(source, result) >= 30);
+    const table = decode(result.sourceMap.mappings);
+    const generated = lines(result.code), original = lines(source);
+    const mapsTo = (text, sourceText = text) => {
+      const row = generated.findIndex(line => line.includes(text));
+      const segment = table[row].find(entry => entry[0] === generated[row].indexOf(text));
+      const sourceRow = original.findIndex(line => line.includes(sourceText));
+      assert.deepEqual(segment, [generated[row].indexOf(text), sourceRow, original[sourceRow].indexOf(sourceText)], text);
+    };
+    // Text before the inserted helper import, the import itself and text after it.
+    mapsTo('prefix', 'prefix: string');
+    mapsTo('useState } from');
+    mapsTo('View(');
+    mapsTo('setCount(count', 'setCount(count');
+    mapsTo('name)', 'name}');
+    mapsTo('prefix)', 'prefix}');
+    mapsTo('div', 'div className');
+  }
 });
 
 test('a module of types alone has an empty map', () => {
