@@ -2345,6 +2345,7 @@ TmtPulseParser_named_state
 TmtPulseParser_default_declaration(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
+  uint32_t declaration_start,
   uint32_t used
 );
 

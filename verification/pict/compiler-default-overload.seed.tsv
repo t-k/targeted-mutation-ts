@@ -1,0 +1,3 @@
+Signatures	Flavor	Dialect
+One	Sync	TS
+Multiple	Async	TSX

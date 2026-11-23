@@ -4719,10 +4719,13 @@ let rec default_function_body (input:tape) (state:parser_state) (spelling:G.span
         if not matches then ret input (failed start 1ul)
         else
           let! form = (fun () -> function_form input (from_cursor start name_) 64ul async_ NoSuper true OrdinaryParameters false) in
-          if form.signature_only then default_function_body input form.after_function spelling async_ (minus remaining 1ul)
+          if form.signature_only then
+            let after = form.after_function in
+            let! after = (fun () -> record_jsx_span input { after with count = st.count } 21ul st.offset after.offset) in
+            default_function_body input after spelling async_ (minus remaining 1ul)
           else ret input form.after_function
 
-let default_declaration (input:tape) (state:parser_state) (used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
+let default_declaration (input:tape) (state:parser_state) (declaration_start:U32.t) (used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! function_head = (fun () -> function_start input state.offset) in
   let! abstract_ = (fun () -> abstract_class_start input state.offset) in
   (let! class_ = (fun () -> if abstract_.ok then ret input true else class_keyword input state.offset) in if class_ then
@@ -4745,7 +4748,9 @@ let default_declaration (input:tape) (state:parser_state) (used:names_used) : To
     let overload = byte <> 40uy && byte <> 60uy && not head.generator in
     let! form = (fun () -> function_form input name.state 64ul async_ NoSuper overload OrdinaryParameters head.generator) in
     let! body = (fun () -> if form.signature_only then
-      default_function_body input form.after_function { G.first = start.offset; G.last = name.state.offset } async_ input.size
+      let after = form.after_function in
+      let! after = (fun () -> record_jsx_span input { after with count = state.count } 21ul declaration_start after.offset) in
+      default_function_body input after { G.first = start.offset; G.last = name.state.offset } async_ input.size
       else ret input form.after_function) in
     ret input ({ name with state = body })
   else
@@ -4827,7 +4832,7 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
           let end_ = plus name.offset 7ul in
           let! reserved = (fun () -> reserve_export input name exports name.offset end_) in
           let! body = (fun () -> skip input { reserved.state with offset = end_ }) in
-          (let! anf_value_3 = (fun () -> default_declaration input body used) in ret input (anf_value_3, reserved.used, pending))
+          (let! anf_value_3 = (fun () -> default_declaration input body st.offset used) in ret input (anf_value_3, reserved.used, pending))
         else if exported.export_kind = 2ul then
           let! reexported = (fun () -> star_reexport input exported.after_export exports) in
           let! recorded = (fun () -> record_jsx_span input reexported.state (if exported.type_only then 8ul else 9ul) st.offset reexported.state.offset) in

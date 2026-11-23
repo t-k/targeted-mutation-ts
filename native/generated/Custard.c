@@ -18180,7 +18180,37 @@ TmtPulseParser_default_function_body(
                 false);
             if (value7.signature_only)
             {
-              TmtPulseParser_parser_state tmp0 = value7.after_function;
+              TmtPulseParser_parser_state after = value7.after_function;
+              TmtPulseParser_parser_state
+              value8 =
+                TmtPulseParser_record_jsx_span(input,
+                  (
+                    (TmtPulseParser_parser_state){
+                      .offset = after.offset,
+                      .count = value.count,
+                      .depth = after.depth,
+                      .status = after.status,
+                      .local_names = after.local_names,
+                      .await_allowed = after.await_allowed,
+                      .yield_allowed = after.yield_allowed,
+                      .jsx_allowed = after.jsx_allowed,
+                      .module_mode = after.module_mode,
+                      .strict_script = after.strict_script,
+                      .in_allowed = after.in_allowed,
+                      .for_initializer = after.for_initializer,
+                      .arrow_defaults_allowed = after.arrow_defaults_allowed,
+                      .binding_mode = after.binding_mode,
+                      .super_context = after.super_context,
+                      .private_scope = after.private_scope,
+                      .private_count = after.private_count,
+                      .local_log_floor = after.local_log_floor,
+                      .local_log_used = after.local_log_used
+                    }
+                  ),
+                  21U,
+                  value.offset,
+                  after.offset);
+              TmtPulseParser_parser_state tmp0 = value8;
               uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
               state = tmp0;
               remaining = tmp;
@@ -18202,6 +18232,7 @@ TmtPulseParser_named_state
 TmtPulseParser_default_declaration(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
+  uint32_t declaration_start,
   uint32_t used
 )
 {
@@ -18310,12 +18341,44 @@ TmtPulseParser_default_declaration(
         value4.generator);
     TmtPulseParser_parser_state value8;
     if (value7.signature_only)
+    {
+      TmtPulseParser_parser_state after = value7.after_function;
+      TmtPulseParser_parser_state
+      value80 =
+        TmtPulseParser_record_jsx_span(input,
+          (
+            (TmtPulseParser_parser_state){
+              .offset = after.offset,
+              .count = state.count,
+              .depth = after.depth,
+              .status = after.status,
+              .local_names = after.local_names,
+              .await_allowed = after.await_allowed,
+              .yield_allowed = after.yield_allowed,
+              .jsx_allowed = after.jsx_allowed,
+              .module_mode = after.module_mode,
+              .strict_script = after.strict_script,
+              .in_allowed = after.in_allowed,
+              .for_initializer = after.for_initializer,
+              .arrow_defaults_allowed = after.arrow_defaults_allowed,
+              .binding_mode = after.binding_mode,
+              .super_context = after.super_context,
+              .private_scope = after.private_scope,
+              .private_count = after.private_count,
+              .local_log_floor = after.local_log_floor,
+              .local_log_used = after.local_log_used
+            }
+          ),
+          21U,
+          declaration_start,
+          after.offset);
       value8 =
         TmtPulseParser_default_function_body(input,
-          value7.after_function,
+          value80,
           ((TmtGrammar_span){ .first = start.offset, .last = value6.state.offset }),
           async_,
           input.size);
+    }
     else
       value8 = value7.after_function;
     return ((TmtPulseParser_named_state){ .state = value8, .used = value6.used });
@@ -20566,7 +20629,7 @@ TmtPulseParser_module_sequence(
                   }
                 ));
             TmtPulseParser_named_state
-            value7 = TmtPulseParser_default_declaration(input, value6, used);
+            value7 = TmtPulseParser_default_declaration(input, value6, value.offset, used);
             value50 =
               (
                 (FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t){

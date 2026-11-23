@@ -1,0 +1,3 @@
+Signatures: One, Multiple
+Flavor: Sync, Async
+Dialect: TS, TSX

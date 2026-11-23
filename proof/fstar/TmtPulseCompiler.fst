@@ -524,7 +524,7 @@ let ordinary_module_item_end (input:tape) (state:P.parser_state)
   let! exported = (fun () -> P.module_export input state) in
   if exported.export_kind = 1ul then
     let! start = (fun () -> P.skip input { exported.after_export with offset = P.plus exported.after_export.offset 7ul }) in
-    let! item = (fun () -> P.default_declaration input start 0ul) in
+    let! item = (fun () -> P.default_declaration input start state.offset 0ul) in
     ret input item.state
   else if exported.export_kind = 2ul then
     let! item = (fun () -> P.star_reexport input exported.after_export 0ul) in

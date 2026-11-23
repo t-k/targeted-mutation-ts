@@ -784,6 +784,7 @@ enum {
   class_implements = 18,
   erased_local_type = 19,
   arrow_result = 20,
+  default_overload = 21,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
@@ -1035,7 +1036,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
   *output = NULL;
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
-    const bool member = event.original == erased_list_member;
+    const bool member = event.original == erased_list_member || event.original == default_overload;
     const bool modifiers = event.original == class_modifiers;
     const bool arrow = event.original == generic_arrow;
     const bool result = event.original == arrow_result;
