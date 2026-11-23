@@ -1,0 +1,10 @@
+Placement	Enum	Runtime
+Before	Local	Automatic
+Before	Const	Automatic
+After	Exported	Classic
+Between	Const	Classic
+After	Local	Classic
+After	Const	Automatic
+Before	Exported	Classic
+Between	Exported	Automatic
+Between	Local	Automatic

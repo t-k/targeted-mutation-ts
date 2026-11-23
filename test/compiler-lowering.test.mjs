@@ -318,7 +318,7 @@ for (const [placement, key, tail] of moduleCases) {
 test('whole-module JSX decodes numeric references and composes with runtime enums', async () => {
   const source = 'enum E { Start, Next } export const View = () => <i title="&#x1F600;">&#123;{E.Next}&#125;</i>;';
   const result = compile(source, { file: 'component.tsx' });
-  assert.equal(result.backend, 'pulse+node-strip');
+  assert.equal(result.backend, 'pulse');
   const view = (await load(result.code)).View();
   assert.deepEqual(view, { type: 'i', props: { title: '😀', children: ['{', 1, '}'] }, multiple: true });
 });
@@ -369,4 +369,37 @@ test('literal JSX spread with a getter retains the original accessor', async () 
   assert.equal(count(), 0);
   assert.equal(View.props.count, 1);
   assert.equal(count(), 1);
+});
+
+const mixedEnumRows = readFileSync(new URL('../verification/pict/compiler-jsx-enum.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of mixedEnumRows) {
+  const [placement, form, runtime] = row.split('\t');
+  test('mixed JSX and enum lowering ' + row.replaceAll('\t', ' '), async () => {
+    const prefix = { Local: 'enum', Exported: 'export enum', Const: 'const enum' }[form];
+    const enum_ = prefix + ' Tone { Warm = 4, Cool }';
+    const view = 'export const View = (x: number) => <i>{Tone.Cool + x}</i>;';
+    const code = placement === 'Before' ? [enum_, view] : placement === 'After' ? [view, enum_] :
+      ['export const header = <b/>;', enum_, view];
+    code.push('export const lookup = () => Tone[4];');
+    const file = 'mixed.tsx';
+    const jsx = runtime.toLowerCase();
+    const source = code.join('\n');
+    const result = compile(source, { file, jsx });
+    assert.equal(result.backend, 'pulse');
+    assert.doesNotMatch(result.code, /\benum Tone\b/);
+    assert.equal((result.code.match(/react\/jsx-runtime/g) ?? []).length, jsx === 'automatic' ? 1 : 0);
+    const actual = await load(result.code);
+    const expected = await load(compile(source, { file, jsx, sourceMap: true }).code);
+    assert.equal(actual.lookup(), 'Warm');
+    assert.deepEqual(actual.View(6), expected.View(6));
+    assert.deepEqual(actual.Tone, expected.Tone);
+    assert.deepEqual(actual.header, expected.header);
+  });
+}
+
+test('a later unsupported enum cannot publish a partial native TSX result', () => {
+  const source = 'export enum Ready { Value }\nexport const View = () => <i>{Ready.Value}</i>;\n' +
+    'export enum Quantity { Value = compute() }';
+  assert.notEqual(compile(source, { file: 'mixed.tsx' }).backend, 'pulse');
 });

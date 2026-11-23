@@ -1072,6 +1072,18 @@ decline:
   return false;
 }
 
+static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span) {
+  const uint32_t size = lower->input.size;
+  if (span.first >= span.last || span.last > size) return false;
+  lower->input.size = span.last;
+  const TmtPulseCompiler_runtime_head head = TmtPulseCompiler_read_runtime_head(lower->input, span.first, false, true, true);
+  lower->at = head.body;
+  const bool emitted = (head.kind == 1 || head.kind == 3) && head.declaration == span.first && head.body < span.last &&
+    emit_enum(lower, head.name_span, head.kind == 1) && lower->at == span.last;
+  lower->input.size = size;
+  return emitted;
+}
+
 static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, size_t *length) {
   lowering lower = { .input = input, .output.limit = (size_t)input.size * 32 + 1024 };
   uint32_t copied = 0;
@@ -1079,12 +1091,8 @@ static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, s
     if (input.output[index].original != runtime_enum) continue;
     const TmtGrammar_span span = input.output[index].left;
     if (span.first < copied || span.first >= span.last || span.last > input.size) goto decline;
-    lower.input.size = span.last;
-    const TmtPulseCompiler_runtime_head head = TmtPulseCompiler_read_runtime_head(lower.input, span.first, false, true, true);
-    if ((head.kind != 1 && head.kind != 3) || head.declaration != span.first || head.body >= span.last) goto decline;
     source_bytes(&lower, copied, span.first);
-    lower.at = head.body;
-    if (!emit_enum(&lower, head.name_span, head.kind == 1) || lower.at != span.last) goto decline;
+    if (!emit_recorded_enum(&lower, span)) goto decline;
     copied = span.last;
   }
   if (!copied) return NULL;
@@ -1277,15 +1285,42 @@ static TmtPulseParser_parser_state capture_jsx(TmtPulseMemory_tape input, bool m
   return TmtPulseParser_parse(input, true, module);
 }
 
+static bool source_jsx_with_enums(lowering *lower, uint32_t first, uint32_t last,
+  uint32_t records, uint32_t *index)
+{
+#ifdef TMT_V8_VALIDATOR
+  while (*index < records) {
+    const TmtGrammar_candidate event = lower->input.output[*index];
+    if (event.original != runtime_enum) {
+      (*index)++;
+      continue;
+    }
+    const TmtGrammar_span span = event.left;
+    if (span.first >= last) break;
+    if (span.first < first || span.last > last || !source_jsx(lower, first, span.first, 32) ||
+        !emit_recorded_enum(lower, span)) return false;
+    first = span.last;
+    (*index)++;
+  }
+#else
+  (void)records;
+  (void)index;
+#endif
+  return source_jsx(lower, first, last, 32);
+}
+
 static char *render_jsx_spans(TmtPulseMemory_tape input, const TmtGrammar_span *tags, size_t tag_count,
-  const TmtGrammar_span *expressions, size_t expression_count, uint32_t insertion, bool classic, size_t *length)
+  const TmtGrammar_span *expressions, size_t expression_count, uint32_t insertion, bool classic, size_t *length,
+  uint32_t enum_records)
 {
   lowering lower = { .input = input, .classic = classic, .jsx_spans = tags, .jsx_count = tag_count,
     .expressions = expressions, .expression_count = expression_count,
     .output.limit = (size_t)input.size * 32 + 1024 };
-  if (source_jsx(&lower, 0, insertion, 32)) {
+  uint32_t enum_index = 0;
+  if (source_jsx_with_enums(&lower, 0, insertion, enum_records, &enum_index)) {
     const size_t runtime_at = lower.output.length;
-    if (source_jsx(&lower, insertion, input.size, 32) && inject_jsx_runtime(&lower, runtime_at)) {
+    if (source_jsx_with_enums(&lower, insertion, input.size, enum_records, &enum_index) &&
+        enum_index == enum_records && inject_jsx_runtime(&lower, runtime_at)) {
       *length = lower.output.length;
       return lower.output.code;
     }
@@ -1364,9 +1399,15 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   uint32_t insertion, bool classic, size_t *length, bool *complete)
 {
   size_t elements = 0, expression_begin = records;
+#ifdef TMT_V8_VALIDATOR
+  uint32_t enum_records = 0;
+#endif
   for (uint32_t index = 0; index < records; index++) {
     if (input.output[index].original == 0) spans[elements++] = input.output[index].left;
     else if (input.output[index].original == 5) spans[--expression_begin] = input.output[index].left;
+#ifdef TMT_V8_VALIDATOR
+    else if (input.output[index].original == runtime_enum) enum_records = records;
+#endif
   }
   const size_t expression_count = records - expression_begin;
   TmtGrammar_span *expressions = spans + expression_begin;
@@ -1380,14 +1421,14 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
       TmtPulseMemory_tape projected = input;
       if (masked) projected.source = (uint8_t *)masked;
       if (unambiguous_projection(projected, records)) {
-        char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length);
+        char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length, enum_records);
         if (code && (!remove_statement || (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&
             tmt_valid_javascript_module(code, *length)) {
           *complete = true;
           free(masked);
           return code;
         }
-        if (!masked) return code;
+        if (!masked && !enum_records) return code;
         free(code);
       }
       free(masked);
@@ -1396,7 +1437,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
 #else
   (void)complete;
 #endif
-  return render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length);
+  return render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0);
 }
 
 static char *lower_jsx_module(uint8_t *source, uint32_t size, bool classic, size_t *length, bool *complete) {
