@@ -1,0 +1,3 @@
+Operator: As, Satisfies
+Gap: Space, Comment, LineFeed, BlockLine, UnicodeLine
+Dialect: TS, TSX

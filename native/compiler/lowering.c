@@ -929,14 +929,18 @@ static bool assertion_line_boundary(TmtPulseMemory_tape input, TmtPulseParser_cu
   }
 }
 
-static bool erasable_expression_range(TmtPulseMemory_tape input, uint32_t kind, TmtGrammar_span span, uint32_t next_assertion) {
+static bool erasable_expression_range(TmtPulseMemory_tape input, TmtGrammar_candidate event, uint32_t next_assertion) {
+  const TmtGrammar_span span = event.left;
+  const uint32_t kind = event.original;
   const uint8_t first = input.source[span.first];
   if (kind == type_annotation) return first == ':';
   if (kind == type_arguments || kind == generic_arrow) return first == '<' && input.source[span.last - 1] == '>';
   if (kind == type_marker) return span.last - span.first == 1 && (first == '?' || first == '!');
   if (first != 'a' && first != 's') return false;
-  const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, span.last);
-  if (!tail.ok) return false;
+  const TmtGrammar_span context = event.right;
+  if (context.last < span.last || context.last > input.size ||
+      (context.first != context.last && context.first != span.last)) return false;
+  const TmtPulseParser_cursor tail = { .at = context.last, .ok = true, .newline = context.first != context.last };
   if (tail.at == input.size) return true;
   if (!tail.newline && tail.at == next_assertion) return true;
   const uint8_t byte = input.source[tail.at];
@@ -1064,7 +1068,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
       if (event.original == type_assertion && index + 1 < records && input.output[index + 1].original == type_assertion) {
         next_assertion = input.output[index + 1].left.first;
       }
-      if (!erasable_expression_range(input, event.original, span, next_assertion)) goto decline;
+      if (!erasable_expression_range(input, event, next_assertion)) goto decline;
     }
     if (span.first < previous) goto decline;
     const bool annotation = event.original == type_annotation;

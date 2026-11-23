@@ -319,14 +319,18 @@ fn emit_comparison_in_workspace (input:tape) (state:parser_state) (slot op start
 }
 
 // Compiler events share the workspace's verified publication and are disabled in extraction.
-let record_jsx_span (input:tape) (state:parser_state) (kind first last:U32.t)
+let record_compiler_span (input:tape) (state:parser_state) (kind:U32.t) (span context:G.span)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
   if not (if U32.(kind >=^ 7ul) then input.capture_types else input.capture_jsx) ||
     input.count_only || state.status <> 0ul then ret input state
   else
-    let span = { G.first = first; G.last = last } in
-    let! stored = (fun () -> emit_comparison_in_workspace input state state.count kind first span span) in
+    let! stored = (fun () -> emit_comparison_in_workspace input state state.count kind span.G.first span context) in
     ret input (if stored.status <> 0ul then stored else { stored with count = next stored.count })
+
+let record_jsx_span (input:tape) (state:parser_state) (kind first last:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  let span = { G.first = first; G.last = last } in
+  record_compiler_span input state kind span span
 
 let hex_value (ch:U8.t) : U32.t =
   let n = Cast.uint8_to_uint32 ch in
@@ -1939,8 +1943,7 @@ let update_width (input:tape) (#frame:slprop) (at:U32.t) (byte:U8.t) : Tot (stt 
     (let! anf_value_1 = (fun () -> same input #frame (next at) byte) in if anf_value_1 then read_ret input #frame (2ul) else read_ret input #frame (0ul))
   else read_ret input #frame (0ul)
 
-let ambiguous_assertion_update (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  let! question = (fun () -> skip input #frame state) in
+let ambiguous_assertion_update (input:tape) (#frame:slprop) (question:parser_state) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! marker = (fun () -> same input #frame question.offset 63uy) in
   if question.status <> 0ul || not marker then read_ret input #frame (false)
   else
@@ -2838,10 +2841,11 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
 and binary (input:tape) (state:parser_state) (fuel:U32.t) (minimum:precedence)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 26 - U32.v minimum - U32.v minimum; 0]) =
   let! lhs = (fun () -> atom input state fuel) in
-  binary_tail input lhs fuel minimum input.size
+  let! st = (fun () -> skip input lhs.parser) in
+  binary_tail input { lhs with parser = st } fuel minimum input.size
 and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (remaining:U32.t)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 25 - U32.v minimum - U32.v minimum; U32.v remaining]) =
-  let! st = (fun () -> skip input lhs.parser) in
+  let st = lhs.parser in
   if st.status <> 0ul then ret input (empty_range st)
   else
     let! first = (fun () -> peek input st.offset) in
@@ -2858,11 +2862,16 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
       if remaining = 0ul then ret input (empty_range (failed st 3ul))
       else
         let! asserted = (fun () -> annotation_type input { st with offset = plus st.offset type_width } 16ul 64ul) in
-        (let! anf_value_3 = (fun () -> ambiguous_assertion_update input asserted) in if anf_value_3 then ret input (empty_range (failed asserted 1ul))
+        let! suffix = (fun () -> if asserted.status = 0ul then trivia input asserted.offset
+          else ret input { at = asserted.offset; ok = false; newline = false }) in
+        (let! anf_value_3 = (fun () -> ambiguous_assertion_update input (from_cursor asserted suffix)) in if anf_value_3 then ret input (empty_range (failed asserted 1ul))
         else
-          let! asserted = (fun () -> record_jsx_span input asserted 11ul st.offset asserted.offset) in
+          let span = { G.first = st.offset; G.last = asserted.offset } in
+          // A nonempty context span marks a line terminator before the next token.
+          let context = { G.first = if suffix.newline then asserted.offset else suffix.at; G.last = suffix.at } in
+          let! asserted = (fun () -> record_compiler_span input asserted 11ul span context) in
           let target = if can_assign_expression lhs.target then AssertedTarget else NotAssignable in
-          let value = { lhs with parser = asserted; range = { lhs.range with G.last = asserted.offset };
+          let value = { lhs with parser = from_cursor asserted suffix; range = { lhs.range with G.last = asserted.offset };
             outer_or = false; target } in
           binary_tail input value fuel minimum (minus remaining 1ul))
     else
@@ -2890,7 +2899,9 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
         else
           let! combined = (fun () -> combine_binary input lhs rhs st op first reserve) in
           if combined.parser.status <> 0ul then ret input (combined)
-          else binary_tail input combined fuel minimum (minus remaining 1ul)
+          else
+            let! after = (fun () -> skip input combined.parser) in
+            binary_tail input { combined with parser = after } fuel minimum (minus remaining 1ul)
 
 and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 1; U32.v remaining]) =

@@ -1,0 +1,11 @@
+Operator	Gap	Dialect
+As	Space	TS
+As	LineFeed	TSX
+Satisfies	BlockLine	TS
+Satisfies	UnicodeLine	TSX
+Satisfies	LineFeed	TS
+Satisfies	Space	TSX
+As	Comment	TSX
+As	BlockLine	TSX
+Satisfies	Comment	TS
+As	UnicodeLine	TS

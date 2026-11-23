@@ -1,0 +1,5 @@
+Operator	Gap	Dialect
+As	Space	TS
+As	LineFeed	TSX
+Satisfies	BlockLine	TS
+Satisfies	UnicodeLine	TSX

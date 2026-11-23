@@ -184,13 +184,55 @@ static void check_parser_publication(void)
   assert(result.status == TMT_DONE && result.count == 0);
 }
 
+static void check_assertion_cursors(const char *path)
+{
+  FILE *matrix = fopen(path, "r");
+  assert(matrix);
+  char line[256];
+  assert(fgets(line, sizeof(line), matrix));
+  unsigned rows = 0;
+  while (fgets(line, sizeof(line), matrix)) {
+    char op[16], gap[16], dialect[8];
+    assert(sscanf(line, "%15s%15s%7s", op, gap, dialect) == 3);
+    const char *separator = strcmp(gap, "Space") == 0 ? " " :
+      strcmp(gap, "Comment") == 0 ? " /*keep*/ " :
+      strcmp(gap, "LineFeed") == 0 ? "\n" :
+      strcmp(gap, "BlockLine") == 0 ? "/*keep\nme*/" : "\xe2\x80\xa8";
+    uint8_t source[96];
+    const int size = snprintf((char *)source, sizeof(source), "export const value = (7 %s number%s);",
+      strcmp(op, "As") == 0 ? "as" : "satisfies", separator);
+    assert(size > 0 && (size_t)size < sizeof(source));
+    TmtGrammar_candidate output[16];
+    uint8_t marks[16] = {0};
+    TmtPulseMemory_binding_name bindings[2367] = {0};
+    TmtPulseMemory_tape input = {
+      .source = source, .size = (uint32_t)size, .output = output, .capacity = 16,
+      .bindings = bindings, .marks = marks, .capture_types = true,
+    };
+    const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(input, strcmp(dialect, "TSX") == 0, true);
+    assert(parsed.status == TMT_DONE && parsed.count == 1);
+    assert(output[0].original == 11);
+    const TmtGrammar_span span = output[0].left;
+    const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, span.last);
+    assert(tail.ok && source[tail.at] == ')');
+    assert(tail.at == span.last + strlen(separator));
+    assert(output[0].right.last == tail.at);
+    assert(output[0].right.first == (tail.newline ? span.last : tail.at));
+    rows++;
+  }
+  assert(feof(matrix) && rows > 0);
+  fclose(matrix);
+  printf("Pulse assertion cursors matched %u PICT cases\n", rows);
+}
+
 int main(int argc, char **argv)
 {
   uint8_t buffer[258];
-  assert(argc == 4);
+  assert(argc == 5);
   check_matrix(argv[1]);
   check_primitives(argv[2]);
   check_publication(argv[3]);
+  check_assertion_cursors(argv[4]);
   check_parser_publication();
 #if defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))
   check_jsx_blocks();

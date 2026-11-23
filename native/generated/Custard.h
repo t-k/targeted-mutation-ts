@@ -444,6 +444,15 @@ TmtPulseParser_emit_comparison_in_workspace(
 );
 
 TmtPulseParser_parser_state
+TmtPulseParser_record_compiler_span(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t kind,
+  TmtGrammar_span span,
+  TmtGrammar_span context
+);
+
+TmtPulseParser_parser_state
 TmtPulseParser_record_jsx_span(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
@@ -1715,7 +1724,7 @@ TmtPulseParser_finish_local_scope(
 bool
 TmtPulseParser_ambiguous_assertion_update(
   TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state
+  TmtPulseParser_parser_state question
 );
 
 bool
