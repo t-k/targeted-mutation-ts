@@ -49,6 +49,58 @@ static void check_type_blocks(void)
 }
 #endif
 
+#if defined(__aarch64__)
+static unsigned projection_reference(const uint8_t *bytes)
+{
+  static const char *const words[] = {
+    "as", "satisfies", "declare", "namespace", "type", "interface", "abstract",
+    "enum", "readonly", "public", "private", "protected", "override", "implements",
+  };
+  for (unsigned lane = 0; lane < 16; lane++) {
+    const uint8_t byte = bytes[lane];
+    if (byte && strchr("<\x22'/`\\", byte)) return lane;
+    for (unsigned word = 0; word < sizeof(words) / sizeof(*words); word++) {
+      if (!memcmp(bytes + lane, words[word], 2)) return lane;
+    }
+  }
+  return 16;
+}
+
+static void compare_projection_run(unsigned lane, uint8_t first, uint8_t second)
+{
+  uint8_t bytes[17];
+  memset(bytes, '_', sizeof(bytes));
+  bytes[lane] = first;
+  bytes[lane + 1] = second;
+  assert(tmt_projection_run(bytes) == projection_reference(bytes));
+}
+
+static void check_projection_blocks(const char *path)
+{
+  FILE *matrix = fopen(path, "r");
+  char header[128], first[32], second[32], position[32];
+  assert(matrix && fgets(header, sizeof(header), matrix));
+  unsigned count = 0;
+  while (fscanf(matrix, "%31s %31s %31s", first, second, position) == 3) {
+    const uint8_t head = strcmp(first, "Lexical") == 0 ? '<' : strcmp(first, "PairHead") == 0 ? 'a' : '_';
+    const uint8_t tail = strcmp(second, "Lexical") == 0 ? '/' : strcmp(second, "PairTail") == 0 ? 's' : '_';
+    const unsigned lane = strcmp(position, "Start") == 0 ? 0 : strcmp(position, "End") == 0 ? 15 : 8;
+    compare_projection_run(lane, head, tail);
+    count++;
+  }
+  assert(feof(matrix) && count > 0);
+  fclose(matrix);
+  for (unsigned lane = 0; lane < 16; lane++) {
+    for (unsigned first_byte = 0; first_byte <= UINT8_MAX; first_byte++) {
+      for (unsigned second_byte = 0; second_byte <= UINT8_MAX; second_byte++) {
+        compare_projection_run(lane, (uint8_t)first_byte, (uint8_t)second_byte);
+      }
+    }
+  }
+  printf("SIMD projection guard matched %u PICT cases and every byte pair in every lane\n", count);
+}
+#endif
+
 enum { SPACE, IDENTIFIER, DECIMAL_DIGITS };
 
 static bool matches(uint8_t cls, uint8_t byte)
@@ -228,7 +280,7 @@ static void check_assertion_cursors(const char *path)
 int main(int argc, char **argv)
 {
   uint8_t buffer[258];
-  assert(argc == 5);
+  assert(argc == 6);
   check_matrix(argv[1]);
   check_primitives(argv[2]);
   check_publication(argv[3]);
@@ -237,6 +289,9 @@ int main(int argc, char **argv)
 #if defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))
   check_jsx_blocks();
   check_type_blocks();
+#endif
+#if defined(__aarch64__)
+  check_projection_blocks(argv[5]);
 #endif
   for (uint8_t cls = SPACE; cls <= DECIMAL_DIGITS; cls++)
   {

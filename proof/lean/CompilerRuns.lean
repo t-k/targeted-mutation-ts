@@ -93,6 +93,59 @@ theorem reserveForInsertions (pieces : List (List UInt8 × List UInt8)) (tail : 
     simp [writeWithInsertions, inductionHypothesis]
     omega
 
+def projectionLexicalByte (byte : BitVec 8) : Bool :=
+  byte == 34 || byte == 39 || byte == 47 || byte == 60 || byte == 92 || byte == 96
+
+def projectionLexicalFlags (low : BitVec 8) : BitVec 8 :=
+  if low == 0 then 64
+  else if low == 2 || low == 7 || low == 15 then 4
+  else if low == 12 then 40
+  else 0
+
+theorem projectionLexicalTable (byte : BitVec 8) :
+    ((projectionLexicalFlags (byte &&& 15) &&& ((1 : BitVec 8) <<< (byte >>> 4))) != 0) =
+      projectionLexicalByte byte := by
+  unfold projectionLexicalFlags projectionLexicalByte
+  bv_decide
+
+def projectionHeadFlags (byte : BitVec 8) : BitVec 8 :=
+  if byte == 97 then 2
+  else if byte == 100 || byte == 114 then 4
+  else if byte == 101 then 16
+  else if byte == 105 then 48
+  else if byte == 110 || byte == 115 then 1
+  else if byte == 111 then 128
+  else if byte == 112 then 64
+  else if byte == 116 then 8
+  else 0
+
+def projectionFollowerFlags (byte : BitVec 8) : BitVec 8 :=
+  if byte == 97 then 1
+  else if byte == 98 || byte == 115 then 2
+  else if byte == 101 then 4
+  else if byte == 109 then 32
+  else if byte == 110 then 16
+  else if byte == 114 || byte == 117 then 64
+  else if byte == 118 then 128
+  else if byte == 121 then 8
+  else 0
+
+def projectionKeywordPrefix (head follower : BitVec 8) : Bool :=
+  (head == 97 && (follower == 98 || follower == 115)) ||
+  ((head == 100 || head == 114) && follower == 101) ||
+  (head == 101 && follower == 110) ||
+  (head == 105 && (follower == 109 || follower == 110)) ||
+  ((head == 110 || head == 115) && follower == 97) ||
+  (head == 111 && follower == 118) ||
+  (head == 112 && (follower == 114 || follower == 117)) ||
+  (head == 116 && follower == 121)
+
+theorem projectionKeywordTables (head follower : BitVec 8) :
+    ((projectionHeadFlags head &&& projectionFollowerFlags follower) != 0) =
+      projectionKeywordPrefix head follower := by
+  unfold projectionHeadFlags projectionFollowerFlags projectionKeywordPrefix
+  bv_decide
+
 -- The enum writer uses unsigned C shifts and reconstructs signed right shift.
 theorem enumSignedRight (word distance : BitVec 32) :
     let count := distance &&& 31

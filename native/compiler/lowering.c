@@ -919,18 +919,30 @@ static bool unambiguous_javascript(TmtPulseMemory_tape input, uint8_t *code, uin
   const uint32_t size = input.size;
   bool certain = size <= 1048576;
   uint32_t event = 0;
+  // tmt_projection_run keeps the two-byte prefixes of these words and the assertion keywords.
   static const char *const reserved[] = {
     "declare", "namespace", "type", "interface", "abstract", "enum",
     "readonly", "public", "private", "protected", "override", "implements",
   };
   for (uint32_t first = 0; first < size;) {
+#if defined(TMT_SIMD_COMPILER) && defined(__aarch64__)
+    while (size - first >= 17) {
+      const unsigned step = tmt_projection_run(code + first);
+      first += step;
+      if (step < 16) break;
+    }
+#endif
     const uint32_t literal = skip_js_literal_or_comment(input, first, &certain);
     if (literal != first) {
       first = literal;
       continue;
     }
     if (code[first] == '<' && !comparison_angle(input, first + 1, certain)) return false;
-    if (!TmtGrammar_identifier_continue(code[first])) {
+    bool identifier = TmtGrammar_identifier_continue(code[first]);
+#if defined(TMT_SIMD_COMPILER) && defined(__aarch64__)
+    identifier = identifier && (!first || !TmtGrammar_identifier_continue(code[first - 1]));
+#endif
+    if (!identifier) {
       first++;
       continue;
     }

@@ -1,0 +1,10 @@
+First	Second	Lane
+Plain	Plain	Start
+PairHead	PairTail	End
+Lexical	Lexical	Middle
+Lexical	PairTail	Start
+Plain	PairTail	Middle
+PairHead	Plain	Middle
+PairHead	Lexical	Start
+Lexical	Plain	End
+Plain	Lexical	End

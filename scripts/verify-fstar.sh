@@ -28,7 +28,8 @@ done
 "${CC:-cc}" -std=c11 -O2 -I"$scratch/stable" -Inative/runtime -Inative \
   native/pulse/test.c native/parser.c "$scratch/stable/Custard.c" -o "$scratch/scanner-test"
 "$scratch/scanner-test" verification/pict/pulse-scan.tsv verification/pict/pulse-primitives.tsv \
-  verification/pict/candidate-publication.tsv verification/pict/compiler-assertion-cursor.tsv
+  verification/pict/candidate-publication.tsv verification/pict/compiler-assertion-cursor.tsv \
+  verification/pict/projection-guard-run.tsv
 
 if [ "${1:-}" = '--update' ]; then
   mkdir -p native/generated

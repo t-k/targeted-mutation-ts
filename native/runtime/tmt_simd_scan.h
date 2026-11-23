@@ -44,6 +44,31 @@ static inline bool tmt_erase_type_run(uint8_t *output, const uint8_t *source) {
   vst1q_u8(output, vbslq_u8(endings, bytes, vdupq_n_u8(' ')));
   return true;
 }
+
+/* Read sixteen candidate starts and their followers from seventeen bytes. */
+static inline unsigned tmt_projection_run(const uint8_t *source) {
+  // Letters index these tables relative to 'a'. Followers sharing a bit have the same heads.
+  const uint8x16x2_t heads = {{
+    {2, 0, 0, 4, 16, 0, 0, 0, 48, 0, 0, 0, 0, 1, 128, 64},
+    {0, 4, 1, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+  }};
+  const uint8x16x2_t followers = {{
+    {1, 2, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 32, 16, 0, 0},
+    {0, 64, 2, 0, 64, 128, 0, 0, 8, 0, 0, 0, 0, 0, 0, 0}
+  }};
+  // Each low nibble maps to the high-nibble bits of the lexical sentinels.
+  const uint8x16_t lexical = {64, 0, 4, 0, 0, 0, 0, 4, 0, 0, 0, 0, 40, 0, 0, 4};
+  const uint8x16_t lanes = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  const uint8x16_t first = vld1q_u8(source);
+  const uint8x16_t second = vld1q_u8(source + 1);
+  const uint8x16_t head = vqtbl2q_u8(heads, vsubq_u8(first, vdupq_n_u8('a')));
+  const uint8x16_t follower = vqtbl2q_u8(followers, vsubq_u8(second, vdupq_n_u8('a')));
+  const uint8x16_t high = vshlq_u8(vdupq_n_u8(1), vreinterpretq_s8_u8(vshrq_n_u8(first, 4)));
+  const uint8x16_t low = vqtbl1q_u8(lexical, vandq_u8(first, vdupq_n_u8(15)));
+  const uint8x16_t blocked = vorrq_u8(vandq_u8(head, follower), vandq_u8(high, low));
+  const uint8x16_t hits = vcgtq_u8(blocked, vdupq_n_u8(0));
+  return vminvq_u8(vbslq_u8(hits, lanes, vdupq_n_u8(16)));
+}
 #elif defined(__x86_64__) && defined(__SSE2__)
 #include <emmintrin.h>
 
