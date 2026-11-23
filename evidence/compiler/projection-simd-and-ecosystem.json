@@ -19204,5 +19204,3707 @@
       "warm": 3,
       "first": 1
     }
+  },
+  "upstreamTypeScriptSample": {
+    "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+    "sourceSetSha256": "35712949a902d181680d09c9bb93101cba8cc744ff23d390478f91cd878443c0",
+    "candidates": 503,
+    "accepted": 490,
+    "module": 141,
+    "validReference": 126,
+    "baseline": {
+      "typescript-required": 53,
+      "pulse": 72,
+      "pulse+node-strip": 1
+    },
+    "current": {
+      "typescript-required": 53,
+      "pulse": 72,
+      "pulse+node-strip": 1
+    },
+    "newNative": 0,
+    "newNativeDifferent": [],
+    "changedStatus": [],
+    "differentOutput": [],
+    "noTypeScript": [
+      [
+        "tests/cases/projects/RelativePaths/A/a.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/controlFlowPropertyDeclarations.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/contextuallyTypedParametersWithInitializers3.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/privacyCheck-IndirectReference/externalModule.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/relative-nested-ref/main/consume.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/declarations_IndirectImport/useModule.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/discriminantPropertyCheck.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/baseline/nestedModule.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/relative-global/consume.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/conformance/controlFlow/controlFlowBinaryOrExpression.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/declarations_ImportedInPrivate/useModule.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/promiseIdentityWithConstraints.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/ModuleIdentifier/consume.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/declarationEmitTypeAliasWithTypeParameters2.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/satisfiesEmit.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/MultipleLevels/B/B.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/CircularReferencing/consume.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/relative-nested/main/consume.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/transpile/declarationLinkedAliases.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/RelativePaths/app.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/relative-nested/app.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/reverseMappedPartiallyInferableTypes.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/noCircularDefinitionOnExportOfPrivateInMergedNamespace.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/recursiveTypeRelations.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/outputdir_module_simple/test.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/privacyCheck-InsideModule/test.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/promiseIdentity2.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/declarationEmitGenericTypeParamerSerialization2.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/contextualTypeFunctionObjectPropertyIntersection.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/controlFlowSelfReferentialLoop.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/privacyCheck-ImportInParent/mExported.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/declarationEmitClassMixinLocalClassDeclaration.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/NestedLocalModule-WithRecursiveTypecheck/test1.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/conformance/types/tuple/named/namedTupleMembers.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/declarationEmitForDefaultExportClassExtendingExpression01.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/reverseMappedTypeInferenceSameSource1.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/noImplicitAnyDestructuringInPrivateMethod.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/conformance/types/literal/literalTypeWidening.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/mergedDeclarationExports.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/declarations_MultipleTimesMultipleImport/useModule.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/conformance/classes/mixinWithBaseDependingOnSelfNoCrash1.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/conformance/controlFlow/dependentDestructuredVariablesWithExport.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/conformance/expressions/thisKeyword/thisInInvalidContextsExternalModule.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/declarationEmitComputedNameWithQuestionToken.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/promiseIdentityWithAny.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/classReferencedInContextualParameterWithinItsOwnBaseExpression.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/conformance/parser/ecmascript5/InterfaceDeclarations/parserInterfaceDeclaration6.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/styledComponentsInstantiaionLimitNotReached.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/compiler/declarationEmitLocalClassDeclarationMixin.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/relative-global-ref/consume.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/MultipleLevels/root.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/projects/VisibilityOfCrosssModuleTypeUsage/fs.ts",
+        "typescript-required"
+      ],
+      [
+        "tests/cases/conformance/jsx/tsxCorrectlyParseLessThanComparison1.tsx",
+        "typescript-required"
+      ]
+    ],
+    "paths": []
+  },
+  "validationOptimizations": {
+    "stringBridge": {
+      "node": "v24.14.0",
+      "arch": "arm64",
+      "platform": "darwin",
+      "results": [
+        {
+          "filename": "build/lowering-bench/inputs/vite.json",
+          "files": 122,
+          "medians": {
+            "final-js": 15.268656249999992,
+            "validation-bridge": 15.022020749999967
+          },
+          "times": {
+            "final-js": [
+              15.784010500000008,
+              15.658135249999987,
+              15.200541500000014,
+              16.05333325000001,
+              15.040052000000003,
+              15.261854249999999,
+              15.268656249999992,
+              15.591427249999981,
+              15.028520749999984,
+              15.075823000000014,
+              15.355437499999994
+            ],
+            "validation-bridge": [
+              15.284510499999982,
+              15.243093749999986,
+              15.120750000000015,
+              15.327302000000003,
+              14.98568750000004,
+              14.875364500000046,
+              15.694864499999994,
+              14.883927000000028,
+              15.013593749999984,
+              15.000093750000019,
+              15.022020749999967
+            ]
+          },
+          "sum": 110166936
+        },
+        {
+          "filename": "build/lowering-bench/inputs/mreact.json",
+          "files": 321,
+          "medians": {
+            "final-js": 48.96229174999996,
+            "validation-bridge": 48.41283324999995
+          },
+          "times": {
+            "final-js": [
+              48.89645849999994,
+              49.891062499999975,
+              48.94658325,
+              48.94485425000005,
+              48.90967699999999,
+              48.96229174999996,
+              50.3686667500001,
+              49.73261450000018,
+              49.42386475000012,
+              48.83393750000005,
+              49.24947925000015
+            ],
+            "validation-bridge": [
+              48.378646,
+              48.364625000000046,
+              48.36961474999998,
+              49.514458250000075,
+              48.729198,
+              49.01036449999992,
+              48.41283324999995,
+              48.26923949999991,
+              49.046781250000095,
+              48.17832300000009,
+              48.7326250000001
+            ]
+          },
+          "sum": 374940720
+        },
+        {
+          "filename": "build/lowering-bench/inputs/tachyon-dom.json",
+          "files": 94,
+          "medians": {
+            "final-js": 14.581427249999933,
+            "validation-bridge": 14.59579174999999
+          },
+          "times": {
+            "final-js": [
+              14.442927000000054,
+              14.389875000000075,
+              14.382427000000007,
+              14.401406250000036,
+              14.31670824999992,
+              14.867218749999893,
+              14.871895750000022,
+              14.721885250000014,
+              14.58160399999997,
+              14.661010499999975,
+              14.581427249999933
+            ],
+            "validation-bridge": [
+              15.29275000000007,
+              14.44114599999989,
+              14.398166500000116,
+              14.409572749999825,
+              14.404676999999992,
+              14.468489500000032,
+              14.638885500000015,
+              14.88087500000006,
+              14.59579174999999,
+              14.64756250000005,
+              15.140864500000134
+            ]
+          },
+          "sum": 92565528
+        },
+        {
+          "filename": "build/lowering-bench/inputs/mreact.tsx.json",
+          "files": 84,
+          "medians": {
+            "final-js": 3.0934062500000437,
+            "validation-bridge": 3.0462605000000167
+          },
+          "times": {
+            "final-js": [
+              3.1334584999999606,
+              3.2099269999998796,
+              3.7669479999999567,
+              3.0934062500000437,
+              3.046031250000169,
+              3.0710105000000567,
+              2.9854897499999424,
+              3.160208250000096,
+              3.039010499999904,
+              3.0854894999999942,
+              3.1310832500000743
+            ],
+            "validation-bridge": [
+              3.102458249999927,
+              2.952354249999871,
+              3.102020750000065,
+              2.8885937500001546,
+              3.1302812499998254,
+              3.061458249999987,
+              3.0810832499998924,
+              2.9113124999998945,
+              3.036301999999978,
+              3.0462605000000167,
+              3.026239499999974
+            ]
+          },
+          "sum": 20183592
+        },
+        {
+          "filename": "build/lowering-bench/official/official-swc-next-App.tsx.json",
+          "files": 1,
+          "medians": {
+            "final-js": 4.183692750000091,
+            "validation-bridge": 4.02146874999994
+          },
+          "times": {
+            "final-js": [
+              4.137786499999947,
+              4.089906250000013,
+              4.330130187500004,
+              4.631695312500028,
+              4.183692750000091,
+              4.136041687499983,
+              4.506713562499954,
+              4.18430987499994,
+              4.03726818749999,
+              4.110903687500013,
+              4.380601562500033
+            ],
+            "validation-bridge": [
+              3.9026223749999644,
+              4.052643187499996,
+              4.041171875000032,
+              3.9566380625000193,
+              3.9621120000000474,
+              4.075703125000018,
+              4.13558068750001,
+              4.034875000000056,
+              4.02146874999994,
+              3.9841379999999162,
+              3.9711198124999783
+            ]
+          },
+          "sum": 144159488
+        },
+        {
+          "filename": "build/lowering-bench/official/official-oxc-transform-renderer.ts.json",
+          "files": 1,
+          "medians": {
+            "final-js": 0.5449348749999672,
+            "validation-bridge": 0.5354270625000481
+          },
+          "times": {
+            "final-js": [
+              0.5536276249999901,
+              0.5208671874999027,
+              0.5072161250000136,
+              0.5497681875000353,
+              0.5184323125000674,
+              0.5449348749999672,
+              0.529307249999988,
+              0.5524426875000472,
+              0.52605468750005,
+              0.6102551875000017,
+              0.5745442500000308
+            ],
+            "validation-bridge": [
+              0.5233333124999717,
+              0.5010260624999319,
+              0.50910937499998,
+              0.5435651250001001,
+              0.5206901249999873,
+              0.5705651250000301,
+              0.5624244374999989,
+              0.55296356249994,
+              0.5215676875000099,
+              0.5478723749999972,
+              0.5354270625000481
+            ]
+          },
+          "sum": 25291552
+        },
+        {
+          "filename": "build/lowering-bench/official/official-oxc-transform-table.tsx.json",
+          "files": 1,
+          "medians": {
+            "final-js": 0.31334637500003737,
+            "validation-bridge": 0.2984348749999981
+          },
+          "times": {
+            "final-js": [
+              0.3170156249999536,
+              0.32290106249990913,
+              0.3066614374999972,
+              0.3226353750000044,
+              0.30272137499991914,
+              0.39338281250002183,
+              0.31334637500003737,
+              0.3464713749999646,
+              0.302893250000011,
+              0.30838281249998545,
+              0.2979349374999174
+            ],
+            "validation-bridge": [
+              0.30438806250003836,
+              0.321778624999979,
+              0.2984348749999981,
+              0.32099743750006837,
+              0.2970546875000082,
+              0.2918593749999445,
+              0.31265624999991815,
+              0.2941406249999545,
+              0.31566143750001174,
+              0.2910521249999647,
+              0.29537762500001463
+            ]
+          },
+          "sum": 10592736
+        }
+      ]
+    },
+    "staticIntrinsicJsxElision": [
+      {
+        "path": "build/lowering-bench/inputs/mreact.tsx.json",
+        "files": 84,
+        "uncertain": 0,
+        "pulseBodies": 259,
+        "coverage": {
+          "broad": {
+            "ranges": 385,
+            "removedBytes": 32373
+          }
+        },
+        "medians": {
+          "full": 1.413332999999966,
+          "broad": 1.5750409999999988
+        },
+        "samples": {
+          "full": [
+            1.5985410000000115,
+            1.7597499999999968,
+            1.5699999999999932,
+            2.034958999999958,
+            1.3832500000000323,
+            1.413332999999966,
+            1.396208999999999,
+            1.3935410000000275,
+            1.384708000000046,
+            1.3718750000000455,
+            1.3701249999999163,
+            1.5150830000000042
+          ],
+          "broad": [
+            1.7027079999999728,
+            1.6465000000000032,
+            1.6202920000000063,
+            1.5750409999999988,
+            1.478458000000046,
+            1.5425420000000258,
+            1.4907910000000015,
+            1.5316250000000196,
+            1.5113750000000437,
+            1.5011250000000018,
+            2.2318749999999454,
+            1.7988750000000664
+          ]
+        }
+      },
+      {
+        "path": "build/lowering-bench/inputs/tachyon-dom.tsx.json",
+        "files": 32,
+        "uncertain": 0,
+        "pulseBodies": 34,
+        "coverage": {
+          "broad": {
+            "ranges": 49,
+            "removedBytes": 2158
+          }
+        },
+        "medians": {
+          "full": 0.27337499999998727,
+          "broad": 0.30291699999997945
+        },
+        "samples": {
+          "full": [
+            0.26916700000003857,
+            0.26470800000004147,
+            0.2612500000000182,
+            0.26216599999997925,
+            0.25937499999997726,
+            0.26233300000001236,
+            0.27337499999998727,
+            0.5808329999999842,
+            0.32291699999996126,
+            0.32904100000007475,
+            1.0246250000000146,
+            0.2963750000000118
+          ],
+          "broad": [
+            0.30291699999997945,
+            0.2856249999999818,
+            0.2975829999999178,
+            0.28245799999990595,
+            0.2967079999999669,
+            0.28204200000004676,
+            0.28883399999995163,
+            1.4563750000000937,
+            0.34808299999997416,
+            0.33579200000008314,
+            0.30874999999991815,
+            0.32766700000001947
+          ]
+        }
+      },
+      {
+        "path": "build/lowering-bench/official/official-swc-next-App.tsx.json",
+        "files": 1,
+        "uncertain": 0,
+        "pulseBodies": 336,
+        "coverage": {
+          "broad": {
+            "ranges": 3,
+            "removedBytes": 189
+          }
+        },
+        "medians": {
+          "full": 1.7608330000000478,
+          "broad": 1.9346669999999904
+        },
+        "samples": {
+          "full": [
+            1.8362079999999423,
+            1.761541999999963,
+            1.923208000000045,
+            1.810041999999953,
+            1.7608330000000478,
+            1.7522089999999935,
+            1.7300840000000335,
+            1.7389590000000226,
+            1.7189170000000331,
+            1.709333000000015,
+            1.7137500000000045,
+            1.8855409999999893
+          ],
+          "broad": [
+            1.9346669999999904,
+            2.0675419999998894,
+            2.122416000000044,
+            1.9965419999999767,
+            1.8887090000000626,
+            1.8903340000000526,
+            1.9243749999999409,
+            1.8848329999999578,
+            1.834165999999982,
+            1.8482500000000073,
+            2.181957999999895,
+            2.6657500000000027
+          ]
+        }
+      },
+      {
+        "path": "build/lowering-bench/official/official-oxc-transform-table.tsx.json",
+        "files": 1,
+        "uncertain": 0,
+        "pulseBodies": 59,
+        "coverage": {
+          "broad": {
+            "ranges": 0,
+            "removedBytes": 0
+          }
+        },
+        "medians": {
+          "full": 0.16212499999994634,
+          "broad": 0.16829200000006495
+        },
+        "samples": {
+          "full": [
+            0.17470800000000963,
+            0.16345899999998892,
+            0.16612499999996544,
+            0.16374999999993634,
+            0.16075000000000728,
+            0.16158299999995052,
+            0.16045899999994617,
+            0.16087499999991905,
+            0.16012499999999363,
+            0.16212499999994634,
+            0.16004199999997581,
+            0.16274999999995998
+          ],
+          "broad": [
+            0.18570899999997437,
+            0.2000829999999496,
+            0.17179199999998218,
+            0.16829200000006495,
+            0.16516699999999673,
+            0.16849999999999454,
+            0.16458399999999074,
+            0.17658300000005056,
+            0.16745799999989686,
+            0.1678749999999809,
+            0.16383399999995163,
+            0.16658400000005713
+          ]
+        }
+      }
+    ],
+    "releaseAdoption": false
+  },
+  "packedWordStudy": {
+    "firstRyzenComparison": {
+      "node": "v24.22.3",
+      "arch": "x64",
+      "os": "linux",
+      "cache": "disabled",
+      "cpu": "AMD Ryzen 9 9950X 16-Core Processor",
+      "results": [
+        {
+          "file": "vite.json",
+          "files": 122,
+          "sha256": "ceac02e2c6995a85cd09ee7a31025133f8c8b0df563c21fa18ce4672de3a35e4",
+          "medians": {
+            "baseline": {
+              "warm": 20.677203666666628,
+              "first": 22.872638
+            },
+            "trivia-head": {
+              "warm": 20.819222666666672,
+              "first": 23.157370999999998
+            },
+            "packed-word": {
+              "warm": 19.902033999999958,
+              "first": 22.933541
+            },
+            "hot-cursors": {
+              "warm": 20.826770333333343,
+              "first": 23.139678999999997
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                21.758545999999996,
+                21.053635333333318,
+                20.426322999999986,
+                23.123938666666692,
+                19.757352666666673,
+                22.552424666666713,
+                19.694031000000148,
+                20.056256333333447,
+                20.677203666666628
+              ],
+              "first": [
+                22.865314,
+                23.019302999999997,
+                23.529008000000005,
+                23.166268,
+                22.859273,
+                22.801665000000003,
+                22.872638,
+                22.835639,
+                23.24708
+              ]
+            },
+            "trivia-head": {
+              "warm": [
+                20.819222666666672,
+                22.65993233333336,
+                21.47549933333327,
+                20.804681999999957,
+                20.939791999999972,
+                19.68189466666672,
+                20.30003000000003,
+                20.04934333333328,
+                23.294068
+              ],
+              "first": [
+                22.955824,
+                23.141951999999996,
+                23.579453,
+                23.045060999999997,
+                23.197166999999997,
+                23.157370999999998,
+                23.004084999999996,
+                24.705273,
+                24.071835999999998
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                20.095733333333346,
+                19.799427999999995,
+                20.142514333333338,
+                19.902033999999958,
+                19.36084966666658,
+                20.30768066666663,
+                19.56911333333331,
+                21.420503333333425,
+                19.677206333333288
+              ],
+              "first": [
+                22.933541,
+                23.075408000000003,
+                23.010296,
+                22.889309,
+                22.78265,
+                22.791967,
+                22.940023999999998,
+                25.532384,
+                22.782369
+              ]
+            },
+            "hot-cursors": {
+              "warm": [
+                21.305109999999996,
+                20.457741666666646,
+                21.73329933333336,
+                20.826770333333343,
+                20.8498573333333,
+                19.672934333333462,
+                19.777106666666594,
+                21.04362400000006,
+                19.652399999999943
+              ],
+              "first": [
+                23.096797,
+                23.089803999999997,
+                23.724373999999997,
+                24.275897999999998,
+                23.139678999999997,
+                23.069737999999997,
+                23.197246,
+                23.135651,
+                23.286744999999996
+              ]
+            }
+          }
+        },
+        {
+          "file": "mreact.json",
+          "files": 321,
+          "sha256": "5fce596fc53d9b4e3b95807db7c1047e1f653f4858885442968bde0f8f896eb9",
+          "medians": {
+            "baseline": {
+              "warm": 64.44987400000021,
+              "first": 74.32665700000001
+            },
+            "trivia-head": {
+              "warm": 62.3535580000001,
+              "first": 74.267341
+            },
+            "packed-word": {
+              "warm": 62.7023783333334,
+              "first": 73.56231000000001
+            },
+            "hot-cursors": {
+              "warm": 64.4362296666668,
+              "first": 74.632304
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                64.44987400000021,
+                62.91913300000002,
+                64.28778866666683,
+                64.5935426666668,
+                64.5747680000004,
+                61.92551033333317,
+                64.72903566666658,
+                65.0035540000002,
+                64.30856533333342
+              ],
+              "first": [
+                76.13786,
+                74.32665700000001,
+                74.377182,
+                74.835683,
+                73.97889699999999,
+                74.12121499999999,
+                74.543487,
+                74.12865,
+                74.01078
+              ]
+            },
+            "trivia-head": {
+              "warm": [
+                62.214628000000026,
+                61.8756866666666,
+                62.526524666666774,
+                63.22617300000032,
+                62.3535580000001,
+                61.960982999999636,
+                62.9992866666671,
+                62.823751666666794,
+                61.51960133333341
+              ],
+              "first": [
+                75.26323000000001,
+                73.793036,
+                73.745769,
+                75.254437,
+                74.056142,
+                74.397002,
+                74.875992,
+                74.267341,
+                74.048291
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                63.72908366666646,
+                63.638825,
+                62.71025833333321,
+                62.7023783333334,
+                62.0462120000005,
+                62.269778333333306,
+                62.19136900000012,
+                63.63802466666675,
+                61.99622133333347
+              ],
+              "first": [
+                74.539215,
+                73.535945,
+                73.214544,
+                73.74493899999999,
+                73.30238999999999,
+                73.331094,
+                74.88668,
+                73.56231000000001,
+                73.782613
+              ]
+            },
+            "hot-cursors": {
+              "warm": [
+                65.04731433333352,
+                64.4362296666668,
+                63.39938033333328,
+                63.25789900000018,
+                65.57131633333302,
+                65.61617100000028,
+                64.11121100000007,
+                64.25745199999983,
+                65.74139833333295
+              ],
+              "first": [
+                74.442753,
+                74.261064,
+                74.513398,
+                75.234179,
+                74.257069,
+                74.632304,
+                75.23231899999999,
+                77.480524,
+                74.826149
+              ]
+            }
+          }
+        },
+        {
+          "file": "tachyon-dom.json",
+          "files": 94,
+          "sha256": "7a78674b08297992c654a239167e743828c93aff00b178b0c0ff894d8b5eeaf9",
+          "medians": {
+            "baseline": {
+              "warm": 18.751824000000244,
+              "first": 21.819067000000004
+            },
+            "trivia-head": {
+              "warm": 18.766705333333448,
+              "first": 21.846609
+            },
+            "packed-word": {
+              "warm": 18.587920333333386,
+              "first": 21.821872
+            },
+            "hot-cursors": {
+              "warm": 19.835201333333316,
+              "first": 22.053717000000002
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                18.682911333333323,
+                18.751824000000244,
+                18.767039333333134,
+                18.76612066666591,
+                19.379978666666528,
+                18.89980833333296,
+                18.72417266666768,
+                18.62089900000016,
+                18.712714666666823
+              ],
+              "first": [
+                21.821081,
+                21.819067000000004,
+                22.131182,
+                21.80458,
+                21.841098000000002,
+                21.731543000000002,
+                21.804319000000003,
+                21.741251,
+                21.826
+              ]
+            },
+            "trivia-head": {
+              "warm": [
+                19.065354666666583,
+                18.766705333333448,
+                18.87823433333324,
+                18.609684333333764,
+                18.546950666666817,
+                18.581912666665932,
+                18.566660666666092,
+                19.347480999999487,
+                19.590316333333856
+              ],
+              "first": [
+                22.581856,
+                21.796333999999998,
+                22.170525,
+                21.786064999999997,
+                21.73554,
+                21.792066,
+                21.939653,
+                21.937068,
+                21.846609
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                18.656238000000183,
+                19.631512666666822,
+                18.587920333333386,
+                18.5194286666665,
+                18.4002686666657,
+                18.677377999999106,
+                18.70236866666649,
+                18.439929999999247,
+                18.58191966666709
+              ],
+              "first": [
+                22.169814,
+                21.976491,
+                21.677802,
+                21.726243000000004,
+                22.063444,
+                21.808367,
+                21.821872,
+                21.721564,
+                22.126814
+              ]
+            },
+            "hot-cursors": {
+              "warm": [
+                19.835201333333316,
+                18.835491000000427,
+                20.005844666667446,
+                21.73674899999969,
+                19.789355666666477,
+                19.884437333334063,
+                21.59813966666722,
+                18.72751900000003,
+                18.919131666666846
+              ],
+              "first": [
+                22.265213,
+                21.957325,
+                22.035792999999998,
+                22.118987999999998,
+                22.051593,
+                22.395246999999998,
+                22.053717000000002,
+                21.931987999999997,
+                22.136391999999997
+              ]
+            }
+          }
+        },
+        {
+          "file": "mreact.tsx.json",
+          "files": 84,
+          "sha256": "7f6b68c54014d0f7fe0cd72fdef10cf9f51ecc70631815f5161c78c36ee57ddf",
+          "medians": {
+            "baseline": {
+              "warm": 4.227209999999711,
+              "first": 6.267768
+            },
+            "trivia-head": {
+              "warm": 4.302000333333126,
+              "first": 6.428138999999998
+            },
+            "packed-word": {
+              "warm": 4.07235999999951,
+              "first": 6.468605
+            },
+            "hot-cursors": {
+              "warm": 4.3271373333324545,
+              "first": 6.516705000000002
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                4.923294999999295,
+                7.301021666667414,
+                4.639298999999785,
+                4.215294333333683,
+                4.188951666666981,
+                4.196478999999575,
+                5.488624333332457,
+                4.227209999999711,
+                4.19422833333374
+              ],
+              "first": [
+                6.316168999999999,
+                6.17784,
+                6.251567999999999,
+                6.062704,
+                6.267768,
+                6.234314999999999,
+                6.3913290000000025,
+                6.403623,
+                6.351925999999999
+              ]
+            },
+            "trivia-head": {
+              "warm": [
+                4.159038999999514,
+                4.535695000001094,
+                4.481550000000425,
+                4.013322333333538,
+                4.169655666665979,
+                5.2563993333327135,
+                4.302000333333126,
+                4.35118933333312,
+                4.221152000000681
+              ],
+              "first": [
+                6.392101,
+                6.705037000000001,
+                6.428138999999998,
+                6.344743000000001,
+                6.361713999999999,
+                7.034915999999999,
+                6.460189,
+                6.4430869999999985,
+                6.382954000000002
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                4.333115333333505,
+                4.1161519999999046,
+                4.713745333334373,
+                3.9770879999996396,
+                3.982618333332842,
+                4.07235999999951,
+                4.166322666666626,
+                3.9775956666659718,
+                3.990900666666372
+              ],
+              "first": [
+                6.678518,
+                6.414002,
+                7.020679000000001,
+                6.383575,
+                6.332079,
+                6.491678,
+                6.547813000000001,
+                6.3750789999999995,
+                6.468605
+              ]
+            },
+            "hot-cursors": {
+              "warm": [
+                4.152025999999751,
+                4.807200666666176,
+                4.832271000000522,
+                4.095129333333413,
+                5.271944999999202,
+                4.300951666666758,
+                4.2680099999997765,
+                4.3271373333324545,
+                5.553465999999996
+              ],
+              "first": [
+                6.626721,
+                6.620700000000003,
+                6.516705000000002,
+                6.431525000000001,
+                9.206064999999999,
+                6.418680999999999,
+                6.458115999999997,
+                6.681943999999998,
+                6.466491000000001
+              ]
+            }
+          }
+        },
+        {
+          "file": "svelte.js.json",
+          "files": 376,
+          "sha256": "befcb94ceaae4137ae9b3a2d3f4baba7d87371bab8cafbbb05d658181ebcea66",
+          "medians": {
+            "baseline": {
+              "warm": 14.673690999999963,
+              "first": 18.405518999999998
+            },
+            "trivia-head": {
+              "warm": 14.900349666666443,
+              "first": 18.602509
+            },
+            "packed-word": {
+              "warm": 14.6529123333324,
+              "first": 18.536084
+            },
+            "hot-cursors": {
+              "warm": 14.45956333333379,
+              "first": 18.489245999999998
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                14.947818000000552,
+                14.673690999999963,
+                14.387614999999641,
+                17.772109000000153,
+                19.468919333333663,
+                19.252857666666387,
+                14.444291333334453,
+                14.276416333332842,
+                14.304392666666294
+              ],
+              "first": [
+                18.619220000000002,
+                18.437658999999996,
+                18.300032,
+                18.401992999999997,
+                18.405518999999998,
+                18.359212999999997,
+                18.581349000000003,
+                18.375853999999997,
+                18.454942
+              ]
+            },
+            "trivia-head": {
+              "warm": [
+                16.496257333333535,
+                14.63845500000025,
+                14.413323000000673,
+                14.356516666666721,
+                14.557066,
+                19.45728766666677,
+                19.160170999999536,
+                15.704186333333686,
+                14.900349666666443
+              ],
+              "first": [
+                18.666188,
+                18.603440000000003,
+                18.438591,
+                18.406972000000003,
+                18.559497999999998,
+                18.929432,
+                18.602509,
+                18.643997000000002,
+                18.537217
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                18.77618066666643,
+                19.5298870000006,
+                14.332461666667465,
+                14.315930666666342,
+                14.381864000000254,
+                14.580676999999318,
+                14.6529123333324,
+                17.67530099999931,
+                18.960867333333834
+              ],
+              "first": [
+                18.605074000000002,
+                18.579464999999995,
+                18.485038,
+                18.403967,
+                18.534442,
+                19.340543000000004,
+                18.536084,
+                18.997318999999997,
+                18.346068
+              ]
+            },
+            "hot-cursors": {
+              "warm": [
+                15.14741233333431,
+                14.542023999999705,
+                19.311857999999727,
+                16.881970333333204,
+                14.45956333333379,
+                14.415690999999546,
+                14.346113999999943,
+                14.277365000000524,
+                14.29765666666693
+              ],
+              "first": [
+                18.486911,
+                18.703007000000003,
+                18.395831,
+                18.472746000000004,
+                18.584245000000003,
+                19.315996000000002,
+                18.572653000000003,
+                18.489245999999998,
+                18.470380999999996
+              ]
+            }
+          }
+        },
+        {
+          "file": "official-swc-next-App.tsx.json",
+          "files": 1,
+          "sha256": "55c5704ef748350496177ebfd9aef722b05466dcd207de988b06345fee50729f",
+          "medians": {
+            "baseline": {
+              "warm": 5.588055124999983,
+              "first": 7.7677499999999995
+            },
+            "trivia-head": {
+              "warm": 5.980239624999967,
+              "first": 7.778230000000001
+            },
+            "packed-word": {
+              "warm": 5.513331250000192,
+              "first": 7.75723
+            },
+            "hot-cursors": {
+              "warm": 5.594213562500045,
+              "first": 7.824296
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                5.638894749999963,
+                5.954445625000062,
+                5.961480624999922,
+                5.588055124999983,
+                5.714760124999884,
+                5.533024562499804,
+                5.523320687500018,
+                5.543295124999986,
+                5.537113500000032
+              ],
+              "first": [
+                7.769884000000001,
+                7.755648000000001,
+                7.7677499999999995,
+                7.823094000000001,
+                7.854483000000002,
+                7.729299000000001,
+                7.940854000000002,
+                7.740088,
+                7.759584999999998
+              ]
+            },
+            "trivia-head": {
+              "warm": [
+                6.091970812500222,
+                6.017950250000013,
+                5.446922437500007,
+                5.980239624999967,
+                6.006468874999882,
+                5.9389303750001545,
+                6.066777562500192,
+                5.964838999999984,
+                5.957441437500165
+              ],
+              "first": [
+                7.961794000000001,
+                7.738084000000001,
+                7.751520000000003,
+                7.778230000000001,
+                8.168772,
+                7.8714140000000015,
+                7.759706000000001,
+                7.791815999999997,
+                7.7395270000000025
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                5.5297482500000115,
+                5.513331250000192,
+                5.522264250000035,
+                5.503104624999878,
+                5.605025687500074,
+                5.492164875000071,
+                6.07877937499984,
+                5.4875130625000565,
+                5.447096062499895
+              ],
+              "first": [
+                7.747422,
+                7.7156819999999975,
+                7.925256000000001,
+                8.075226,
+                7.999182999999999,
+                7.75723,
+                7.690014999999999,
+                7.789019999999997,
+                7.640331999999997
+              ]
+            },
+            "hot-cursors": {
+              "warm": [
+                5.618517750000137,
+                5.677716874999987,
+                5.570266124999989,
+                5.594213562500045,
+                5.704713874999925,
+                5.572978187499984,
+                5.617854812500127,
+                5.583276312499947,
+                5.558974562499998
+              ],
+              "first": [
+                7.854623,
+                7.789511000000001,
+                7.818785000000002,
+                7.846146999999998,
+                7.887284000000001,
+                7.880281,
+                7.772819999999999,
+                7.804769999999998,
+                7.824296
+              ]
+            }
+          }
+        },
+        {
+          "file": "official-oxc-transform-renderer.ts.json",
+          "files": 1,
+          "sha256": "b512bee302cbf1ae0ef0babf1cb9ad9e824af05de50b399ab0da93e1bacb4b50",
+          "medians": {
+            "baseline": {
+              "warm": 0.913524875000121,
+              "first": 2.2908739999999987
+            },
+            "trivia-head": {
+              "warm": 0.9121492500000841,
+              "first": 2.2598160000000007
+            },
+            "packed-word": {
+              "warm": 0.9030834374998449,
+              "first": 2.2435350000000014
+            },
+            "hot-cursors": {
+              "warm": 0.937176749999935,
+              "first": 2.274101999999999
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                0.8735449374999007,
+                1.0268210000001545,
+                0.913524875000121,
+                0.9013664374999735,
+                0.8959807500000352,
+                0.9403777499999251,
+                1.0094265000000178,
+                0.909761625000101,
+                1.0586982499999067
+              ],
+              "first": [
+                2.2908739999999987,
+                2.3143780000000014,
+                2.2269739999999985,
+                2.2443269999999984,
+                2.209422,
+                2.1894240000000025,
+                2.5459030000000027,
+                2.4729649999999985,
+                2.492201999999999
+              ]
+            },
+            "trivia-head": {
+              "warm": [
+                0.9166883125001277,
+                0.9121492500000841,
+                0.9104703749999317,
+                0.8839018749999923,
+                0.9122011249999105,
+                0.9077239999999165,
+                0.958858624999948,
+                0.952137250000078,
+                0.9015229999999974
+              ],
+              "first": [
+                2.254125000000002,
+                2.3035780000000017,
+                2.178974,
+                2.2598160000000007,
+                2.246912000000002,
+                2.2144010000000023,
+                2.461925000000001,
+                2.5844440000000013,
+                2.3045399999999994
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                0.9030834374998449,
+                0.9004710624999461,
+                0.8723615000001246,
+                0.9059011874999214,
+                0.8985117500001252,
+                0.9723495000000639,
+                0.884782312499965,
+                0.9288047499999266,
+                0.9315067499999259
+              ],
+              "first": [
+                2.190697,
+                2.229890000000001,
+                2.2904930000000014,
+                2.208490000000001,
+                2.219660000000001,
+                2.2514000000000003,
+                2.449772000000003,
+                2.397213999999998,
+                2.2435350000000014
+              ]
+            },
+            "hot-cursors": {
+              "warm": [
+                0.9177722500000982,
+                0.9201479375001327,
+                0.937176749999935,
+                1.3840844374999506,
+                0.8895086874999834,
+                0.9237991874999807,
+                0.9684259375001147,
+                0.9509086874998047,
+                0.958887437499925
+              ],
+              "first": [
+                2.274101999999999,
+                2.264053999999998,
+                2.255207000000002,
+                2.2797230000000006,
+                2.1543480000000024,
+                2.4462560000000018,
+                2.3339250000000007,
+                2.439342,
+                2.2180779999999984
+              ]
+            }
+          }
+        },
+        {
+          "file": "official-oxc-transform-table.tsx.json",
+          "files": 1,
+          "sha256": "9445c3cabc4debfb9c03bcade57bde7f05e8a82883f6b4cfa9e04708a30a5a13",
+          "medians": {
+            "baseline": {
+              "warm": 0.5344480624999051,
+              "first": 1.9194469999999981
+            },
+            "trivia-head": {
+              "warm": 0.5583122499999718,
+              "first": 1.9154410000000013
+            },
+            "packed-word": {
+              "warm": 0.5287679999999,
+              "first": 1.9008729999999971
+            },
+            "hot-cursors": {
+              "warm": 0.5664493125000263,
+              "first": 1.915099999999999
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                0.5223215624998829,
+                0.5589095625000482,
+                0.5599696249998942,
+                0.571286500000042,
+                0.5344480624999051,
+                0.5353366249998999,
+                0.5325795624999046,
+                0.5336553125000592,
+                0.5292915625000205
+              ],
+              "first": [
+                2.0124519999999997,
+                1.912305,
+                1.916913000000001,
+                1.9194469999999981,
+                1.922673999999997,
+                1.860247000000001,
+                1.980322000000001,
+                1.930738999999999,
+                1.8167159999999996
+              ]
+            },
+            "trivia-head": {
+              "warm": [
+                0.5737855625000066,
+                0.5317668125001092,
+                0.5337924999998904,
+                0.5583122499999718,
+                0.537225187499871,
+                0.8926995624999563,
+                0.5778988750000735,
+                0.5304643125000439,
+                0.6579232500000671
+              ],
+              "first": [
+                1.918927,
+                1.7910369999999993,
+                1.924637999999998,
+                1.8998119999999972,
+                1.9295660000000012,
+                1.8951419999999999,
+                1.9247980000000027,
+                1.9154410000000013,
+                1.8930989999999994
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                0.5272389374999875,
+                0.5786158749999686,
+                0.5260898750000251,
+                0.5252640000001065,
+                0.5568713749999006,
+                0.6741286875001151,
+                0.5287679999999,
+                0.5602702499998031,
+                0.524554500000022
+              ],
+              "first": [
+                1.8751440000000024,
+                1.9497549999999997,
+                1.806315999999999,
+                1.9008729999999971,
+                1.919639,
+                1.9664959999999994,
+                1.9070239999999998,
+                1.8862650000000016,
+                1.8654660000000014
+              ]
+            },
+            "hot-cursors": {
+              "warm": [
+                0.6457510625000396,
+                0.5375163124999744,
+                0.5738000000001193,
+                0.6628481249999822,
+                0.5349133125000662,
+                0.5366722500000378,
+                0.5687059999997928,
+                0.5664493125000263,
+                0.5654311875000531
+              ],
+              "first": [
+                1.9374319999999976,
+                1.9041200000000025,
+                1.915099999999999,
+                1.9196580000000019,
+                1.9269420000000004,
+                1.9323719999999973,
+                1.891565,
+                1.898928999999999,
+                1.8419019999999975
+              ]
+            }
+          }
+        },
+        {
+          "file": "tmt-scripts.js.json",
+          "files": 10,
+          "sha256": "3afe96baad0086c029ff16ffe53d9392dba06003faef2d6f99e65b0d687c2e6a",
+          "medians": {
+            "baseline": {
+              "warm": 1.0004572500001814,
+              "first": 2.4768919999999994
+            },
+            "trivia-head": {
+              "warm": 0.9993870625003183,
+              "first": 2.589634
+            },
+            "packed-word": {
+              "warm": 1.0092706875002477,
+              "first": 2.580286000000001
+            },
+            "hot-cursors": {
+              "warm": 1.0028799374999835,
+              "first": 2.561622
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                1.5268621249999796,
+                1.0004572500001814,
+                1.0061935624999023,
+                0.9931591874999413,
+                0.9995793124999182,
+                1.0145354999999654,
+                1.0758147499996085,
+                0.9689319375002015,
+                0.9798111249997419
+              ],
+              "first": [
+                2.5909060000000004,
+                2.4618339999999996,
+                2.4719739999999994,
+                2.599522999999998,
+                2.7865439999999992,
+                2.4768919999999994,
+                2.6320639999999997,
+                2.4156380000000013,
+                2.434203
+              ]
+            },
+            "trivia-head": {
+              "warm": [
+                1.5308846249999988,
+                0.9647928750000574,
+                0.990417750000006,
+                1.0097740624999005,
+                1.170901750000212,
+                0.979873624999982,
+                1.0065624374997242,
+                0.9974560000000565,
+                0.9993870625003183
+              ],
+              "first": [
+                2.5880609999999997,
+                2.4591700000000003,
+                2.4440409999999986,
+                3.9166310000000024,
+                2.667671000000002,
+                2.6249910000000014,
+                2.4929330000000007,
+                2.589634,
+                2.6119959999999978
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                1.5842296250000345,
+                1.0157578124999418,
+                0.9908968125000683,
+                1.2484233125001083,
+                0.9803244999998242,
+                1.6674143125001137,
+                0.9975017499996284,
+                0.9990508749997389,
+                1.0092706875002477
+              ],
+              "first": [
+                2.509163000000001,
+                2.532387,
+                2.4123920000000005,
+                2.8640690000000006,
+                2.671958,
+                2.5821499999999986,
+                2.604833000000003,
+                2.5076800000000006,
+                2.580286000000001
+              ]
+            },
+            "hot-cursors": {
+              "warm": [
+                1.543691812499901,
+                0.9947096250000413,
+                1.215677499999856,
+                0.9968817500000569,
+                1.0388379374999204,
+                1.0172386875001393,
+                0.9938254375001634,
+                1.0001967500002138,
+                1.0028799374999835
+              ],
+              "first": [
+                2.591818,
+                2.561622,
+                2.5488880000000016,
+                2.4602509999999995,
+                2.541523999999999,
+                2.457046000000002,
+                2.701695000000001,
+                2.5684239999999967,
+                2.6829590000000003
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "moduleOnlyComparison": {
+      "node": "v24.22.3",
+      "arch": "x64",
+      "os": "linux",
+      "cache": "disabled",
+      "cpu": "AMD Ryzen 9 9950X 16-Core Processor",
+      "results": [
+        {
+          "file": "vite.json",
+          "files": 122,
+          "sha256": "ceac02e2c6995a85cd09ee7a31025133f8c8b0df563c21fa18ce4672de3a35e4",
+          "medians": {
+            "baseline": {
+              "warm": 20.227382666666625,
+              "first": 22.734945
+            },
+            "packed-word": {
+              "warm": 20.489307333333272,
+              "first": 23.055396000000002
+            },
+            "packed-module": {
+              "warm": 19.803297000000004,
+              "first": 22.748920999999996
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                22.105317333333332,
+                20.047849000000003,
+                21.78930166666665,
+                21.68752766666671,
+                19.67270566666669,
+                19.6743086666667,
+                20.76134066666661,
+                22.475328333333284,
+                19.482051666666695,
+                20.227382666666625,
+                19.653847333333335
+              ],
+              "first": [
+                23.780386,
+                24.458146,
+                23.557798000000002,
+                25.176372999999998,
+                22.635247999999997,
+                22.590705,
+                22.734945,
+                22.610732,
+                22.527355999999997,
+                22.689120000000003,
+                23.059975
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                21.062942333333336,
+                23.568541333333354,
+                21.472557333333345,
+                20.457186666666605,
+                20.488722666666643,
+                20.660023999999947,
+                19.737707666666665,
+                20.489307333333272,
+                19.488430333333326,
+                20.73736599999999,
+                19.505075000000033
+              ],
+              "first": [
+                23.213320999999997,
+                23.046629,
+                23.278604,
+                23.231527000000003,
+                23.002636999999996,
+                23.295256,
+                23.055396000000002,
+                23.05199,
+                22.918228999999997,
+                22.886470000000003,
+                23.410683
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                20.93373333333335,
+                19.803297000000004,
+                20.634676333333307,
+                21.21077999999996,
+                22.68089733333333,
+                19.27727733333336,
+                19.448598666666687,
+                19.321005999999972,
+                19.28234066666664,
+                19.447230000000065,
+                20.28234599999996
+              ],
+              "first": [
+                23.055817,
+                22.957311999999998,
+                23.487285999999997,
+                22.748920999999996,
+                23.141959,
+                22.689600000000002,
+                22.701703000000002,
+                22.660707000000002,
+                22.619108,
+                22.688337999999998,
+                23.531891
+              ]
+            }
+          }
+        },
+        {
+          "file": "mreact.json",
+          "files": 321,
+          "sha256": "5fce596fc53d9b4e3b95807db7c1047e1f653f4858885442968bde0f8f896eb9",
+          "medians": {
+            "baseline": {
+              "warm": 64.02037699999983,
+              "first": 74.43365700000001
+            },
+            "packed-word": {
+              "warm": 63.61441166666676,
+              "first": 74.968636
+            },
+            "packed-module": {
+              "warm": 62.859829000000296,
+              "first": 74.169978
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                63.45149233333344,
+                64.21842466666658,
+                64.02037699999983,
+                61.87292366666649,
+                64.91742000000038,
+                63.01757433333356,
+                64.8103666666666,
+                65.17729899999965,
+                62.685052333333566,
+                65.54699266666648,
+                63.06466499999988
+              ],
+              "first": [
+                74.43365700000001,
+                73.710382,
+                74.34258799999999,
+                74.322892,
+                74.992799,
+                74.970988,
+                74.847467,
+                75.006756,
+                75.55916300000001,
+                74.007683,
+                74.231905
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                63.63487966666677,
+                63.52162733333353,
+                64.58553366666668,
+                64.15622199999991,
+                62.63865999999992,
+                63.3572816666668,
+                63.481350999999755,
+                64.68816833333342,
+                63.61441166666676,
+                62.37712866666698,
+                64.87858300000032
+              ],
+              "first": [
+                75.01580999999999,
+                74.70925500000001,
+                74.00160899999999,
+                77.13789,
+                74.712923,
+                74.82749,
+                74.24462700000001,
+                75.781068,
+                75.229755,
+                74.968636,
+                75.11974900000001
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                64.19487366666665,
+                63.24980466666663,
+                60.98062300000007,
+                65.79320233333328,
+                62.59904233333358,
+                62.56090133333297,
+                62.859829000000296,
+                62.39755933333375,
+                64.40849700000035,
+                62.6062016666668,
+                63.02578866666651
+              ],
+              "first": [
+                74.995391,
+                73.918092,
+                72.81377,
+                74.562992,
+                74.12086299999999,
+                73.30058600000001,
+                74.488343,
+                74.87222399999999,
+                74.330198,
+                74.169978,
+                74.156774
+              ]
+            }
+          }
+        },
+        {
+          "file": "tachyon-dom.json",
+          "files": 94,
+          "sha256": "7a78674b08297992c654a239167e743828c93aff00b178b0c0ff894d8b5eeaf9",
+          "medians": {
+            "baseline": {
+              "warm": 19.558066000000206,
+              "first": 22.244618000000003
+            },
+            "packed-word": {
+              "warm": 18.89366033333378,
+              "first": 22.153617
+            },
+            "packed-module": {
+              "warm": 18.7270143333335,
+              "first": 22.100938999999997
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                19.558066000000206,
+                18.931648333333214,
+                19.67997799999951,
+                20.087792666667156,
+                18.828087333333315,
+                21.478097000000464,
+                18.851474333333197,
+                21.77459699999963,
+                18.946793333332607,
+                19.61925800000002,
+                18.796702000000852
+              ],
+              "first": [
+                22.143969000000002,
+                22.244618000000003,
+                22.300102,
+                22.665507,
+                21.976896,
+                22.046056,
+                25.041734,
+                22.53369,
+                21.915029999999998,
+                22.449002,
+                21.807649
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                18.871344666666726,
+                19.00898633333357,
+                18.83402500000011,
+                18.814582000000275,
+                18.816167999999987,
+                18.819708000000293,
+                18.983000999999906,
+                19.64000000000063,
+                20.888147666665947,
+                18.89366033333378,
+                21.521088000000116
+              ],
+              "first": [
+                21.95754,
+                22.258704,
+                22.205495,
+                21.962188,
+                22.065772,
+                22.153617,
+                22.452357,
+                22.193052,
+                22.348692999999997,
+                22.092684000000002,
+                22.101781
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                21.421354000000065,
+                18.62374366666639,
+                18.88244233333353,
+                18.54190400000031,
+                19.703742666666585,
+                18.608652666667087,
+                18.7270143333335,
+                20.753040666666493,
+                18.870426666666997,
+                18.57098533333313,
+                18.48157433333351
+              ],
+              "first": [
+                22.643836000000004,
+                22.100938999999997,
+                22.170458,
+                21.773283999999997,
+                22.101219,
+                21.778494000000002,
+                22.639298,
+                22.485389,
+                21.955285000000003,
+                21.923437000000003,
+                22.009057
+              ]
+            }
+          }
+        },
+        {
+          "file": "mreact.tsx.json",
+          "files": 84,
+          "sha256": "7f6b68c54014d0f7fe0cd72fdef10cf9f51ecc70631815f5161c78c36ee57ddf",
+          "medians": {
+            "baseline": {
+              "warm": 4.302582666667149,
+              "first": 6.384263000000001
+            },
+            "packed-word": {
+              "warm": 4.311001666666319,
+              "first": 6.575171000000001
+            },
+            "packed-module": {
+              "warm": 4.258713666666154,
+              "first": 6.444565999999998
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                3.942770999999387,
+                4.249616333333203,
+                4.759058666666533,
+                5.428086666666786,
+                4.2250973333332995,
+                4.130149333333975,
+                5.4906709999995655,
+                4.321792000000035,
+                4.382478999999876,
+                4.1322666666674195,
+                4.302582666667149
+              ],
+              "first": [
+                6.315754999999999,
+                6.415392000000001,
+                6.684977,
+                6.360268000000001,
+                6.566976,
+                6.372200999999997,
+                6.343476000000003,
+                6.565193000000001,
+                6.4402180000000016,
+                6.210657999999999,
+                6.384263000000001
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                4.346544999999121,
+                5.1843730000000505,
+                4.7266446666665916,
+                4.412532333333123,
+                4.311001666666319,
+                4.296958666665887,
+                4.2855170000002545,
+                4.307348000000881,
+                7.259334666666594,
+                4.211952666665941,
+                4.225421333332633
+              ],
+              "first": [
+                6.389453,
+                6.442401999999998,
+                6.610296999999999,
+                6.512273,
+                6.612490999999999,
+                6.634833,
+                6.62792,
+                6.575171000000001,
+                6.667044000000001,
+                6.511643000000003,
+                6.370877999999998
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                4.258713666666154,
+                4.342791000000337,
+                4.640122333332935,
+                4.329613333333934,
+                4.037582333334285,
+                4.383667999999791,
+                4.019899000000199,
+                4.227020666666552,
+                4.338426333333094,
+                4.209761999999803,
+                4.231128666666336
+              ],
+              "first": [
+                6.386196999999999,
+                6.259169,
+                6.438434999999998,
+                6.447641999999998,
+                6.565203,
+                6.9935860000000005,
+                6.662514999999999,
+                6.609525000000001,
+                6.396325999999998,
+                6.392108,
+                6.444565999999998
+              ]
+            }
+          }
+        },
+        {
+          "file": "svelte.js.json",
+          "files": 376,
+          "sha256": "befcb94ceaae4137ae9b3a2d3f4baba7d87371bab8cafbbb05d658181ebcea66",
+          "medians": {
+            "baseline": {
+              "warm": 14.683181000000332,
+              "first": 18.664564
+            },
+            "packed-word": {
+              "warm": 15.28554433333314,
+              "first": 18.677889000000004
+            },
+            "packed-module": {
+              "warm": 18.069415333332774,
+              "first": 18.649696999999996
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                15.93921300000026,
+                14.683181000000332,
+                14.673933333334086,
+                15.571530333333309,
+                14.53930800000065,
+                14.425985333333907,
+                14.641900333333373,
+                14.427067666666213,
+                14.697351000000102,
+                19.575663666666514,
+                14.788542333334286
+              ],
+              "first": [
+                18.664564,
+                18.443310000000004,
+                18.320558999999996,
+                18.403776,
+                18.509594,
+                18.589083000000002,
+                19.116041999999997,
+                18.714277999999997,
+                19.009792,
+                18.969987000000003,
+                19.551478
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                16.971278666666574,
+                15.54033166666583,
+                14.279230000000098,
+                17.78381266666717,
+                14.814437000000908,
+                19.636237000000012,
+                14.455500666666921,
+                15.28554433333314,
+                14.6541233333337,
+                21.8470736666665,
+                14.58543100000073
+              ],
+              "first": [
+                18.776593999999996,
+                18.677889000000004,
+                18.572301,
+                18.429484,
+                20.189454999999995,
+                18.615472,
+                18.569105000000004,
+                18.545502000000003,
+                19.322257999999998,
+                19.247027,
+                18.708958000000003
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                16.607743666667375,
+                14.353275666665771,
+                18.93110433333277,
+                14.367945999999696,
+                19.22729999999986,
+                14.415051333333395,
+                18.26339899999948,
+                14.413171333333594,
+                19.45687066666748,
+                18.069415333332774,
+                19.282002666666813
+              ],
+              "first": [
+                18.649696999999996,
+                18.460001,
+                18.543427,
+                18.58714,
+                18.678411000000004,
+                18.640708999999998,
+                18.936104000000004,
+                18.829213999999997,
+                18.526124999999997,
+                18.729076,
+                18.806510999999997
+              ]
+            }
+          }
+        },
+        {
+          "file": "official-swc-next-App.tsx.json",
+          "files": 1,
+          "sha256": "55c5704ef748350496177ebfd9aef722b05466dcd207de988b06345fee50729f",
+          "medians": {
+            "baseline": {
+              "warm": 5.679686437499868,
+              "first": 7.86496
+            },
+            "packed-word": {
+              "warm": 5.648763624999901,
+              "first": 7.848400000000002
+            },
+            "packed-module": {
+              "warm": 5.545499187500127,
+              "first": 7.825105999999998
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                5.671431624999968,
+                5.679686437499868,
+                6.014734937499952,
+                5.565654500000164,
+                6.014703625000038,
+                5.573739749999959,
+                5.5517985624999255,
+                6.0984870624999985,
+                5.7792764999999235,
+                5.644922624999936,
+                5.980975500000113
+              ],
+              "first": [
+                7.86496,
+                8.021244000000003,
+                8.086596,
+                7.768009000000003,
+                7.808335,
+                7.8257970000000014,
+                8.101855000000004,
+                8.332308000000001,
+                8.321417,
+                7.814515999999998,
+                7.845413999999998
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                6.130739937500039,
+                5.605058999999983,
+                5.680478624999978,
+                5.942578937500002,
+                5.5613101249998635,
+                5.953118124999946,
+                5.57650743750014,
+                5.576143625000213,
+                6.103971124999816,
+                5.640568250000115,
+                5.648763624999901
+              ],
+              "first": [
+                7.8723649999999985,
+                8.155926000000001,
+                7.820197,
+                7.775413,
+                7.848400000000002,
+                7.791142000000001,
+                8.176244,
+                7.947526,
+                8.059936,
+                7.775914,
+                7.754404000000001
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                5.545499187500127,
+                6.147919000000002,
+                5.7391680625000845,
+                5.421109687499893,
+                5.536086624999825,
+                5.501729749999868,
+                5.948967187500102,
+                5.505956375000096,
+                5.715585812499967,
+                5.973051812499989,
+                5.505906375000222
+              ],
+              "first": [
+                7.812231999999998,
+                8.301117999999999,
+                8.236447000000002,
+                7.861293,
+                7.7116229999999995,
+                7.819335000000002,
+                7.766937000000002,
+                7.825105999999998,
+                8.146579,
+                7.757248999999998,
+                8.555675999999998
+              ]
+            }
+          }
+        },
+        {
+          "file": "official-oxc-transform-renderer.ts.json",
+          "files": 1,
+          "sha256": "b512bee302cbf1ae0ef0babf1cb9ad9e824af05de50b399ab0da93e1bacb4b50",
+          "medians": {
+            "baseline": {
+              "warm": 0.9218526874999498,
+              "first": 2.2518739999999973
+            },
+            "packed-word": {
+              "warm": 0.9198138749998179,
+              "first": 2.2616119999999995
+            },
+            "packed-module": {
+              "warm": 0.9120023749999291,
+              "first": 2.282802
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                0.8751056250000602,
+                0.9218526874999498,
+                1.0433812500000386,
+                0.9623780624999654,
+                0.9210348750000321,
+                0.9169691874999444,
+                0.9240016875000947,
+                0.9108088749999297,
+                1.0187794999999369,
+                0.8798319999998512,
+                0.9514619374999711
+              ],
+              "first": [
+                2.3185379999999967,
+                2.30865,
+                2.240884000000001,
+                2.2772910000000017,
+                2.256262000000003,
+                2.2167379999999994,
+                2.2647869999999983,
+                2.2181999999999995,
+                2.2322169999999986,
+                2.2518739999999973,
+                2.243807999999998
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                0.8979146875001334,
+                0.9311263125000551,
+                0.9397030000000086,
+                0.9238539375000983,
+                0.956212750000077,
+                0.9198138749998179,
+                1.0197788124999079,
+                0.8809829374999936,
+                0.8811939375000293,
+                0.9151295000001483,
+                0.9085765625000022
+              ],
+              "first": [
+                2.309180999999999,
+                2.361589000000002,
+                2.5049069999999993,
+                2.252624000000001,
+                2.3366020000000027,
+                2.225323999999997,
+                2.2632639999999995,
+                2.2491780000000006,
+                2.2099650000000004,
+                2.202470999999999,
+                2.2616119999999995
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                0.9269315624999308,
+                0.919368062500098,
+                0.8799697500001002,
+                0.9120023749999291,
+                1.032109437499912,
+                0.8792321250000441,
+                0.8746378750001895,
+                0.9172991875000207,
+                0.8967161875000329,
+                0.8726523125001222,
+                1.3744640625000102
+              ],
+              "first": [
+                2.3004749999999987,
+                2.2981300000000005,
+                2.282802,
+                2.4015839999999997,
+                2.2835730000000005,
+                2.2078300000000013,
+                2.2261650000000017,
+                2.2160960000000003,
+                2.222939,
+                2.1846880000000013,
+                2.283773
+              ]
+            }
+          }
+        },
+        {
+          "file": "official-oxc-transform-table.tsx.json",
+          "files": 1,
+          "sha256": "9445c3cabc4debfb9c03bcade57bde7f05e8a82883f6b4cfa9e04708a30a5a13",
+          "medians": {
+            "baseline": {
+              "warm": 0.5517066249999516,
+              "first": 1.945679000000002
+            },
+            "packed-word": {
+              "warm": 0.5497717499999908,
+              "first": 1.9208019999999983
+            },
+            "packed-module": {
+              "warm": 0.5497585624998464,
+              "first": 1.9352599999999995
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                0.5109307499999431,
+                0.5517066249999516,
+                0.549160562499992,
+                0.658238937500073,
+                0.5987166249999518,
+                0.6895075625000118,
+                0.5288982499998838,
+                0.539066000000048,
+                0.7194380624998757,
+                0.5388668749999397,
+                0.576272062499811
+              ],
+              "first": [
+                1.870508000000001,
+                1.8553390000000007,
+                1.872050999999999,
+                1.865638999999998,
+                1.945679000000002,
+                2.281699999999997,
+                1.8214160000000028,
+                2.120246999999999,
+                2.091673,
+                2.1089860000000016,
+                2.1007099999999994
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                0.5301255000001674,
+                0.52559825000003,
+                0.5497717499999908,
+                0.5232945624998138,
+                0.8669766875000278,
+                0.5259989999999561,
+                0.55544175,
+                0.5279489375000139,
+                0.5883064999998169,
+                0.5903628749999825,
+                0.7817455625001912
+              ],
+              "first": [
+                1.8707779999999978,
+                1.87162,
+                1.8461319999999972,
+                1.853777000000001,
+                2.731522000000002,
+                1.873041999999998,
+                1.9533229999999975,
+                1.9208019999999983,
+                2.165642000000002,
+                2.1178919999999977,
+                2.9068310000000004
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                0.5497585624998464,
+                0.5254999375001717,
+                0.5203039374998752,
+                0.5200428749999446,
+                0.5564874374999818,
+                0.5591518124999766,
+                0.520692812499874,
+                0.5620266250000441,
+                0.5841086249999989,
+                0.528186875000074,
+                0.7065100625000014
+              ],
+              "first": [
+                1.856190999999999,
+                1.8493980000000008,
+                1.800847000000001,
+                1.8723109999999998,
+                2.0693920000000006,
+                1.9352599999999995,
+                1.8935010000000005,
+                2.1273799999999987,
+                2.1067110000000007,
+                2.807055000000002,
+                2.014709
+              ]
+            }
+          }
+        },
+        {
+          "file": "tmt-scripts.js.json",
+          "files": 10,
+          "sha256": "3afe96baad0086c029ff16ffe53d9392dba06003faef2d6f99e65b0d687c2e6a",
+          "medians": {
+            "baseline": {
+              "warm": 1.0056210625000404,
+              "first": 2.6216969999999975
+            },
+            "packed-word": {
+              "warm": 1.017999937500008,
+              "first": 2.6157959999999996
+            },
+            "packed-module": {
+              "warm": 1.0283136250000098,
+              "first": 2.6145940000000003
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                1.0056210625000404,
+                1.0042040624998663,
+                0.9951664375000746,
+                1.0923406249999061,
+                1.0035822499999085,
+                1.3614108750000469,
+                0.9782309375000295,
+                0.9734826874998816,
+                1.0206837499999892,
+                1.027437562500154,
+                1.030835874999866
+              ],
+              "first": [
+                2.6120889999999974,
+                2.6216969999999975,
+                2.436841000000001,
+                2.4979150000000025,
+                3.0838740000000016,
+                2.5616850000000007,
+                2.536177000000002,
+                2.680968,
+                2.648878,
+                2.6963469999999994,
+                2.737874999999999
+              ]
+            },
+            "packed-word": {
+              "warm": [
+                1.0312991875000534,
+                0.9805922499999724,
+                1.0046429999999873,
+                1.001295437499948,
+                1.003188375000036,
+                1.0696811875000094,
+                1.0337782500000685,
+                0.9955628750001324,
+                1.0461088749998453,
+                1.017999937500008,
+                1.280201687500039
+              ],
+              "first": [
+                2.6157959999999996,
+                2.6470940000000027,
+                2.771257000000002,
+                2.551165000000001,
+                2.568708000000001,
+                2.696266999999999,
+                2.593835000000002,
+                2.4849010000000007,
+                2.5006200000000014,
+                2.723406999999998,
+                2.9265490000000014
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                1.0308446250000998,
+                1.2001127500000166,
+                1.479480437500115,
+                1.0082823124998868,
+                0.9780218125001738,
+                1.053874687499956,
+                1.0163123749998704,
+                0.9854889374998947,
+                1.0283136250000098,
+                1.0255102500000248,
+                1.8868645000000015
+              ],
+              "first": [
+                2.469100000000001,
+                2.5996349999999993,
+                2.58042,
+                2.6145940000000003,
+                2.5758110000000016,
+                3.201525,
+                2.567495000000001,
+                2.632016,
+                2.6918180000000014,
+                2.6379969999999986,
+                2.799430000000001
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "typeCaptureOnlyComparison": {
+      "node": "v24.22.3",
+      "arch": "x64",
+      "os": "linux",
+      "cache": "disabled",
+      "cpu": "AMD Ryzen 9 9950X 16-Core Processor",
+      "results": [
+        {
+          "file": "vite.json",
+          "files": 122,
+          "sha256": "ceac02e2c6995a85cd09ee7a31025133f8c8b0df563c21fa18ce4672de3a35e4",
+          "medians": {
+            "baseline": {
+              "warm": 20.24760500000002,
+              "first": 22.960183999999998
+            },
+            "packed-module": {
+              "warm": 20.542851666666667,
+              "first": 22.895422
+            },
+            "packed-capture": {
+              "warm": 20.188142999999968,
+              "first": 22.791547
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                21.645173333333332,
+                19.979675333333336,
+                21.50639933333336,
+                21.54607733333334,
+                19.593568000000005,
+                19.875229666666655,
+                20.622441333333427,
+                22.50585466666674,
+                19.608916666666726,
+                20.24760500000002,
+                19.54241566666663
+              ],
+              "first": [
+                22.968950000000003,
+                22.7346,
+                23.280224,
+                23.541013000000003,
+                22.794864000000004,
+                22.960183999999998,
+                22.825671,
+                23.073997999999996,
+                22.907315,
+                23.540482,
+                22.773795000000003
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                20.542851666666667,
+                21.563840333333342,
+                20.581477666666654,
+                19.98546966666663,
+                25.782978999999994,
+                20.78149666666665,
+                19.584447333333326,
+                20.266851000000013,
+                19.556862333333356,
+                20.634397333333407,
+                19.346621333333285
+              ],
+              "first": [
+                22.613223,
+                22.765709,
+                23.028242,
+                23.16065,
+                22.940637000000002,
+                22.990591,
+                22.895422,
+                22.771490000000004,
+                22.849095000000002,
+                22.917254,
+                22.744379000000002
+              ]
+            },
+            "packed-capture": {
+              "warm": [
+                20.64130666666667,
+                20.31420299999998,
+                20.188142999999968,
+                21.105701333333325,
+                22.78340533333335,
+                19.43301699999999,
+                19.49612833333337,
+                19.363128999999997,
+                19.589052999999996,
+                19.43349099999993,
+                20.315181999999975
+              ],
+              "first": [
+                22.774625000000004,
+                22.791547,
+                23.029513,
+                22.777670999999998,
+                22.628682,
+                22.923746,
+                22.724351,
+                22.80912,
+                22.960824999999996,
+                22.602092000000003,
+                22.873973000000003
+              ]
+            }
+          }
+        },
+        {
+          "file": "mreact.json",
+          "files": 321,
+          "sha256": "5fce596fc53d9b4e3b95807db7c1047e1f653f4858885442968bde0f8f896eb9",
+          "medians": {
+            "baseline": {
+              "warm": 63.28256733333304,
+              "first": 73.79731000000001
+            },
+            "packed-module": {
+              "warm": 62.599104666666484,
+              "first": 73.669149
+            },
+            "packed-capture": {
+              "warm": 63.390563000000235,
+              "first": 73.36286199999999
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                62.37338100000003,
+                64.31322766666683,
+                62.80675800000002,
+                61.92688433333327,
+                63.469849666666654,
+                61.7969749999999,
+                64.61856199999966,
+                63.727674666666644,
+                62.334707999999715,
+                65.8282123333338,
+                63.28256733333304
+              ],
+              "first": [
+                74.109812,
+                73.727917,
+                73.785916,
+                73.294273,
+                75.62679,
+                73.79210799999998,
+                73.875716,
+                73.673096,
+                76.151055,
+                74.233488,
+                73.79731000000001
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                62.422573333333276,
+                61.72866533333308,
+                64.81227766666689,
+                62.100222999999765,
+                65.23764266666664,
+                63.50503300000006,
+                61.68033333333309,
+                63.963386333333496,
+                63.19421066666655,
+                61.524899000000005,
+                62.599104666666484
+              ],
+              "first": [
+                74.736809,
+                74.110844,
+                73.364726,
+                72.960207,
+                73.893548,
+                73.444506,
+                73.440359,
+                73.669149,
+                77.090428,
+                73.838908,
+                73.43479
+              ]
+            },
+            "packed-capture": {
+              "warm": [
+                64.53788866666673,
+                63.390563000000235,
+                61.29058033333331,
+                62.270101666666655,
+                62.34272166666657,
+                64.34711933333347,
+                63.651821666666365,
+                61.17399033333337,
+                63.70436733333372,
+                62.430625333333715,
+                63.62414433333348
+              ],
+              "first": [
+                76.108262,
+                73.36286199999999,
+                73.475353,
+                72.912648,
+                75.29214200000001,
+                73.86719000000001,
+                73.70250100000001,
+                72.989144,
+                73.08370099999999,
+                72.874399,
+                73.217352
+              ]
+            }
+          }
+        },
+        {
+          "file": "tachyon-dom.json",
+          "files": 94,
+          "sha256": "7a78674b08297992c654a239167e743828c93aff00b178b0c0ff894d8b5eeaf9",
+          "medians": {
+            "baseline": {
+              "warm": 19.32372333333357,
+              "first": 21.820668
+            },
+            "packed-module": {
+              "warm": 18.542247000000014,
+              "first": 21.824074
+            },
+            "packed-capture": {
+              "warm": 18.613116999999573,
+              "first": 21.808796
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                19.406111000000237,
+                18.659650666666494,
+                19.32372333333357,
+                18.716410666666587,
+                19.02064466666646,
+                21.45471499999985,
+                20.524616666666287,
+                19.64816200000011,
+                18.616643666666885,
+                19.511385333333845,
+                18.613003666666675
+              ],
+              "first": [
+                21.726160999999998,
+                21.713265999999997,
+                21.812623,
+                21.809977,
+                22.046882000000004,
+                21.934642,
+                21.861144,
+                21.925044,
+                21.816551000000004,
+                22.336606000000003,
+                21.820668
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                18.464174000000032,
+                18.538820333333206,
+                18.542247000000014,
+                19.76302066666661,
+                18.76296466666645,
+                20.425343333333633,
+                18.540904666666393,
+                19.24580699999994,
+                18.458844333334127,
+                18.467310333333444,
+                21.309101666667022
+              ],
+              "first": [
+                21.772086,
+                21.824074,
+                21.857217000000002,
+                22.286312000000002,
+                22.53079,
+                21.800780000000003,
+                21.868698000000002,
+                22.065858000000002,
+                21.767728,
+                21.701394000000004,
+                21.573725
+              ]
+            },
+            "packed-capture": {
+              "warm": [
+                20.870839000000462,
+                18.513192333333183,
+                18.597143333333708,
+                18.9006930000002,
+                19.886916333333527,
+                20.528346666666646,
+                18.598696333333162,
+                18.537294666667247,
+                18.63984733333321,
+                18.613116999999573,
+                18.515380333332967
+              ],
+              "first": [
+                21.737581,
+                21.731591,
+                21.803115,
+                22.040049,
+                22.430182,
+                21.996408000000002,
+                21.910015,
+                21.803837,
+                21.837509000000004,
+                21.714259,
+                21.808796
+              ]
+            }
+          }
+        },
+        {
+          "file": "mreact.tsx.json",
+          "files": 84,
+          "sha256": "7f6b68c54014d0f7fe0cd72fdef10cf9f51ecc70631815f5161c78c36ee57ddf",
+          "medians": {
+            "baseline": {
+              "warm": 4.127299666666659,
+              "first": 6.125992999999998
+            },
+            "packed-module": {
+              "warm": 4.181211333333825,
+              "first": 6.3507149999999974
+            },
+            "packed-capture": {
+              "warm": 4.091102333333159,
+              "first": 6.335066000000001
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                3.9698480000006384,
+                4.0585343333332276,
+                4.515909000000344,
+                3.994500999999824,
+                4.265155333333193,
+                4.127299666666659,
+                4.000622333333013,
+                4.202374333332652,
+                4.031741000000086,
+                7.120134999999816,
+                4.398378666666152
+              ],
+              "first": [
+                6.125992999999998,
+                6.159997000000001,
+                6.069778000000003,
+                6.1283069999999995,
+                6.187569,
+                5.999646000000002,
+                6.0344419999999985,
+                6.033519999999999,
+                6.031145000000002,
+                6.4175,
+                6.486700000000003
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                4.181211333333825,
+                4.198299666667784,
+                4.493436666666336,
+                5.107449000000391,
+                4.094775333333625,
+                3.9631386666672674,
+                5.008269333332767,
+                3.9488486666668905,
+                3.963409333333402,
+                4.277561666665861,
+                4.030291333333783
+              ],
+              "first": [
+                6.385400000000001,
+                6.309567999999999,
+                6.253281999999999,
+                6.507078,
+                6.288988,
+                6.2320519999999995,
+                6.461783999999998,
+                6.312433000000002,
+                6.3507149999999974,
+                6.704428,
+                6.692916
+              ]
+            },
+            "packed-capture": {
+              "warm": [
+                4.043225666666937,
+                5.172581333333558,
+                4.496348999999706,
+                4.089612666666653,
+                3.9761530000008256,
+                4.071779333332718,
+                4.190284999999373,
+                3.9674433333336006,
+                4.161206999999801,
+                4.4080299999999015,
+                4.091102333333159
+              ],
+              "first": [
+                6.269151000000001,
+                6.335066000000001,
+                6.342119,
+                6.333020999999999,
+                6.283158,
+                6.249976,
+                6.332139999999999,
+                6.351666999999999,
+                6.400217000000001,
+                6.718233999999999,
+                6.7125340000000016
+              ]
+            }
+          }
+        },
+        {
+          "file": "svelte.js.json",
+          "files": 376,
+          "sha256": "befcb94ceaae4137ae9b3a2d3f4baba7d87371bab8cafbbb05d658181ebcea66",
+          "medians": {
+            "baseline": {
+              "warm": 14.708124333332913,
+              "first": 18.418205
+            },
+            "packed-module": {
+              "warm": 14.628281333333385,
+              "first": 18.488317
+            },
+            "packed-capture": {
+              "warm": 17.683132999999845,
+              "first": 18.542418
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                16.063199999999295,
+                14.725924666666591,
+                14.708124333332913,
+                19.02688333333329,
+                14.33834733333424,
+                15.620623333333546,
+                14.426492666666794,
+                14.27973766666643,
+                14.566772666667626,
+                19.16225133333258,
+                14.450952333333893
+              ],
+              "first": [
+                18.924304,
+                18.481453000000002,
+                18.45256,
+                18.507443,
+                18.337514,
+                18.313969999999998,
+                18.414178,
+                18.418205,
+                18.386927000000004,
+                18.447809999999997,
+                18.322746
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                17.051611000000168,
+                14.64032033333327,
+                14.422124333334068,
+                14.812840666666792,
+                14.628281333333385,
+                18.20503866666574,
+                14.287191333332885,
+                14.58704066666663,
+                14.263657333334171,
+                21.055362666667254,
+                14.369516000000052
+              ],
+              "first": [
+                18.78826,
+                18.514265,
+                18.778872000000003,
+                18.602571,
+                18.460534,
+                18.348333999999998,
+                18.488317,
+                18.407926,
+                18.398188,
+                18.503535,
+                18.414928999999997
+              ]
+            },
+            "packed-capture": {
+              "warm": [
+                17.507930333333206,
+                14.406749000000369,
+                19.24872633333386,
+                14.425995000000208,
+                19.0848960000003,
+                14.34124966666665,
+                18.909320000000054,
+                14.299003666666977,
+                19.022592666665634,
+                17.683132999999845,
+                18.876592000000528
+              ],
+              "first": [
+                18.563287000000003,
+                18.531496999999998,
+                18.668805000000003,
+                18.522271,
+                18.579638,
+                18.557236,
+                18.350778000000002,
+                18.467547,
+                18.542418,
+                18.625534000000002,
+                18.537899000000003
+              ]
+            }
+          }
+        },
+        {
+          "file": "official-swc-next-App.tsx.json",
+          "files": 1,
+          "sha256": "55c5704ef748350496177ebfd9aef722b05466dcd207de988b06345fee50729f",
+          "medians": {
+            "baseline": {
+              "warm": 5.60615743749986,
+              "first": 7.916923000000001
+            },
+            "packed-module": {
+              "warm": 5.7253836249999495,
+              "first": 7.852853
+            },
+            "packed-capture": {
+              "warm": 5.658151875000158,
+              "first": 7.882869999999997
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                5.598505500000101,
+                5.617337687499912,
+                5.988180375000184,
+                5.577482375000045,
+                6.1190402500001255,
+                5.603329000000031,
+                5.60615743749986,
+                5.972120312499783,
+                5.524708437500067,
+                5.566833687499866,
+                6.0491223750000245
+              ],
+              "first": [
+                8.010328000000001,
+                7.809993000000002,
+                7.928025000000002,
+                9.304376999999999,
+                7.892758000000001,
+                7.916080999999998,
+                7.801686999999998,
+                7.873491999999999,
+                7.916923000000001,
+                7.927253,
+                8.230511
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                6.3174900625001555,
+                5.576660812499995,
+                5.529031374999931,
+                6.624029000000064,
+                5.785178312499966,
+                5.99819175000016,
+                5.7253836249999495,
+                5.557516812499898,
+                5.9834014999999,
+                5.542828687500105,
+                5.618045374999838
+              ],
+              "first": [
+                8.150300999999999,
+                8.161752999999997,
+                7.7293720000000015,
+                10.63335,
+                8.360826,
+                7.781389999999998,
+                7.790466000000002,
+                7.80312,
+                7.852853,
+                7.8457599999999985,
+                8.402235000000005
+              ]
+            },
+            "packed-capture": {
+              "warm": [
+                5.645049749999998,
+                6.125333312500061,
+                5.595958812500157,
+                6.187202562500033,
+                5.703806875000055,
+                5.5766289374998905,
+                5.960145937500101,
+                5.583501187500133,
+                5.531186749999961,
+                6.024009562499941,
+                5.658151875000158
+              ],
+              "first": [
+                7.9070449999999965,
+                8.05864,
+                7.805444000000001,
+                7.888541,
+                7.882869999999997,
+                7.802088000000001,
+                7.748117000000001,
+                7.8342279999999995,
+                7.8304909999999985,
+                7.885996000000002,
+                7.958281000000003
+              ]
+            }
+          }
+        },
+        {
+          "file": "official-oxc-transform-renderer.ts.json",
+          "files": 1,
+          "sha256": "b512bee302cbf1ae0ef0babf1cb9ad9e824af05de50b399ab0da93e1bacb4b50",
+          "medians": {
+            "baseline": {
+              "warm": 0.9233492500000011,
+              "first": 2.277243000000002
+            },
+            "packed-module": {
+              "warm": 0.9195308125001702,
+              "first": 2.2708709999999996
+            },
+            "packed-capture": {
+              "warm": 0.9269209374999718,
+              "first": 2.2343520000000012
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                0.8945908749999489,
+                0.930197125000177,
+                1.0108571874998233,
+                0.8960035625000273,
+                0.8996109375000287,
+                0.9232540625000638,
+                0.9443762500000048,
+                0.9233492500000011,
+                0.9908966250000049,
+                0.9362653749999481,
+                0.894977874999995
+              ],
+              "first": [
+                2.2795369999999977,
+                2.2971000000000004,
+                2.3200719999999997,
+                2.279046000000001,
+                2.4292969999999983,
+                2.265701,
+                2.191801999999999,
+                2.277243000000002,
+                2.260891000000001,
+                2.2479479999999974,
+                2.248087999999999
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                0.9338858749999872,
+                0.9445465625001361,
+                0.9224763750000875,
+                0.9265903125001387,
+                0.8895602499999313,
+                0.8898783125000591,
+                0.9863418125000862,
+                0.9033511250001993,
+                0.9195308125001702,
+                0.9137455625000257,
+                0.8855765000000702
+              ],
+              "first": [
+                2.4767970000000012,
+                2.370438,
+                2.281791000000002,
+                2.2495210000000014,
+                2.2026129999999995,
+                2.424568999999998,
+                2.2708709999999996,
+                2.2231409999999983,
+                2.295365999999998,
+                2.2191839999999985,
+                2.182214000000002
+              ]
+            },
+            "packed-capture": {
+              "warm": [
+                0.9628734375000931,
+                0.9397612500001742,
+                0.9232741249998071,
+                0.8865483125000537,
+                1.0584439374999874,
+                0.9396948749999865,
+                0.887984812500008,
+                0.9112108125000304,
+                0.9269209374999718,
+                0.9115408749999006,
+                1.3827299375000166
+              ],
+              "first": [
+                2.3152839999999983,
+                2.2343520000000012,
+                2.2028130000000026,
+                2.0516889999999997,
+                2.2434590000000014,
+                2.208442999999999,
+                2.252586000000001,
+                2.2293330000000005,
+                2.2247839999999997,
+                2.2574359999999984,
+                2.2771620000000006
+              ]
+            }
+          }
+        },
+        {
+          "file": "official-oxc-transform-table.tsx.json",
+          "files": 1,
+          "sha256": "9445c3cabc4debfb9c03bcade57bde7f05e8a82883f6b4cfa9e04708a30a5a13",
+          "medians": {
+            "baseline": {
+              "warm": 0.5696663124999759,
+              "first": 1.8808790000000002
+            },
+            "packed-module": {
+              "warm": 0.5313074375001179,
+              "first": 1.8938929999999985
+            },
+            "packed-capture": {
+              "warm": 0.5268459374999566,
+              "first": 1.9343090000000025
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                0.5425378749998799,
+                0.5696663124999759,
+                0.5572705624999799,
+                0.6124853750000057,
+                0.5530996249999589,
+                0.7052569374998257,
+                0.5545999374999155,
+                0.5764509374998852,
+                0.6820221250000031,
+                0.558371999999963,
+                0.5905009999999038
+              ],
+              "first": [
+                1.884053999999999,
+                1.8881319999999988,
+                1.6774370000000012,
+                1.8362149999999993,
+                1.9104840000000003,
+                1.837146999999998,
+                1.689118999999998,
+                1.9253220000000013,
+                1.912817999999998,
+                1.8808790000000002,
+                1.7036960000000008
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                0.5562599375000445,
+                0.52977581250002,
+                0.5313074375001179,
+                0.5195090624999921,
+                0.5229028749999998,
+                0.5517727500000547,
+                0.5526406250000946,
+                0.5558773124998879,
+                0.5284615000000485,
+                0.5566205625000293,
+                0.5270701250001366
+              ],
+              "first": [
+                1.8441399999999994,
+                1.9002750000000006,
+                1.8776930000000007,
+                1.8612520000000004,
+                1.8461339999999993,
+                1.9153629999999993,
+                1.8938929999999985,
+                1.905224999999998,
+                1.8339309999999998,
+                2.1002709999999993,
+                2.0861339999999977
+              ]
+            },
+            "packed-capture": {
+              "warm": [
+                0.5257451249999576,
+                0.5268459374999566,
+                0.5275134999999409,
+                0.5495066249998217,
+                0.5226224374998765,
+                0.5533550625000316,
+                0.5254833750000216,
+                0.5253161875000387,
+                0.524336250000033,
+                0.5827858749998995,
+                0.5358784999998534
+              ],
+              "first": [
+                2.018827999999999,
+                1.8630959999999988,
+                1.6817150000000005,
+                1.9343090000000025,
+                1.7822140000000033,
+                1.9812370000000001,
+                1.9123580000000011,
+                2.016812999999999,
+                1.8824010000000015,
+                1.9857059999999969,
+                1.9498280000000001
+              ]
+            }
+          }
+        },
+        {
+          "file": "tmt-scripts.js.json",
+          "files": 10,
+          "sha256": "3afe96baad0086c029ff16ffe53d9392dba06003faef2d6f99e65b0d687c2e6a",
+          "medians": {
+            "baseline": {
+              "warm": 1.040385125000057,
+              "first": 2.5777060000000027
+            },
+            "packed-module": {
+              "warm": 1.0218308749999778,
+              "first": 2.628240999999999
+            },
+            "packed-capture": {
+              "warm": 1.0493074999999408,
+              "first": 2.5996169999999985
+            }
+          },
+          "samples": {
+            "baseline": {
+              "warm": [
+                1.0169793125000979,
+                1.0395447500000046,
+                1.0083756874998926,
+                1.056149062500026,
+                1.0434883749999244,
+                1.091350687500153,
+                1.0695767500001239,
+                1.040385125000057,
+                1.0107344375001048,
+                1.0126343125000403,
+                1.1265993125000477
+              ],
+              "first": [
+                2.568950000000001,
+                2.564972000000001,
+                2.6220389999999973,
+                2.4920250000000017,
+                2.709102999999999,
+                2.746231999999999,
+                2.5942679999999996,
+                2.638641,
+                2.3001359999999984,
+                2.4448269999999965,
+                2.5777060000000027
+              ]
+            },
+            "packed-module": {
+              "warm": [
+                1.0093061874999876,
+                1.0485509999998612,
+                1.0109091249998983,
+                0.969043687499834,
+                1.019801500000085,
+                1.095279312499997,
+                1.0099386250001317,
+                1.0391903750000893,
+                1.0248008124999615,
+                1.0218308749999778,
+                1.2591110625000965
+              ],
+              "first": [
+                2.628240999999999,
+                2.6419669999999975,
+                2.942671999999998,
+                2.471357000000001,
+                2.783252000000001,
+                2.733429000000001,
+                3.2304710000000014,
+                2.462850999999997,
+                2.5093679999999985,
+                2.562037,
+                2.559201999999999
+              ]
+            },
+            "packed-capture": {
+              "warm": [
+                0.985507749999897,
+                1.2054372499999317,
+                1.4550656250000884,
+                1.063207312500026,
+                1.0493074999999408,
+                1.079452749999973,
+                1.0340601249999963,
+                1.0070068749998882,
+                1.0081346249999115,
+                1.0327000624999982,
+                1.5194220000000769
+              ],
+              "first": [
+                2.8614379999999997,
+                2.507083999999999,
+                2.410031,
+                2.720233999999998,
+                2.4292680000000004,
+                2.7518530000000005,
+                2.7507100000000015,
+                2.679907,
+                2.5610250000000008,
+                2.540987000000001,
+                2.5996169999999985
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "leanWordFoldEquivalence": true,
+    "releaseAdoption": false
   }
 }
