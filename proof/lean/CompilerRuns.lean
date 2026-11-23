@@ -1,3 +1,5 @@
+import Std.Tactic.BVDecide
+
 namespace CompilerRuns
 
 def quotePlain (decode : Bool) (byte : UInt8) : Bool :=
@@ -76,5 +78,18 @@ theorem eraseBlock_append (left right : List UInt8) :
     eraseBlock (left ++ right) =
       ((eraseBlock left).1 && (eraseBlock right).1, (eraseBlock left).2 ++ (eraseBlock right).2) := by
   simp [eraseBlock, List.all_append, List.map_append]
+
+-- The enum writer uses unsigned C shifts and reconstructs signed right shift.
+theorem enumSignedRight (word distance : BitVec 32) :
+    let count := distance &&& 31
+    (word >>> count) ||| (if word.msb then ~~~((0xffffffff : BitVec 32) >>> count) else 0) =
+      BitVec.sshiftRight' word count := by
+  dsimp
+  bv_decide
+
+theorem enumSignedValue (word : BitVec 32) :
+    (if word.msb then (word.toNat : Int) - 4294967296 else (word.toNat : Int)) = word.toInt := by
+  rw [BitVec.toInt_eq_msb_cond]
+  rfl
 
 end CompilerRuns

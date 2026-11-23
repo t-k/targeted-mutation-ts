@@ -1,0 +1,5 @@
+Shift	Operands	Dialect
+Left	Positive	TS
+SignedRight	Signed	TSX
+UnsignedRight	Unsigned	TS
+Left	Wrap	TSX

@@ -214,6 +214,30 @@ static bool enum_integer(lowering *lower, int64_t *value) {
   return true;
 }
 
+static bool enum_numeric(lowering *lower, int64_t *value, bool *folded) {
+  if (!enum_integer(lower, value)) return false;
+  if (peek(lower) == ',' || peek(lower) == '}') return true;
+  const uint32_t literal_end = lower->at;
+  if (!trivia(lower)) return false;
+  const uint8_t operator = peek(lower);
+  if ((operator != '<' && operator != '>') || lower->input.size - lower->at < 2 ||
+      lower->input.source[lower->at + 1] != operator) {
+    lower->at = literal_end;
+    return true;
+  }
+  lower->at += 2;
+  const bool logical = operator == '>' && consume(lower, '>');
+  int64_t distance;
+  if (!trivia(lower) || !enum_integer(lower, &distance)) return false;
+  const uint32_t count = (uint32_t)distance & 31;
+  const uint32_t operand = (uint32_t)*value;
+  uint32_t shifted = operator == '<' ? operand << count : operand >> count;
+  if (operator == '>' && !logical && operand > INT32_MAX) shifted |= ~(UINT32_MAX >> count);
+  *value = !logical && shifted > INT32_MAX ? (int64_t)shifted - INT64_C(4294967296) : shifted;
+  *folded = true;
+  return true;
+}
+
 static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported) {
   writer *out = &lower->output;
   put(out, exported ? "export var " : "var ");
@@ -234,12 +258,13 @@ static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported) {
     if (same_bytes(lower, key, "__proto__") || !trivia(lower)) return false;
 
     uint32_t value_start = 0, value_end = 0;
+    bool folded = false;
     if (consume(lower, '=')) {
       if (!trivia(lower)) return false;
       value_start = lower->at;
       numeric = peek(lower) != '"' && peek(lower) != '\'';
       if (numeric) {
-        if (!enum_integer(lower, &next)) return false;
+        if (!enum_numeric(lower, &next, &folded)) return false;
       } else if (!literal_string(lower, &lower->at)) return false;
       value_end = lower->at;
     } else if (!numeric || next > INT64_C(9007199254740991)) return false;
@@ -252,8 +277,7 @@ static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported) {
     }
     if (!quote(lower, key, false)) return false;
     put(out, "]=");
-    if (value_end && numeric && next == 0) put(out, "0");
-    else if (value_end) source_bytes(lower, value_start, value_end);
+    if (value_end && (!numeric || (next != 0 && !folded))) source_bytes(lower, value_start, value_end);
     else {
       char value[32];
       snprintf(value, sizeof(value), "%" PRId64, next);

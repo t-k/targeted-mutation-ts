@@ -1,0 +1,3 @@
+Shift: Left, SignedRight, UnsignedRight
+Operands: Positive, Signed, Wrap, Unsigned
+Dialect: TS, TSX
