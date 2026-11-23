@@ -937,7 +937,17 @@ static bool unambiguous_javascript(TmtPulseMemory_tape input, uint8_t *code, uin
       first = literal;
       continue;
     }
-    if (code[first] == '<' && !comparison_angle(input, first + 1, certain)) return false;
+    if (code[first] == '<') {
+      if (size - first >= 3 && code[first + 1] == '<') {
+        const TmtPulseParser_cursor operand = TmtPulseParser_trivia(input, first + 2);
+        /* A generic function type needs its type parameters before the opening parenthesis. */
+        if (operand.ok && operand.at < size && code[operand.at] == '(') {
+          first = operand.at;
+          continue;
+        }
+      }
+      if (!comparison_angle(input, first + 1, certain)) return false;
+    }
     bool identifier = TmtGrammar_identifier_continue(code[first]);
 #if defined(TMT_SIMD_COMPILER) && defined(__aarch64__)
     identifier = identifier && (!first || !TmtGrammar_identifier_continue(code[first - 1]));
@@ -1427,7 +1437,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
       code = lowered;
     }
   }
-  if ((!code && enums) || *length > 1048576) goto enum_only;
+  if (*length > 1048576) goto enum_only;
   if (needs_module_marker && !tmt_module_marker((uint8_t *)code, (uint32_t)*length, false)) {
     char *with_marker = realloc(code, *length + sizeof(esm_marker));
     if (!with_marker) goto enum_only;
