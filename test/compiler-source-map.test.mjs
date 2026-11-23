@@ -13,6 +13,7 @@ const router = require('../src/compiler-routes.cjs').compile;
 
 const digits = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 // An independent decoder: one array of [generatedColumn, sourceLine, sourceColumn] per generated line.
+// A segment of one field marks generated text and decodes to [generatedColumn].
 function decode(mappings) {
   let sourceLine = 0, sourceColumn = 0;
   return mappings.split(';').map(line => {
@@ -30,9 +31,10 @@ function decode(mappings) {
           value = shift = 0;
         }
       }
+      column += fields[0];
+      if (fields.length === 1) return [column];
       assert.equal(fields.length, 4, segment);
       assert.equal(fields[1], 0, segment);
-      column += fields[0];
       sourceLine += fields[2];
       sourceColumn += fields[3];
       return [column, sourceLine, sourceColumn];
@@ -52,7 +54,13 @@ export function assertSegmentsFaithful(source, result, projection = false) {
   assert.ok(table.length <= generated.length);
   let count = 0;
   for (const [row, segments] of table.entries()) {
-    for (const [column, sourceLine, sourceColumn] of segments) {
+    for (const [index, [column, sourceLine, sourceColumn]] of segments.entries()) {
+      if (sourceLine === undefined) {
+        // Generated text is marked once, right after a mapped copy on the same line.
+        assert.ok(!projection && index > 0 && segments[index - 1].length === 3 && column > segments[index - 1][0],
+          `unmapped segment at line ${row} column ${column}`);
+        continue;
+      }
       const here = generated[row][column];
       assert.ok(here !== undefined && kind(here) !== 0, `segment at line ${row} column ${column} is not on a token`);
       if (projection) {
@@ -180,6 +188,8 @@ test('outputs that are not projections and unusual inputs take the router', () =
     ['export const view = <i {...{ a: 1 }}/>;\n', 'a.tsx'],
     ['\ufeff' + typed, 'a.ts'],
     [typed, 'a.cts'],
+    [typed, 'index.d.ts'],
+    [typed, 'index.d.mts'],
     [typed, 'A.TS'],
     [typed, 'dir\\a.ts'],
     ['export const n = 1;\n', 'a.mjs'],
@@ -207,7 +217,7 @@ test('parameter properties map the copied names and the text around the inserted
   assert.deepEqual(at(generated.indexOf('first;'), 'first'), [0, 1, 21]);
   assert.deepEqual(at(generated.indexOf('second;'), 'second'), [0, 1, 53]);
   const assignment = generated.findIndex(line => line.startsWith('this.first = first;'));
-  assert.deepEqual(table[assignment], [[5, 1, 21], [13, 1, 21]]);
+  assert.deepEqual(table[assignment], [[5, 1, 21], [10], [13, 1, 21], [18]]);
   const tail = generated.findIndex(line => line.startsWith('export const result'));
   assert.deepEqual(table[tail][0], [0, 3, 0]);
   // Text after the insertions on the constructor's line keeps its own columns.
@@ -253,6 +263,10 @@ test('lowered JSX maps the copied names and expressions on both sides of the ins
     mapsTo('name)', 'name}');
     mapsTo('prefix)', 'prefix}');
     mapsTo('div', 'div className');
+    // The generated helper call is not attributed to the copy before it.
+    const row = generated.findIndex(line => line.includes('return '));
+    const helper = generated[row].indexOf(jsx === 'classic' ? 'React.createElement' : '_tmtJsx');
+    assert.deepEqual(table[row].findLast(entry => entry[0] <= helper), [helper]);
   }
 });
 
@@ -310,7 +324,7 @@ test('copy runs map across generated text, earlier copies and long sources', () 
   // Generated non-ASCII text moves the generated column by its UTF-16 width, also across a generated line.
   let source = 'alpha beta';
   let code = '\u{20bb7}\u00e9(beta);\n\u578b alpha';
-  assert.deepEqual(positions(source, code, [[at(code, 'beta'), 6, 4], [at(code, 'alpha'), 0, 5]]), [[[4, 0, 6]], [[2, 0, 0]]]);
+  assert.deepEqual(positions(source, code, [[at(code, 'beta'), 6, 4], [at(code, 'alpha'), 0, 5]]), [[[4, 0, 6], [8]], [[2, 0, 0]]]);
 
   // An erased scalar inside a copy leaves the source position at its end for the next copy.
   source = 'f(a as "\u{20bb7}\u578b", b)';
@@ -325,7 +339,7 @@ test('copy runs map across generated text, earlier copies and long sources', () 
   const early = at(source, 'name3 '), late = at(source, 'name870 ');
   code = source.slice(0, late) + 'name870, name3 /* generated */ ' + source.slice(late);
   const table = positions(source, code, [[0, 0, late + 7], [late + 9, early, 5], [late + 31, late, Buffer.byteLength(source) - late]]);
-  assert.deepEqual(table[870], [[0, 870, 0], [6, 870, 6], [15, 3, 6], [37, 870, 6], [45, 870, 14], [47, 870, 16], [50, 870, 19]]);
+  assert.deepEqual(table[870], [[0, 870, 0], [6, 870, 6], [13], [15, 3, 6], [20], [37, 870, 6], [45, 870, 14], [47, 870, 16], [50, 870, 19]]);
   assert.deepEqual(table[899].at(-1), [19, 899, 19]);
   assert.equal(table.length, 900);
 

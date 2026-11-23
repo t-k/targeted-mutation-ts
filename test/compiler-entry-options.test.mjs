@@ -52,3 +52,15 @@ test('the command line stays on the native entry for a default compile', async (
   // The probe sees the router once an option needs it.
   assert.equal(run(['--strip']).status, 9);
 });
+
+test('a declaration name is refused with every option the entry handles itself', () => {
+  for (const file of ['index.d.ts', 'index.d.mts', 'INDEX.D.TS']) {
+    for (const options of [{}, { sourceMap: true }, { sourceMap: false }, { module: 'esm' }, { mode: 'transform', target: 'esnext' },
+      { module: 'esm', sourceMap: true }]) {
+      const expected = router(typed, { file, ...options });
+      assert.equal(expected.code, null);
+      assert.deepEqual(compile(typed, { file, ...options }), expected, file + JSON.stringify(options));
+      assert.deepEqual(compile(Buffer.from(typed), { file, ...options }), expected, file + JSON.stringify(options));
+    }
+  }
+});

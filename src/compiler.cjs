@@ -96,7 +96,7 @@ function compile(input, options) {
   if (defaults) {
     const kind = sourceKind(file);
     if (mapped) {
-      const result = kind < script ? mappedTypeScript(input, file, kind | flags | (explicitModule ? esm : 0)) : undefined;
+      const result = kind >= 0 && kind < script ? mappedTypeScript(input, file, kind | flags | (explicitModule ? esm : 0)) : undefined;
       if (result !== undefined) return result;
     } else if (kind === script && explicitModule) {
       // An explicit module format for a .js name disables the script route, which the router decides.
