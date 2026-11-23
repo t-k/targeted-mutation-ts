@@ -8,8 +8,9 @@ export function simdSource(root, original, scratch, scalar) {
   const loops = [
     ['line_comment', 'cf6e07f63ffcc5d57ae9e50d9b68929ce6b9abee12c1d8ce0c30df4174ce353f',
       'bool value = TmtPulseParser_line_break(input, at);', '13, 10'],
+    // A terminator is a byte pair, and line breaks matter only until the first one.
     ['block_comment', 'e6770b3162644da48fd1f8ff8e56d3c6b33e7e034d017d507a435ef3f8800e96',
-      'bool value = TmtPulseParser_same(input, at, 42U);', '42, 42'],
+      'bool value = TmtPulseParser_same(input, at, 42U);', null],
     ['string_end', '5c83da47f362169e93a6540a250fc7d3453d5af5bd0624696c117a9bae6508ad',
       'uint8_t value = TmtPulseMemory_peek(input, at);', 'delimiter, 92'],
   ];
@@ -28,8 +29,10 @@ export function simdSource(root, original, scratch, scalar) {
     const at = body.indexOf(anchor);
     if (at < 0) return original;
     const position = start + at + anchor.length - scalar.length - 6;
-    const fast = `${simd}      if (at < input.size && fuel >= 16U && input.size - at >= 16U) {
-        const unsigned skipped = tmt_simd_scan(input.source + at, ${sentinels});
+    const run = sentinels === null ? ['17U', 'tmt_comment_run(input.source + at, newline)'] :
+      ['16U', `tmt_simd_scan(input.source + at, ${sentinels})`];
+    const fast = `${simd}      if (at < input.size && fuel >= 16U && input.size - at >= ${run[0]}) {
+        const unsigned skipped = ${run[1]};
         if (skipped != 0U) { at += skipped; fuel -= skipped; continue; }
       }
 #endif

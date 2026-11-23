@@ -5,3 +5,6 @@ SingleQuoted	Escape	LastLane
 DoubleQuoted	Delimiter	NextLane
 Line	NonSeparatorE2	TwoBlocks
 Block	Delimiter	Start
+Block	LoneStar	LastLane
+Block	DoubleStar	NextLane
+Block	LoneStar	Start

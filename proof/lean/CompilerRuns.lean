@@ -48,6 +48,48 @@ theorem skipTextBlock (bytes : List UInt8) (cursor : Cursor)
   rw [advancePlain _ _ _ _ safe, width, nonempty]
   simp
 
+-- A block comment ends at a star followed by a slash. Its scanner records whether it crossed a
+-- line break, and every later line break leaves that flag unchanged.
+structure CommentCursor where
+  position : Nat
+  newline : Bool
+
+def lineBreakStart (byte : UInt8) : Bool :=
+  byte == 10 || byte == 13 || byte == 226
+
+-- The scalar transition for a byte that is not the star of a terminator.
+def commentStep (breaks : UInt8 → Bool) (cursor : CommentCursor) (byte : UInt8) : CommentCursor :=
+  { position := cursor.position + 1, newline := cursor.newline || breaks byte }
+
+-- The run skips bytes that cannot start a line break, or any bytes once a line break was seen.
+theorem skipCommentRun (breaks : UInt8 → Bool) (bytes : List UInt8) (cursor : CommentCursor)
+    (sound : ∀ byte, breaks byte = true → lineBreakStart byte = true)
+    (safe : cursor.newline = true ∨ bytes.all (fun byte => !lineBreakStart byte) = true) :
+    bytes.foldl (commentStep breaks) cursor =
+      { position := cursor.position + bytes.length, newline := cursor.newline } := by
+  induction bytes generalizing cursor with
+  | nil => cases cursor; simp
+  | cons byte rest inductionHypothesis =>
+    have unchanged : (commentStep breaks cursor byte).newline = cursor.newline := by
+      cases safe with
+      | inl seen => simp [commentStep, seen]
+      | inr plain =>
+        simp only [List.all_cons, Bool.and_eq_true, Bool.not_eq_true'] at plain
+        have quiet : breaks byte = false := by
+          cases flag : breaks byte with
+          | false => rfl
+          | true => rw [sound byte flag] at plain; exact absurd plain.1 (by simp)
+        simp [commentStep, quiet]
+    have rest_safe : (commentStep breaks cursor byte).newline = true ∨
+        rest.all (fun byte => !lineBreakStart byte) = true := by
+      cases safe with
+      | inl seen => exact Or.inl (by rw [unchanged, seen])
+      | inr plain =>
+        simp only [List.all_cons, Bool.and_eq_true] at plain
+        exact Or.inr plain.2
+    rw [List.foldl_cons, inductionHypothesis _ rest_safe, unchanged]
+    simp [commentStep, Nat.add_assoc, Nat.add_comm 1]
+
 def eraseTypeByte (byte : UInt8) : UInt8 :=
   if byte == 10 || byte == 13 then byte else 32
 

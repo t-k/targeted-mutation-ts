@@ -47,6 +47,41 @@ static void check_type_blocks(void)
   }
   puts("SIMD type masking matched all bytes in every lane");
 }
+
+/* The scalar block comment loop stops at a terminator and, before its first line break, at a line break start. */
+static unsigned comment_run_reference(const uint8_t *bytes, bool newline)
+{
+  for (unsigned lane = 0; lane < 16; lane++) {
+    if (bytes[lane] == '*' && bytes[lane + 1] == '/') return lane;
+    if (!newline && (bytes[lane] == '\n' || bytes[lane] == '\r' || bytes[lane] == 226)) return lane;
+  }
+  return 16;
+}
+
+static void check_comment_runs(void)
+{
+  uint8_t bytes[17];
+  for (unsigned lane = 0; lane < 16; lane++) {
+    for (unsigned first = 0; first < 256; first++) {
+      for (unsigned second = 0; second < 256; second++) {
+        memset(bytes, 'q', sizeof(bytes));
+        bytes[lane] = (uint8_t)first;
+        bytes[lane + 1] = (uint8_t)second;
+        for (unsigned newline = 0; newline < 2; newline++) {
+          assert(tmt_comment_run(bytes, newline) == comment_run_reference(bytes, newline));
+        }
+      }
+    }
+  }
+  static const char mixed[] = "* /*\n**/ *\r*/";
+  for (unsigned start = 0; start + 17 <= sizeof(mixed) + 16; start++) {
+    for (unsigned lane = 0; lane < sizeof(bytes); lane++) bytes[lane] = (uint8_t)mixed[(start + lane) % (sizeof(mixed) - 1)];
+    for (unsigned newline = 0; newline < 2; newline++) {
+      assert(tmt_comment_run(bytes, newline) == comment_run_reference(bytes, newline));
+    }
+  }
+  puts("SIMD comment runs matched every byte pair in every lane for both line states");
+}
 #endif
 
 #if defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))
@@ -303,6 +338,7 @@ int main(int argc, char **argv)
 #if defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))
   check_jsx_blocks();
   check_type_blocks();
+  check_comment_runs();
 #endif
 #if defined(__aarch64__)
   prepare_projection_reference();

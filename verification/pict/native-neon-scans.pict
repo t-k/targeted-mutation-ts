@@ -1,3 +1,4 @@
 Token: Line, Block, SingleQuoted, DoubleQuoted
-Stop: LF, CRLF, UnicodeLine, NonSeparatorE2, Escape, Delimiter
+Stop: LF, CRLF, UnicodeLine, NonSeparatorE2, Escape, Delimiter, LoneStar, DoubleStar
 Position: Start, LastLane, NextLane, TwoBlocks
+IF [Stop] IN {"LoneStar", "DoubleStar"} THEN [Token] = "Block";

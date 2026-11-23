@@ -277,10 +277,47 @@ static bool ascii_text(const char *text, size_t size) {
   return ascii_prefix((const uint8_t *)text, size) == size;
 }
 
-/* ASCII output needs no UTF-8 decoding. */
+/*
+ * Widens well-formed UTF-8 whose ASCII runs dominate. Returns the number of code units, or
+ * SIZE_MAX for a sequence this decoder does not accept.
+ */
+static size_t widen_utf8(const uint8_t *text, size_t size, uint16_t *wide) {
+  size_t at = 0, units = 0;
+  while (at < size) {
+    const size_t run = ascii_prefix(text + at, size - at);
+    for (size_t index = 0; index < run; index++) wide[units + index] = text[at + index];
+    at += run;
+    units += run;
+    if (at == size) break;
+    const uint8_t lead = text[at];
+    const size_t width = lead >= 0xc2 && lead <= 0xdf ? 2 : (lead & 0xf0) == 0xe0 ? 3 : lead >= 0xf0 && lead <= 0xf4 ? 4 : 0;
+    if (!width || size - at < width) return SIZE_MAX;
+    uint32_t scalar = lead & (0xffU >> (width + 1));
+    for (size_t tail = 1; tail < width; tail++) {
+      if ((text[at + tail] & 0xc0) != 0x80) return SIZE_MAX;
+      scalar = (scalar << 6) | (text[at + tail] & 0x3fU);
+    }
+    const uint32_t least = width == 2 ? 0x80 : width == 3 ? 0x800 : 0x10000;
+    if (scalar < least || scalar > 0x10ffff || (scalar >= 0xd800 && scalar <= 0xdfff)) return SIZE_MAX;
+    if (scalar < 0x10000) wide[units++] = (uint16_t)scalar;
+    else {
+      wide[units++] = (uint16_t)(0xd800 + ((scalar - 0x10000) >> 10));
+      wide[units++] = (uint16_t)(0xdc00 + ((scalar - 0x10000) & 0x3ff));
+    }
+    at += width;
+  }
+  return units;
+}
+
+/* ASCII output needs no UTF-8 decoding, and other output is widened here in one pass. */
 static napi_status create_source_string(napi_env env, const char *text, size_t size, napi_value *result) {
-  return ascii_text(text, size) ? napi_create_string_latin1(env, text, size, result) :
-    napi_create_string_utf8(env, text, size, result);
+  if (ascii_text(text, size)) return napi_create_string_latin1(env, text, size, result);
+  uint16_t *wide = malloc(size * sizeof(*wide));
+  const size_t units = wide ? widen_utf8((const uint8_t *)text, size, wide) : SIZE_MAX;
+  const napi_status created = units == SIZE_MAX ? napi_create_string_utf8(env, text, size, result) :
+    napi_create_string_utf16(env, (const char16_t *)wide, units, result);
+  free(wide);
+  return created;
 }
 
 static napi_value lower_source(napi_env env, napi_callback_info info) {

@@ -30,7 +30,7 @@ test('the native scanner and scalar build return identical packed rows at block 
       const [token, stop, position] = row.split('\t');
       const width = { Start: 0, LastLane: 15, NextLane: 16, TwoBlocks: 33 }[position];
       const sentinel = { LF: '\n', CRLF: '\r\n', UnicodeLine: '\u2028', NonSeparatorE2: '€',
-        Escape: '\\u0061', Delimiter: closing[token] }[stop];
+        Escape: '\\u0061', Delimiter: closing[token], LoneStar: '* /', DoubleStar: '**/' }[stop];
       verify(Buffer.from(opening[token] + 'q'.repeat(width) + sentinel + 'r'.repeat(33) + closing[token] + '\nconst hit = a < b;'));
     }
     for (let lane = 0; lane < 16; lane++) {
@@ -45,6 +45,16 @@ test('the native scanner and scalar build return identical packed rows at block 
     for (let width = 0; width <= 48; width++) {
       for (const token of Object.keys(opening)) verify(Buffer.from(opening[token] + 'q'.repeat(width)));
     }
+    // A block comment terminator is a byte pair, and line breaks stop the run only before the first one.
+    for (let lane = 0; lane <= 33; lane++) {
+      for (const lead of ['', '\n', '\r', '\u2028', '€']) {
+        for (const tail of ['*/', '* /', '**/', '*\n/', '/*', '*', '*\r\n*/', '*€/']) {
+          verify(Buffer.from('/*' + lead + 'q'.repeat(lane) + tail + 'r'.repeat(20) + '*/\nconst hit = a < b;'));
+          verify(Buffer.from('const hit = a /*' + lead + 'q'.repeat(lane) + tail + '*/ < b;'));
+        }
+      }
+    }
+    for (let width = 0; width <= 20; width++) verify(Buffer.from('/*\n' + '*'.repeat(width)));
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }

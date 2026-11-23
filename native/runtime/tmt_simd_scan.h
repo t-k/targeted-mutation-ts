@@ -34,6 +34,23 @@ static inline unsigned tmt_simd_scan(const uint8_t *source, uint8_t delimiter, u
   return vminvq_u8(vbslq_u8(hits, lanes, vdupq_n_u8(16)));
 }
 
+/*
+ * The caller supplies 17 bytes of a block comment. The result counts the leading bytes that are
+ * not the star of a terminator and, until the comment has seen a line break, not a possible line
+ * break start. Those bytes leave the scalar loop's newline flag unchanged.
+ */
+static inline unsigned tmt_comment_run(const uint8_t *source, bool newline) {
+  const uint8x16_t bytes = vld1q_u8(source);
+  const uint8x16_t next = vld1q_u8(source + 1);
+  const uint8x16_t lanes = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+  uint8x16_t hits = vandq_u8(vceqq_u8(bytes, vdupq_n_u8('*')), vceqq_u8(next, vdupq_n_u8('/')));
+  if (!newline) {
+    hits = vorrq_u8(hits, vorrq_u8(vceqq_u8(bytes, vdupq_n_u8(13)), vceqq_u8(bytes, vdupq_n_u8(10))));
+    hits = vorrq_u8(hits, vceqq_u8(bytes, vdupq_n_u8(226)));
+  }
+  return vminvq_u8(vbslq_u8(hits, lanes, vdupq_n_u8(16)));
+}
+
 /* Blocked lanes require the ordinary JSX scanner transition. */
 static inline bool tmt_jsx_quote_run(const uint8_t *source, bool decode) {
   const uint8x16_t bytes = vld1q_u8(source);
@@ -90,6 +107,19 @@ static inline unsigned tmt_simd_scan(const uint8_t *source, uint8_t delimiter, u
   hits = _mm_or_si128(hits, _mm_cmpeq_epi8(bytes, _mm_set1_epi8((char)226)));
   hits = _mm_or_si128(hits, _mm_cmpeq_epi8(bytes, _mm_set1_epi8((char)delimiter)));
   hits = _mm_or_si128(hits, _mm_cmpeq_epi8(bytes, _mm_set1_epi8((char)extra)));
+  const unsigned mask = (unsigned)_mm_movemask_epi8(hits);
+  return mask ? (unsigned)__builtin_ctz(mask) : 16U;
+}
+
+/* See the NEON definition. The caller supplies 17 bytes. */
+static inline unsigned tmt_comment_run(const uint8_t *source, bool newline) {
+  const __m128i bytes = _mm_loadu_si128((const __m128i *)source);
+  const __m128i next = _mm_loadu_si128((const __m128i *)(source + 1));
+  __m128i hits = _mm_and_si128(_mm_cmpeq_epi8(bytes, _mm_set1_epi8('*')), _mm_cmpeq_epi8(next, _mm_set1_epi8('/')));
+  if (!newline) {
+    hits = _mm_or_si128(hits, _mm_or_si128(_mm_cmpeq_epi8(bytes, _mm_set1_epi8(13)), _mm_cmpeq_epi8(bytes, _mm_set1_epi8(10))));
+    hits = _mm_or_si128(hits, _mm_cmpeq_epi8(bytes, _mm_set1_epi8((char)226)));
+  }
   const unsigned mask = (unsigned)_mm_movemask_epi8(hits);
   return mask ? (unsigned)__builtin_ctz(mask) : 16U;
 }
