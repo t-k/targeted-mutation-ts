@@ -1,4 +1,5 @@
-Cache	Workload	Acceptance
-Disabled	Corpus	YukuDeclines
-Repeated	Corpus	Complete
-Disabled	Official	TmtDeclines
+Cache	Workload	Acceptance	Input
+Disabled	Corpus	YukuDeclines	Bytes
+Repeated	Corpus	Complete	Prepared
+Disabled	Official	TmtDeclines	Prepared
+Disabled	Official	Complete	Bytes

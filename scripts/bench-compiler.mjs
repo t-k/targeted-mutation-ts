@@ -20,6 +20,12 @@ export function benchmarkCache(args) {
     : { mode: 'repeated', flags: [] };
 }
 
+export function textInput(representation) {
+  if (representation === 'bytes') return test => test.bytes.toString('utf8');
+  assert.equal(representation, 'prepared', 'TMT_BENCH_INPUT must be prepared or bytes');
+  return test => test.source;
+}
+
 export function comparisonCohorts(accepted, size, official) {
   const names = Object.keys(accepted);
   const maskFor = members => Array.from({ length: size }, (_, i) =>
@@ -69,7 +75,7 @@ function readCases(path) {
     });
 }
 
-async function load(name) {
+async function load(name, sourceText) {
   if (name === 'tmt') {
     if (process.env.TMT_BENCH_NO_TYPESCRIPT === '1') {
       registerHooks({ resolve(specifier, context, next) {
@@ -90,12 +96,12 @@ async function load(name) {
     };
   }
   if (name === 'node-strip') {
-    return test => ({ code: stripTypeScriptTypes(test.source) });
+    return test => ({ code: stripTypeScriptTypes(sourceText(test)) });
   }
   if (name === 'oxc') {
     const { transformSync } = await import('oxc-transform');
     return test => {
-      const result = transformSync(test.file, test.source, {
+      const result = transformSync(test.file, sourceText(test), {
         target: 'esnext', sourceType: 'module', typescript: { onlyRemoveTypeImports: true },
         jsx: /\.tsx$/.test(test.file) ? { runtime: 'automatic' } : undefined,
       });
@@ -105,7 +111,7 @@ async function load(name) {
   if (name === 'yuku') {
     const [{ parse }, { generate }] = await Promise.all([import('yuku-parser'), import('yuku-codegen')]);
     return test => {
-      const parsed = parse(test.source, { path: test.file, lang: /\.m?js$/i.test(test.file) ? 'js' : 'ts', sourceType: 'module',
+      const parsed = parse(sourceText(test), { path: test.file, lang: /\.m?js$/i.test(test.file) ? 'js' : 'ts', sourceType: 'module',
         preserveParens: true, semanticErrors: true });
       if (parsed.diagnostics.length) return { code: null };
       const result = generate(parsed.program, { strip: true, comments: 'all' });
@@ -228,10 +234,12 @@ async function measure(path, cases, active, plan, metadata, cache) {
 
 async function main(args) {
   const [first, second, third, fourth] = args;
+  const inputRepresentation = process.env.TMT_BENCH_INPUT ?? 'prepared';
+  const sourceText = textInput(inputRepresentation);
   if (first === '--first') {
     const cases = readCases(third).filter((_, index) => fourth[index] === '1');
     const start = performance.now();
-    const run = await load(second);
+    const run = await load(second, sourceText);
     const { sum } = sample(run, cases, 1);
     console.log(JSON.stringify({ ms: performance.now() - start, sum }));
     return;
@@ -240,7 +248,7 @@ async function main(args) {
   const cache = benchmarkCache(process.execArgv);
   const reports = [];
   assert.ok(args.length, 'Pass synthetic or one or more corpus JSON files');
-  const active = Object.fromEntries(await Promise.all([...engines, 'node-strip'].map(async name => [name, await load(name)])));
+  const active = Object.fromEntries(await Promise.all([...engines, 'node-strip'].map(async name => [name, await load(name, sourceText)])));
   for (const path of args) {
     const cases = readCases(path);
     const generated = ['synthetic', 'declarations', 'jsx', 'enum'].includes(path);
@@ -273,7 +281,7 @@ async function main(args) {
     }
   }
   console.log(JSON.stringify({ node: process.version, os: process.platform, arch: process.arch, rounds,
-    compilationCache: cache.mode, reports }, null, 2));
+    compilationCache: cache.mode, inputRepresentation, reports }, null, 2));
 }
 
 if (import.meta.main) await main(process.argv.slice(2));

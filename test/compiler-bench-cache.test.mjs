@@ -2,19 +2,22 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
-import { benchmarkCache, comparisonCohorts } from '../scripts/bench-compiler.mjs';
+import { benchmarkCache, comparisonCohorts, textInput } from '../scripts/bench-compiler.mjs';
 
 const rows = readFileSync(new URL('../verification/pict/compiler-bench-cache.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1);
 const engines = ['tmt', 'oxc', 'yuku', 'swc-next'];
 
 for (const row of rows) {
-  const [cache, workload, acceptance] = row.split('\t');
+  const [cache, workload, acceptance, input] = row.split('\t');
   test('compiler benchmark cache and cohorts ' + row.replaceAll('\t', ' '), () => {
     const flags = cache === 'Disabled' ? ['--no-compilation-cache'] : [];
     assert.deepEqual(benchmarkCache(flags), {
       mode: cache === 'Disabled' ? 'disabled' : 'repeated', flags,
     });
+    const prepared = { source: 'prepared', bytes: Buffer.from('偏り') };
+    const source = textInput(input === 'Bytes' ? 'bytes' : 'prepared');
+    assert.equal(source(prepared), input === 'Bytes' ? '偏り' : 'prepared');
     const size = workload === 'Official' ? 1 : 2;
     const accepted = Object.fromEntries(engines.map(name => [name, Array(size).fill(true)]));
     if (acceptance === 'YukuDeclines') accepted.yuku[1] = false;
@@ -33,4 +36,8 @@ test('a first-emission subprocess receives the selected V8 flag', () => {
     '-e', 'process.stdout.write(JSON.stringify(process.execArgv[0]))'], { encoding: 'utf8' });
   assert.equal(child.status, 0, child.stderr);
   assert.equal(JSON.parse(child.stdout), '--no-compilation-cache');
+});
+
+test('benchmark input preparation rejects unknown modes', () => {
+  assert.throws(() => textInput('utf16'), /TMT_BENCH_INPUT/);
 });

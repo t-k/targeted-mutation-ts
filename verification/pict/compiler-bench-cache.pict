@@ -1,5 +1,6 @@
 Cache: Repeated, Disabled
 Workload: Corpus, Official
 Acceptance: Complete, YukuDeclines, TmtDeclines
+Input: Prepared, Bytes
 
 IF [Workload] = "Official" THEN [Acceptance] IN {"Complete", "TmtDeclines"};
