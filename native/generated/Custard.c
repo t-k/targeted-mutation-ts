@@ -8114,7 +8114,7 @@ TmtPulseParser_record_jsx_span(
   uint32_t last
 )
 {
-  if (!input.capture_jsx || state.status != 0U)
+  if (!input.capture_jsx || input.count_only || state.status != 0U)
     return state;
   else
   {
@@ -9750,7 +9750,7 @@ TmtPulseParser_combine_binary(
     else
     {
       TmtPulseParser_parser_state value;
-      if (op.boundary == 0U)
+      if (op.boundary == 0U || input.count_only)
         value = rhs.parser;
       else
         value =
@@ -15751,7 +15751,7 @@ TmtPulseParser_binary_tail(
             || value4.strength == 8U)
         )
           return TmtPulseParser_empty_range(TmtPulseParser_failed(value, 1U));
-        else if (value4.boundary != 0U && value.count >= input.capacity)
+        else if (value4.boundary != 0U && !input.count_only && value.count >= input.capacity)
           return TmtPulseParser_empty_range(TmtPulseParser_failed(value, 4U));
         else
         {
@@ -20766,6 +20766,31 @@ TmtPulseParser_parse_attempt(
         }
       );
   }
+  else if (input.count_only)
+    return
+      (
+        (TmtPulseParser_parser_state){
+          .offset = value50.offset,
+          .count = 0U,
+          .depth = value50.depth,
+          .status = value50.status,
+          .local_names = value50.local_names,
+          .await_allowed = value50.await_allowed,
+          .yield_allowed = value50.yield_allowed,
+          .jsx_allowed = value50.jsx_allowed,
+          .module_mode = value50.module_mode,
+          .strict_script = value50.strict_script,
+          .in_allowed = value50.in_allowed,
+          .for_initializer = value50.for_initializer,
+          .arrow_defaults_allowed = value50.arrow_defaults_allowed,
+          .binding_mode = value50.binding_mode,
+          .super_context = value50.super_context,
+          .private_scope = value50.private_scope,
+          .private_count = value50.private_count,
+          .local_log_floor = value50.local_log_floor,
+          .local_log_used = value50.local_log_used
+        }
+      );
   else if (value50.count > input.capacity)
   {
     TmtPulseParser_parser_state uu____2 = TmtPulseParser_failed(value50, 4U);

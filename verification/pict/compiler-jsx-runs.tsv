@@ -1,0 +1,11 @@
+Runtime	Position	Boundary
+Classic	Attribute	Quoted
+Automatic	Text	Entity
+Classic	Text	Newline
+Automatic	Attribute	Unicode
+Classic	Attribute	Plain
+Automatic	Text	Plain
+Automatic	Text	Quoted
+Classic	Text	Unicode
+Classic	Attribute	Entity
+Automatic	Text	Newline

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { compile } from '../src/compiler.mjs';
 
@@ -131,6 +132,17 @@ test('modern JavaScript scripts and modules do not need TypeScript', async () =>
   assert.equal(written.code, module);
 });
 
+test('syntax validation is independent of the mutation candidate capacity', async () => {
+  const statements = 'result += (0 < 1) + (2 >= 3);\n'.repeat(160);
+  const source = 'export let result: number = 0;\n' + statements;
+  const result = compile(source);
+  assert.equal(result.backend, 'node-strip');
+  const actual = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+  assert.equal(actual.result, 160);
+  assert.equal(compile(source + 'export { missing };').code, null);
+  assert.equal(compile(source + 'export const broken =').code, null);
+});
+
 test('JavaScript pass-through declines TypeScript syntax and ambiguous strict directives', () => {
   for (const source of ['export const bad: number = 0;', '"use strict" + effect();']) {
     assert.notEqual(compile(source, { file: 'plain.js' }).backend, 'javascript');
@@ -145,6 +157,26 @@ test('JavaScript pass-through rejects Annex B HTML comment syntax', () => {
   const result = compile(ordinary, { file: 'plain.js' });
   assert.equal(result.backend, 'javascript');
   assert.equal(result.code, ordinary);
+});
+
+test('plain JavaScript scripts do not load compiler addons on the first call', () => {
+  const source = `
+    import assert from 'node:assert/strict';
+    import { registerHooks } from 'node:module';
+    registerHooks({ resolve(specifier, context, next) {
+      if (context.parentURL?.endsWith('/src/compiler.cjs') &&
+          /(?:compiler(?:-module)?\\.node|source-text\\.mjs)$/.test(specifier)) throw new Error(specifier);
+      return next(specifier, context);
+    } });
+    const { compile } = await import('./src/compiler.mjs');
+    const source = Buffer.from('/* 東京 */ const n = 42;');
+    const result = compile(source, { file: 'script.js' });
+    assert.equal(result.backend, 'javascript');
+    assert.equal(result.code, '"use strict";\\n' + source.toString());
+    assert.equal(compile(Buffer.from([0xc0, 0x80]), { file: 'script.js' }).diagnostics[0].code, 'INVALID_ENCODING');
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', source], { encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test('type erasure diagnoses local exports whose runtime bindings disappeared', () => {

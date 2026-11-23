@@ -1264,6 +1264,8 @@ TmtPulseCompiler_edit_plan TmtPulseCompiler_declined(void)
     (
       (TmtPulseCompiler_edit_plan){
         .valid = false,
+        .stop = 0U,
+        .name_span = TmtPulseCompiler_empty_span,
         .binding = TmtPulseCompiler_empty_span,
         .parameter = TmtPulseCompiler_empty_span,
         .result_type = TmtPulseCompiler_empty_span
@@ -1300,25 +1302,26 @@ TmtPulseCompiler_expression_end(TmtPulseMemory_tape input, uint32_t start)
   }
 }
 
-bool TmtPulseCompiler_complete(TmtPulseMemory_tape input, TmtPulseParser_cursor end_)
+TmtPulseParser_cursor
+TmtPulseCompiler_declaration_end(TmtPulseMemory_tape input, TmtPulseParser_cursor end_)
 {
   if (!end_.ok)
-    return false;
+    return end_;
   else
   {
     TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, end_.at);
     bool semicolon = TmtPulseParser_same(input, tail.at, 59U);
-    TmtPulseParser_cursor eof;
     if (semicolon && tail.ok)
-      eof = TmtPulseParser_trivia(input, TmtPulseParser_next(tail.at));
+      return TmtPulseParser_trivia(input, TmtPulseParser_next(tail.at));
     else
-      eof = tail;
-    return eof.ok && eof.at == input.size;
+      return TmtPulseCompiler_plain_cursor(tail.at, tail.ok && tail.at == input.size);
   }
 }
 
 TmtPulseCompiler_edit_plan
 TmtPulseCompiler_make_plan(
+  uint32_t stop,
+  TmtGrammar_span name_span,
   TmtGrammar_span binding,
   TmtGrammar_span parameter,
   TmtGrammar_span result_type
@@ -1328,6 +1331,8 @@ TmtPulseCompiler_make_plan(
     (
       (TmtPulseCompiler_edit_plan){
         .valid = true,
+        .stop = stop,
+        .name_span = name_span,
         .binding = binding,
         .parameter = parameter,
         .result_type = result_type
@@ -1336,7 +1341,12 @@ TmtPulseCompiler_make_plan(
 }
 
 TmtPulseCompiler_edit_plan
-TmtPulseCompiler_arrow_plan(TmtPulseMemory_tape input, TmtGrammar_span binding, uint32_t start)
+TmtPulseCompiler_arrow_plan(
+  TmtPulseMemory_tape input,
+  TmtGrammar_span name_span,
+  TmtGrammar_span binding,
+  uint32_t start
+)
 {
   TmtPulseParser_cursor head = TmtPulseParser_trivia(input, start);
   TmtPulseParser_cursor name = TmtPulseParser_name(input, head.at, false, true);
@@ -1369,9 +1379,14 @@ TmtPulseCompiler_arrow_plan(TmtPulseMemory_tape input, TmtGrammar_span binding, 
       {
         TmtPulseParser_cursor
         tail = TmtPulseCompiler_expression_end(input, TmtPulseParser_plus(arrow.at, 2U));
-        bool all = TmtPulseCompiler_complete(input, tail);
-        if (all)
-          return TmtPulseCompiler_make_plan(binding, parameter.erased, result_type.erased);
+        TmtPulseParser_cursor finish = TmtPulseCompiler_declaration_end(input, tail);
+        if (finish.ok)
+          return
+            TmtPulseCompiler_make_plan(finish.at,
+              name_span,
+              binding,
+              parameter.erased,
+              result_type.erased);
         else
           return TmtPulseCompiler_declined();
       }
@@ -1379,9 +1394,10 @@ TmtPulseCompiler_arrow_plan(TmtPulseMemory_tape input, TmtGrammar_span binding, 
   }
 }
 
-TmtPulseCompiler_edit_plan TmtPulseCompiler_read_plan(TmtPulseMemory_tape input)
+TmtPulseCompiler_edit_plan
+TmtPulseCompiler_read_plan(TmtPulseMemory_tape input, uint32_t start)
 {
-  TmtPulseParser_cursor head = TmtPulseParser_trivia(input, 0U);
+  TmtPulseParser_cursor head = TmtPulseParser_trivia(input, start);
   bool exported = TmtPulseParser_keyword(input, head.at, 6U, 0x6578706f7274ULL);
   if (!(head.ok && exported))
     return TmtPulseCompiler_declined();
@@ -1405,17 +1421,24 @@ TmtPulseCompiler_edit_plan TmtPulseCompiler_read_plan(TmtPulseMemory_tape input)
       {
         TmtPulseParser_cursor init = TmtPulseParser_trivia(input, TmtPulseParser_next(equal.at));
         bool arrow = TmtPulseParser_same(input, init.at, 40U);
+        TmtGrammar_span name_span = TmtPulseCompiler_range(name_start.at, name.at);
         if (!init.ok)
           return TmtPulseCompiler_declined();
         else if (arrow)
-          return TmtPulseCompiler_arrow_plan(input, binding.erased, TmtPulseParser_next(init.at));
+          return
+            TmtPulseCompiler_arrow_plan(input,
+              name_span,
+              binding.erased,
+              TmtPulseParser_next(init.at));
         else
         {
           TmtPulseParser_cursor end_ = TmtPulseCompiler_expression_end(input, init.at);
-          bool all = TmtPulseCompiler_complete(input, end_);
-          if (all)
+          TmtPulseParser_cursor finish = TmtPulseCompiler_declaration_end(input, end_);
+          if (finish.ok)
             return
-              TmtPulseCompiler_make_plan(binding.erased,
+              TmtPulseCompiler_make_plan(finish.at,
+                name_span,
+                binding.erased,
                 TmtPulseCompiler_empty_span,
                 TmtPulseCompiler_empty_span);
           else

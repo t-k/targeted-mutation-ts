@@ -41,6 +41,7 @@ noeq type tape = {
   size : n:U32.t { U32.v n <= 1048576 };
   private_possible : bool;
   capture_jsx : bool;
+  count_only : bool;
   output : array G.candidate;
   capacity : U32.t;
   bindings : array binding_name;

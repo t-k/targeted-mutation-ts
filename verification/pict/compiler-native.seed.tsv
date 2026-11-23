@@ -5,3 +5,5 @@ Return	UTF8	Clean
 Return	Compact	Malformed
 TypeModule	Compact	Clean
 TypeModule	UTF8	Malformed
+Multiple	Compact	Clean
+Multiple	UTF8	Malformed

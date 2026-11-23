@@ -22,6 +22,11 @@ function readCases(path) {
       return { file: 'input.ts', source, bytes: Buffer.from(source), expected: index };
     });
   }
+  if (path === 'declarations') {
+    const source = Array.from({ length: 256 }, (_, index) =>
+      `export const item${index}: number = ${index};\n`).join('');
+    return [{ file: 'declarations.ts', source, bytes: Buffer.from(source), declarations: 256 }];
+  }
   if (path === 'jsx' || path === 'enum') {
     return Array.from({ length: 256 }, (_, value) => {
       const source = path === 'jsx' ? (value % 2 ?
@@ -149,10 +154,15 @@ async function inspect(name, run, test) {
       if (name === 'tmt' || name === 'node-strip') assert.equal(result.code, stripTypeScriptTypes(test.source));
       assert.ok(module);
     }
+    if (test.declarations) {
+      await module.link(() => { throw new Error('Unexpected declaration dependency'); });
+      await module.evaluate({ timeout: 1000 });
+      for (let index = 0; index < test.declarations; index++) assert.equal(module.namespace['item' + index], index);
+    }
     if (test.lowering) await compareLowered(result.code, test);
     return { accepted: true, native: result.backend === 'pulse', backend: result.backend };
   } catch (error) {
-    if (test.expected !== undefined || test.lowering) throw error;
+    if (test.expected !== undefined || test.declarations || test.lowering) throw error;
     if (error instanceof SyntaxError || error.code === 'ERR_INVALID_TYPESCRIPT_SYNTAX' ||
         error.code === 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') return { accepted: false, native: false };
     throw error;
@@ -173,10 +183,10 @@ if (first === '--first') {
   const active = Object.fromEntries(await Promise.all([...engines, 'node-strip'].map(async name => [name, await load(name)])));
   for (const path of paths) {
     const cases = readCases(path);
-    const generated = path === 'synthetic' || path === 'jsx' || path === 'enum';
+    const generated = ['synthetic', 'declarations', 'jsx', 'enum'].includes(path);
     const official = path.includes('/official-');
     if (official) assert.equal(cases.length, 1, path);
-    const names = path === 'synthetic' ? [...engines, 'node-strip'] :
+    const names = path === 'synthetic' || path === 'declarations' ? [...engines, 'node-strip'] :
       generated || isTsxCorpus(path) ? engines.filter(name => !name.startsWith('yuku')) : engines;
     const coverage = Object.fromEntries(names.map(name => [name, { accepted: 0, native: 0 }]));
     coverage.tmt.backends = {};

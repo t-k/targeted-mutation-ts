@@ -1,14 +1,27 @@
 'use strict';
 
 const { isUtf8 } = require('node:buffer');
-const { existsSync } = require('node:fs');
 const { types } = require('node:util');
-const { basename, join } = require('node:path');
-const native = existsSync(join(__dirname, '../build/compiler.node')) ? require('../build/compiler.node') : null;
+function optionalAddon(specifier) {
+  let filename;
+  try {
+    filename = require.resolve(specifier);
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') throw error;
+    return null;
+  }
+  return require(filename);
+}
+
+let directAddon;
+function loadDirectAddon() {
+  if (directAddon === undefined) directAddon = optionalAddon('../build/compiler.node');
+  return directAddon;
+}
+
 let fullAddon;
 function loadModuleAddon() {
-  fullAddon ??= existsSync(join(__dirname, '../build/compiler-module.node')) ?
-    require('../build/compiler-module.node') : false;
+  if (fullAddon === undefined) fullAddon = optionalAddon('../build/compiler-module.node');
   return fullAddon;
 }
 const extensions = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
@@ -89,6 +102,7 @@ function transform(source, { file, target, module, jsx, sourceMap }) {
   if (diagnostics.some(diagnostic => diagnostic.severity === 'error')) return fail('typescript', diagnostics);
   const map = result.sourceMapText ? JSON.parse(result.sourceMapText) : null;
   if (map) {
+    const { basename } = require('node:path');
     map.sources = [basename(file)];
     map.file = basename(file).replace(extensions, jsx === 'preserve' && /x$/i.test(file) ? '.jsx' :
       outputModule === 'cjs' && /\.c[jt]s$/i.test(file) ? '.cjs' :
@@ -163,7 +177,7 @@ function modernJavaScript(source, file, format) {
   const addon = loadModuleAddon();
   if (!addon) return null;
   const bytes = Buffer.from(source);
-  if (source.includes('///') && native.leadingDirective(bytes)) return null;
+  if (source.includes('///') && loadDirectAddon()?.leadingDirective(bytes) !== false) return null;
   return addon.moduleMarker(bytes, true) && strip(source, file).code === source ? source : null;
 }
 
@@ -214,6 +228,12 @@ function snapshot(input) {
   return input;
 }
 
+function compilerSource(input) {
+  if (typeof input === 'string') return input.isWellFormed() ? input : null;
+  if (Buffer.isBuffer(input)) return isUtf8(input) ? Buffer.prototype.toString.call(input) : null;
+  return require('./source-text.mjs').normalize(input);
+}
+
 function compile(input, options = {}) {
   const { file = 'input.ts', mode = 'transform', target = 'esnext', module = 'preserve', jsx = 'automatic',
     sourceMap = false } = options;
@@ -231,9 +251,10 @@ function compile(input, options = {}) {
   }
   const stableInput = snapshot(input);
   const format = outputFormat(file, module);
-  if (native && target === 'esnext' && format !== 'cjs' && !sourceMap) {
-    const typed = /\.(?:m?ts|tsx)$/i.test(file);
-    const jsxFile = /\.[jt]sx$/i.test(file);
+  const typed = /\.(?:m?ts|tsx)$/i.test(file);
+  const jsxFile = /\.[jt]sx$/i.test(file);
+  const native = (typed || jsxFile) && target === 'esnext' && format !== 'cjs' && !sourceMap ? loadDirectAddon() : null;
+  if (native) {
     const source = Buffer.isBuffer(stableInput) ? stableInput :
       typeof stableInput === 'string' && stableInput.isWellFormed() ? Buffer.from(stableInput) : null;
     if (source && isUtf8(source) && (mode === 'strip' || !source.includes('///') || !native.leadingDirective(source))) {
@@ -268,8 +289,7 @@ function compile(input, options = {}) {
       }
     }
   }
-  const { normalize } = require('./source-text.mjs');
-  const source = normalize(stableInput);
+  const source = compilerSource(stableInput);
   if (source === null) return inputError(file, 'INVALID_ENCODING', 'Expected well-formed UTF-8');
   if (mode === 'strip') return strip(source, file);
   if (target === 'esnext' && format !== 'cjs' && !sourceMap && /\.m?js$/i.test(file)) {

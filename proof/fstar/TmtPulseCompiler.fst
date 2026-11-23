@@ -13,13 +13,20 @@ module P = TmtPulseParser
 module M = TmtPulseMemory
 
 type annotation = { valid:bool; offset:U32.t; erased:G.span }
-type edit_plan = { valid:bool; binding:G.span; parameter:G.span; result_type:G.span }
+type edit_plan = {
+  valid:bool; stop:U32.t; name_span:G.span;
+  binding:G.span; parameter:G.span; result_type:G.span
+}
 
 let empty_span : G.span = { first = 0ul; last = 0ul }
-let declined () : edit_plan = { valid = false; binding = empty_span; parameter = empty_span; result_type = empty_span }
+let declined () : edit_plan = {
+  valid = false; stop = 0ul; name_span = empty_span;
+  binding = empty_span; parameter = empty_span; result_type = empty_span
+}
 
 let make_annotation (valid:bool) (offset:U32.t) (erased:G.span) : annotation = { valid; offset; erased }
-let make_plan (binding parameter result_type:G.span) : edit_plan = { valid = true; binding; parameter; result_type }
+let make_plan (stop:U32.t) (name_span binding parameter result_type:G.span) : edit_plan =
+  { valid = true; stop; name_span; binding; parameter; result_type }
 let plain_cursor (at:U32.t) (ok:bool) : P.cursor = { P.at = at; ok; newline = false }
 let range (first last:U32.t) : G.span = { G.first = first; G.last = last }
 
@@ -97,16 +104,16 @@ fn atom (input:M.tape) (#frame:slprop) (start:U32.t)
   }
 }
 
-fn complete (input:M.tape) (#frame:slprop) (end_:P.cursor)
+fn declaration_end (input:M.tape) (#frame:slprop) (end_:P.cursor)
   requires M.input_ready input ** frame
-  returns ok:bool
+  returns finish:P.cursor
   ensures M.input_ready input ** frame
 {
-  if (not end_.ok) { false } else {
+  if (not end_.ok) { end_ } else {
     let tail = P.trivia input #frame end_.at;
     let semicolon = P.same input #frame tail.at 59uy;
-    let eof = if (semicolon && tail.ok) { P.trivia input #frame (P.next tail.at) } else { tail };
-    eof.ok && eof.at = input.size
+    if (semicolon && tail.ok) { P.trivia input #frame (P.next tail.at) }
+    else { plain_cursor tail.at (tail.ok && tail.at = input.size) }
   }
 }
 
@@ -127,7 +134,7 @@ fn expression_end (input:M.tape) (#frame:slprop) (start:U32.t)
   }
 }
 
-fn arrow_plan (input:M.tape) (#frame:slprop) (binding:G.span) (start:U32.t)
+fn arrow_plan (input:M.tape) (#frame:slprop) (name_span binding:G.span) (start:U32.t)
   requires M.input_ready input ** frame
   returns plan:edit_plan
   ensures M.input_ready input ** frame
@@ -148,21 +155,21 @@ fn arrow_plan (input:M.tape) (#frame:slprop) (binding:G.span) (start:U32.t)
       if (not (result_type.valid && after_close.ok && not after_close.newline &&
           arrow.ok && not arrow.newline && equal && greater)) { declined () } else {
         let tail = expression_end input #frame (P.plus arrow.at 2ul);
-        let all = complete input #frame tail;
-        if (all) {
-          make_plan binding parameter.erased result_type.erased
+        let finish = declaration_end input #frame tail;
+        if (finish.ok) {
+          make_plan finish.at name_span binding parameter.erased result_type.erased
         } else { declined () }
       }
     }
   }
 }
 
-fn read_plan (input:M.tape) (#frame:slprop)
+fn read_plan (input:M.tape) (#frame:slprop) (start:U32.t)
   requires M.input_ready input ** frame
   returns plan:edit_plan
   ensures M.input_ready input ** frame
 {
-  let head = P.trivia input #frame 0ul;
+  let head = P.trivia input #frame start;
   let exported = P.keyword input #frame head.at 6ul 0x6578706f7274uL;
   if (not (head.ok && exported)) { declined () } else {
     let kind = P.trivia input #frame (P.plus head.at 6ul);
@@ -176,12 +183,13 @@ fn read_plan (input:M.tape) (#frame:slprop)
       if (not (name_start.ok && name.ok && binding.valid && equal.ok && assigns)) { declined () } else {
         let init = P.trivia input #frame (P.next equal.at);
         let arrow = P.same input #frame init.at 40uy;
+        let name_span = range name_start.at name.at;
         if (not init.ok) { declined () }
-        else if (arrow) { arrow_plan input #frame binding.erased (P.next init.at) }
+        else if (arrow) { arrow_plan input #frame name_span binding.erased (P.next init.at) }
         else {
           let end_ = expression_end input #frame init.at;
-          let all = complete input #frame end_;
-          if (all) { make_plan binding.erased empty_span empty_span } else { declined () }
+          let finish = declaration_end input #frame end_;
+          if (finish.ok) { make_plan finish.at name_span binding.erased empty_span empty_span } else { declined () }
         }
       }
     }

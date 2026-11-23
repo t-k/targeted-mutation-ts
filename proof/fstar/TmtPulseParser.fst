@@ -321,7 +321,7 @@ fn emit_comparison_in_workspace (input:tape) (state:parser_state) (slot op start
 // Compiler events share the workspace's verified publication and are disabled in extraction.
 let record_jsx_span (input:tape) (state:parser_state) (kind first last:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
-  if not input.capture_jsx || state.status <> 0ul then ret input state
+  if not input.capture_jsx || input.count_only || state.status <> 0ul then ret input state
   else
     let span = { G.first = first; G.last = last } in
     let! stored = (fun () -> emit_comparison_in_workspace input state state.count kind first span span) in
@@ -2371,7 +2371,7 @@ let combine_binary (input:tape) (lhs rhs:parsed) (st:parser_state) (op:binary_op
     let nullish = op.nullish || lhs.shortcut = 2ul || rhs.shortcut = 2ul in
     if logical && nullish then ret input (empty_range (failed rhs.parser 1ul))
     else
-      let! result = (fun () -> if op.boundary = 0ul then ret input (rhs.parser)
+      let! result = (fun () -> if op.boundary = 0ul || input.count_only then ret input (rhs.parser)
         else emit_comparison_in_workspace input rhs.parser st.count op.boundary st.offset lhs.range rhs.range) in
       ret input (let shortcut = if logical then 1ul else if nullish then 2ul else 0ul in
       { parser = result; range = { lhs.range with G.last = rhs.range.G.last }; shortcut;
@@ -2836,7 +2836,7 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
       else if forbidden_base then ret input (empty_range (failed st 1ul))
       else if lhs.open_angle && (op.boundary = 3ul || op.boundary = 4ul ||
           op.strength = 3ul || op.strength = 5ul || op.strength = 8ul) then ret input (empty_range (failed st 1ul))
-      else if op.boundary <> 0ul && U32.(st.count >=^ input.capacity) then ret input (empty_range (failed st 4ul))
+      else if op.boundary <> 0ul && not input.count_only && U32.(st.count >=^ input.capacity) then ret input (empty_range (failed st 4ul))
       else
         let count = if op.boundary = 0ul then st.count else next st.count in
         let after = { st with offset = plus st.offset op.width; count } in
@@ -4770,6 +4770,7 @@ let parse_attempt (input:tape) (jsx module_mode:bool) (local_log_floor:U16.t)
     valid_private_log input state.private_count state.private_count else ret input true) in
   ret #(parse_result input) input (if state.status <> 0ul || state.offset <> input.size || not private_ok then
     { (failed state 1ul) with count = 0ul }
+  else if input.count_only then { state with count = 0ul }
   else if U32.(state.count >^ input.capacity) then
     { (failed state 4ul) with count = 0ul }
   else state)

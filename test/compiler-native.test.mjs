@@ -9,6 +9,7 @@ const forms = {
   Literal: 'export const value: number = 42;',
   Arrow: 'export const value = (x: number) => x >= 18;',
   Return: 'export const value = (x: number): boolean => x > 17;',
+  Multiple: 'export const value: number = 42;\nexport const high = (x: number): boolean => x >= value;',
   TypeModule: 'import type { T } from "package";\nexport interface Box { value: T }\nexport type Value = Box["value"];',
 };
 const layouts = { Compact: '', CRLF: '// eol\r\n', UTF8: '/* 東京🧪 */\n' };
@@ -59,13 +60,29 @@ test('native grammar declines module and syntax hazards', () => {
     'export const value = (x: /*keep*/ number) => x;',
     'export const value = (x: number) => x;\0',
     'export const value = (x: number) => Math.max(x, 1);',
-    'export const value = (x: number) => x; export const extra = 2;',
+    'export const value = (x: number) => x; export const extra = call();',
   ]) {
     assert.notEqual(compile(input).backend, 'pulse', JSON.stringify(input));
   }
   assert.notEqual(compile(forms.Arrow, { file: 'source.cts' }).backend, 'pulse');
   assert.notEqual(compile(forms.Arrow, { file: 'source.tsx' }).backend, 'pulse');
   assert.notEqual(compile(forms.Arrow, { target: 'es2018' }).backend, 'pulse');
+});
+
+test('multi-declaration erasure checks syntax and duplicate names before publishing', () => {
+  const first = 'export const x: number = 1;';
+  const second = '/* 日本語🧪 */\r\nexport const y = (a: number): boolean => a >= x;';
+  const input = first + second;
+  for (const mode of ['transform', 'strip']) {
+    const result = compile(input, { mode });
+    assert.equal(result.backend, 'pulse');
+    assert.equal(result.code, stripTypeScriptTypes(input));
+  }
+  for (const source of [
+    first + 'export const x: number = 2;',
+    first + second + 'export const bad =',
+    first.slice(0, -1) + ' export const y: number = 2;',
+  ]) assert.notEqual(compile(source).backend, 'pulse', source);
 });
 
 test('native erasure defers for a TypeScript directive or tab inside a type span', () => {

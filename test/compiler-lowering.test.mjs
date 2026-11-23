@@ -165,6 +165,42 @@ test('multiline JSX preserves significant leading, trailing and single-line whit
   }
 });
 
+test('cold direct compilation does not initialize path or filesystem modules', () => {
+  const source = `
+    import assert from 'node:assert/strict';
+    import { registerHooks } from 'node:module';
+    registerHooks({ resolve(specifier, context, next) {
+      if (context.parentURL?.endsWith('/src/compiler.cjs') &&
+          ['node:path', 'node:fs'].includes(specifier)) throw new Error(specifier);
+      return next(specifier, context);
+    } });
+    const { compile } = await import('./src/compiler.mjs');
+    assert.equal(compile('export const answer: number = 42;').backend, 'pulse');
+    assert.equal(compile('export const X = <i/>;', { file: 'a.tsx' }).backend, 'pulse');
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', source], { encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+const runRows = readFileSync(new URL('../verification/pict/compiler-jsx-runs.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of runRows) {
+  const [runtime, position, boundary] = row.split('\t');
+  test('JSX byte runs preserve ' + row.replaceAll('\t', ' '), async () => {
+    const special = { Plain: 'x', Entity: '&amp;', Quoted: '\\"', Unicode: '東京🧪', Newline: '\r\n  ' }[boundary];
+    for (const length of [0, 15, 16, 17, 30, 31, 32, 33, 63, 64, 65]) {
+      const value = 'A'.repeat(length) + special + 'Z'.repeat(80);
+      const markup = position === 'Attribute' ? `<i title='${value}'/>` : `<i>${value}</i>`;
+      const source = 'export const View = ' + markup + ';';
+      const options = { file: 'runs.tsx', jsx: runtime.toLowerCase() };
+      const fast = compile(source, options);
+      const expected = compile(source, { ...options, sourceMap: true });
+      assert.equal(fast.backend, 'pulse');
+      assert.deepEqual((await load(fast.code)).View, (await load(expected.code)).View);
+    }
+  });
+}
+
 test('grouped JSX supports const initializers, arrow functions and default functions', async () => {
   for (const [source, exported] of [
     ['export const View = ((<i/>));', 'View'],

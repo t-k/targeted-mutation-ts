@@ -15,6 +15,47 @@ static bool ordered(TmtGrammar_span span, uint32_t size, uint32_t *previous) {
   return true;
 }
 
+static bool blank_edits(uint8_t *output, uint32_t size, TmtPulseCompiler_edit_plan plan) {
+  return TmtPulseCompiler_blank_range(output, size, plan.binding.first, plan.binding.last) &&
+    TmtPulseCompiler_blank_range(output, size, plan.parameter.first, plan.parameter.last) &&
+    TmtPulseCompiler_blank_range(output, size, plan.result_type.first, plan.result_type.last);
+}
+
+enum { declaration_limit = 512, declaration_slots = 1024 };
+
+static bool new_binding(const uint8_t *source, TmtGrammar_span name, TmtGrammar_span *seen) {
+  uint32_t hash = 2166136261U;
+  for (uint32_t at = name.first; at < name.last; at++) hash = (hash ^ source[at]) * 16777619U;
+  unsigned slot = hash % declaration_slots;
+  const uint32_t size = name.last - name.first;
+  while (seen[slot].last) {
+    const TmtGrammar_span entry = seen[slot];
+    if (entry.last - entry.first == size && !memcmp(source + entry.first, source + name.first, size)) return false;
+    slot = (slot + 1) % declaration_slots;
+  }
+  seen[slot] = name;
+  return true;
+}
+
+static bool blank_declarations(TmtPulseMemory_tape input, uint8_t *output, TmtPulseCompiler_edit_plan plan) {
+  TmtGrammar_span seen[declaration_slots] = {0};
+  uint32_t start = 0;
+  for (unsigned count = 0; count < declaration_limit; count++) {
+    uint32_t previous = start;
+    if (!plan.valid || plan.stop <= start || plan.stop > input.size ||
+        plan.name_span.first < start || plan.name_span.first >= plan.name_span.last ||
+        plan.name_span.last > plan.stop ||
+        !ordered(plan.binding, plan.stop, &previous) ||
+        !ordered(plan.parameter, plan.stop, &previous) ||
+        !ordered(plan.result_type, plan.stop, &previous) ||
+        !new_binding(input.source, plan.name_span, seen) || !blank_edits(output, input.size, plan)) return false;
+    if (plan.stop == input.size) return true;
+    start = plan.stop;
+    plan = TmtPulseCompiler_read_plan(input, start);
+  }
+  return false;
+}
+
 #ifndef TMT_DIRECT
 static bool contains_comment_marker(const uint8_t *source, uint32_t size) {
   for (uint32_t index = 0; index + 1 < size; index++) {
@@ -49,22 +90,30 @@ static napi_value compile_source(napi_env env, napi_callback_info info) {
   if (size <= source_limit) {
     const uint32_t width = (uint32_t)size;
     const TmtPulseMemory_tape input = { .source = source, .size = width };
-    const TmtPulseCompiler_edit_plan plan = TmtPulseCompiler_read_plan(input);
+    const TmtPulseCompiler_edit_plan plan = TmtPulseCompiler_read_plan(input, 0);
     uint32_t previous = 0;
     const TmtGrammar_span edits[] = { plan.binding, plan.parameter, plan.result_type };
-    if (plan.valid && ordered(edits[0], width, &previous) &&
+    if (plan.valid && plan.stop == width && ordered(edits[0], width, &previous) &&
         ordered(edits[1], width, &previous) && ordered(edits[2], width, &previous)) {
       if (previous != 0) {
         output = malloc(size);
         if (!output) goto error;
         memcpy(output, source, size);
-        for (size_t index = 0; index < sizeof(edits) / sizeof(edits[0]); index++) {
-          if (!TmtPulseCompiler_blank_range(output, width, edits[index].first, edits[index].last)) goto error;
-        }
+        if (!blank_edits(output, width, plan)) goto error;
       }
       NAPI(napi_create_string_utf8(env, output ? (char *)output : (char *)source, size, &result));
       free(output);
       return result;
+    }
+    if (plan.valid && plan.stop < width) {
+      output = malloc(size);
+      if (!output) goto error;
+      memcpy(output, source, size);
+      const bool valid = blank_declarations(input, output, plan);
+      if (valid) NAPI(napi_create_string_utf8(env, (char *)output, size, &result));
+      free(output);
+      output = NULL;
+      if (valid) return result;
     }
 #ifndef TMT_DIRECT
     if (type_only_output != 0 && type_only_module(source, width) && !contains_comment_marker(source, width)) {

@@ -25,6 +25,7 @@ const scratch = mkdtempSync(resolve(output, '.compiler-'));
 try {
   const common = ['-std=c11', '-O3', '-fPIC', '-fvisibility=hidden', '-Wall', '-Wextra', '-Werror',
     '-Wno-parentheses', '-I', headers, '-I', 'native/runtime',
+    ...(values['scalar-scans'] ? ['-DTMT_SCALAR_SCANS'] : []),
     ...(macOS ? ['-bundle', '-undefined', 'dynamic_lookup', '-Wl,-dead_strip'] : ['-shared']),
     'native/compiler/addon.c', 'native/compiler/lowering.c'];
   for (const [name, flags, source] of [

@@ -56,6 +56,7 @@ typedef struct TmtPulseMemory_tape_s
   uint32_t size;
   bool private_possible;
   bool capture_jsx;
+  bool count_only;
   TmtGrammar_candidate *output;
   uint32_t capacity;
   TmtPulseMemory_binding_name *bindings;
@@ -282,6 +283,8 @@ TmtPulseCompiler_blank_range(uint8_t *output, uint32_t size, uint32_t first, uin
 typedef struct TmtPulseCompiler_edit_plan_s
 {
   bool valid;
+  uint32_t stop;
+  TmtGrammar_span name_span;
   TmtGrammar_span binding;
   TmtGrammar_span parameter;
   TmtGrammar_span result_type;
@@ -297,19 +300,28 @@ uint32_t TmtPulseParser_operator_end(uint32_t start, uint32_t op);
 TmtPulseParser_cursor
 TmtPulseCompiler_expression_end(TmtPulseMemory_tape input, uint32_t start);
 
-bool TmtPulseCompiler_complete(TmtPulseMemory_tape input, TmtPulseParser_cursor end_);
+TmtPulseParser_cursor
+TmtPulseCompiler_declaration_end(TmtPulseMemory_tape input, TmtPulseParser_cursor end_);
 
 TmtPulseCompiler_edit_plan
 TmtPulseCompiler_make_plan(
+  uint32_t stop,
+  TmtGrammar_span name_span,
   TmtGrammar_span binding,
   TmtGrammar_span parameter,
   TmtGrammar_span result_type
 );
 
 TmtPulseCompiler_edit_plan
-TmtPulseCompiler_arrow_plan(TmtPulseMemory_tape input, TmtGrammar_span binding, uint32_t start);
+TmtPulseCompiler_arrow_plan(
+  TmtPulseMemory_tape input,
+  TmtGrammar_span name_span,
+  TmtGrammar_span binding,
+  uint32_t start
+);
 
-TmtPulseCompiler_edit_plan TmtPulseCompiler_read_plan(TmtPulseMemory_tape input);
+TmtPulseCompiler_edit_plan
+TmtPulseCompiler_read_plan(TmtPulseMemory_tape input, uint32_t start);
 
 
 #define Custard_H_DEFINED

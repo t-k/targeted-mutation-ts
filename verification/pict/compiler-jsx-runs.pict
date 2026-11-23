@@ -1,0 +1,5 @@
+Runtime: Classic, Automatic
+Position: Attribute, Text
+Boundary: Plain, Entity, Quoted, Unicode, Newline
+
+IF [Position] = "Attribute" THEN [Boundary] <> "Newline";

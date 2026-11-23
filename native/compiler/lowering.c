@@ -8,6 +8,11 @@
 #include "Custard.h"
 #include "jsx-entities.h"
 
+#if !defined(TMT_SCALAR_SCANS) && (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__)))
+#include "tmt_simd_scan.h"
+#define TMT_SIMD_JSX 1
+#endif
+
 typedef struct {
   char *code;
   size_t length, capacity, limit;
@@ -145,6 +150,12 @@ static size_t entity(const uint8_t *bytes, size_t limit, char escaped[16]) {
 static bool quote_contents(lowering *lower, TmtGrammar_span span, bool decode) {
   uint32_t run = span.first;
   for (uint32_t at = span.first; at < span.last; at++) {
+#ifdef TMT_SIMD_JSX
+    if (span.last - at >= 64 && tmt_jsx_quote_run(lower->input.source + at, decode)) {
+      at += 15;
+      continue;
+    }
+#endif
     const uint8_t byte = lower->input.source[at];
     const char *replacement;
     char escaped[16];
@@ -452,6 +463,13 @@ static bool jsx_text(lowering *lower, TmtGrammar_span *text, bool *multiline, bo
   *text = (TmtGrammar_span){ lower->at, lower->at };
   const uint8_t *source = lower->input.source;
   while (lower->at < lower->input.size && peek(lower) != '<' && peek(lower) != '{') {
+#ifdef TMT_SIMD_JSX
+    if ((lower->at & 15U) == 0 && lower->input.size - lower->at >= 16 && tmt_jsx_text_run(source + lower->at)) {
+      *visible = true;
+      lower->at += 16;
+      continue;
+    }
+#endif
     const uint8_t byte = peek(lower);
     if (byte == '}' || byte == '>') return false;
     if (jsx_newline(byte)) {
@@ -710,6 +728,7 @@ typedef struct {
 static TmtPulseMemory_tape with_workspace(uint8_t *source, uint32_t size, module_workspace *memory) {
   return (TmtPulseMemory_tape){
     .source = source, .size = size, .private_possible = memchr(source, '#', size) != NULL,
+    .count_only = true,
     .output = memory->comparisons, .capacity = sizeof(memory->comparisons) / sizeof(*memory->comparisons),
     .bindings = memory->bindings, .marks = memory->marks,
   };
@@ -835,6 +854,7 @@ static uint32_t jsx_script_prelude(TmtPulseMemory_tape input, uint32_t at) {
 
 static TmtPulseParser_parser_state capture_jsx(TmtPulseMemory_tape input, bool module) {
   input.capture_jsx = true;
+  input.count_only = false;
   memset(input.marks, 0, input.capacity);
   return TmtPulseParser_parse(input, true, module);
 }

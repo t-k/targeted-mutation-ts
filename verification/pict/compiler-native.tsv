@@ -5,9 +5,12 @@ Return	UTF8	Clean
 Return	Compact	Malformed
 TypeModule	Compact	Clean
 TypeModule	UTF8	Malformed
+Multiple	Compact	Clean
+Multiple	UTF8	Malformed
 Arrow	Compact	Malformed
-TypeModule	CRLF	Malformed
-Return	CRLF	Clean
-Arrow	UTF8	Malformed
-Literal	CRLF	Malformed
 Literal	UTF8	Malformed
+Return	CRLF	Malformed
+Multiple	CRLF	Clean
+TypeModule	CRLF	Malformed
+Literal	CRLF	Malformed
+Arrow	UTF8	Malformed

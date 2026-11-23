@@ -60,6 +60,7 @@ typedef struct TmtPulseMemory_tape_s
   uint32_t size;
   bool private_possible;
   bool capture_jsx;
+  bool count_only;
   TmtGrammar_candidate *output;
   uint32_t capacity;
   TmtPulseMemory_binding_name *bindings;
