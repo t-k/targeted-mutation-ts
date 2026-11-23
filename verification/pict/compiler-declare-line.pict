@@ -1,0 +1,3 @@
+Line: LF, CRLF, Unicode, LineComment, BlockComment, None, InlineComment
+Source: Script, Module
+Mode: Transform, Strip

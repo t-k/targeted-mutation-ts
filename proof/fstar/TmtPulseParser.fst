@@ -3732,7 +3732,9 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
         ret input ({ names = { state = closed; used }; non_simple })
     else if spread then rest_parameter input st floor used
     else
-      let! st = (fun () -> if constructor then constructor_property input st else ret input (st)) in
+      let! property = (fun () -> if constructor then constructor_property input st else ret input st) in
+      let! st = (fun () -> if property.offset <> st.offset then
+        record_jsx_span input property 23ul st.offset property.offset else ret input property) in
       let! prefix = (fun () -> parameter_prefix input st floor used fuel) in
       let st = prefix.names.state in
       let! default_ = (fun () -> same input st.offset 61uy) in
@@ -3896,7 +3898,9 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
           accessor || key.private_ || key.async_ || key.generator_ || key.readonly_ then ret input (failed tail 1ul)
           else
             let! result = (fun () -> function_form input optional_method (minus fuel 1ul) false MethodSuper true OrdinaryParameters false) in
-            ret input (if result.signature_only then result.after_function else failed result.after_function 1ul)) in
+            let after = result.after_function in
+            if result.signature_only then record_jsx_span input { after with count = st.count } 21ul st.offset after.offset
+            else ret input (failed after 1ul)) in
         class_members input closed fuel (minus remaining 1ul) derived seen_constructor kind no_overload
       else if not compatible || (key.private_ && constructor_spelling) || prototype || (constructor_name && not method) || (key.readonly_ && method) ||
         (accessor && (key.async_ || key.generator_ || constructor || next_byte <> 40uy)) ||

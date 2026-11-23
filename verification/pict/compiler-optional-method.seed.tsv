@@ -1,0 +1,4 @@
+Signature	Terminator	Dialect
+Ordinary	Line	TS
+Generic	Semicolon	TSX
+OptionalParameter	ClosingBrace	TS

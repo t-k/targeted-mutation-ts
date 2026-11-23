@@ -814,6 +814,7 @@ enum {
   arrow_result = 20,
   erased_overload = 21,
   terminated_class_field = 22,
+  parameter_property = 23,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
@@ -1100,6 +1101,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
   *output = NULL;
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
+    if (event.original == parameter_property) goto decline;
     const bool member = event.original == erased_list_member || event.original == erased_overload;
     const bool modifiers = event.original == class_modifiers;
     const bool arrow = event.original == generic_arrow;
@@ -1271,9 +1273,12 @@ enum_only:
 }
 #endif
 
-char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool esm, size_t *length, bool *checked, bool *complete) {
+char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool esm, size_t *length,
+  bool *checked, bool *complete, bool *property)
+{
   *checked = false;
   *complete = false;
+  *property = false;
 #ifdef TMT_V8_VALIDATOR
   module_workspace memory = {0};
   TmtPulseMemory_tape input = with_workspace(source, size, &memory);
@@ -1303,6 +1308,13 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool
   if (parsed.status == 0 && parsed.count <= input.capacity) {
     *checked = true;
     code = erase_annotation_records(input, parsed.count, marker, enums, esm, length, complete);
+    if (!code) {
+      for (uint32_t index = 0; index < parsed.count; index++) {
+        if (input.output[index].original != parameter_property) continue;
+        *property = true;
+        break;
+      }
+    }
   }
   free(records);
   free(marks);

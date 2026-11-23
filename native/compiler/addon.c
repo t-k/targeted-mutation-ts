@@ -268,7 +268,7 @@ error:
 static napi_value emit_annotated_module(napi_env env, napi_callback_info info) {
   napi_value args[3], result;
   size_t argc = 3, size, length;
-  bool enums, esm, checked = false, complete = false;
+  bool enums, esm, checked = false, complete = false, property = false;
   void *source;
   char *output = NULL;
   NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
@@ -276,7 +276,9 @@ static napi_value emit_annotated_module(napi_env env, napi_callback_info info) {
   NAPI(napi_get_buffer_info(env, args[0], &source, &size));
   NAPI(napi_get_value_bool(env, args[1], &enums));
   NAPI(napi_get_value_bool(env, args[2], &esm));
-  if (size <= source_limit) output = tmt_emit_annotated_module(source, (uint32_t)size, enums, esm, &length, &checked, &complete);
+  if (size <= source_limit) {
+    output = tmt_emit_annotated_module(source, (uint32_t)size, enums, esm, &length, &checked, &complete, &property);
+  }
   if (output) {
     NAPI(napi_create_string_utf8(env, output, length, &result));
     if (!complete) {
@@ -285,6 +287,11 @@ static napi_value emit_annotated_module(napi_env env, napi_callback_info info) {
       NAPI(napi_set_named_property(env, result, "code", code));
     }
     free(output);
+  } else if (property) {
+    napi_value value;
+    NAPI(napi_create_object(env, &result));
+    NAPI(napi_get_boolean(env, true, &value));
+    NAPI(napi_set_named_property(env, result, "parameterProperty", value));
   } else if (checked) {
     NAPI(napi_get_boolean(env, true, &result));
   } else {

@@ -1,0 +1,15 @@
+Line	Source	Mode
+LF	Script	Transform
+CRLF	Module	Transform
+Unicode	Module	Strip
+LineComment	Script	Strip
+BlockComment	Script	Transform
+None	Module	Strip
+InlineComment	Script	Strip
+LineComment	Module	Transform
+CRLF	Script	Strip
+None	Script	Transform
+LF	Module	Strip
+InlineComment	Module	Transform
+Unicode	Script	Transform
+BlockComment	Module	Strip

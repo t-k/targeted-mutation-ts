@@ -1,0 +1,3 @@
+Signature: Ordinary, Generic, OptionalParameter
+Terminator: Semicolon, Line, ClosingBrace
+Dialect: TS, TSX

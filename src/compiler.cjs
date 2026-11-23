@@ -117,9 +117,48 @@ function transform(source, { file, target, module, jsx, sourceMap }) {
   return outputModule === 'cjs' ? output : verifyRuntimeExports(output, file);
 }
 
+function hasSplitDeclare(source, code) {
+  if (!source.includes('declare')) return false;
+  const leading = /\bdeclare(?=[^\S\r\n\u2028\u2029]*(?:[\r\n\u2028\u2029]|\/[/*]))/g;
+  const trivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[^]*?\*\/)*/y;
+  const declaration = /(?:const|let|var|class|function|enum|namespace|module|type|interface|abstract|global)\b/y;
+  const offsets = new Set();
+  for (const { index } of source.matchAll(leading)) {
+    if (code?.startsWith('declare', index)) continue;
+    trivia.lastIndex = index + 'declare'.length;
+    if (!/[\r\n\u2028\u2029]/.test(trivia.exec(source)[0])) continue;
+    declaration.lastIndex = trivia.lastIndex;
+    if (declaration.test(source)) offsets.add(index);
+  }
+  if (!offsets.size) return false;
+
+  // Raw matches can be inside erased comments or template-literal types.
+  let ts;
+  try {
+    ts = require('typescript');
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND') throw error;
+    return true;
+  }
+  const tree = ts.createSourceFile('context.ts', source, ts.ScriptTarget.ESNext, false, ts.ScriptKind.TS);
+  function check(node) {
+    if (ts.isExpressionStatement(node) && ts.isIdentifier(node.expression) &&
+        node.expression.escapedText === 'declare' && offsets.has(node.expression.getStart(tree))) return true;
+    return ts.forEachChild(node, check);
+  }
+  return !!check(tree);
+}
+
 function strip(source, file) {
   try {
-    return { backend: 'node-strip', code: require('node:module').stripTypeScriptTypes(source), sourceMap: null, diagnostics: [] };
+    const code = require('node:module').stripTypeScriptTypes(source);
+    if (hasSplitDeclare(source, code)) {
+      return fail('node-strip', [{
+        file, code: 'AMBIGUOUS_TYPE_ERASURE', severity: 'error',
+        message: 'Position-preserving erasure would remove a declaration after a line break', start: 0, end: 0,
+      }]);
+    }
+    return { backend: 'node-strip', code, sourceMap: null, diagnostics: [] };
   } catch (error) {
     if (error.code !== 'ERR_INVALID_TYPESCRIPT_SYNTAX' && error.code !== 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') throw error;
     return fail('node-strip', [{ file, code: error.code, severity: 'error', message: error.message, start: 0, end: 0 }]);
@@ -202,12 +241,14 @@ function eraseLoweredModule(addon, source, file, format) {
   return verifyRuntimeExports({ ...result, code, backend: 'pulse+node-strip' }, file, addon);
 }
 
-function eraseModule(addon, source, file, format) {
-  let result = strip(source, file);
-  const diagnostic = result.diagnostics[0];
-  if (result.code === null && diagnostic?.code === 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX' &&
-      /^(?:\s*x\s*)?TypeScript parameter property is not supported/.test(diagnostic.message) &&
-      !/\benum\b|\bnamespace\b(?![ \t]*:)/.test(source)) {
+function eraseModule(addon, source, file, format, parameterProperty) {
+  const transformAllowed = () => !/\benum\b|\bnamespace\b(?![ \t]*:)/.test(source);
+  const directTransform = parameterProperty && transformAllowed();
+  let result = directTransform ? null : strip(source, file);
+  const diagnostic = result?.diagnostics[0];
+  if (directTransform || (diagnostic?.code === 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX' &&
+      /^(?:\s*x\s*)?TypeScript parameter property is not supported/.test(diagnostic.message) && transformAllowed())) {
+    if (hasSplitDeclare(source)) return null;
     try {
       const code = require('node:module').stripTypeScriptTypes(source, { mode: 'transform' });
       result = { backend: 'node-transform', code, sourceMap: null, diagnostics: [] };
@@ -215,7 +256,7 @@ function eraseModule(addon, source, file, format) {
       if (!['ERR_INVALID_ARG_VALUE', 'ERR_INVALID_TYPESCRIPT_SYNTAX', 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX'].includes(error.code)) throw error;
     }
   }
-  if (result.code === null) return null;
+  if (result?.code == null) return null;
   const emitted = Buffer.from(result.code);
   if (hasModuleMarker(addon, result.code, emitted)) return verifyRuntimeExports(result, file, addon, emitted);
   if (!addon.triviaOnly(emitted)) return null;
@@ -315,7 +356,8 @@ function compile(input, options = {}) {
           }
           if (typed && !jsxFile) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
-            const result = (annotated === true || addon.moduleMarker(source, true)) ? eraseModule(addon, text, file, format) :
+            const property = annotated?.parameterProperty === true;
+            const result = (property || annotated === true || addon.moduleMarker(source, true)) ? eraseModule(addon, text, file, format, property) :
               format === 'preserve' ? eraseScript(addon, text, source, file) : null;
             if (result) return result;
           }

@@ -1,0 +1,5 @@
+Class	Parameter	Other
+Base	Required	Plain
+Derived	Default	Plain
+Base	Optional	Namespace
+Derived	Required	Enum
