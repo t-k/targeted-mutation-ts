@@ -160,3 +160,9 @@ The isolated Linux arm64 retest uses in-memory inputs and includes module loadin
 | TypeScript JavaScript bundle | 43.54 | 143.28 (Oxc) | 130.31 | 152.94 (Oxc) |
 
 The [raw samples, coverage, and framework differential](../evidence/compiler/native-type-projection.json) record all engines and workload hashes. The framework differential against `6f98caa` covered 2,165 source inputs on `99a2a8b`. The 974 newly native outputs retained normalized output and dependency equivalence.
+
+### Re-exports and consecutive assertions
+
+Pulse projects whole type re-exports and the type members of a mixed export list. A runtime re-export remains in the output even when its list becomes empty, preserving the dependency's side effects. Runtime aliases can retain contextual names such as `type`. The guard accepts a chain such as `value as unknown as T` when the next committed assertion starts at the next token on the same line. The final assertion still needs a supported boundary.
+
+These changes increased Pulse-only coverage from 438 to 510 of the 653 core inputs. The compiler emitted all 653 in an isolated directory with no TypeScript package installed. Seven alternating samples measure mreact's 321 TypeScript files at 158.09 → 131.71 ms warm and 293.22 → 267.32 ms on first emission for the consecutive-assertion change. The output audit found no new differences within the core inputs. The isolated competitor retest at `6add454` led nine of 17 comparable warm workloads. SWC Next led all 17 first-emission workloads. For `App.tsx`, the same-run medians were 7.33 ms warm and 13.82 ms first for TMT, 6.80 ms warm for Oxc, and 10.79 ms first for SWC Next.
