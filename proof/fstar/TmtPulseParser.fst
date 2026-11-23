@@ -4405,7 +4405,11 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
   let width = head.width in
   let! enumeration = (fun () -> if width = 0ul then
     keyword input st.offset 4ul 0x656e756duL else ret input false) in
-  if enumeration then enum_declaration input st used head.ambient_declaration
+  if enumeration then
+    let! declared = (fun () -> enum_declaration input st used head.ambient_declaration) in
+    let! recorded = (fun () -> if head.ambient_declaration then ret input declared.state
+      else record_jsx_span input declared.state 13ul state.offset declared.state.offset) in
+    ret input { declared with state = recorded }
   else if width = 0ul then
     let! namespace_ = (fun () -> if st.module_mode then named_namespace_start input st
       else ret input { body_start = failed st 1ul; name_start = st.offset }) in
@@ -4421,7 +4425,10 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
     if width = 8ul then module_function input start used head.async_declaration head.ambient_declaration
     else if (width = 3ul || width = 5ul) && not head.ambient_declaration && not head.class_declaration then
       let! enumeration = (fun () -> if width = 5ul then keyword input start.offset 4ul 0x656e756duL else ret input (false)) in
-      if enumeration then enum_declaration input start used false
+      if enumeration then
+        let! declared = (fun () -> enum_declaration input start used false) in
+        let! recorded = (fun () -> record_jsx_span input declared.state 13ul state.offset declared.state.offset) in
+        ret input { declared with state = recorded }
       else module_lexical_list input start used (width = 5ul) false input.size
     else
       let type_only = width = 4ul || width = 9ul in

@@ -769,6 +769,7 @@ enum {
   type_arguments = 10,
   type_assertion = 11,
   type_marker = 12,
+  runtime_enum = 13,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
@@ -947,26 +948,68 @@ decline:
   return false;
 }
 
-static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, size_t *length) {
-  char *code;
+static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, size_t *length) {
+  lowering lower = { .input = input, .output.limit = (size_t)input.size * 32 + 1024 };
+  uint32_t copied = 0;
+  for (uint32_t index = 0; index < records; index++) {
+    if (input.output[index].original != runtime_enum) continue;
+    const TmtGrammar_span span = input.output[index].left;
+    if (span.first < copied || span.first >= span.last || span.last > input.size) goto decline;
+    lower.input.size = span.last;
+    const TmtPulseCompiler_runtime_head head = TmtPulseCompiler_read_runtime_head(lower.input, span.first, false, true, true);
+    if ((head.kind != 1 && head.kind != 3) || head.declaration != span.first || head.body >= span.last) goto decline;
+    source_bytes(&lower, copied, span.first);
+    lower.at = head.body;
+    if (!emit_enum(&lower, head.name_span, head.kind == 1) || lower.at != span.last) goto decline;
+    copied = span.last;
+  }
+  if (!copied) return NULL;
+  lower.input.size = input.size;
+  source_bytes(&lower, copied, input.size);
+  if (lower.output.failed) goto decline;
+  *length = lower.output.length;
+  return lower.output.code;
+decline:
+  free(lower.output.code);
+  return NULL;
+}
+
+static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, bool enums,
+  size_t *length, bool *complete)
+{
+  char *code = NULL;
   bool remove_statement;
-  if (!blank_type_records(input, records, false, &code, &remove_statement) || !code) return NULL;
+  if (!blank_type_records(input, records, false, &code, &remove_statement)) goto enum_only;
   *length = input.size;
-  if (!unambiguous_javascript((uint8_t *)code, input.size)) goto decline;
-  if (remove_statement && !tmt_module_marker((uint8_t *)code, input.size, false)) {
-    memcpy(code + input.size, esm_marker, sizeof(esm_marker) - 1);
+  if (enums) {
+    TmtPulseMemory_tape projected = input;
+    if (code) projected.source = (uint8_t *)code;
+    char *lowered = lower_recorded_enums(projected, records, length);
+    if (lowered) {
+      free(code);
+      code = lowered;
+    }
+  }
+  if (!code || *length > 1048576 || !unambiguous_javascript((uint8_t *)code, (uint32_t)*length)) goto enum_only;
+  if (remove_statement && !tmt_module_marker((uint8_t *)code, (uint32_t)*length, false)) {
+    char *with_marker = realloc(code, *length + sizeof(esm_marker));
+    if (!with_marker) goto enum_only;
+    code = with_marker;
+    memcpy(code + *length, esm_marker, sizeof(esm_marker) - 1);
     *length += sizeof(esm_marker) - 1;
   }
-  if (!tmt_valid_javascript_module(code, *length)) goto decline;
+  if (!tmt_valid_javascript_module(code, *length)) goto enum_only;
+  *complete = true;
   return code;
-decline:
+enum_only:
   free(code);
-  return NULL;
+  return enums ? lower_recorded_enums(input, records, length) : NULL;
 }
 #endif
 
-char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, size_t *length, bool *checked) {
+char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, size_t *length, bool *checked, bool *complete) {
   *checked = false;
+  *complete = false;
 #ifdef TMT_V8_VALIDATOR
   module_workspace memory = {0};
   TmtPulseMemory_tape input = with_workspace(source, size, &memory);
@@ -993,7 +1036,7 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, size_t *length, 
   char *code = NULL;
   if (parsed.status == 0 && parsed.count <= input.capacity) {
     *checked = true;
-    code = erase_annotation_records(input, parsed.count, length);
+    code = erase_annotation_records(input, parsed.count, enums, length, complete);
   }
   free(records);
   free(marks);
@@ -1001,6 +1044,7 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, size_t *length, 
 #else
   (void)source;
   (void)size;
+  (void)enums;
   (void)length;
   return NULL;
 #endif

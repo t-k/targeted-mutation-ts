@@ -113,7 +113,7 @@ test('mixed modules lower local enums after imports and preserve the value code'
     'export const before: number = 42;\nconst enum State { Red, Green = 4, Blue }\n' +
     'export function state(): number { return State.Blue; }';
   const lowered = compile(source);
-  assert.equal(lowered.backend, 'pulse+node-strip');
+  assert.equal(lowered.backend, 'pulse');
   assert.doesNotMatch(lowered.code, /\bconst enum\b/);
   const module = await load(lowered.code);
   assert.equal(module.before, 42);

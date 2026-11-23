@@ -228,17 +228,23 @@ error:
 
 #ifndef TMT_DIRECT
 static napi_value emit_annotated_module(napi_env env, napi_callback_info info) {
-  napi_value arg, result;
-  size_t argc = 1, size, length;
-  bool checked = false;
+  napi_value args[2], result;
+  size_t argc = 2, size, length;
+  bool enums, checked = false, complete = false;
   void *source;
   char *output = NULL;
-  NAPI(napi_get_cb_info(env, info, &argc, &arg, NULL, NULL));
-  if (argc != 1) goto error;
-  NAPI(napi_get_buffer_info(env, arg, &source, &size));
-  if (size <= source_limit) output = tmt_emit_annotated_module(source, (uint32_t)size, &length, &checked);
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc != 2) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &source, &size));
+  NAPI(napi_get_value_bool(env, args[1], &enums));
+  if (size <= source_limit) output = tmt_emit_annotated_module(source, (uint32_t)size, enums, &length, &checked, &complete);
   if (output) {
     NAPI(napi_create_string_utf8(env, output, length, &result));
+    if (!complete) {
+      napi_value code = result;
+      NAPI(napi_create_object(env, &result));
+      NAPI(napi_set_named_property(env, result, "code", code));
+    }
     free(output);
   } else if (checked) {
     NAPI(napi_get_boolean(env, true, &result));

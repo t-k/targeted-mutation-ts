@@ -262,10 +262,10 @@ function compile(input, options = {}) {
     const source = Buffer.isBuffer(stableInput) ? stableInput :
       typeof stableInput === 'string' && stableInput.isWellFormed() ? Buffer.from(stableInput) : null;
     // The direct grammar starts at an export after trivia. Imports and interfaces cannot use it.
-    const startsWithI = typed && mode === 'transform' && source?.[0] === 105;
-    const native = source && !startsWithI ? loadDirectAddon() : null;
-    if (source && (startsWithI || native) && isUtf8(source) &&
-        (startsWithI || mode === 'strip' || !source.includes('///') || !native.leadingDirective(source))) {
+    const skipsDirectAddon = typed && mode === 'transform' && source?.[0] === 105;
+    const native = source && !skipsDirectAddon ? loadDirectAddon() : null;
+    if (source && (skipsDirectAddon || native) && isUtf8(source) &&
+        (skipsDirectAddon || mode === 'strip' || !source.includes('///') || !native.leadingDirective(source))) {
       const simple = native && typed && !jsxFile ? native.compile(source) : null;
       if (simple !== null) return { backend: 'pulse', code: simple, sourceMap: null, diagnostics: [] };
       const runtime = mode === 'transform' && (jsxFile ? jsx !== 'preserve' &&
@@ -280,6 +280,15 @@ function compile(input, options = {}) {
         if (addon) {
           const empty = !jsxFile ? addon.eraseTypeModule(source, format === 'esm') : null;
           if (empty !== null) return { backend: 'pulse', code: empty, sourceMap: null, diagnostics: [] };
+          const annotated = !jsxFile && (runtime || source.includes(':') || source.includes('<') || source.includes('type')) ?
+            addon.emitAnnotatedModule(source, runtime) : null;
+          if (typeof annotated === 'string') {
+            return { backend: 'pulse', code: annotated, sourceMap: null, diagnostics: [] };
+          }
+          if (annotated?.code !== undefined) {
+            const result = eraseLoweredModule(addon, annotated.code, file, format);
+            if (result) return result;
+          }
           if (runtime && (!jsxFile || !source.includes('\\u'))) {
             const mixed = addon.lower(source, jsxFile, true, jsx === 'classic', true);
             if (mixed !== null) {
@@ -291,11 +300,6 @@ function compile(input, options = {}) {
             }
           }
           if (!jsxFile) {
-            const annotated = !runtime && (source.includes(':') || source.includes('<') || source.includes('type')) ?
-              addon.emitAnnotatedModule(source) : null;
-            if (typeof annotated === 'string') {
-              return { backend: 'pulse', code: annotated, sourceMap: null, diagnostics: [] };
-            }
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
             const result = (annotated === true || addon.moduleMarker(source, true)) ? eraseModule(addon, text, file, format) :
               format === 'preserve' ? eraseScript(addon, text, source, file) : null;

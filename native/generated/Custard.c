@@ -19782,7 +19782,21 @@ TmtPulseParser_module_declaration(
   else
     value1 = false;
   if (value1)
-    return TmtPulseParser_enum_declaration(input, st, used, value.ambient_declaration);
+  {
+    TmtPulseParser_named_state
+    value2 = TmtPulseParser_enum_declaration(input, st, used, value.ambient_declaration);
+    TmtPulseParser_parser_state value3;
+    if (value.ambient_declaration)
+      value3 = value2.state;
+    else
+      value3 =
+        TmtPulseParser_record_jsx_span(input,
+          value2.state,
+          13U,
+          state.offset,
+          value2.state.offset);
+    return ((TmtPulseParser_named_state){ .state = value3, .used = value2.used });
+  }
   else if (width == 0U)
   {
     TmtPulseParser_namespace_head value2;
@@ -19871,7 +19885,18 @@ TmtPulseParser_module_declaration(
       else
         value3 = false;
       if (value3)
-        return TmtPulseParser_enum_declaration(input, value2, used, false);
+      {
+        TmtPulseParser_named_state
+        value4 = TmtPulseParser_enum_declaration(input, value2, used, false);
+        TmtPulseParser_parser_state
+        value5 =
+          TmtPulseParser_record_jsx_span(input,
+            value4.state,
+            13U,
+            state.offset,
+            value4.state.offset);
+        return ((TmtPulseParser_named_state){ .state = value5, .used = value4.used });
+      }
       else
         return
           TmtPulseParser_module_lexical_list(input,
