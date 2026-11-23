@@ -775,6 +775,7 @@ enum {
   class_modifiers = 15,
   generic_arrow = 16,
   lexical_text = 17,
+  class_implements = 18,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
@@ -1025,7 +1026,8 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     const bool member = event.original == erased_module_member;
     const bool modifiers = event.original == class_modifiers;
     const bool arrow = event.original == generic_arrow;
-    if (!member && !modifiers && !arrow && (event.original < type_annotation || event.original > type_marker)) continue;
+    const bool heritage = event.original == class_implements;
+    if (!member && !modifiers && !arrow && !heritage && (event.original < type_annotation || event.original > type_marker)) continue;
     const TmtGrammar_span span = event.left;
     if (span.first >= span.last || span.last > input.size) goto decline;
     const bool statement = event.original == erased_type_statement || event.original == runtime_module_statement;
@@ -1044,7 +1046,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
         continue;
       }
       *remove_statement = true;
-    } else if (!member && !modifiers) {
+    } else if (!member && !modifiers && !heritage) {
       uint32_t next_assertion = input.size;
       if (event.original == type_assertion && index + 1 < records && input.output[index + 1].original == type_assertion) {
         next_assertion = input.output[index + 1].left.first;
@@ -1053,7 +1055,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     }
     if (span.first < previous) goto decline;
     const bool annotation = event.original == type_annotation;
-    bool preserve_lines = statement || member || modifiers || arrow ||
+    bool preserve_lines = statement || member || modifiers || arrow || heritage ||
       event.original == type_arguments || event.original == type_assertion;
     if (!preserve_lines || modifiers) {
       bool multiline = false, slash = false;

@@ -1,0 +1,5 @@
+Ambient	Heritage	Dialect
+Const	Single	TS
+Let	Multiple	TSX
+Var	Derived	TS
+Class	Derived	TSX

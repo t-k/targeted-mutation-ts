@@ -3889,6 +3889,7 @@ and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (kind:class_kind)
   let! implements = (fun () -> if word_ = 0x696d706c656d656euL then keyword input (plus inherited.offset 8ul) 2ul 0x7473uL
     else ret input (false)) in
   let! ready = (fun () -> if implements then interface_bases input { inherited with offset = plus inherited.offset 10ul } 64ul else ret input (inherited)) in
+  let! ready = (fun () -> if implements then record_jsx_span input ready 18ul inherited.offset ready.offset else ret input ready) in
   let depth = minus 65ul fuel in
   let ready = if U32.(depth >^ ready.depth) then { ready with depth } else ready in
   let! start = (fun () -> consume input ready 123uy) in
@@ -4496,7 +4497,11 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
         else
           let! annotation = (fun () -> (let! anf_value_1 = (fun () -> (consume input st 58uy)) in annotation_type input anf_value_1 16ul 64ul)) in
           statement_end input annotation annotation.offset false) in
-      let! result = (fun () -> if type_only then record_jsx_span input result 8ul state.offset result.offset else ret input result) in
+      let! result =
+        (fun () -> if input.capture_types && head.ambient_declaration then
+          record_jsx_span input { result with count = state.count } 8ul state.offset result.offset
+        else if type_only then record_jsx_span input result 8ul state.offset result.offset
+        else ret input result) in
       ret input ({ decl with state = { result with await_allowed = state.await_allowed } })
 #pop-options
 

@@ -1,0 +1,3 @@
+Ambient: Const, Let, Var, Class
+Heritage: Single, Multiple, Derived
+Dialect: TS, TSX
