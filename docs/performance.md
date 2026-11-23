@@ -2,7 +2,7 @@
 
 ## Mutation runs compared with StrykerJS
 
-A Vitest session decides mutations inside running workers instead of starting one Vitest run for each ([how mutations run on Vitest](analysis.md#how-mutations-run-on-vitest)). The table compares whole command runs of `--mutators full` with StrykerJS and its Vitest runner (`coverageAnalysis: perTest`). Both tools produced the same mutations and the same verdict for every one of them in every row.
+A Vitest session decides mutations inside running workers instead of starting one Vitest run for each ([how mutations run on Vitest](analysis.md#how-mutations-run-on-vitest)). The table compares whole command runs of `--mutators full` with StrykerJS and its Vitest runner (`coverageAnalysis: perTest`). In every row both tools produced the same number of mutations and the same count of each verdict.
 
 | Project | Mutations | StrykerJS | `--mutators full` |
 | --- | ---: | ---: | ---: |
