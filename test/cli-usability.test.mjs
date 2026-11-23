@@ -116,3 +116,52 @@ test('--concurrency and --isolated-trials are checked before anything runs', () 
   assert.match(cli('analyze', 'fixtures/eligibility', '--audit', '--verify-trials', '2').stderr, /apply to Vitest sessions/);
   assert.match(cli('--help').stdout, /--concurrency N[\s\S]*--isolated-trials/);
 });
+
+function scratchProject(files, run) {
+  const project = mkdtempSync(join(tmpdir(), 'tmt-cli-project-'));
+  try {
+    for (const [name, content] of Object.entries(files)) writeFileSync(join(project, name), content);
+    return run(project);
+  } finally {
+    rmSync(project, { recursive: true, force: true });
+  }
+}
+
+test('a trial in which the runner breaks down makes the analysis incomplete and the command fail', () => scratchProject({
+  'subject.ts': 'export const adult = (n: number) => n >= 18;\n',
+  // With the boundary edit the test kills the runner instead of failing an assertion.
+  'subject.test.ts': `import { expect, it } from 'vitest';
+import { adult } from './subject';
+it('adult', () => { if (!adult(18)) process.kill(process.pid, 'SIGKILL'); expect(adult(18)).toBe(true); expect(adult(17)).toBe(false); });
+`,
+}, project => {
+  const run = cli('analyze', project, 'subject.ts', '--format', 'json');
+  const report = JSON.parse(run.stdout);
+  assert.equal(report.mutants.find(mutant => mutant.replacement === '>').status, 'error');
+  assert.equal(report.evaluation, 'incomplete');
+  assert.equal(run.status, 1);
+  const text = cli('analyze', project, 'subject.ts', '--format', 'text');
+  assert.match(text.stdout, /evaluation incomplete/);
+  assert.equal(text.status, 1);
+}));
+
+test('--timeout bounds one run of the suite and is checked before anything runs', () => scratchProject({
+  'subject.ts': 'export const adult = (n: number) => n >= 18;\n',
+  'subject.test.ts': `import { expect, it } from 'vitest';
+import { adult } from './subject';
+it('slow', async () => { await new Promise(resolve => setTimeout(resolve, 6000)); expect(adult(18)).toBe(true); }, 20000);
+`,
+}, project => {
+  for (const value of ['0', '1.5', 'soon', '-3']) {
+    assert.match(cli('analyze', project, `--timeout=${value}`).stderr, /Expected --timeout to be a number of seconds/);
+  }
+  const started = Date.now();
+  const short = cli('analyze', project, 'subject.ts', '--timeout', '2', '--format', 'json');
+  const report = JSON.parse(short.stdout);
+  assert.deepEqual([report.evaluation, report.baseline.status, short.status], ['baseline_error', 'timeout', 1]);
+  assert.ok(Date.now() - started < 30_000);
+  // With room for the slow test the same suite is analyzed.
+  const long = JSON.parse(cli('analyze', project, 'subject.ts', '--timeout', '90', '--format', 'json').stdout);
+  assert.equal(long.evaluation, 'evaluated');
+  assert.ok(long.mutants.length >= 1);
+}));

@@ -59,11 +59,23 @@ export function collectComparisons(root, files, options) {
     if (kept.length !== comparisons.length) extraction.at(-1).ignored = comparisons.length - kept.length;
     const candidates = ['operators', 'full'].includes(options.mutators) ? withOperatorSites(kept, input, file, options, selected) : kept;
     const positions = byteLocations(input, candidates.map(candidate => (candidate.operatorEdit ?? candidate.edit)[0]));
+    // A comparison is in scope when any line from its left operand to its right operand is: a threshold on its
+    // own line belongs to the comparison whose operator is on the line above.
+    const reach = candidates.map(candidate => {
+      const [start, end] = candidate.operatorEdit ?? candidate.edit;
+      return [Math.min(start, candidate.left?.[0] ?? start), Math.max(start, (candidate.right?.[1] ?? end) - 1)];
+    });
+    // The lookup takes offsets in ascending order, and nested comparisons overlap.
+    const offsets = [...new Set(reach.flat())].sort((a, b) => a - b);
+    const located = byteLocations(input, offsets);
+    const lineAt = new Map(offsets.map((offset, index) => [offset, located[index * 2]]));
     let digest;
     const sites = candidates.flatMap((candidate, index) => {
       const [start, end] = candidate.operatorEdit ?? candidate.edit;
       const location = { file, line: positions[index * 2], column: positions[index * 2 + 1], start, end };
-      if (!selected(location.line)) return [];
+      let inScope = false;
+      for (let line = lineAt.get(reach[index][0]); line <= lineAt.get(reach[index][1]) && !inScope; line++) inScope = selected(line);
+      if (!inScope) return [];
       digest ??= sha(input);
       return [{ ...candidate, location, id: sha(JSON.stringify([
         file, digest, options.mode ?? 'module', options.dialect ?? sourceDialect(file),
@@ -380,7 +392,8 @@ function verifyWitnessRuns(baseline, original, changed) {
 }
 
 function analyzePlaywright(root, subjects, report, options, specification) {
-  const runner = (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root });
+  const runner = (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root,
+    tests: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
   const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
   const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
   const baseline = attempt();
@@ -409,6 +422,7 @@ function analyzePlaywright(root, subjects, report, options, specification) {
         if (!agrees && ['killed', 'survived'].includes(result.status)) result.status = 'unstable';
       }
       report.mutants.push(result);
+      if (result.status === 'error') report.evaluation = 'incomplete';
 
       const match = Array.isArray(specification.playwright) && specification.playwright.find(entry =>
         entry.file === subject.file && entry.operator === site.operator && entry.rule === site.rule &&
@@ -462,7 +476,7 @@ export function prepareAnalysis(project, files, options) {
   const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
   if (report.runner === 'playwright') return { report: analyzePlaywright(root, subjects, report, options, specification) };
   const runner = (workspace, temp, settings) => runVitest(workspace, temp, {
-    ...settings, config: options.config, testFiles: options.test,
+    ...settings, config: options.config, testFiles: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}),
   });
   const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
   const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
@@ -537,6 +551,8 @@ export function completeAnalysis({ root, report, options, attempt, baseline, tra
       if (status === 'mismatch') result.status = 'unstable';
     }
     report.mutants.push(result);
+    // The runner broke down in this trial, which is neither a kill nor a survivor: the analysis is not complete.
+    if (result.status === 'error') report.evaluation = 'incomplete';
     const gap = diagnose(trial, result);
     if (gap) {
       if (options.audit && gap.suggestedTest) gap.verification = verifyVitestWitness(root, attempt, baseline, trial, gap);

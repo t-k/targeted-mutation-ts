@@ -166,3 +166,60 @@ test('large Git patches retain following hunks and neighboring paths', () => {
     ]);
   });
 });
+
+// A first commit made from the index with plumbing, which needs an identity and nothing else from the user's Git setup.
+function commitAll(root) {
+  const identity = { GIT_AUTHOR_NAME: 'Fixture', GIT_AUTHOR_EMAIL: 'fixture@example.invalid', GIT_COMMITTER_NAME: 'Fixture', GIT_COMMITTER_EMAIL: 'fixture@example.invalid' };
+  const git = (...args) => execFileSync('git', ['-C', root, ...args], { encoding: 'utf8', env: { ...process.env, ...identity } }).trim();
+  git('add', '.');
+  git('update-ref', 'HEAD', git('commit-tree', git('write-tree'), '-m', 'fixture'));
+}
+
+test('discovery for a Git scope leaves out files that Git ignores and keeps new unignored ones', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'tmt-scope-ignored-')));
+  const write = (file, text) => { mkdirSync(dirname(join(root, file)), { recursive: true }); writeFileSync(join(root, file), text); };
+  try {
+    execFileSync('git', ['-C', root, 'init', '-q']);
+    write('.gitignore', 'generated/\n*.gen.ts\n');
+    write('src/kept.ts', 'export const a = 1 < 2;\n');
+    commitAll(root);
+    write('generated/client.ts', 'export const b = 1 < 2;\n');
+    write('src/api.gen.ts', 'export const c = 1 < 2;\n');
+    // A clean tree with generated output selects nothing.
+    assert.deepEqual(selectScope(root, [], { since: 'HEAD' }), []);
+    write('src/new.ts', 'export const d = 1 < 2;\n');
+    assert.deepEqual(selectScope(root, [], { since: 'HEAD' }).map(scope => scope.file), ['src/new.ts']);
+    // Naming an ignored file, or a line range in it, still selects it.
+    assert.deepEqual(selectScope(root, ['generated/client.ts'], { since: 'HEAD' }).map(scope => scope.file), ['generated/client.ts']);
+    assert.deepEqual(selectScope(root, [], { since: 'HEAD', lines: ['src/api.gen.ts:1'] }).map(scope => scope.file), ['src/api.gen.ts']);
+    // Without a Git scope the ignore rules play no part.
+    assert.deepEqual(selectScope(root, [], {}).map(scope => scope.file), ['generated/client.ts', 'src/api.gen.ts', 'src/kept.ts', 'src/new.ts']);
+    // From a subdirectory project the same holds.
+    assert.deepEqual(selectScope(join(root, 'src'), [], { since: 'HEAD' }).map(scope => scope.file), ['new.ts']);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a comparison is in scope when its operand on another line changed', async () => {
+  const { collectComparisons } = await import('../src/analysis.mjs');
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'tmt-scope-operand-')));
+  const source = threshold => `export const adult = (n: number) => n >=\n  ${threshold};\nexport const other = (n: number) =>\n  n\n  < 5;\nexport const far = (n: number) => n > 1;\n`;
+  try {
+    execFileSync('git', ['-C', root, 'init', '-q']);
+    writeFileSync(join(root, 'age.ts'), source(10));
+    commitAll(root);
+    writeFileSync(join(root, 'age.ts'), source(11));
+    const sites = options => collectComparisons(root, [], options).subjects.flatMap(subject => subject.sites.map(site => [site.operator, site.location.line]));
+    // Only the threshold's line changed; the operator is on the line above.
+    assert.deepEqual(sites({ since: 'HEAD' }), [['>=', 1]]);
+    assert.deepEqual(sites({ lines: ['age.ts:2'] }), [['>=', 1]]);
+    // A left operand on its own line selects the comparison too, and an untouched comparison stays out.
+    assert.deepEqual(sites({ lines: ['age.ts:4'] }), [['<', 5]]);
+    assert.deepEqual(sites({ lines: ['age.ts:3'] }), []);
+    assert.deepEqual(sites({ lines: ['age.ts:6'] }), [['>', 6]]);
+    assert.equal(sites({}).length, 3);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -169,11 +169,12 @@ export async function analyzeConventional(project, files, options) {
       mutants: runnable.map(({ id, parametric }) => ({ id, ...(parametric ? { parametric } : {}) })),
       focused: focused.map(({ id }) => ({ id })), isolatedTrials: options['isolated-trials'] === true,
       concurrency: options.concurrency ?? Math.max(1, availableParallelism() - 1), verifyTrials: options['verify-trials'] ?? 0,
+      ...(options.timeout ? { runTimeout: options.timeout * 1000 } : {}),
       replay: options.deterministic ? focus.comparisonReplays(runnable, focused, originals) : [],
       config: options.config === undefined ? undefined : inside(workspace, options.config),
       files: [...new Set((options.test ?? []).map(file => inside(workspace, file)))],
     }));
-    const limit = 75_000 + 60_000 * (runnable.length + focused.length);
+    const limit = 75_000 + (options.timeout ? options.timeout * 1000 : 60_000) * (runnable.length + focused.length);
     // The focused analysis names its threshold edits once it has recorded the comparisons. The session waits for the list.
     const extras = resolve(temp, 'extras.json');
     if (awaitsExtras) {

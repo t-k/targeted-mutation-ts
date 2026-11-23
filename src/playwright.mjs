@@ -102,7 +102,11 @@ export function classifyPlaywright(report, exitCode, workspace) {
   return { status, tests, errors: report.errors.map(error => error.message) };
 }
 
-export function runPlaywright(root, temp, { config, projects = [], timeout = 60_000, original } = {}) {
+// Playwright takes test files as patterns, so a path is passed with its pattern characters escaped.
+export const testFilters = (root, tests = []) => [...new Set(tests.map(file => relative(root, inside(root, file))))]
+  .map(file => file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
+export function runPlaywright(root, temp, { config, projects = [], tests = [], timeout = 60_000, original } = {}) {
   const bin = resolve(dirname(runnerPackage(root, 'playwright')), 'cli.js');
   const wrapper = configuration(root, config);
   const report = resolve(temp, 'playwright.json');
@@ -113,6 +117,7 @@ export function runPlaywright(root, temp, { config, projects = [], timeout = 60_
     'test', '--config', wrapper, '--workers=1', '--reporter=json', '--global-timeout', String(Math.max(100, timeout - 3000)),
     '--output', resolve(temp, 'results'),
     ...projects.flatMap(project => ['--project', project]),
+    ...testFilters(root, tests),
   ], {
     cwd: root, encoding: 'utf8', timeout: timeout + 5000, maxBuffer: 4 * 1024 * 1024,
     env: {

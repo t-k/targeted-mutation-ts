@@ -21,6 +21,7 @@ try {
       concurrency: { type: 'string' },
       'isolated-trials': { type: 'boolean' },
       'verify-trials': { type: 'string' },
+      timeout: { type: 'string' },
       runner: { type: 'string' },
       project: { type: 'string', multiple: true },
       config: { type: 'string' },
@@ -45,7 +46,6 @@ try {
   } else if (command === 'analyze') {
     const [project = '.', ...files] = positionals;
     if (values.runner && !['vitest', 'playwright'].includes(values.runner)) throw new Error('Expected --runner vitest|playwright');
-    if (values.runner === 'playwright' && values.test?.length) throw new Error('--test selects Vitest files');
     if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
     if (values.mutators && !['focused', 'operators', 'full', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|operators|full|standard|all');
     const session = values.runner !== 'playwright' && !values.witnesses && !values.audit;
@@ -54,6 +54,10 @@ try {
     }
     if (values.concurrency !== undefined && !session && !values.witnesses) {
       throw new Error('--concurrency applies to Vitest sessions and to --witnesses, not to --audit or Playwright');
+    }
+    if (values.timeout !== undefined) {
+      if (!/^[1-9]\d{0,4}$/.test(values.timeout)) throw new Error('Expected --timeout to be a number of seconds');
+      values.timeout = Number(values.timeout);
     }
     if (values['verify-trials'] !== undefined) {
       if (!/^\d{1,6}$/.test(values['verify-trials'])) throw new Error('Expected --verify-trials to be a count');

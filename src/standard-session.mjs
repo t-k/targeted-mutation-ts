@@ -10,7 +10,7 @@ import { inside } from './vitest.mjs';
 // Vitest and Vite are loaded on every run. Node keeps their compiled code between runs when it can.
 try { enableCompileCache?.(); } catch { /* The cache is an optimisation only. */ }
 const input = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-const { workspace, config, files, mutants, focused, replay, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1, verifyTrials = 0, awaitsExtras = false } = input;
+const { workspace, config, files, mutants, focused, replay, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1, verifyTrials = 0, awaitsExtras = false, runTimeout = 60_000 } = input;
 const destination = resolve(temporary, 'coverage.jsonl');
 const record = event => appendFileSync(output, JSON.stringify(event) + '\n');
 const lanes = [];
@@ -124,7 +124,7 @@ async function run(specs, state, lane = lanes[0]) {
       ? { baseline: { status: 'timeout' } }
       : { id: state.id, status: 'timeout', statusReason: 'Vitest did not finish before its deadline' });
     process.exit(124);
-  }, 60_000);
+  }, runTimeout);
   try {
     await lane.context.runTestSpecifications(specs);
     if (!lane.snapshot) throw new Error('Vitest did not report a completed run');

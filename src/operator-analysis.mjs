@@ -59,7 +59,7 @@ async function besideSession(project, files, options, run, profile, stopsSession
   const started = run.analyzeConventional(project, files, {
     mutators: profile, lines: options.lines, since: options.since, config: options.config, test: options.test,
     'copy-exclude': options['copy-exclude'], dialect: options.dialect, 'isolated-trials': options['isolated-trials'],
-    concurrency: options.concurrency, 'verify-trials': options['verify-trials'], signal: stop.signal, extras,
+    concurrency: options.concurrency, 'verify-trials': options['verify-trials'], timeout: options.timeout, signal: stop.signal, extras,
   }).then(report => ({ report }), error => ({ error }));
   let prepared;
   try {
@@ -105,7 +105,7 @@ export async function analyzeOperators(project, files, options, run = { analyze,
     operatorExecution: 'session',
     trials: session.trials,
     baseline: focused.baseline ?? session.baseline,
-    evaluation: session.evaluation === 'incomplete' ? 'incomplete' : 'evaluated',
+    evaluation: session.evaluation === 'incomplete' || focused.evaluation === 'incomplete' ? 'incomplete' : 'evaluated',
     mutants: [...focused.mutants, ...added.map(mutant => fromSession(mutant, profile))].sort(order),
   };
 }

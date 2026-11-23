@@ -9,6 +9,9 @@ First public release.
 - `--mutators operators`: built-in equality, logical and arithmetic operator swaps with no extra package, run in one switched session with per-test coverage on Vitest 4.
 - `--mutators full`: the complete StrykerJS mutator set, built in, with no extra package.
 - `// Stryker disable` and `// Stryker restore` comments are honoured by the built-in mutation set and the default profile.
+- `--since` and `--lines` select a comparison when any of its lines is in scope, and `--since` leaves files that Git ignores out of discovery.
+- A trial in which the runner breaks down makes the evaluation `incomplete` and the command exit with 1.
+- `--timeout SECONDS` for one run of the suite, and `--test FILE` for Playwright.
 - `--witnesses` tries its candidates in project copies side by side (`--concurrency N`, up to 8 by default) and reports them in the planned order.
 - Vitest 4 sessions decide mutations inside running workers, with a control run after each one and a fresh Vitest run for whatever a worker cannot decide. `--concurrency N`, `--verify-trials N` and `--isolated-trials` control this.
 - Text report on a terminal, JSON report (`schemaVersion: 1`) when piped, `--format` to choose.

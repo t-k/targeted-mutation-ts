@@ -45,7 +45,8 @@ function runAttempt(root, options, snapshots, edits = [], append, capture = fals
       writeFileSync(path, applyTextEdits(source, edits.filter(edit => edit.file === file)));
     }
     if (append) appendFileSync(inside(workspace, append.file), append.source);
-    const result = await runVitestAsync(workspace, temp, { product: true, config: options.config, testFiles: options.test });
+    const result = await runVitestAsync(workspace, temp, { product: true, config: options.config, testFiles: options.test,
+      ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
     if (capture && result.status === 'passed') {
       for (const file of new Set(result.tests.map(test => test.file))) {
         const bytes = readFileSync(inside(workspace, file));
@@ -227,5 +228,7 @@ export async function analyzeWitnesses(project, files, options) {
       edit.file === other.file && edit.line === other.line && edit.original === other.original && edit.replacement === other.replacement))));
   const discovered = prepareContracts({ witnessPlans: automatic }, selection, snapshots, { discovered: true });
   await evaluateContracts([...plans, ...discovered], attempt, baseline, snapshots, verifyAppend, report, concurrency);
+  // A trial the runner could not finish is neither a kill nor a survivor.
+  if (report.mutants.some(mutant => mutant.status === 'error')) report.evaluation = 'incomplete';
   return report;
 }

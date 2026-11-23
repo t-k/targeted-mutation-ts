@@ -37,7 +37,7 @@ test('Vitest merges focused comparison results with operator swaps from one sess
   // The session is told which threshold trials to run once the focused analysis has planned them: none here.
   assert.deepEqual(await extras, []);
   assert.deepEqual(passed, { mutators: 'operators', lines: ['a.ts:1'], since: undefined, config: undefined,
-    test: ['a.test.ts'], 'copy-exclude': ['x'], dialect: 'ts', 'isolated-trials': undefined, concurrency: undefined, 'verify-trials': undefined });
+    test: ['a.test.ts'], 'copy-exclude': ['x'], dialect: 'ts', 'isolated-trials': undefined, concurrency: undefined, 'verify-trials': undefined, timeout: undefined });
   assert.equal(signal.aborted, false);
   assert.deepEqual(run.calls[1], ['prepare', undefined, true]);
   assert.deepEqual([report.mutators, report.operatorExecution, report.evaluation], ['operators', 'session', 'evaluated']);

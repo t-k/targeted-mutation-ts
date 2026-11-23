@@ -31,7 +31,8 @@ Profiles (analyze):
 Runner (analyze):
   --runner vitest|playwright    Test runner (default: vitest).
   --config FILE                 Runner configuration file inside the project.
-  --test FILE                   Run only this Vitest file. Repeatable.
+  --test FILE                   Run only this test file. Repeatable.
+  --timeout SECONDS             Time limit for one run of the suite (default: 60).
   --project NAME                Playwright project. Repeatable.
 
 Output:
