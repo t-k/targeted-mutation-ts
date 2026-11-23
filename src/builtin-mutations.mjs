@@ -87,11 +87,44 @@ export function collectMutations(text, file, { dialect, selected = () => true, t
     return found;
   }
 
+  // `// Stryker disable` and `// Stryker restore` comments, read the way StrykerJS reads them: a comment counts
+  // when it leads a node, it takes effect from that node on, and `next-line` limits it to mutations that start on
+  // that node's line. The newest matching rule decides.
+  const directive = /^\s?Stryker (disable|restore)(?: (next-line))? ([a-zA-Z, ]+)(?::(.+)?)?/;
+  const hasDirectives = text.includes('Stryker ');
+  let rule = null;
+  let directivesReadTo = 0;
+  function readDirectives(node) {
+    if (!hasDirectives || node.pos < directivesReadTo) return;
+    directivesReadTo = begin(node);
+    const comments = [...ts.getTrailingCommentRanges(text, node.pos) ?? [], ...ts.getLeadingCommentRanges(text, node.pos) ?? []];
+    for (const comment of comments.sort((a, b) => a.pos - b.pos)) {
+      const value = text.slice(comment.pos + 2, comment.kind === K.MultiLineCommentTrivia ? comment.end - 2 : comment.end);
+      const match = directive.exec(value);
+      if (!match) continue;
+      const [, type, scope, names, reason] = match;
+      rule = { names: names.split(',').map(name => name.trim().toLowerCase()), line: scope ? lineOf(begin(node)) : undefined,
+        reason: type === 'disable' ? (reason ?? 'Ignored using a comment').trim() : undefined, previous: rule };
+    }
+  }
+  function ignoreReason(name, line, from = rule) {
+    for (let current = from; current; current = current.previous) {
+      if ((current.line === undefined || current.line === line) && (current.names.includes(name.toLowerCase()) || current.names.includes('all'))) {
+        return current.reason;
+      }
+    }
+    return undefined;
+  }
+
   const mutations = [];
-  function add(name, node, replacement, placement, extra) {
+  let live = 0;
+  function add(name, node, replacement, placement, extra, from) {
     const start = begin(node);
     for (let line = lineOf(start); line <= lineOf(node.end); line++) if (!selected(line + 1)) return;
-    mutations.push({ name, start, end: node.end, replacement, ...(placement ?? expressionPlacement(node, replacement)), ...extra });
+    const ignored = ignoreReason(name, lineOf(start), from);
+    if (ignored === undefined) live++;
+    mutations.push({ name, start, end: node.end, replacement, ...(placement ?? expressionPlacement(node, replacement)), ...extra,
+      ...(ignored === undefined ? {} : { ignored }) });
   }
 
   let statementStart;
@@ -218,14 +251,17 @@ export function collectMutations(text, file, { dialect, selected = () => true, t
   const lexical = statement => ts.isClassDeclaration(statement) || ts.isFunctionDeclaration(statement) ||
     (ts.isVariableStatement(statement) && (statement.declarationList.flags & ts.NodeFlags.BlockScoped) !== 0);
 
-  function statementMutation(node, replacement, mutated) {
-    add('CallExpression', node, replacement, { kind: 'statement', placement: [begin(node), node.end], mutated });
+  function statementMutation(node, replacement, mutated, from) {
+    add('CallExpression', node, replacement, { kind: 'statement', placement: [begin(node), node.end], mutated }, undefined, from);
   }
 
   // StrykerJS keeps a statement removal beside inner mutations whenever the statement contains a node it skips
   // (a type annotation, type arguments, `as`, a decorator). The built-in set reproduces that so it stays a superset.
   let skips = 0;
   (function visit(node) {
+    readDirectives(node);
+    // StrykerJS decides a statement's removal when it enters the statement, before comments inside it are read.
+    const ruleOnEntry = rule;
     if (skipped(node)) {
       const parent = node.parent;
       const direct = ts.isSatisfiesExpression(parent) || ts.isTypeAssertionExpression(parent) || ts.isHeritageClause(parent);
@@ -275,15 +311,18 @@ export function collectMutations(text, file, { dialect, selected = () => true, t
       add('ConditionalExpression', node, head, { kind: 'case', placement: [begin(node), node.end], bodyStart: node.statements.pos, mutated: head });
     }
     const own = mutations.length;
+    const liveBefore = live;
     ts.forEachChild(node, visit);
     // Removing a whole call or throw is kept only when nothing inside the statement is mutated on its own.
-    if (own === before && (mutations.length === own || skips !== skipsBefore)) {
+    // Mutations that a comment ignores do not count, and a removal that is itself ignored is always listed.
+    const removalIgnored = () => ignoreReason('CallExpression', lineOf(begin(node)), ruleOnEntry) !== undefined;
+    if (own === before && (live === liveBefore || skips !== skipsBefore || removalIgnored())) {
       if (ts.isExpressionStatement(node)) {
         const expression = strip(node.expression);
         if (ts.isCallExpression(expression) && !ts.isOptionalChain(expression) && expression.expression.kind !== K.SuperKeyword) {
-          statementMutation(node, ';', ';');
+          statementMutation(node, ';', ';', ruleOnEntry);
         }
-      } else if (ts.isThrowStatement(node) && ts.isNewExpression(strip(node.expression))) statementMutation(node, ';', ';');
+      } else if (ts.isThrowStatement(node) && ts.isNewExpression(strip(node.expression))) statementMutation(node, ';', ';', ruleOnEntry);
     }
   })(tree);
 

@@ -16,8 +16,12 @@ function tally(mutants) {
 }
 async function compare(file) {
   const input = readFileSync(file);
-  const reference = (await prepareConventional([{ file, input, selected: () => true }])).mutants.filter(mutant => mutant.status === undefined);
-  const builtIn = renderBuiltinSwitches(input, file).mutants;
+  const all = (await prepareConventional([{ file, input, selected: () => true }])).mutants;
+  // A file that uses `// Stryker disable` comments is compared with its ignored mutations and their reasons.
+  const directives = input.includes('Stryker disable');
+  const state = mutant => directives ? { ...mutant, mutatorName: `${mutant.mutatorName}/${mutant.status ?? 'live'}/${mutant.statusReason ?? ''}` } : mutant;
+  const reference = (directives ? all : all.filter(mutant => mutant.status === undefined)).map(state);
+  const builtIn = renderBuiltinSwitches(input, file).mutants.map(state);
   const [expected, actual] = [tally(reference), tally(builtIn)];
   return { reference: reference.length,
     missing: [...expected].filter(([entry, count]) => (actual.get(entry) ?? 0) < count).map(([entry]) => entry),
@@ -73,4 +77,22 @@ test('a line selection keeps only mutations that lie completely inside it', () =
   assert.deepEqual(inner.map(mutation => mutation.name).sort(), ['ArithmeticOperator', 'BlockStatement', 'ConditionalExpression',
     'ConditionalExpression', 'EqualityOperator', 'EqualityOperator']);
   assert.ok(all.length > inner.length);
+});
+
+test('disable and restore comments ignore the mutations StrykerJS ignores, with the same reasons', async () => {
+  const file = 'fixtures/mutations/directives.ts';
+  const { reference, missing, extra } = await compare(file);
+  assert.deepEqual({ missing, extra }, { missing: [], extra: [] });
+  assert.ok(reference > 100, `compared ${reference} mutations`);
+  const { mutants, output } = renderBuiltinSwitches(readFileSync(file), file);
+  const ignored = mutants.filter(mutant => mutant.status === 'ignored');
+  assert.ok(ignored.length > 30 && ignored.length < mutants.length - 30, `${ignored.length} of ${mutants.length}`);
+  const reasons = {};
+  for (const mutant of ignored) reasons[mutant.statusReason] = (reasons[mutant.statusReason] ?? 0) + 1;
+  // The comment before a closing brace leads no node, so its reason never appears.
+  assert.deepEqual(reasons, { 'Ignored using a comment': 38, 'boundary is covered by the property test': 9, 'display only': 4,
+    'sizes are checked elsewhere': 4, 'not a real mutator name list follows': 2 });
+  // An ignored mutation gets no switch: its id never reaches the rewritten source.
+  for (const mutant of ignored) assert.ok(!output.includes(JSON.stringify(mutant.id)), mutant.replacement);
+  for (const mutant of mutants.filter(mutant => mutant.status === undefined)) assert.ok(output.includes(JSON.stringify(mutant.id)));
 });

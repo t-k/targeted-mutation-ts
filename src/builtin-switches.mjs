@@ -39,6 +39,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   const all = collectMutations(text, file, { ...options, selected });
   const found = options.keep ? all.filter(mutation => options.keep(mutation, text)) : all;
   if (!found.length) return { output: text, mutants: [] };
+  const live = found.filter(mutation => mutation.ignored === undefined);
   const bytes = byteOffsets(text);
   const lineStarts = [0];
   for (const match of text.matchAll(/\r\n|[\n\r\u2028\u2029]/g)) lineStarts.push(match.index + match[0].length);
@@ -49,8 +50,9 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   };
   const on = unusedName(text, '__tmtOn');
   const cover = unusedName(text, '__tmtCover');
-  const mutants = found.map(mutation => ({ ...mutation,
-    id: createHash('sha256').update(JSON.stringify([file, mutation.name, mutation.start, mutation.end, mutation.replacement])).digest('hex').slice(0, 16) }));
+  const identified = mutation => ({ ...mutation,
+    id: createHash('sha256').update(JSON.stringify([file, mutation.name, mutation.start, mutation.end, mutation.replacement])).digest('hex').slice(0, 16) });
+  const mutants = live.map(identified);
 
   const groups = new Map();
   for (const mutant of mutants) {
@@ -102,8 +104,12 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
 
   // A module that binds its own `globalThis` reaches the real global object through an indirect eval.
   const scope = /\bglobalThis\b/.test(text) ? "(0, eval)('this')" : 'globalThis';
-  const output = render(0, text.length) + helpers(on, cover, scope);
-  return { output, mutants: mutants.map(mutant => {
+  // A file whose mutations are all ignored keeps its source.
+  const output = mutants.length ? render(0, text.length) + helpers(on, cover, scope) : text;
+  // Ignored mutations are reported in source order with the others and get no switch.
+  const reported = [...mutants, ...found.filter(mutation => mutation.ignored !== undefined).map(identified)]
+    .sort((a, b) => a.start - b.start || b.end - a.end);
+  return { output, mutants: reported.map(mutant => {
     const line = lineOf(mutant.start);
     const edit = [bytes[mutant.start], bytes[mutant.end]];
     return {
@@ -113,6 +119,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
       // The same mutation as a plain source edit, for runners that cannot use switches.
       source: { edit: [bytes[mutant.placement[0]], bytes[mutant.placement[1]]], replacement: asStatementStart(mutant, text) },
       ...(mutant.operator ? { operatorSwap: [bytes[mutant.operator[0]], mutant.operator[1]] } : {}),
+      ...(mutant.ignored === undefined ? {} : { status: 'ignored', statusReason: mutant.ignored }),
     };
   }) };
 }
@@ -121,13 +128,20 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
 export const boundarySwap = (mutation, text) => mutation.operator !== undefined &&
   ['>', '>=', '<', '<='].includes(mutation.operator[1]) && text[mutation.operator[0]] === mutation.operator[1][0];
 
+// The boundary swaps that a `// Stryker disable` comment covers, as `offset:replacement` keys in UTF-8 bytes.
+export function ignoredSwaps(input, file, options = {}) {
+  if (!input.includes('Stryker ')) return new Set();
+  return new Set(renderBuiltinSwitches(input, file, () => true, { ...options, keep: boundarySwap }).mutants
+    .filter(mutant => mutant.status === 'ignored').map(mutant => mutant.operatorSwap.join(':')));
+}
+
 export function prepareBuiltinSwitches(subjects, options = {}) {
   const sources = [];
   const mutants = [];
   for (const { file, input, selected } of subjects) {
     const rendered = renderBuiltinSwitches(input, file, selected, options);
     if (!rendered.mutants.length) continue;
-    sources.push({ file, output: rendered.output });
+    if (rendered.output !== input.toString()) sources.push({ file, output: rendered.output });
     mutants.push(...rendered.mutants);
   }
   return { sources, mutants };

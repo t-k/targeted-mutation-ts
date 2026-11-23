@@ -157,3 +157,31 @@ it('guards then marks', () => { expect(guarded()).toBe(1); expect(mark(1)).toBe(
   assert.equal(find(report, 'subject.ts', 'n > 2', 'n <= 2').status, 'killed');
   assert.ok(report.mutants.every(mutant => mutant.status !== 'unevaluated'));
 }));
+
+test('a disable comment keeps its mutations out of every profile and reports them as ignored', () => temporaryProject({
+  'subject.ts': `export function fee(amount: number) {
+  // Stryker disable next-line all: rounding is display only
+  if (amount >= 100) return 0;
+  return amount > 50 ? 5 : 10;
+}
+`,
+  'subject.test.ts': `import { expect, it } from 'vitest';
+import { fee } from './subject';
+it('fees', () => { expect(fee(100)).toBe(0); expect(fee(60)).toBe(5); expect(fee(10)).toBe(10); });
+`,
+}, root => {
+  const full = analyze(root, 'subject.ts', '--mutators', 'full');
+  assert.equal(full.evaluation, 'evaluated');
+  const ignored = full.mutants.filter(mutant => mutant.status === 'ignored');
+  assert.ok(ignored.length >= 4, JSON.stringify(full.mutants.map(mutant => mutant.status)));
+  assert.ok(ignored.every(mutant => mutant.location.line === 3 && mutant.statusReason === 'rounding is display only'));
+  // Line 4 is still mutated, and the boundary on line 3 is not edited by the focused part either.
+  assert.ok(full.mutants.some(mutant => mutant.location.line === 4 && mutant.status === 'killed'));
+  assert.ok(full.mutants.every(mutant => mutant.location.line !== 3 || mutant.status === 'ignored'));
+  const focused = analyze(root, 'subject.ts');
+  assert.deepEqual(focused.mutants.map(mutant => mutant.location.line), [4]);
+  assert.equal(focused.extraction[0].ignored, 1);
+  const rewritten = analyze(root, 'subject.ts', '--mutators', 'full', '--isolated-trials');
+  assert.deepEqual(rewritten.mutants.map(mutant => [mutant.location.start, mutant.replacement, mutant.status]),
+    full.mutants.map(mutant => [mutant.location.start, mutant.replacement, mutant.status]));
+}));

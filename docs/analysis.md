@@ -73,7 +73,9 @@ With Playwright, or when the session cannot start (another Vitest major, a custo
 
 Execution is the same as for `operators`: on Vitest 4 one switched session with per-test coverage, otherwise one source rewrite per mutation (`operatorExecution` tells which). A comparison boundary such as `>=` to `>` is reported once, by the focused analysis, with its missing input.
 
-Differences from a StrykerJS run: `// Stryker disable` comments are not read, so those mutations are included; a `for (;;)` loop directly under a label keeps its missing condition; a `case` clause that declares a `let`, `const`, class or function is not emptied, because later clauses can see that declaration; and like StrykerJS the set leaves types, imports, enums, ambient declarations, decorators, directives, property names and the inside of `x as T` alone.
+`// Stryker disable all`, `// Stryker disable next-line EqualityOperator: reason`, `// Stryker restore all` and their other forms are read as StrykerJS reads them. A comment counts when it leads a statement or expression, so one placed directly before a closing brace has no effect. An ignored mutation is listed with the status `ignored` and its reason in `statusReason`, and gets no switch. A comparison boundary under such a comment is left out of the default profile too, and the file's `extraction` entry counts it in `ignored`.
+
+Differences from a StrykerJS run: a `for (;;)` loop directly under a label keeps its missing condition; a `case` clause that declares a `let`, `const`, class or function is not emptied, because later clauses can see that declaration; and like StrykerJS the set leaves types, imports, enums, ambient declarations, decorators, directives, property names and the inside of `x as T` alone.
 
 ### Standard mutation profile
 

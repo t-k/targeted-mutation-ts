@@ -11,7 +11,7 @@ import { createProbePreloadCheck, freshProbeBinding, instrument, installProbe, r
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
 import { checkReplay } from './lean-replay.mjs';
-import { renderBuiltinSwitches } from './builtin-switches.mjs';
+import { ignoredSwaps, renderBuiltinSwitches } from './builtin-switches.mjs';
 import { collectOperatorSites } from './operator-sites.mjs';
 import { inspectTrace, pendingTraceDirectory, sameObservations } from './trace-buffer.mjs';
 
@@ -34,7 +34,7 @@ function compare(operator, left, right) {
 function builtInSites(comparisons, input, file, dialect, selected) {
   const focused = new Set(comparisons.map(candidate => `${candidate.edit[0]}:${candidate.replacement}`));
   return renderBuiltinSwitches(input, file, selected, { dialect }).mutants
-    .filter(mutant => !(mutant.operatorSwap && focused.has(mutant.operatorSwap.join(':'))))
+    .filter(mutant => mutant.status === undefined && !(mutant.operatorSwap && focused.has(mutant.operatorSwap.join(':'))))
     .map(mutant => ({ rule: mutant.mutatorName, original: mutant.original, replacement: mutant.replacement, edit: mutant.edit,
       left: [mutant.edit[0], mutant.edit[0]], right: [mutant.edit[1], mutant.edit[1]], source: mutant.source, unobserved: true }));
 }
@@ -53,7 +53,11 @@ export function collectComparisons(root, files, options) {
     const { path, fallback, reason, candidates: comparisons, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, requireNative: true, logical: options.runner === 'playwright' });
     extraction.push({ file, path, reason, diagnostics, ...(fallback === undefined ? {} : { fallback }) });
     if (path === 'diagnostic') continue;
-    const candidates = ['operators', 'full'].includes(options.mutators) ? withOperatorSites(comparisons, input, file, options, selected) : comparisons;
+    // A boundary under a `// Stryker disable` comment is not edited by any profile.
+    const disabled = ignoredSwaps(input, file, { dialect: options.dialect });
+    const kept = disabled.size ? comparisons.filter(candidate => !disabled.has(`${candidate.edit[0]}:${candidate.replacement}`)) : comparisons;
+    if (kept.length !== comparisons.length) extraction.at(-1).ignored = comparisons.length - kept.length;
+    const candidates = ['operators', 'full'].includes(options.mutators) ? withOperatorSites(kept, input, file, options, selected) : kept;
     const positions = byteLocations(input, candidates.map(candidate => (candidate.operatorEdit ?? candidate.edit)[0]));
     let digest;
     const sites = candidates.flatMap((candidate, index) => {
