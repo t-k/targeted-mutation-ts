@@ -1,0 +1,5 @@
+Name	Annotation	Dialect
+Get	Definite	TS
+Set	Plain	TSX
+Static	Optional	TS
+Static	BareOptional	TSX

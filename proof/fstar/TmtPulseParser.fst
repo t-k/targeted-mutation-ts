@@ -1753,15 +1753,19 @@ let result_annotation (input:tape) (#frame:slprop) (state:parser_state) : Tot (s
   (let! anf_value_1 = (fun () -> same input #frame st.offset 58uy) in if anf_value_1 then (let! anf_value_2 = (fun () -> (consume input #frame st 58uy)) in result_type input #frame anf_value_2 16ul)
   else read_ret input #frame (st))
 
-let capture_annotation (input:tape) (state:parser_state) (result:bool)
+let capture_parsed_annotation (input:tape) (state typed:parser_state) (kind:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
-  let! typed = (fun () -> if result then result_annotation input state else simple_annotation input state) in
   if not input.capture_types || typed.status <> 0ul || typed.offset = state.offset then ret input typed
   else
     let! first = (fun () -> skip input state) in
     let! colon = (fun () -> same input first.offset 58uy) in
-    if colon then record_jsx_span input typed 7ul first.offset typed.offset
+    if colon then record_jsx_span input typed kind first.offset typed.offset
     else ret input typed
+
+let capture_annotation (input:tape) (state:parser_state) (result:bool)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  let! typed = (fun () -> if result then result_annotation input state else simple_annotation input state) in
+  capture_parsed_annotation input state typed 7ul
 
 let expression_type_arguments (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   (let! anf_value_1 = (fun () -> (consume input #frame state 60uy)) in type_list input #frame anf_value_1 16ul 64ul 62uy false)
@@ -3786,12 +3790,19 @@ and class_field_tail (input:tape) (state:parser_state) (fuel:U32.t)
   let optional = byte = 63uy && not gap.newline in
   let! head = (fun () -> if optional || definite then consume input st byte else ret input (state)) in
   let! head = (fun () -> if optional || definite then record_jsx_span input head 12ul st.offset head.offset else ret input head) in
-  let! typed = (fun () -> capture_annotation input head false) in
+  let! typed = (fun () -> simple_annotation input head) in
   let! after = (fun () -> skip input typed) in
-  let! equal = (fun () -> same input after.offset 61uy) in
+  let! following = (fun () -> peek input after.offset) in
+  let equal = following = 61uy in
   if definite && (equal || typed.offset = head.offset) then ret input (failed after 1ul)
-  else if not equal then statement_end input typed typed.offset true
   else
+  let kind = if equal || following = 59uy || following = 125uy then 7ul else 22ul in
+  let! typed = (fun () -> if kind = 22ul && optional && typed.offset = head.offset then
+    record_jsx_span input { typed with count = state.count } 22ul st.offset head.offset
+    else capture_parsed_annotation input head typed kind) in
+  if not equal then statement_end input typed typed.offset true
+  else
+    let after = { after with count = typed.count; status = if typed.status <> 0ul then typed.status else after.status } in
     let! start = (fun () -> consume input { after with await_allowed = false; yield_allowed = false; super_context = ClassField; in_allowed = true } 61uy) in
     let! value = (fun () -> comparison input start fuel) in
     let! closed = (fun () -> statement_end input value.parser value.range.G.last true) in

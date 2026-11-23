@@ -1159,6 +1159,14 @@ TmtPulseParser_parser_state
 TmtPulseParser_simple_annotation(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
 
 TmtPulseParser_parser_state
+TmtPulseParser_capture_parsed_annotation(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  TmtPulseParser_parser_state typed,
+  uint32_t kind
+);
+
+TmtPulseParser_parser_state
 TmtPulseParser_capture_annotation(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,

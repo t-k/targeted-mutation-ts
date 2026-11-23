@@ -1,0 +1,13 @@
+Name	Annotation	Dialect
+Get	Definite	TS
+Set	Plain	TSX
+Static	Optional	TS
+Static	BareOptional	TSX
+Set	Definite	TS
+Get	BareOptional	TSX
+Static	Plain	TS
+Static	Definite	TSX
+Get	Optional	TSX
+Set	Optional	TSX
+Get	Plain	TSX
+Set	BareOptional	TS

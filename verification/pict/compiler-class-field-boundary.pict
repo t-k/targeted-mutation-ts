@@ -1,0 +1,3 @@
+Name: Get, Set, Static
+Annotation: Plain, Definite, Optional, BareOptional
+Dialect: TS, TSX

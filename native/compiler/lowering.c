@@ -809,6 +809,7 @@ enum {
   erased_local_type = 19,
   arrow_result = 20,
   erased_overload = 21,
+  terminated_class_field = 22,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
@@ -973,6 +974,7 @@ static bool erasable_expression_range(TmtPulseMemory_tape input, TmtGrammar_cand
   const uint32_t kind = event.original;
   const uint8_t first = input.source[span.first];
   if (kind == type_annotation) return first == ':';
+  if (kind == terminated_class_field) return first == ':' || (first == '?' && span.last - span.first == 1);
   if (kind == type_arguments || kind == generic_arrow) return first == '<' && input.source[span.last - 1] == '>';
   if (kind == type_marker) return span.last - span.first == 1 && (first == '?' || first == '!');
   if (first != 'a' && first != 's') return false;
@@ -1100,12 +1102,13 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     const bool result = event.original == arrow_result;
     const bool heritage = event.original == class_implements;
     const bool local_type = event.original == erased_local_type;
-    if (!member && !modifiers && !arrow && !result && !heritage && !local_type &&
+    const bool field = event.original == terminated_class_field;
+    if (!member && !modifiers && !arrow && !result && !heritage && !local_type && !field &&
         (event.original < type_annotation || event.original > type_marker)) continue;
     const TmtGrammar_span span = event.left;
     if (span.first >= span.last || span.last > input.size) goto decline;
     const bool statement = event.original == erased_type_statement || event.original == runtime_module_statement;
-    bool separate = false;
+    bool separate = field;
     if (statement) {
       const TmtPulseParser_cursor first = TmtPulseParser_trivia(input, prelude);
       if (first.ok && first.at == span.first) prelude = span.last;
@@ -1136,7 +1139,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     if (result && (event.right.first < previous || event.right.first >= span.first ||
         event.right.last != event.right.first + 1 || input.source[event.right.first] != ')' ||
         input.source[span.first] != ':')) goto decline;
-    bool preserve_lines = statement || member || modifiers || arrow || result || heritage || local_type ||
+    bool preserve_lines = statement || member || modifiers || arrow || result || heritage || local_type || field ||
       event.original == type_arguments || event.original == type_assertion;
     if (!preserve_lines || modifiers) {
       bool multiline = false, slash = false;
