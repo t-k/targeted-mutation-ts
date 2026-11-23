@@ -7,17 +7,19 @@ const rows = readFileSync(new URL('../verification/pict/compiler-this-parameter.
   .trimEnd().split(/\r?\n/).slice(1);
 
 for (const row of rows) {
-  const [form, following, dialect] = row.split('\t');
+  const [form, following, dialect, type] = row.split('\t');
   test('type-only function receiver ' + row.replaceAll('\t', ' '), async () => {
     const suffix = { Only: '', Variable: ', value: number', Default: ', value = 5' }[following];
-    const args = '(this: { count: number } /* keep the line count */\n' + suffix + ')';
+    const args = '(this' + (type === 'Annotated' ? ': { count: number }' : '') +
+      ' /* keep the line count */\n' + suffix + ')';
     const body = ' { return this.count' + (following === 'Only' ? '' : ' + value') + '; }';
     const source = form === 'Function' ? 'export function read' + args + body :
       form === 'Method' ? 'export const read = { read' + args + body + ' }.read;' :
       'export const read = function ' + args + body + ';';
     const result = compile(source, { file: 'receiver.' + dialect.toLowerCase() });
     assert.equal(result.backend, 'pulse', source);
-    assert.doesNotMatch(result.code, /this\s*:/);
+    assert.doesNotMatch(result.code, /\(this\b/);
+    if (following === 'Only') assert.match(result.code, /keep the line count/);
     const { read } = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
     assert.equal(read.length, following === 'Variable' ? 1 : 0);
     assert.equal(read.call({ count: 37 }, ...(following === 'Variable' ? [5] : [])),

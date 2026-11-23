@@ -1,4 +1,5 @@
-Form	Following	Dialect
-Function	Only	TS
-Method	Variable	TSX
-Expression	Default	TS
+Form	Following	Dialect	Type
+Function	Only	TS	Annotated
+Method	Variable	TSX	Bare
+Expression	Default	TS	Bare
+Expression	Only	TSX	Bare

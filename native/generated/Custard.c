@@ -16879,12 +16879,13 @@ TmtPulseParser_function_parameters(
           value3 = false;
         if (value3)
         {
+          uint32_t receiver_end = TmtPulseParser_plus(value.offset, 4U);
           TmtPulseParser_parser_state
           value4 =
             TmtPulseParser_skip(input,
               (
                 (TmtPulseParser_parser_state){
-                  .offset = TmtPulseParser_plus(value.offset, 4U),
+                  .offset = receiver_end,
                   .count = value.count,
                   .depth = value.depth,
                   .status = value.status,
@@ -16906,8 +16907,9 @@ TmtPulseParser_function_parameters(
                 }
               ));
           uint8_t value5 = TmtPulseMemory_peek(input, value4.offset);
+          bool bare = value5 == 41U || value5 == 44U;
           TmtPulseParser_parser_state value60;
-          if (!constructor && (value5 == 41U || value5 == 44U))
+          if (!constructor && bare)
             value60 = value4;
           else
           {
@@ -16920,7 +16922,7 @@ TmtPulseParser_function_parameters(
           {
             TmtPulseParser_parser_state value9 = TmtPulseParser_consume(input, value7, 44U);
             TmtPulseParser_parser_state value10;
-            if (!constructor && value5 == 58U)
+            if (!constructor)
               value10 =
                 TmtPulseParser_record_jsx_span(input,
                   value9,
@@ -16936,14 +16938,10 @@ TmtPulseParser_function_parameters(
           }
           else
           {
+            uint32_t erasure_end = bare ? receiver_end : value60.offset;
             TmtPulseParser_parser_state value9;
-            if (!constructor && value5 == 58U)
-              value9 =
-                TmtPulseParser_record_jsx_span(input,
-                  value7,
-                  14U,
-                  value.offset,
-                  value60.offset);
+            if (!constructor)
+              value9 = TmtPulseParser_record_jsx_span(input, value7, 14U, value.offset, erasure_end);
             else
               value9 = value7;
             TmtPulseParser_parser_state value10 = TmtPulseParser_consume(input, value9, 41U);
