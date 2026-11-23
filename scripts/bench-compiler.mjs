@@ -75,9 +75,15 @@ function readCases(path) {
     });
 }
 
-async function load(name, sourceText) {
+// Module paths that show the TypeScript compiler or its syntax projection was loaded.
+export function loadedTypeScript(cache = require.cache) {
+  return Object.keys(cache).filter(path => /[\\/]node_modules[\\/]typescript[\\/]|typescript-syntax\.[cm]?js$/.test(path));
+}
+
+async function load(name, sourceText, guard = true) {
   if (name === 'tmt') {
-    if (process.env.TMT_BENCH_NO_TYPESCRIPT === '1') {
+    // A resolve hook slows every later module load, so only the selecting process installs it.
+    if (guard && process.env.TMT_BENCH_NO_TYPESCRIPT === '1') {
       registerHooks({ resolve(specifier, context, next) {
         if (specifier === 'typescript' || /typescript-syntax\.[cm]?js$/.test(specifier)) {
           throw Object.assign(new Error(specifier), { code: 'BENCH_TYPESCRIPT_LOAD' });
@@ -239,9 +245,12 @@ async function main(args) {
   if (first === '--first') {
     const cases = readCases(third).filter((_, index) => fourth[index] === '1');
     const start = performance.now();
-    const run = await load(second, sourceText);
+    const run = await load(second, sourceText, false);
     const { sum } = sample(run, cases, 1);
-    console.log(JSON.stringify({ ms: performance.now() - start, sum }));
+    const ms = performance.now() - start;
+    // The parent selected these cases with the hook installed. Confirm the claim outside the timed region.
+    if (second === 'tmt' && process.env.TMT_BENCH_NO_TYPESCRIPT === '1') assert.deepEqual(loadedTypeScript(), []);
+    console.log(JSON.stringify({ ms, sum }));
     return;
   }
 

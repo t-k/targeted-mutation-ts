@@ -41,3 +41,11 @@ test('a first-emission subprocess receives the selected V8 flag', () => {
 test('benchmark input preparation rejects unknown modes', () => {
   assert.throws(() => textInput('utf16'), /TMT_BENCH_INPUT/);
 });
+
+test('the first-process sample detects a loaded TypeScript compiler after the timed region', async () => {
+  const { loadedTypeScript } = await import('../scripts/bench-compiler.mjs');
+  assert.deepEqual(loadedTypeScript({ '/repo/src/compiler.cjs': {}, '/repo/build/compiler-module.node': {} }), []);
+  const loaded = { '/repo/node_modules/typescript/lib/typescript.js': {}, '/repo/build/typescript-syntax.cjs': {},
+    'C:\\repo\\node_modules\\typescript\\lib\\typescript.js': {}, '/repo/src/typescript-compiler.mjs': {} };
+  assert.deepEqual(loadedTypeScript(loaded), Object.keys(loaded).slice(0, 3));
+});
