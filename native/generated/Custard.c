@@ -11484,11 +11484,19 @@ TmtPulseParser_postfix(
             }
           );
       else if (value.instantiated)
+      {
+        TmtPulseParser_parser_state
+        value1 =
+          TmtPulseParser_record_jsx_span(input,
+            value.after_types,
+            10U,
+            st.offset,
+            value.after_types.offset);
         return
           (
             (TmtPulseParser_parsed){
-              .parser = value.after_types,
-              .range = { .first = base.range.first, .last = value.after_types.offset },
+              .parser = value1,
+              .range = { .first = base.range.first, .last = value1.offset },
               .open_angle = base.open_angle,
               .outer_or = base.outer_or,
               .right_shift = base.right_shift,
@@ -11496,6 +11504,7 @@ TmtPulseParser_postfix(
               .target = TmtPulseParser_NotAssignable
             }
           );
+      }
       else if (increment != 0U)
       {
         if (!TmtPulseParser_can_assign(base.target))

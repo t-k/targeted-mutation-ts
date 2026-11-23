@@ -2919,8 +2919,8 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
     let bang = head.non_null in
     if st.status <> 0ul then ret input ({ base with parser = st })
     else if head.instantiated then
-      ret input ({ base with parser = head.after_types; range = { base.range with G.last = head.after_types.offset };
-        target = NotAssignable })
+      let! after = (fun () -> record_jsx_span input head.after_types 10ul st.offset head.after_types.offset) in
+      ret input ({ base with parser = after; range = { base.range with G.last = after.offset }; target = NotAssignable })
     else if increment <> 0ul then
       ret input (if not (can_assign base.target) then empty_range (failed st 1ul)
       else

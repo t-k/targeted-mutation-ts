@@ -1,0 +1,3 @@
+Following: Statement, Argument, Comparison
+Type: Inline, Multiline
+Dialect: TS, TSX

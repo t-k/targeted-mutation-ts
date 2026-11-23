@@ -1,0 +1,4 @@
+Following	Type	Dialect
+Statement	Inline	TS
+Argument	Multiline	TSX
+Comparison	Multiline	TS
