@@ -14,7 +14,8 @@ const rows = readFileSync(new URL('../verification/pict/compiler-certified-emiss
 const fixtures = certificationCases();
 const byName = new Map(fixtures.map(fixture => [fixture.file, fixture]));
 const certifiedShapes = new Set(['annotation', 'arguments', 'assertion', 'markers', 'erased-statement', 'overload',
-  'modifiers', 'literal-enum', 'ambient-const-reference', 'ambient-class-default']);
+  'modifiers', 'literal-enum', 'ambient-const-reference', 'ambient-class-default',
+  'local-overload', 'optional-field-line', 'optional-method-signature', 'default-overload']);
 // Parameter properties are lowered only on the TypeScript module route.
 const propertyShapes = new Set(['parameter-property', 'parameter-property-derived']);
 const isCertified = file => {

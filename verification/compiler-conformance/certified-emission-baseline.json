@@ -503,6 +503,186 @@
   "codeSha256": "1ca180a0ac8aa7a9d9700324f4e30def028cb3f0fbc2d12659e101668668f76f",
   "diagnostics": []
  },
+ "certification/local-overload/lf/first.ts": {
+  "backend": "pulse",
+  "codeSha256": "88e3408f54757db55e8b7363e7e59c7860bc50a1f3cd15d75b39cbbd15747ca6",
+  "diagnostics": []
+ },
+ "certification/local-overload/lf/after-import.ts": {
+  "backend": "pulse",
+  "codeSha256": "8fa34f917068fb0d8f0c610d6a2bb2781ae04a527ad14b0dd700e187b46e374b",
+  "diagnostics": []
+ },
+ "certification/local-overload/lf/after-erased.ts": {
+  "backend": "pulse",
+  "codeSha256": "a6e176160ba91902b7bcb2dc575bd4c69754fc7b3ea5eb1b2291be2b5432080a",
+  "diagnostics": []
+ },
+ "certification/local-overload/crlf/first.ts": {
+  "backend": "pulse",
+  "codeSha256": "9f9d3e11504877335c8ba39bda52498cc87d33e6bd1d99c680df18839fdc29ac",
+  "diagnostics": []
+ },
+ "certification/local-overload/crlf/after-import.ts": {
+  "backend": "pulse",
+  "codeSha256": "f08ac630f4b83cf928f7bfa38d19b5ece3b0c0d50584e95f34cac4820fce0241",
+  "diagnostics": []
+ },
+ "certification/local-overload/crlf/after-erased.ts": {
+  "backend": "pulse",
+  "codeSha256": "911ec595fb9c9f97133d8023fae2d2a5e6e22b8c681ca32414f23bbcd6402645",
+  "diagnostics": []
+ },
+ "certification/optional-field-line/lf/first.ts": {
+  "backend": "pulse",
+  "codeSha256": "ffa7d784f48969c702a4212ad00d70c7a325eba5529f76d72c95d0156cbf1964",
+  "diagnostics": []
+ },
+ "certification/optional-field-line/lf/after-import.ts": {
+  "backend": "pulse",
+  "codeSha256": "42fecfb9a1503a90a8bda3001c64fd37b5bdebaf8c6e75f7ea6f40907df73203",
+  "diagnostics": []
+ },
+ "certification/optional-field-line/lf/after-erased.ts": {
+  "backend": "pulse",
+  "codeSha256": "ef5dcea1d21ef20dc3b9b0dd2aa4b175783c07070330ec74dd33b87e37292f15",
+  "diagnostics": []
+ },
+ "certification/optional-field-line/crlf/first.ts": {
+  "backend": "pulse",
+  "codeSha256": "4d4d20e54a4040a1a8312638fb3f245fb3788e085fd40444ace5a7576c51052d",
+  "diagnostics": []
+ },
+ "certification/optional-field-line/crlf/after-import.ts": {
+  "backend": "pulse",
+  "codeSha256": "ebbbb103889f6a8e62bcfcdb3270e936004d5224fa057ee646a7defd3947784d",
+  "diagnostics": []
+ },
+ "certification/optional-field-line/crlf/after-erased.ts": {
+  "backend": "pulse",
+  "codeSha256": "a3d314ec8ce4d46c865b7888d0b7e369b531feb2dd57d25dbdec7bc42eb8627a",
+  "diagnostics": []
+ },
+ "certification/optional-method-signature/lf/first.ts": {
+  "backend": "pulse",
+  "codeSha256": "a65f80943363960968c9180a09ad56ae10f41a131b24acb72017dd5a3fbe84f0",
+  "diagnostics": []
+ },
+ "certification/optional-method-signature/lf/after-import.ts": {
+  "backend": "pulse",
+  "codeSha256": "18133bcbedef609a624559dadea3b6e5be55b3ad91c2326196d86f004227282d",
+  "diagnostics": []
+ },
+ "certification/optional-method-signature/lf/after-erased.ts": {
+  "backend": "pulse",
+  "codeSha256": "e78f0a093300115bf135bf9e7732dfdceb63242bf31af82e80ff282a958b5ec7",
+  "diagnostics": []
+ },
+ "certification/optional-method-signature/crlf/first.ts": {
+  "backend": "pulse",
+  "codeSha256": "09563bcfe1aea2fc28c81a3d98960e0a68fb549cb5c7b855a3addbc81c7601bc",
+  "diagnostics": []
+ },
+ "certification/optional-method-signature/crlf/after-import.ts": {
+  "backend": "pulse",
+  "codeSha256": "d4a86159af0fed31ae0082c2c5197954163fa1ea58954da2cb4730fbc1066aa9",
+  "diagnostics": []
+ },
+ "certification/optional-method-signature/crlf/after-erased.ts": {
+  "backend": "pulse",
+  "codeSha256": "3e7ade8060a6712a6e2d44aec07789b0adfb4f86376b2cdf526d0b9def740d05",
+  "diagnostics": []
+ },
+ "certification/default-overload/lf/first.ts": {
+  "backend": "pulse",
+  "codeSha256": "73900db9abc523cdb544a568900768d10069b4cfa23ddf95bd6183d71cd414c4",
+  "diagnostics": []
+ },
+ "certification/default-overload/lf/after-import.ts": {
+  "backend": "pulse",
+  "codeSha256": "467c7ef51ee3688b0b4773da09d4b44edeeaee5c8a71275dba665846465c9d18",
+  "diagnostics": []
+ },
+ "certification/default-overload/lf/after-erased.ts": {
+  "backend": "pulse",
+  "codeSha256": "388c0fd395503d5a0500db6a22bd6732673ce9eda7cd94a32b2dc8392ed25d85",
+  "diagnostics": []
+ },
+ "certification/default-overload/crlf/first.ts": {
+  "backend": "pulse",
+  "codeSha256": "99124f4509303ca0a12f5cfb58fed219d4c2a54371fac20b1d25e48b43128f2b",
+  "diagnostics": []
+ },
+ "certification/default-overload/crlf/after-import.ts": {
+  "backend": "pulse",
+  "codeSha256": "f8242a5c3ee847b84f993b26053672c4410d88c8a76be1bc1e9784a73295dc02",
+  "diagnostics": []
+ },
+ "certification/default-overload/crlf/after-erased.ts": {
+  "backend": "pulse",
+  "codeSha256": "18edbc8de7854f330237f4277ad0a88343937f51400e0d28344c4ffa3b36dd34",
+  "diagnostics": []
+ },
+ "certification/unbraced-type-body/lf/first.ts": {
+  "backend": "node-strip",
+  "codeSha256": "aafa49e5aa73bcaed4cd8d855af3806c73da110edc40a4f8bcabde2e5d498a0a",
+  "diagnostics": []
+ },
+ "certification/unbraced-type-body/lf/after-import.ts": {
+  "backend": "node-strip",
+  "codeSha256": "4441e9610949eefc0f010386e53c87e659b99fb62adc49eedcbce0af2f3bb387",
+  "diagnostics": []
+ },
+ "certification/unbraced-type-body/lf/after-erased.ts": {
+  "backend": "node-strip",
+  "codeSha256": "7df8c09cfef97fee47db3ff1fbf97044bdcf9782a86f5d102e91e31c7c7bdcc9",
+  "diagnostics": []
+ },
+ "certification/unbraced-type-body/crlf/first.ts": {
+  "backend": "node-strip",
+  "codeSha256": "ef491538f5201e9cb75f10a7a13f2c2414f69b263c77cf50e8a8a8dd6ced852c",
+  "diagnostics": []
+ },
+ "certification/unbraced-type-body/crlf/after-import.ts": {
+  "backend": "node-strip",
+  "codeSha256": "00e4b7839a1b05c8b577a5350ef812b54a2c4ecdabe90d79153c9075f1cf2d33",
+  "diagnostics": []
+ },
+ "certification/unbraced-type-body/crlf/after-erased.ts": {
+  "backend": "node-strip",
+  "codeSha256": "333c68caf49306d436b68d51dbf752b832d5f83cfe4cffec4a985d38c4d53266",
+  "diagnostics": []
+ },
+ "certification/asserted-default-object/lf/first.ts": {
+  "backend": "typescript",
+  "codeSha256": "2a38ca6d35a3851ce0cf82af3c15d84e514cad67d792b2f398c2fac8527cc6ba",
+  "diagnostics": []
+ },
+ "certification/asserted-default-object/lf/after-import.ts": {
+  "backend": "typescript",
+  "codeSha256": "b8385beb5d277a3d1a352dd2c87f48bf27f211ba62e72e6e9538b5fb7e6f1d40",
+  "diagnostics": []
+ },
+ "certification/asserted-default-object/lf/after-erased.ts": {
+  "backend": "typescript",
+  "codeSha256": "2a38ca6d35a3851ce0cf82af3c15d84e514cad67d792b2f398c2fac8527cc6ba",
+  "diagnostics": []
+ },
+ "certification/asserted-default-object/crlf/first.ts": {
+  "backend": "typescript",
+  "codeSha256": "2a38ca6d35a3851ce0cf82af3c15d84e514cad67d792b2f398c2fac8527cc6ba",
+  "diagnostics": []
+ },
+ "certification/asserted-default-object/crlf/after-import.ts": {
+  "backend": "typescript",
+  "codeSha256": "b8385beb5d277a3d1a352dd2c87f48bf27f211ba62e72e6e9538b5fb7e6f1d40",
+  "diagnostics": []
+ },
+ "certification/asserted-default-object/crlf/after-erased.ts": {
+  "backend": "typescript",
+  "codeSha256": "2a38ca6d35a3851ce0cf82af3c15d84e514cad67d792b2f398c2fac8527cc6ba",
+  "diagnostics": []
+ },
  "certification/ambient-enum-export/lf/first.ts": {
   "backend": "node-strip",
   "codeSha256": null,
@@ -1294,6 +1474,216 @@
   "backend": "typescript",
   "codeSha256": "bf8cda56a99d6acf5234d830d4916290a06d70d9e0a587d297bfb2a58247144a",
   "diagnostics": []
+ },
+ "certification/local-overload/lf/first.tsx": {
+  "backend": "pulse",
+  "codeSha256": "c3eba366b4bcc33ba1cbab1f49b7baf7efea0a66cdc088dbd0cc1dc79394c9c6",
+  "diagnostics": []
+ },
+ "certification/local-overload/lf/after-import.tsx": {
+  "backend": "pulse",
+  "codeSha256": "de72fea7c58d17e3e52092f6911a9ca893b4558497218a8fbcf53bdf6ff496db",
+  "diagnostics": []
+ },
+ "certification/local-overload/lf/after-erased.tsx": {
+  "backend": "pulse",
+  "codeSha256": "2567e17423486fa93eb4ac65ca5f022311b0791e26f719f393e52ecb1a278aed",
+  "diagnostics": []
+ },
+ "certification/local-overload/crlf/first.tsx": {
+  "backend": "pulse",
+  "codeSha256": "d66123ed3f7851467e74329fdddfce409e9930fddcb308a76ebe80748214821e",
+  "diagnostics": []
+ },
+ "certification/local-overload/crlf/after-import.tsx": {
+  "backend": "pulse",
+  "codeSha256": "afe6277463b1f1dede360e246cb8b63327995afec47bb926cbbfc228ea2fe521",
+  "diagnostics": []
+ },
+ "certification/local-overload/crlf/after-erased.tsx": {
+  "backend": "pulse",
+  "codeSha256": "85c56dd1ec0e780722673b3a6f76490fa46ded1237bd2aa9af850c7b2e8790b1",
+  "diagnostics": []
+ },
+ "certification/optional-field-line/lf/first.tsx": {
+  "backend": "pulse",
+  "codeSha256": "24dbf0aeae19a63b26f72831b75e659c0f56d47fefcaa2d64814551204c9ecfd",
+  "diagnostics": []
+ },
+ "certification/optional-field-line/lf/after-import.tsx": {
+  "backend": "pulse",
+  "codeSha256": "8bf0f8806bc6cb4844adb06f724d47140ac497d917b3cf8ea22b07b3261b5071",
+  "diagnostics": []
+ },
+ "certification/optional-field-line/lf/after-erased.tsx": {
+  "backend": "pulse",
+  "codeSha256": "119aed3f26777653b955838cc8327a47ee30314f8b7cf7df25b3886e822a5cfa",
+  "diagnostics": []
+ },
+ "certification/optional-field-line/crlf/first.tsx": {
+  "backend": "pulse",
+  "codeSha256": "50f04e748f81a6ee2acca08bd8cac3711d46138d94f9c62d99bebfbe8e56c9f2",
+  "diagnostics": []
+ },
+ "certification/optional-field-line/crlf/after-import.tsx": {
+  "backend": "pulse",
+  "codeSha256": "2b37e59618e607c637ca5b65d17a1a1c9333887ef706ea03a7e2d9f057205357",
+  "diagnostics": []
+ },
+ "certification/optional-field-line/crlf/after-erased.tsx": {
+  "backend": "pulse",
+  "codeSha256": "668679afa286e9e5764807e027a7d1e7829c8c285189ed0726383ff59e176269",
+  "diagnostics": []
+ },
+ "certification/optional-method-signature/lf/first.tsx": {
+  "backend": "pulse",
+  "codeSha256": "92a2615369bb61976a9b1e78176e6104872fb92bd0d5baeb36ac9bc476072a14",
+  "diagnostics": []
+ },
+ "certification/optional-method-signature/lf/after-import.tsx": {
+  "backend": "pulse",
+  "codeSha256": "a0022b701a96a7309026900671b793111ae57b09a6565c67cd6132b45d6878d4",
+  "diagnostics": []
+ },
+ "certification/optional-method-signature/lf/after-erased.tsx": {
+  "backend": "pulse",
+  "codeSha256": "42b332d9b4a8d2df4273b7b4b300b7ab6401e66e32f32001ef5f8ea239258a3d",
+  "diagnostics": []
+ },
+ "certification/optional-method-signature/crlf/first.tsx": {
+  "backend": "pulse",
+  "codeSha256": "d2a752465a9d236d9ed7499964738561f49b62318612ab57c4b68b721003c70b",
+  "diagnostics": []
+ },
+ "certification/optional-method-signature/crlf/after-import.tsx": {
+  "backend": "pulse",
+  "codeSha256": "0d93d07f8a957364cd01b0d871a7c70186a7291de8b6e1fb45d6f604dd6f3ea0",
+  "diagnostics": []
+ },
+ "certification/optional-method-signature/crlf/after-erased.tsx": {
+  "backend": "pulse",
+  "codeSha256": "ebf397b13cdb84eba03ae1bf58ca75e64adfd9fee5580529d31d4e6b3314a257",
+  "diagnostics": []
+ },
+ "certification/default-overload/lf/first.tsx": {
+  "backend": "pulse",
+  "codeSha256": "311b497c837d50dd073ea9f3e71fa36cf0815258c1b9a5d238c9edd24a3e007a",
+  "diagnostics": []
+ },
+ "certification/default-overload/lf/after-import.tsx": {
+  "backend": "pulse",
+  "codeSha256": "fcc703292db7b5f19fd9198a629e2446b7c0217a91f72efdae85787f7733d85e",
+  "diagnostics": []
+ },
+ "certification/default-overload/lf/after-erased.tsx": {
+  "backend": "pulse",
+  "codeSha256": "ab1f78db22c37a0585a1b80c1e54cf6f1e2b19ba5980b839ffce3a2f636b3a3b",
+  "diagnostics": []
+ },
+ "certification/default-overload/crlf/first.tsx": {
+  "backend": "pulse",
+  "codeSha256": "89fa2b0a5704be1cc2640df70b55d5cf8c22b6c59f7a353526d3aacc97859378",
+  "diagnostics": []
+ },
+ "certification/default-overload/crlf/after-import.tsx": {
+  "backend": "pulse",
+  "codeSha256": "c2744516df4a7403e0e9d9283163362d0a9d51fafe9356868c9a2a15664d4406",
+  "diagnostics": []
+ },
+ "certification/default-overload/crlf/after-erased.tsx": {
+  "backend": "pulse",
+  "codeSha256": "eacfe52cf1108c1580450e916e6e514b3abd031426819b7d820f8602ac07aeaf",
+  "diagnostics": []
+ },
+ "certification/unbraced-type-body/lf/first.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": "5fc3fd8b41992219bf63f0d94bce508853e207b5e74206d1abe3df633bcac30a",
+  "diagnostics": []
+ },
+ "certification/unbraced-type-body/lf/after-import.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": "8c2acd30ac395b24ba390f398f2fdb8158394197cab1fd2ca620e81399b66833",
+  "diagnostics": []
+ },
+ "certification/unbraced-type-body/lf/after-erased.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": "0faf2fc74ab0300d38d68cb2d378136b048b00e7ce220a20df87c97cdc23e13b",
+  "diagnostics": []
+ },
+ "certification/unbraced-type-body/crlf/first.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": "affd2088a738222fab8804f96288431fd834c4c8168f194c22b10b72dde706b1",
+  "diagnostics": []
+ },
+ "certification/unbraced-type-body/crlf/after-import.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": "d463a9ffd7d69614ca0d26231c7ee90066fa15b37fa5249a0726c86c9c4eb230",
+  "diagnostics": []
+ },
+ "certification/unbraced-type-body/crlf/after-erased.tsx": {
+  "backend": "pulse+node-strip",
+  "codeSha256": "a149622d0fd69533f8c22307b9232c400cad47f2e70fa6c8eca11c6ba7441691",
+  "diagnostics": []
+ },
+ "certification/asserted-default-object/lf/first.tsx": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   17008,
+   1005,
+   1381,
+   1005
+  ]
+ },
+ "certification/asserted-default-object/lf/after-import.tsx": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   17008,
+   1005,
+   1381,
+   1005
+  ]
+ },
+ "certification/asserted-default-object/lf/after-erased.tsx": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   17008,
+   1005,
+   1381,
+   1005
+  ]
+ },
+ "certification/asserted-default-object/crlf/first.tsx": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   17008,
+   1005,
+   1381,
+   1005
+  ]
+ },
+ "certification/asserted-default-object/crlf/after-import.tsx": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   17008,
+   1005,
+   1381,
+   1005
+  ]
+ },
+ "certification/asserted-default-object/crlf/after-erased.tsx": {
+  "backend": "typescript",
+  "codeSha256": null,
+  "diagnostics": [
+   17008,
+   1005,
+   1381,
+   1005
+  ]
  },
  "certification/ambient-enum-export/lf/first.tsx": {
   "backend": "pulse+node-strip",

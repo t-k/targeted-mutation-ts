@@ -14,3 +14,9 @@ ambient-const-reference	ts	lf	first
 ambient-const-duplicate	ts	lf	after-erased
 parameter-property-derived	ts	crlf	first
 parameter-property-constructor	ts	lf	first
+local-overload	ts	lf	first
+optional-field-line	ts	crlf	first
+optional-method-signature	ts	lf	after-import
+default-overload	ts	lf	after-erased
+unbraced-type-body	ts	lf	first
+asserted-default-object	ts	lf	first
