@@ -332,6 +332,22 @@ let record_jsx_span (input:tape) (state:parser_state) (kind first last:U32.t)
   let span = { G.first = first; G.last = last } in
   record_compiler_span input state kind span span
 
+let record_contextual_reference (input:tape) (state:parser_state) (start:U32.t) (first:U8.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  if not input.capture_types || state.status <> 0ul then ret input state
+  else
+    let width = minus state.offset start in
+    let! contextual = (fun () ->
+      if first = 97uy && width = 2ul then keyword input start 2ul 0x6173uL
+      else if first = 116uy && width = 4ul then keyword input start 4ul 0x74797065uL
+      else if (first = 110uy || first = 115uy) && width = 9ul then
+        let expected = if first = 110uy then 0x6e616d6573706163uL else 0x7361746973666965uL in
+        let! prefix = (fun () -> word input start 8ul 0uL) in
+        if prefix = expected then same input (plus start 8ul) (if first = 110uy then 101uy else 115uy)
+        else ret input false
+      else ret input false) in
+    if contextual then record_jsx_span input state 28ul start state.offset else ret input state
+
 let hex_value (ch:U8.t) : U32.t =
   let n = Cast.uint8_to_uint32 ch in
   if G.decimal_digit ch then U32.sub n 48ul
@@ -2671,7 +2687,13 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
             else if ch = 110uy then ((let! anf_value_19 = (fun () -> keyword input start_pos 4ul 0x6e756c6cuL) in if anf_value_19 then ret input (4ul) else ret input (0ul)))
             else ret input (0ul)) in
           if width <> 0ul then ret input (({ st with offset = plus start_pos width }, NotAssignable))
-          else ((let! anf_value_20 = (fun () -> (let! anf_value_21 = (fun () -> (name input start_pos false false)) in ret input (from_cursor st anf_value_21))) in (let! anf_value_22 = (fun () -> identifier_target input start_pos ch) in ret input (anf_value_20, anf_value_22))))) in
+          else
+            let! name_ = (fun () -> name input start_pos false false) in
+            let named = from_cursor st name_ in
+            let! named = (fun () -> if ch = 97uy || ch = 110uy || ch = 115uy || ch = 116uy then
+              record_contextual_reference input named start_pos ch else ret input named) in
+            let! target = (fun () -> identifier_target input start_pos ch) in
+            ret input (named, target)) in
       let base = { parser = named; range = { G.first = start_pos; G.last = named.offset };
         open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target } in
       postfix input base fuel input.size)

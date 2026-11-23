@@ -20,7 +20,7 @@ for (const row of rows) {
   test('native erasure bridge ' + row.replaceAll('\t', ' '), async () => {
     const input = samples[source];
     const result = compile(input, { target: target === 'Modern' ? 'esnext' : 'es2018', sourceMap: map === 'On' });
-    const bridged = (source === 'Module' || source === 'Empty') && target === 'Modern' && map === 'Off';
+    const bridged = ['Module', 'Empty', 'Script'].includes(source) && target === 'Modern' && map === 'Off';
     assert.equal(result.backend, bridged ? 'pulse' : 'typescript');
     if (source === 'Invalid') assert.equal(result.code, null);
     if (bridged && source === 'Module') {
@@ -28,7 +28,10 @@ for (const row of rows) {
       assert.equal(module.pick({ value: 42 }), 42);
     }
     if (bridged && source === 'Empty') assert.match(result.code, /^#!.*\n\/\* license \*\//);
-    if (source === 'Script') assert.match(result.code, /"use strict"/);
+    if (source === 'Script') {
+      assert.match(result.code, /"use strict"/);
+      assert.equal(Function(result.code + '\nreturn run();')(), undefined);
+    }
   });
 }
 
@@ -102,7 +105,7 @@ test('type erasure preserves globals, runtime exports and Unicode position paddi
 test('a validated ordinary script emits TypeScript strict semantics', () => {
   const source = 'declare const ambient: string; function read() { return this; }';
   const result = compile(source);
-  assert.equal(result.backend, 'node-strip');
+  assert.equal(result.backend, 'pulse');
   assert.match(result.code, /^"use strict";/);
   assert.equal(Function(result.code + '\nreturn read()')(), undefined);
   const existing = compile('"use\\x20strict"; function read() { return this; }');
@@ -237,14 +240,15 @@ test('a TSX comparison keeps subsequent comments in JavaScript lexical context',
   assert.match(result.code, /as a comment after a comparison/);
 });
 
-test('annotation erasure leaves multiline assertions to TypeScript-compatible parsing', () => {
+test('annotation erasure keeps contextual references on separate lines after an expression', () => {
   for (const keyword of ['as', 'satisfies']) {
     const source = 'export {}; const x: number = 1\n' + keyword + '\nnumber;';
     const result = compile(source);
-    assert.notEqual(result.backend, 'pulse', source);
+    assert.equal(result.backend, 'pulse', source);
     assert.equal(result.code, stripTypeScriptTypes(source));
     const jsx = compile(source + '\nexport const View = () => <i/>;', { file: 'source.tsx' });
-    assert.notEqual(jsx.backend, 'pulse', source);
+    assert.equal(jsx.backend, 'pulse', source);
+    assert.match(jsx.code, new RegExp('1\\n' + keyword + '\\nnumber;'));
   }
 });
 

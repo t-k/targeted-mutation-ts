@@ -819,13 +819,14 @@ enum {
   parameter_base_constructor = 25,
   parameter_derived_constructor = 26,
   parameter_super = 27,
+  contextual_reference = 28,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
   if (!*certain) return at;
   const uint8_t byte = input.source[at];
   if (byte == '"' || byte == '\'') {
-    const TmtPulseParser_cursor end = TmtPulseParser_string_end(input, at + 1, byte, input.size, false);
+    const TmtPulseParser_cursor end = TmtPulseParser_string_end(input, at + 1, byte, input.size, true);
     if (end.ok) return end.at;
     *certain = false;
   } else if (byte == '/') {
@@ -950,8 +951,13 @@ static bool unambiguous_javascript(TmtPulseMemory_tape input, uint8_t *code, uin
     }
     if (needs_module_context) {
       while (event < records &&
-          (input.output[event].original != runtime_module_statement || input.output[event].left.last <= first)) event++;
-      if (event == records || first < input.output[event].left.first || end > input.output[event].left.last) return false;
+          ((input.output[event].original != runtime_module_statement && input.output[event].original != contextual_reference) ||
+           input.output[event].left.last <= first)) event++;
+      if (event == records) return false;
+      const TmtGrammar_candidate context = input.output[event];
+      if (context.original == contextual_reference) {
+        if (context.left.first != first || context.left.last != end) return false;
+      } else if (first < context.left.first || end > context.left.last) return false;
     }
     first = end;
   }
@@ -1376,7 +1382,7 @@ static bool retained_module_marker(TmtPulseMemory_tape input, uint32_t at, uint3
   return false;
 }
 
-static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, uint32_t marker, bool enums, bool esm,
+static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, uint32_t marker, bool enums, bool esm, bool module,
   size_t *length, bool *complete)
 {
   char *code = NULL;
@@ -1389,7 +1395,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   *length = input.size;
   const bool needs_module_marker = code && esm && remove_statement && !retained_module_marker(projected, marker, records);
   if (properties) {
-    if (enums) goto enum_only;
+    if (!module || enums) goto enum_only;
     char *lowered = emit_parameter_properties(input, code, records, properties, length);
     if (!lowered) goto enum_only;
     free(code);
@@ -1410,7 +1416,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
     memcpy(code + *length, esm_marker, sizeof(esm_marker) - 1);
     *length += sizeof(esm_marker) - 1;
   }
-  if (!validate_emission(code ? code : (const char *)input.source, *length, "ts")) goto enum_only;
+  if (module && !validate_emission(code ? code : (const char *)input.source, *length, "ts")) goto enum_only;
   if (!code) {
     code = malloc(*length);
     if (!code) return NULL;
@@ -1424,11 +1430,12 @@ enum_only:
 }
 #endif
 
-char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool esm, size_t *length,
-  bool *checked, bool *complete, tmt_parameter_route *property)
+char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool esm, bool allow_script,
+  size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property)
 {
   *checked = false;
   *complete = false;
+  *script = false;
   *property = TMT_PARAMETER_NONE;
 #ifdef TMT_V8_VALIDATOR
   module_workspace memory = {0};
@@ -1436,7 +1443,8 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok) return NULL;
   const uint32_t marker = find_marker(input, first.at, false);
-  if (marker == size) return NULL;
+  const bool module = marker < size;
+  if (!module && (!allow_script || enums || first.at == size || source[first.at] == '"' || source[first.at] == '\'')) return NULL;
   TmtGrammar_candidate *records = NULL;
   uint8_t *marks = NULL;
   if (size >= 4096) {
@@ -1454,12 +1462,13 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool
   }
   input.capture_types = true;
   input.count_only = false;
-  const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(input, false, true);
+  const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(input, false, module);
   char *code = NULL;
   if (parsed.status == 0 && parsed.count <= input.capacity) {
-    *checked = true;
-    code = erase_annotation_records(input, parsed.count, marker, enums, esm, length, complete);
-    if (!code) {
+    *checked = module;
+    code = erase_annotation_records(input, parsed.count, marker, enums, esm, module, length, complete);
+    *script = !module && *complete;
+    if (!code && module) {
       for (uint32_t index = 0; index < parsed.count; index++) {
         const TmtGrammar_candidate entry = input.output[index];
         if (entry.original != parameter_property) continue;
@@ -1481,6 +1490,7 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool
   (void)size;
   (void)enums;
   (void)esm;
+  (void)allow_script;
   (void)length;
   return NULL;
 #endif

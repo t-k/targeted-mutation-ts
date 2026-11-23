@@ -9630,6 +9630,45 @@ TmtPulseParser_cursor TmtPulseParser_regex_end(TmtPulseMemory_tape input, uint32
   return value.ending;
 }
 
+TmtPulseParser_parser_state
+TmtPulseParser_record_contextual_reference(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t start,
+  uint8_t first
+)
+{
+  if (!input.capture_types || state.status != 0U)
+    return state;
+  else
+  {
+    uint32_t width = TmtPulseParser_minus(state.offset, start);
+    bool value0;
+    if (first == 97U && width == 2U)
+      value0 = TmtPulseParser_keyword(input, start, 2U, 0x6173ULL);
+    else if (first == 116U && width == 4U)
+      value0 = TmtPulseParser_keyword(input, start, 4U, 0x74797065ULL);
+    else if ((first == 110U || first == 115U) && width == 9U)
+    {
+      uint64_t expected = first == 110U ? 0x6e616d6573706163ULL : 0x7361746973666965ULL;
+      uint64_t value = TmtPulseParser_word(input, start, 8U, 0ULL);
+      if (value == expected)
+        value0 =
+          TmtPulseParser_same(input,
+            TmtPulseParser_plus(start, 8U),
+            first == 110U ? 101U : 115U);
+      else
+        value0 = false;
+    }
+    else
+      value0 = false;
+    if (value0)
+      return TmtPulseParser_record_jsx_span(input, state, 28U, start, state.offset);
+    else
+      return state;
+  }
+}
+
 TmtPulseParser_assignment_target
 TmtPulseParser_identifier_target(TmtPulseMemory_tape input, uint32_t pos, uint8_t ch)
 {
@@ -13928,7 +13967,12 @@ TmtPulseParser_atom(
           else
           {
             TmtPulseParser_cursor value4 = TmtPulseParser_name(input, start_pos, false, false);
-            TmtPulseParser_parser_state value5 = TmtPulseParser_from_cursor(value, value4);
+            TmtPulseParser_parser_state named = TmtPulseParser_from_cursor(value, value4);
+            TmtPulseParser_parser_state value5;
+            if (ch == 97U || ch == 110U || ch == 115U || ch == 116U)
+              value5 = TmtPulseParser_record_contextual_reference(input, named, start_pos, ch);
+            else
+              value5 = named;
             TmtPulseParser_assignment_target
             value6 = TmtPulseParser_identifier_target(input, start_pos, ch);
             value30 =

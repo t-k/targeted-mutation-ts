@@ -1,0 +1,13 @@
+Identifier	Context	Dialect
+As	Group	TS
+Satisfies	Assignment	TSX
+Type	Conditional	TS
+Namespace	Assignment	TSX
+As	Conditional	TSX
+Type	Group	TSX
+Type	Assignment	TS
+Satisfies	Conditional	TS
+Satisfies	Group	TSX
+Namespace	Conditional	TS
+As	Assignment	TSX
+Namespace	Group	TSX

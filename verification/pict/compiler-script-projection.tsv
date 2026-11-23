@@ -1,0 +1,7 @@
+Source	Filename	Input
+Ambient	TS	Bytes
+Annotation	TS	Text
+Module	MTS	Bytes
+Ambient	MTS	Text
+Annotation	MTS	Bytes
+Module	TS	Text

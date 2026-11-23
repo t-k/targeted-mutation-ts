@@ -235,9 +235,14 @@ function compile(input, options = {}) {
           const moduleProjection = typed && (!jsxFile || !hasAngles);
           const empty = moduleProjection ? addon.eraseTypeModule(source, format === 'esm') : null;
           if (empty !== null) return { backend: 'pulse', code: empty, sourceMap: null, diagnostics: [] };
-          const annotated = moduleProjection ? addon.emitAnnotatedModule(source, runtime, format === 'esm') : null;
+          const annotated = moduleProjection ?
+            addon.emitAnnotatedModule(source, runtime, format === 'esm', format === 'preserve' && !jsxFile) : null;
           if (typeof annotated === 'string') {
             return { backend: 'pulse', code: annotated, sourceMap: null, diagnostics: [] };
+          }
+          if (typeof annotated?.script === 'string') {
+            const code = strictScript(annotated.script, file);
+            if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
           }
           if (annotated?.reference === true) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
