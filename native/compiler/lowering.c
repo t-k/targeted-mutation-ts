@@ -607,6 +607,8 @@ static bool jsx_element(lowering *lower, uint32_t depth) {
   const bool fragment = peek(lower) == '>';
   TmtGrammar_span tag = { lower->at, lower->at };
   if (!fragment && !jsx_name(lower, &tag)) return false;
+  /* A keyword may touch the opening angle. The helper name must not extend it. */
+  if (out->length && TmtGrammar_identifier_continue((uint8_t)out->code[out->length - 1])) put(out, " ");
   const size_t helper_offset = out->length;
   put(out, lower->classic ? "React.createElement(" : "_tmtJsx0(");
   if (fragment) {
@@ -797,15 +799,16 @@ bool tmt_valid_module_source(const char *source, size_t size) {
 
 /*
  * A certified projection contains only bytes the Pulse parse accepted as JavaScript, so the
- * ordinary build publishes it without a second parse. The audit build still asks V8 and reports
- * the decision first, which lets the audit fail on any certified projection that V8 rejects.
+ * ordinary build publishes it without a second parse. An uncertified projection keeps
+ * TypeScript-only syntax and is declined. The audit build asks V8 about both and reports the
+ * decision first, which lets the audit fail on any certified projection that V8 rejects.
  */
 #ifdef TMT_AUDIT_V8
 void tmt_audit_certification(const char *phase, bool certified);
 #define publishable(certified, code, length, phase) \
-  (tmt_audit_certification(phase, certified), validate_emission(code, length, phase))
+  (tmt_audit_certification(phase, certified), validate_emission(code, length, phase) && (certified))
 #else
-#define publishable(certified, code, length, phase) ((certified) || validate_emission(code, length, phase))
+#define publishable(certified, code, length, phase) (certified)
 #endif
 
 static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records);

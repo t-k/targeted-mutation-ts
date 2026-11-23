@@ -850,7 +850,13 @@ let bind_since (input:tape) (st:parser_state) (base:names_base) (floor used:name
 let bind_pattern_name (input:tape) (st:parser_state) (base:names_base) (floor used:names_used) (pos:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let namespace = if base = 0ul then ValueName else BothNames in
-  bind_in_namespace input st base floor used pos namespace
+  let! bound = (fun () -> bind_in_namespace input st base floor used pos namespace) in
+  if not input.capture_types || bound.state.status <> 0ul then ret input bound
+  else
+    // A declared name such as `as` is an ordinary identifier for the projection guard.
+    let! first = (fun () -> peek input pos) in
+    let! recorded = (fun () -> record_contextual_reference input bound.state pos first) in
+    ret input { bound with state = recorded }
 
 let bind_at (input:tape) (st:parser_state) (base:names_base) (used:names_used) (pos:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) = bind_since input st base 0ul used pos
@@ -3484,7 +3490,14 @@ and ordinary_statement (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt
   let! block = (fun () -> same input state.offset 123uy) in
   let! first = (fun () -> peek input state.offset) in
   let! class_ = (fun () -> if first = 99uy then class_keyword input state.offset else ret input (false)) in
-  if block || function_head.ok || class_ then ret input (failed state 1ul)
+  let! global_ = (fun () -> if first = 103uy then keyword input state.offset 6ul 0x676c6f62616cuL else ret input false) in
+  // TypeScript reads `global` before a block or a name as a declaration, even across a line break.
+  let! augmentation = (fun () -> if not global_ then ret input false
+    else
+      let! after = (fun () -> trivia input (plus state.offset 6ul)) in
+      let! follower = (fun () -> peek input after.at) in
+      ret input (not after.ok || follower = 123uy || G.identifier_start follower)) in
+  if block || function_head.ok || class_ || augmentation then ret input (failed state 1ul)
   else statement_expressions input state fuel input.size
 
 and simple_statement (input:tape) (state:parser_state) (in_function:bool) (jumps:jump_context) (fuel:U32.t) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 46; 0]) =
@@ -3658,7 +3671,11 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
     let! type_width = (fun () -> if local_var && (first = 116uy || first = 105uy) then type_declaration_width input state.offset
       else ret input 0ul) in
     let! var = (fun () -> if local_var && first = 118uy then keyword input state.offset 3ul 0x766172uL else ret input (false)) in
-    if type_width = 4ul || type_width = 9ul then local_type_declaration input state type_width floor used
+    if type_width = 4ul || type_width = 9ul then
+      let! declared = (fun () -> local_type_declaration input state type_width floor used) in
+      // Only a block-level declaration is projected. Kind 29 withholds this one from publication.
+      let! recorded = (fun () -> record_jsx_span input declared.state 29ul state.offset declared.state.offset) in
+      ret input { declared with state = recorded }
     else if var then (let! anf_value_2 = (fun () -> local_var_declaration input state fuel) in ret input ({ state = anf_value_2; used }))
     else
       let! ordinary = (fun () -> simple_statement input state in_function jumps fuel) in
@@ -3780,7 +3797,16 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
         let! end_ = (fun () -> record_jsx_span input end_ (if constructor then 29ul else 14ul) st.offset erasure_end) in
         let! closed = (fun () -> consume input end_ 41uy) in
         ret input ({ names = { state = closed; used }; non_simple })
-    else if spread then rest_parameter input st floor used
+    else if spread then
+      let! target = (fun () -> skip input { st with offset = plus st.offset 3ul }) in
+      let! opener = (fun () -> peek input target.offset) in
+      if opener <> 91uy && opener <> 123uy then rest_parameter input st floor used
+      else
+        let! bound = (fun () -> pattern_binding input { target with await_allowed = false; yield_allowed = false }
+          binding_region_width floor used fuel) in
+        let typed = { bound.state with await_allowed = st.await_allowed; yield_allowed = st.yield_allowed } in
+        let! end_ = (fun () -> (let! annotated = (fun () -> ((let! captured = (fun () -> (capture_annotation input typed false)) in skip input captured))) in consume input annotated 41uy)) in
+        ret input ({ names = { bound with state = end_ }; non_simple = true })
     else
       let! property, binding_end = (fun () -> if constructor then constructor_property input st else ret input (st, st.offset)) in
       let! st = (fun () -> if property.offset <> st.offset then
@@ -4391,19 +4417,22 @@ let enum_declaration (input:tape) (state:parser_state) (used:names_used) (ambien
 
 let global_augmentation_start (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   (let! anf_value_1 = (fun () -> keyword input #frame state.offset 7ul 0x6465636c617265uL) in if anf_value_1 then
-    let! global = (fun () -> skip input #frame { state with offset = plus state.offset 7ul }) in
-    (let! anf_value_2 = (fun () -> keyword input #frame global.offset 6ul 0x676c6f62616cuL) in if anf_value_2 then
+    let! gap = (fun () -> trivia input #frame (plus state.offset 7ul)) in
+    let global = if gap.newline then failed state 1ul else from_cursor state gap in
+    (let! anf_value_2 = (fun () -> keyword input #frame global.offset 6ul 0x676c6f62616cuL) in if global.status = 0ul && anf_value_2 then
       (let! anf_value_3 = (fun () -> (skip input #frame { global with offset = plus global.offset 6ul })) in consume input #frame anf_value_3 123uy)
     else read_ret input #frame (failed state 1ul))
   else read_ret input #frame (failed state 1ul))
 
 let ambient_module_start (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   (let! anf_value_1 = (fun () -> keyword input #frame state.offset 7ul 0x6465636c617265uL) in if anf_value_1 then
-    let! module_ = (fun () -> skip input #frame { state with offset = plus state.offset 7ul }) in
-    (let! anf_value_2 = (fun () -> keyword input #frame module_.offset 6ul 0x6d6f64756c65uL) in if anf_value_2 then
-      let! quoted = (fun () -> skip input #frame { module_ with offset = plus module_.offset 6ul }) in
+    let! gap = (fun () -> trivia input #frame (plus state.offset 7ul)) in
+    let module_ = if gap.newline then failed state 1ul else from_cursor state gap in
+    (let! anf_value_2 = (fun () -> keyword input #frame module_.offset 6ul 0x6d6f64756c65uL) in if module_.status = 0ul && anf_value_2 then
+      let! name_gap = (fun () -> trivia input #frame (plus module_.offset 6ul)) in
+      let quoted = if name_gap.newline then failed state 1ul else from_cursor module_ name_gap in
       let! delimiter = (fun () -> peek input #frame quoted.offset) in
-      if delimiter = 34uy || delimiter = 39uy then
+      if quoted.status = 0ul && (delimiter = 34uy || delimiter = 39uy) then
         let! key = (fun () -> string_end input #frame (next quoted.offset) delimiter input.size false) in
         (let! anf_value_3 = (fun () -> (skip input #frame (from_cursor quoted key))) in consume input #frame anf_value_3 123uy)
       else read_ret input #frame (failed state 1ul)
@@ -4743,7 +4772,7 @@ let deferred_export_slot (index:U32.t{U32.v index < U32.v deferred_export_limit}
 let named_reexport (input:tape) (state:parser_state) (used locals:names_used) (pending:pending_exports) (type_statement:bool)
   : Tot (stt (named_state & pending_exports) (heap input) (fun _ -> heap input)) =
   let! start = (fun () -> consume input state 123uy) in
-  let! resolved = (fun () -> reexport_members input start used locals 64ul true true type_statement) in
+  let! resolved = (fun () -> reexport_members input start used locals binding_region_width true true type_statement) in
   let named = resolved.named in
   let! tail = (fun () -> skip input named.state) in
   let! from = (fun () -> keyword input tail.offset 4ul 0x66726f6duL) in
@@ -4769,7 +4798,7 @@ let rec check_local_exports (input:tape) (state:parser_state) (locals:names_used
   else
     let index = U32.sub pending 1ul in
     let! saved = (fun () -> get_binding input (deferred_export_slot index)) in
-    let! checked = (fun () -> reexport_members input { state with offset = saved.span.G.first } 0ul locals 64ul true false (saved.namespace = TypeName)) in
+    let! checked = (fun () -> reexport_members input { state with offset = saved.span.G.first } 0ul locals binding_region_width true false (saved.namespace = TypeName)) in
     if checked.named.state.status = 0ul && checked.named.state.offset = saved.span.G.last then
       if checked.locals_known then check_local_exports input state locals index
       else ret input (failed state (if input.capture_jsx then unbound_runtime_export_status else 1ul))

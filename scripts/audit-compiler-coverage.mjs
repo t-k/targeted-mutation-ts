@@ -68,7 +68,7 @@ function loadUpstream(repo) {
   return { name: 'typescript-upstream', revision: manifest.revision, cases, requireComplete: false };
 }
 
-function inspect(ts, code, file) {
+export function inspect(ts, code, file) {
   const tree = ts.createSourceFile(file.replace(/\.[mc]?tsx?$/i, '.js'), code, ts.ScriptTarget.ESNext, false, ts.ScriptKind.JS);
   const aliases = new Map();
   const dependencies = [];
@@ -119,7 +119,7 @@ function inspect(ts, code, file) {
   return { diagnostics: tree.parseDiagnostics.map(diagnostic => diagnostic.code), dependencies, shape: shape(tree) };
 }
 
-function reference(ts, test) {
+export function reference(ts, test) {
   if (test.expected !== undefined) return test.expected;
   const source = Buffer.from(test.source, 'base64').toString();
   const result = ts.transpileModule(source, { fileName: test.file, reportDiagnostics: true, compilerOptions: {
@@ -129,7 +129,9 @@ function reference(ts, test) {
   return result.outputText;
 }
 
-if (process.argv[2] === '--guarded-worker') {
+if (!import.meta.main) {
+  // Imported for its syntax comparison helpers.
+} else if (process.argv[2] === '--guarded-worker') {
   console.log(JSON.stringify(await guardedEmit(JSON.parse(readFileSync(0, 'utf8')))));
 } else {
   const paths = process.argv.slice(2);

@@ -1126,17 +1126,12 @@ TmtPulseParser_rest_parameter(
   uint32_t used
 );
 
-typedef struct FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t_s
-{
-  TmtPulseParser_parser_state _1;
-  uint32_t _2;
-}
-FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t;
-
-FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t
-TmtPulseParser_constructor_property(
+TmtPulseParser_parser_state
+TmtPulseParser_record_contextual_reference(
   TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state
+  TmtPulseParser_parser_state state,
+  uint32_t start,
+  uint8_t first
 );
 
 TmtPulseParser_named_state
@@ -1275,6 +1270,19 @@ TmtPulseParser_record_local_pattern(
   TmtPulseParser_parser_state st,
   uint32_t first,
   uint32_t used
+);
+
+typedef struct FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t_s
+{
+  TmtPulseParser_parser_state _1;
+  uint32_t _2;
+}
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t;
+
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t
+TmtPulseParser_constructor_property(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
 );
 
 TmtPulseParser_parser_state
@@ -1659,14 +1667,6 @@ TmtPulseParser_regex_pattern(
 
 TmtPulseParser_cursor TmtPulseParser_regex_end(TmtPulseMemory_tape input, uint32_t at);
 
-TmtPulseParser_parser_state
-TmtPulseParser_record_contextual_reference(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t start,
-  uint8_t first
-);
-
 TmtPulseParser_assignment_target
 TmtPulseParser_identifier_target(TmtPulseMemory_tape input, uint32_t pos, uint8_t ch);
 
@@ -1754,6 +1754,15 @@ TmtPulseParser_assignment_width(
   uint32_t at,
   uint8_t byte,
   uint8_t follower
+);
+
+TmtPulseParser_parameter_list
+TmtPulseParser_parameter_prefix(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t fuel
 );
 
 TmtPulseParser_parameter_list
@@ -2253,15 +2262,6 @@ TmtPulseParser_pattern_binding(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   uint32_t base,
-  uint32_t floor,
-  uint32_t used,
-  uint32_t fuel
-);
-
-TmtPulseParser_parameter_list
-TmtPulseParser_parameter_prefix(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
   uint32_t floor,
   uint32_t used,
   uint32_t fuel
