@@ -968,7 +968,8 @@ static bool delimited_annotation(TmtPulseMemory_tape input, uint32_t last) {
   if (!tail.ok) return false;
   if (tail.at == input.size) return true;
   const uint8_t byte = input.source[tail.at];
-  return byte == ';' || byte == ',' || byte == ')' || byte == ']' || byte == '}' || byte == '{' || byte == '=';
+  return byte == ';' || byte == ',' || byte == ')' || byte == ']' || byte == '}' || byte == '{' || byte == '=' ||
+    (tail.newline && TmtGrammar_identifier_start(byte));
 }
 
 static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span span, char *code) {

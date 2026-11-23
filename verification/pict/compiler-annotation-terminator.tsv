@@ -1,0 +1,5 @@
+Declaration	Delimiter	Dialect
+Local	LineBreak	TS
+Field	LineBreak	TSX
+Field	Semicolon	TS
+Local	Semicolon	TSX
