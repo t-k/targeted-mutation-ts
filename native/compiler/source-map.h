@@ -117,9 +117,10 @@ static inline bool tmt_map_seek(tmt_map_source *cursor, const uint8_t *source, s
 /*
  * Mappings for an output assembled from copies of the source. Each run names the output offset,
  * the source offset and the length of one copy. Inside a run the output is a projection of the
- * source bytes, which is checked here. Text between runs was generated. Where it follows a copy
- * on the same line, a segment without a source position ends the copy's mapping, so a reader
- * does not attribute the generated text to the copy before it.
+ * source bytes, which is checked here. Text between runs was generated. Where it follows a
+ * mapped copy, on the same line or at the start of a later one, a segment without a source
+ * position ends the copy's mapping, so a reader that looks back for the nearest segment does not
+ * attribute the generated text to that copy.
  * Returns NULL when a run is not a projection, when runs overlap in the output, or when memory
  * runs out.
  */
@@ -145,14 +146,14 @@ static inline char *tmt_run_mappings(const uint8_t *source, size_t size, const u
         done += terminator;
         generated = last_generated = 0;
         first = true;
-        mapped = false;
       } else {
         if (mapped) {
           /* A one-field segment marks generated text. */
           if (!tmt_map_reserve(&map, 9)) goto mismatch;
-          map.text[map.length++] = ',';
+          if (!first) map.text[map.length++] = ',';
           tmt_map_vlq(&map, (int64_t)generated - last_generated);
           last_generated = generated;
+          first = false;
           mapped = false;
         }
         generated += tmt_map_units(code[done++]);
@@ -200,7 +201,6 @@ static inline char *tmt_run_mappings(const uint8_t *source, size_t size, const u
         cursor.at.column = 0;
         generated = last_generated = 0;
         first = boundary = true;
-        mapped = false;
         continue;
       }
       if (tmt_map_blank(to)) boundary = true;

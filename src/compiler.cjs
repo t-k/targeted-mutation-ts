@@ -53,9 +53,7 @@ function sourceKind(file) {
 function mappedTypeScript(input, file, flags) {
   const slash = file.lastIndexOf('/');
   const name = slash < 0 ? file : file.slice(slash + 1);
-  const module = name.endsWith('.mts');
-  const width = module || name.endsWith('.tsx') ? 4 : 3;
-  if (!module && !name.endsWith('.ts') && !name.endsWith('.tsx') || name.includes('\\')) return undefined;
+  if (!name.endsWith('.mts') && !name.endsWith('.ts') && !name.endsWith('.tsx') || name.includes('\\')) return undefined;
   const text = typeof input === 'string' ? input : Buffer.isBuffer(input) ? undefined : null;
   if (text === null || text !== undefined && (!text.isWellFormed() || text.charCodeAt(0) === 0xFEFF)) return undefined;
   const source = text === undefined ? input : Buffer.from(text);
@@ -63,10 +61,16 @@ function mappedTypeScript(input, file, flags) {
   const emit = (pulse ??= nativeAddon('compiler-module.node')).emitTypeScript;
   const result = emit === undefined ? undefined : emit(source, flags | 16);
   if (result === undefined) return undefined;
-  return { backend: 'pulse', code: result[0], sourceMap: {
-    version: 3, file: name.slice(0, -width) + (module ? '.mjs' : '.js'), sourceRoot: '', sources: [name], names: [],
-    mappings: result[1], sourcesContent: [text ?? source.toString()],
-  }, diagnostics: [] };
+  return { backend: 'pulse', code: result[0], sourceMap: sourceMapObject(file, result[1], text ?? source.toString()), diagnostics: [] };
+}
+
+// The fields other than the mappings follow the map TypeScript writes for the same name.
+function sourceMapObject(file, mappings, text) {
+  const name = file.slice(file.lastIndexOf('/') + 1);
+  const module = name.endsWith('.mts');
+  const width = module || name.endsWith('.tsx') ? 4 : 3;
+  return { version: 3, file: name.slice(0, -width) + (module ? '.mjs' : '.js'), sourceRoot: '', sources: [name], names: [],
+    mappings, sourcesContent: [text] };
 }
 
 let routes;
@@ -126,3 +130,4 @@ function compile(input, options) {
 
 exports.compile = compile;
 exports.mappedTypeScript = mappedTypeScript;
+exports.sourceMapObject = sourceMapObject;

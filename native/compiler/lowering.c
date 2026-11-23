@@ -27,24 +27,46 @@ typedef struct {
   writer output;
   bool classic, mixed;
   unsigned helpers;
+  /* The helper module that TypeScript's transform would request first: none, the JSX runtime or createElement. */
+  unsigned first_source;
 #ifndef TMT_DIRECT
   const TmtGrammar_span *jsx_spans, *expressions;
   size_t jsx_count, expression_count;
 #endif
 } lowering;
 
-enum { jsx_one = 1, jsx_many = 2, jsx_fragment = 4, jsx_create = 8, jsx_create_first = 16 };
+enum { jsx_one = 1, jsx_many = 2, jsx_fragment = 4, jsx_create = 8 };
+enum { source_none, source_runtime, source_create };
 
 typedef struct {
   writer key;
+  /* Copies inside the key expression, relative to the key's own buffer. */
+  tmt_run_log key_runs;
   unsigned key_helpers;
+  /* First helper module requested before this element, by its attributes and by its key expression. */
+  unsigned first_before, first_attributes, first_key;
   size_t count;
   bool has_key, create;
 } jsx_props;
 
 static void register_jsx_helper(lowering *lower, unsigned helper) {
-  if (!lower->helpers && helper == jsx_create) lower->helpers = jsx_create_first;
   lower->helpers |= helper;
+  if (!lower->first_source) lower->first_source = helper == jsx_create ? source_create : source_runtime;
+}
+
+/*
+ * TypeScript prints the helper imports in the reverse of the order in which its transform first
+ * requests each module, and module order is evaluation order. For a runtime call it visits the
+ * children, then the attributes, then the key, and requests the helper last. For createElement it
+ * visits the attributes, requests the helper, and visits the children afterwards. This writer
+ * renders attributes before children, so the element settles the first request by that rule.
+ */
+static void settle_first_source(lowering *lower, const jsx_props *props, bool create) {
+  if (props->first_before) lower->first_source = props->first_before;
+  else if (create) lower->first_source = props->first_attributes ? props->first_attributes : source_create;
+  else if (!lower->first_source) {
+    lower->first_source = props->first_attributes ? props->first_attributes : props->first_key ? props->first_key : source_runtime;
+  }
 }
 
 static void write_bytes(writer *out, const void *bytes, size_t size) {
@@ -242,46 +264,227 @@ static bool literal_string(lowering *lower, uint32_t *last) {
   return true;
 }
 
-static bool enum_integer(lowering *lower, int64_t *value) {
-  const bool negative = consume(lower, '-');
-  if (!TmtGrammar_decimal_digit(peek(lower))) return false;
-  const bool zero = peek(lower) == '0';
+/*
+ * Constant enum initializers. TypeScript folds an initializer made of integer literals, earlier
+ * numeric members, parentheses and the arithmetic and bitwise operators, and prints the result.
+ * The evaluator follows JavaScript: arithmetic stays within the exactly representable integers,
+ * bitwise operators work on 32-bit values. It declines what it cannot print as a plain integer:
+ * a fraction, a negative zero, a value beyond 2^53 - 1, and every other kind of expression.
+ */
+typedef struct {
+  TmtGrammar_span key;
+  int64_t value;
+  bool numeric;
+} enum_member;
+
+typedef struct {
+  enum_member *items;
+  size_t count, capacity;
+  TmtGrammar_span binding;
+} enum_scope;
+
+enum { enum_safe_limit_shift = 53, enum_depth = 48 };
+
+static bool enum_safe(int64_t value) {
+  const int64_t limit = (INT64_C(1) << enum_safe_limit_shift) - 1;
+  return value >= -limit && value <= limit;
+}
+
+static int32_t enum_int32(int64_t value) { return (int32_t)(uint32_t)(uint64_t)value; }
+
+static bool enum_literal(lowering *lower, int64_t *value, bool *decimal) {
+  const uint8_t *source = lower->input.source;
+  const uint32_t size = lower->input.size;
+  uint32_t at = lower->at;
+  unsigned base = 10;
+  if (source[at] == '0' && at + 1 < size) {
+    const uint8_t prefix = source[at + 1] | 32;
+    base = prefix == 'x' ? 16 : prefix == 'o' ? 8 : prefix == 'b' ? 2 : 10;
+    if (base != 10) at += 2;
+    else if (TmtGrammar_decimal_digit(source[at + 1])) return false;
+  }
+  const uint32_t digits = at;
   uint64_t integer = 0;
-  do {
-    integer = integer * 10 + (peek(lower) - '0');
-    if (integer > UINT64_C(9007199254740991)) return false;
-    lower->at++;
-    if (zero && TmtGrammar_decimal_digit(peek(lower))) return false;
-  } while (TmtGrammar_decimal_digit(peek(lower)));
-  *value = negative ? -(int64_t)integer : (int64_t)integer;
+  for (; at < size; at++) {
+    const uint8_t byte = source[at];
+    const unsigned digit = byte >= '0' && byte <= '9' ? byte - '0' : (byte | 32) >= 'a' && (byte | 32) <= 'f' ? (byte | 32) - 'a' + 10 : 16;
+    if (digit >= base) break;
+    integer = integer * base + digit;
+    if (integer > (UINT64_C(1) << enum_safe_limit_shift) - 1) return false;
+  }
+  /* A fraction, an exponent, a separator, a BigInt suffix or a stray digit ends the native route. */
+  if (at == digits || (at < size && (TmtGrammar_identifier_continue(source[at]) || source[at] == '.'))) return false;
+  lower->at = at;
+  *value = (int64_t)integer;
+  *decimal = base == 10;
   return true;
 }
 
-static bool enum_numeric(lowering *lower, int64_t *value, bool *folded) {
-  if (!enum_integer(lower, value)) return false;
-  if (peek(lower) == ',' || peek(lower) == '}') return true;
-  const uint32_t literal_end = lower->at;
-  if (!trivia(lower)) return false;
-  const uint8_t operator = peek(lower);
-  if ((operator != '<' && operator != '>') || lower->input.size - lower->at < 2 ||
-      lower->input.source[lower->at + 1] != operator) {
-    lower->at = literal_end;
+static bool enum_reference(lowering *lower, const enum_scope *scope, int64_t *value) {
+  const uint8_t *source = lower->input.source;
+  uint32_t first = lower->at;
+  do { lower->at++; } while (TmtGrammar_identifier_continue(peek(lower)));
+  uint32_t last = lower->at;
+  const uint32_t binding = scope->binding.last - scope->binding.first;
+  if (last - first == binding && !memcmp(source + first, source + scope->binding.first, binding) && peek(lower) == '.') {
+    lower->at++;
+    first = lower->at;
+    if (!TmtGrammar_identifier_start(peek(lower))) return false;
+    do { lower->at++; } while (TmtGrammar_identifier_continue(peek(lower)));
+    last = lower->at;
+  }
+  for (size_t index = scope->count; index-- > 0;) {
+    const enum_member member = scope->items[index];
+    if (member.key.last - member.key.first != last - first || memcmp(source + member.key.first, source + first, last - first)) continue;
+    *value = member.value;
+    return member.numeric;
+  }
+  return false;
+}
+
+static bool enum_binary(lowering *lower, const enum_scope *scope, unsigned minimum, unsigned depth, int64_t *value, bool *plain);
+
+static bool enum_primary(lowering *lower, const enum_scope *scope, unsigned depth, int64_t *value, bool *plain) {
+  if (!depth || !trivia(lower)) return false;
+  const uint8_t byte = peek(lower);
+  if (TmtGrammar_decimal_digit(byte)) {
+    bool decimal;
+    if (!enum_literal(lower, value, &decimal)) return false;
+    if (!decimal) *plain = false;
     return true;
   }
-  lower->at += 2;
-  const bool logical = operator == '>' && consume(lower, '>');
-  int64_t distance;
-  if (!trivia(lower) || !enum_integer(lower, &distance)) return false;
-  const uint32_t count = (uint32_t)distance & 31;
-  const uint32_t operand = (uint32_t)*value;
-  uint32_t shifted = operator == '<' ? operand << count : operand >> count;
-  if (operator == '>' && !logical && operand > INT32_MAX) shifted |= ~(UINT32_MAX >> count);
-  *value = !logical && shifted > INT32_MAX ? (int64_t)shifted - INT64_C(4294967296) : shifted;
-  *folded = true;
+  if (byte == '-') {
+    lower->at++;
+    /* A second sign directly after the first would be a decrement. */
+    if (peek(lower) == '-' || !enum_primary(lower, scope, depth - 1, value, plain) || *value == 0) return false;
+    *value = -*value;
+    return true;
+  }
+  *plain = false;
+  if (byte == '(') {
+    lower->at++;
+    return enum_binary(lower, scope, 1, depth - 1, value, plain) && trivia(lower) && consume(lower, ')');
+  }
+  if (byte == '+') {
+    lower->at++;
+    return peek(lower) != '+' && enum_primary(lower, scope, depth - 1, value, plain);
+  }
+  if (byte == '~') {
+    lower->at++;
+    if (!enum_primary(lower, scope, depth - 1, value, plain)) return false;
+    *value = ~enum_int32(*value);
+    return true;
+  }
+  return TmtGrammar_identifier_start(byte) && enum_reference(lower, scope, value);
+}
+
+/* Operator strengths follow JavaScript: | ^ & shift additive multiplicative, all left associative. */
+static unsigned enum_operator(const lowering *lower, uint32_t *width) {
+  const uint8_t *source = lower->input.source + lower->at;
+  const uint32_t rest = lower->input.size - lower->at;
+  const uint8_t first = rest ? source[0] : 0, second = rest > 1 ? source[1] : 0, third = rest > 2 ? source[2] : 0;
+  *width = 1;
+  if (second == '=') return 0;
+  switch (first) {
+    case '|': return second == '|' ? 0 : 1;
+    case '^': return 2;
+    case '&': return second == '&' ? 0 : 3;
+    case '<': if (second != '<' || third == '=') return 0; *width = 2; return 4;
+    case '>':
+      if (second != '>') return 0;
+      *width = third == '>' ? 3 : 2;
+      return rest > *width && source[*width] == '=' ? 0 : 4;
+    case '+': case '-': return 5;
+    case '*': return second == '*' ? 0 : 6;
+    case '/': case '%': return 6;
+    default: return 0;
+  }
+}
+
+static bool enum_apply(uint8_t operator, uint32_t width, int64_t left, int64_t right, int64_t *value) {
+  const uint32_t count = (uint32_t)enum_int32(right) & 31;
+  switch (operator) {
+    case '|': *value = enum_int32(left) | enum_int32(right); return true;
+    case '^': *value = enum_int32(left) ^ enum_int32(right); return true;
+    case '&': *value = enum_int32(left) & enum_int32(right); return true;
+    case '<': *value = (int32_t)((uint32_t)enum_int32(left) << count); return true;
+    case '>':
+      if (width == 3) *value = (uint32_t)enum_int32(left) >> count;
+      else {
+        /* An arithmetic shift of a negative value, written without relying on the compiler's choice. */
+        const int32_t operand = enum_int32(left);
+        *value = operand < 0 ? ~(~operand >> count) : operand >> count;
+      }
+      return true;
+    case '+': *value = left + right; return enum_safe(*value);
+    case '-': *value = left - right; return enum_safe(*value);
+    case '*':
+      /* Both operands are below 2^53, so a product that leaves the 64-bit range is caught by the division. */
+      if (left == 0 || right == 0) { *value = 0; return left >= 0 && right >= 0; }
+      if ((left < 0 ? -left : left) > ((INT64_C(1) << enum_safe_limit_shift) - 1) / (right < 0 ? -right : right)) return false;
+      *value = left * right;
+      return true;
+    case '/':
+      if (right == 0 || left % right != 0 || (left == 0 && right < 0)) return false;
+      *value = left / right;
+      return true;
+    default:
+      if (right == 0) return false;
+      *value = left % right;
+      /* A zero remainder of a negative dividend is negative zero. */
+      return *value != 0 || left >= 0;
+  }
+}
+
+static bool enum_binary(lowering *lower, const enum_scope *scope, unsigned minimum, unsigned depth, int64_t *value, bool *plain) {
+  if (!depth || !enum_primary(lower, scope, depth, value, plain)) return false;
+  for (;;) {
+    const uint32_t end = lower->at;
+    uint32_t width;
+    if (!trivia(lower)) return false;
+    const unsigned strength = enum_operator(lower, &width);
+    if (strength < minimum || !strength) {
+      lower->at = end;
+      return true;
+    }
+    const uint8_t operator = peek(lower);
+    lower->at += width;
+    int64_t right;
+    *plain = false;
+    if (!enum_binary(lower, scope, strength + 1, depth - 1, &right, plain) || !enum_apply(operator, width, *value, right, value)) return false;
+  }
+}
+
+/* Evaluates a numeric initializer. A plain decimal literal keeps its source text in the output. */
+static bool enum_numeric(lowering *lower, const enum_scope *scope, int64_t *value, bool *folded) {
+  bool plain = true;
+  if (!enum_binary(lower, scope, 1, enum_depth, value, &plain)) return false;
+  *folded = !plain;
   return true;
 }
 
+static bool enum_remember(enum_scope *scope, TmtGrammar_span key, int64_t value, bool numeric) {
+  if (scope->count == scope->capacity) {
+    const size_t capacity = scope->capacity ? scope->capacity * 2 : 16;
+    enum_member *grown = realloc(scope->items, capacity * sizeof(*grown));
+    if (!grown) return false;
+    scope->items = grown;
+    scope->capacity = capacity;
+  }
+  scope->items[scope->count++] = (enum_member){ key, value, numeric };
+  return true;
+}
+
+static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exported, enum_scope *scope);
+
 static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported) {
+  enum_scope scope = { .binding = binding };
+  const bool emitted = emit_enum_members(lower, binding, exported, &scope);
+  free(scope.items);
+  return emitted;
+}
+
+static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exported, enum_scope *scope) {
   writer *out = &lower->output;
   put(out, exported ? "export var " : "var ");
   source_bytes(lower, binding.first, binding.last);
@@ -307,7 +510,7 @@ static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported) {
       value_start = lower->at;
       numeric = peek(lower) != '"' && peek(lower) != '\'';
       if (numeric) {
-        if (!enum_numeric(lower, &next, &folded)) return false;
+        if (!enum_numeric(lower, scope, &next, &folded)) return false;
       } else if (!literal_string(lower, &lower->at)) return false;
       value_end = lower->at;
     } else if (!numeric || next > INT64_C(9007199254740991)) return false;
@@ -326,6 +529,7 @@ static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported) {
       snprintf(value, sizeof(value), "%" PRId64, next);
       put(out, value);
     }
+    if (!enum_remember(scope, key, next, numeric)) return false;
     if (numeric) {
       put(out, "]=");
       if (!quote(lower, key, false)) return false;
@@ -489,11 +693,13 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *propertie
       properties->create = spread;
       if (!spread) {
         lowering saved = *lower;
-        saved.output = (writer){ .limit = lower->output.limit };
+        saved.output = (writer){ .limit = lower->output.limit, .runs = lower->output.runs ? &properties->key_runs : NULL };
         saved.helpers = 0;
+        saved.first_source = source_none;
         const bool accepted = jsx_property_value(&saved, depth, prop.at);
         properties->key = saved.output;
         properties->key_helpers = saved.helpers;
+        properties->first_key = saved.first_source;
         if (!accepted) return false;
         lower->at = saved.at;
         continue;
@@ -509,9 +715,15 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *propertie
 static void put_jsx_key(lowering *lower, const jsx_props *props) {
   if (props->key.length) {
     put(&lower->output, ",");
+    if (lower->output.runs && !lower->output.failed) {
+      if (props->key_runs.failed) lower->output.runs->failed = true;
+      for (size_t index = 0; index < props->key_runs.count; index++) {
+        const tmt_run run = props->key_runs.items[index];
+        log_run(lower->output.runs, lower->output.length + run.out, run.src, run.length);
+      }
+    }
     write_bytes(&lower->output, props->key.code, props->key.length);
-    if (!lower->helpers) lower->helpers = props->key_helpers;
-    else lower->helpers |= props->key_helpers & ~jsx_create_first;
+    lower->helpers |= props->key_helpers;
   }
 }
 
@@ -610,8 +822,12 @@ static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, c
         }
         put(out, "}");
         put_jsx_key(lower, props);
+        settle_first_source(lower, props, false);
         register_jsx_helper(lower, children > 1 ? jsx_many : jsx_one);
-      } else if (props->create) register_jsx_helper(lower, jsx_create);
+      } else if (props->create) {
+        settle_first_source(lower, props, true);
+        register_jsx_helper(lower, jsx_create);
+      }
       put(out, ")");
       return !out->failed;
     }
@@ -678,7 +894,14 @@ static bool jsx_element(lowering *lower, uint32_t depth) {
   put(out, "{");
   jsx_props props = {0};
   bool accepted = false;
+  const unsigned first_before = lower->first_source;
   if (!fragment && !jsx_attributes(lower, depth - 1, &props)) goto done;
+  props.first_before = first_before;
+  if (!first_before) {
+    /* The children report their own first request. */
+    props.first_attributes = lower->first_source;
+    lower->first_source = source_none;
+  }
   const bool self_closed = !fragment && consume(lower, '/');
   if (self_closed) tag_space(lower);
   if (!consume(lower, '>')) goto done;
@@ -692,8 +915,12 @@ static bool jsx_element(lowering *lower, uint32_t depth) {
     if (!classic) {
       put(out, "}");
       put_jsx_key(lower, &props);
+      settle_first_source(lower, &props, false);
       register_jsx_helper(lower, jsx_one);
-    } else if (props.create) register_jsx_helper(lower, jsx_create);
+    } else if (props.create) {
+      settle_first_source(lower, &props, true);
+      register_jsx_helper(lower, jsx_create);
+    }
     put(out, ")");
     accepted = !out->failed;
   } else {
@@ -703,6 +930,7 @@ static bool jsx_element(lowering *lower, uint32_t depth) {
 
 done:
   free(props.key.code);
+  free(props.key_runs.items);
   return accepted;
 }
 
@@ -749,7 +977,8 @@ static bool inject_jsx_runtime(lowering *lower, size_t at) {
   const bool many = (lower->helpers & jsx_many) != 0;
   const bool fragment = (lower->helpers & jsx_fragment) != 0;
   const char *create = lower->helpers & jsx_create ? "import{createElement as _tmtElem}from\"react\";\n" : "";
-  const bool create_first = (lower->helpers & jsx_create_first) != 0;
+  /* The module requested first is printed last. */
+  const bool create_first = lower->first_source == source_runtime;
   char import[192];
   const int size = snprintf(import, sizeof(import), "%s%s%s%s%s%s%s%s",
     create_first ? create : "", one || many || fragment ? "import{" : "",
@@ -1135,7 +1364,24 @@ static bool delimited_annotation(TmtPulseMemory_tape input, uint32_t last) {
     (tail.newline && TmtGrammar_identifier_start(byte));
 }
 
+/*
+ * A class member that starts with `[`, `*`, `in` or `instanceof` continues a field initializer on
+ * the line before it when nothing else separates the two. In the source an erased modifier or an
+ * erased member stood between them, so the eraser has to leave a separator in its place.
+ */
+static bool continues_initializer(TmtPulseMemory_tape input, uint32_t after) {
+  const TmtPulseParser_cursor next = TmtPulseParser_trivia(input, after);
+  if (!next.ok || next.at >= input.size) return false;
+  const uint8_t *word = input.source + next.at;
+  const uint32_t rest = input.size - next.at;
+  if (*word == '[' || *word == '*') return true;
+  if (rest > 2 && !memcmp(word, "in", 2) && !TmtGrammar_identifier_continue(word[2])) return true;
+  return rest > 10 && !memcmp(word, "instanceof", 10) && !TmtGrammar_identifier_continue(word[10]);
+}
+
 static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span span, char *code) {
+  uint32_t leading = span.last;
+  bool kept = false;
   for (uint32_t at = span.first; at < span.last;) {
     const TmtPulseParser_cursor token = TmtPulseParser_trivia(input, at);
     if (!token.ok || token.at > span.last) return false;
@@ -1144,7 +1390,11 @@ static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span spa
     while (at < span.last && TmtGrammar_identifier_continue(input.source[at])) at++;
     const uint32_t width = at - token.at;
     const uint8_t *word = input.source + token.at;
-    if (width == 6 && !memcmp(word, "static", 6)) continue;
+    if (width == 6 && !memcmp(word, "static", 6)) {
+      kept = true;
+      continue;
+    }
+    if (!kept && leading == span.last) leading = token.at;
     if (!((width == 6 && !memcmp(word, "public", 6)) ||
           (width == 7 && !memcmp(word, "private", 7)) ||
           (width == 9 && !memcmp(word, "protected", 9)) ||
@@ -1152,6 +1402,8 @@ static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span spa
                           !memcmp(word, "abstract", 8))))) return false;
     memset(code + token.at, ' ', width);
   }
+  /* A leading modifier was erased and no static stands before it, so the member name follows the line before. */
+  if (leading < span.last && continues_initializer(input, span.last)) code[leading] = ';';
   return true;
 }
 
@@ -1314,7 +1566,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     } else if (!preserve_lines) memset(code + span.first, ' ', span.last - span.first);
     else if (!blank_lines((uint8_t *)code + span.first, input.source + span.first, span.last - span.first,
                           statement || local_type || annotation || event.original == erased_overload)) goto decline;
-    if (separate) code[span.first] = ';';
+    if (separate || (member && continues_initializer(input, span.last))) code[span.first] = ';';
     if (arrow && !preserve_generic_arrow(input, span, code)) goto decline;
     if (result && (memchr(input.source + span.first, '\n', span.last - span.first) ||
                   memchr(input.source + span.first, '\r', span.last - span.first))) {
@@ -1570,6 +1822,8 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
     char *with_marker = realloc(code, *length + sizeof(esm_marker));
     if (!with_marker) goto enum_only;
     code = with_marker;
+    /* The marker follows a projection of the whole source unless a lowering already logged its copies. */
+    if (runs && !runs->count && *length == input.size) log_run(runs, 0, 0, input.size);
     memcpy(code + *length, esm_marker, sizeof(esm_marker) - 1);
     *length += sizeof(esm_marker) - 1;
   }

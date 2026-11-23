@@ -164,3 +164,119 @@ test('erased syntax packed against its neighbours matches TypeScript', () => {
   }
   assert.equal(native, fixtures.length);
 });
+
+// A class member whose first token would continue the initializer on the line before it.
+{
+  const { readFileSync } = await import('node:fs');
+  const rows = readFileSync(new URL('../verification/pict/compiler-member-separator.tsv', import.meta.url), 'utf8')
+    .trimEnd().split(/\r?\n/).slice(1);
+  const names = { Computed: '[k]', Generator: '*g', In: 'in', Instanceof: 'instanceof', Name: 'n', String: '"s"', Private: '#p' };
+  const before = { InitializedField: 'a = f', BareField: 'a', Method: 'a() { return f }', ClassStart: '' };
+  for (const row of rows) {
+    test('class member separator ' + row.replaceAll('\t', ' '), () => {
+      const [erased, next, prior, fixed] = row.split('\t');
+      const name = names[next];
+      const member = next === 'Generator' ? `${name}() {}` : `${name} = 2`;
+      const modifiers = { Modifier: 'readonly', TwoModifiers: 'protected readonly' }[erased];
+      // A generator method takes an accessibility modifier, a field takes readonly.
+      const erasable = next === 'Generator' ? (erased === 'TwoModifiers' ? 'public override' : 'public') : modifiers;
+      const head = erasable === undefined ? '' :
+        fixed === 'BeforeModifier' ? `static ${erasable} ` : fixed === 'AfterModifier' ? `${erasable} static ` : `${erasable} `;
+      const lines = {
+        AmbientField: ['declare b: number'], AbstractField: ['abstract b: number'], AbstractMethod: ['abstract m(): void'],
+        Overload: ['n(x: string): void'],
+      }[erased] ?? [];
+      const last = erased === 'Overload' ? 'n(x: any) {}' : head + member;
+      const base = /public override/.test(head) ? ' extends B' : '';
+      const body = [before[prior], ...lines, last].filter(Boolean).map(line => '  ' + line).join('\n');
+      const source = `${/Abstract/.test(erased) ? 'abstract ' : ''}class C${base} {\n${body}\n}\nexport const result = C;\n`;
+      assert.equal(sameAsTypeScript(source, 'member.ts').backend, 'pulse', source);
+    });
+  }
+}
+
+test('erased class-member starts keep neighbouring members apart in other arrangements', () => {
+  for (const source of [
+    'class C {\n  a = f\n  declare b: number\n  declare c: string\n  readonly [k] = 2\n}\nexport const r = C;',
+    'class C {\n  a = f\n  protected readonly\n  [k] = 2\n}\nexport const r = C;',
+    'class C {\n  a = f\n  private\n  static *g() {}\n}\nexport const r = C;',
+    'class C {\n  a = f\n  public async [k]() {}\n  private get [g]() { return 1 }\n}\nexport const r = C;',
+    'class C {\n  a = 1\n  m(x: string): void\n  m(x: any) {}\n  [k] = 2\n}\nexport const r = C;',
+    'class C {\n  a = 1\n  public in = 2\n  private instanceof = 3\n}\nexport const r = C;',
+    'export abstract class A {\n  a = f\n}\nexport default abstract class B {}',
+    'class C {\n  constructor(private a: number, readonly b: string) {}\n  x = f\n  readonly [k] = this.a\n}\nexport const r = C;',
+    'import { type A, b } from "./m.js";\nexport { type A, b };',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'member.ts').backend, 'pulse', source);
+  }
+});
+
+test('a separator is written only where the member start would continue an initializer', () => {
+  const erased = source => compile(Buffer.from(source), { file: 'member.ts' }).code;
+  assert.equal(erased('class C {\n  a = f\n  readonly [k] = 2\n}\nexport const r = C;'),
+    'class C {\n  a = f\n  ;        [k] = 2\n}\nexport const r = C;');
+  assert.equal(erased('class C {\n  a = f\n  readonly index = 2\n  public instanceofs = 3\n}\nexport const r = C;'),
+    'class C {\n  a = f\n           index = 2\n         instanceofs = 3\n}\nexport const r = C;');
+  assert.equal(erased('class C {\n  a = f\n  static readonly [k] = 2\n}\nexport const r = C;'),
+    'class C {\n  a = f\n  static          [k] = 2\n}\nexport const r = C;');
+  assert.equal(erased('class C {\n  a = f\n  private static [k] = 2\n}\nexport const r = C;'),
+    'class C {\n  a = f\n  ;       static [k] = 2\n}\nexport const r = C;');
+  assert.equal(erased('abstract class C {\n  a = f\n  abstract m(): void\n  [k] = 2\n}\nexport const r = C;'),
+    '         class C {\n  a = f\n  ;                 \n  [k] = 2\n}\nexport const r = C;');
+});
+
+test('JSX helper imports follow the order in which TypeScript requests the two modules', () => {
+  const order = code => [...code.matchAll(/^import\s*\{[^}]*\}\s*from\s*"(react(?:\/jsx-runtime)?)";/gm)].map(match => match[1]);
+  for (const source of [
+    'export const x = <a {...p} key="k"/>;\nexport const y = <b/>;\n',
+    'export const y = <b/>;\nexport const x = <a {...p} key="k"/>;\n',
+    'export const y = <div><a {...p} key="k"/></div>;\n',
+    'export const y = <div><b/><a {...p} key="k"/></div>;\n',
+    'export const y = <a {...p} key="k"><b/></a>;\n',
+    'export const y = <A icon={<B {...p} key="k"/>}><C/></A>;\n',
+    'export const y = <A icon={<C/>}><B {...p} key="k"/></A>;\n',
+    'export const y = <A key={<B {...p} key="k"/>} icon={<C/>}/>;\n',
+    'export const y = <A key={<C/>} icon={<B {...p} key="k"/>}/>;\n',
+    'export const y = <A {...p} key="k" icon={<C/>}><D/></A>;\n',
+    'export const y = <><a {...p} key="k"/><b/></>;\n',
+    'export const y = <A {...p} key="k"><B/></A>;\nexport const z = <C/>;\n',
+    'export const y = <div>{[1].map(i => <a {...p} key={i}/>)}<b/></div>;\n',
+  ]) {
+    const result = sameAsTypeScript(source, 'view.tsx');
+    assert.equal(result.backend, 'pulse', source);
+    assert.deepEqual(order(result.code), order(reference(source, 'view.tsx')), source);
+    assert.equal(order(result.code).length, 2, source);
+  }
+});
+
+test('yield expressions, comma returns and debugger statements match TypeScript', () => {
+  for (const source of [
+    'export function* g() { const pool = yield* Pool; return pool; }',
+    'export function* g() { return yield* _(t); }',
+    'export function* g(): Generator<number> { const x: number = yield; f(yield, yield 1); return [yield, yield* h()]; }',
+    'export function* g(a: boolean) { const x = a ? yield : yield 2; yield a, x; yield\nf()\n}',
+    'export function* g() { yield; yield 1; yield* h(); const o = { k: yield 3 }; }',
+    'export const p = Effect.gen(function* () { const t = yield* Terminal; const columns = yield* t.columns; return columns as number; });',
+    'export async function* g() { for await (const x of yield* source()) yield x; }',
+    'export function* g() { const f = (yield 1) + 2; return (yield f), f; }',
+    'export function f() { return a(), b(); }',
+    'export function f(acc: Record<string, unknown>, ds: { name: string; url: string }) { return (acc[ds.name] = { url: ds.url }), acc; }',
+    'export function f(x: number) { if (x) return\nreturn x as number, x + 1 }',
+    'export function f() { debugger; }',
+    'export function f() { debugger\nreturn 1 }',
+    'debugger;\nexport {};',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'forms.ts').backend, 'pulse', source);
+  }
+});
+
+test('yield outside a generator and a delegation split across lines are left to TypeScript', () => {
+  for (const source of [
+    'export function* g() { const f = () => yield 1; }',
+    'export function* g() { yield\n* h() }',
+    'export function f() { return yield 1; }',
+    'export function* g() { const x = 1 + yield 2; }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'forms.ts' }).backend, 'pulse', source);
+  }
+});

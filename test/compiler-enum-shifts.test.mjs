@@ -27,7 +27,10 @@ for (const row of cases) {
   });
 }
 
-test('operators beyond one literal shift remain on compatibility', () => {
+test('chained shifts fold, and an exponent remains on compatibility', () => {
   const result = compile('export enum Flags { A = 1 << 1 << 2, B }');
-  assert.notEqual(result.backend, 'pulse');
+  assert.equal(result.backend, 'pulse');
+  assert.match(result.code, /Flags\["A"\]=8\]/);
+  assert.match(result.code, /Flags\["B"\]=9\]/);
+  assert.notEqual(compile('export enum Flags { A = 2 ** 3, B }').backend, 'pulse');
 });

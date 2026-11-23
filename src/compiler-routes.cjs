@@ -246,6 +246,22 @@ function compilerSource(input) {
   }
 }
 
+// A script is published as a strict-mode directive followed by a projection of the source.
+// Its map is the projection's map moved down by the directive's line.
+function mappedScript(input, options) {
+  const { file = 'input.ts' } = options;
+  if (!/\.ts$/.test(file) || file.includes('\\')) return undefined;
+  const source = Buffer.isBuffer(input) ? input : typeof input === 'string' && input.isWellFormed() ? Buffer.from(input) : null;
+  const addon = source === null || source[0] === 0xEF ? null : loadModuleAddon();
+  if (!addon?.projectionMappings || addon.moduleMarker(source, false)) return undefined;
+  const plain = compile(input, { ...options, sourceMap: false });
+  const directive = '"use strict";\n';
+  if (plain.backend !== 'pulse' || !plain.code.startsWith(directive)) return undefined;
+  const mappings = addon.projectionMappings(source, Buffer.from(plain.code.slice(directive.length)));
+  if (mappings === undefined) return undefined;
+  return { ...plain, sourceMap: require('./compiler.cjs').sourceMapObject(file, ';' + mappings, source.toString()) };
+}
+
 function compile(input, options = {}) {
   const { file = 'input.ts', mode = 'transform', target = 'esnext', module = 'preserve', jsx = 'automatic',
     sourceMap = false } = options;
@@ -269,6 +285,8 @@ function compile(input, options = {}) {
     const result = require('./compiler.cjs').mappedTypeScript(input, file,
       (format === 'esm' ? 2 : 0) | (jsxFile ? 1 : 0) | (jsxFile && jsx === 'classic' ? 4 : 0));
     if (result !== undefined) return result;
+    const script = mappedScript(input, options);
+    if (script !== undefined) return script;
   }
   let direct;
   if (typed && !jsxFile && target === 'esnext' && format !== 'cjs' && !sourceMap &&

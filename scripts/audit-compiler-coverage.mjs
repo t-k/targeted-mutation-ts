@@ -106,7 +106,7 @@ export function inspect(ts, code, file) {
       }
     }
     const children = [];
-    ts.forEachChild(node, child => { if (!ts.isEmptyStatement(child)) children.push(shape(child, node)); });
+    ts.forEachChild(node, child => { if (!ts.isEmptyStatement(child) && !ts.isSemicolonClassElement(child)) children.push(shape(child, node)); });
     if (ts.isSourceFile(node)) {
       const runtime = children.filter(item => item[0] === 'runtime-import');
       const statements = children.filter(item => item[0] !== 'runtime-import');

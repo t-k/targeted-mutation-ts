@@ -519,11 +519,15 @@ static napi_status create_mapped_result(napi_env env, const uint8_t *source, siz
   if (!mappings && lowered) return napi_get_undefined(env, result);
   if (!mappings) {
     /* A module of types alone leaves comments and line breaks, which need no mapping. */
-    bool trivia = length == 0;
-    if (length && length <= source_limit) {
-      const TmtPulseMemory_tape output = { .source = (uint8_t *)code, .size = (uint32_t)length };
+    /* The explicit module marker of an erased module is generated text. */
+    static const char marker[] = "export {};\n";
+    const size_t tail = sizeof(marker) - 1;
+    const size_t body = length >= tail && !memcmp(code + length - tail, marker, tail) ? length - tail : length;
+    bool trivia = body == 0;
+    if (body && body <= source_limit) {
+      const TmtPulseMemory_tape output = { .source = (uint8_t *)code, .size = (uint32_t)body };
       const TmtPulseParser_cursor end = TmtPulseCompiler_runtime_source_start(output);
-      trivia = end.ok && end.at == length;
+      trivia = end.ok && end.at == body;
     }
     if (!trivia) return napi_get_undefined(env, result);
   }

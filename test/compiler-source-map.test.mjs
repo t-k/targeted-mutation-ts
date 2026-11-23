@@ -52,15 +52,17 @@ export function assertSegmentsFaithful(source, result, projection = false) {
   const table = decode(result.sourceMap.mappings);
   const generated = lines(result.code), original = lines(source);
   assert.ok(table.length <= generated.length);
-  let count = 0;
+  let count = 0, previous;
   for (const [row, segments] of table.entries()) {
     for (const [index, [column, sourceLine, sourceColumn]] of segments.entries()) {
       if (sourceLine === undefined) {
-        // Generated text is marked once, right after a mapped copy on the same line.
-        assert.ok(!projection && index > 0 && segments[index - 1].length === 3 && column > segments[index - 1][0],
+        // Generated text is marked once, where it first follows a mapped copy, on the same line or a later one.
+        assert.ok(!projection && previous?.length === 3 && (index === 0 || column > segments[index - 1][0]),
           `unmapped segment at line ${row} column ${column}`);
+        previous = segments[index];
         continue;
       }
+      previous = segments[index];
       const here = generated[row][column];
       assert.ok(here !== undefined && kind(here) !== 0, `segment at line ${row} column ${column} is not on a token`);
       if (projection) {
@@ -217,7 +219,7 @@ test('parameter properties map the copied names and the text around the inserted
   assert.deepEqual(at(generated.indexOf('first;'), 'first'), [0, 1, 21]);
   assert.deepEqual(at(generated.indexOf('second;'), 'second'), [0, 1, 53]);
   const assignment = generated.findIndex(line => line.startsWith('this.first = first;'));
-  assert.deepEqual(table[assignment], [[5, 1, 21], [10], [13, 1, 21], [18]]);
+  assert.deepEqual(table[assignment], [[0], [5, 1, 21], [10], [13, 1, 21], [18]]);
   const tail = generated.findIndex(line => line.startsWith('export const result'));
   assert.deepEqual(table[tail][0], [0, 3, 0]);
   // Text after the insertions on the constructor's line keeps its own columns.
@@ -267,6 +269,61 @@ test('lowered JSX maps the copied names and expressions on both sides of the ins
     const row = generated.findIndex(line => line.includes('return '));
     const helper = generated[row].indexOf(jsx === 'classic' ? 'React.createElement' : '_tmtJsx');
     assert.deepEqual(table[row].findLast(entry => entry[0] <= helper), [helper]);
+  }
+});
+
+test('generated text at the start of a line does not inherit the mapping of the line before', () => {
+  const source = 'export const View = () => (\r\n  <X/>\r\n);\r\n';
+  const result = compile(source, { file: 'view.tsx', jsx: 'classic', sourceMap: true });
+  assert.equal(result.backend, 'pulse');
+  const table = decode(result.sourceMap.mappings);
+  const row = lines(result.code).findIndex(line => line.includes('React.createElement'));
+  assert.ok(row > 0);
+  assert.deepEqual(table[row][0], [lines(result.code)[row].indexOf('React.createElement')]);
+  assertSegmentsFaithful(source, result);
+});
+
+test('a JSX key expression keeps its mapping when it moves behind the properties', () => {
+  const source = 'const item = { id: 1 };\nexport const view = <Item key={item.id} label="caf\u00e9 \u{1f600}" other={item} />;\n';
+  const result = compile(source, { file: 'view.tsx', sourceMap: true });
+  assert.equal(result.backend, 'pulse');
+  assertSegmentsFaithful(source, result);
+  const table = decode(result.sourceMap.mappings);
+  const generated = lines(result.code);
+  const row = generated.findIndex(line => line.includes('item.id'));
+  const column = generated[row].indexOf('item.id');
+  assert.ok(column > generated[row].indexOf('other'), generated[row]);
+  assert.deepEqual(table[row].find(entry => entry[0] === column), [column, 1, lines(source)[1].indexOf('item.id')]);
+});
+
+test('an explicit module marker and a script directive leave the code as it is without a map', () => {
+  const marked = 'export type T = number;\r\nconst n: T = 1;\r\nconsole.log(n);\r\n';
+  const module = compile(marked, { file: 'main.mts', sourceMap: true });
+  assert.equal(module.backend, 'pulse');
+  assert.equal(module.code, compile(marked, { file: 'main.mts' }).code);
+  assert.match(module.code, /export \{\};\n$/);
+  assert.equal(module.sourceMap.file, 'main.mjs');
+  assert.ok(assertSegmentsFaithful(marked, module) >= 8);
+  assert.deepEqual(router(marked, { file: 'main.mts', sourceMap: true }), module);
+
+  const erased = compile('// note\nexport type T = number;\n', { file: 'types.mts', sourceMap: true });
+  assert.equal(erased.backend, 'pulse');
+  assert.equal(erased.code, compile('// note\nexport type T = number;\n', { file: 'types.mts' }).code);
+  assert.match(erased.code, /export \{\};\n$/);
+  assert.equal(erased.sourceMap.mappings, '');
+
+  const text = 'const message: string = "caf\u00e9";\r\nconsole.log(message);\r\n';
+  for (const input of [text, Buffer.from(text)]) {
+    const script = compile(input, { file: 'tool.ts', sourceMap: true });
+    assert.equal(script.backend, 'pulse');
+    assert.deepEqual({ ...script, sourceMap: null }, compile(input, { file: 'tool.ts' }));
+    assert.match(script.code, /^"use strict";\n/);
+    assert.deepEqual(router(input, { file: 'tool.ts', sourceMap: true }), script);
+    const table = decode(script.sourceMap.mappings);
+    assert.deepEqual(table[0], []);
+    assert.deepEqual(table[1].slice(0, 2), [[0, 0, 0], [6, 0, 6]]);
+    assert.deepEqual(table[2][0], [0, 1, 0]);
+    assert.deepEqual(script.sourceMap.sourcesContent, [text]);
   }
 });
 

@@ -20,8 +20,8 @@ for (const row of rows) {
   test('native erasure bridge ' + row.replaceAll('\t', ' '), async () => {
     const input = samples[source];
     const result = compile(input, { target: target === 'Modern' ? 'esnext' : 'es2018', sourceMap: map === 'On' });
-    // A map comes from the native scan for module output that keeps every position. A script gains a directive.
-    const bridged = ['Module', 'Empty', 'Script'].includes(source) && target === 'Modern' && (map === 'Off' || source !== 'Script');
+    // A map comes from the native scan, also for a script behind its strict-mode directive.
+    const bridged = ['Module', 'Empty', 'Script'].includes(source) && target === 'Modern';
     if (bridged && map === 'On') assert.equal(typeof result.sourceMap.mappings, 'string');
     assert.equal(result.backend, bridged ? 'pulse' : 'typescript');
     if (source === 'Invalid') assert.equal(result.code, null);

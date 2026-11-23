@@ -33,7 +33,9 @@ test('generator scope survives nested functions and rejects invalid yield contex
   verify('const gen = function* (x = yield value) { yield x; };', 'diagnostic');
   verify('const gen = function* () { class D { x = yield item; } yield item; };', 'diagnostic');
   verify('const gen = function* () { yield* ; };', 'diagnostic');
-  verify('const gen = function* () { const y = yield a < b; };', 'fallback');
+  // A yield is an expression, so an initializer and an argument take the fast path as well.
+  verify('const gen = function* () { const y = yield a < b; };', 'fast');
+  verify('const gen = function* () { const y = [yield a, yield]; return yield* each(c >= d); };', 'fast');
 });
 
 test('delegated yield retains the reference line-boundary diagnostic', () => {
