@@ -42,26 +42,43 @@ function decode(mappings) {
 
 const lines = text => text.split(/\r\n|[\n\r\u2028\u2029]/);
 
-// Every token of the output maps to the same token text in the source.
-export function assertTokensMapped(source, result) {
+const kind = character => /\s/.test(character) ? 0 : /[\w$\u0080-\uffff]/.test(character) ? 1 : 2;
+
+// Every segment sits on a token of the output and maps it to the same text in the source.
+// Returns the number of segments. Lowered output also holds generated text, which has no segment.
+export function assertSegmentsFaithful(source, result, projection = false) {
   const table = decode(result.sourceMap.mappings);
   const generated = lines(result.code), original = lines(source);
   assert.ok(table.length <= generated.length);
-  const starts = [0];
-  for (const match of result.code.matchAll(/\r\n|[\n\r\u2028\u2029]/g)) starts.push(match.index + match[0].length);
-  const scanner = ts.createScanner(ts.ScriptTarget.ESNext, true, ts.LanguageVariant.Standard, result.code);
-  // A segment starts where a run of word or punctuation characters starts, never inside one or on white space.
-  const kind = character => /\s/.test(character) ? 0 : /[\w$\u0080-\uffff]/.test(character) ? 1 : 2;
+  let count = 0;
   for (const [row, segments] of table.entries()) {
     for (const [column, sourceLine, sourceColumn] of segments) {
       const here = generated[row][column];
       assert.ok(here !== undefined && kind(here) !== 0, `segment at line ${row} column ${column} is not on a token`);
-      assert.ok(column === 0 || kind(generated[row][column - 1]) !== kind(here), `segment at line ${row} column ${column} splits a run`);
-      const there = original[sourceLine]?.[sourceColumn];
-      assert.ok(there === here || here === ';' || here === '(' || here === ')',
-        `segment at line ${row} column ${column} maps ${JSON.stringify(here)} to ${JSON.stringify(there)}`);
+      if (projection) {
+        assert.ok(column === 0 || kind(generated[row][column - 1]) !== kind(here), `segment at line ${row} column ${column} splits a run`);
+      }
+      let end = column + 1;
+      while (end < generated[row].length && kind(generated[row][end]) === kind(here)) end++;
+      const run = generated[row].slice(column, end);
+      const there = original[sourceLine]?.slice(sourceColumn, sourceColumn + run.length);
+      // A separator or a parenthesis written over erased syntax has no counterpart, and a copy may end inside a run.
+      assert.ok(there === run || /^[;()]/.test(run) || there?.[0] === here && !projection,
+        `segment at line ${row} column ${column} maps ${JSON.stringify(run)} to ${JSON.stringify(there)}`);
+      count++;
     }
   }
+  return count;
+}
+
+// Every token of the output maps to the same token text in the source.
+export function assertTokensMapped(source, result) {
+  assertSegmentsFaithful(source, result, true);
+  const table = decode(result.sourceMap.mappings);
+  const generated = lines(result.code), original = lines(source);
+  const starts = [0];
+  for (const match of result.code.matchAll(/\r\n|[\n\r\u2028\u2029]/g)) starts.push(match.index + match[0].length);
+  const scanner = ts.createScanner(ts.ScriptTarget.ESNext, true, ts.LanguageVariant.Standard, result.code);
   let line = 0, tokens = 0;
   for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) {
     const at = scanner.getTokenStart();
@@ -128,33 +145,38 @@ for (const row of rows) {
     }[edit];
     const source = body.join(endings[ending]) + endings[ending];
     const result = mapped(source, names[name], form === 'Bytes' ? Buffer.from(source) : source);
+    assert.equal(result.backend, 'pulse');
     if (edit === 'Lowered') {
-      assert.notEqual(result.backend, 'pulse');
+      // The enum body is generated. Its name, its members and the statements around it are copies.
+      assert.ok(assertSegmentsFaithful(source, result) >= 12);
+      const table = decode(result.sourceMap.mappings);
+      const last = lines(result.code).findLastIndex(line => line.startsWith('export const result'));
+      assert.deepEqual(table[last][0], [0, 2, 0]);
       return;
     }
-    assert.equal(result.backend, 'pulse');
     assert.ok(assertTokensMapped(source, result) >= 8);
   });
 }
 
 test('fixtures keep every token mapped', () => {
-  let native = 0;
+  let native = 0, lowered = 0;
   for (const { file, source } of [...denseCases(), ...certificationCases()]) {
     if (!/\.ts$/.test(file)) continue;
     const text = Buffer.from(source, 'base64').toString();
     const result = compile(Buffer.from(text), { file, sourceMap: true });
     if (result.backend !== 'pulse') continue;
     assert.equal(result.code, compile(Buffer.from(text), { file }).code, file);
-    assertTokensMapped(text, result);
+    if (Buffer.byteLength(result.code) === Buffer.byteLength(text)) assertTokensMapped(text, result);
+    else if (result.sourceMap.mappings !== '') lowered += assertSegmentsFaithful(text, result) > 0;
     native++;
   }
   assert.ok(native >= 60, String(native));
+  assert.ok(lowered >= 5, String(lowered));
 });
 
 test('outputs that are not projections and unusual inputs take the router', () => {
   const typed = 'const n: number = 1;\nexport const result = n;\n';
   for (const [source, file] of [
-    ['class C { constructor(public a: number) {} }\nexport const result = new C(1);\n', 'a.ts'],
     ['export const view = <i/>;\n', 'a.tsx'],
     ['\ufeff' + typed, 'a.ts'],
     [typed, 'a.cts'],
@@ -171,6 +193,26 @@ test('outputs that are not projections and unusual inputs take the router', () =
   }
   assert.deepEqual(compile('const s: string = "\ud800";\n', { file: 'a.ts', sourceMap: true }),
     router('const s: string = "\ud800";\n', { file: 'a.ts', sourceMap: true }));
+});
+
+test('parameter properties map the copied names and the text around the inserted statements', () => {
+  const source = 'class C {\n  constructor(public first: number, private readonly second = 2) { this.first; }\n}\nexport const result = new C(1);\n';
+  const result = mapped(source);
+  assert.equal(result.backend, 'pulse');
+  assertSegmentsFaithful(source, result);
+  const table = decode(result.sourceMap.mappings);
+  const generated = lines(result.code);
+  const at = (row, text) => table[row].find(segment => segment[0] === generated[row].indexOf(text));
+  // Field declarations and assignments point at the parameter names.
+  assert.deepEqual(at(generated.indexOf('first;'), 'first'), [0, 1, 21]);
+  assert.deepEqual(at(generated.indexOf('second;'), 'second'), [0, 1, 53]);
+  const assignment = generated.findIndex(line => line.startsWith('this.first = first;'));
+  assert.deepEqual(table[assignment], [[5, 1, 21], [13, 1, 21]]);
+  const tail = generated.findIndex(line => line.startsWith('export const result'));
+  assert.deepEqual(table[tail][0], [0, 3, 0]);
+  // Text after the insertions on the constructor's line keeps its own columns.
+  const body = generated.findIndex(line => line.includes('this.first; }'));
+  assert.deepEqual(at(body, 'this.first; }'), [generated[body].indexOf('this.first; }'), 1, 67]);
 });
 
 test('a module of types alone has an empty map', () => {
@@ -213,6 +255,49 @@ test('only a projection of the source receives mappings', () => {
     ['x\u00e9', 'x;\u00a9'],
   ]) {
     assert.equal(mappings(source, code), undefined, JSON.stringify([source, code]));
+  }
+});
+
+test('copy runs map across generated text, earlier copies and long sources', () => {
+  const addon = { exports: {} };
+  process.dlopen(addon, fileURLToPath(new URL('../build/compiler-module.node', import.meta.url)));
+  const mappings = (source, code, runs) =>
+    addon.exports.projectionMappings(Buffer.from(source), Buffer.from(code), Uint32Array.from(runs.flat()));
+  const at = (text, part, from = 0) => Buffer.byteLength(text.slice(0, text.indexOf(part, from)));
+  const positions = (...values) => decode(mappings(...values));
+
+  // Generated non-ASCII text moves the generated column by its UTF-16 width, also across a generated line.
+  let source = 'alpha beta';
+  let code = '\u{20bb7}\u00e9(beta);\n\u578b alpha';
+  assert.deepEqual(positions(source, code, [[at(code, 'beta'), 6, 4], [at(code, 'alpha'), 0, 5]]), [[[4, 0, 6]], [[2, 0, 0]]]);
+
+  // An erased scalar inside a copy leaves the source position at its end for the next copy.
+  source = 'f(a as "\u{20bb7}\u578b", b)';
+  code = 'f(a      \ufeff\u2002 , b)';
+  const split = at(source, ', b');
+  assert.deepEqual(positions(source, code, [[0, 0, split], [split, split, 4]]),
+    [[[0, 0, 0], [1, 0, 1], [2, 0, 2], [12, 0, 12], [14, 0, 14], [15, 0, 15]]]);
+
+  // A copy of earlier text in a long source finds its line and column again.
+  const lines = Array.from({ length: 900 }, (_, index) => `const name${index} = ${index};`);
+  source = lines.join('\r\n');
+  const early = at(source, 'name3 '), late = at(source, 'name870 ');
+  code = source.slice(0, late) + 'name870, name3 /* generated */ ' + source.slice(late);
+  const table = positions(source, code, [[0, 0, late + 7], [late + 9, early, 5], [late + 31, late, Buffer.byteLength(source) - late]]);
+  assert.deepEqual(table[870], [[0, 870, 0], [6, 870, 6], [15, 3, 6], [37, 870, 6], [45, 870, 14], [47, 870, 16], [50, 870, 19]]);
+  assert.deepEqual(table[899].at(-1), [19, 899, 19]);
+  assert.equal(table.length, 900);
+
+  for (const [from, to, runs] of [
+    ['a\r\nb', 'a\rX\nb', [[0, 0, 2], [3, 2, 2]]],
+    ['abcd', 'abcd', [[0, 0, 3], [2, 2, 2]]],
+    ['abcd', 'abcd', [[0, 2, 4]]],
+    ['abcd', 'abcd', [[2, 0, 4]]],
+    ['abcd', 'abxd', [[0, 0, 4]]],
+    ['a\r\nb', 'xb', [[1, 2, 1], [0, 0, 0]]],
+    ['a\r\nb', '\nb', [[0, 2, 2]]],
+  ]) {
+    assert.equal(mappings(from, to, runs), undefined, JSON.stringify([from, to, runs]));
   }
 });
 

@@ -17,6 +17,8 @@ typedef struct {
   char *code;
   size_t length, capacity, limit;
   bool failed;
+  /* When set, every copy of source bytes is logged for a source map. */
+  tmt_run_log *runs;
 } writer;
 
 typedef struct {
@@ -97,8 +99,25 @@ static bool same_bytes(const lowering *lower, TmtGrammar_span part, const char *
     !memcmp(lower->input.source + part.first, word, part.last - part.first);
 }
 
+static void log_run(tmt_run_log *runs, size_t out, uint32_t src, uint32_t length) {
+  if (runs->failed || out > UINT32_MAX) { runs->failed = true; return; }
+  if (runs->count) {
+    tmt_run *last = &runs->items[runs->count - 1];
+    if (last->out + last->length == out && last->src + last->length == src) { last->length += length; return; }
+  }
+  if (runs->count == runs->capacity) {
+    const size_t capacity = runs->capacity ? runs->capacity * 2 : 32;
+    tmt_run *grown = realloc(runs->items, capacity * sizeof(*grown));
+    if (!grown) { runs->failed = true; return; }
+    runs->items = grown;
+    runs->capacity = capacity;
+  }
+  runs->items[runs->count++] = (tmt_run){ (uint32_t)out, src, length };
+}
+
 static void source_bytes(lowering *lower, uint32_t first, uint32_t last) {
   if (first > last || last > lower->input.size) { lower->output.failed = true; return; }
+  if (lower->output.runs && first < last && !lower->output.failed) log_run(lower->output.runs, lower->output.length, first, last - first);
   write_bytes(&lower->output, lower->input.source + first, last - first);
 }
 
@@ -1360,7 +1379,7 @@ static int compare_insertions(const void *lhs, const void *rhs) {
 }
 
 static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *projected, uint32_t records,
-  uint32_t properties, size_t *length)
+  uint32_t properties, size_t *length, tmt_run_log *runs)
 {
   parameter_insertion *edits = malloc((size_t)properties * 2 * sizeof(*edits));
   if (!edits) return NULL;
@@ -1385,7 +1404,7 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
   qsort(edits, used, sizeof(*edits), compare_insertions);
   // Resolve statement boundaries in the original source. Copy only projected bytes.
   input.source = (uint8_t *)projected;
-  lowering lower = { .input = input, .output.limit = 1048576 };
+  lowering lower = { .input = input, .output.limit = 1048576, .output.runs = runs };
   if (reserve > lower.output.limit) {
     free(edits);
     return NULL;
@@ -1433,8 +1452,8 @@ static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span) {
   return emitted;
 }
 
-static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, size_t *length) {
-  lowering lower = { .input = input, .output.limit = (size_t)input.size * 32 + 1024 };
+static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, size_t *length, tmt_run_log *runs) {
+  lowering lower = { .input = input, .output.limit = (size_t)input.size * 32 + 1024, .output.runs = runs };
   uint32_t copied = 0;
   for (uint32_t index = 0; index < records; index++) {
     if (input.output[index].original != runtime_enum) continue;
@@ -1451,6 +1470,8 @@ static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, s
   *length = lower.output.length;
   return lower.output.code;
 decline:
+  /* A log without its output would describe another buffer. */
+  if (runs) runs->failed = true;
   free(lower.output.code);
   return NULL;
 }
@@ -1487,7 +1508,7 @@ static bool mentions_enum(const uint8_t *source, uint32_t size, tmt_enum_hint hi
 }
 
 static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, uint32_t marker, tmt_enum_hint enums, bool esm, bool module,
-  size_t *length, bool *complete)
+  size_t *length, bool *complete, tmt_run_log *runs)
 {
   char *code = NULL;
   projection_facts facts;
@@ -1499,7 +1520,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   const bool needs_module_marker = code && esm && facts.remove_statement && !retained_module_marker(projected, marker, records);
   if (facts.properties) {
     if (!module || mentions_enum(input.source, input.size, enums)) goto enum_only;
-    char *lowered = emit_parameter_properties(input, code, records, facts.properties, length);
+    char *lowered = emit_parameter_properties(input, code, records, facts.properties, length, runs);
     if (!lowered) goto enum_only;
     free(code);
     code = lowered;
@@ -1507,7 +1528,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   bool unlowered_enum = facts.runtime_enums;
   /* A committed enum record implies the word, so an unknown hint needs no scan here. */
   if (enums != TMT_ENUMS_ABSENT) {
-    char *lowered = lower_recorded_enums(projected, records, length);
+    char *lowered = lower_recorded_enums(projected, records, length, runs);
     if (lowered) {
       free(code);
       code = lowered;
@@ -1535,12 +1556,13 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   return code;
 enum_only:
   free(code);
-  return enums != TMT_ENUMS_ABSENT ? lower_recorded_enums(input, records, length) : NULL;
+  if (runs) runs->failed = true;
+  return enums != TMT_ENUMS_ABSENT ? lower_recorded_enums(input, records, length, NULL) : NULL;
 }
 #endif
 
 char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint enums, bool esm, bool allow_script,
-  size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property)
+  size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property, tmt_run_log *runs)
 {
   *checked = false;
   *complete = false;
@@ -1576,7 +1598,7 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   char *code = NULL;
   if (parsed.status == 0 && parsed.count <= input.capacity) {
     *checked = module;
-    code = erase_annotation_records(input, parsed.count, marker, enums, esm, module, length, complete);
+    code = erase_annotation_records(input, parsed.count, marker, enums, esm, module, length, complete, runs);
     *script = !module && *complete;
     if (!code && module) {
       for (uint32_t index = 0; index < parsed.count; index++) {
@@ -1602,6 +1624,7 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   (void)esm;
   (void)allow_script;
   (void)length;
+  (void)runs;
   return NULL;
 #endif
 }

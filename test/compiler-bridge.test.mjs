@@ -75,8 +75,9 @@ test('parameter properties can lower without TypeScript while preserving constru
   const result = compile(source);
   assert.equal(result.backend, 'pulse');
   const baseline = compile(source, { sourceMap: true });
-  for (const code of [result.code, baseline.code]) {
-    const m = await import('data:text/javascript;base64,' + Buffer.from(code + (code === result.code ? '\n// first' : '\n// second')).toString('base64'));
+  // Each import needs its own URL, or the second run would share the first module's log.
+  for (const [index, code] of [result.code, baseline.code].entries()) {
+    const m = await import('data:text/javascript;base64,' + Buffer.from(code + '\n// run ' + index).toString('base64'));
     const instance = new m.Widget(42);
     assert.equal(instance.value, 42);
     assert.equal(instance.observed, 2);

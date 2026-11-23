@@ -373,7 +373,7 @@ static napi_value emit_annotated_module(napi_env env, napi_callback_info info) {
   if (size <= source_limit) {
     output = tmt_emit_annotated_module(source, (uint32_t)size,
       hint == napi_undefined ? TMT_ENUMS_UNKNOWN : enums ? TMT_ENUMS_PRESENT : TMT_ENUMS_ABSENT, esm, allow_script,
-      &length, &checked, &complete, &script, &property);
+      &length, &checked, &complete, &script, &property, NULL);
   }
   if (output) {
     NAPI(create_source_string(env, output, length, &result));
@@ -508,10 +508,15 @@ enum { emit_tsx = 1, emit_esm = 2, emit_classic = 4, emit_mapped = 16 };
  * yields undefined, and the caller's compatibility route then produces the code and its map.
  */
 static napi_status create_mapped_result(napi_env env, const uint8_t *source, size_t size, const char *code, size_t length,
-  napi_value *result)
+  const tmt_run_log *runs, napi_value *result)
 {
   size_t written = 0;
-  char *mappings = tmt_projection_mappings(source, (const uint8_t *)code, size, length, &written);
+  /* A lowering logs its copies. Without a log the output must be one copy of the whole source. */
+  const bool lowered = runs && runs->count;
+  if (runs && runs->failed) return napi_get_undefined(env, result);
+  char *mappings = lowered ? tmt_run_mappings(source, size, (const uint8_t *)code, length, runs->items, runs->count, &written) :
+    tmt_projection_mappings(source, (const uint8_t *)code, size, length, &written);
+  if (!mappings && lowered) return napi_get_undefined(env, result);
   if (!mappings) {
     /* A module of types alone leaves comments and line breaks, which need no mapping. */
     bool trivia = length == 0;
@@ -547,6 +552,7 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
   NAPI(napi_get_buffer_info(env, args[0], &bytes, &size));
   NAPI(napi_get_value_uint32(env, args[1], &flags));
   uint8_t *source = bytes;
+  tmt_run_log runs = { 0 };
   const bool jsx = flags & emit_tsx, esm = flags & emit_esm, classic = flags & emit_classic;
   if (!size || size > source_limit || !unshared_buffer(env, args[0]) || !valid_utf8(source, size)) goto decline;
   const uint32_t width = (uint32_t)size;
@@ -558,7 +564,7 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     bool failed;
     if (direct_plan(source, size, &planned, &failed)) {
       const char *code = planned ? (char *)planned : (char *)source;
-      const napi_status created = flags & emit_mapped ? create_mapped_result(env, source, size, code, size, &result) :
+      const napi_status created = flags & emit_mapped ? create_mapped_result(env, source, size, code, size, NULL, &result) :
         create_source_string(env, code, size, &result);
       free(planned);
       NAPI(created);
@@ -581,7 +587,7 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     tmt_parameter_route property;
     output = tmt_emit_annotated_module(source, width,
       !jsx ? TMT_ENUMS_UNKNOWN : runtime ? TMT_ENUMS_PRESENT : TMT_ENUMS_ABSENT, esm, !esm && !jsx,
-      &length, &checked, &complete, &script, &property);
+      &length, &checked, &complete, &script, &property, flags & emit_mapped ? &runs : NULL);
     if (output && complete && !script) goto publish;
     /* Scripts, partial projections and compatibility hints continue in JavaScript. */
     goto decline;
@@ -592,19 +598,22 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
   }
 decline:
   free(output);
+  free(runs.items);
   NAPI(napi_get_undefined(env, &result));
   return result;
 publish:
   {
-    const napi_status created = flags & emit_mapped ? create_mapped_result(env, source, size, output, length, &result) :
+    const napi_status created = flags & emit_mapped ? create_mapped_result(env, source, size, output, length, &runs, &result) :
       create_source_string(env, output, length, &result);
     free(output);
+    free(runs.items);
     output = NULL;
     NAPI(created);
   }
   return result;
 error:
   free(output);
+  free(runs.items);
   napi_throw_error(env, NULL, "Native TypeScript emission arguments or allocation failed");
   return NULL;
 }
@@ -637,7 +646,7 @@ static napi_value emit_javascript_module(napi_env env, napi_callback_info info) 
   bool checked, complete, script;
   tmt_parameter_route property;
   output = tmt_emit_annotated_module(source, width, TMT_ENUMS_ABSENT, false, false,
-    &length, &checked, &complete, &script, &property);
+    &length, &checked, &complete, &script, &property, NULL);
   if (!output || !complete || script || length != size || memcmp(output, source, size)) goto decline;
   {
     const napi_status created = create_source_string(env, output, length, &result);
@@ -656,16 +665,27 @@ error:
   return NULL;
 }
 
-/* The mappings for a source and its projection, or undefined when the second buffer is not a projection of the first. */
+/*
+ * The mappings for a source and its projection, or undefined when the second buffer is not a
+ * projection of the first. A third argument lists copy runs as triples of output offset, source
+ * offset and length in a Uint32Array, as a lowering logs them.
+ */
 static napi_value projection_mappings(napi_env env, napi_callback_info info) {
-  napi_value args[2], result;
-  size_t argc = 2, size, length, written = 0;
-  void *source, *code;
+  napi_value args[3], result, buffer;
+  size_t argc = 3, size, length, written = 0, count = 0, offset;
+  void *source, *code, *triples = NULL;
+  napi_typedarray_type type;
   NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
-  if (argc != 2) goto error;
+  if (argc < 2) goto error;
   NAPI(napi_get_buffer_info(env, args[0], &source, &size));
   NAPI(napi_get_buffer_info(env, args[1], &code, &length));
-  char *mappings = tmt_projection_mappings(source, code, size, length, &written);
+  if (argc == 3) {
+    NAPI(napi_get_typedarray_info(env, args[2], &type, &count, &triples, &buffer, &offset));
+    if (type != napi_uint32_array || count % 3) goto error;
+  }
+  _Static_assert(sizeof(tmt_run) == 3 * sizeof(uint32_t), "A run is three 32-bit fields");
+  char *mappings = argc == 3 ? tmt_run_mappings(source, size, code, length, triples, count / 3, &written) :
+    tmt_projection_mappings(source, code, size, length, &written);
   if (!mappings) {
     NAPI(napi_get_undefined(env, &result));
     return result;
