@@ -166,3 +166,23 @@ The [raw samples, coverage, and framework differential](../evidence/compiler/nat
 Pulse projects whole type re-exports and the type members of a mixed export list. A runtime re-export remains in the output even when its list becomes empty, preserving the dependency's side effects. Runtime aliases can retain contextual names such as `type`. The guard accepts a chain such as `value as unknown as T` when the next committed assertion starts at the next token on the same line. The final assertion still needs a supported boundary.
 
 These changes increased Pulse-only coverage from 438 to 510 of the 653 core inputs. The compiler emitted all 653 in an isolated directory with no TypeScript package installed. Seven alternating samples measure mreact's 321 TypeScript files at 158.09 → 131.71 ms warm and 293.22 → 267.32 ms on first emission for the consecutive-assertion change. The output audit found no new differences within the core inputs. The isolated competitor retest at `6add454` led nine of 17 comparable warm workloads. SWC Next led all 17 first-emission workloads. For `App.tsx`, the same-run medians were 7.33 ms warm and 13.82 ms first for TMT, 6.80 ms warm for Oxc, and 10.79 ms first for SWC Next.
+
+### Complete native emission on the fixed TSX inputs
+
+The shared Pulse journal reserves slots only for compiler spans during type capture. The mutation extractor keeps its comparison slot behavior. JSX and enum lowering share one writer and one runtime import insertion point. Certified lexical exports can precede erased type declarations, and an assertion can end before a separate identifier-led line. These changes reach all 116 fixed TSX inputs and 417 of 537 TypeScript inputs without Node type erasure on `74093b7`. The core audit reports no new normalized output or dependency differences.
+
+Seven alternating macOS samples against `6add454` measure mreact TSX at 3.66 → 2.25 ms warm and 25.09 → 5.41 ms for first emission. The isolated measurements on `8147cba` led eight of 17 comparable warm workloads and none of the first-emission workloads. The three rows labeled Pulse-only are subsets selected by the backend on that revision and then intersected with the reference engines' accepted inputs.
+
+| Workload | TMT warm (ms) | Fastest reference warm (ms) | TMT first (ms) | Fastest reference first (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| mreact TSX, 84 files | 7.48 | 5.97 (Oxc) | 12.54 | 7.84 (SWC Next) |
+| tachyon-dom TSX, 32 files | 0.94 | 1.09 (SWC Next) | 4.34 | 2.25 (SWC Next) |
+| App.tsx | 5.89 | 5.03 (Oxc) | 11.61 | 8.60 (SWC Next) |
+| Vite TS Pulse-only, 79 common files | 5.00 | 4.15 (Oxc) | 9.12 | 4.78 (SWC Next) |
+| mreact TS Pulse-only, 256 common files | 32.04 | 23.38 (Oxc) | 50.09 | 25.11 (SWC Next) |
+| tachyon-dom TS Pulse-only, 69 common files | 7.19 | 5.63 (Oxc) | 12.56 | 6.36 (SWC Next) |
+| mreact TS, 315 common files | 236.63 | 100.65 (Oxc) | 422.95 | 107.81 (SWC Next) |
+
+The macOS profile of mreact's Pulse-only inputs attributes about 49% of process CPU time to the Pulse module parse, 19% to the ambiguity guard, and 12% to V8 validation. The length-based guard keyword dispatch experiment produced byte-identical output and changed warm medians by at most 2%, with mixed first-emission results. The implementation retains the original guard dispatch.
+
+The upstream source sample uses a fixed TypeScript revision and reads test blobs as data. It selected 503 single-source candidates and found 126 module inputs with valid reference ESNext emission. With TypeScript loading blocked, TMT emitted 66 of those inputs, including 32 through Pulse alone. This sample reports input and emission coverage. All 3,036 repository tests passed. The [raw profiles and comparison samples](../evidence/compiler/native-type-projection.json) record the measured paths and source hashes.
