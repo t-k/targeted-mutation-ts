@@ -3,19 +3,20 @@
 // Loading and first execution of JavaScript dominate a cold compile, so the default TypeScript and
 // JavaScript routes are one native call each. Every other option, input and outcome takes the
 // complete router, which decides each case again from the start.
-function nativeEntry(name, method) {
+const unavailable = {};
+function nativeAddon(name) {
   try {
     const addon = { exports: {} };
     process.dlopen(addon, __dirname + '/../build/' + name);
-    if (typeof addon.exports[method] === 'function') return addon.exports[method];
+    return addon.exports;
   } catch {
     // The router reports a missing or incompatible addon.
+    return unavailable;
   }
-  return null;
 }
 
-let typescript;
-let javascript;
+let pulse;
+let v8;
 
 const tsx = 1;
 const esm = 2;
@@ -63,15 +64,22 @@ function compile(input, options) {
   if (defaults) {
     const kind = sourceKind(file);
     if (kind >= script) {
-      if (Buffer.isBuffer(input) && (javascript ??= nativeEntry('compiler-js.node', 'emitJavaScript')) !== null) {
-        const code = javascript(input, kind >> 1 & 1);
+      if (Buffer.isBuffer(input)) {
+        // A module that the certified parse leaves unedited needs no second parse. V8 decides the rest.
+        const module = (pulse ??= nativeAddon('compiler-module.node')).emitJavaScriptModule;
+        let code = module === undefined ? undefined : module(input, kind !== script);
+        if (code === undefined) {
+          const emit = (v8 ??= nativeAddon('compiler-js.node')).emitJavaScript;
+          if (emit !== undefined) code = emit(input, kind >> 1 & 1);
+        }
         if (code !== undefined) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
       }
     } else if (kind >= 0) {
       const source = Buffer.isBuffer(input) ? input :
         typeof input === 'string' && input.isWellFormed() ? Buffer.from(input) : null;
-      if (source !== null && (typescript ??= nativeEntry('compiler-module.node', 'emitTypeScript')) !== null) {
-        const code = typescript(source, kind | flags);
+      const emit = source === null ? undefined : (pulse ??= nativeAddon('compiler-module.node')).emitTypeScript;
+      if (emit !== undefined) {
+        const code = emit(source, kind | flags);
         if (code !== undefined) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
       }
     }

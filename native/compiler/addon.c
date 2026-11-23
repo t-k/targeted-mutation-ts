@@ -576,6 +576,53 @@ error:
   return NULL;
 }
 
+/*
+ * A JavaScript module whose certified parse commits no edit is its own output. The call returns
+ * undefined for scripts, for TypeScript syntax, for sources the parse does not accept and for
+ * directives, and the V8 route then decides them. For a .js name the module must begin with a
+ * static import or export, so scripts are declined without walking the source.
+ */
+static napi_value emit_javascript_module(napi_env env, napi_callback_info info) {
+  napi_value args[2], result;
+  size_t argc = 2, size, length = 0;
+  bool module_file;
+  void *bytes;
+  char *output = NULL;
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc != 2) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &bytes, &size));
+  NAPI(napi_get_value_bool(env, args[1], &module_file));
+  uint8_t *source = bytes;
+  if (!size || size > source_limit || !unshared_buffer(env, args[0]) || !valid_utf8(source, size) ||
+      contains(source, size, "///", false)) goto decline;
+  const uint32_t width = (uint32_t)size;
+  if (!module_file) {
+    const TmtPulseMemory_tape head = { .source = source, .size = width };
+    const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(head);
+    if (!first.ok || first.at == width || !TmtPulseCompiler_runtime_module_marker(head, first.at)) goto decline;
+  }
+  bool checked, complete, script;
+  tmt_parameter_route property;
+  output = tmt_emit_annotated_module(source, width, TMT_ENUMS_ABSENT, false, false,
+    &length, &checked, &complete, &script, &property);
+  if (!output || !complete || script || length != size || memcmp(output, source, size)) goto decline;
+  {
+    const napi_status created = create_source_string(env, output, length, &result);
+    free(output);
+    output = NULL;
+    NAPI(created);
+  }
+  return result;
+decline:
+  free(output);
+  NAPI(napi_get_undefined(env, &result));
+  return result;
+error:
+  free(output);
+  napi_throw_error(env, NULL, "Native JavaScript emission arguments or allocation failed");
+  return NULL;
+}
+
 static napi_value trivia_only(napi_env env, napi_callback_info info) {
   napi_value arg, result;
   size_t argc = 1, size;
@@ -660,6 +707,8 @@ static napi_value init(napi_env env, napi_value exports) {
   NAPI(napi_create_function(env, "validModule", NAPI_AUTO_LENGTH, valid_module, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "validModule", entry));
 #endif
+  NAPI(napi_create_function(env, "emitJavaScriptModule", NAPI_AUTO_LENGTH, emit_javascript_module, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "emitJavaScriptModule", entry));
   NAPI(napi_create_function(env, "emitTypeScript", NAPI_AUTO_LENGTH, emit_typescript, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "emitTypeScript", entry));
   NAPI(napi_create_function(env, "triviaOnly", NAPI_AUTO_LENGTH, trivia_only, NULL, &entry));

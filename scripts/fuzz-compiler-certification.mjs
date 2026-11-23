@@ -106,7 +106,9 @@ export function fuzz(corpus, seed, count, batch = 4000) {
       const base = corpus[random(corpus.length)];
       const text = mutate(Buffer.from(base.source, 'base64').toString('utf8'), random);
       const exported = random(4) === 0 || /\b(?:import|export)\b/.test(text) ? text : text + '\nexport {};\n';
-      return { file: `fuzz/${seed}/${done + index}${/\.tsx$/.test(base.file) ? '.tsx' : '.ts'}`, mode: 'module',
+      // JavaScript sources stay JavaScript modules, where any TypeScript fragment must be declined.
+      const extension = /\.tsx$/.test(base.file) ? '.tsx' : /\.m?js$/.test(base.file) ? '.mjs' : '.ts';
+      return { file: `fuzz/${seed}/${done + index}${extension}`, mode: 'module',
         source: Buffer.from(exported).toString('base64') };
     });
     const audited = run(cases, '--audit-worker');
@@ -136,7 +138,7 @@ if (import.meta.main) {
   const limit = Number(values['max-bytes']);
   const corpus = positionals.flatMap(path => {
     const input = JSON.parse(readFileSync(path));
-    return (input.rows ?? input).filter(test => /\.tsx?$/.test(test.file) && !/\.d\.ts$/.test(test.file) &&
+    return (input.rows ?? input).filter(test => /\.(?:tsx?|m?js)$/.test(test.file) && !/\.d\.ts$/.test(test.file) &&
       test.source.length * 3 / 4 <= limit);
   });
   const report = fuzz(corpus, Number(values.seed), Number(values.count));
