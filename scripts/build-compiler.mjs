@@ -20,9 +20,14 @@ if (!headers) throw new Error('Set TMT_NODE_INCLUDE to the directory containing 
 
 const macOS = process.platform === 'darwin';
 const compiler = process.env.CC ?? (macOS ? '/usr/bin/clang' : 'cc');
+const cpp = process.env.CXX ?? (macOS ? '/usr/bin/clang++' : 'c++');
 mkdirSync(output, { recursive: true });
 const scratch = mkdtempSync(resolve(output, '.compiler-'));
 try {
+  const validator = resolve(scratch, 'validate-js.o');
+  const checked = spawnSync(cpp, ['-std=c++20', '-O3', '-fPIC', '-fvisibility=hidden',
+    '-isystem', headers, '-c', 'native/compiler/validate-js.cc', '-o', validator], { cwd: root, encoding: 'utf8' });
+  const moduleFlags = checked.status === 0 ? ['-DTMT_V8_VALIDATOR', validator] : [];
   const common = ['-std=c11', '-O3', '-fPIC', '-fvisibility=hidden', '-Wall', '-Wextra', '-Werror',
     '-Wno-parentheses', '-I', headers, '-I', 'native/runtime',
     ...(values['scalar-scans'] ? ['-DTMT_SCALAR_SCANS'] : []),
@@ -30,7 +35,7 @@ try {
     'native/compiler/addon.c', 'native/compiler/lowering.c'];
   for (const [name, flags, source] of [
     ['compiler.node', ['-DTMT_DIRECT'], 'native/compiler/generated/direct'],
-    ['compiler-module.node', [], 'native/compiler/generated'],
+    ['compiler-module.node', moduleFlags, 'native/compiler/generated'],
   ]) {
     const input = simdSource(root, source + '/Custard.c', scratch, values['scalar-scans']);
     const args = [...common, ...flags, '-I', source, input, '-o', resolve(scratch, name)];

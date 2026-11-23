@@ -1,0 +1,3 @@
+Binding: Local, Parameter, Return
+Source: Module, TypePrelude, LateType, GenericCall, Malformed
+Layout: Inline, Multiline

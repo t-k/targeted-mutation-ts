@@ -280,13 +280,21 @@ function compile(input, options = {}) {
           if (runtime && (!jsxFile || !source.includes('\\u'))) {
             const mixed = addon.lower(source, jsxFile, true, jsx === 'classic', true);
             if (mixed !== null) {
+              if (typeof mixed !== 'string') {
+                return { backend: 'pulse', code: mixed.code, sourceMap: null, diagnostics: [] };
+              }
               const result = eraseLoweredModule(addon, mixed, file, format);
               if (result) return result;
             }
           }
           if (!jsxFile) {
+            const annotated = !runtime && (source.includes(':') || source.includes('<') || source.includes('type')) ?
+              addon.emitAnnotatedModule(source) : null;
+            if (typeof annotated === 'string') {
+              return { backend: 'pulse', code: annotated, sourceMap: null, diagnostics: [] };
+            }
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
-            const result = addon.moduleMarker(source, true) ? eraseModule(addon, text, file, format) :
+            const result = (annotated === true || addon.moduleMarker(source, true)) ? eraseModule(addon, text, file, format) :
               format === 'preserve' ? eraseScript(addon, text, source, file) : null;
             if (result) return result;
           }

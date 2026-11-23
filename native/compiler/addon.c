@@ -197,7 +197,7 @@ error:
 static napi_value lower_source(napi_env env, napi_callback_info info) {
   napi_value args[5], result;
   size_t argc = 5, size, length;
-  bool jsx, typescript, classic, mixed;
+  bool jsx, typescript, classic, mixed, complete;
   void *source;
   char *output = NULL;
   NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
@@ -207,9 +207,14 @@ static napi_value lower_source(napi_env env, napi_callback_info info) {
   NAPI(napi_get_value_bool(env, args[2], &typescript));
   NAPI(napi_get_value_bool(env, args[3], &classic));
   NAPI(napi_get_value_bool(env, args[4], &mixed));
-  if (size <= source_limit) output = tmt_lower_runtime(source, (uint32_t)size, jsx, typescript, classic, mixed, &length);
+  if (size <= source_limit) output = tmt_lower_runtime(source, (uint32_t)size, jsx, typescript, classic, mixed, &length, &complete);
   if (output) {
     NAPI(napi_create_string_utf8(env, output, length, &result));
+    if (complete) {
+      napi_value code = result;
+      NAPI(napi_create_object(env, &result));
+      NAPI(napi_set_named_property(env, result, "code", code));
+    }
     free(output);
   } else {
     NAPI(napi_get_null(env, &result));
@@ -222,6 +227,31 @@ error:
 }
 
 #ifndef TMT_DIRECT
+static napi_value emit_annotated_module(napi_env env, napi_callback_info info) {
+  napi_value arg, result;
+  size_t argc = 1, size, length;
+  bool checked = false;
+  void *source;
+  char *output = NULL;
+  NAPI(napi_get_cb_info(env, info, &argc, &arg, NULL, NULL));
+  if (argc != 1) goto error;
+  NAPI(napi_get_buffer_info(env, arg, &source, &size));
+  if (size <= source_limit) output = tmt_emit_annotated_module(source, (uint32_t)size, &length, &checked);
+  if (output) {
+    NAPI(napi_create_string_utf8(env, output, length, &result));
+    free(output);
+  } else if (checked) {
+    NAPI(napi_get_boolean(env, true, &result));
+  } else {
+    NAPI(napi_get_null(env, &result));
+  }
+  return result;
+error:
+  free(output);
+  napi_throw_type_error(env, NULL, "Expected a source buffer");
+  return NULL;
+}
+
 static napi_value module_marker(napi_env env, napi_callback_info info) {
   napi_value args[2], result;
   size_t argc = 2, size;
@@ -317,6 +347,8 @@ static napi_value init(napi_env env, napi_value exports) {
 #ifndef TMT_DIRECT
   NAPI(napi_create_function(env, "eraseTypeModule", NAPI_AUTO_LENGTH, erase_type_module, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "eraseTypeModule", entry));
+  NAPI(napi_create_function(env, "emitAnnotatedModule", NAPI_AUTO_LENGTH, emit_annotated_module, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "emitAnnotatedModule", entry));
   NAPI(napi_create_function(env, "moduleMarker", NAPI_AUTO_LENGTH, module_marker, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "moduleMarker", entry));
   NAPI(napi_create_function(env, "unboundExport", NAPI_AUTO_LENGTH, unbound_export, NULL, &entry));

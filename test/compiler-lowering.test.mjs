@@ -124,7 +124,7 @@ test('mixed TSX modules lower multiple declarations and share one runtime import
   const source = 'import type { Config } from "unused";\nexport const size: number = 2;\n' +
     'export const View = (x: number) => <span>{x}</span>;\nconst other = <i/>;\nexport const get = () => other;';
   const lowered = compile(source, { file: 'input.tsx' });
-  assert.equal(lowered.backend, 'pulse+node-strip');
+  assert.equal(lowered.backend, 'pulse');
   assert.equal(lowered.code.match(/react\/jsx-runtime/g).length, 1);
   const module = await load(lowered.code);
   assert.deepEqual(module.View(module.size), { type: 'span', props: { children: 2 } });
@@ -221,11 +221,25 @@ test('whole-module JSX preserves ASI and the surrounding function body', async (
     const source = 'export function View() { ' + body + ' }';
     const options = { file: 'component.tsx' };
     const result = compile(source, options);
-    assert.equal(result.backend, 'pulse+node-strip', body);
+    assert.equal(result.backend, 'pulse', body);
     const reference = compile(source, { ...options, sourceMap: true });
     assert.deepEqual((await load(result.code)).View(), (await load(reference.code)).View());
   }
   assert.equal(compile('export function View() { return (<i/>; }', { file: 'component.tsx' }).code, null);
+});
+
+test('whole-module JSX erases types in the original source gaps before lowering', async () => {
+  const source = 'import type { Label } from "unused";\n' +
+    'export function View(title: Label) {\n' +
+    '  const nested = (name: string) => <strong>{name}</strong>;\n' +
+    '  return <i type="text">{nested(title)}</i>;\n}';
+  const options = { file: 'native.tsx' };
+  const result = compile(source, options);
+  const reference = compile(source, { ...options, sourceMap: true });
+  assert.equal(result.backend, 'pulse');
+  assert.deepEqual((await load(result.code)).View('東京'), (await load(reference.code)).View('東京'));
+  const generic = 'export function View(value: number) { return <i>{convert < number > (value)}</i>; }';
+  assert.notEqual(compile(generic, options).backend, 'pulse');
 });
 
 test('mixed TSX keeps directives and complex JavaScript expressions in place', async () => {
@@ -233,7 +247,7 @@ test('mixed TSX keeps directives and complex JavaScript expressions in place', a
     'const attrs = () => ({ hidden: true });\nconst format = (x: number) => [x, x + 1].join(":");\n' +
     'export function View(x: number) { return <article {...attrs()} onClick={() => format(x)}>{format(x)}</article>; }';
   const actual = compile(source, { file: 'component.tsx' });
-  assert.equal(actual.backend, 'pulse+node-strip');
+  assert.equal(actual.backend, 'pulse');
   assert.match(actual.code, /^"use client";/);
   const reference = compile(source, { file: 'component.tsx', sourceMap: true });
   for (const result of [actual, reference]) {
@@ -247,14 +261,14 @@ test('mixed TSX keeps directives and complex JavaScript expressions in place', a
 test('mixed JSX expression copies lower nested conditional children', async () => {
   const source = 'const visible = true; export const View = () => <i>{visible ? <b/> : null}</i>;';
   const result = compile(source, { file: 'component.tsx' });
-  assert.equal(result.backend, 'pulse+node-strip');
+  assert.equal(result.backend, 'pulse');
   assert.deepEqual((await load(result.code)).View(), { type: 'i', props: { children: { type: 'b', props: {} } } });
 });
 
 test('the runtime import lands on its statement boundary after an earlier JSX edit', async () => {
   const source = 'const view = <div>longer output</div>;\nexport const getView = () => view;';
   const actual = compile(source, { file: 'component.tsx' });
-  assert.equal(actual.backend, 'pulse+node-strip');
+  assert.equal(actual.backend, 'pulse');
   assert.match(actual.code, /;\s*import\{[\s\S]+\nexport const getView/);
   assert.deepEqual((await load(actual.code)).getView(), { type: 'div', props: { children: 'longer output' } });
 });
@@ -277,7 +291,7 @@ for (const [placement, key, tail] of moduleCases) {
       assert.equal(result.code, null);
       return;
     }
-    assert.equal(result.backend, 'pulse+node-strip');
+    assert.equal(result.backend, 'pulse');
     const reference = compile(source, { file: 'module.tsx', sourceMap: true });
     const native = (await load(result.code)).Outer(5);
     const original = (await load(reference.code)).Outer(5);
@@ -295,7 +309,7 @@ test('whole-module JSX decodes numeric references and composes with runtime enum
 
 test('a TSX module with no markup still erases TypeScript without the compiler', () => {
   const result = compile('export function read(x: object) { return x; }', { file: 'empty-markup.tsx' });
-  assert.equal(result.backend, 'pulse+node-strip');
+  assert.equal(result.backend, 'pulse');
   assert.doesNotMatch(result.code, /: object/);
 });
 
@@ -303,7 +317,7 @@ test('a JSX expression can contain more comparisons than the small expression sc
   const values = Array.from({ length: 160 }, (_, index) => 'input > ' + index).join(',');
   const source = 'export function Test(input: number) { return <i values={[' + values + ']} />; }';
   const result = compile(source, { file: 'large-expression.tsx' });
-  assert.equal(result.backend, 'pulse+node-strip');
+  assert.equal(result.backend, 'pulse');
   assert.equal((await load(result.code)).Test(42).props.values.filter(Boolean).length, 42);
 });
 

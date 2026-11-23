@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { stripTypeScriptTypes } from 'node:module';
 import test from 'node:test';
 import { compile } from '../src/compiler.mjs';
 
@@ -19,7 +20,7 @@ for (const row of rows) {
     const input = samples[source];
     const result = compile(input, { target: target === 'Modern' ? 'esnext' : 'es2018', sourceMap: map === 'On' });
     const bridged = (source === 'Module' || source === 'Empty') && target === 'Modern' && map === 'Off';
-    assert.equal(result.backend, bridged ? (source === 'Empty' ? 'pulse' : 'node-strip') : 'typescript');
+    assert.equal(result.backend, bridged ? 'pulse' : 'typescript');
     if (source === 'Invalid') assert.equal(result.code, null);
     if (bridged && source === 'Module') {
       const module = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
@@ -44,14 +45,14 @@ test('later module markers survive erasure and runtime text is not a triple-slas
   const source = 'import type { X } from "fixture";\nconst prefix: string = "a:///b";\n' +
     'export function read(_value: X): string { return prefix; }';
   const lowered = compile(source);
-  assert.equal(lowered.backend, 'node-strip');
+  assert.equal(lowered.backend, 'pulse');
   const module = await import('data:text/javascript;base64,' + Buffer.from(lowered.code).toString('base64'));
   assert.equal(module.read(null), 'a:///b');
 });
 
 test('a hashbang can precede a later module marker', () => {
   const result = compile('#!/usr/bin/env node\nconst value: number = 1;\nexport function read() { return value; }');
-  assert.equal(result.backend, 'node-strip');
+  assert.equal(result.backend, 'pulse');
   assert.match(result.code, /^#!\/usr\/bin\/env node/);
 });
 
@@ -116,7 +117,9 @@ test('parameter properties accept identifiers and object keys containing runtime
 test('a static import list can contain hundreds of specifiers', () => {
   const imports = Array.from({ length: 180 }, (_, index) => 'member' + index).join(',');
   const source = 'import {' + imports + '} from "unused"; export function get(): number { return 42; }';
-  assert.equal(compile(source).backend, 'node-strip');
+  const result = compile(source);
+  assert.equal(result.backend, 'pulse');
+  assert.equal(result.code, stripTypeScriptTypes(source));
 });
 
 test('modern JavaScript scripts and modules do not need TypeScript', async () => {
@@ -136,11 +139,95 @@ test('syntax validation is independent of the mutation candidate capacity', asyn
   const statements = 'result += (0 < 1) + (2 >= 3);\n'.repeat(160);
   const source = 'export let result: number = 0;\n' + statements;
   const result = compile(source);
-  assert.equal(result.backend, 'node-strip');
+  assert.equal(result.backend, 'pulse');
   const actual = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
   assert.equal(actual.result, 160);
   assert.equal(compile(source + 'export { missing };').code, null);
   assert.equal(compile(source + 'export const broken =').code, null);
+});
+
+const annotationRows = readFileSync(new URL('../verification/pict/compiler-annotations.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of annotationRows) {
+  const [binding, source, layout] = row.split('\t');
+  test('module type annotation erasure ' + row.replaceAll('\t', ' '), async () => {
+    const gap = layout === 'Inline' ? ' ' : '\n  ';
+    const declarations = {
+      Local: 'const value:' + gap + 'number = Math.abs(-6);\nexport { value };',
+      Parameter: 'function twice(x:' + gap + 'number) { return x * 2; }\nexport const value = twice(3);',
+      Return: 'function twice(x):' + gap + 'number { return x * 2; }\nexport const value = twice(3);',
+    };
+    const erased = 'import type {T} from "unused";\ninterface Shape { value: T }\ntype S = Shape;\n';
+    const prefix = source === 'TypePrelude' ? erased : '';
+    const suffix = source === 'GenericCall' ? '\nexport const generic = twice < number > (3);' :
+      source === 'Malformed' ? '\nexport const broken =' : source === 'LateType' ? '\n' + erased : '';
+    const input = prefix + declarations[binding] + suffix;
+    const result = compile(input);
+    if (source === 'Malformed') assert.equal(result.code, null);
+    if ((source !== 'Module' && source !== 'TypePrelude') || layout !== 'Inline') {
+      assert.notEqual(result.backend, 'pulse', input);
+      return;
+    }
+    assert.equal(result.backend, 'pulse', input);
+    assert.equal(result.code, stripTypeScriptTypes(input));
+    const module = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+    assert.equal(module.value, 6);
+  });
+}
+
+test('annotation erasure distinguishes a comparison, a generic call and import aliases', () => {
+  const source = 'import { limit as threshold } from "fixture";\n' +
+    'export function below(value: number) { if (value < threshold) return true; return false; }';
+  const result = compile(source);
+  assert.equal(result.backend, 'pulse');
+  assert.equal(result.code, stripTypeScriptTypes(source));
+  for (const suffix of [
+    '\nexport const generic = below < number > (3);',
+    '\nexport const generic = below < " ; > " > (3);',
+    '\nbelow as Function\n(3);',
+  ]) {
+    const input = source + suffix;
+    const bridged = compile(input);
+    assert.notEqual(bridged.backend, 'pulse', suffix);
+    assert.ok(bridged.code);
+    assert.doesNotMatch(bridged.code, /below\s*[<]|below as/);
+  }
+});
+
+test('annotation erasure leaves multiline assertions to TypeScript-compatible parsing', () => {
+  for (const keyword of ['as', 'satisfies']) {
+    const source = 'export {}; const x: number = 1\n' + keyword + '\nnumber;';
+    const result = compile(source);
+    assert.notEqual(result.backend, 'pulse', source);
+    assert.equal(result.code, stripTypeScriptTypes(source));
+    const jsx = compile(source + '\nexport const View = () => <i/>;', { file: 'source.tsx' });
+    assert.notEqual(jsx.backend, 'pulse', source);
+  }
+});
+
+test('native generic calls and arrows preserve the exact boundary of type arguments', async () => {
+  for (const file of ['generic.ts', 'generic.tsx']) {
+    const source = 'export function id<T>(x: T): T { return x; }\n' +
+      'const arrow = <T,>(x: T) => x;\n' +
+      'export const value = id<number> /* keep before the call */ (arrow<number>(7));';
+    const result = compile(source, { file });
+    assert.equal(result.backend, 'pulse', file);
+    assert.equal(result.code, stripTypeScriptTypes(source));
+    const actual = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+    assert.equal(actual.value, 7);
+  }
+  const source = 'export const value = String<number>(7);';
+  assert.equal(compile(source).backend, 'pulse');
+  assert.equal(compile(source).code, stripTypeScriptTypes(source));
+});
+
+test('an erased type-only import keeps a runtime module and its directives', () => {
+  const source = 'import type { T } from "unused";\n"use client";\nconst value: T = Math.abs(-6);';
+  const result = compile(source);
+  assert.equal(result.backend, 'pulse');
+  assert.equal(result.code, stripTypeScriptTypes(source) + '\nexport {};\n');
+  const late = 'export const value: number = 1;\nvalue\ntype T = number\n(3);';
+  assert.notEqual(compile(late).backend, 'pulse');
 });
 
 test('JavaScript pass-through declines TypeScript syntax and ambiguous strict directives', () => {

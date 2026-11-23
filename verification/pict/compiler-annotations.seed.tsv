@@ -1,0 +1,8 @@
+Binding	Source	Layout
+Local	Module	Inline
+Parameter	GenericCall	Inline
+Return	Malformed	Multiline
+Parameter	Module	Inline
+Return	Module	Inline
+Local	TypePrelude	Inline
+Return	LateType	Inline

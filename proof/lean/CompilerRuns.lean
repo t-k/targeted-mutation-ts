@@ -46,4 +46,27 @@ theorem skipTextBlock (bytes : List UInt8) (cursor : Cursor)
   rw [advancePlain _ _ _ _ safe, width, nonempty]
   simp
 
+def eraseTypeByte (byte : UInt8) : UInt8 :=
+  if byte == 10 || byte == 13 then byte else 32
+
+def eraseRange (bytes : List UInt8) (first last : Nat) : List UInt8 :=
+  bytes.zipIdx.map fun (byte, offset) =>
+    if first ≤ offset ∧ offset < last then eraseTypeByte byte else byte
+
+@[simp] theorem eraseRange_length (bytes : List UInt8) (first last : Nat) :
+    (eraseRange bytes first last).length = bytes.length := by
+  simp [eraseRange]
+
+theorem eraseRange_preserves_byte (bytes : List UInt8) (first last offset : Nat)
+    (bound : offset < bytes.length) (outside : ¬(first ≤ offset ∧ offset < last)) :
+    (eraseRange bytes first last)[offset]'(by simpa using bound) = bytes[offset] := by
+  simp [eraseRange, List.getElem_zipIdx, outside]
+
+theorem eraseRange_preserves_line_end (bytes : List UInt8) (first last offset : Nat)
+    (bound : offset < bytes.length) (newline : bytes[offset] = 10 ∨ bytes[offset] = 13) :
+    (eraseRange bytes first last)[offset]'(by simpa using bound) = bytes[offset] := by
+  rcases newline with lf | cr
+  · simp [eraseRange, List.getElem_zipIdx, eraseTypeByte, lf]
+  · simp [eraseRange, List.getElem_zipIdx, eraseTypeByte, cr]
+
 end CompilerRuns

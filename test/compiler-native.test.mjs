@@ -61,13 +61,10 @@ test('native grammar declines module and syntax hazards', () => {
     'export const value = (x: number): number\u2028=> x;',
     'export const value = (x: /*keep*/ number) => x;',
     'export const value = (x: number) => x;\0',
-    'export const value = (x: number) => Math.max(x, 1);',
-    'export const value = (x: number) => x; export const extra = call();',
   ]) {
     assert.notEqual(compile(input).backend, 'pulse', JSON.stringify(input));
   }
   assert.notEqual(compile(forms.Arrow, { file: 'source.cts' }).backend, 'pulse');
-  assert.notEqual(compile(forms.Arrow, { file: 'source.tsx' }).backend, 'pulse');
   assert.notEqual(compile(forms.Arrow, { target: 'es2018' }).backend, 'pulse');
 });
 
@@ -118,10 +115,12 @@ test('native compilation erases complete type-only modules and preserves ESM', a
   const module = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
   assert.deepEqual(Object.keys(module), []);
   assert.equal(compile(source, { mode: 'strip' }).code, stripTypeScriptTypes(source));
-  for (const suffix of [
-    '\nexport const live = true;', '\nimport "side-effect";', '\nimport type from "runtime";',
-    '\nexport type Missing =', '\nexport type Keys = Item;',
-  ]) {
+  const withValue = compile(source + '\nexport const live = true;');
+  const live = await import('data:text/javascript;base64,' + Buffer.from(withValue.code).toString('base64'));
+  assert.equal(live.live, true);
+  assert.match(compile(source + '\nimport "side-effect";').code, /import "side-effect";/);
+  assert.match(compile(source + '\nimport type from "runtime";').code, /import type from "runtime";/);
+  for (const suffix of ['\nexport type Missing =', '\nexport type Keys = Item;']) {
     assert.notEqual(compile(source + suffix).backend, 'pulse', suffix);
   }
 });
