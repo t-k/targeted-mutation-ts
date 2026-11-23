@@ -18516,6 +18516,7 @@ TmtPulseParser_import_members(
       }
       else
       {
+        uint32_t start = value.offset;
         bool value2;
         if (allow_type)
           value2 = TmtPulseParser_keyword(input, value.offset, 4U, 0x74797065ULL);
@@ -18559,6 +18560,7 @@ TmtPulseParser_import_members(
         }
         else
           value30 = value;
+        bool type_only = value30.offset != start;
         uint8_t value4 = TmtPulseMemory_peek(input, value30.offset);
         if (fuel == 0U || !TmtGrammar_identifier_start(value4))
           return
@@ -18633,10 +18635,20 @@ TmtPulseParser_import_members(
             value80 = TmtPulseParser_bind_at(input, value30, 0U, used, value30.offset);
           TmtPulseParser_parser_state value9 = TmtPulseParser_skip(input, value80.state);
           bool value10 = TmtPulseParser_same(input, value9.offset, 44U);
+          TmtPulseParser_parser_state value11;
+          if (value10)
+            value11 = TmtPulseParser_consume(input, value9, 44U);
+          else
+            value11 = value9;
+          uint32_t last = value10 ? value11.offset : value80.state.offset;
+          TmtPulseParser_parser_state value12;
+          if (type_only)
+            value12 = TmtPulseParser_record_jsx_span(input, value11, 14U, start, last);
+          else
+            value12 = value11;
           if (value10)
           {
-            TmtPulseParser_parser_state value11 = TmtPulseParser_consume(input, value9, 44U);
-            TmtPulseParser_parser_state tmp0 = value11;
+            TmtPulseParser_parser_state tmp0 = value12;
             uint32_t tmp1 = value80.used;
             uint32_t tmp = TmtPulseParser_minus(fuel, 1U);
             state = tmp0;
@@ -18645,8 +18657,8 @@ TmtPulseParser_import_members(
           }
           else
           {
-            TmtPulseParser_parser_state value11 = TmtPulseParser_consume(input, value9, 125U);
-            return ((TmtPulseParser_named_state){ .state = value11, .used = value80.used });
+            TmtPulseParser_parser_state value13 = TmtPulseParser_consume(input, value12, 125U);
+            return ((TmtPulseParser_named_state){ .state = value13, .used = value80.used });
           }
         }
       }

@@ -1,0 +1,16 @@
+Imports	Late	Dialect
+Leading	None	TS
+Middle	Alias	TS
+Trailing	Continuation	TSX
+TypeOnly	None	TS
+TypeOnly	Continuation	TSX
+Aliased	Alias	TSX
+Leading	Continuation	TS
+Aliased	Continuation	TS
+Trailing	None	TS
+Trailing	Alias	TS
+TypeOnly	Alias	TSX
+Middle	None	TSX
+Aliased	None	TSX
+Middle	Continuation	TSX
+Leading	Alias	TSX

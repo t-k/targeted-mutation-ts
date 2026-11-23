@@ -770,6 +770,7 @@ enum {
   type_assertion = 11,
   type_marker = 12,
   runtime_enum = 13,
+  erased_import_member = 14,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
@@ -908,36 +909,49 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool
   char *code = NULL;
   uint32_t previous = 0;
   uint32_t prelude = TmtPulseCompiler_runtime_source_start(input).at;
+  bool retained_import = false;
   *remove_statement = false;
   *output = NULL;
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
-    if (event.original < type_annotation || event.original > type_marker) continue;
+    const bool member = event.original == erased_import_member;
+    if (!member && (event.original < type_annotation || event.original > type_marker)) continue;
     const TmtGrammar_span span = event.left;
-    if (span.first < previous || span.first >= span.last || span.last > input.size) goto decline;
+    if (span.first >= span.last || span.last > input.size) goto decline;
     const bool statement = event.original == erased_type_statement || event.original == runtime_import;
+    bool separate = false;
     if (statement) {
       const TmtPulseParser_cursor first = TmtPulseParser_trivia(input, prelude);
       if (first.ok && first.at == span.first) prelude = span.last;
-      else if (event.original == erased_type_statement) goto decline;
-      if (event.original == runtime_import) continue;
+      else if (event.original == erased_type_statement) {
+        if (!retained_import) goto decline;
+        separate = true;
+        prelude = span.last;
+      }
+      if (event.original == runtime_import) {
+        retained_import = true;
+        continue;
+      }
       *remove_statement = true;
-    } else if (!erasable_expression_range(input, event.original, span)) goto decline;
+    } else if (!member && !erasable_expression_range(input, event.original, span)) goto decline;
+    if (span.first < previous) goto decline;
+    const bool preserve_lines = statement || member || event.original == type_arguments;
     for (uint32_t byte = span.first; byte < span.last; byte++) {
       const uint8_t value = input.source[byte];
-      if (value >= 128 || (!statement && (value == '\n' || value == '\r' || value == '/'))) goto decline;
+      if (value >= 128 || (!preserve_lines && (value == '\n' || value == '\r' || value == '/'))) goto decline;
     }
     if (!code) {
       code = malloc((size_t)input.size + sizeof(esm_marker));
       if (!code) return false;
       memcpy(code, input.source, input.size);
     }
-    if (!statement) memset(code + span.first, ' ', span.last - span.first);
+    if (!preserve_lines) memset(code + span.first, ' ', span.last - span.first);
     else {
       for (uint32_t byte = span.first; byte < span.last; byte++) {
         if (code[byte] != '\r' && code[byte] != '\n') code[byte] = ' ';
       }
     }
+    if (separate) code[span.first] = ';';
     previous = span.last;
   }
   if (!unambiguous_assertions(input, code ? (uint8_t *)code : input.source, records, jsx)) goto decline;

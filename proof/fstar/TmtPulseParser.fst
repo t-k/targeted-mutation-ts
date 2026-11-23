@@ -4034,6 +4034,7 @@ let rec import_members (input:tape) (state:parser_state) (used:names_used) (fuel
   if st.status <> 0ul then ret input ({ state = st; used })
   else (let! anf_value_1 = (fun () -> same input st.offset 125uy) in if anf_value_1 then (let! anf_value_2 = (fun () -> consume input st 125uy) in ret input ({ state = anf_value_2; used }))
   else
+    let start = st.offset in
     let! st =
       (fun () -> let! modifier = (fun () -> if allow_type then keyword input st.offset 4ul 0x74797065uL else ret input (false)) in
       if modifier then
@@ -4042,6 +4043,7 @@ let rec import_members (input:tape) (state:parser_state) (used:names_used) (fuel
         let! as_ = (fun () -> keyword input after.offset 2ul 0x6173uL) in
         ret input (if G.identifier_start first && not as_ then after else st)
       else ret input (st)) in
+    let type_only = st.offset <> start in
     let! first = (fun () -> peek input st.offset) in
     if fuel = 0ul || not (G.identifier_start first) then ret input ({ state = failed st 1ul; used })
     else
@@ -4053,9 +4055,12 @@ let rec import_members (input:tape) (state:parser_state) (used:names_used) (fuel
           bind_at input start 0ul used start.offset
         else bind_at input st 0ul used st.offset)) in
       let! st = (fun () -> skip input local.state) in
-      (let! anf_value_4 = (fun () -> same input st.offset 44uy) in if anf_value_4 then
-        (let! anf_value_5 = (fun () -> (consume input st 44uy)) in import_members input anf_value_5 local.used (minus fuel 1ul) allow_type)
-      else (let! anf_value_6 = (fun () -> consume input st 125uy) in ret input ({ state = anf_value_6; used = local.used }))))
+      (let! comma = (fun () -> same input st.offset 44uy) in
+      let! end_ = (fun () -> if comma then consume input st 44uy else ret input st) in
+      let last = if comma then end_.offset else local.state.offset in
+      let! recorded = (fun () -> if type_only then record_jsx_span input end_ 14ul start last else ret input end_) in
+      if comma then import_members input recorded local.used (minus fuel 1ul) allow_type
+      else (let! closed = (fun () -> consume input recorded 125uy) in ret input ({ state = closed; used = local.used }))))
 
 let import_bindings (input:tape) (state:parser_state) (used:names_used) (allow_type:bool)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) =

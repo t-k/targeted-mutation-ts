@@ -221,6 +221,23 @@ test('native generic calls and arrows preserve the exact boundary of type argume
   assert.equal(compile(source).code, stripTypeScriptTypes(source));
 });
 
+test('native generic arguments preserve line endings inside an erased object type', () => {
+  for (const file of ['generic.ts', 'generic.tsx']) {
+    for (const newline of ['\n', '\r\n']) {
+      const source = [
+        'import { createContext } from "fixture";',
+        'export const value = createContext<{',
+        '  values: Array<string>; // erased comment',
+        '  name: string | null;',
+        '}>({ values: [], name: null });',
+      ].join(newline);
+      const result = compile(source, { file });
+      assert.equal(result.backend, 'pulse', file);
+      assert.equal(result.code, stripTypeScriptTypes(source));
+    }
+  }
+});
+
 test('native assertions and optional markers leave the value grammar intact', async () => {
   const source = 'export function pick(x?: number) {\n' +
     '  const record = { current: x! };\n' +
@@ -244,6 +261,32 @@ test('an erased type-only import keeps a runtime module and its directives', () 
   const late = 'export const value: number = 1;\nvalue\ntype T = number\n(3);';
   assert.notEqual(compile(late).backend, 'pulse');
 });
+
+const importRows = readFileSync(new URL('../verification/pict/compiler-imports.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of importRows) {
+  const [imports, late, dialect] = row.split('\t');
+  test('inline type imports and late declarations ' + row.replaceAll('\t', ' '), () => {
+    const members = {
+      Leading: 'type Shape, one',
+      Middle: 'one, type Shape, two',
+      Trailing: 'one, type Shape',
+      TypeOnly: 'type Shape',
+      Aliased: 'type Shape as Alias, one as first',
+    };
+    const tails = {
+      None: '',
+      Alias: 'type ShapeAgain = number;\n',
+      Continuation: 'Math.abs\ntype ShapeAgain = number\n(3);\n',
+    };
+    const input = `import { ${members[imports]} } from "fixture";\nexport const n: number = 1;\n${tails[late]}`;
+    const emitted = compile(input, { file: dialect === 'TS' ? 'input.ts' : 'input.tsx' });
+    assert.equal(emitted.backend, 'pulse', input);
+    const stripped = stripTypeScriptTypes(input);
+    const actual = late === 'Alias' ? emitted.code.replace(/\n;(?= +\n$)/, '\n ') : emitted.code;
+    assert.equal(actual, stripped);
+  });
+}
 
 test('JavaScript pass-through declines TypeScript syntax and ambiguous strict directives', () => {
   for (const source of ['export const bad: number = 0;', '"use strict" + effect();']) {
