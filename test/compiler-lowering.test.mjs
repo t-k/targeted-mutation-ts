@@ -403,3 +403,46 @@ test('a later unsupported enum cannot publish a partial native TSX result', () =
     'export enum Quantity { Value = compute() }';
   assert.notEqual(compile(source, { file: 'mixed.tsx' }).backend, 'pulse');
 });
+
+const jsxModuleRows = readFileSync(new URL('../verification/pict/compiler-jsx-dialect.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of jsxModuleRows) {
+  const [dialect, runtime, layout] = row.split('\t');
+  test('whole JSX module ' + row.replaceAll('\t', ' '), async () => {
+    const source = {
+      TwoExports: 'export const A = <i/>; export const B = <b/>;',
+      Directive: '"use client";\nexport const A = <i/>;\nexport const B = <b/>;',
+      Nested: 'export const A = <i>{<s/>}</i>; const node = <b/>; export { node as B };',
+    }[layout];
+    const options = { file: 'view.' + dialect.toLowerCase(), jsx: runtime.toLowerCase() };
+    const result = compile(source, options);
+    assert.equal(result.backend, 'pulse', source);
+    if (layout === 'Directive') assert.match(result.code, /^"use client";/);
+    const actual = await load(result.code);
+    const reference = await load(compile(source, { ...options, sourceMap: true }).code);
+    assert.deepEqual(actual.A, reference.A);
+    assert.deepEqual(actual.B, reference.B);
+  });
+}
+
+test('whole JSX modules emit with TypeScript unavailable', () => {
+  const source = `
+    import assert from 'node:assert/strict';
+    import { registerHooks } from 'node:module';
+    registerHooks({ resolve(specifier, context, next) {
+      if (specifier === 'typescript') throw new Error('TypeScript loaded');
+      return next(specifier, context);
+    } });
+    const { compile } = await import('./src/compiler.mjs');
+    const input = 'export const A = <i/>; export const B = <b/>;';
+    assert.equal(compile(input, { file: 'view.jsx' }).backend, 'pulse');
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', source], { encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.status, 0, result.stderr);
+});
+
+test('the full JavaScript JSX route does not erase TypeScript syntax', () => {
+  const input = 'export const A: number = 42; export const B = <i/>;';
+  assert.notEqual(compile(input, { file: 'view.jsx' }).backend, 'pulse');
+  assert.equal(compile(input, { file: 'view.tsx' }).backend, 'pulse');
+});

@@ -1,0 +1,7 @@
+Dialect	Runtime	Layout
+JSX	Automatic	TwoExports
+JSX	Classic	Directive
+TSX	Automatic	Nested
+TSX	Classic	TwoExports
+JSX	Classic	Nested
+TSX	Automatic	Directive

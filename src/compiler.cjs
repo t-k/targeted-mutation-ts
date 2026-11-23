@@ -275,11 +275,11 @@ function compile(input, options = {}) {
         const code = native.lower(source, jsxFile, typed, jsx === 'classic', false);
         if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
       }
-      if (mode === 'transform' && typed) {
+      if (mode === 'transform' && (typed || runtime)) {
         const addon = loadModuleAddon();
         if (addon) {
-          const hasAngles = source.includes('<');
-          const moduleProjection = !jsxFile || !hasAngles;
+          const hasAngles = typed && source.includes('<');
+          const moduleProjection = typed && (!jsxFile || !hasAngles);
           const empty = moduleProjection ? addon.eraseTypeModule(source, format === 'esm') : null;
           if (empty !== null) return { backend: 'pulse', code: empty, sourceMap: null, diagnostics: [] };
           const annotated = moduleProjection && (runtime || source.includes(':') || hasAngles || source.includes('type') ||
@@ -293,16 +293,18 @@ function compile(input, options = {}) {
             if (result) return result;
           }
           if (runtime && (!jsxFile || !source.includes('\\u'))) {
-            const mixed = addon.lower(source, jsxFile, true, jsx === 'classic', true);
+            const mixed = addon.lower(source, jsxFile, typed, jsx === 'classic', true);
             if (mixed !== null) {
               if (typeof mixed !== 'string') {
                 return { backend: 'pulse', code: mixed.code, sourceMap: null, diagnostics: [] };
               }
-              const result = eraseLoweredModule(addon, mixed, file, format);
-              if (result) return result;
+              if (typed) {
+                const result = eraseLoweredModule(addon, mixed, file, format);
+                if (result) return result;
+              }
             }
           }
-          if (!jsxFile) {
+          if (typed && !jsxFile) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
             const result = (annotated === true || addon.moduleMarker(source, true)) ? eraseModule(addon, text, file, format) :
               format === 'preserve' ? eraseScript(addon, text, source, file) : null;

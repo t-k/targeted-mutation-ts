@@ -1,0 +1,3 @@
+Dialect: JSX, TSX
+Runtime: Automatic, Classic
+Layout: TwoExports, Directive, Nested

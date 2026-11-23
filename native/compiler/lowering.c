@@ -1414,7 +1414,7 @@ static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records) 
 #endif
 
 static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans, uint32_t records,
-  uint32_t insertion, bool classic, size_t *length, bool *complete)
+  uint32_t insertion, bool typescript, bool classic, size_t *length, bool *complete)
 {
   size_t elements = 0, expression_begin = records;
 #ifdef TMT_V8_VALIDATOR
@@ -1432,6 +1432,15 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   qsort(spans, elements, sizeof(*spans), compare_spans);
   qsort(expressions, expression_count, sizeof(*spans), compare_spans);
 #ifdef TMT_V8_VALIDATOR
+  if (!typescript) {
+    char *code = render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0);
+    if (code && tmt_valid_javascript_module(code, *length)) {
+      *complete = true;
+      return code;
+    }
+    free(code);
+    return NULL;
+  }
   if (input.capture_types) {
     char *masked;
     bool remove_statement;
@@ -1453,21 +1462,23 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
     }
   }
 #else
+  if (!typescript) return NULL;
   (void)complete;
 #endif
   return render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0);
 }
 
-static char *lower_jsx_module(uint8_t *source, uint32_t size, bool classic, size_t *length, bool *complete) {
+static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, bool classic, size_t *length, bool *complete) {
   module_workspace memory = {0};
   TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok) return NULL;
   const uint32_t marker = find_marker(input, first.at, true);
   const bool module = marker < size;
+  if (!typescript && !module) return NULL;
   const uint32_t insertion = module ? marker : jsx_script_prelude(input, first.at);
 #ifdef TMT_V8_VALIDATOR
-  input.capture_types = module;
+  input.capture_types = typescript && module;
 #endif
   if (size < 16 * 1024) {
     TmtPulseParser_parser_state small = capture_jsx(input, module);
@@ -1477,7 +1488,7 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool classic, size
     }
     if (small.status == 0 && small.count <= input.capacity) {
       TmtGrammar_span spans[sizeof(memory.marks)];
-      return render_jsx_module(input, spans, small.count, insertion, classic, length, complete);
+      return render_jsx_module(input, spans, small.count, insertion, typescript, classic, length, complete);
     }
     if (small.status != 4) return NULL;
   }
@@ -1495,7 +1506,7 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool classic, size
       parsed = capture_jsx(input, module);
     }
     if (parsed.status == 0 && parsed.count <= capacity) {
-      result = render_jsx_module(input, spans, parsed.count, insertion, classic, length, complete);
+      result = render_jsx_module(input, spans, parsed.count, insertion, typescript, classic, length, complete);
     }
   }
   free(input.output);
@@ -1516,8 +1527,8 @@ char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescrip
     return NULL;
 #else
     if (jsx) {
-      char *general = lower_jsx_module(source, size, classic, length, complete);
-      if (general) return general;
+      char *general = lower_jsx_module(source, size, typescript, classic, length, complete);
+      if (general || !typescript) return general;
     }
     return lower_mixed(source, size, jsx, classic, length);
 #endif
