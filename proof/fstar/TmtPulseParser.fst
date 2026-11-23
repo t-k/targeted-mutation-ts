@@ -2211,7 +2211,9 @@ let read_generic_postfix (input:tape) (#frame:slprop) (st:parser_state) (allow_i
   : Tot (stt generic_postfix (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! generic = (fun () -> expression_type_arguments input #frame st) in
   let! after = (fun () -> skip input #frame generic) in
-  let! call = (fun () -> if after.status = 0ul then same input #frame after.offset 40uy else read_ret input #frame (false)) in
+  // Type arguments belong to a call or to a tagged template that follows them.
+  let! follower = (fun () -> peek input #frame after.offset) in
+  let call = after.status = 0ul && U32.lt after.offset input.size && (follower = 40uy || follower = 96uy) in
   let! instantiates =
     (fun () -> if after.status = 0ul && not call && allow_instantiation then instantiation_follower input #frame generic after
     else read_ret input #frame (false)) in
@@ -2222,8 +2224,12 @@ let postfix_start (input:tape) (#frame:slprop) (base:parsed) : Tot (stt postfix_
   let st = from_cursor base.parser after in
   let! byte = (fun () -> peek input #frame st.offset) in
   let! increment = (fun () -> if after.newline then read_ret input #frame (0ul) else update_width input #frame st.offset byte) in
+  // The result of a call takes type arguments for a further call, as in f()<T>().
+  let! closing = (fun () -> if byte = 60uy && U32.gt base.range.G.last base.range.G.first then peek input #frame (minus base.range.G.last 1ul)
+    else read_ret input #frame 0uy) in
   let! generic =
-    (fun () -> if byte = 60uy && st.offset = base.range.G.last && (can_assign base.target || base.target = OptionalChain) then
+    (fun () -> if byte = 60uy && st.offset = base.range.G.last &&
+        (can_assign base.target || base.target = OptionalChain || closing = 41uy) then
       read_generic_postfix input #frame st (can_assign base.target)
     else read_ret input #frame ({ type_cursor = failed st 1ul; calls = false; instantiates = false })) in
   let! optional =
@@ -3016,7 +3022,8 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
       let! after = (fun () -> record_jsx_span input head.after_types 10ul st.offset head.after_types.offset) in
       ret input ({ base with parser = after; range = { base.range with G.last = after.offset }; target = NotAssignable })
     else if increment <> 0ul then
-      ret input (if not (can_assign base.target) then empty_range (failed st 1ul)
+      // A non-null assertion keeps its operand assignable, so x!++ updates x.
+      ret input (if not (can_assign_expression base.target) then empty_range (failed st 1ul)
       else
         let end_at = plus st.offset increment in
         { base with parser = { st with offset = end_at }; range = { base.range with G.last = end_at };
@@ -3033,7 +3040,7 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
           let! after = (fun () -> skip input { st with offset = plus st.offset 2ul }) in
           (let! anf_value_1 = (fun () -> same input after.offset 60uy) in if anf_value_1 then call_type_arguments input after else ret input (after))
         else ret input (st)) in
-      let! kind = (fun () -> if typed then ret input (40uy) else if optional then peek input operand.offset else ret input (byte)) in
+      let! kind = (fun () -> if typed || optional then peek input operand.offset else ret input (byte)) in
       let! next_st, private_access =
         (fun () -> if kind = 40uy || kind = 91uy || kind = 96uy then
           if kind = 96uy && (optional || base.target = OptionalChain) then ret input (failed st 1ul, false)
@@ -4053,19 +4060,22 @@ and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (kind:class_kind)
     (fun () -> if not derived then ret input (st)
     else
       let! base = (fun () -> skip input { st with offset = plus st.offset 7ul }) in
-      let! named = (fun () -> name input base.offset false false) in
       let! forbidden = (fun () -> forbidden_field_arguments input base) in
-      if not named.ok || forbidden then ret input (failed base 1ul)
+      let! head = (fun () -> read_atom_head input base) in
+      // A heritage clause is a left-hand-side expression: a name, a member, a call, a parenthesized
+      // expression. A unary operator cannot start it.
+      if forbidden || head.prefix_ <> 0ul then ret input (failed base 1ul)
       else
-        let! typed = (fun () -> type_reference input base 16ul) in
-        let! recorded = (fun () -> if not input.capture_types || typed.status <> 0ul then ret input typed
-          else
-            let! qualified = (fun () -> qualified_name input (from_cursor base named) 64ul) in
-            let! arguments = (fun () -> skip input qualified) in
-            let! angle = (fun () -> same input arguments.offset 60uy) in
-            if angle && arguments.status = 0ul && U32.lt arguments.offset typed.offset then
-              record_jsx_span input typed 10ul arguments.offset typed.offset else ret input typed) in
-        skip input recorded) in
+        let! value = (fun () -> atom input base fuel) in
+        let! tail = (fun () -> skip input value.parser) in
+        let! angle = (fun () -> same input tail.offset 60uy) in
+        if tail.status <> 0ul || not angle then ret input tail
+        else
+          // Type arguments after the expression belong to the heritage clause and are erased.
+          let! typed = (fun () -> expression_type_arguments input tail) in
+          let! recorded = (fun () -> if not input.capture_types || typed.status <> 0ul then ret input typed
+            else record_jsx_span input typed 10ul tail.offset typed.offset) in
+          skip input recorded) in
   let! word_ = (fun () -> word input inherited.offset 8ul 0uL) in
   let! implements = (fun () -> if word_ = 0x696d706c656d656euL then keyword input (plus inherited.offset 8ul) 2ul 0x7473uL
     else ret input (false)) in
