@@ -13,13 +13,38 @@ function fromSession(mutant, profile) {
 
 const definitive = new Set(['killed', 'survived', 'timeout', 'unreached']);
 
+// How far a threshold or tightening trial moves the right side of its comparison, or nothing for other trials.
+function shiftOf(trial) {
+  if (trial.source || trial.rule === trial.site.rule) return undefined;
+  const shift = trial.adjustment ?? (trial.rule === 'comparison-threshold/v1' ? Number(trial.replacement) - trial.threshold?.meta.threshold : undefined);
+  return Number.isSafeInteger(shift) && shift !== 0 ? shift : undefined;
+}
+const shiftKey = (trial, shift) => `${trial.site.location.file}:${(trial.site.operatorEdit ?? trial.site.edit)[0]}:${shift}`;
+
+// The trials the session can run through a comparison's shift switch, without the ones a recorded run already decided.
+export function shiftTrials(prepared) {
+  const listed = new Map();
+  for (const [index, trial] of (prepared.trials ?? []).entries()) {
+    const shift = shiftOf(trial);
+    if (shift === undefined || prepared.skips?.has(index)) continue;
+    listed.set(shiftKey(trial, shift), { file: trial.site.location.file, at: (trial.site.operatorEdit ?? trial.site.edit)[0], shift });
+  }
+  return [...listed.values()];
+}
+
 // A comparison boundary is the same edit in both parts, so the session's run of it answers the focused trial.
-function sessionVerdicts(session) {
+// A threshold or tightening trial is answered by the extra trial the session ran for the same comparison and shift.
+function sessionVerdicts(session, extras = []) {
+  const shifted = new Map(extras.map((extra, index) => [`${extra.file}:${extra.at}:${extra.shift}`,
+    (session.extras ?? []).find(result => result.extra === index)]));
   const swaps = new Map(session.mutants.filter(mutant => mutant.operatorSwap && definitive.has(mutant.status))
     .map(mutant => [`${mutant.location.file}:${mutant.operatorSwap.join(':')}`, mutant]));
   return trial => {
-    if (trial.rule !== trial.site.rule || trial.source) return undefined;
-    const mutant = swaps.get(`${trial.site.location.file}:${trial.edit[0]}:${trial.replacement}`);
+    const shift = shiftOf(trial);
+    const mutant = shift !== undefined ? shifted.get(shiftKey(trial, shift))
+      : trial.rule !== trial.site.rule || trial.source ? undefined
+        : swaps.get(`${trial.site.location.file}:${trial.edit[0]}:${trial.replacement}`);
+    if (mutant && !definitive.has(mutant.status)) return undefined;
     // The focused analysis decides between unreached and survived from its own recorded comparisons.
     return mutant && { status: mutant.status === 'unreached' ? 'survived' : mutant.status, tests: mutant.tests };
   };
@@ -29,27 +54,32 @@ function sessionVerdicts(session) {
 // `ended` holds the focused report when that analysis finished in its preparation.
 async function besideSession(project, files, options, run, profile, stopsSession) {
   const stop = new AbortController();
+  let listExtras;
+  const extras = new Promise(resolveList => { listExtras = resolveList; });
   const started = run.analyzeConventional(project, files, {
     mutators: profile, lines: options.lines, since: options.since, config: options.config, test: options.test,
     'copy-exclude': options['copy-exclude'], dialect: options.dialect, 'isolated-trials': options['isolated-trials'],
-    concurrency: options.concurrency, 'verify-trials': options['verify-trials'], signal: stop.signal,
+    concurrency: options.concurrency, 'verify-trials': options['verify-trials'], signal: stop.signal, extras,
   }).then(report => ({ report }), error => ({ error }));
   let prepared;
   try {
-    prepared = run.prepareAnalysis(project, files, { ...options, mutators: undefined });
+    prepared = run.prepareAnalysis(project, files, { ...options, mutators: undefined, traceIsBaseline: true });
   } catch (error) {
+    listExtras([]);
     stop.abort();
     await started;
     throw error;
   }
   // Without planned trials the focused analysis ended in its preparation.
   const ended = prepared.trials ? null : prepared.report;
+  const listed = shiftTrials(prepared);
+  listExtras(listed);
   if (ended && stopsSession(ended)) {
     stop.abort();
     await started;
-    return { prepared, ended, stopped: true };
+    return { prepared, ended, stopped: true, extras: listed };
   }
-  return { prepared, ended, ...await started };
+  return { prepared, ended, extras: listed, ...await started };
 }
 
 // Vitest: the built-in mutations run in one switched session with per-test coverage while the focused analysis
@@ -59,12 +89,12 @@ export async function analyzeOperators(project, files, options, run = { analyze,
   const profile = options.mutators;
   const rewriting = () => ({ ...run.analyze(project, files, options), operatorExecution: 'source-rewrite' });
   if (options.runner === 'playwright') return rewriting();
-  const { prepared, ended, stopped, report: session, error } = await besideSession(project, files, options, run, profile,
+  const { prepared, ended, stopped, extras, report: session, error } = await besideSession(project, files, options, run, profile,
     report => report.evaluation === 'baseline_error' || report.extraction.some(file => file.path === 'diagnostic'));
   if (stopped) return { ...ended, mutators: profile };
   if (error) throw error;
   if (session.evaluation === 'baseline_error') return rewriting();
-  const focused = { ...(ended ?? run.completeAnalysis(prepared, sessionVerdicts(session))), mutators: profile };
+  const focused = { ...(ended ?? run.completeAnalysis(prepared, sessionVerdicts(session, extras))), mutators: profile };
   if (session.evaluation === 'no_sites') return { ...focused, operatorExecution: 'session' };
   // A comparison boundary appears in both parts. The focused result carries the missing input, so it is the one kept.
   const boundaries = new Set(focused.mutants.map(mutant => `${mutant.location.file}:${mutant.edit[0]}:${mutant.replacement}`));
@@ -85,7 +115,7 @@ export async function analyzeOperators(project, files, options, run = { analyze,
 // decide, the focused analysis runs itself, so a session that cannot start changes the speed and not the report.
 export async function analyzeFocused(project, files, options, run = { analyze, prepareAnalysis, completeAnalysis, analyzeConventional }) {
   if (options.runner === 'playwright' || options.audit) return run.analyze(project, files, options);
-  const { prepared, ended, report: session } = await besideSession(project, files, options, run, 'boundaries', () => true);
+  const { prepared, ended, extras, report: session } = await besideSession(project, files, options, run, 'boundaries', () => true);
   if (ended) return ended;
-  return run.completeAnalysis(prepared, session?.mutants ? sessionVerdicts(session) : undefined);
+  return run.completeAnalysis(prepared, session?.mutants ? sessionVerdicts(session, extras) : undefined);
 }

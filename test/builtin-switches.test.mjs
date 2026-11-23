@@ -185,3 +185,33 @@ test('the boundary filter keeps only the swaps between a comparison and its stri
   assert.ok(mutants.every(mutant => mutant.operatorSwap));
   assert.doesNotMatch(output, /===\s*b\s*:\s*\(/);
 });
+
+test('a shift switch compares against the right side moved by the active amount, like the same edit in the source', async () => {
+  const vmModule = await import('node:vm');
+  const { renderBuiltinSwitches: render, boundarySwap } = await import('../src/builtin-switches.mjs');
+  const source = 'function run(n, limit) { return [n >= 100, n < limit.size - 1, n > 0 ? 1 : 2]; }\n';
+  const { output, mutants } = render(Buffer.from(source), 'f.js', () => true, { shifts: true, keep: boundarySwap });
+  const shifts = mutants.filter(mutant => mutant.parametric);
+  // One per comparison, located at its operator, beside the boundary swaps of the same expression.
+  assert.deepEqual(shifts.map(mutant => [source.slice(mutant.parametric.at, mutant.parametric.at + 2).trim(), mutant.mutatorName]),
+    [['>=', 'ComparisonShift'], ['<', 'ComparisonShift'], ['>', 'ComparisonShift']]);
+  assert.equal(mutants.filter(mutant => mutant.operatorSwap).length, 3);
+  // Without the option no shift switch is rendered, and the default set is unchanged.
+  assert.ok(render(Buffer.from(source), 'f.js').mutants.every(mutant => !mutant.parametric));
+  const evaluate = (state, code, ...args) => {
+    const context = vmModule.createContext({ __stryker__: state });
+    vmModule.runInContext(code, context, { timeout: 1_000 });
+    return [...vmModule.runInContext(`run(${args.map(arg => JSON.stringify(arg)).join(', ')})`, context, { timeout: 1_000 })];
+  };
+  const edits = [[shifts[0], 3, 'n >= 100', 'n >= 103'], [shifts[0], -40, 'n >= 100', 'n >= 60'],
+    [shifts[1], -1, 'n < limit.size - 1', 'n < ((limit.size - 1) - 1)'], [shifts[2], 1, 'n > 0', 'n > 1']];
+  for (const [mutant, shift, original, edited] of edits) {
+    for (const args of [[100, { size: 102 }], [102, { size: 104 }], [103, { size: 105 }], [60, { size: 62 }], [1, { size: 3 }], [0, { size: 1 }]]) {
+      const expected = evaluate({}, source.replace(original, edited), ...args);
+      assert.deepEqual(evaluate({ activeMutant: mutant.id, shift }, output, ...args), expected, `${edited} ${JSON.stringify(args)}`);
+      // Off, or active without a shift, the comparison is the original one.
+      assert.deepEqual(evaluate({}, output, ...args), evaluate({}, source, ...args));
+      assert.deepEqual(evaluate({ activeMutant: mutant.id }, output, ...args), evaluate({}, source, ...args));
+    }
+  }
+});

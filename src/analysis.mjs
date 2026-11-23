@@ -466,13 +466,16 @@ export function prepareAnalysis(project, files, options) {
   });
   const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
   const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
-  const baseline = attempt();
+  // Beside a session, which runs the suite on its own, the recording run stands for the baseline when it passes.
+  // Otherwise the plain baseline runs first, so a failing suite is reported as before.
+  const recorded = options.traceIsBaseline ? attempt({ tracing: true }) : null;
+  const baseline = recorded?.status === 'passed' ? { status: 'passed', tests: recorded.tests } : attempt();
   if (baseline.status !== 'passed') {
     return { report: { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } } };
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
 
-  const traced = attempt({ tracing: true });
+  const traced = recorded?.status === 'passed' ? recorded : attempt({ tracing: true });
   const tracedStatus = verdict(traced, baseline);
   report.instrumented = { status: tracedStatus === 'survived' ? 'passed' : tracedStatus };
   let trace = tracedStatus === 'survived' ? traced.trace : null;

@@ -83,14 +83,16 @@ export function planInThread(records, tests, pending, workspace, timing = { test
   const plans = {};
   for (const { mutant, plan } of pending) {
     for (const [key, { coverage, own }] of modules) {
-      const local = coverage(mutant.id);
+      // An extra trial has its own id and runs a switch that another entry may also use.
+      const local = coverage(mutant.active ?? mutant.id);
       if (!local.hits) continue;
       // One run of this entry: loading the test file, then the tests it selects.
       const cost = (timing.collection[key] ?? 0) + (local.staticActivation ? own : [...local.covered])
         .reduce((sum, test) => sum + (timing.tests[test] ?? 0), 0);
       // A mutation that is active while the file loads runs every test of the file.
       (plans[key] ??= []).push({ id: mutant.id, hits: local.hits, hitLimit: plan.hits * 100, static: local.staticActivation, cost,
-        tests: local.staticActivation ? own : [...local.covered] });
+        tests: local.staticActivation ? own : [...local.covered],
+        ...(mutant.active === undefined ? {} : { active: mutant.active, shift: mutant.shift }) });
     }
   }
   return plans;

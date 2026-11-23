@@ -10,13 +10,26 @@ import { inside } from './vitest.mjs';
 // Vitest and Vite are loaded on every run. Node keeps their compiled code between runs when it can.
 try { enableCompileCache?.(); } catch { /* The cache is an optimisation only. */ }
 const input = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-const { workspace, config, files, mutants, focused, replay, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1, verifyTrials = 0 } = input;
+const { workspace, config, files, mutants, focused, replay, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1, verifyTrials = 0, awaitsExtras = false } = input;
 const destination = resolve(temporary, 'coverage.jsonl');
 const record = event => appendFileSync(output, JSON.stringify(event) + '\n');
 const lanes = [];
 let supportsIds;
 let createContext;
 let runnerEntry;
+
+const shiftSwitches = new Map(mutants.filter(mutant => mutant.parametric).map(mutant => [`${mutant.parametric.file}:${mutant.parametric.at}`, mutant.id]));
+
+// The parent writes the list when the focused analysis has planned its trials, or an empty one when it has none.
+async function extrasFromParent() {
+  const path = resolve(temporary, 'extras.json');
+  for (let waited = 0; waited < 600_000 && !existsSync(path); waited += 25) await new Promise(resolveWait => setTimeout(resolveWait, 25));
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return [];
+  }
+}
 
 // Reads the lines appended since the last call, so a long trial log is never read twice.
 function follow(path) {
@@ -240,7 +253,7 @@ try {
     }
     const qualified = focused.filter(({ id }) => focusedTrace[id]).map(mutant => ({ ...mutant, focused: true }));
     const pending = [];
-    for (const mutant of [...mutants, ...qualified]) {
+    for (const mutant of [...mutants.filter(candidate => !candidate.parametric), ...qualified]) {
       const { id } = mutant;
       if (predicted.has(id)) {
         record({ id, status: 'survived', evidence: 'predicted' });
@@ -253,79 +266,99 @@ try {
       }
       pending.push({ mutant, plan });
     }
-    const plans = isolatedTrials ? null : planInThread(baseline.records, tests, pending, workspace, baselineTiming);
-    let settled = new Map();
-    let isolated = 0;
     let fresh;
-    let reasons = new Map();
-    // A sample of the workers' verdicts is run again in fresh runs when asked for. A difference is reported and
-    // the fresh run's verdict is the one kept.
-    const sampled = new Set();
-    const mismatches = [];
-    if (plans) {
-      const limit = 15_000 + 3 * baselineTime;
-      // The first lane starts alone with a deadline. Most plans end within it. What is left is timed by then, and a
-      // further lane, which costs a Vitest instance, its transforms and an environment per test file, opens for
-      // every six seconds of measured work in the longest test file.
-      const inLanes = async step => {
-        const events = await runInThread(lanes[0], step, limit, Date.now() + 2_000);
-        // Each further round takes what is left: entries the deadline cut off, and test files that start again
-        // in a new worker after a control run differed.
-        for (let round = 0; round < 12; round++) {
-          const left = unanswered(step, events, 8);
-          const entries = Object.values(left).flat();
-          if (!entries.length) break;
-          const timed = events.filter(event => event.elapsed !== undefined);
-          const planned = new Map(Object.entries(step).flatMap(([module, list]) => list.map(plan => [JSON.stringify([module, plan.id]), plan])));
-          const paid = timed.reduce((sum, event) => sum + planned.get(JSON.stringify([event.module, event.id])).cost + 1, 0);
-          // Before anything was timed, an entry is taken as its baseline cost twice: a trial and a control run.
-          const rate = timed.length ? timed.reduce((sum, event) => sum + event.elapsed, 0) / paid : 2;
-          // Test files already run beside each other inside a lane. A further lane only helps the longest file.
-          const work = Math.max(...Object.values(left).map(list => list.reduce((sum, plan) => sum + (plan.cost + 1) * rate, 0)));
-          const wanted = Math.max(1, Math.min(concurrency, Math.ceil(work / 6_000)));
-          const opened = await Promise.all(Array.from({ length: Math.max(0, wanted - lanes.length) },
-            (_, index) => openLane(lanes.length + index).catch(() => null)));
-          lanes.push(...opened.filter(Boolean));
-          const shares = sharePlans(left, Math.min(wanted, lanes.length));
-          const answered = (await Promise.all(shares.map((share, index) => runInThread(lanes[index], share, limit)))).flat();
-          if (!answered.some(event => event.id !== undefined || event.stop !== undefined)) break;
-          events.push(...answered);
-        }
-        return events;
-      };
-      const { first, rest } = cheapestFirst(plans);
-      const firstEvents = await inLanes(first);
-      const killed = new Set([...settleInThread(first, firstEvents, tests)].filter(([, verdict]) => verdict.status === 'killed').map(([id]) => id));
-      const restEvents = await inLanes(withoutMutations(rest, killed));
-      // A mutation killed in the first step is settled by that step alone. The others need every test file's answer.
-      const decisive = Object.fromEntries(Object.entries(plans).map(([module, list]) =>
-        [module, list.filter(plan => !killed.has(plan.id) || first[module]?.includes(plan))]).filter(([, list]) => list.length));
-      settled = settleInThread(decisive, [...firstEvents, ...restEvents], tests);
-      reasons = openReasons(decisive, [...firstEvents, ...restEvents]);
-    }
-    for (const id of sampleSettled(pending.map(({ mutant }) => mutant.id).filter(id => settled.has(id)), verifyTrials)) sampled.add(id);
-    for (const { mutant, plan } of pending) {
-      const { id } = mutant;
-      const expected = plan.staticActivation || !supportsIds ? tests : new Map([...plan.covered].map(id => [id, tests.get(id)]));
-      const covering = mutant.focused
-        ? { coveringTests: [...expected.values()].map(({ id, project, file, name }) => ({ id, project, file, name })) } : {};
-      if (settled.has(id) && !sampled.has(id)) {
-        record({ id, ...settled.get(id), ...covering });
-        continue;
+    const totals = { inWorker: 0, isolated: 0, sampled: 0, mismatches: [], inWorkerUsed: false };
+    // Decides a list of reached trials: inside workers where that holds, in fresh runs for the rest.
+    const decide = async (pending, report) => {
+      const plans = isolatedTrials ? null : planInThread(baseline.records, tests, pending, workspace, baselineTiming);
+      let settled = new Map();
+      let reasons = new Map();
+      // A sample of the workers' verdicts is run again in fresh runs when asked for. A difference is reported and
+      // the fresh run's verdict is the one kept.
+      const sampled = new Set();
+      if (plans) {
+        const limit = 15_000 + 3 * baselineTime;
+        // The first lane starts alone with a deadline. Most plans end within it. What is left is timed by then, and a
+        // further lane, which costs a Vitest instance, its transforms and an environment per test file, opens for
+        // every six seconds of measured work in the longest test file.
+        const inLanes = async step => {
+          const events = await runInThread(lanes[0], step, limit, Date.now() + 2_000);
+          // Each further round takes what is left: entries the deadline cut off, and test files that start again
+          // in a new worker after a control run differed.
+          for (let round = 0; round < 12; round++) {
+            const left = unanswered(step, events, 8);
+            const entries = Object.values(left).flat();
+            if (!entries.length) break;
+            const timed = events.filter(event => event.elapsed !== undefined);
+            const planned = new Map(Object.entries(step).flatMap(([module, list]) => list.map(plan => [JSON.stringify([module, plan.id]), plan])));
+            const paid = timed.reduce((sum, event) => sum + planned.get(JSON.stringify([event.module, event.id])).cost + 1, 0);
+            // Before anything was timed, an entry is taken as its baseline cost twice: a trial and a control run.
+            const rate = timed.length ? timed.reduce((sum, event) => sum + event.elapsed, 0) / paid : 2;
+            // Test files already run beside each other inside a lane. A further lane only helps the longest file.
+            const work = Math.max(...Object.values(left).map(list => list.reduce((sum, plan) => sum + (plan.cost + 1) * rate, 0)));
+            const wanted = Math.max(1, Math.min(concurrency, Math.ceil(work / 6_000)));
+            const opened = await Promise.all(Array.from({ length: Math.max(0, wanted - lanes.length) },
+              (_, index) => openLane(lanes.length + index).catch(() => null)));
+            lanes.push(...opened.filter(Boolean));
+            const shares = sharePlans(left, Math.min(wanted, lanes.length));
+            const answered = (await Promise.all(shares.map((share, index) => runInThread(lanes[index], share, limit)))).flat();
+            if (!answered.some(event => event.id !== undefined || event.stop !== undefined)) break;
+            events.push(...answered);
+          }
+          return events;
+        };
+        const { first, rest } = cheapestFirst(plans);
+        const firstEvents = await inLanes(first);
+        const killed = new Set([...settleInThread(first, firstEvents, tests)].filter(([, verdict]) => verdict.status === 'killed').map(([id]) => id));
+        const restEvents = await inLanes(withoutMutations(rest, killed));
+        // A mutation killed in the first step is settled by that step alone. The others need every test file's answer.
+        const decisive = Object.fromEntries(Object.entries(plans).map(([module, list]) =>
+          [module, list.filter(plan => !killed.has(plan.id) || first[module]?.includes(plan))]).filter(([, list]) => list.length));
+        settled = settleInThread(decisive, [...firstEvents, ...restEvents], tests);
+        reasons = openReasons(decisive, [...firstEvents, ...restEvents]);
       }
-      if (!sampled.has(id)) isolated++;
-      // A fresh run stops at its first failing test. Beside each other, test files would be cut off mid-run,
-      // so these runs take the files one by one.
-      fresh ??= beside === oneByOne ? lanes[0] : await openLane('fresh', true).then(lane => (lanes.push(lane), lane));
-      const selected = chooseTests(fresh.specs, tests, plan);
-      const hitLimit = plan.hits * 100;
-      const trial = await run(selected, { id, phase: 'trial', active: id, hitLimit, staticActivation: plan.staticActivation }, fresh);
-      const assessed = assessTrial(trial, expected, hitLimit);
-      if (sampled.has(id) && assessed.status !== settled.get(id).status) mismatches.push({ id, worker: settled.get(id).status, fresh: assessed.status });
-      record({ id, ...assessed, ...covering, ...(reasons.has(id) ? { fallback: reasons.get(id) } : {}) });
+      for (const id of sampleSettled(pending.map(({ mutant }) => mutant.id).filter(id => settled.has(id)), verifyTrials)) sampled.add(id);
+      for (const { mutant, plan } of pending) {
+        const { id } = mutant;
+        const expected = plan.staticActivation || !supportsIds ? tests : new Map([...plan.covered].map(id => [id, tests.get(id)]));
+        const covering = mutant.focused
+          ? { coveringTests: [...expected.values()].map(({ id, project, file, name }) => ({ id, project, file, name })) } : {};
+        if (settled.has(id) && !sampled.has(id)) {
+          report(mutant, { ...settled.get(id), ...covering });
+          continue;
+        }
+        if (!sampled.has(id)) totals.isolated++;
+        // A fresh run stops at its first failing test. Beside each other, test files would be cut off mid-run,
+        // so these runs take the files one by one.
+        fresh ??= beside === oneByOne ? lanes[0] : await openLane('fresh', true).then(lane => (lanes.push(lane), lane));
+        const selected = chooseTests(fresh.specs, tests, plan);
+        const hitLimit = plan.hits * 100;
+        const trial = await run(selected, { id, phase: 'trial', active: mutant.active ?? id, shift: mutant.shift, hitLimit,
+          staticActivation: plan.staticActivation }, fresh);
+        const assessed = assessTrial(trial, expected, hitLimit);
+        if (sampled.has(id) && assessed.status !== settled.get(id).status) totals.mismatches.push({ id, worker: settled.get(id).status, fresh: assessed.status });
+        report(mutant, { ...assessed, ...covering, ...(reasons.has(id) ? { fallback: reasons.get(id) } : {}) });
+      }
+      totals.inWorker += settled.size;
+      totals.sampled += sampled.size;
+      totals.inWorkerUsed ||= plans !== null;
+    };
+    await decide(pending, (mutant, result) => record({ id: mutant.id, ...result }));
+    if (awaitsExtras) {
+      // Threshold edits of the focused analysis: each names a comparison and how far its right side moves.
+      const extras = [];
+      for (const [index, extra] of (await extrasFromParent()).entries()) {
+        const active = shiftSwitches.get(`${extra.file}:${extra.at}`);
+        const plan = active === undefined ? null : baselineCoverage(active);
+        if (!plan) record({ extra: index, status: 'unsupported' });
+        else if (!plan.hits) record({ extra: index, status: 'unreached' });
+        else extras.push({ mutant: { id: `extra:${index}`, index, active, shift: extra.shift }, plan });
+      }
+      await decide(extras, (mutant, result) => record({ extra: mutant.index, ...result }));
     }
-    record({ trials: { workers: plans ? lanes.filter(lane => !lane.serial).length : 1, inWorker: settled.size, isolated,
-      ...(verifyTrials ? { verified: { sampled: sampled.size, mismatches } } : {}) } });
+    record({ trials: { workers: totals.inWorkerUsed ? lanes.filter(lane => !lane.serial).length : 1, inWorker: totals.inWorker,
+      isolated: totals.isolated,
+      ...(verifyTrials ? { verified: { sampled: totals.sampled, mismatches: totals.mismatches } } : {}) } });
     record({ complete: true });
   }
   exitStatus = 0;

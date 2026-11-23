@@ -17,7 +17,10 @@ const methods = new Map([['charAt', null], ['endsWith', 'startsWith'], ['every',
   ['setUTCFullYear', 'setUTCMonth'], ['setUTCHours', 'setUTCMinutes'], ['setUTCSeconds', 'setUTCMilliseconds']]);
 for (const [name, other] of [...methods]) if (other && name !== 'setUTCDate') methods.set(other, name);
 
-export function collectMutations(text, file, { dialect, selected = () => true, ts = loadTypeScript() } = {}) {
+// Stands for the call that reads the active shift. The renderer puts the helper's name in its place.
+export const shiftPlaceholder = '\u0000shift\u0000';
+
+export function collectMutations(text, file, { dialect, selected = () => true, shifts = false, ts = loadTypeScript() } = {}) {
   const kind = dialect === 'tsx' ? ts.ScriptKind.TSX : dialect === 'ts' ? ts.ScriptKind.TS : undefined;
   const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind);
   const K = ts.SyntaxKind;
@@ -122,7 +125,8 @@ export function collectMutations(text, file, { dialect, selected = () => true, t
     const start = begin(node);
     for (let line = lineOf(start); line <= lineOf(node.end); line++) if (!selected(line + 1)) return;
     const ignored = ignoreReason(name, lineOf(start), from);
-    if (ignored === undefined) live++;
+    // A shift switch is not a mutation of the set, so it does not count for the rules about statement removals.
+    if (ignored === undefined && extra?.shift === undefined) live++;
     mutations.push({ name, start, end: node.end, replacement, ...(placement ?? expressionPlacement(node, replacement)), ...extra,
       ...(ignored === undefined ? {} : { ignored }) });
   }
@@ -163,6 +167,11 @@ export function collectMutations(text, file, { dialect, selected = () => true, t
       }
       for (const replacement of equality.get(operator) ?? []) {
         add('EqualityOperator', node, swapToken(node, token, replacement), undefined, { operator: [begin(token), replacement] });
+      }
+      // The focused analysis moves a comparison's right side by an integer it only knows after a recorded run:
+      // another threshold, or one step tighter. One switch per comparison takes that amount at run time.
+      if (shifts && ['<', '<=', '>', '>='].includes(operator)) {
+        add('ComparisonShift', node, `${text.slice(begin(node), token.end)} ((${source(node.right)}) + ${shiftPlaceholder})`, undefined, { shift: begin(token) });
       }
     } else if (isLogical(node)) {
       // A different precedence would regroup an unparenthesized operand, so operands keep their own group.

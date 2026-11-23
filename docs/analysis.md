@@ -57,7 +57,7 @@ Test files run beside each other, each in its own worker, unless the project set
 
 Two limits come with runtime switches, here as in StrykerJS. A test that reads source text or positions (`Function.prototype.toString`, stack frames, snapshot of an error's line) sees the switched code and not the mutated file. A Vite plugin that rewrites the project's source at build time receives the switched expression, so a compile-time transform may treat it differently from the mutation written out. `--audit` in the default profile, and the Playwright path, run the edit as plain source instead.
 
-The default profile uses the same session for its comparison boundaries: `>=` with `>` and `<=` with `<` are decided in a worker, while its recorded comparisons, threshold edits and diagnostics come from its own runs. `--audit` and Playwright run every edit against the rewritten source instead.
+The default profile uses the same session. Its comparison boundaries, `>=` with `>` and `<=` with `<`, are decided in a worker. So are its threshold edits and the tightened comparisons of `--displace-thresholds`: every comparison gets one more switch that moves its right side by an integer chosen at run time, and once the recorded comparisons show which thresholds to try, the session runs them through that switch. `n >= 100` with a shift of 3 behaves as `n >= 103`. The profile starts Vitest once on its own, for the run that records the comparisons; that run also serves as its baseline when it passes, because the session runs the suite beside it. When the recording run does not pass, the plain baseline runs and is reported as before. `--audit` and Playwright run every edit against the rewritten source instead.
 
 ### Built-in operator edits
 

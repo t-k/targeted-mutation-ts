@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { analyzeFocused, analyzeOperators } from '../src/operator-analysis.mjs';
+import { analyzeFocused, analyzeOperators, shiftTrials } from '../src/operator-analysis.mjs';
 
 const location = (file, start) => ({ file, line: 1, column: start + 1, start, end: start + 2 });
 const comparison = { site: 'c', location: location('a.ts', 20), rule: 'comparison-boundary/v1', operator: '>=', edit: [20, 22], replacement: '>', status: 'survived' };
@@ -20,9 +20,9 @@ function runners(focused, session) {
   return { calls,
     analyze: (project, files, options) => { calls.push(['analyze', options.mutators]); return report(options); },
     prepareAnalysis: (project, files, options) => {
-      calls.push(['prepare', options.mutators]);
+      calls.push(['prepare', options.mutators, options.traceIsBaseline]);
       const value = report(options);
-      return ended(value) ? { report: value } : { report: value, trials: [] };
+      return ended(value) ? { report: value } : { report: value, trials: value.trials ?? [], skips: value.skips };
     },
     completeAnalysis: (prepared, settled) => { calls.push(['complete', settled]); return prepared.report; },
     analyzeConventional: async (project, files, options) => { calls.push(['session', options]); return session; } };
@@ -33,11 +33,13 @@ test('Vitest merges focused comparison results with operator swaps from one sess
   const run = runners(focusedReport, sessionReport);
   const report = await analyzeOperators('.', ['a.ts'], options, run);
   assert.deepEqual(run.calls.map(call => call[0]), ['session', 'prepare', 'complete']);
-  const { signal, ...passed } = run.calls[0][1];
+  const { signal, extras, ...passed } = run.calls[0][1];
+  // The session is told which threshold trials to run once the focused analysis has planned them: none here.
+  assert.deepEqual(await extras, []);
   assert.deepEqual(passed, { mutators: 'operators', lines: ['a.ts:1'], since: undefined, config: undefined,
     test: ['a.test.ts'], 'copy-exclude': ['x'], dialect: 'ts', 'isolated-trials': undefined, concurrency: undefined, 'verify-trials': undefined });
   assert.equal(signal.aborted, false);
-  assert.deepEqual(run.calls[1], ['prepare', undefined]);
+  assert.deepEqual(run.calls[1], ['prepare', undefined, true]);
   assert.deepEqual([report.mutators, report.operatorExecution, report.evaluation], ['operators', 'session', 'evaluated']);
   assert.deepEqual(report.mutants.map(mutant => [mutant.location.start, mutant.rule, mutant.operator, mutant.replacement, mutant.status]), [
     [5, 'equality-negation/v1', '===', '!==', 'killed'],
@@ -192,6 +194,9 @@ for (const [fixture, files, extra] of [
   ['fixtures/eligibility', ['src/eligibility.ts'], { spec: 'spec.json' }],
   ['fixtures/shipping', ['src/shipping.ts'], { spec: 'spec.json', deterministic: true }],
   ['fixtures/eligibility', ['src/eligibility.ts'], { 'displace-thresholds': true, 'isolated-trials': true }],
+  ['fixtures/eligibility', ['src/eligibility.ts'], { 'displace-thresholds': true }],
+  // Without --deterministic the threshold edit is run, through the comparison's shift switch.
+  ['fixtures/shipping', ['src/shipping.ts'], { spec: 'spec.json' }],
 ]) {
   test(`the default profile's report is the one its own runs produce: ${fixture} ${Object.keys(extra)}`, async () => {
     const { analyze } = await import('../src/analysis.mjs');
@@ -203,3 +208,33 @@ for (const [fixture, files, extra] of [
     assert.deepEqual(beside, own);
   });
 }
+
+test('threshold and tightening trials go to the session as shifts of their comparison, and its extra results answer them', async () => {
+  const site = { rule: 'comparison-boundary/v1', location: { file: 'a.ts' }, edit: [20, 22], right: [23, 26] };
+  const boundary = { site, rule: 'comparison-boundary/v1', edit: [20, 22], replacement: '>' };
+  const threshold = { site, rule: 'comparison-threshold/v1', edit: [23, 26], replacement: '103', threshold: { meta: { threshold: 100 } } };
+  const tighter = { site: { ...site, edit: [40, 41] }, rule: 'comparison-tighten/v1', edit: [43, 44], replacement: '((n) + 1)', adjustment: 1 };
+  const predicted = { ...threshold, replacement: '110' };
+  const rewritten = { ...tighter, source: { edit: [0, 50], replacement: 'x' } };
+  const unmoved = { ...threshold, replacement: '100' };
+  const prepared = { trials: [boundary, threshold, tighter, predicted, rewritten, unmoved, threshold], skips: new Set([3]) };
+  // Boundaries, predicted trials, regrouped edits and a shift of nothing are left out, and a repeated trial is listed once.
+  assert.deepEqual(shiftTrials(prepared), [{ file: 'a.ts', at: 20, shift: 3 }, { file: 'a.ts', at: 40, shift: 1 }]);
+  assert.deepEqual(shiftTrials({ report: {} }), []);
+
+  const killers = [{ id: 't', name: 'x', file: 'a.test.ts', project: '' }];
+  const session = { ...sessionReport, mutators: 'boundaries', mutants: [],
+    extras: [{ extra: 1, status: 'unreached' }, { extra: 0, status: 'killed', tests: killers }] };
+  const run = runners({ ...focusedReport, trials: prepared.trials, skips: prepared.skips }, session);
+  await analyzeFocused('.', ['a.ts'], { ...options, mutators: undefined, audit: undefined }, run);
+  assert.deepEqual(await run.calls[0][1].extras, [{ file: 'a.ts', at: 20, shift: 3 }, { file: 'a.ts', at: 40, shift: 1 }]);
+  const settled = run.calls.find(call => call[0] === 'complete')[1];
+  assert.deepEqual(settled(threshold), { status: 'killed', tests: killers });
+  assert.deepEqual(settled(tighter), { status: 'survived', tests: undefined });
+  // The session has no result for another shift, and an unusable one is run again as a source edit.
+  assert.equal(settled(predicted), undefined);
+  assert.equal(settled(rewritten), undefined);
+  const unusable = runners({ ...focusedReport, trials: [threshold] }, { ...session, extras: [{ extra: 0, status: 'unsupported' }] });
+  await analyzeFocused('.', ['a.ts'], { ...options, mutators: undefined, audit: undefined }, unusable);
+  assert.equal(unusable.calls.find(call => call[0] === 'complete')[1](threshold), undefined);
+});

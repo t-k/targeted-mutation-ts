@@ -1,11 +1,15 @@
 import { createHash } from 'node:crypto';
-import { collectMutations } from './builtin-mutations.mjs';
+import { collectMutations, shiftPlaceholder } from './builtin-mutations.mjs';
 import { byteOffsets } from './source-text.mjs';
 
 // Runtime switches for the built-in mutation set. Expressions become `on(id) ? mutated : (cover(id), original)`;
 // blocks, case clauses and removable statements become `if (on(id)) mutated else { cover(id); original }`.
 // The helpers speak the test session's protocol: one active mutation and per-test hit counts.
-const helpers = (on, cover, scope) => `
+const helpers = (on, cover, shift, scope) => `
+function ${shift}() {
+  var scope = ${scope};
+  return (scope.__stryker__ && scope.__stryker__.shift) || 0;
+}
 function ${on}(id) {
   var scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
   if (ns.activeMutant !== id) return false;
@@ -50,9 +54,11 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   };
   const on = unusedName(text, '__tmtOn');
   const cover = unusedName(text, '__tmtCover');
+  const shift = unusedName(text, '__tmtShift');
   const identified = mutation => ({ ...mutation,
     id: createHash('sha256').update(JSON.stringify([file, mutation.name, mutation.start, mutation.end, mutation.replacement])).digest('hex').slice(0, 16) });
-  const mutants = live.map(identified);
+  const mutants = live.map(identified).map(mutant => mutant.shift === undefined ? mutant
+    : { ...mutant, mutated: mutant.mutated.replace(shiftPlaceholder, `${shift}()`) });
 
   const groups = new Map();
   for (const mutant of mutants) {
@@ -105,7 +111,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   // A module that binds its own `globalThis` reaches the real global object through an indirect eval.
   const scope = /\bglobalThis\b/.test(text) ? "(0, eval)('this')" : 'globalThis';
   // A file whose mutations are all ignored keeps its source.
-  const output = mutants.length ? render(0, text.length) + helpers(on, cover, scope) : text;
+  const output = mutants.length ? render(0, text.length) + helpers(on, cover, shift, scope) : text;
   // Ignored mutations are reported in source order with the others and get no switch.
   const reported = [...mutants, ...found.filter(mutation => mutation.ignored !== undefined).map(identified)]
     .sort((a, b) => a.start - b.start || b.end - a.end);
@@ -120,19 +126,21 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
       source: { edit: [bytes[mutant.placement[0]], bytes[mutant.placement[1]]], replacement: asStatementStart(mutant, text) },
       ...(mutant.operator ? { operatorSwap: [bytes[mutant.operator[0]], mutant.operator[1]] } : {}),
       ...(mutant.ignored === undefined ? {} : { status: 'ignored', statusReason: mutant.ignored }),
+      // A shift switch is driven by the focused analysis and is not a mutation of its own.
+      ...(mutant.shift === undefined ? {} : { parametric: { file, at: bytes[mutant.shift] } }),
     };
   }) };
 }
 
 // The swaps the focused analysis makes at a comparison boundary: `>=` with `>` and `<=` with `<`.
-export const boundarySwap = (mutation, text) => mutation.operator !== undefined &&
-  ['>', '>=', '<', '<='].includes(mutation.operator[1]) && text[mutation.operator[0]] === mutation.operator[1][0];
+export const boundarySwap = (mutation, text) => mutation.shift !== undefined || (mutation.operator !== undefined &&
+  ['>', '>=', '<', '<='].includes(mutation.operator[1]) && text[mutation.operator[0]] === mutation.operator[1][0]);
 
 // The boundary swaps that a `// Stryker disable` comment covers, as `offset:replacement` keys in UTF-8 bytes.
 export function ignoredSwaps(input, file, options = {}) {
   if (!input.includes('Stryker ')) return new Set();
   return new Set(renderBuiltinSwitches(input, file, () => true, { ...options, keep: boundarySwap }).mutants
-    .filter(mutant => mutant.status === 'ignored').map(mutant => mutant.operatorSwap.join(':')));
+    .filter(mutant => mutant.status === 'ignored' && mutant.operatorSwap).map(mutant => mutant.operatorSwap.join(':')));
 }
 
 export function prepareBuiltinSwitches(subjects, options = {}) {

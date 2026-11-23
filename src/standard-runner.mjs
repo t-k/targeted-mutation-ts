@@ -81,14 +81,15 @@ export default class StandardMutationRunner extends VitestTestRunner {
           emit({ start: plan.id });
           const expected = plan.tests.length;
           const selected = plan.static ? undefined : plan.tests;
-          const trial = await inner({ phase: 'trial', active: plan.id, hitLimit: plan.hitLimit, staticActivation: plan.static }, selected, plan.tests);
+          const active = plan.active ?? plan.id;
+          const trial = await inner({ phase: 'trial', active, shift: plan.shift, hitLimit: plan.hitLimit, staticActivation: plan.static }, selected, plan.tests);
           const hits = globalThis.__stryker__.hitCount;
           // From here on a silent worker is a failed control, not a mutation that never returns.
           emit({ control: plan.id });
           // The same tests without the mutation, directly afterwards. They must behave as in the baseline, or the
           // trial ran in an environment that an earlier run, or the trial itself, had changed.
           const control = await inner({ phase: 'control' }, selected, plan.tests);
-          const controlHits = globalThis.__stryker__.mutantCoverage?.static?.[plan.id] ?? 0;
+          const controlHits = globalThis.__stryker__.mutantCoverage?.static?.[active] ?? 0;
           if (control.unhandled || control.errors.length || control.failed.length || control.foreign || control.missing || control.passed !== expected ||
               controlHits !== plan.hits) {
             emit({ stop: plan.id, reason: 'control' });
@@ -143,7 +144,7 @@ export default class StandardMutationRunner extends VitestTestRunner {
         node.evaluated = false;
         node.importers.clear();
       }
-      Object.assign(namespace, { activeMutant: undefined, currentTestId: undefined, hitCount: 0, hitLimit: undefined,
+      Object.assign(namespace, { activeMutant: undefined, currentTestId: undefined, hitCount: 0, hitLimit: undefined, shift: 0,
         mutantCoverage: { static: {}, perTest: {} } });
       if (trial) globalThis[trialKey] = trial;
       else delete globalThis[trialKey];

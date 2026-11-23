@@ -1,7 +1,7 @@
 import { isUtf8 } from 'node:buffer';
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { closeSync, copyFileSync, existsSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, renameSync, existsSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
@@ -132,7 +132,9 @@ export async function analyzeConventional(project, files, options) {
   const require = combined ? createRequire(entry) : null;
   const babel = require && { types: require('@babel/core').types, generate: require('@babel/generator').generate };
   const prepareBuiltIn = options.mutators === 'operators' ? prepareOperatorSwitches : prepareBuiltinSwitches;
-  const { sources, mutants } = builtIn ? prepareBuiltIn(targets, { dialect: options.dialect, ...(options.mutators === 'boundaries' ? { keep: boundarySwap } : {}) }) : await prepareConventional(targets, focus &&
+  const awaitsExtras = builtIn && options.mutators !== 'operators' && options.extras !== undefined;
+  const { sources, mutants: prepared } = builtIn ? prepareBuiltIn(targets, { dialect: options.dialect, shifts: awaitsExtras,
+    ...(options.mutators === 'boundaries' ? { keep: boundarySwap } : {}) }) : await prepareConventional(targets, focus &&
     ((source, { starts, bytes }) => focus.printWithFocusedSwitches(
       source, starts, bytes, byFile.get(source.originFileName) ?? [], runtime, preparedFocused, babel,
     )), entry);
@@ -141,7 +143,9 @@ export async function analyzeConventional(project, files, options) {
     extraction: comparison?.extraction ?? [], mutants: [], diagnostics: [], evaluation: 'no_sites',
     selection: { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] },
   };
-  const runnable = mutants.filter(mutant => mutant.status === undefined);
+  // Shift switches belong to the session and not to the report.
+  const mutants = prepared.filter(mutant => !mutant.parametric);
+  const runnable = prepared.filter(mutant => mutant.status === undefined);
   const focused = focus?.eligibleFocusedSites(runnable, preparedFocused) ?? [];
   if (!mutants.length && !focused.length) return report;
   if (!runnable.length && !focused.length) return { ...report, evaluation: 'evaluated', mutants };
@@ -161,7 +165,8 @@ export async function analyzeConventional(project, files, options) {
     const manifest = resolve(temp, 'mutation-session.json');
     const output = resolve(temp, 'mutation-session.jsonl');
     writeFileSync(manifest, JSON.stringify({
-      workspace, setup, workerRunner, output, temporary: temp, mutants: runnable.map(({ id }) => ({ id })),
+      workspace, setup, workerRunner, output, temporary: temp, awaitsExtras,
+      mutants: runnable.map(({ id, parametric }) => ({ id, ...(parametric ? { parametric } : {}) })),
       focused: focused.map(({ id }) => ({ id })), isolatedTrials: options['isolated-trials'] === true,
       concurrency: options.concurrency ?? Math.max(1, availableParallelism() - 1), verifyTrials: options['verify-trials'] ?? 0,
       replay: options.deterministic ? focus.comparisonReplays(runnable, focused, originals) : [],
@@ -169,6 +174,15 @@ export async function analyzeConventional(project, files, options) {
       files: [...new Set((options.test ?? []).map(file => inside(workspace, file)))],
     }));
     const limit = 75_000 + 60_000 * (runnable.length + focused.length);
+    // The focused analysis names its threshold edits once it has recorded the comparisons. The session waits for the list.
+    const extras = resolve(temp, 'extras.json');
+    if (awaitsExtras) {
+      Promise.resolve(options.extras).then(list => list ?? [], () => []).then(list => {
+        // Written beside its final name and moved, so the session never reads half a list.
+        writeFileSync(extras + '.part', JSON.stringify(list));
+        renameSync(extras + '.part', extras);
+      });
+    }
     const run = await superviseSession(workspace, temp, manifest, limit, options.signal);
     const events = readEvents(output);
     const error = events.findLast(event => event.error)?.error ?? run.error?.message ??
@@ -181,6 +195,7 @@ export async function analyzeConventional(project, files, options) {
     const targeted = focused.map(entry => focus.focusedResult(entry, trace, results, originals)).filter(Boolean);
     return {
       ...report, baseline, evaluation: completed ? 'evaluated' : 'incomplete', trials: events.find(event => event.trials)?.trials,
+      ...(awaitsExtras ? { extras: events.filter(event => event.extra !== undefined) } : {}),
       mutants: [...mutants.map(mutant => {
         const result = results.get(mutant.id);
         if (result) return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
