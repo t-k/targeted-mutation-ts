@@ -258,17 +258,20 @@ function compile(input, options = {}) {
   const format = outputFormat(file, module);
   const typed = /\.(?:m?ts|tsx)$/i.test(file);
   const jsxFile = /\.[jt]sx$/i.test(file);
-  const native = (typed || jsxFile) && target === 'esnext' && format !== 'cjs' && !sourceMap ? loadDirectAddon() : null;
-  if (native) {
+  if ((typed || jsxFile) && target === 'esnext' && format !== 'cjs' && !sourceMap) {
     const source = Buffer.isBuffer(stableInput) ? stableInput :
       typeof stableInput === 'string' && stableInput.isWellFormed() ? Buffer.from(stableInput) : null;
-    if (source && isUtf8(source) && (mode === 'strip' || !source.includes('///') || !native.leadingDirective(source))) {
-      const simple = typed && !jsxFile ? native.compile(source) : null;
+    // The direct grammar starts at an export after trivia. Imports and interfaces cannot use it.
+    const startsWithI = typed && mode === 'transform' && source?.[0] === 105;
+    const native = source && !startsWithI ? loadDirectAddon() : null;
+    if (source && (startsWithI || native) && isUtf8(source) &&
+        (startsWithI || mode === 'strip' || !source.includes('///') || !native.leadingDirective(source))) {
+      const simple = native && typed && !jsxFile ? native.compile(source) : null;
       if (simple !== null) return { backend: 'pulse', code: simple, sourceMap: null, diagnostics: [] };
       const runtime = mode === 'transform' && (jsxFile ? jsx !== 'preserve' &&
         (!source.includes('@') || !/@jsx/i.test(source.toString('latin1'))) && !source.includes('_tmt') :
         typed && source.includes('enum') && /\benum\b/.test(typeof stableInput === 'string' ? stableInput : source.toString()));
-      if (runtime) {
+      if (runtime && native) {
         const code = native.lower(source, jsxFile, typed, jsx === 'classic', false);
         if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
       }

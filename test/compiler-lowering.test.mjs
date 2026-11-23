@@ -182,6 +182,22 @@ test('cold direct compilation does not initialize path or filesystem modules', (
   assert.equal(result.status, 0, result.stderr);
 });
 
+test('an import-first typed module loads only the full compiler addon', () => {
+  const source = `
+    import assert from 'node:assert/strict';
+    import { registerHooks } from 'node:module';
+    registerHooks({ resolve(specifier, context, next) {
+      if (specifier.endsWith('/compiler.node')) throw new Error('Direct compiler addon loaded');
+      return next(specifier, context);
+    } });
+    const { compile } = await import('./src/compiler.mjs');
+    const input = 'import type { T } from "unused"; export function View(x: T) { return <i>{x}</i>; }';
+    assert.equal(compile(input, { file: 'module.tsx' }).backend, 'pulse');
+  `;
+  const result = spawnSync(process.execPath, ['--input-type=module', '--eval', source], { encoding: 'utf8', timeout: 15000 });
+  assert.equal(result.status, 0, result.stderr);
+});
+
 const runRows = readFileSync(new URL('../verification/pict/compiler-jsx-runs.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1);
 for (const row of runRows) {
@@ -232,7 +248,7 @@ test('whole-module JSX erases types in the original source gaps before lowering'
   const source = 'import type { Label } from "unused";\n' +
     'export function View(title: Label) {\n' +
     '  const nested = (name: string) => <strong>{name}</strong>;\n' +
-    '  return <i type="text">{nested(title)}</i>;\n}';
+    '  return <i type="text" as="label">Shown as an interface {nested(title)}</i>;\n}';
   const options = { file: 'native.tsx' };
   const result = compile(source, options);
   const reference = compile(source, { ...options, sourceMap: true });

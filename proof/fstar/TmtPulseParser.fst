@@ -2848,6 +2848,7 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
         let! asserted = (fun () -> annotation_type input { st with offset = plus st.offset type_width } 16ul 64ul) in
         (let! anf_value_3 = (fun () -> ambiguous_assertion_update input asserted) in if anf_value_3 then ret input (empty_range (failed asserted 1ul))
         else
+          let! asserted = (fun () -> record_jsx_span input asserted 11ul st.offset asserted.offset) in
           let target = if can_assign_expression lhs.target then AssertedTarget else NotAssignable in
           let value = { lhs with parser = asserted; range = { lhs.range with G.last = asserted.offset };
             outer_or = false; target } in
@@ -2936,7 +2937,10 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
             ret input (recorded, true)
           else if not (G.identifier_start first) then ret input (failed property 1ul, false)
           else (let! anf_value_3 = (fun () -> scan_class input property.offset G.Identifier) in ret input ({ property with offset = anf_value_3 }, false))
-        else ret input ({ st with offset = next st.offset }, false)) in
+        else
+          let tail = { st with offset = next st.offset } in
+          let! tail = (fun () -> if bang then record_jsx_span input tail 12ul st.offset tail.offset else ret input tail) in
+          ret input (tail, false)) in
       let target =
         if optional || base.target = OptionalChain then OptionalChain
         else if bang && can_assign_expression base.target then AssertedTarget
@@ -3230,8 +3234,11 @@ and declarator_value (input:tape) (state:parser_state) (fuel:U32.t) (optional:bo
   else
     let! byte = (fun () -> peek input tail.offset) in
     if optional && not after_name.newline && byte = 33uy then
-      let! colon = (fun () -> (let! anf_value_1 = (fun () -> (consume input tail 33uy)) in skip input anf_value_1)) in
+      let! bang = (fun () -> consume input tail 33uy) in
+      let! bang = (fun () -> record_jsx_span input bang 12ul tail.offset bang.offset) in
+      let! colon = (fun () -> skip input bang) in
       let! annotation = (fun () -> (let! anf_value_2 = (fun () -> (consume input colon 58uy)) in annotation_type input anf_value_2 16ul 64ul)) in
+      let! annotation = (fun () -> record_jsx_span input annotation 7ul colon.offset annotation.offset) in
       let! next_token = (fun () -> skip input annotation) in
       (let! anf_value_3 = (fun () -> same input next_token.offset 61uy) in if anf_value_3 then ret input (empty_range (failed next_token 1ul))
       else ret input (empty_range annotation))
@@ -3725,6 +3732,7 @@ and class_field_tail (input:tape) (state:parser_state) (fuel:U32.t)
   let definite = byte = 33uy && not gap.newline in
   let optional = byte = 63uy && not gap.newline in
   let! head = (fun () -> if optional || definite then consume input st byte else ret input (state)) in
+  let! head = (fun () -> if optional || definite then record_jsx_span input head 12ul st.offset head.offset else ret input head) in
   let! typed = (fun () -> capture_annotation input head false) in
   let! after = (fun () -> skip input typed) in
   let! equal = (fun () -> same input after.offset 61uy) in
@@ -3970,10 +3978,14 @@ and parameter_prefix (input:tape) (state:parser_state) (floor used:names_used) (
   let! bound = (fun () -> pattern_binding input { state with await_allowed = false; yield_allowed = false } binding_region_width floor used fuel) in
   let! tail = (fun () -> skip input { bound.state with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed }) in
   let! typed = (fun () -> (let! anf_value_1 = (fun () -> same input tail.offset 63uy) in if anf_value_1 then
-      let! colon = (fun () -> (let! anf_value_2 = (fun () -> (consume input tail 63uy)) in skip input anf_value_2)) in
+      let! mark = (fun () -> consume input tail 63uy) in
+      let! mark = (fun () -> record_jsx_span input mark 12ul tail.offset mark.offset) in
+      let! colon = (fun () -> skip input mark) in
       let! delimiter = (fun () -> peek input colon.offset) in
       if G.identifier_start first && (delimiter = 44uy || delimiter = 41uy) then ret input colon
-      else (let! anf_value_3 = (fun () -> (consume input colon 58uy)) in annotation_type input anf_value_3 16ul 64ul)
+      else
+        let! typed = (fun () -> (let! anf_value_3 = (fun () -> consume input colon 58uy) in annotation_type input anf_value_3 16ul 64ul)) in
+        record_jsx_span input typed 7ul colon.offset typed.offset
     else capture_annotation input tail false)) in
   (let! anf_value_4 = (fun () -> (let! anf_value_5 = (fun () -> skip input typed) in ret input ({ bound with state = anf_value_5 }))) in ret input ({ names = anf_value_4; non_simple = first = 123uy || first = 91uy }))
 

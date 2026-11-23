@@ -221,6 +221,21 @@ test('native generic calls and arrows preserve the exact boundary of type argume
   assert.equal(compile(source).code, stripTypeScriptTypes(source));
 });
 
+test('native assertions and optional markers leave the value grammar intact', async () => {
+  const source = 'export function pick(x?: number) {\n' +
+    '  const record = { current: x! };\n' +
+    '  return (record satisfies { current: number }).current as number;\n}';
+  const emitted = compile(source);
+  assert.equal(emitted.backend, 'pulse');
+  assert.equal(emitted.code, stripTypeScriptTypes(source));
+  const actual = await import('data:text/javascript;base64,' + Buffer.from(emitted.code).toString('base64'));
+  assert.equal(actual.pick(7), 7);
+  const continuation = 'export const n: number = 7 as number\n(3);';
+  const bridged = compile(continuation);
+  assert.notEqual(bridged.backend, 'pulse');
+  assert.equal(bridged.code, stripTypeScriptTypes(continuation));
+});
+
 test('an erased type-only import keeps a runtime module and its directives', () => {
   const source = 'import type { T } from "unused";\n"use client";\nconst value: T = Math.abs(-6);';
   const result = compile(source);
