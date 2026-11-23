@@ -71,6 +71,9 @@ test('bounded comparison lookahead respects nested delimiters and a possible typ
   const bridged = compile(generic);
   assert.notEqual(bridged.backend, 'pulse');
   assert.ok(bridged.code);
+  const computed = compile('export const result = id < { [key && other]: string } > (value);');
+  assert.notEqual(computed.backend, 'pulse');
+  assert.ok(computed.code);
 });
 
 test('arithmetic comparison and contextual inequality remain ordinary JavaScript', async () => {

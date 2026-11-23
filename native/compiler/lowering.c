@@ -813,7 +813,7 @@ static bool comparison_without_type_closer(TmtPulseMemory_tape input, uint32_t a
     const uint8_t byte = input.source[at++];
     if (byte == '>') return false;
     if (byte == ';' && !depth) return true;
-    if ((byte == '&' || byte == '|') && at < input.size && input.source[at] == byte) return true;
+    if (!depth && (byte == '&' || byte == '|') && at < input.size && input.source[at] == byte) return true;
     if (byte == ')' || byte == ']' || byte == '}') {
       if (!depth) return true;
       if (closing[--depth] != byte) return false;
