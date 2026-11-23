@@ -772,6 +772,7 @@ enum {
   runtime_enum = 13,
   erased_import_member = 14,
   class_modifiers = 15,
+  generic_arrow = 16,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
@@ -868,12 +869,18 @@ static bool jsx_text_contains(TmtPulseMemory_tape input, uint32_t records, uint3
   return true;
 }
 
-static bool unambiguous_assertions(TmtPulseMemory_tape input, uint8_t *code, uint32_t records, bool jsx) {
+static bool unambiguous_assertions(TmtPulseMemory_tape input, uint8_t *code, uint32_t records,
+  const TmtGrammar_span *tags, size_t tag_count)
+{
   input.source = code;
   bool certain = true;
   uint32_t event = 0;
+  size_t tag = 0;
   for (uint32_t first = 0; first < input.size;) {
-    if (jsx && code[first] == '<') certain = false;
+    if (certain && tag_count && code[first] == '<') {
+      while (tag < tag_count && tags[tag].first < first) tag++;
+      if (tag < tag_count && tags[tag].first == first) certain = false;
+    }
     const uint32_t literal = skip_js_literal_or_comment(input, first, &certain);
     if (literal != first) {
       first = literal;
@@ -892,7 +899,7 @@ static bool unambiguous_assertions(TmtPulseMemory_tape input, uint8_t *code, uin
       while (event < records &&
           (input.output[event].original != runtime_import || input.output[event].left.last <= first)) event++;
       if ((event == records || first < input.output[event].left.first || end > input.output[event].left.last) &&
-          (!jsx || !jsx_text_contains(input, records, first, end))) return false;
+          (!tag_count || !jsx_text_contains(input, records, first, end))) return false;
     }
     first = end;
   }
@@ -902,7 +909,7 @@ static bool unambiguous_assertions(TmtPulseMemory_tape input, uint8_t *code, uin
 static bool erasable_expression_range(TmtPulseMemory_tape input, uint32_t kind, TmtGrammar_span span) {
   const uint8_t first = input.source[span.first];
   if (kind == type_annotation) return first == ':';
-  if (kind == type_arguments) return first == '<' && input.source[span.last - 1] == '>';
+  if (kind == type_arguments || kind == generic_arrow) return first == '<' && input.source[span.last - 1] == '>';
   if (kind == type_marker) return span.last - span.first == 1 && (first == '?' || first == '!');
   if (first != 'a' && first != 's') return false;
   const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, span.last);
@@ -911,7 +918,8 @@ static bool erasable_expression_range(TmtPulseMemory_tape input, uint32_t kind, 
   const uint8_t byte = input.source[tail.at];
   return byte == ';' || byte == ',' || byte == ')' || byte == ']' || byte == '}' ||
     (tail.newline && ((byte == 'c' && TmtPulseParser_keyword(input, tail.at, 5, UINT64_C(0x636f6e7374))) ||
-      (byte == 'l' && TmtPulseParser_keyword(input, tail.at, 3, UINT64_C(0x6c6574)))));
+      (byte == 'l' && TmtPulseParser_keyword(input, tail.at, 3, UINT64_C(0x6c6574))) ||
+      (byte == 'i' && TmtPulseParser_keyword(input, tail.at, 2, UINT64_C(0x6966)))));
 }
 
 static bool delimited_annotation(TmtPulseMemory_tape input, uint32_t last) {
@@ -955,7 +963,21 @@ static bool blank_ascii_lines(uint8_t *output, const uint8_t *source, uint32_t w
   return true;
 }
 
-static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool jsx, char **output, bool *remove_statement) {
+static bool preserve_generic_arrow(TmtPulseMemory_tape input, TmtGrammar_span span, char *code) {
+  const TmtPulseParser_cursor opening = TmtPulseParser_trivia(input, span.last);
+  if (!opening.ok || opening.at == input.size || input.source[opening.at] != '(') return false;
+  const size_t width = span.last - span.first;
+  const uint8_t *types = input.source + span.first;
+  if (opening.newline || memchr(types, '\n', width) || memchr(types, '\r', width)) {
+    code[span.first] = '(';
+    code[opening.at] = ' ';
+  }
+  return true;
+}
+
+static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records,
+  const TmtGrammar_span *tags, size_t tag_count, char **output, bool *remove_statement)
+{
   char *code = NULL;
   uint32_t previous = 0;
   uint32_t prelude = TmtPulseCompiler_runtime_source_start(input).at;
@@ -966,7 +988,8 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool
     const TmtGrammar_candidate event = input.output[index];
     const bool member = event.original == erased_import_member;
     const bool modifiers = event.original == class_modifiers;
-    if (!member && !modifiers && (event.original < type_annotation || event.original > type_marker)) continue;
+    const bool arrow = event.original == generic_arrow;
+    if (!member && !modifiers && !arrow && (event.original < type_annotation || event.original > type_marker)) continue;
     const TmtGrammar_span span = event.left;
     if (span.first >= span.last || span.last > input.size) goto decline;
     const bool statement = event.original == erased_type_statement || event.original == runtime_import;
@@ -987,7 +1010,8 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool
     } else if (!member && !modifiers && !erasable_expression_range(input, event.original, span)) goto decline;
     if (span.first < previous) goto decline;
     const bool annotation = event.original == type_annotation;
-    bool preserve_lines = statement || member || modifiers || event.original == type_arguments || event.original == type_assertion;
+    bool preserve_lines = statement || member || modifiers || arrow ||
+      event.original == type_arguments || event.original == type_assertion;
     if (!preserve_lines || modifiers) {
       bool multiline = false, slash = false;
       for (uint32_t byte = span.first; byte < span.last; byte++) {
@@ -1011,9 +1035,10 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool
     } else if (!preserve_lines) memset(code + span.first, ' ', span.last - span.first);
     else if (!blank_ascii_lines((uint8_t *)code + span.first, input.source + span.first, span.last - span.first)) goto decline;
     if (separate) code[span.first] = ';';
+    if (arrow && !preserve_generic_arrow(input, span, code)) goto decline;
     previous = span.last;
   }
-  if (!unambiguous_assertions(input, code ? (uint8_t *)code : input.source, records, jsx)) goto decline;
+  if (!unambiguous_assertions(input, code ? (uint8_t *)code : input.source, records, tags, tag_count)) goto decline;
   *output = code;
   return true;
 decline:
@@ -1052,7 +1077,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
 {
   char *code = NULL;
   bool remove_statement;
-  if (!blank_type_records(input, records, false, &code, &remove_statement)) goto enum_only;
+  if (!blank_type_records(input, records, NULL, 0, &code, &remove_statement)) goto enum_only;
   *length = input.size;
   if (enums) {
     TmtPulseMemory_tape projected = input;
@@ -1257,7 +1282,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   if (input.capture_types) {
     char *masked;
     bool remove_statement;
-    if (blank_type_records(input, records, true, &masked, &remove_statement)) {
+    if (blank_type_records(input, records, spans, elements, &masked, &remove_statement)) {
       TmtPulseMemory_tape projected = input;
       if (masked) projected.source = (uint8_t *)masked;
       char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length);

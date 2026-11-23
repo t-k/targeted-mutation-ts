@@ -2736,7 +2736,7 @@ and plain_arrow_parameters (input:tape) (state:parser_state) (fuel:U32.t)
     let! byte = (fun () -> peek input state.offset) in
     let! opening = (fun () -> if byte = 60uy then
       let! generic = (fun () -> generic_arrow_head input state) in
-      let! recorded = (fun () -> record_jsx_span input generic 10ul state.offset generic.offset) in
+      let! recorded = (fun () -> record_jsx_span input generic 16ul state.offset generic.offset) in
       skip input recorded
       else ret input state) in
     let! parenthesized = (fun () -> same input opening.offset 40uy) in
@@ -3864,7 +3864,17 @@ and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (kind:class_kind)
       let! base = (fun () -> skip input { st with offset = plus st.offset 7ul }) in
       let! named = (fun () -> name input base.offset false false) in
       let! forbidden = (fun () -> forbidden_field_arguments input base) in
-      if named.ok && not forbidden then (let! anf_value_3 = (fun () -> (type_reference input base 16ul)) in skip input anf_value_3) else ret input (failed base 1ul)) in
+      if not named.ok || forbidden then ret input (failed base 1ul)
+      else
+        let! typed = (fun () -> type_reference input base 16ul) in
+        let! recorded = (fun () -> if not input.capture_types || typed.status <> 0ul then ret input typed
+          else
+            let! qualified = (fun () -> qualified_name input (from_cursor base named) 64ul) in
+            let! arguments = (fun () -> skip input qualified) in
+            let! angle = (fun () -> same input arguments.offset 60uy) in
+            if angle && arguments.status = 0ul && U32.lt arguments.offset typed.offset then
+              record_jsx_span input typed 10ul arguments.offset typed.offset else ret input typed) in
+        skip input recorded) in
   let! word_ = (fun () -> word input inherited.offset 8ul 0uL) in
   let! implements = (fun () -> if word_ = 0x696d706c656d656euL then keyword input (plus inherited.offset 8ul) 2ul 0x7473uL
     else ret input (false)) in
@@ -4380,8 +4390,11 @@ let rec type_namespace_members (input:tape) (state:parser_state) (floor used loc
   else if byte = 125uy then consume input st 125uy
   else if remaining = 0ul then ret input (failed st 1ul)
   else if byte = 59uy then
-    let! next_member = (fun () -> consume input st 59uy) in
-    type_namespace_members input next_member floor used locals depth (minus remaining 1ul) ambient
+    // A standalone empty statement instantiates a nonambient namespace.
+    if not ambient then ret input (failed st 1ul)
+    else
+      let! next_member = (fun () -> consume input st 59uy) in
+      type_namespace_members input next_member floor used locals depth (minus remaining 1ul) ambient
   else
     let! exported = (fun () -> keyword input st.offset 6ul 0x6578706f7274uL) in
     let! member = (fun () -> if exported then skip input { st with offset = plus st.offset 6ul } else ret input st) in

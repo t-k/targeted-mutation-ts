@@ -209,6 +209,31 @@ test('native multiline parameter annotations preserve delimiters and line ending
   }
 });
 
+test('class heritage erases generic arguments and preserves the qualified runtime base', async () => {
+  for (const file of ['derived.ts', 'derived.tsx']) {
+    for (const args of ['<number>', '<\r\n  { value: number }\r\n>']) {
+      const source = 'class Base { read() { return 7; } }\r\n' +
+        'const runtime = { Base };\r\n' +
+        `export class Derived extends runtime.Base${args} { tag: string = "derived"; }`;
+      const result = compile(source, { file });
+      assert.equal(result.backend, 'pulse', file);
+      assert.equal(result.code, stripTypeScriptTypes(source));
+      const { Derived } = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+      assert.equal(new Derived().read(), 7);
+    }
+  }
+});
+
+test('a TSX comparison keeps subsequent comments in JavaScript lexical context', () => {
+  const source = 'const small = (input: number) => input < 10;\n' +
+    '// Preserve this as a comment after a comparison.\n' +
+    'export const View = () => <p>{small(4)}</p>;';
+  const result = compile(source, { file: 'comments.tsx' });
+  assert.equal(result.backend, 'pulse');
+  assert.match(result.code, /"react\/jsx-runtime"/);
+  assert.match(result.code, /as a comment after a comparison/);
+});
+
 test('annotation erasure leaves multiline assertions to TypeScript-compatible parsing', () => {
   for (const keyword of ['as', 'satisfies']) {
     const source = 'export {}; const x: number = 1\n' + keyword + '\nnumber;';
@@ -310,12 +335,12 @@ test('delimited assertions can span lines and contextual words can be value bind
   assert.notEqual(compile(constructorProperty).backend, 'pulse');
 });
 
-test('assertion erasure preserves ASI before a lexical declaration', async () => {
-  for (const binding of ['const', 'let']) {
+test('assertion erasure preserves ASI before a new statement', async () => {
+  for (const statement of ['const size = name.length;', 'let size = name.length;', 'if (name.length) return name.length;']) {
     const source = 'export function read(value: unknown) {\n' +
       '  const name = value as string\n' +
-      `  ${binding} size: number = name.length;\n` +
-      '  return size;\n}';
+      `  ${statement}\n` +
+      (statement.startsWith('if') ? '  return 0;\n}' : '  return size;\n}');
     const result = compile(source);
     assert.equal(result.backend, 'pulse');
     assert.equal(result.code, stripTypeScriptTypes(source));

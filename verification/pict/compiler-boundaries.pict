@@ -1,0 +1,4 @@
+LineBreak: InsideHead, AfterHead
+Newline: LF, CRLF
+Dialect: TS, TSX
+Context: Return, Yield

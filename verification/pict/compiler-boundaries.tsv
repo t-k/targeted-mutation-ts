@@ -1,0 +1,7 @@
+LineBreak	Newline	Dialect	Context
+InsideHead	LF	TS	Return
+AfterHead	CRLF	TSX	Return
+AfterHead	LF	TS	Yield
+InsideHead	CRLF	TSX	Yield
+AfterHead	LF	TSX	Return
+AfterHead	CRLF	TS	Yield
