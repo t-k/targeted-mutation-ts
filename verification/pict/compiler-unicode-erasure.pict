@@ -1,0 +1,4 @@
+Scalar: TwoByte, ThreeByte, FourByte
+Line: LF, CRLF, LineSeparator, ParagraphSeparator
+Placement: BeforeExport, AfterExport, Function
+Dialect: TS, TSX

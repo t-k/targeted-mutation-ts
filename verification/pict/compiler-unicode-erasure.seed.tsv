@@ -1,0 +1,4 @@
+Scalar	Line	Placement	Dialect
+TwoByte	LF	BeforeExport	TS
+FourByte	LineSeparator	AfterExport	TSX
+ThreeByte	ParagraphSeparator	Function	TS

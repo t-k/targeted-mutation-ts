@@ -977,16 +977,44 @@ static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span spa
   return true;
 }
 
-static bool blank_ascii_lines(uint8_t *output, const uint8_t *source, uint32_t width) {
-#ifdef TMT_SIMD_COMPILER
-  for (; width >= 16; width -= 16, output += 16, source += 16) {
-    if (!tmt_erase_type_run(output, source)) return false;
+static unsigned blank_unicode_scalar(uint8_t *output, const uint8_t *source, uint32_t remaining) {
+  const uint8_t leading = source[0];
+  if (leading < 0xc2 || leading > 0xf4) return 0;
+  const unsigned width = leading < 0xe0 ? 2 : leading < 0xf0 ? 3 : 4;
+  if (width > remaining) return 0;
+  for (unsigned i = 1; i < width; i++) {
+    if ((source[i] & 0xc0) != 0x80) return 0;
   }
+  if ((leading == 0xe0 && source[1] < 0xa0) || (leading == 0xed && source[1] >= 0xa0) ||
+      (leading == 0xf0 && source[1] < 0x90) || (leading == 0xf4 && source[1] >= 0x90)) return 0;
+
+  /* Match Node's eraser while retaining both byte and UTF-16 offsets. */
+  if (width == 2) memcpy(output, "\xc2\xa0", 2);
+  else if (width == 4) memcpy(output, " \xef\xbb\xbf", 4);
+  else if (leading == 0xe2 && source[1] == 0x80 && (source[2] == 0xa8 || source[2] == 0xa9)) {
+    memcpy(output, source, 3);
+  } else memcpy(output, "\xe2\x80\x82", 3);
+  return width;
+}
+
+static bool blank_lines(uint8_t *output, const uint8_t *source, uint32_t width, bool unicode) {
+  for (uint32_t at = 0; at < width;) {
+#ifdef TMT_SIMD_COMPILER
+    if (width - at >= 16 && tmt_erase_type_run(output + at, source + at)) {
+      at += 16;
+      continue;
+    }
 #endif
-  for (uint32_t at = 0; at < width; at++) {
     const uint8_t byte = source[at];
-    if (byte >= 128) return false;
-    output[at] = byte == '\n' || byte == '\r' ? byte : ' ';
+    if (byte < 128) {
+      output[at] = byte == '\n' || byte == '\r' ? byte : ' ';
+      at++;
+    } else {
+      if (!unicode) return false;
+      const unsigned step = blank_unicode_scalar(output + at, source + at, width - at);
+      if (!step) return false;
+      at += step;
+    }
   }
   return true;
 }
@@ -1101,7 +1129,8 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     if (modifiers) {
       if (!blank_class_modifiers(input, span, code)) goto decline;
     } else if (!preserve_lines) memset(code + span.first, ' ', span.last - span.first);
-    else if (!blank_ascii_lines((uint8_t *)code + span.first, input.source + span.first, span.last - span.first)) goto decline;
+    else if (!blank_lines((uint8_t *)code + span.first, input.source + span.first, span.last - span.first,
+                          statement || local_type || event.original == default_overload)) goto decline;
     if (separate) code[span.first] = ';';
     if (arrow && !preserve_generic_arrow(input, span, code)) goto decline;
     if (result && (memchr(input.source + span.first, '\n', span.last - span.first) ||
@@ -1441,6 +1470,21 @@ static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records) 
 }
 #endif
 
+#ifdef TMT_V8_VALIDATOR
+static bool retained_jsx_marker(TmtPulseMemory_tape input, uint32_t at, uint32_t records) {
+  if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
+  for (uint32_t index = 0; index < records; index++) {
+    const TmtGrammar_candidate event = input.output[index];
+    if (event.original != erased_type_statement || at < event.left.first || at >= event.left.last) continue;
+    const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, event.left.last);
+    if (!tail.ok || tail.at >= input.size) return false;
+    at = tail.at;
+    if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
+  }
+  return false;
+}
+#endif
+
 static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans, uint32_t records,
   uint32_t insertion, bool typescript, bool classic, size_t *length, bool *complete)
 {
@@ -1477,7 +1521,8 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
       if (masked) projected.source = (uint8_t *)masked;
       if (unambiguous_projection(projected, records)) {
         char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length, enum_records);
-        if (code && (!remove_statement || (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&
+        if (code && (!remove_statement || retained_jsx_marker(projected, insertion, records) ||
+                     (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&
             validate_emission(code, *length, "tsx")) {
           *complete = true;
           free(masked);
