@@ -262,3 +262,36 @@ test('a TSX module with no markup still erases TypeScript without the compiler',
   assert.equal(result.backend, 'pulse+node-strip');
   assert.doesNotMatch(result.code, /: object/);
 });
+
+test('a JSX expression can contain more comparisons than the small expression scratch buffer', async () => {
+  const values = Array.from({ length: 160 }, (_, index) => 'input > ' + index).join(',');
+  const source = 'export function Test(input: number) { return <i values={[' + values + ']} />; }';
+  const result = compile(source, { file: 'large-expression.tsx' });
+  assert.equal(result.backend, 'pulse+node-strip');
+  assert.equal((await load(result.code)).Test(42).props.values.filter(Boolean).length, 42);
+});
+
+test('whole-file automatic JSX supports scripts with a directive prologue', () => {
+  const input = '"use client";\nconst view = <b/>;';
+  const result = compile(input, { file: 'script.tsx' });
+  assert.equal(result.backend, 'pulse+node-strip');
+  assert.match(result.code, /^"use client";\s*import/);
+});
+
+test('whole-file classic JSX supports strict script output', () => {
+  const input = 'declare const React: any; const view = <b />;';
+  const result = compile(input, { file: 'script.tsx', jsx: 'classic' });
+  assert.equal(result.backend, 'pulse+node-strip');
+  assert.match(result.code, /^"use strict";/);
+  const React = { createElement: name => name };
+  assert.equal(Function('React', result.code + '\nreturn view;')(React), 'b');
+});
+
+test('whole-module JSX accepts comments between attributes and a spaced closing delimiter', async () => {
+  const source = 'export function View() { return (<div><b /* attribute */ className="work" ' +
+    '// end of opening tag\n / ></div>); }';
+  const result = compile(source, { file: 'comment.tsx' });
+  assert.notEqual(result.backend, 'typescript');
+  const reference = compile(source, { file: 'comment.tsx', sourceMap: true });
+  assert.deepEqual((await load(result.code)).View(), (await load(reference.code)).View());
+});

@@ -111,3 +111,28 @@ test('parameter properties accept identifiers and object keys containing runtime
     'export const value: object = { namespace: "demo" };');
   assert.equal(result.backend, 'node-transform');
 });
+
+test('a static import list can contain hundreds of specifiers', () => {
+  const imports = Array.from({ length: 180 }, (_, index) => 'member' + index).join(',');
+  const source = 'import {' + imports + '} from "unused"; export function get(): number { return 42; }';
+  assert.equal(compile(source).backend, 'node-strip');
+});
+
+test('modern JavaScript scripts and modules do not need TypeScript', async () => {
+  const script = '/* license */\n"use strict";\nvar result = (function () { return this; })();';
+  const emitted = compile(script, { file: 'plain.js' });
+  assert.equal(emitted.backend, 'javascript');
+  assert.equal(emitted.code, script);
+  const sloppy = compile('var result = (function () { return this; })();', { file: 'plain.js' });
+  assert.match(sloppy.code, /^"use strict";/);
+  const module = 'export const value = 42;';
+  const written = compile(module, { file: 'module.mjs' });
+  assert.equal(written.backend, 'javascript');
+  assert.equal(written.code, module);
+});
+
+test('JavaScript pass-through declines TypeScript syntax and ambiguous strict directives', () => {
+  for (const source of ['export const bad: number = 0;', '"use strict" + effect();']) {
+    assert.notEqual(compile(source, { file: 'plain.js' }).backend, 'javascript');
+  }
+});

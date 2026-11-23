@@ -21,8 +21,8 @@ typedef struct {
   bool classic, mixed;
   unsigned helpers;
 #ifndef TMT_DIRECT
-  const TmtGrammar_span *jsx_spans;
-  size_t jsx_count;
+  const TmtGrammar_span *jsx_spans, *expressions;
+  size_t jsx_count, expression_count;
 #endif
 } lowering;
 
@@ -80,6 +80,11 @@ static bool space(uint8_t byte) { return byte == ' ' || byte == '\t' || byte == 
 
 static void tag_space(lowering *lower) {
   while (space(peek(lower))) lower->at++;
+}
+
+static bool tag_trivia(lowering *lower) {
+  const uint8_t byte = peek(lower);
+  return byte != '/' && byte < 128 && !space(byte) ? true : trivia(lower);
 }
 
 static bool same_bytes(const lowering *lower, TmtGrammar_span part, const char *word) {
@@ -285,14 +290,18 @@ static bool js_atom(lowering *lower) {
 static bool jsx_element(lowering *lower, uint32_t depth);
 
 #ifndef TMT_DIRECT
-static bool source_jsx(lowering *lower, uint32_t first, uint32_t last, uint32_t depth) {
-  size_t lo = 0, hi = lower->jsx_count;
+static size_t span_at_or_after(const TmtGrammar_span *spans, size_t count, uint32_t first) {
+  size_t lo = 0, hi = count;
   while (lo < hi) {
     const size_t middle = lo + (hi - lo) / 2;
-    if (lower->jsx_spans[middle].first < first) lo = middle + 1;
+    if (spans[middle].first < first) lo = middle + 1;
     else hi = middle;
   }
-  for (size_t index = lo; index < lower->jsx_count; index++) {
+  return lo;
+}
+
+static bool source_jsx(lowering *lower, uint32_t first, uint32_t last, uint32_t depth) {
+  for (size_t index = span_at_or_after(lower->jsx_spans, lower->jsx_count, first); index < lower->jsx_count; index++) {
     const TmtGrammar_span span = lower->jsx_spans[index];
     if (span.first >= last) break;
     if (span.first < first) continue;
@@ -311,12 +320,14 @@ static bool jsx_value(lowering *lower, uint32_t depth) {
   if (!trivia(lower)) return false;
 #ifndef TMT_DIRECT
   if (lower->jsx_spans) {
-    const TmtPulseParser_cursor end = TmtPulseCompiler_jsx_expression_end(lower->input, lower->at);
-    if (!end.ok || end.at <= lower->at || end.at >= lower->input.size) return false;
+    const size_t index = span_at_or_after(lower->expressions, lower->expression_count, lower->at);
+    if (index == lower->expression_count) return false;
+    const TmtGrammar_span span = lower->expressions[index];
+    if (span.first != lower->at || span.last <= lower->at || span.last >= lower->input.size) return false;
     put(&lower->output, "(");
-    if (!source_jsx(lower, lower->at, end.at, depth)) return false;
+    if (!source_jsx(lower, span.first, span.last, depth)) return false;
     put(&lower->output, ")");
-    lower->at = end.at;
+    lower->at = span.last;
   } else
 #endif
   if (peek(lower) == '<') {
@@ -360,13 +371,13 @@ static bool jsx_name(lowering *lower, TmtGrammar_span *span) {
 }
 
 static bool jsx_property_value(lowering *lower, uint32_t depth, uint32_t name_end) {
-  tag_space(lower);
+  if (!tag_trivia(lower)) return false;
   if (!consume(lower, '=')) {
     lower->at = name_end;
     put(&lower->output, "true");
     return !lower->output.failed;
   }
-  tag_space(lower);
+  if (!tag_trivia(lower)) return false;
   if (peek(lower) == '"' || peek(lower) == '\'') return jsx_quoted(lower);
   if (peek(lower) == '<') return jsx_element(lower, depth);
   return consume(lower, '{') && jsx_value(lower, depth) && !lower->output.failed;
@@ -376,7 +387,7 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *propertie
   bool spread = false, literal_spread = false;
   for (;;) {
     const uint32_t previous = lower->at;
-    tag_space(lower);
+    if (!tag_trivia(lower)) return false;
     if (peek(lower) == '/' || peek(lower) == '>') return true;
     if (previous == lower->at || properties->count == 4096) return false;
     if (consume(lower, '{')) {
@@ -497,6 +508,7 @@ static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, c
     const bool element = peek(lower) == '<';
     if (element && lower->at + 1 < lower->input.size && lower->input.source[lower->at + 1] == '/') {
       lower->at += 2;
+      if (!trivia(lower)) return false;
       if (tag.first != tag.last) {
         TmtGrammar_span close;
         if (!jsx_name(lower, &close) || close.last - close.first != tag.last - tag.first ||
@@ -549,6 +561,7 @@ static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, c
 static bool jsx_element(lowering *lower, uint32_t depth) {
   if (!depth || !consume(lower, '<')) return false;
   writer *out = &lower->output;
+  if (!tag_trivia(lower)) return false;
   const bool fragment = peek(lower) == '>';
   TmtGrammar_span tag = { lower->at, lower->at };
   if (!fragment && !jsx_name(lower, &tag)) return false;
@@ -580,6 +593,7 @@ static bool jsx_element(lowering *lower, uint32_t depth) {
   bool accepted = false;
   if (!fragment && !jsx_attributes(lower, depth - 1, &props)) goto done;
   const bool self_closed = !fragment && consume(lower, '/');
+  if (self_closed) tag_space(lower);
   if (!consume(lower, '>')) goto done;
   const bool classic = lower->classic || props.create;
   if (classic) {
@@ -795,52 +809,87 @@ static int compare_spans(const void *lhs, const void *rhs) {
   return a->last > b->last ? -1 : 1;
 }
 
+static uint32_t jsx_script_prelude(TmtPulseMemory_tape input, uint32_t at) {
+  while (at < input.size && (input.source[at] == '"' || input.source[at] == '\'')) {
+    const TmtPulseParser_cursor string = TmtPulseParser_string_end(input, at + 1, input.source[at], input.size, false);
+    if (!string.ok) break;
+    const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, string.at);
+    if (!tail.ok) break;
+    if (tail.at == input.size) return input.size;
+    const uint32_t boundary = TmtPulseCompiler_next_module_item(input, true, at);
+    const bool semicolon = input.source[tail.at] == ';';
+    if (!(semicolon ? boundary == tail.at + 1 : tail.newline && boundary == tail.at)) break;
+    const TmtPulseParser_cursor next = TmtPulseParser_trivia(input, boundary);
+    if (!next.ok) break;
+    at = next.at;
+  }
+  return at;
+}
+
+static TmtPulseParser_parser_state capture_jsx(TmtPulseMemory_tape input, bool module) {
+  input.capture_jsx = true;
+  memset(input.marks, 0, input.capacity);
+  return TmtPulseParser_parse(input, true, module);
+}
+
+static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans, uint32_t records,
+  uint32_t insertion, bool classic, size_t *length)
+{
+  size_t elements = 0, expression_begin = records;
+  for (uint32_t index = 0; index < records; index++) {
+    if (input.output[index].original == 0) spans[elements++] = input.output[index].left;
+    else if (input.output[index].original == 5) spans[--expression_begin] = input.output[index].left;
+  }
+  qsort(spans, elements, sizeof(*spans), compare_spans);
+  qsort(spans + expression_begin, records - expression_begin, sizeof(*spans), compare_spans);
+  lowering lower = { .input = input, .classic = classic, .jsx_spans = spans, .jsx_count = elements,
+    .expressions = spans + expression_begin, .expression_count = records - expression_begin,
+    .output.limit = (size_t)input.size * 32 + 1024 };
+  if (source_jsx(&lower, 0, insertion, 32)) {
+    const size_t runtime_at = lower.output.length;
+    if (source_jsx(&lower, insertion, input.size, 32) && inject_jsx_runtime(&lower, runtime_at)) {
+      *length = lower.output.length;
+      return lower.output.code;
+    }
+  }
+  free(lower.output.code);
+  return NULL;
+}
+
 static char *lower_jsx_module(uint8_t *source, uint32_t size, bool classic, size_t *length) {
   module_workspace memory = {0};
-  const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
+  TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok) return NULL;
   const uint32_t marker = find_marker(input, first.at, true);
-  if (marker == size) return NULL;
+  const bool module = marker < size;
+  const uint32_t insertion = module ? marker : jsx_script_prelude(input, first.at);
+  if (size < 16 * 1024) {
+    const TmtPulseParser_parser_state small = capture_jsx(input, module);
+    if (small.status == 0 && small.count <= input.capacity) {
+      TmtGrammar_span spans[sizeof(memory.marks)];
+      return render_jsx_module(input, spans, small.count, insertion, classic, length);
+    }
+    if (small.status != 4) return NULL;
+  }
   uint32_t capacity = size / 3 + 1;
   if (capacity > 16384) capacity = 16384;
-  TmtGrammar_candidate *records = malloc(capacity * sizeof(*records));
-  uint8_t *marks = calloc(capacity, sizeof(*marks));
+  input.output = malloc(capacity * sizeof(*input.output));
+  input.marks = malloc(capacity);
+  input.capacity = capacity;
   TmtGrammar_span *spans = malloc(capacity * sizeof(*spans));
   char *result = NULL;
-  if (records && marks && spans) {
-    TmtPulseMemory_tape capture = input;
-    capture.capture_jsx = true;
-    capture.output = records;
-    capture.marks = marks;
-    capture.capacity = capacity;
-    const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(capture, true, true);
+  if (input.output && input.marks && spans) {
+    const TmtPulseParser_parser_state parsed = capture_jsx(input, module);
     if (parsed.status == 0 && parsed.count <= capacity) {
-      size_t count = 0;
-      for (uint32_t index = 0; index < parsed.count; index++) {
-        if (records[index].original == 0) spans[count++] = records[index].left;
-      }
-      {
-        qsort(spans, count, sizeof(*spans), compare_spans);
-        lowering lower = { .input = input, .classic = classic, .mixed = true, .jsx_spans = spans, .jsx_count = count,
-          .output.limit = (size_t)size * 32 + 1024 };
-        if (source_jsx(&lower, 0, marker, 32)) {
-          const size_t runtime_at = lower.output.length;
-          if (source_jsx(&lower, marker, size, 32) && inject_jsx_runtime(&lower, runtime_at)) {
-            result = lower.output.code;
-            *length = lower.output.length;
-          }
-        }
-        if (!result) free(lower.output.code);
-      }
+      result = render_jsx_module(input, spans, parsed.count, insertion, classic, length);
     }
   }
-  free(records);
-  free(marks);
+  free(input.output);
+  free(input.marks);
   free(spans);
   return result;
 }
-
 
 #endif
 

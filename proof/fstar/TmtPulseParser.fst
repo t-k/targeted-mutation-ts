@@ -318,6 +318,15 @@ fn emit_comparison_in_workspace (input:tape) (state:parser_state) (slot op start
   result
 }
 
+// Compiler events share the workspace's verified publication and are disabled in extraction.
+let record_jsx_span (input:tape) (state:parser_state) (kind first last:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  if not input.capture_jsx || state.status <> 0ul then ret input state
+  else
+    let span = { G.first = first; G.last = last } in
+    let! stored = (fun () -> emit_comparison_in_workspace input state state.count kind first span span) in
+    ret input (if stored.status <> 0ul then stored else { stored with count = next stored.count })
+
 let hex_value (ch:U8.t) : U32.t =
   let n = Cast.uint8_to_uint32 ch in
   if G.decimal_digit ch then U32.sub n 48ul
@@ -2347,6 +2356,11 @@ let left_shift_type_ambiguity (input:tape) (#frame:slprop) (start tail:parser_st
     let! greater = (fun () -> skip input #frame annotation) in
     if greater.status = 0ul then same input #frame greater.offset 62uy else read_ret input #frame false
 
+let finish_jsx_expression (input:tape) (state:parser_state) (first:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  let! closed = (fun () -> consume input state 125uy) in
+  record_jsx_span input closed 5ul first state.offset
+
 let combine_binary (input:tape) (lhs rhs:parsed) (st:parser_state) (op:binary_operator) (first:U8.t)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) =
   if rhs.parser.status <> 0ul then ret input (rhs)
@@ -3072,8 +3086,10 @@ and jsx_attribute (input:tape) (state:parser_state) (fuel:U32.t)
     let! spread = (fun () -> spread_at input inner.offset) in
     if not spread then ret input (failed inner 1ul)
     else
-      let! value = (fun () -> comparison input { inner with offset = plus inner.offset 3ul } fuel) in
-      (let! anf_value_2 = (fun () -> (skip input value.parser)) in consume input anf_value_2 125uy)
+      let! start = (fun () -> skip input { inner with offset = plus inner.offset 3ul }) in
+      let! value = (fun () -> comparison input start fuel) in
+      let! end_ = (fun () -> skip input value.parser) in
+      finish_jsx_expression input end_ start.offset
   else
     let! named = (fun () -> name input state.offset true false) in
     let named_state = from_cursor state named in
@@ -3096,13 +3112,14 @@ and jsx_attribute (input:tape) (state:parser_state) (fuel:U32.t)
           let! first = (fun () -> peek input next_attr.offset) in
           ret input (if fragment && G.identifier_start first then failed nested 1ul else nested)
       else
-        let! value = (fun () -> (let! anf_value_4 = (fun () -> (consume input st 123uy)) in comparison input anf_value_4 fuel)) in
+        let! start = (fun () -> (let! opened = (fun () -> consume input st 123uy) in skip input opened)) in
+        let! value = (fun () -> comparison input start fuel) in
         let! st = (fun () -> skip input value.parser) in
         // Delegate the focused rewrite for a direct disabled disjunction.
         let! disabled = (fun () -> if value.outer_or && minus named.at state.offset = 8ul then
           let! attr_name = (fun () -> word input state.offset 8ul 0uL) in ret input (attr_name = 0x64697361626c6564uL)
           else ret input (false)) in
-        if disabled then ret input (failed st 1ul) else consume input st 125uy
+        if disabled then ret input (failed st 1ul) else finish_jsx_expression input st start.offset
 
 and jsx_attributes (input:tape) (state:parser_state) (fuel remaining:U32.t)
   : Tot (stt jsx_opening (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 31; U32.v remaining]) =
@@ -3147,7 +3164,8 @@ and jsx_children (input:tape) (state:parser_state) (tag:G.span) (fuel remaining:
         (fun () -> (let! anf_value_3 = (fun () -> same input st.offset 125uy) in if anf_value_3 then consume input st 125uy
         else
           let! value = (fun () -> comparison input st fuel) in
-          (let! anf_value_4 = (fun () -> (skip input value.parser)) in consume input anf_value_4 125uy))) in
+          let! end_ = (fun () -> skip input value.parser) in
+          finish_jsx_expression input end_ st.offset)) in
       jsx_children input done_ tag fuel (minus remaining 1ul)
     else if byte = 0uy || byte = 62uy || byte = 125uy then ret input (failed state 1ul)
     else jsx_children input { state with offset = next state.offset } tag fuel (minus remaining 1ul)
@@ -3167,11 +3185,7 @@ and jsx_element (input:tape) (state:parser_state) (fuel:U32.t)
       let! attrs = (fun () -> jsx_attributes input (from_cursor opening named) fuel input.size) in
       if attrs.after_tag.status <> 0ul || attrs.self_closing then ret input attrs.after_tag
       else jsx_children input attrs.after_tag { G.first = opening.offset; G.last = named.at } fuel input.size) in
-  if not input.capture_jsx || ended.status <> 0ul then ret input ended
-  else
-    let span = { G.first = state.offset; G.last = ended.offset } in
-    let! stored = (fun () -> emit_comparison_in_workspace input ended ended.count 0ul state.offset span span) in
-    ret input (if stored.status <> 0ul then stored else { stored with count = next stored.count })
+  record_jsx_span input ended 0ul state.offset ended.offset
 
 and condition (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 43; 0]) =
   let! st = (fun () -> (let! anf_value_1 = (fun () -> (skip input state)) in consume input anf_value_1 40uy)) in
@@ -4004,7 +4018,7 @@ let import_bindings (input:tape) (state:parser_state) (used:names_used) (allow_t
   let! st = (fun () -> skip input state) in
   let! byte = (fun () -> peek input st.offset) in
   if st.status <> 0ul then ret input ({ state = st; used })
-  else if byte = 123uy then (let! anf_value_1 = (fun () -> (consume input st 123uy)) in import_members input anf_value_1 used 64ul allow_type)
+  else if byte = 123uy then (let! anf_value_1 = (fun () -> (consume input st 123uy)) in import_members input anf_value_1 used input.size allow_type)
   else if byte = 42uy then
     let! as_ = (fun () -> skip input { st with offset = next st.offset }) in
     (let! anf_value_2 = (fun () -> keyword input as_.offset 2ul 0x6173uL) in if anf_value_2 then

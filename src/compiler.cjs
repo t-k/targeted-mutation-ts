@@ -111,28 +111,51 @@ function strip(source, file) {
   }
 }
 
-function hasModuleMarker(addon, code) {
-  return addon.moduleMarker(Buffer.from(code), false) ||
+function hasModuleMarker(addon, code, bytes = Buffer.from(code)) {
+  return addon.moduleMarker(bytes, false) ||
     (code.includes('\u2002') && addon.moduleMarker(Buffer.from(code.replaceAll('\u2002', ' ')), false));
 }
 
-function eraseScript(addon, source, bytes, file) {
-  if (/\b(?:import|export)\b/.test(source) || !addon.plainScript(bytes)) return null;
-  const result = strip(source, file);
-  if (result.code === null || addon.triviaOnly(Buffer.from(result.code))) return null;
-  const newline = result.code.startsWith('#!') ? result.code.indexOf('\n') : -1;
-  const offset = newline + 1;
-  const code = result.code.slice(0, offset) + '"use strict";\n' + result.code.slice(offset);
+function strictScript(source, file) {
+  const hashbang = source.startsWith('#!') ? source.search(/[\r\n]/) + 1 : 0;
+  const trivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[\s\S]*?\*\/)*/y;
+  trivia.lastIndex = hashbang;
+  trivia.exec(source);
+  if (source.slice(0, trivia.lastIndex).includes('///')) return null;
+  const first = source[trivia.lastIndex];
+  const directive = /(["'])use strict\1[ \t]*;/y;
+  directive.lastIndex = trivia.lastIndex;
+  const strict = directive.test(source);
+  if ((first === '"' || first === "'") && !strict) return null;
+  const code = strict ? source : source.slice(0, hashbang) + '"use strict";\n' + source.slice(hashbang);
   try {
     new (require('node:vm').Script)(code, { filename: file });
-    return { ...result, code };
+    return code;
   } catch (error) {
     if (!(error instanceof SyntaxError)) throw error;
     return null;
   }
 }
 
-function eraseLoweredModule(addon, source, file) {
+function eraseScript(addon, source, bytes, file) {
+  if (/\b(?:import|export)\b/.test(source) || !addon.plainScript(bytes)) return null;
+  const result = strip(source, file);
+  if (result.code === null || addon.triviaOnly(Buffer.from(result.code))) return null;
+  const code = strictScript(result.code, file);
+  return code === null ? null : { ...result, code };
+}
+
+function modernJavaScript(source, file, format) {
+  const script = format === 'preserve' ? strictScript(source, file) : null;
+  if (script !== null) return script;
+  const addon = loadModuleAddon();
+  if (!addon) return null;
+  const bytes = Buffer.from(source);
+  if (source.includes('///') && native.leadingDirective(bytes)) return null;
+  return addon.moduleMarker(bytes, true) && strip(source, file).code === source ? source : null;
+}
+
+function eraseLoweredModule(addon, source, file, format) {
   let result = strip(source, file);
   const diagnostic = result.diagnostics[0];
   if (diagnostic?.code === 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX' &&
@@ -140,7 +163,14 @@ function eraseLoweredModule(addon, source, file) {
     const code = addon.lower(Buffer.from(source), false, true, false, true);
     if (code !== null) result = strip(code, file);
   }
-  return result.code !== null && hasModuleMarker(addon, result.code) ? { ...result, backend: 'pulse+node-strip' } : null;
+  if (result.code === null) return null;
+  let code = result.code;
+  if (!hasModuleMarker(addon, code)) {
+    if (format !== 'preserve' || /\b(?:import|export)\b/.test(source)) return null;
+    code = strictScript(code, file);
+    if (code === null) return null;
+  }
+  return { ...result, code, backend: 'pulse+node-strip' };
 }
 
 function eraseModule(addon, source, file, format) {
@@ -158,7 +188,7 @@ function eraseModule(addon, source, file, format) {
   }
   if (result.code === null) return null;
   const emitted = Buffer.from(result.code);
-  if (hasModuleMarker(addon, result.code)) return result;
+  if (hasModuleMarker(addon, result.code, emitted)) return result;
   if (!addon.triviaOnly(emitted)) return null;
   if (format === 'esm') result.code += '\nexport {};\n';
   return result;
@@ -199,7 +229,7 @@ function compile(input, options = {}) {
       if (simple !== null) return { backend: 'pulse', code: simple, sourceMap: null, diagnostics: [] };
       const runtime = mode === 'transform' && (jsxFile ? jsx !== 'preserve' &&
         (!source.includes('@') || !/@jsx/i.test(source.toString('latin1'))) && !source.includes('_tmt') :
-        typed && source.includes('enum'));
+        typed && source.includes('enum') && /\benum\b/.test(typeof stableInput === 'string' ? stableInput : source.toString()));
       if (runtime) {
         const code = native.lower(source, jsxFile, typed, jsx === 'classic', false);
         if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
@@ -212,7 +242,7 @@ function compile(input, options = {}) {
           if (runtime && (!jsxFile || !source.includes('\\u'))) {
             const mixed = addon.lower(source, jsxFile, true, jsx === 'classic', true);
             if (mixed !== null) {
-              const result = eraseLoweredModule(addon, mixed, file);
+              const result = eraseLoweredModule(addon, mixed, file, format);
               if (result) return result;
             }
           }
@@ -230,6 +260,10 @@ function compile(input, options = {}) {
   const source = normalize(stableInput);
   if (source === null) return inputError(file, 'INVALID_ENCODING', 'Expected well-formed UTF-8');
   if (mode === 'strip') return strip(source, file);
+  if (target === 'esnext' && format !== 'cjs' && !sourceMap && /\.m?js$/i.test(file)) {
+    const code = modernJavaScript(source, file, format);
+    if (code !== null) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
+  }
   return transform(source, { file, target, module, jsx, sourceMap });
 }
 

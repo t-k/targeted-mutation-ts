@@ -1385,21 +1385,6 @@ TmtPulseParser_tag_space(TmtPulseMemory_tape input, TmtPulseParser_parser_state 
 TmtPulseParser_cursor
 TmtPulseParser_jsx_tag_name(TmtPulseMemory_tape input0, uint32_t at0, uint32_t remaining0);
 
-typedef struct TmtPulseParser_jsx_opening_s
-{
-  TmtPulseParser_parser_state after_tag;
-  bool self_closing;
-}
-TmtPulseParser_jsx_opening;
-
-uint32_t
-TmtPulseParser_quote_end(
-  TmtPulseMemory_tape input0,
-  uint32_t at0,
-  uint8_t delimiter0,
-  uint32_t fuel0
-);
-
 void
 TmtPulseScan_save_candidate(
   TmtGrammar_candidate *records,
@@ -1441,6 +1426,37 @@ TmtPulseParser_emit_comparison_in_workspace(
   uint32_t start,
   TmtGrammar_span left,
   TmtGrammar_span right
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_record_jsx_span(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t kind,
+  uint32_t first,
+  uint32_t last
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_finish_jsx_expression(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t first
+);
+
+typedef struct TmtPulseParser_jsx_opening_s
+{
+  TmtPulseParser_parser_state after_tag;
+  bool self_closing;
+}
+TmtPulseParser_jsx_opening;
+
+uint32_t
+TmtPulseParser_quote_end(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint8_t delimiter0,
+  uint32_t fuel0
 );
 
 typedef struct TmtPulseParser_array_run_s
