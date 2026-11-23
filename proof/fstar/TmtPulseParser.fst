@@ -2764,9 +2764,12 @@ and plain_arrow_parameters (input:tape) (state:parser_state) (fuel:U32.t)
         (fun () -> if colon && not after.newline then
           (let! anf_value_2 = (fun () -> (consume input st 58uy)) in result_type input anf_value_2 16ul)
         else ret input (params.names.state)) in
-      let! result = (fun () -> if input.capture_types && colon && not after.newline then
-        record_jsx_span input result 7ul st.offset result.offset else ret input result) in
-      (let! anf_value_3 = (fun () -> (let! anf_value_4 = (fun () -> arrow_token input result) in ret input ({ params.names with state = anf_value_4 }))) in ret input ({ params with names = anf_value_3 }))
+      let! body = (fun () -> arrow_token input result) in
+      let! body = (fun () -> if input.capture_types && colon && not after.newline then
+        let span = { G.first = st.offset; G.last = result.offset } in
+        let closing = { G.first = minus params.names.state.offset 1ul; G.last = params.names.state.offset } in
+        record_compiler_span input body 20ul span closing else ret input body) in
+      ret input ({ params with names = { params.names with state = body } })
     else if G.identifier_start byte then
       let! end_ = (fun () -> scan_class input state.offset G.Identifier) in
       let! body = (fun () -> arrow_token input { state with offset = end_ }) in

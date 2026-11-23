@@ -1,0 +1,4 @@
+Head	Return	Dialect
+Empty	Simple	TS
+Parameters	MultilineObject	TS
+AsyncGeneric	MultilineUnion	TSX

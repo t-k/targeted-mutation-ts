@@ -1,0 +1,3 @@
+Head: Empty, Parameters, AsyncGeneric
+Return: Simple, MultilineObject, MultilineUnion
+Dialect: TS, TSX

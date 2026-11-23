@@ -783,6 +783,7 @@ enum {
   lexical_text = 17,
   class_implements = 18,
   erased_local_type = 19,
+  arrow_result = 20,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
@@ -1037,9 +1038,10 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     const bool member = event.original == erased_list_member;
     const bool modifiers = event.original == class_modifiers;
     const bool arrow = event.original == generic_arrow;
+    const bool result = event.original == arrow_result;
     const bool heritage = event.original == class_implements;
     const bool local_type = event.original == erased_local_type;
-    if (!member && !modifiers && !arrow && !heritage && !local_type &&
+    if (!member && !modifiers && !arrow && !result && !heritage && !local_type &&
         (event.original < type_annotation || event.original > type_marker)) continue;
     const TmtGrammar_span span = event.left;
     if (span.first >= span.last || span.last > input.size) goto decline;
@@ -1063,7 +1065,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
       const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, span.last);
       if (!tail.ok || (tail.at < input.size && (input.source[tail.at] == '"' || input.source[tail.at] == '\''))) goto decline;
       separate = true;
-    } else if (!member && !modifiers && !heritage) {
+    } else if (!member && !modifiers && !heritage && !result) {
       uint32_t next_assertion = input.size;
       if (event.original == type_assertion && index + 1 < records && input.output[index + 1].original == type_assertion) {
         next_assertion = input.output[index + 1].left.first;
@@ -1072,7 +1074,10 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     }
     if (span.first < previous) goto decline;
     const bool annotation = event.original == type_annotation;
-    bool preserve_lines = statement || member || modifiers || arrow || heritage || local_type ||
+    if (result && (event.right.first < previous || event.right.first >= span.first ||
+        event.right.last != event.right.first + 1 || input.source[event.right.first] != ')' ||
+        input.source[span.first] != ':')) goto decline;
+    bool preserve_lines = statement || member || modifiers || arrow || result || heritage || local_type ||
       event.original == type_arguments || event.original == type_assertion;
     if (!preserve_lines || modifiers) {
       bool multiline = false, slash = false;
@@ -1098,6 +1103,11 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     else if (!blank_ascii_lines((uint8_t *)code + span.first, input.source + span.first, span.last - span.first)) goto decline;
     if (separate) code[span.first] = ';';
     if (arrow && !preserve_generic_arrow(input, span, code)) goto decline;
+    if (result && (memchr(input.source + span.first, '\n', span.last - span.first) ||
+                  memchr(input.source + span.first, '\r', span.last - span.first))) {
+      code[event.right.first] = ' ';
+      code[span.last - 1] = ')';
+    }
     previous = span.last;
   }
   *output = code;

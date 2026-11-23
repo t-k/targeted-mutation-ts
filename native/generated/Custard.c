@@ -10128,14 +10128,28 @@ TmtPulseParser_plain_arrow_parameters(
       }
       else
         value70 = value4.names.state;
-      TmtPulseParser_parser_state value8;
+      TmtPulseParser_parser_state value8 = TmtPulseParser_arrow_token(input, value70);
+      TmtPulseParser_parser_state value9;
       if (input.capture_types && value6 && !value5.newline)
-        value8 = TmtPulseParser_record_jsx_span(input, value70, 7U, st.offset, value70.offset);
+      {
+        TmtGrammar_span span = { .first = st.offset, .last = value70.offset };
+        TmtGrammar_span
+        closing =
+          {
+            .first = TmtPulseParser_minus(value4.names.state.offset, 1U),
+            .last = value4.names.state.offset
+          };
+        value9 = TmtPulseParser_record_compiler_span(input, value8, 20U, span, closing);
+      }
       else
-        value8 = value70;
-      TmtPulseParser_parser_state value9 = TmtPulseParser_arrow_token(input, value8);
-      TmtPulseParser_named_state value10 = { .state = value9, .used = value4.names.used };
-      return ((TmtPulseParser_parameter_list){ .names = value10, .non_simple = value4.non_simple });
+        value9 = value8;
+      return
+        (
+          (TmtPulseParser_parameter_list){
+            .names = { .state = value9, .used = value4.names.used },
+            .non_simple = value4.non_simple
+          }
+        );
     }
     else if (TmtGrammar_identifier_start(value))
     {
