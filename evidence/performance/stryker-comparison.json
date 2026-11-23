@@ -1,0 +1,114 @@
+{
+ "date": "2026-11-23",
+ "host": "Apple M5 Max, 18 cores, macOS, Node 24.14.0",
+ "note": "The host was carrying other work (load average 16 to 30) during every run. Commands alternate within a round, so compare times within a round.",
+ "tools": {
+  "strykerjs": "@stryker-mutator/core 10.1.1 with @stryker-mutator/vitest-runner 10.1.1, coverageAnalysis perTest",
+  "vitest": "4.0.18",
+  "targetedMutation": "commit 374b960"
+ },
+ "samples": [
+  {
+   "name": "one source file, one test file",
+   "mutants": 220,
+   "verdicts": {
+    "killed": 124,
+    "survived": 66,
+    "unreached": 30
+   },
+   "verdictsEqual": true,
+   "millisecondsPerRound": {
+    "strykerDefault": [
+     22050,
+     19750,
+     22917
+    ],
+    "full": [
+     4602,
+     4421,
+     5511
+    ],
+    "strykerConcurrency1": [
+     59781,
+     68936,
+     50618
+    ],
+    "fullConcurrency1": [
+     3957,
+     6971,
+     8748
+    ],
+    "standard": [
+     3711,
+     4490,
+     5711
+    ],
+    "focused": [
+     2828,
+     3911,
+     4836
+    ]
+   },
+   "before": {
+    "commit": "f2001bd",
+    "millisecondsPerRound": {
+     "strykerDefault": [
+      6834,
+      9909,
+      17008
+     ],
+     "strykerConcurrency1": [
+      24498,
+      30293,
+      47618
+     ],
+     "full": [
+      34282,
+      41947,
+      53068
+     ],
+     "standard": [
+      35313,
+      46720,
+      32109
+     ],
+     "focused": [
+      7980,
+      8024,
+      6698
+     ]
+    }
+   }
+  },
+  {
+   "name": "twelve source files, twelve test files",
+   "mutants": 2640,
+   "verdicts": {
+    "killed": 1488,
+    "survived": 792,
+    "unreached": 360
+   },
+   "verdictsEqual": true,
+   "millisecondsPerRound": {
+    "strykerDefault": [
+     98298
+    ],
+    "full": [
+     12288
+    ],
+    "strykerConcurrency1": [
+     528448
+    ],
+    "fullConcurrency1": [
+     20772
+    ],
+    "standard": [
+     3221
+    ],
+    "focused": [
+     2724
+    ]
+   }
+  }
+ ]
+}

@@ -1,5 +1,18 @@
 # Performance measurements
 
+## Mutation runs compared with StrykerJS
+
+A Vitest session decides mutations inside running workers instead of starting one Vitest run for each ([how mutations run on Vitest](analysis.md#how-mutations-run-on-vitest)). The table compares whole command runs with StrykerJS 10.1.1 and its Vitest runner (`coverageAnalysis: perTest`) on Vitest 4.0.18. Both tools produced the same mutations and the same verdict for every one of them.
+
+| Sample | Mutations | StrykerJS | `--mutators full` | StrykerJS, `--concurrency 1` | `full`, `--concurrency 1` | `--mutators standard` | default profile |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| One source file, one test file | 220 | 22.1 s | 4.6 s | 59.8 s | 7.0 s | 4.5 s | 3.9 s |
+| Twelve source files, twelve test files | 2,640 | 98.3 s | 12.3 s | 528.4 s | 20.8 s | 3.2 s | 2.7 s |
+
+The first row gives the median of three alternating rounds and the second row one round. The default profile edits 10 and 120 comparison boundaries in these samples and none of the other mutations. The host, an Apple M5 Max with 18 cores and Node 24.14.0, was carrying other work during every run (load average 16 to 30), so the absolute times are slower than on an idle machine and vary between rounds; the [raw rounds](../evidence/performance/stryker-comparison.json) include the measurements from before this change, when `full` took 34 to 53 seconds on the first sample.
+
+To reproduce, install `vitest`, `@stryker-mutator/core` and `@stryker-mutator/vitest-runner` in a Vitest project, add a `stryker.conf.json` with the Vitest runner and `perTest` coverage analysis, and run `scripts/bench-stryker-comparison.sh PROJECT 3`.
+
 ## Full Pulse parser migration
 
 The ordinary and standalone builds now compile the complete parser extracted from F★ and Pulse. The generated C uses KaRaMeL's tail-call loop lowering. The direct Custard C experiment exhausted the stack on a 1 MiB whitespace source. The adopted pipeline passed the source-limit regression matrix, including the same input.
