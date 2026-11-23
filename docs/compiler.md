@@ -385,3 +385,23 @@ The writer logs every copy of source bytes into the output as a run of output of
 Checks: 36 pairwise rows over line endings, non-ASCII placement, edit kind, input form and name; every output token (TypeScript scanner) maps to the same token in the source for position-preserving output, and every segment maps to the same text for lowered output, over the fixtures and 2,400 files of the fixed projects; direct tests of the scan with hand-made runs; 26 mutants of the scan, of which 24 fail the tests, one does not build and one guards a position that cannot occur.
 
 On an Apple M-series host under load, the fixed projects with maps take 1.6 to 2.2 times the time without maps and about one twentieth to one thirtieth of the TypeScript emitter's time (Vite 26 ms against 545 ms, mreact 66 ms against 2,370 ms, mreact TSX 3.4 ms against 105 ms). Competitors were not measured with maps.
+
+### Wider corpora, declaration merging and two emission defects
+
+Eleven tagged open-source projects (zod, hono, rxjs, trpc, excalidraw, drizzle, vue, typescript-eslint, playwright, effect, prisma; 8,973 `.ts` and `.tsx` files, read as data) were added to the scratch corpora to see where the native routes stop and whether their output is right. Declined files fell from 984 to about 620 after the changes below. The remaining causes are listed at the end.
+
+Comparing every native output with TypeScript's emit found two defects that were older than this work:
+
+- A class member that starts with `[`, `*`, `in` or `instanceof` joined the field initializer on the line before it once an erased modifier or an erased member no longer stood between them (`a = f` / `readonly [k] = 2` became `a = f[k] = 2`). The eraser now writes `;` at the start of an erased leading modifier or an erased signature when the next member starts that way. 57 corpus files change.
+- The two JSX helper imports were printed in the opposite order to TypeScript's when a file used both the runtime and `createElement`. The writer now settles which module was requested first by TypeScript's visiting order (children, attributes, key, then the helper for a runtime call; attributes, the helper, then children for `createElement`).
+
+New native coverage:
+
+- `yield` as an expression, `return` with a comma expression, `debugger`.
+- Enum initializers fold like TypeScript's constant evaluation (hex, octal and binary literals, parentheses, unary and binary arithmetic and bitwise operators, earlier members). A fraction, a negative zero, a value beyond 2^53 - 1, a member named like a literal and an update operator leave the native route. `test/compiler-enum-constants.test.mjs` generates 6,000 declarations and compares the enum objects that the native output and TypeScript's output build.
+- An interface merges with a class of its name. A namespace of types merges with a type alias, an interface, a value, a function or a class of its name.
+- Parameter properties take `override`, need neither a type nor an initializer, and lower in the same pass as enums.
+
+After these changes 14,531 of 14,535 native outputs over all corpora have TypeScript's syntax. The four differences are a kept parenthesis around a callee and two TypeScript quirks (`default_1`, a setter's return annotation). Warm timings of the fixed projects are unchanged within noise.
+
+Still declined, by frequency in the wider corpora: a heritage clause that is a call with type arguments (`extends S.Class<A>("A")({})`), type arguments on a tagged template or on a call result, angle-bracket assertions, enums inside functions, `x!++`, ambient declarations without a type, decorators, runtime namespaces, `import =` and `export =`, a leading triple-slash directive, a JSX import-source pragma, and non-ASCII identifiers.
