@@ -2318,13 +2318,14 @@ let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (st
     quoted_ = quoted; computed; modifier_flags = prefix.flags; modifiers_end = start.offset;
     static_ = U32.logand prefix.flags 1ul <> 0ul; readonly_ = U32.logand prefix.flags 2ul <> 0ul })
 
-let constructor_property (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+let constructor_property (input:tape) (#frame:slprop) (state:parser_state)
+  : Tot (stt (parser_state & U32.t) (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! first = (fun () -> peek input #frame state.offset) in
-  if first <> 112uy && first <> 114uy then read_ret input #frame (state)
+  if first <> 112uy && first <> 114uy then read_ret input #frame (state, state.offset)
   else
     let! prefixes = (fun () -> class_modifiers input #frame state 0ul 2ul) in
     let property = prefixes.key_state in
-    if property.status <> 0ul || prefixes.flags = 0ul || U32.logand prefixes.flags 25ul <> 0ul then read_ret input #frame (state)
+    if property.status <> 0ul || prefixes.flags = 0ul || U32.logand prefixes.flags 25ul <> 0ul then read_ret input #frame (state, state.offset)
     else
       let! binding = (fun () -> name input #frame property.offset false true) in
       let! tail = (fun () -> trivia input #frame binding.at) in
@@ -2332,7 +2333,8 @@ let constructor_property (input:tape) (#frame:slprop) (state:parser_state) : Tot
       let! colon = (fun () -> if optional then trivia input #frame (next tail.at) else read_ret input #frame (tail)) in
       let! typed = (fun () -> same input #frame colon.at 58uy) in
       let! initialized = (fun () -> if optional || typed then read_ret input #frame false else same input #frame tail.at 61uy) in
-      read_ret input #frame (if binding.ok && tail.ok && colon.ok && (typed || initialized) then property else state)
+      read_ret input #frame (if binding.ok && tail.ok && colon.ok && (typed || initialized) then (property, binding.at)
+        else (state, state.offset))
 
 let wide_key_matches (input:tape) (#frame:slprop) (key:class_key) (suffix_size:U32.t) (prefix suffix:U64.t) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   if minus key.last key.first <> plus 8ul suffix_size then read_ret input #frame (false)
@@ -2710,6 +2712,8 @@ and super_expression (input:tape) (st:parser_state) (fuel:U32.t)
         (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (consume input after 40uy)) in expression_list input anf_value_2 (minus fuel 1ul) input.size 41uy false))) in ret input (anf_value_1.list_end))
     else ret input (if byte = 46uy || byte = 91uy then { st with offset = plus start_pos 5ul }
     else failed after 1ul)) in
+  let! completed = (fun () -> if input.capture_types && byte = 40uy then
+    record_jsx_span input completed 27ul start_pos completed.offset else ret input completed) in
   postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset };
     open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul;
     target = if byte = 46uy || byte = 91uy then BareSuper else NotAssignable } fuel input.size
@@ -3732,9 +3736,10 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
         ret input ({ names = { state = closed; used }; non_simple })
     else if spread then rest_parameter input st floor used
     else
-      let! property = (fun () -> if constructor then constructor_property input st else ret input st) in
+      let! property, binding_end = (fun () -> if constructor then constructor_property input st else ret input (st, st.offset)) in
       let! st = (fun () -> if property.offset <> st.offset then
-        record_jsx_span input property 23ul st.offset property.offset else ret input property) in
+        record_compiler_span input property 23ul { G.first = st.offset; G.last = property.offset }
+          { G.first = property.offset; G.last = binding_end } else ret input property) in
       let! prefix = (fun () -> parameter_prefix input st floor used fuel) in
       let st = prefix.names.state in
       let! default_ = (fun () -> same input st.offset 61uy) in
@@ -3782,6 +3787,10 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
       let context = if super_ = NoSuper then FunctionBody else super_ in
       let st = enter_function_locals { st with await_allowed = async_; yield_allowed = generator; in_allowed = true; super_context = context } in
       (let! anf_value_5 = (fun () -> (function_body input st params.non_simple)) in control_block input anf_value_5 fuel true NoJump floor params.names.used)) in
+  let! closed = (fun () -> if input.capture_types && constructor && not signature_only && params.names.state.count <> opening.count then
+    record_compiler_span input closed (if super_ = BaseConstructor then 25ul else 26ul)
+      { G.first = opening.offset; G.last = params.names.state.offset } { G.first = st.offset; G.last = closed.offset }
+    else ret input closed) in
   ret input ({ after_function = leave_function_locals { closed with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed;
       in_allowed = state.in_allowed; super_context = state.super_context } state; signature_only })
 
@@ -3961,6 +3970,8 @@ and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (kind:class_kind)
   let! start = (fun () -> if input.private_possible then record_private input start (start_range ready.offset) PrivateScope
     else ret input start) in
   let! closed = (fun () -> class_members input start fuel input.size derived false kind no_overload) in
+  let! closed = (fun () -> if input.capture_types && closed.count <> start.count then
+    record_jsx_span input closed 24ul ready.offset closed.offset else ret input closed) in
   ret input { closed with private_scope = state.private_scope }
 
 and pattern_names (input:tape) (state:parser_state) (base:names_base) (floor used:names_used)

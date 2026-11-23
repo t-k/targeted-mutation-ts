@@ -68,7 +68,7 @@ test('parameter properties can lower without TypeScript while preserving constru
     'export function read() { return log.slice(); }',
   ].join('\n');
   const result = compile(source);
-  if (Number(process.versions.node.split('.')[0]) <= 25) assert.equal(result.backend, 'node-transform');
+  assert.equal(result.backend, 'pulse');
   const baseline = compile(source, { sourceMap: true });
   for (const code of [result.code, baseline.code]) {
     const m = await import('data:text/javascript;base64,' + Buffer.from(code + (code === result.code ? '\n// first' : '\n// second')).toString('base64'));
@@ -110,10 +110,9 @@ test('a validated ordinary script emits TypeScript strict semantics', () => {
 });
 
 test('parameter properties accept identifiers and object keys containing runtime keywords', () => {
-  if (Number(process.versions.node.split('.')[0]) > 25) return;
   const result = compile('export class Box { constructor(public enumerable: number) {} } ' +
     'export const value: object = { namespace: "demo" };');
-  assert.equal(result.backend, 'node-transform');
+  assert.equal(result.backend, 'pulse');
 });
 
 test('a static import list can contain hundreds of specifiers', () => {
@@ -335,8 +334,6 @@ test('delimited assertions can span lines and contextual words can be value bind
     assert.equal(result.backend, 'pulse', file);
     assert.equal(result.code, stripTypeScriptTypes(source));
   }
-  const constructorProperty = 'export class C { constructor(readonly n: number) {} }';
-  assert.notEqual(compile(constructorProperty).backend, 'pulse');
 });
 
 test('assertion erasure preserves ASI before a new statement', async () => {

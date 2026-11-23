@@ -268,7 +268,8 @@ error:
 static napi_value emit_annotated_module(napi_env env, napi_callback_info info) {
   napi_value args[3], result;
   size_t argc = 3, size, length;
-  bool enums, esm, checked = false, complete = false, property = false;
+  bool enums, esm, checked = false, complete = false;
+  tmt_parameter_route property = TMT_PARAMETER_NONE;
   void *source;
   char *output = NULL;
   NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
@@ -287,11 +288,12 @@ static napi_value emit_annotated_module(napi_env env, napi_callback_info info) {
       NAPI(napi_set_named_property(env, result, "code", code));
     }
     free(output);
-  } else if (property) {
+  } else if (property != TMT_PARAMETER_NONE) {
     napi_value value;
     NAPI(napi_create_object(env, &result));
     NAPI(napi_get_boolean(env, true, &value));
-    NAPI(napi_set_named_property(env, result, "parameterProperty", value));
+    const char *key = property == TMT_PARAMETER_REFERENCE ? "reference" : "parameterProperty";
+    NAPI(napi_set_named_property(env, result, key, value));
   } else if (checked) {
     NAPI(napi_get_boolean(env, true, &result));
   } else {

@@ -22,11 +22,11 @@ for (const row of rows) {
     const [kind, parameter, other] = row.split('\t');
     const base = kind === 'Derived' ? 'class Base {}\n' : '';
     const extendsBase = kind === 'Derived' ? ' extends Base' : '';
-    const superCall = kind === 'Derived' ? 'super();' : '';
+    const body = kind === 'Derived' ? 'void value; super();' : '"custom";';
     const source = base + 'export class Entry' + extendsBase + ' {\n  constructor(' + parameters[parameter] + ') { ' +
-      superCall + ' }\n  read() { return this.value; }\n}' + extra[other];
+      body + ' }\n  read() { return this.value; }\n}' + extra[other];
     const hint = emitAnnotatedModule(Buffer.from(source), other === 'Enum', false);
-    if (other === 'Plain') assert.deepEqual(hint, { parameterProperty: true });
+    if (other === 'Plain') assert.deepEqual(hint, kind === 'Derived' ? { reference: true } : { parameterProperty: true });
     const calls = [];
     const original = nodeModule.stripTypeScriptTypes;
     nodeModule.stripTypeScriptTypes = (text, options) => {
@@ -36,11 +36,14 @@ for (const row of rows) {
     try {
       const output = compile(source, { file: 'class.ts' });
       assert.ok(output.code, source);
-      if (other === 'Plain') {
+      if (other === 'Plain' && kind === 'Base') {
         assert.deepEqual(calls, ['transform']);
         if (output.backend === 'node-transform') {
           assert.equal(output.code, stripTypeScriptTypes(source, { mode: 'transform' }));
         }
+      } else if (other === 'Plain') {
+        assert.equal(output.backend, 'typescript');
+        assert.deepEqual(calls, []);
       } else {
         assert.ok(!calls.includes('transform'), source);
       }

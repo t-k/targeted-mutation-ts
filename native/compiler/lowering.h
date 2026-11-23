@@ -12,8 +12,9 @@ bool tmt_unbound_export(uint8_t *source, uint32_t size);
 bool tmt_plain_script(uint8_t *source, uint32_t size);
 bool tmt_valid_module_source(const char *source, size_t size);
 bool tmt_module_marker(uint8_t *source, uint32_t size, bool validate);
+typedef enum { TMT_PARAMETER_NONE, TMT_PARAMETER_NODE, TMT_PARAMETER_REFERENCE } tmt_parameter_route;
 char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool esm, size_t *length,
-  bool *checked, bool *complete, bool *property);
+  bool *checked, bool *complete, tmt_parameter_route *property);
 bool tmt_leading_directive(uint8_t *source, uint32_t size);
 
 #endif

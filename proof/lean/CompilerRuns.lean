@@ -79,6 +79,20 @@ theorem eraseBlock_append (left right : List UInt8) :
       ((eraseBlock left).1 && (eraseBlock right).1, (eraseBlock left).2 ++ (eraseBlock right).2) := by
   simp [eraseBlock, List.all_append, List.map_append]
 
+def writeWithInsertions : List (List UInt8 × List UInt8) → List UInt8 → List UInt8
+  | [], tail => tail
+  | (unchanged, inserted) :: rest, tail => unchanged ++ inserted ++ writeWithInsertions rest tail
+
+theorem reserveForInsertions (pieces : List (List UInt8 × List UInt8)) (tail : List UInt8) :
+    (writeWithInsertions pieces tail).length =
+      (pieces.flatMap Prod.fst ++ tail).length + (pieces.flatMap Prod.snd).length := by
+  induction pieces with
+  | nil => simp [writeWithInsertions]
+  | cons piece rest inductionHypothesis =>
+    rcases piece with ⟨unchanged, inserted⟩
+    simp [writeWithInsertions, inductionHypothesis]
+    omega
+
 -- The enum writer uses unsigned C shifts and reconstructs signed right shift.
 theorem enumSignedRight (word distance : BitVec 32) :
     let count := distance &&& 31

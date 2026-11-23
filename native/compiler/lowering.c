@@ -815,6 +815,10 @@ enum {
   erased_overload = 21,
   terminated_class_field = 22,
   parameter_property = 23,
+  parameter_class = 24,
+  parameter_base_constructor = 25,
+  parameter_derived_constructor = 26,
+  parameter_super = 27,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
@@ -1092,7 +1096,8 @@ static bool begins_runtime_variable(TmtPulseMemory_tape input, uint32_t at) {
     TmtPulseParser_keyword(input, at, 3, UINT64_C(0x766172));
 }
 
-static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool *remove_statement)
+static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool *remove_statement,
+  uint32_t *properties)
 {
   char *code = NULL;
   uint32_t previous = 0;
@@ -1100,11 +1105,15 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
   bool retained_module_statement = false;
   *remove_statement = false;
   *output = NULL;
+  if (properties) *properties = 0;
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
-    if (event.original == parameter_property) goto decline;
+    if (event.original == parameter_property) {
+      if (!properties || *properties == 512) goto decline;
+      (*properties)++;
+    }
     const bool member = event.original == erased_list_member || event.original == erased_overload;
-    const bool modifiers = event.original == class_modifiers;
+    const bool modifiers = event.original == class_modifiers || event.original == parameter_property;
     const bool arrow = event.original == generic_arrow;
     const bool result = event.original == arrow_result;
     const bool heritage = event.original == class_implements;
@@ -1187,6 +1196,139 @@ decline:
   return false;
 }
 
+typedef struct {
+  uint32_t at;
+  TmtGrammar_span name;
+  bool field, separate;
+} parameter_insertion;
+
+static bool encloses(TmtGrammar_span outer, TmtGrammar_span inner) {
+  return outer.first <= inner.first && inner.last <= outer.last;
+}
+
+static const TmtGrammar_candidate *property_constructor(TmtPulseMemory_tape input, uint32_t count,
+  TmtGrammar_span parameter)
+{
+  const TmtGrammar_candidate *constructor = NULL;
+  for (uint32_t index = 0; index < count; index++) {
+    const TmtGrammar_candidate *entry = input.output + index;
+    if ((entry->original == parameter_base_constructor || entry->original == parameter_derived_constructor) &&
+        encloses(entry->left, parameter) && (!constructor || encloses(constructor->left, entry->left))) {
+      constructor = entry;
+    }
+  }
+  return constructor;
+}
+
+static bool property_anchors(TmtPulseMemory_tape input, uint32_t count, TmtGrammar_candidate property,
+  parameter_insertion *field, parameter_insertion *assignment)
+{
+  const TmtGrammar_span name = property.right;
+  if (name.first != property.left.last || name.last <= name.first || name.last > input.size) return false;
+  const TmtGrammar_span parameter = { property.left.first, name.last };
+  const TmtGrammar_candidate *constructor = property_constructor(input, count, parameter);
+  if (!constructor) return false;
+  const TmtGrammar_span body = constructor->right;
+  if (constructor->left.last > body.first || body.first >= body.last || body.last > input.size ||
+      input.source[body.first] != '{' || input.source[body.last - 1] != '}') return false;
+  const TmtGrammar_span method = { constructor->left.first, body.last };
+  const TmtGrammar_span *class_ = NULL;
+  for (uint32_t index = 0; index < count; index++) {
+    const TmtGrammar_candidate *entry = input.output + index;
+    if (entry->original == parameter_class && encloses(entry->left, method) &&
+        (!class_ || encloses(*class_, entry->left))) class_ = &entry->left;
+  }
+  if (!class_ || class_->first >= method.first || class_->last <= method.last ||
+      class_->last > input.size || input.source[class_->first] != '{') return false;
+  *field = (parameter_insertion){ class_->first + 1, name, true, false };
+  *assignment = (parameter_insertion){ body.first + 1, name, false, false };
+
+  TmtPulseParser_cursor first = TmtPulseParser_trivia(input, body.first + 1);
+  if (!first.ok || first.at >= body.last) return false;
+  const uint8_t first_byte = input.source[first.at];
+  if (constructor->original == parameter_base_constructor) return first_byte != '"' && first_byte != '\'';
+
+  for (uint32_t index = 0; index < count; index++) {
+    const TmtGrammar_candidate entry = input.output[index];
+    if (entry.original != parameter_super || entry.left.first != first.at) continue;
+    const uint32_t end = entry.left.last;
+    if (end <= first.at || end >= body.last || input.source[end - 1] != ')') return false;
+    const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, end);
+    if (!tail.ok || tail.at >= body.last) return false;
+    const uint8_t byte = input.source[tail.at];
+    if (byte == ';') assignment->at = tail.at + 1;
+    else if (byte == '}' || (tail.newline && assertion_line_boundary(input, tail))) {
+      assignment->at = end;
+      assignment->separate = true;
+    } else return false;
+    return true;
+  }
+  return false;
+}
+
+static int compare_insertions(const void *lhs, const void *rhs) {
+  const parameter_insertion *a = lhs, *b = rhs;
+  if (a->at != b->at) return a->at < b->at ? -1 : 1;
+  return a->name.first < b->name.first ? -1 : a->name.first > b->name.first;
+}
+
+static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *projected, uint32_t records,
+  uint32_t properties, size_t *length)
+{
+  parameter_insertion *edits = malloc((size_t)properties * 2 * sizeof(*edits));
+  if (!edits) return NULL;
+  uint32_t used = 0;
+  size_t reserve = input.size;
+  for (uint32_t index = 0; index < records; index++) {
+    const TmtGrammar_candidate event = input.output[index];
+    if (event.original != parameter_property) continue;
+    if (used >= properties * 2 || !property_anchors(input, records, event, edits + used, edits + used + 1)) {
+      free(edits);
+      return NULL;
+    }
+    const size_t width = event.right.last - event.right.first;
+    reserve += 3 * width + (sizeof("\n;") - 1) + (sizeof(";\nthis. = ;") - 1);
+    used += 2;
+  }
+  qsort(edits, used, sizeof(*edits), compare_insertions);
+  // Resolve statement boundaries in the original source. Copy only projected bytes.
+  input.source = (uint8_t *)projected;
+  lowering lower = { .input = input, .output.limit = 1048576 };
+  if (reserve > lower.output.limit) {
+    free(edits);
+    return NULL;
+  }
+  lower.output.code = malloc(reserve);
+  if (!lower.output.code) {
+    free(edits);
+    return NULL;
+  }
+  lower.output.capacity = reserve;
+  uint32_t copied = 0;
+  for (uint32_t index = 0; index < used; index++) {
+    const parameter_insertion edit = edits[index];
+    source_bytes(&lower, copied, edit.at);
+    if (edit.separate && copied != edit.at) put(&lower.output, ";");
+    put(&lower.output, "\n");
+    if (!edit.field) put(&lower.output, "this.");
+    source_bytes(&lower, edit.name.first, edit.name.last);
+    if (!edit.field) {
+      put(&lower.output, " = ");
+      source_bytes(&lower, edit.name.first, edit.name.last);
+    }
+    put(&lower.output, ";");
+    copied = edit.at;
+  }
+  source_bytes(&lower, copied, input.size);
+  free(edits);
+  if (lower.output.failed) {
+    free(lower.output.code);
+    return NULL;
+  }
+  *length = lower.output.length;
+  return lower.output.code;
+}
+
 static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span) {
   const uint32_t size = lower->input.size;
   if (span.first >= span.last || span.last > size) return false;
@@ -1239,12 +1381,20 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
 {
   char *code = NULL;
   bool remove_statement;
-  if (!blank_type_records(input, records, &code, &remove_statement)) goto enum_only;
+  uint32_t properties;
+  if (!blank_type_records(input, records, &code, &remove_statement, &properties)) goto enum_only;
   TmtPulseMemory_tape projected = input;
   if (code) projected.source = (uint8_t *)code;
   if (!unambiguous_projection(projected, records)) goto enum_only;
   *length = input.size;
   const bool needs_module_marker = code && esm && remove_statement && !retained_module_marker(projected, marker, records);
+  if (properties) {
+    if (enums) goto enum_only;
+    char *lowered = emit_parameter_properties(input, code, records, properties, length);
+    if (!lowered) goto enum_only;
+    free(code);
+    code = lowered;
+  }
   if (enums) {
     char *lowered = lower_recorded_enums(projected, records, length);
     if (lowered) {
@@ -1275,11 +1425,11 @@ enum_only:
 #endif
 
 char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool esm, size_t *length,
-  bool *checked, bool *complete, bool *property)
+  bool *checked, bool *complete, tmt_parameter_route *property)
 {
   *checked = false;
   *complete = false;
-  *property = false;
+  *property = TMT_PARAMETER_NONE;
 #ifdef TMT_V8_VALIDATOR
   module_workspace memory = {0};
   TmtPulseMemory_tape input = with_workspace(source, size, &memory);
@@ -1311,9 +1461,15 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool
     code = erase_annotation_records(input, parsed.count, marker, enums, esm, length, complete);
     if (!code) {
       for (uint32_t index = 0; index < parsed.count; index++) {
-        if (input.output[index].original != parameter_property) continue;
-        *property = true;
-        break;
+        const TmtGrammar_candidate entry = input.output[index];
+        if (entry.original != parameter_property) continue;
+        const TmtGrammar_span parameter = { entry.left.first, entry.right.last };
+        const TmtGrammar_candidate *constructor = property_constructor(input, parsed.count, parameter);
+        if (!constructor || constructor->original == parameter_derived_constructor) {
+          *property = TMT_PARAMETER_REFERENCE;
+          break;
+        }
+        *property = TMT_PARAMETER_NODE;
       }
     }
   }
@@ -1571,7 +1727,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   if (input.capture_types) {
     char *masked;
     bool remove_statement;
-    if (blank_type_records(input, records, &masked, &remove_statement)) {
+    if (blank_type_records(input, records, &masked, &remove_statement, NULL)) {
       TmtPulseMemory_tape projected = input;
       if (masked) projected.source = (uint8_t *)masked;
       if (unambiguous_projection(projected, records)) {

@@ -47,6 +47,10 @@ function hasSplitDeclare(source, code) {
   return source.includes('declare') && require('./compiler-compat.cjs').hasSplitDeclare(source, code);
 }
 
+function transformCompatibility(source, options) {
+  return require('./compiler-compat.cjs').transform(source, options, verifyRuntimeExports, fail);
+}
+
 function strip(source, file) {
   try {
     const code = require('node:module').stripTypeScriptTypes(source);
@@ -235,6 +239,10 @@ function compile(input, options = {}) {
           if (typeof annotated === 'string') {
             return { backend: 'pulse', code: annotated, sourceMap: null, diagnostics: [] };
           }
+          if (annotated?.reference === true) {
+            const text = typeof stableInput === 'string' ? stableInput : source.toString();
+            return transformCompatibility(text, { file, target, outputModule: format, jsx, sourceMap });
+          }
           if (annotated?.code !== undefined) {
             const result = eraseLoweredModule(addon, annotated.code, file, format);
             if (result) return result;
@@ -270,8 +278,7 @@ function compile(input, options = {}) {
     const code = modernJavaScript(source, file, format);
     if (code !== null) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
   }
-  return require('./compiler-compat.cjs').transform(
-    source, { file, target, outputModule: format, jsx, sourceMap }, verifyRuntimeExports, fail);
+  return transformCompatibility(source, { file, target, outputModule: format, jsx, sourceMap });
 }
 
 exports.compile = compile;

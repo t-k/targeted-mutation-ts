@@ -1121,7 +1121,14 @@ TmtPulseParser_rest_parameter(
   uint32_t used
 );
 
-TmtPulseParser_parser_state
+typedef struct FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t_s
+{
+  TmtPulseParser_parser_state _1;
+  uint32_t _2;
+}
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t;
+
+FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t
 TmtPulseParser_constructor_property(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state
@@ -2250,13 +2257,6 @@ TmtPulseParser_function_parameters(
   bool non_simple0,
   bool constructor0
 );
-
-typedef struct FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t_s
-{
-  TmtPulseParser_parser_state _1;
-  uint32_t _2;
-}
-FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t;
 
 TmtPulseParser_function_shape
 TmtPulseParser_function_form(
