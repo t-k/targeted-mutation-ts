@@ -1,0 +1,3 @@
+Prefix: Const, TwoConst, Let, Var
+Statement: Interface, Alias, TypeExport
+Dialect: TS, TSX

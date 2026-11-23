@@ -1,0 +1,13 @@
+Prefix	Statement	Dialect
+Const	Interface	TS
+TwoConst	Interface	TSX
+Let	Alias	TSX
+Var	TypeExport	TS
+Const	Alias	TS
+TwoConst	TypeExport	TSX
+Var	Interface	TSX
+Let	Interface	TS
+Var	Alias	TS
+Const	TypeExport	TSX
+TwoConst	Alias	TS
+Let	TypeExport	TSX

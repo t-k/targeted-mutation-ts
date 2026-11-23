@@ -851,7 +851,7 @@ static bool value_keyword(const uint8_t *code, uint32_t size, uint32_t first, ui
   while (end < size && space(code[end])) end++;
   if (end == size) return false;
   const uint8_t byte = code[end];
-  return byte == ':' || byte == '=' || byte == ',' || byte == ';' || byte == ')' || byte == '}' ||
+  return byte == ':' || byte == '=' || byte == ',' || byte == ';' || byte == ')' || byte == '}' || byte == '.' ||
     (byte == '!' && size - end >= 2 && code[end + 1] == '=') ||
     ((byte == '&' || byte == '|') && size - end >= 2 && code[end + 1] == byte);
 }
@@ -973,6 +973,29 @@ static bool preserve_generic_arrow(TmtPulseMemory_tape input, TmtGrammar_span sp
   return true;
 }
 
+static bool follows_lexical_exports(TmtPulseMemory_tape input, uint32_t first, uint32_t stop) {
+  input.count_only = true;
+  input.capture_types = false;
+  input.capture_jsx = false;
+  for (unsigned declarations = 0; declarations < 8 && first < stop; declarations++) {
+    if (!TmtPulseParser_keyword(input, first, 6, UINT64_C(0x6578706f7274))) return false;
+    const TmtPulseParser_cursor head = TmtPulseParser_trivia(input, first + 6);
+    if (!head.ok || head.at >= stop) return false;
+    if (TmtPulseParser_keyword(input, head.at, 5, UINT64_C(0x636f6e7374))) {
+      const TmtPulseParser_cursor name = TmtPulseParser_trivia(input, head.at + 5);
+      if (!name.ok || TmtPulseParser_keyword(input, name.at, 4, UINT64_C(0x656e756d))) return false;
+    } else if (!TmtPulseParser_keyword(input, head.at, 3, UINT64_C(0x6c6574)) &&
+               !TmtPulseParser_keyword(input, head.at, 3, UINT64_C(0x766172))) return false;
+    const uint32_t end = TmtPulseCompiler_next_module_item(input, false, first);
+    if (end <= first || end > stop) return false;
+    const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, end);
+    if (!tail.ok) return false;
+    if (tail.at == stop) return true;
+    first = tail.at;
+  }
+  return false;
+}
+
 static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool *remove_statement)
 {
   char *code = NULL;
@@ -995,7 +1018,8 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
       const TmtPulseParser_cursor first = TmtPulseParser_trivia(input, prelude);
       if (first.ok && first.at == span.first) prelude = span.last;
       else if (event.original == erased_type_statement) {
-        if (!retained_module_statement) goto decline;
+        if (!retained_module_statement && (!first.ok || !follows_lexical_exports(input, first.at, span.first))) goto decline;
+        retained_module_statement = true;
         separate = true;
         prelude = span.last;
       }
