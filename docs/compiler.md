@@ -365,3 +365,11 @@ The comparison uses Node 24.14.0 on Linux arm64 and Node 24.22.3 on the Ryzen 9 
 | TypeScript JavaScript bundle | 1 | 54.58 | 88.64 (Oxc) | 56.10 | 92.73 (Oxc) |
 
 TMT leads all 23 common warm rows on Linux arm64 and all 20 on the Ryzen host. It leads 22 of 23 and 19 of 20 first-process rows. The two exceptions are `UserSettings.tsx` on arm64 (0.52 against 0.48 ms) and the ten local modules on the Ryzen host (1.86 against 1.82 ms). Single runs disagree on both, and a direct 41-sample repetition of the Ryzen first-process sample measured 2.04 ms for TMT against 2.38 ms for SWC Next. The [pooled samples, audit totals and experiments](../evidence/compiler/certified-native-emission.json) record every row.
+
+### Record mutation check and sanitizer fuzzing
+
+`scripts/mutate-compiler-records.mjs` changes one record call of the generated parser at a time. It drops the record, moves one end of its span by a byte, or keeps the records that a count rewind was meant to replace. Over 59 record calls this gives 305 mutants, run against 18,777 cases. No mutant changed the syntax of a published output without the audit build or the TypeScript comparison noticing. 152 were detected, 105 only moved files to a compatibility route, and 48 had no visible effect. Of those 48, 27 sit on records whose span the ordinary build does not read, 10 change spacing of a whole erased statement, 4 leave an empty statement, and 7 are unexplained.
+
+`scripts/fuzz-compiler-native.mjs` builds `native/compiler/fuzz.c` with libFuzzer, AddressSanitizer and UndefinedBehaviorSanitizer and runs every emitter entry on exactly sized inputs. It needs a clang that ships libFuzzer (`TMT_FUZZ_CLANG`). Ten minutes on four workers found no defect.
+
+The entry also accepts options spelled out with their default values, so `tmt-compile file.ts` and callers that pass `target: 'esnext'` or `sourceMap: false` take the native call.

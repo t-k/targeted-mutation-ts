@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import { inspect } from '../scripts/audit-compiler-coverage.mjs';
+import { denseCases } from '../scripts/generate-compiler-validation-cases.mjs';
 import { compile } from '../src/compiler.mjs';
 
 const ts = createRequire(import.meta.url)('typescript');
@@ -149,4 +150,17 @@ test('only a literal dot starts a filename extension on the native entry', () =>
   }
   assert.equal(compile(Buffer.from('export const n = 1;\n'), { file: 'a.MJS' }).backend, 'javascript');
   assert.equal(compile(Buffer.from('export const n = 1;\n'), { file: 'a.d.tsx' }).backend, 'pulse');
+});
+
+test('erased syntax packed against its neighbours matches TypeScript', () => {
+  const fixtures = denseCases();
+  assert.deepEqual(fixtures, denseCases());
+  let native = 0;
+  for (const { file, source } of fixtures) {
+    const text = Buffer.from(source, 'base64').toString();
+    assert.doesNotMatch(text, /[^\S\n]{2}/, file);
+    assert.equal(sameAsTypeScript(text, file).backend, 'pulse', file);
+    native++;
+  }
+  assert.equal(native, fixtures.length);
 });
