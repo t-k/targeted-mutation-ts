@@ -3505,7 +3505,16 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
       let start = { tracked with local_names = decl.used } in
       (let! anf_value_2 = (fun () -> class_tail input start (minus fuel 1ul) OrdinaryClass) in ret input ({ decl with state = anf_value_2 }))
-  else control_statement input st fuel in_function jumps floor used root_control
+  else
+    let! type_width =
+      (fun () -> if input.capture_types && not root_control && in_function && strict_locals st &&
+        (first = 116uy || first = 105uy) then type_declaration_width input st.offset
+      else ret input 0ul) in
+    if type_width = 4ul || type_width = 9ul then
+      let! declared = (fun () -> local_type_declaration input st type_width floor used) in
+      let! recorded = (fun () -> record_jsx_span input declared.state 19ul st.offset declared.state.offset) in
+      ret input { declared with state = recorded }
+    else control_statement input st fuel in_function jumps floor used root_control
 
 and local_function_group (input:tape) (start:parser_state) (fuel:U32.t) (async_ generator:bool) (expected:G.span) (remaining:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 54; U32.v remaining]) =

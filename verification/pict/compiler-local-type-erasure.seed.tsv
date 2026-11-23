@@ -1,0 +1,4 @@
+Form	Scope	Dialect
+Alias	Function	TS
+Interface	Block	TSX
+Consecutive	Function	TSX

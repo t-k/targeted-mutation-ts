@@ -776,6 +776,7 @@ enum {
   generic_arrow = 16,
   lexical_text = 17,
   class_implements = 18,
+  erased_local_type = 19,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
@@ -1027,7 +1028,9 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     const bool modifiers = event.original == class_modifiers;
     const bool arrow = event.original == generic_arrow;
     const bool heritage = event.original == class_implements;
-    if (!member && !modifiers && !arrow && !heritage && (event.original < type_annotation || event.original > type_marker)) continue;
+    const bool local_type = event.original == erased_local_type;
+    if (!member && !modifiers && !arrow && !heritage && !local_type &&
+        (event.original < type_annotation || event.original > type_marker)) continue;
     const TmtGrammar_span span = event.left;
     if (span.first >= span.last || span.last > input.size) goto decline;
     const bool statement = event.original == erased_type_statement || event.original == runtime_module_statement;
@@ -1046,6 +1049,10 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
         continue;
       }
       *remove_statement = true;
+    } else if (local_type) {
+      const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, span.last);
+      if (!tail.ok || (tail.at < input.size && (input.source[tail.at] == '"' || input.source[tail.at] == '\''))) goto decline;
+      separate = true;
     } else if (!member && !modifiers && !heritage) {
       uint32_t next_assertion = input.size;
       if (event.original == type_assertion && index + 1 < records && input.output[index + 1].original == type_assertion) {
@@ -1055,7 +1062,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     }
     if (span.first < previous) goto decline;
     const bool annotation = event.original == type_annotation;
-    bool preserve_lines = statement || member || modifiers || arrow || heritage ||
+    bool preserve_lines = statement || member || modifiers || arrow || heritage || local_type ||
       event.original == type_arguments || event.original == type_assertion;
     if (!preserve_lines || modifiers) {
       bool multiline = false, slash = false;

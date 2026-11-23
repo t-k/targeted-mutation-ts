@@ -1255,8 +1255,6 @@ TmtPulseParser_leave_function_locals(
   TmtPulseParser_parser_state outer
 );
 
-uint32_t TmtPulseParser_statement_kind(TmtPulseMemory_tape input, uint32_t at);
-
 TmtPulseParser_parser_state
 TmtPulseParser_type_alias_tail(
   TmtPulseMemory_tape input,
@@ -1272,6 +1270,8 @@ TmtPulseParser_local_type_declaration(
   uint32_t floor,
   uint32_t used
 );
+
+uint32_t TmtPulseParser_statement_kind(TmtPulseMemory_tape input, uint32_t at);
 
 TmtPulseParser_parser_state
 TmtPulseParser_read_local_var_name(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
