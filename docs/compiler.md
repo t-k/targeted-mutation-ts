@@ -404,4 +404,23 @@ New native coverage:
 
 After these changes 14,531 of 14,535 native outputs over all corpora have TypeScript's syntax. The four differences are a kept parenthesis around a callee and two TypeScript quirks (`default_1`, a setter's return annotation). Warm timings of the fixed projects are unchanged within noise.
 
-Still declined, by frequency in the wider corpora: a heritage clause that is a call with type arguments (`extends S.Class<A>("A")({})`), type arguments on a tagged template or on a call result, angle-bracket assertions, enums inside functions, `x!++`, ambient declarations without a type, decorators, runtime namespaces, `import =` and `export =`, a leading triple-slash directive, a JSX import-source pragma, and non-ASCII identifiers.
+A second round reduced declined files to their cause by deleting statements while the file stayed declined, and added: a heritage clause that is any left-hand-side expression with optional type arguments (`extends S.Class<A>("A")({})`), type arguments before a tagged template and after the result of a call, `x!++`, variance annotations on class and type alias parameters, a local type that shares its name with a value, an exported namespace of types beside an exported value of its name, and quoted enum member names.
+
+| Project | Files | Declined before | Declined now |
+| --- | ---: | ---: | ---: |
+| zod | 164 | 42 | 18 |
+| hono | 346 | 37 | 37 |
+| rxjs | 757 | 116 | 115 |
+| trpc | 596 | 43 | 40 |
+| excalidraw | 348 | 5 | 4 |
+| drizzle | 574 | 79 | 22 |
+| vue | 472 | 19 | 12 |
+| typescript-eslint | 1,173 | 35 | 28 |
+| playwright | 1,045 | 58 | 56 |
+| effect | 1,579 | 525 | 31 |
+| prisma | 1,919 | 26 | 23 |
+| Total | 8,973 | 985 | 386 |
+
+Over all corpora 14,824 of 14,828 native outputs have TypeScript's syntax. No output that was native before these parser changes differs after them, apart from the two defects above.
+
+Still declined, by what the reductions show: decorators (most of rxjs, whose documentation app is Angular), a JSX import-source pragma and a leading triple-slash directive (most of hono), JSX spread of an object literal, a comparison followed by a comma and a literal in an argument list (`skip(v < 104, 'reason')`, which the parser cannot yet tell from type arguments), enums and type declarations in blocks outside a function, runtime namespaces, `export =` and `import =`, ambient classes and modules, angle-bracket assertions, and non-ASCII identifiers.
