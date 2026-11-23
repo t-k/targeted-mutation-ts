@@ -45,7 +45,27 @@ test('the contextual word type can be an object with a type property', async () 
   assert.equal((await load(result.code)).read({ type: 42 }), 42);
 });
 
-test('an intervening expression does not certify a late type statement', () => {
-  const source = 'export const value: number = 1;\nvalue // ;\ntype T = number\n(3);';
-  assert.notEqual(compile(source).backend, 'pulse');
+test('the separator survives an intervening expression before a late type statement', async () => {
+  const source = 'export const events: number[] = [];\nconst value = (item: number) => events.push(item);\n' +
+    'value // ;\ntype T = number\n(3);\nexport const count = events.length;';
+  const result = compile(source);
+  assert.equal(result.backend, 'pulse');
+  const { count, events } = await load(result.code);
+  assert.equal(count, 0);
+  assert.deepEqual(events, []);
+});
+
+test('a local lexical declaration protects a subsequent late type statement', async () => {
+  const source = 'const events = [];\nevents.push(42);\ninterface T { type: number }\n' +
+    'export const value: number = events[0];';
+  const result = compile(source);
+  assert.equal(result.backend, 'pulse');
+  assert.equal((await load(result.code)).value, 42);
+});
+
+test('a late type in a possible directive prologue stays on compatibility', () => {
+  const source = '"use client";\ntype T = number;\n"use server";\nexport const value: T = 42;';
+  const result = compile(source);
+  assert.notEqual(result.backend, 'pulse');
+  assert.match(result.code, /^"use client";\s+"use server";/);
 });
