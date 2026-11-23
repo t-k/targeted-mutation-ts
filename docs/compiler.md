@@ -388,7 +388,7 @@ On an Apple M-series host under load, the fixed projects with maps take 1.6 to 2
 
 ### Wider corpora, declaration merging and two emission defects
 
-Eleven tagged open-source projects (zod, hono, rxjs, trpc, excalidraw, drizzle, vue, typescript-eslint, playwright, effect, prisma; 8,973 `.ts` and `.tsx` files, read as data) were added to the scratch corpora to see where the native routes stop and whether their output is right. Declined files fell from 984 to about 620 after the changes below. The remaining causes are listed at the end.
+Eleven tagged open-source projects (zod, hono, rxjs, trpc, excalidraw, drizzle, vue, typescript-eslint, playwright, effect, prisma; 8,973 `.ts` and `.tsx` files, read as data) were added to the scratch corpora to see where the native routes stop and whether their output is right. Declined files fell from 984 to 640 after the changes below. The remaining causes are listed at the end.
 
 Comparing every native output with TypeScript's emit found two defects that were older than this work:
 
