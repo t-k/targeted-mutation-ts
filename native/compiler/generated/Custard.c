@@ -1329,8 +1329,7 @@ TmtPulseParser_check_local_exports(
         else
           return
             TmtPulseParser_failed(state,
-              input.capture_jsx || input.capture_types ? TmtPulseParser_unbound_runtime_export_status
-                                                       : 1U);
+              input.capture_jsx ? TmtPulseParser_unbound_runtime_export_status : 1U);
       }
       else
         return TmtPulseParser_failed(state, 1U);
@@ -20562,7 +20561,7 @@ TmtPulseParser_module_sequence(
           else if (value4.export_kind == 4U)
           {
             TmtPulseParser_parser_state value51;
-            if (exports != 0U || pending != 0U)
+            if (input.capture_types || exports != 0U || pending != 0U)
               value51 = TmtPulseParser_failed(value, 1U);
             else
             {

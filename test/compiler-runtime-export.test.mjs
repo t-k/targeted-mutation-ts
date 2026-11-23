@@ -45,3 +45,13 @@ test('a value sharing a type name satisfies an export and a re-export uses the e
   const external = 'export { Item } from "./dependency";';
   assert.equal(emitAnnotatedModule(Buffer.from(external), false, false), external);
 });
+
+test('export assignment requires the CommonJS transpilation route', () => {
+  const source = 'const value: number = 42;\nexport = value;';
+  assert.equal(emitAnnotatedModule(Buffer.from(source), false, false), null);
+  const commonjs = compile(source, { module: 'cjs' });
+  assert.match(commonjs.code, /module\.exports = value/);
+  const esm = compile(source, { module: 'esm' });
+  assert.equal(esm.code, null);
+  assert.equal(esm.diagnostics[0].code, 'INCOMPATIBLE_MODULE_SYNTAX');
+});
