@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import { stripTypeScriptTypes } from 'node:module';
 import test from 'node:test';
 import { compile } from '../src/compiler.mjs';
+import { extract } from '../src/extract.mjs';
 
 const samples = {
   Module: 'import type { Input } from "fixture"; export function pick(input: Input): number { const a: number = input.value; return a; }',
@@ -558,3 +559,26 @@ test('consecutive type assertions cannot erase a following call boundary', () =>
   assert.notEqual(result.backend, 'pulse');
   assert.equal(result.code, stripTypeScriptTypes(input));
 });
+
+const eventCapacity = readFileSync(new URL('../verification/pict/compiler-event-capacity.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of eventCapacity) {
+  const [size, shape, dialect] = row.split('\t');
+  test('compiler event capacity ' + row.replaceAll('\t', ' '), async () => {
+    const count = { Below: 127, At: 128, Above: 129 }[size];
+    const operators = shape === 'Single' ? ['<'] : ['<', '>='];
+    const source = 'export let value: number = 0;\n' +
+      (shape === 'Single' ? 'value += 0 < 1;\n' : 'value += (0 < 1) + (2 >= 3);\n').repeat(count);
+    assert.ok(Buffer.byteLength(source) < 4096);
+    const file = dialect === 'TS' ? 'input.ts' : 'input.tsx';
+    const result = compile(source, { file });
+    assert.equal(result.backend, 'pulse');
+    assert.equal(result.code, stripTypeScriptTypes(source));
+    const module = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+    assert.equal(module.value, count);
+    const picked = extract(source, { requireNative: true, dialect: dialect.toLowerCase() });
+    assert.equal(picked.path, 'fast');
+    assert.deepEqual(picked.candidates.map(site => site.operator), Array(count).fill(operators).flat());
+    assert.deepEqual(picked.candidates.map(site => source.slice(...site.edit)), Array(count).fill(operators).flat());
+  });
+}

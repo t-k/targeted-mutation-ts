@@ -1732,7 +1732,8 @@ TmtPulseParser_combine_binary(
   TmtPulseParser_parsed rhs,
   TmtPulseParser_parser_state st,
   TmtPulseParser_binary_operator op,
-  uint8_t first
+  uint8_t first,
+  bool reserve
 );
 
 uint32_t

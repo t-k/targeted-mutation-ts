@@ -2383,7 +2383,7 @@ let finish_jsx_expression (input:tape) (state:parser_state) (first:U32.t)
   let! closed = (fun () -> consume input state 125uy) in
   record_jsx_span input closed 5ul first state.offset
 
-let combine_binary (input:tape) (lhs rhs:parsed) (st:parser_state) (op:binary_operator) (first:U8.t)
+let combine_binary (input:tape) (lhs rhs:parsed) (st:parser_state) (op:binary_operator) (first:U8.t) (reserve:bool)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) =
   if rhs.parser.status <> 0ul then ret input (rhs)
   // Multiple opening angles and a packed right shift can be nested type arguments.
@@ -2393,7 +2393,7 @@ let combine_binary (input:tape) (lhs rhs:parsed) (st:parser_state) (op:binary_op
     let nullish = op.nullish || lhs.shortcut = 2ul || rhs.shortcut = 2ul in
     if logical && nullish then ret input (empty_range (failed rhs.parser 1ul))
     else
-      let! result = (fun () -> if op.boundary = 0ul || input.count_only then ret input (rhs.parser)
+      let! result = (fun () -> if not reserve || input.count_only then ret input (rhs.parser)
         else emit_comparison_in_workspace input rhs.parser st.count op.boundary st.offset lhs.range rhs.range) in
       ret input (let shortcut = if logical then 1ul else if nullish then 2ul else 0ul in
       { parser = result; range = { lhs.range with G.last = rhs.range.G.last }; shortcut;
@@ -2860,6 +2860,7 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
           binary_tail input value fuel minimum (minus remaining 1ul))
     else
       let! op = (fun () -> operator input st.offset st.in_allowed) in
+      let reserve = op.boundary <> 0ul && not input.capture_types in
       let exponent = op.strength = 11ul in
       let! forbidden_base =
         (fun () -> if exponent then let! allowed = (fun () -> exponent_base input { st with offset = lhs.range.G.first }) in ret input (not allowed)
@@ -2870,9 +2871,9 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
       else if forbidden_base then ret input (empty_range (failed st 1ul))
       else if lhs.open_angle && (op.boundary = 3ul || op.boundary = 4ul ||
           op.strength = 3ul || op.strength = 5ul || op.strength = 8ul) then ret input (empty_range (failed st 1ul))
-      else if op.boundary <> 0ul && not input.count_only && U32.(st.count >=^ input.capacity) then ret input (empty_range (failed st 4ul))
+      else if reserve && not input.count_only && U32.(st.count >=^ input.capacity) then ret input (empty_range (failed st 4ul))
       else
-        let count = if op.boundary = 0ul then st.count else next st.count in
+        let count = if reserve then next st.count else st.count in
         let after = { st with offset = plus st.offset op.width; count } in
         let! rhs = (fun () -> if exponent then binary input after (minus fuel 1ul) op.strength
           else binary input after fuel (U32.add op.strength 1ul)) in
@@ -2880,7 +2881,7 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
           left_shift_type_ambiguity input after rhs.parser else ret input false) in
         if shift_ambiguity then ret input (empty_range (failed rhs.parser 1ul))
         else
-          let! combined = (fun () -> combine_binary input lhs rhs st op first) in
+          let! combined = (fun () -> combine_binary input lhs rhs st op first reserve) in
           if combined.parser.status <> 0ul then ret input (combined)
           else binary_tail input combined fuel minimum (minus remaining 1ul)
 

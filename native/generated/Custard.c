@@ -9814,7 +9814,8 @@ TmtPulseParser_combine_binary(
   TmtPulseParser_parsed rhs,
   TmtPulseParser_parser_state st,
   TmtPulseParser_binary_operator op,
-  uint8_t first
+  uint8_t first,
+  bool reserve
 )
 {
   if (rhs.parser.status != 0U)
@@ -9830,7 +9831,7 @@ TmtPulseParser_combine_binary(
     else
     {
       TmtPulseParser_parser_state value;
-      if (op.boundary == 0U || input.count_only)
+      if (!reserve || input.count_only)
         value = rhs.parser;
       else
         value =
@@ -15839,6 +15840,7 @@ TmtPulseParser_binary_tail(
       {
         TmtPulseParser_binary_operator
         value4 = TmtPulseParser_operator(input, value.offset, value.in_allowed);
+        bool reserve = value4.boundary != 0U && !input.capture_types;
         bool exponent = value4.strength == 11U;
         bool value50;
         if (exponent)
@@ -15900,15 +15902,15 @@ TmtPulseParser_binary_tail(
             || value4.strength == 8U)
         )
           return TmtPulseParser_empty_range(TmtPulseParser_failed(value, 1U));
-        else if (value4.boundary != 0U && !input.count_only && value.count >= input.capacity)
+        else if (reserve && !input.count_only && value.count >= input.capacity)
           return TmtPulseParser_empty_range(TmtPulseParser_failed(value, 4U));
         else
         {
           uint32_t count;
-          if (value4.boundary == 0U)
-            count = value.count;
-          else
+          if (reserve)
             count = TmtPulseParser_next(value.count);
+          else
+            count = value.count;
           TmtPulseParser_parser_state
           after =
             {
@@ -15946,7 +15948,14 @@ TmtPulseParser_binary_tail(
           else
           {
             TmtPulseParser_parsed
-            value8 = TmtPulseParser_combine_binary(input, lhs, value6, value, value4, value1);
+            value8 =
+              TmtPulseParser_combine_binary(input,
+                lhs,
+                value6,
+                value,
+                value4,
+                value1,
+                reserve);
             if (value8.parser.status != 0U)
               return value8;
             else
