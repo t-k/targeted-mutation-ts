@@ -1192,7 +1192,6 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   char *code = NULL;
   bool remove_statement;
   if (!blank_type_records(input, records, &code, &remove_statement)) goto enum_only;
-  if (!code && !enums) return NULL;
   TmtPulseMemory_tape projected = input;
   if (code) projected.source = (uint8_t *)code;
   if (!unambiguous_projection(projected, records)) goto enum_only;
@@ -1204,15 +1203,20 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
       code = lowered;
     }
   }
-  if (!code || *length > 1048576) goto enum_only;
-  if (esm && remove_statement && !tmt_module_marker((uint8_t *)code, (uint32_t)*length, false)) {
+  if ((!code && enums) || *length > 1048576) goto enum_only;
+  if (code && esm && remove_statement && !tmt_module_marker((uint8_t *)code, (uint32_t)*length, false)) {
     char *with_marker = realloc(code, *length + sizeof(esm_marker));
     if (!with_marker) goto enum_only;
     code = with_marker;
     memcpy(code + *length, esm_marker, sizeof(esm_marker) - 1);
     *length += sizeof(esm_marker) - 1;
   }
-  if (!validate_emission(code, *length, "ts")) goto enum_only;
+  if (!validate_emission(code ? code : (const char *)input.source, *length, "ts")) goto enum_only;
+  if (!code) {
+    code = malloc(*length);
+    if (!code) return NULL;
+    memcpy(code, input.source, *length);
+  }
   *complete = true;
   return code;
 enum_only:

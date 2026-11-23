@@ -1,0 +1,3 @@
+Marker: ExportBinding, NamedExport, ImportExport
+Dialect: TS, TSX
+Input: String, Buffer

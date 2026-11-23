@@ -1,0 +1,7 @@
+Marker	Dialect	Input
+ExportBinding	TS	Buffer
+NamedExport	TSX	String
+ImportExport	TS	String
+NamedExport	TS	Buffer
+ImportExport	TSX	Buffer
+ExportBinding	TSX	String
