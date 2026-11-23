@@ -1,0 +1,10 @@
+Source	Input	Output
+StaticImport	Bytes	Preserve
+StaticExport	Text	Preserve
+DynamicImport	Bytes	Preserve
+UnicodeIdentifier	Text	Preserve
+Directive	Bytes	Preserve
+Invalid	Text	Preserve
+StaticImport	Bytes	CommonJS
+StaticExport	Text	Map
+LateExport	Bytes	Preserve

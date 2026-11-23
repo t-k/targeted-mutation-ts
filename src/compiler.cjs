@@ -30,6 +30,12 @@ function loadModuleAddon() {
   return fullAddon;
 }
 let validateJavaScript;
+function javascriptTextValidator() {
+  if (validateJavaScript === undefined) {
+    validateJavaScript = optionalAddon('../build/compiler-js.node', true)?.validModule ?? null;
+  }
+  return validateJavaScript;
+}
 const extensions = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
 const declarations = /\.d\.[cm]?ts$/i;
 const targets = new Set(['es6', 'esnext', ...Array.from({ length: 11 }, (_, index) => 'es' + (2015 + index))]);
@@ -120,26 +126,51 @@ function eraseScript(addon, source, bytes, file) {
   return code === null ? null : { ...result, code };
 }
 
+const moduleTrivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[\s\S]*?\*\/)*/y;
+
+function moduleTriviaEnd(source, at) {
+  moduleTrivia.lastIndex = at;
+  moduleTrivia.test(source);
+  return moduleTrivia.lastIndex;
+}
+
+function startsStaticModule(source) {
+  const hashbang = source.startsWith('#!') ? /^#![^\r\n\u2028\u2029]*/.exec(source)[0].length : 0;
+  const start = moduleTriviaEnd(source, hashbang);
+  const after = start + 6;
+  const follower = source[after] ?? '';
+  if (source.startsWith('export', start)) return /^[\s{/*]$/.test(follower);
+  if (!source.startsWith('import', start) || !/^[\s/'"{*]$/.test(follower)) return false;
+  const specifier = source[moduleTriviaEnd(source, after)] ?? '';
+  return /^[A-Za-z_$'"{*]$/.test(specifier);
+}
+
 function modernJavaScript(source, file, format) {
-  const script = format === 'preserve' ? strictScript(source, file) : null;
-  if (script !== null) return script;
   const moduleFile = format === 'esm' && /\.mjs$/i.test(file);
+  const staticHead = !moduleFile && startsStaticModule(source);
+  const script = format === 'preserve' && !staticHead ? strictScript(source, file) : null;
+  if (script !== null) return script;
   let bytes;
   if (source.includes('///')) {
     bytes = Buffer.from(source);
     if (loadDirectAddon()?.leadingDirective(bytes) !== false) return null;
   }
-  if (moduleFile) {
-    if (validateJavaScript === undefined) {
-      validateJavaScript = optionalAddon('../build/compiler-js.node', true)?.validModule ?? null;
+  if (moduleFile || staticHead) {
+    const validate = javascriptTextValidator();
+    if (validate) {
+      const valid = validate(source);
+      if (valid || moduleFile) return valid ? source : null;
     }
-    if (validateJavaScript) return validateJavaScript(source) ? source : null;
   }
   const addon = loadModuleAddon();
   if (!addon) return null;
   bytes ??= Buffer.from(source);
   if (moduleFile && addon.validModule) {
     return addon.validModule(bytes) ? source : null;
+  }
+  if (!moduleFile && !staticHead) {
+    const validate = javascriptTextValidator();
+    if (validate && addon.moduleMarker(bytes, false) && validate(source)) return source;
   }
   return addon.moduleMarker(bytes, true) && strip(source, file).code === source ? source : null;
 }
