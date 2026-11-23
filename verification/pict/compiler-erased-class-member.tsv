@@ -1,0 +1,10 @@
+Placement	Member	Dialect
+Local	DeclaredField	TS
+Exported	AbstractField	TS
+Default	AbstractMethod	TSX
+Default	AbstractField	TS
+Local	AbstractField	TSX
+Default	DeclaredField	TSX
+Exported	AbstractMethod	TS
+Exported	DeclaredField	TSX
+Local	AbstractMethod	TSX

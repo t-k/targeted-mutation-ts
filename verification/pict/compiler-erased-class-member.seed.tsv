@@ -1,0 +1,4 @@
+Placement	Member	Dialect
+Local	DeclaredField	TS
+Exported	AbstractField	TS
+Default	AbstractMethod	TSX

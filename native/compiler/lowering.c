@@ -1016,7 +1016,8 @@ static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span spa
     if (!((width == 6 && !memcmp(word, "public", 6)) ||
           (width == 7 && !memcmp(word, "private", 7)) ||
           (width == 9 && !memcmp(word, "protected", 9)) ||
-          (width == 8 && (!memcmp(word, "readonly", 8) || !memcmp(word, "override", 8))))) return false;
+          (width == 8 && (!memcmp(word, "readonly", 8) || !memcmp(word, "override", 8) ||
+                          !memcmp(word, "abstract", 8))))) return false;
     memset(code + token.at, ' ', width);
   }
   return true;

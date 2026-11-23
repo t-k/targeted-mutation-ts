@@ -3873,6 +3873,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             let! annotation = (fun () -> consume input colon 58uy) in
             let! typed = (fun () -> annotation_type input annotation 16ul 64ul) in
             statement_end input typed typed.offset true) in
+        let! closed = (fun () -> record_jsx_span input { closed with count = st.count } 21ul st.offset closed.offset) in
         class_members input closed fuel (minus remaining 1ul) derived seen_constructor kind no_overload
       else if member_head.ok || kind = AmbientClass then
         let ambient_constructor = kind = AmbientClass && constructor && not member_head.ok && next_byte = 40uy in
@@ -3892,6 +3893,8 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             let! initializer = (fun () -> same input following.offset 61uy) in
             if initializer then ret input (failed following 1ul)
             else statement_end input typed typed.offset true) in
+        let! closed = (fun () -> if kind <> AmbientClass then
+          record_jsx_span input { closed with count = st.count } 21ul st.offset closed.offset else ret input closed) in
         class_members input closed fuel (minus remaining 1ul) derived seen_constructor kind no_overload
       else if optional_method.status = 0ul then
         let! closed = (fun () -> if awaiting_body || fuel = 0ul || constructor_name || prototype ||
@@ -4504,7 +4507,11 @@ let rec type_namespace_members (input:tape) (state:parser_state) (floor used loc
 
 let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! head = (fun () -> declaration_start input state) in
-  let st = head.after_modifiers in
+  let! st = (fun () -> if input.capture_types && head.abstract_class && not head.ambient_declaration then
+    let! exported = (fun () -> keyword input state.offset 6ul 0x6578706f7274uL) in
+    let! modifier = (fun () -> if exported then skip input { state with offset = plus state.offset 6ul } else ret input state) in
+    record_jsx_span input head.after_modifiers 15ul modifier.offset (plus modifier.offset 8ul)
+    else ret input head.after_modifiers) in
   let width = head.width in
   let! enumeration = (fun () -> if width = 0ul then
     keyword input st.offset 4ul 0x656e756duL else ret input false) in
@@ -4760,6 +4767,8 @@ let default_declaration (input:tape) (state:parser_state) (declaration_start:U32
   let! abstract_ = (fun () -> abstract_class_start input state.offset) in
   (let! class_ = (fun () -> if abstract_.ok then ret input true else class_keyword input state.offset) in if class_ then
     let head = if abstract_.ok then abstract_.at else state.offset in
+    let! state = (fun () -> if abstract_.ok then record_jsx_span input state 15ul state.offset (plus state.offset 8ul)
+      else ret input state) in
     let! start = (fun () -> skip input { state with offset = plus head 5ul }) in
     let! byte = (fun () -> peek input start.offset) in
     let! derives = (fun () -> keyword input start.offset 7ul 0x657874656e6473uL) in
