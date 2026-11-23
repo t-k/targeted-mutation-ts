@@ -903,7 +903,7 @@ static bool unambiguous_javascript(TmtPulseMemory_tape input, uint8_t *code, uin
 
 static const char esm_marker[] = "\nexport {};\n";
 
-static bool erasable_expression_range(TmtPulseMemory_tape input, uint32_t kind, TmtGrammar_span span) {
+static bool erasable_expression_range(TmtPulseMemory_tape input, uint32_t kind, TmtGrammar_span span, uint32_t next_assertion) {
   const uint8_t first = input.source[span.first];
   if (kind == type_annotation) return first == ':';
   if (kind == type_arguments || kind == generic_arrow) return first == '<' && input.source[span.last - 1] == '>';
@@ -912,6 +912,7 @@ static bool erasable_expression_range(TmtPulseMemory_tape input, uint32_t kind, 
   const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, span.last);
   if (!tail.ok) return false;
   if (tail.at == input.size) return true;
+  if (!tail.newline && tail.at == next_assertion) return true;
   const uint8_t byte = input.source[tail.at];
   return byte == ';' || byte == ',' || byte == ')' || byte == ']' || byte == '}' ||
     (tail.newline && ((byte == 'c' && TmtPulseParser_keyword(input, tail.at, 5, UINT64_C(0x636f6e7374))) ||
@@ -1003,7 +1004,13 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
         continue;
       }
       *remove_statement = true;
-    } else if (!member && !modifiers && !erasable_expression_range(input, event.original, span)) goto decline;
+    } else if (!member && !modifiers) {
+      uint32_t next_assertion = input.size;
+      if (event.original == type_assertion && index + 1 < records && input.output[index + 1].original == type_assertion) {
+        next_assertion = input.output[index + 1].left.first;
+      }
+      if (!erasable_expression_range(input, event.original, span, next_assertion)) goto decline;
+    }
     if (span.first < previous) goto decline;
     const bool annotation = event.original == type_annotation;
     bool preserve_lines = statement || member || modifiers || arrow ||

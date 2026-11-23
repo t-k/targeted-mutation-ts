@@ -1,0 +1,5 @@
+First	Second	Gap	Dialect
+As	As	Space	TS
+As	Satisfies	Comment	TSX
+Satisfies	As	MultilineType	TS
+Satisfies	Satisfies	Space	TSX

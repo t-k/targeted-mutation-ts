@@ -282,7 +282,8 @@ function compile(input, options = {}) {
           const moduleProjection = !jsxFile || !hasAngles;
           const empty = moduleProjection ? addon.eraseTypeModule(source, format === 'esm') : null;
           if (empty !== null) return { backend: 'pulse', code: empty, sourceMap: null, diagnostics: [] };
-          const annotated = moduleProjection && (runtime || source.includes(':') || hasAngles || source.includes('type')) ?
+          const annotated = moduleProjection && (runtime || source.includes(':') || hasAngles || source.includes('type') ||
+            source.includes(' as ') || source.includes(' satisfies ')) ?
             addon.emitAnnotatedModule(source, runtime, format === 'esm') : null;
           if (typeof annotated === 'string') {
             return { backend: 'pulse', code: annotated, sourceMap: null, diagnostics: [] };

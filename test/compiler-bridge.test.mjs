@@ -534,3 +534,27 @@ test('re-export records cannot hide an invalid declaration or runtime binding', 
   const unbound = 'export { Missing as value, type Shape }; interface Shape {}';
   assert.equal(compile(unbound).code, null);
 });
+
+const assertionChains = readFileSync(new URL('../verification/pict/compiler-assertion-chain.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of assertionChains) {
+  const [first, second, gap, dialect] = row.split('\t');
+  test('consecutive type assertion ' + row.replaceAll('\t', ' '), async () => {
+    const type = gap === 'MultilineType' ? '[\n  number\n]' : '[number]';
+    const trivia = gap === 'Comment' ? ' /* keep */ ' : ' ';
+    const input = `export const result = ([42] ${first.toLowerCase()} ${type}${trivia}${second.toLowerCase()} [number])[0];`;
+    const result = compile(input, { file: dialect === 'TS' ? 'input.ts' : 'input.tsx' });
+    assert.equal(result.backend, 'pulse', input);
+    const actual = gap === 'Comment' ? result.code.replace('/* keep */', ' '.repeat(10)) : result.code;
+    assert.equal(actual, stripTypeScriptTypes(input));
+    const module = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+    assert.equal(module.result, 42);
+  });
+}
+
+test('consecutive type assertions cannot erase a following call boundary', () => {
+  const input = 'export const cast = Math.abs as unknown as Function\n(3);';
+  const result = compile(input);
+  assert.notEqual(result.backend, 'pulse');
+  assert.equal(result.code, stripTypeScriptTypes(input));
+});
