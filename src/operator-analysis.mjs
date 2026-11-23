@@ -25,18 +25,14 @@ function sessionVerdicts(session) {
   };
 }
 
-// Vitest: the built-in mutations run in one switched session with per-test coverage while the focused analysis
-// records its comparisons, and the session's verdicts answer the comparison boundaries both parts share.
-// Playwright, and Vitest setups the session cannot drive, rewrite the source for each mutation instead.
-export async function analyzeOperators(project, files, options, run = { analyze, prepareAnalysis, completeAnalysis, analyzeConventional }) {
-  const profile = options.mutators;
-  const rewriting = () => ({ ...run.analyze(project, files, options), operatorExecution: 'source-rewrite' });
-  if (options.runner === 'playwright') return rewriting();
+// Starts the session, prepares the focused analysis while it runs, and waits for both.
+// `ended` holds the focused report when that analysis finished in its preparation.
+async function besideSession(project, files, options, run, profile, stopsSession) {
   const stop = new AbortController();
   const started = run.analyzeConventional(project, files, {
     mutators: profile, lines: options.lines, since: options.since, config: options.config, test: options.test,
     'copy-exclude': options['copy-exclude'], dialect: options.dialect, 'isolated-trials': options['isolated-trials'],
-    signal: stop.signal,
+    concurrency: options.concurrency, signal: stop.signal,
   }).then(report => ({ report }), error => ({ error }));
   let prepared;
   try {
@@ -47,16 +43,28 @@ export async function analyzeOperators(project, files, options, run = { analyze,
     throw error;
   }
   // Without planned trials the focused analysis ended in its preparation.
-  const early = prepared.trials ? null : { ...prepared.report, mutators: profile };
-  if (early && (early.evaluation === 'baseline_error' || early.extraction.some(file => file.path === 'diagnostic'))) {
+  const ended = prepared.trials ? null : prepared.report;
+  if (ended && stopsSession(ended)) {
     stop.abort();
     await started;
-    return early;
+    return { prepared, ended, stopped: true };
   }
-  const { report: session, error } = await started;
+  return { prepared, ended, ...await started };
+}
+
+// Vitest: the built-in mutations run in one switched session with per-test coverage while the focused analysis
+// records its comparisons, and the session's verdicts answer the comparison boundaries both parts share.
+// Playwright, and Vitest setups the session cannot drive, rewrite the source for each mutation instead.
+export async function analyzeOperators(project, files, options, run = { analyze, prepareAnalysis, completeAnalysis, analyzeConventional }) {
+  const profile = options.mutators;
+  const rewriting = () => ({ ...run.analyze(project, files, options), operatorExecution: 'source-rewrite' });
+  if (options.runner === 'playwright') return rewriting();
+  const { prepared, ended, stopped, report: session, error } = await besideSession(project, files, options, run, profile,
+    report => report.evaluation === 'baseline_error' || report.extraction.some(file => file.path === 'diagnostic'));
+  if (stopped) return { ...ended, mutators: profile };
   if (error) throw error;
   if (session.evaluation === 'baseline_error') return rewriting();
-  const focused = early ?? { ...run.completeAnalysis(prepared, sessionVerdicts(session)), mutators: profile };
+  const focused = { ...(ended ?? run.completeAnalysis(prepared, sessionVerdicts(session))), mutators: profile };
   if (session.evaluation === 'no_sites') return { ...focused, operatorExecution: 'session' };
   // A comparison boundary appears in both parts. The focused result carries the missing input, so it is the one kept.
   const boundaries = new Set(focused.mutants.map(mutant => `${mutant.location.file}:${mutant.edit[0]}:${mutant.replacement}`));
@@ -65,8 +73,19 @@ export async function analyzeOperators(project, files, options, run = { analyze,
   return {
     ...focused,
     operatorExecution: 'session',
+    trials: session.trials,
     baseline: focused.baseline ?? session.baseline,
     evaluation: session.evaluation === 'incomplete' ? 'incomplete' : 'evaluated',
     mutants: [...focused.mutants, ...added.map(mutant => fromSession(mutant, profile))].sort(order),
   };
+}
+
+// The default profile on Vitest. Its report is the focused analysis alone; a session that runs only the boundary
+// swaps decides those trials inside a worker instead of one Vitest run per edit. Whatever the session does not
+// decide, the focused analysis runs itself, so a session that cannot start changes the speed and not the report.
+export async function analyzeFocused(project, files, options, run = { analyze, prepareAnalysis, completeAnalysis, analyzeConventional }) {
+  if (options.runner === 'playwright' || options.audit) return run.analyze(project, files, options);
+  const { prepared, ended, report: session } = await besideSession(project, files, options, run, 'boundaries', () => true);
+  if (ended) return ended;
+  return run.completeAnalysis(prepared, session?.mutants ? sessionVerdicts(session) : undefined);
 }

@@ -8,7 +8,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { byteOffsets } from './extract.mjs';
 import { collectComparisons } from './analysis.mjs';
-import { prepareBuiltinSwitches } from './builtin-switches.mjs';
+import { boundarySwap, prepareBuiltinSwitches } from './builtin-switches.mjs';
 import { prepareOperatorSwitches } from './operator-switches.mjs';
 import { selectScope } from './scope.mjs';
 import { inside, resolveOptional, runnerPackage, withCopy } from './vitest.mjs';
@@ -116,7 +116,8 @@ export async function analyzeConventional(project, files, options) {
   const root = realpathSync(project);
   const combined = options.mutators === 'all';
   // The built-in switches use the same session and need no instrumenter package.
-  const builtIn = options.mutators === 'operators' || options.mutators === 'full';
+  // `boundaries` is the internal profile that runs only the swaps the focused analysis asks about.
+  const builtIn = ['operators', 'full', 'boundaries'].includes(options.mutators);
   const entry = builtIn ? null : compatibilityEntry(root);
   const prefix = '.tmt-session-' + randomUUID();
   const runtime = prefix + '-focus.mjs';
@@ -130,8 +131,8 @@ export async function analyzeConventional(project, files, options) {
   const focus = combined ? await import('./focused-switch.mjs') : null;
   const require = combined ? createRequire(entry) : null;
   const babel = require && { types: require('@babel/core').types, generate: require('@babel/generator').generate };
-  const prepareBuiltIn = options.mutators === 'full' ? prepareBuiltinSwitches : prepareOperatorSwitches;
-  const { sources, mutants } = builtIn ? prepareBuiltIn(targets, { dialect: options.dialect }) : await prepareConventional(targets, focus &&
+  const prepareBuiltIn = options.mutators === 'operators' ? prepareOperatorSwitches : prepareBuiltinSwitches;
+  const { sources, mutants } = builtIn ? prepareBuiltIn(targets, { dialect: options.dialect, ...(options.mutators === 'boundaries' ? { keep: boundarySwap } : {}) }) : await prepareConventional(targets, focus &&
     ((source, { starts, bytes }) => focus.printWithFocusedSwitches(
       source, starts, bytes, byFile.get(source.originFileName) ?? [], runtime, preparedFocused, babel,
     )), entry);

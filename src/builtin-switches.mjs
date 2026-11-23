@@ -36,7 +36,8 @@ function asStatementStart(mutant, text) {
 
 export function renderBuiltinSwitches(input, file, selected = () => true, options = {}) {
   const text = input.toString();
-  const found = collectMutations(text, file, { ...options, selected });
+  const all = collectMutations(text, file, { ...options, selected });
+  const found = options.keep ? all.filter(mutation => options.keep(mutation, text)) : all;
   if (!found.length) return { output: text, mutants: [] };
   const bytes = byteOffsets(text);
   const lineStarts = [0];
@@ -115,6 +116,10 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
     };
   }) };
 }
+
+// The swaps the focused analysis makes at a comparison boundary: `>=` with `>` and `<=` with `<`.
+export const boundarySwap = (mutation, text) => mutation.operator !== undefined &&
+  ['>', '>=', '<', '<='].includes(mutation.operator[1]) && text[mutation.operator[0]] === mutation.operator[1][0];
 
 export function prepareBuiltinSwitches(subjects, options = {}) {
   const sources = [];

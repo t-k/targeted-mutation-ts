@@ -47,9 +47,9 @@ try {
     if (values.runner === 'playwright' && values.test?.length) throw new Error('--test selects Vitest files');
     if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
     if (values.mutators && !['focused', 'operators', 'full', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|operators|full|standard|all');
-    const session = ['operators', 'full', 'standard', 'all'].includes(values.mutators) && values.runner !== 'playwright' && !values.witnesses;
+    const session = values.runner !== 'playwright' && !values.witnesses && !values.audit;
     if ((values.concurrency !== undefined || values['isolated-trials']) && !session) {
-      throw new Error('--concurrency and --isolated-trials apply to Vitest with --mutators operators|full|standard|all');
+      throw new Error('--concurrency and --isolated-trials apply to Vitest sessions, which --witnesses, --audit and Playwright do not use');
     }
     if (values.concurrency !== undefined) {
       if (!/^[1-9]\d{0,3}$/.test(values.concurrency)) throw new Error('Expected --concurrency to be a positive integer');
@@ -74,8 +74,8 @@ try {
       const { analyzeOperators } = await import('../src/operator-analysis.mjs');
       result = await analyzeOperators(project, files, values);
     } else {
-      const { analyze } = await import('../src/analysis.mjs');
-      result = analyze(project, files, values);
+      const { analyzeFocused } = await import('../src/operator-analysis.mjs');
+      result = await analyzeFocused(project, files, values);
     }
     if (format === 'json') console.log(JSON.stringify(result, null, 2));
     else console.log(renderText(result));

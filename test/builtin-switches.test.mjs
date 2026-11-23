@@ -175,3 +175,13 @@ for (const [name, source] of Object.entries(hazards)) {
     }
   });
 }
+
+test('the boundary filter keeps only the swaps between a comparison and its strict or inclusive form', async () => {
+  const { boundarySwap, renderBuiltinSwitches: render } = await import('../src/builtin-switches.mjs');
+  const source = 'export const f = (a, b) => a >= b ? a < b : a === b || a + b > 2;\n';
+  const { mutants, output } = render(Buffer.from(source), 'f.js', () => true, { keep: boundarySwap });
+  assert.deepEqual(mutants.map(mutant => [mutant.original, mutant.replacement]),
+    [['a >= b', 'a > b'], ['a < b', 'a <= b'], ['a + b > 2', 'a + b >= 2']]);
+  assert.ok(mutants.every(mutant => mutant.operatorSwap));
+  assert.doesNotMatch(output, /===\s*b\s*:\s*\(/);
+});

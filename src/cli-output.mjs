@@ -21,8 +21,7 @@ Profiles (analyze):
   --deterministic               Declare a deterministic suite so recorded comparisons can decide a trial.
   --audit                       Re-run predicted trials against the rewritten source.
   --displace-thresholds         Also try displaced thresholds (Vitest only).
-  --concurrency N               Workers that share the mutations of operators, full, standard and all
-                                (default: CPU count minus one).
+  --concurrency N               Vitest workers that share the mutations (default: CPU count minus one).
   --isolated-trials             Start a fresh Vitest run for every mutation instead of switching mutations
                                 inside a running worker. Slower; for suites that leave state behind.
 

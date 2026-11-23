@@ -94,3 +94,19 @@ test('a failed baseline names the failed test in both formats', () => withProjec
   assert.equal(text.status, 1);
   assert.match(text.stdout, /^ {2}FAILED test\/broken\.test\.ts > adds\n {4}.*expected 2 to be 3/m);
 }));
+
+test('--concurrency and --isolated-trials are checked before anything runs', () => {
+  for (const value of ['0', '-1', '1.5', 'many', '']) {
+    const run = cli('analyze', 'fixtures/eligibility', `--concurrency=${value}`);
+    assert.equal(run.status, 1);
+    assert.match(run.stderr, /Expected --concurrency to be a positive integer/);
+  }
+  for (const excluded of [['--witnesses'], ['--audit'], ['--runner', 'playwright']]) {
+    for (const option of [['--concurrency', '2'], ['--isolated-trials']]) {
+      const run = cli('analyze', 'fixtures/eligibility', ...excluded, ...option);
+      assert.equal(run.status, 1);
+      assert.match(run.stderr, /apply to Vitest sessions/);
+    }
+  }
+  assert.match(cli('--help').stdout, /--concurrency N[\s\S]*--isolated-trials/);
+});

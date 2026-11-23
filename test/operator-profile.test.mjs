@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { analyzeOperators } from '../src/operator-analysis.mjs';
+import { analyzeFocused, analyzeOperators } from '../src/operator-analysis.mjs';
 
 const location = (file, start) => ({ file, line: 1, column: start + 1, start, end: start + 2 });
 const comparison = { site: 'c', location: location('a.ts', 20), rule: 'comparison-boundary/v1', operator: '>=', edit: [20, 22], replacement: '>', status: 'survived' };
@@ -35,7 +35,7 @@ test('Vitest merges focused comparison results with operator swaps from one sess
   assert.deepEqual(run.calls.map(call => call[0]), ['session', 'prepare', 'complete']);
   const { signal, ...passed } = run.calls[0][1];
   assert.deepEqual(passed, { mutators: 'operators', lines: ['a.ts:1'], since: undefined, config: undefined,
-    test: ['a.test.ts'], 'copy-exclude': ['x'], dialect: 'ts', 'isolated-trials': undefined });
+    test: ['a.test.ts'], 'copy-exclude': ['x'], dialect: 'ts', 'isolated-trials': undefined, concurrency: undefined });
   assert.equal(signal.aborted, false);
   assert.deepEqual(run.calls[1], ['prepare', undefined]);
   assert.deepEqual([report.mutators, report.operatorExecution, report.evaluation], ['operators', 'session', 'evaluated']);
@@ -149,3 +149,57 @@ test('an error in the focused preparation or in the session stops the other part
   failing.analyzeConventional = async () => { throw new Error('session failed'); };
   await assert.rejects(analyzeOperators('.', [], options, failing), /session failed/);
 });
+
+test('the default profile reports the focused analysis alone and lets a boundary session answer its trials', async () => {
+  const plain = { ...options, mutators: undefined, audit: undefined, concurrency: 3 };
+  const run = runners(focusedReport, { ...sessionReport, mutators: 'boundaries', mutants: [
+    { ...swap, operatorSwap: [20, '>'], status: 'killed' }] });
+  const report = await analyzeFocused('.', ['a.ts'], plain, run);
+  assert.deepEqual(run.calls.map(call => call[0]), ['session', 'prepare', 'complete']);
+  assert.deepEqual([run.calls[0][1].mutators, run.calls[0][1].concurrency], ['boundaries', 3]);
+  assert.equal(report, focusedReport);
+  const settled = run.calls[2][1];
+  assert.equal(settled({ rule: 'comparison-boundary/v1', edit: [20, 22], replacement: '>',
+    site: { rule: 'comparison-boundary/v1', location: { file: 'a.ts' } } }).status, 'killed');
+});
+
+test('the default profile keeps its own runs when the session cannot help', async () => {
+  // Playwright and --audit run every edit against the rewritten source.
+  for (const direct of [{ runner: 'playwright' }, { audit: true }]) {
+    const run = runners(focusedReport, sessionReport);
+    assert.equal(await analyzeFocused('.', [], { ...options, mutators: undefined, audit: undefined, ...direct }, run), focusedReport);
+    assert.deepEqual(run.calls.map(call => call[0]), ['analyze']);
+  }
+  const plain = { ...options, mutators: undefined, audit: undefined };
+  // A session that fails, or that could not establish its baseline, leaves every trial to the focused analysis.
+  const failing = runners(focusedReport, sessionReport);
+  failing.analyzeConventional = async () => { throw new Error('Vitest 3 is not supported'); };
+  assert.equal(await analyzeFocused('.', [], plain, failing), focusedReport);
+  assert.equal(failing.calls.at(-1)[1], undefined);
+  const unusable = runners(focusedReport, { ...sessionReport, evaluation: 'baseline_error', mutants: [] });
+  assert.equal(await analyzeFocused('.', [], plain, unusable), focusedReport);
+  assert.equal(unusable.calls.at(-1)[1]({ rule: 'r', edit: [20, 22], replacement: '>', site: { rule: 'r', location: { file: 'a.ts' } } }), undefined);
+  // An analysis that ends in its preparation stops the session whatever the reason.
+  for (const ended of [{ ...focusedReport, evaluation: 'no_sites' }, { ...focusedReport, evaluation: 'baseline_error' }]) {
+    const run = runners(ended, sessionReport);
+    assert.equal(await analyzeFocused('.', [], plain, run), ended);
+    assert.deepEqual(run.calls.map(call => call[0]), ['session', 'prepare']);
+    assert.equal(run.calls[0][1].signal.aborted, true);
+  }
+});
+
+for (const [fixture, files, extra] of [
+  ['fixtures/eligibility', ['src/eligibility.ts'], { spec: 'spec.json' }],
+  ['fixtures/shipping', ['src/shipping.ts'], { spec: 'spec.json', deterministic: true }],
+  ['fixtures/eligibility', ['src/eligibility.ts'], { 'displace-thresholds': true, 'isolated-trials': true }],
+]) {
+  test(`the default profile's report is the one its own runs produce: ${fixture} ${Object.keys(extra)}`, async () => {
+    const { analyze } = await import('../src/analysis.mjs');
+    const { 'isolated-trials': isolated, ...focusedOptions } = extra;
+    const own = analyze(fixture, files, focusedOptions);
+    const beside = await analyzeFocused(fixture, files, extra);
+    assert.equal(own.evaluation, 'evaluated');
+    assert.ok(own.mutants.length > 0);
+    assert.deepEqual(beside, own);
+  });
+}
