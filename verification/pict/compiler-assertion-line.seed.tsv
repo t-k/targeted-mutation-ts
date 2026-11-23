@@ -1,0 +1,5 @@
+Assertion	Following	Dialect
+As	Call	TS
+As	Assignment	TSX
+Satisfies	Return	TS
+Satisfies	Call	TSX

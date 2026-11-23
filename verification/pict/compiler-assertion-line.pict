@@ -1,0 +1,3 @@
+Assertion: As, Satisfies
+Following: Call, Assignment, Return
+Dialect: TS, TSX

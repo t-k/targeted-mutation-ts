@@ -903,6 +903,24 @@ static bool unambiguous_javascript(TmtPulseMemory_tape input, uint8_t *code, uin
 
 static const char esm_marker[] = "\nexport {};\n";
 
+static bool matches_word(const uint8_t *source, uint32_t available, const char *word, uint32_t width) {
+  return width <= available && !memcmp(source, word, width) &&
+    (width == available || !TmtGrammar_identifier_continue(source[width]));
+}
+
+static bool assertion_line_boundary(TmtPulseMemory_tape input, TmtPulseParser_cursor tail) {
+  const uint8_t *word = input.source + tail.at;
+  const uint32_t available = input.size - tail.at;
+  if (!tail.newline || !TmtGrammar_identifier_start(*word)) return false;
+  switch (*word) {
+    case 'a': return !matches_word(word, available, "as", 2);
+    case 'i': return !matches_word(word, available, "in", 2) && !matches_word(word, available, "instanceof", 10);
+    case 'o': return !matches_word(word, available, "of", 2);
+    case 's': return !matches_word(word, available, "satisfies", 9);
+    default: return true;
+  }
+}
+
 static bool erasable_expression_range(TmtPulseMemory_tape input, uint32_t kind, TmtGrammar_span span, uint32_t next_assertion) {
   const uint8_t first = input.source[span.first];
   if (kind == type_annotation) return first == ':';
@@ -915,9 +933,7 @@ static bool erasable_expression_range(TmtPulseMemory_tape input, uint32_t kind, 
   if (!tail.newline && tail.at == next_assertion) return true;
   const uint8_t byte = input.source[tail.at];
   return byte == ';' || byte == ',' || byte == ')' || byte == ']' || byte == '}' ||
-    (tail.newline && ((byte == 'c' && TmtPulseParser_keyword(input, tail.at, 5, UINT64_C(0x636f6e7374))) ||
-      (byte == 'l' && TmtPulseParser_keyword(input, tail.at, 3, UINT64_C(0x6c6574))) ||
-      (byte == 'i' && TmtPulseParser_keyword(input, tail.at, 2, UINT64_C(0x6966)))));
+    assertion_line_boundary(input, tail);
 }
 
 static bool delimited_annotation(TmtPulseMemory_tape input, uint32_t last) {

@@ -86,3 +86,28 @@ test('arithmetic comparison and contextual inequality remain ordinary JavaScript
   assert.equal(valid(2, 3, 8), false);
   assert.equal(valid(4, 3, 4), false);
 });
+
+const lineAssertions = readFileSync(new URL('../verification/pict/compiler-assertion-line.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of lineAssertions) {
+  const [operator, following, dialect] = row.split('\t');
+  test('type assertion line boundary ' + row.replaceAll('\t', ' '), async () => {
+    const statement = {
+      Call: 'add();\nreturn value + sideEffects;',
+      Assignment: 'sideEffects += 1;\nreturn value + sideEffects;',
+      Return: 'return value + 1;',
+    }[following];
+    const source = 'let sideEffects = 0;\nfunction add() { sideEffects++; }\n' +
+      `export function run(input: number) { const value = input ${operator.toLowerCase()} number /* keep */\n${statement} }`;
+    const result = compile(source, { file: dialect === 'TS' ? 'input.ts' : 'input.tsx' });
+    assert.equal(result.backend, 'pulse', source);
+    const output = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+    assert.equal(output.run(2), 3);
+    assert.match(result.code, /\/\* keep \*\/\n/);
+  });
+}
+
+test('type assertion line projection keeps contextual continuation operators conservative', () => {
+  const input = 'export const contains = "value" as string\nin { value: 1 };';
+  assert.notEqual(compile(input).backend, 'pulse');
+});
