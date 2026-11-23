@@ -956,7 +956,8 @@ typedef uint8_t TmtPulseParser_class_kind;
 TmtPulseParser_parser_state
 TmtPulseParser_capture_type_parameters(
   TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state
+  TmtPulseParser_parser_state state,
+  bool allow_variance
 );
 
 bool

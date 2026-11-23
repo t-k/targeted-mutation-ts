@@ -510,10 +510,25 @@ static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exp
     if (!trivia(lower)) return false;
     if (consume(lower, '}')) break;
     if (index == 4096) return false;
-    const uint32_t key_start = lower->at;
-    if (!TmtGrammar_identifier_start(peek(lower))) return false;
-    do { lower->at++; } while (TmtGrammar_identifier_continue(peek(lower)));
-    const TmtGrammar_span key = { key_start, lower->at };
+    TmtGrammar_span key = { lower->at, lower->at };
+    const uint8_t opener = peek(lower);
+    if (opener == '"' || opener == '\'') {
+      /* A quoted name is taken as written when it needs no escape in the output and is not numeric. */
+      uint32_t at = lower->at + 1;
+      key.first = at;
+      while (at < lower->input.size && lower->input.source[at] != opener) {
+        const uint8_t byte = lower->input.source[at++];
+        if (byte < 32 || byte >= 127 || byte == '"' || byte == '\'' || byte == '\\') return false;
+      }
+      if (at >= lower->input.size || at == key.first || TmtGrammar_decimal_digit(lower->input.source[key.first]) ||
+          lower->input.source[key.first] == '-') return false;
+      key.last = at;
+      lower->at = at + 1;
+    } else {
+      if (!TmtGrammar_identifier_start(opener)) return false;
+      do { lower->at++; } while (TmtGrammar_identifier_continue(peek(lower)));
+      key.last = lower->at;
+    }
     if (same_bytes(lower, key, "__proto__") || !trivia(lower)) return false;
 
     uint32_t value_start = 0, value_end = 0;

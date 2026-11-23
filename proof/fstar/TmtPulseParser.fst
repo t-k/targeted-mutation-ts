@@ -858,8 +858,7 @@ let bind_since (input:tape) (st:parser_state) (base:names_base) (floor used:name
 
 let bind_pattern_name (input:tape) (st:parser_state) (base:names_base) (floor used:names_used) (pos:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) =
-  let namespace = if base = 0ul then ValueName else BothNames in
-  let! bound = (fun () -> bind_in_namespace input st base floor used pos namespace) in
+  let! bound = (fun () -> bind_in_namespace input st base floor used pos ValueName) in
   if not input.capture_types || bound.state.status <> 0ul then ret input bound
   else
     // A declared name such as `as` is an ordinary identifier for the projection guard.
@@ -1816,9 +1815,9 @@ let optional_type_parameters (input:tape) (#frame:slprop) (state:parser_state) (
   else (let! anf_value_1 = (fun () -> same input #frame state.offset 60uy) in if anf_value_1 then (let! anf_value_2 = (fun () -> (consume input #frame state 60uy)) in type_parameters input #frame anf_value_2 16ul 64ul allow_variance)
   else read_ret input #frame (state))
 
-let capture_type_parameters (input:tape) (state:parser_state) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+let capture_type_parameters (input:tape) (state:parser_state) (allow_variance:bool) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
   let! first = (fun () -> skip input state) in
-  let! arguments = (fun () -> optional_type_parameters input first false) in
+  let! arguments = (fun () -> optional_type_parameters input first allow_variance) in
   if not input.capture_types || arguments.offset = first.offset then skip input arguments
   else
     let! recorded = (fun () -> record_jsx_span input arguments 10ul first.offset arguments.offset) in
@@ -2128,7 +2127,7 @@ let admissible_type_binding (input:tape) (#frame:slprop) (first last:U32.t) : To
   read_ret input #frame (not (builtin_type packed || undefined || type_operator packed))
 
 let type_alias_tail (input:tape) (#frame:slprop) (state:parser_state) (before_brace:bool) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  let! st = (fun () -> (let! anf_value_1 = (fun () -> (optional_type_parameters input #frame state false)) in skip input #frame anf_value_1)) in
+  let! st = (fun () -> (let! anf_value_1 = (fun () -> (optional_type_parameters input #frame state true)) in skip input #frame anf_value_1)) in
   let! alias = (fun () -> (let! anf_value_2 = (fun () -> (consume input #frame st 61uy)) in annotation_type input #frame anf_value_2 16ul 256ul)) in
   statement_end input #frame alias alias.offset before_brace
 
@@ -2158,7 +2157,9 @@ let interface_tail (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt 
 
 let local_type_declaration (input:tape) (state:parser_state) (width:U32.t) (floor used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! start = (fun () -> skip input { state with offset = plus state.offset width }) in
-  let! decl = (fun () -> bind_since input start binding_region_width floor used start.offset) in
+  // A local type shares its name with a value, as a module-level type does.
+  let! decl = (fun () -> bind_in_namespace input start binding_region_width floor used start.offset
+    (if width = 9ul then InterfaceName else TypeName)) in
   let! valid = (fun () -> admissible_type_binding input start.offset decl.state.offset) in
   let! st = (fun () -> if valid then (if width = 9ul then interface_tail input decl.state else type_alias_tail input decl.state true) else ret input (failed decl.state 1ul)) in
   ret input ({ decl with state = { st with local_names = decl.used } })
@@ -3878,7 +3879,7 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
   let depth = minus 64ul fuel in
   let start = if U32.(depth >^ state.depth) then { state with depth } else state in
   let start = { start with super_context = FunctionBody; yield_allowed = false } in
-  let! start = (fun () -> capture_type_parameters input start) in
+  let! start = (fun () -> capture_type_parameters input start false) in
   let! opening = (fun () -> consume input start 40uy) in
   let! opening, limit =
     (fun () -> if arity = OrdinaryParameters then ret input ((opening, 64ul))
@@ -4054,7 +4055,8 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         class_members input after fuel (minus remaining 1ul) derived (seen_constructor || (constructor && pending.key_span.G.first = pending.key_span.G.last)) kind pending
 and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (kind:class_kind)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 57; 0]) =
-  let! st = (fun () -> capture_type_parameters input state) in
+  // A class, an interface and a type alias take variance annotations on their type parameters.
+  let! st = (fun () -> capture_type_parameters input state true) in
   let! derived = (fun () -> keyword input st.offset 7ul 0x657874656e6473uL) in
   let! inherited =
     (fun () -> if not derived then ret input (st)
@@ -4728,7 +4730,8 @@ let rec reserve_direct_exports (input:tape) (state:parser_state) (used previous 
   else
     let index = U32.sub current 1ul in
     let! binding = (fun () -> get_binding input index) in
-    let! named = (fun () -> if binding.namespace = TypeName || is_interface_binding binding.namespace || binding.namespace = FunctionSignature then ret input ({ state; used })
+    let! named = (fun () -> if binding.namespace = TypeName || is_interface_binding binding.namespace || binding.namespace = FunctionSignature ||
+        binding.namespace = TypeNamespace then ret input ({ state; used })
       else reserve_export input state used binding.span.G.first binding.span.G.last) in
     reserve_direct_exports input named.state named.used previous index
 

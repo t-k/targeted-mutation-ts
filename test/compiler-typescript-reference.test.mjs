@@ -383,3 +383,40 @@ test('a unary heritage clause and a spaced comparison are not read as the new fo
     assert.notEqual(compile(Buffer.from(source), { file: 'heritage.ts' }).backend, 'pulse', source);
   }
 });
+
+test('variance annotations, local types beside values and exported type namespaces match TypeScript', () => {
+  for (const source of [
+    'class Q<in out A> implements S<A> { x = 1 }\nexport { Q };',
+    'export class Take<out A, out E = never> implements T<A, E> { constructor(readonly value: A) {} }',
+    'export type Fn<in A, out B> = (a: A) => B;\nexport const y = 1;',
+    'export interface TSet<in out A> extends V<A> {}\nexport const x = 1;',
+    'export function f() { const t1 = z.any(); type t1 = z.infer<typeof t1>; return t1; }',
+    'export function f() { type t1 = number; const t1 = 1; return t1; }',
+    'export function f() { interface A { a: string } const A: S.Schema<A> = S.suspend(() => 1); return A; }',
+    'export function f() { const X = 1; { type X = string; const y: X = "a"; return [X, y]; } }',
+    'export function f(x: number) { type x = string; return x; }',
+    'export declare namespace M { type X = 1 }\nexport const M = Context.GenericTag<T, M>("x");',
+    'export const C = 1;\nexport declare namespace C { type X = 1 }',
+    'export function C() {}\nexport declare namespace C { type X = 1 }',
+    'export class C {}\nexport declare namespace C { type X = 1 }',
+    'enum M { const = 1 << 0, readonly = 1 << 1, "#private" = 1 << 6, \'a-b\' = 9, global }\nexport const m = M;',
+    'enum S { "x" = 2, y = x + 1 }\nexport const s = S;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'forms.ts').backend, 'pulse', source);
+  }
+});
+
+test('conflicting local names and enum member names that need care stay off the native route', () => {
+  for (const source of [
+    'export function g<in T>(x: T) { return x; }',
+    'export function f() { let a = 1; let a = 2; }',
+    'export function f() { type A = 1; type A = 2; }',
+    'export function f() { interface A {} class A {} return A; }',
+    'enum S { "1" = 2 }\nexport const s = S;',
+    'enum S { \'it\\\'s\' = 2 }\nexport const s = S;',
+    'enum S { "__proto__" = 2 }\nexport const s = S;',
+    'enum S { "a b" = 1, d = S["a b"] }\nexport const s = S;',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'forms.ts' }).backend, 'pulse', source);
+  }
+});
