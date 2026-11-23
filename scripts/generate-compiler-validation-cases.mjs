@@ -201,6 +201,7 @@ const denseSources = new Map([
     'function k(){}declare class K{}function m(){}declare enum E{A}function s(){}namespace N{export type T=number}' +
     'export const result=[g,h,k,m,s];'],
   ['local-type-after-block', 'function f(a:number){if(a){}type L=number;if(a){}interface M{x:L}return a}export const result=f(1);'],
+  ['abstract-between-comments', 'export/**/abstract/**/class A{}export default/**/abstract/**/class B{}'],
   ['type-import-at-end', 'export const result=1;import type{A}from"./m.js"'],
   ['type-export-at-end', 'export const result=1;export type{A}from"./m.js"'],
   ['type-star-at-end', 'export const result=1;export type*from"./m.js"'],
