@@ -290,3 +290,26 @@ The paired Linux arm64 run used Node 24.14.0 with UTF-8 byte inputs, seven inter
 The additional NEON byte-class loop, exact binding byte comparison, and binding-presence filter did not consistently improve the Linux warm and first medians. A packed byte-class index and a prototype that delegates lexically simple function bodies to the final V8 parse gave no repeatable gain on macOS. GCC profile-guided optimization trained on the 642 TypeScript inputs in the pinned Astro corpus. It shortened some TypeScript medians by 1–4.5% and increased the mreact TSX warm median by 6.5%. These experiments remain outside the release build.
 
 The text validation audit compared ordinary and instrumented results for 671 inputs. The case matrix covers BOM preservation, invalid Unicode, invalid module syntax, unbound exports, and unavailable addons. TLC explored 489 distinct states of the publication model. The [comparison and verification data](../evidence/compiler/mjs-text-validation.json) include sample timings and corpus hashes.
+
+### JavaScript project emission and x86 projection scanning
+
+At `4da4552`, JavaScript modules with static import or export declarations can pass their original text directly to V8. Modules beginning with a static declaration use the small validator addon. For later declarations, the Pulse marker reader identifies the module without running Node type erasure. Plain scripts retain their previous strictness handling. Directive diagnostics and Unicode identifier boundaries are part of the module-routing tests.
+
+The pinned Svelte workload is 376 JavaScript files. All complete results matched the preceding compiler. The isolated Linux arm64 JavaScript routing experiment moved Svelte from 64.21 to 14.15 ms warm and from 108.71 to 16.51 ms first. SWC Next measured 17.13 and 17.91 ms in that run. Astro's 642-file TypeScript workload increased from 639 to 641 direct Pulse outputs. All 641 matched the normalized TypeScript AST and static dependencies. The remaining file contains a leading triple-slash reference directive and still uses the compatibility emitter.
+
+The projection guard retains each SIMD block's candidate mask as it makes scalar syntax decisions. On x86-64 it selects AVX2 when available, SSSE3 otherwise, and scalar on CPUs without either extension. ARM64 uses NEON. Lean proves the packed mask suffix law and the x86 lookup groups. C tests check all 65,536 byte pairs in every SIMD lane, including the byte following the final lane. Both x86 widths also ran on a Ryzen 9 9950X. The 64-lane AVX-512 experiment increased the warm mreact TSX median from 4.01 to 4.21 ms and is excluded from release builds. A narrower Pulse probe handles bare arrow parameters and keeps the existing parser for comment trivia and complex heads.
+
+On the Ryzen 9 9950X, the Node 24.22.3 comparison used seven interleaved samples, pinned one CPU, and disabled the V8 cache. The input and full emitted results matched between TMT variants. The table uses the AVX2 build and lists the fastest reference engine for each measurement.
+
+| Workload | TMT warm before → current (ms) | Fastest reference warm (ms) | TMT first before → current (ms) | Fastest reference first (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Vite TS, 122 files | 26.73 → 23.41 | 13.38 (SWC Next) | 28.33 → 25.11 | 13.09 (SWC Next) |
+| mreact TS, 321 files | 76.98 → 64.45 | 39.33 (Oxc) | 83.73 → 71.73 | 38.13 (SWC Next) |
+| tachyon-dom TS, 94 files | 22.68 → 19.42 | 11.29 (Oxc) | 24.60 → 21.35 | 11.43 (SWC Next) |
+| mreact TSX, 84 files | 5.35 → 4.55 | 3.16 (Oxc) | 7.12 → 6.32 | 3.79 (SWC Next) |
+| SWC Next App.tsx | 6.83 → 5.73 | 3.61 (Oxc) | 9.00 → 7.96 | 5.85 (SWC Next) |
+| Svelte JS, 376 files | 15.20 → 16.17 | 18.79 (Yuku 0.28) | 20.27 → 20.23 | 19.25 (SWC Next) |
+
+The final arm64 suite led seven of 23 common warm workloads and two first-process workloads. The Ryzen suite led three of 13 common warm workloads and one first-process workload. These totals exclude supplemental cohorts and the two official fixtures without a common supported emission. Runtime namespace and const-enum differences keep Oxc's `parser.ts` outside the dependency-free comparison. Preserving implicit type imports creates a duplicate runtime binding in Yuku's `checker.ts`, so it needs shared import-elision semantics for a valid comparison.
+
+A separate prototype mapped function braces through the JSX writer and removed selected bodies only in the validation input. On App.tsx, broad removal of 185 bodies reduced validation input construction plus V8 parsing from 3.87 to 0.83 ms. The small ordinary-function subset gave no gain. The broad measurement leaves the certification of parameter-scope interactions, directives and context-sensitive syntax open. Production still validates the full emitted text. The [comparison and verification evidence](../evidence/compiler/projection-simd-and-ecosystem.json) records each sample, the exact input hashes, and the separate body experiment.
