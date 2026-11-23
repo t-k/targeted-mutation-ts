@@ -2,7 +2,7 @@
 
 let validUtf8;
 let types;
-function optionalAddon(specifier) {
+function optionalAddon(specifier, allowIncompatible = false) {
   const addon = { exports: {} };
   try {
     process.dlopen(addon, __dirname + '/' + specifier);
@@ -13,8 +13,8 @@ function optionalAddon(specifier) {
   try {
     return require(specifier);
   } catch (error) {
-    if (error.code !== 'MODULE_NOT_FOUND') throw error;
-    return null;
+    if (error.code === 'MODULE_NOT_FOUND' || (allowIncompatible && error.code === 'ERR_DLOPEN_FAILED')) return null;
+    throw error;
   }
 }
 
@@ -29,6 +29,7 @@ function loadModuleAddon() {
   if (fullAddon === undefined) fullAddon = optionalAddon('../build/compiler-module.node');
   return fullAddon;
 }
+let validateJavaScript;
 const extensions = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
 const declarations = /\.d\.[cm]?ts$/i;
 const targets = new Set(['es6', 'esnext', ...Array.from({ length: 11 }, (_, index) => 'es' + (2015 + index))]);
@@ -122,11 +123,22 @@ function eraseScript(addon, source, bytes, file) {
 function modernJavaScript(source, file, format) {
   const script = format === 'preserve' ? strictScript(source, file) : null;
   if (script !== null) return script;
+  const moduleFile = format === 'esm' && /\.mjs$/i.test(file);
+  let bytes;
+  if (source.includes('///')) {
+    bytes = Buffer.from(source);
+    if (loadDirectAddon()?.leadingDirective(bytes) !== false) return null;
+  }
+  if (moduleFile) {
+    if (validateJavaScript === undefined) {
+      validateJavaScript = optionalAddon('../build/compiler-js.node', true)?.validModule ?? null;
+    }
+    if (validateJavaScript) return validateJavaScript(source) ? source : null;
+  }
   const addon = loadModuleAddon();
   if (!addon) return null;
-  const bytes = Buffer.from(source);
-  if (source.includes('///') && loadDirectAddon()?.leadingDirective(bytes) !== false) return null;
-  if (format === 'esm' && /\.mjs$/i.test(file) && addon.validModule) {
+  bytes ??= Buffer.from(source);
+  if (moduleFile && addon.validModule) {
     return addon.validModule(bytes) ? source : null;
   }
   return addon.moduleMarker(bytes, true) && strip(source, file).code === source ? source : null;

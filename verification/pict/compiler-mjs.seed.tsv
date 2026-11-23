@@ -5,3 +5,5 @@ Directive	Bytes	ESM
 Invalid	Text	ESM
 ImportExport	Text	CommonJS
 ImportExport	Bytes	Map
+BOM	Bytes	ESM
+BOM	Text	ESM

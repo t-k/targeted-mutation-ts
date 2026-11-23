@@ -25,18 +25,28 @@ if (!headers) throw new Error('Set TMT_NODE_INCLUDE to the directory containing 
 const macOS = process.platform === 'darwin';
 const compiler = process.env.CC ?? (macOS ? '/usr/bin/clang' : 'cc');
 const cpp = process.env.CXX ?? (macOS ? '/usr/bin/clang++' : 'c++');
+const shared = macOS ? ['-bundle', '-undefined', 'dynamic_lookup', '-Wl,-dead_strip'] : ['-shared'];
 mkdirSync(output, { recursive: true });
 const scratch = mkdtempSync(resolve(output, '.compiler-'));
 try {
   const validator = resolve(scratch, 'validate-js.o');
-  const checked = spawnSync(cpp, ['-std=c++20', '-O3', '-fPIC', '-fvisibility=hidden',
-    ...auditFlags, '-isystem', headers, '-c', 'native/compiler/validate-js.cc', '-o', validator], { cwd: root, encoding: 'utf8' });
+  const validatorSources = ['-std=c++20', '-O3', '-fPIC', '-fvisibility=hidden',
+    ...auditFlags, '-isystem', headers, 'native/compiler/validate-js.cc'];
+  const checked = spawnSync(cpp, [...validatorSources, '-c', '-o', validator], { cwd: root, encoding: 'utf8' });
   if (values['audit-v8'] && checked.status !== 0) throw new Error(checked.stderr || checked.error?.message);
   const moduleFlags = checked.status === 0 ? ['-DTMT_V8_VALIDATOR', ...auditFlags, validator] : [];
+  const binaries = ['compiler.node', 'compiler-module.node'];
+  const javascript = 'compiler-js.node';
+  if (checked.status === 0) {
+    const built = spawnSync(cpp, [...validatorSources, ...shared, '-DTMT_JAVASCRIPT_ADDON',
+      '-o', resolve(scratch, javascript)], { cwd: root, encoding: 'utf8' });
+    if (built.status !== 0) throw new Error(built.stderr || built.error?.message);
+    binaries.push(javascript);
+  }
   const common = ['-std=c11', '-O3', '-fPIC', '-fvisibility=hidden', '-Wall', '-Wextra', '-Werror',
     '-Wno-parentheses', '-I', headers, '-I', 'native/runtime',
     ...(values['scalar-scans'] ? ['-DTMT_SCALAR_SCANS'] : []),
-    ...(macOS ? ['-bundle', '-undefined', 'dynamic_lookup', '-Wl,-dead_strip'] : ['-shared']),
+    ...shared,
     'native/compiler/addon.c', 'native/compiler/lowering.c'];
   for (const [name, flags, source] of [
     ['compiler.node', ['-DTMT_DIRECT'], 'native/compiler/generated/direct'],
@@ -50,7 +60,8 @@ try {
     if (result.error) throw result.error;
     if (result.status !== 0) throw new Error(result.stderr || built.stderr);
   }
-  for (const name of ['compiler.node', 'compiler-module.node']) renameSync(resolve(scratch, name), resolve(output, name));
+  for (const name of binaries) renameSync(resolve(scratch, name), resolve(output, name));
+  if (checked.status !== 0) rmSync(resolve(output, javascript), { force: true });
 } finally {
   rmSync(scratch, { recursive: true, force: true });
 }

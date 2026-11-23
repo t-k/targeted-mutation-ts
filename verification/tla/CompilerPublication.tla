@@ -3,7 +3,7 @@ EXTENDS Naturals, Sequences
 
 Limits == 3
 Offsets == 1..4
-Operations == {"erase", "enum", "jsx", "property"}
+Operations == {"erase", "enum", "jsx", "property", "javascript"}
 RequiredAnchors == {"class", "constructor"}
 VARIABLES operation, mode, edits, output, checked, anchors
 vars == <<operation, mode, edits, output, checked, anchors>>
@@ -13,7 +13,7 @@ Init == /\ operation \in Operations /\ mode = "scanning"
         /\ anchors = {}
 
 Record ==
-  /\ mode = "scanning" /\ Len(edits) < Limits
+  /\ mode = "scanning" /\ operation # "javascript" /\ Len(edits) < Limits
   /\ \E end \in Offsets:
        /\ (IF Len(edits) = 0 THEN TRUE ELSE end > edits[Len(edits)])
        /\ edits' = Append(edits, end)
@@ -53,4 +53,5 @@ Spec == Init /\ [][Record \/ ReplaceSignature \/ Anchor \/ Finish \/ Validate \/
 Ordered == \A i, j \in 1..Len(edits): i < j => edits[i] < edits[j]
 Atomic == IF mode = "published" THEN checked /\ output = edits ELSE output = <<>>
 PropertyAnchored == operation = "property" /\ mode = "published" => anchors = RequiredAnchors
+JavaScriptUnchanged == operation = "javascript" => edits = <<>> /\ output = <<>>
 ====

@@ -7,9 +7,13 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const entry = fileURLToPath(import.meta.url);
-const auditAddon = new URL('../build/compiler-v8-audit/compiler-module.node', import.meta.url);
-const ordinaryAddon = '../build/compiler-module.node';
-const ordinaryAddonPath = fileURLToPath(new URL('../build/compiler-module.node', import.meta.url));
+const addons = ['compiler-module.node', 'compiler-js.node'].map(name => {
+  const specifier = '../build/' + name;
+  return {
+    specifier, ordinary: fileURLToPath(new URL(specifier, import.meta.url)),
+    audit: fileURLToPath(new URL('../build/compiler-v8-audit/' + name, import.meta.url)),
+  };
+});
 const compilerEntry = new URL('../src/compiler.cjs', import.meta.url);
 const phases = new Set(['ts', 'jsx', 'tsx', 'passthrough', 'javascript']);
 const reasons = new Set(['accepted', 'unavailable', 'string-allocation', 'no-diagnostic',
@@ -39,14 +43,19 @@ export function summarizeValidation(trace, cases) {
 
 async function runWorker(cases, instrumented) {
   if (instrumented) {
-    assert.ok(existsSync(auditAddon), 'Build the audit addon with npm run build:compiler -- --audit-v8');
+    for (const { audit } of addons) {
+      assert.ok(existsSync(audit), 'Build the audit addons with npm run build:compiler -- --audit-v8');
+    }
     const dlopen = process.dlopen;
-    process.dlopen = (module, filename, ...flags) => dlopen(module,
-      resolve(filename) === ordinaryAddonPath ? fileURLToPath(auditAddon) : filename, ...flags);
+    process.dlopen = (module, filename, ...flags) => {
+      const addon = addons.find(({ ordinary }) => ordinary === resolve(filename));
+      return dlopen(module, addon?.audit ?? filename, ...flags);
+    };
   }
   registerHooks({ resolve(specifier, context, next) {
-    if (instrumented && context.parentURL === compilerEntry.href && specifier === ordinaryAddon) {
-      return next(fileURLToPath(auditAddon), context);
+    if (instrumented && context.parentURL === compilerEntry.href) {
+      const addon = addons.find(entry => entry.specifier === specifier);
+      if (addon) return next(addon.audit, context);
     }
     if (specifier === 'typescript' || /typescript-syntax\.[cm]?js$/.test(specifier)) {
       throw Object.assign(new Error(specifier), { code: 'AUDIT_TYPESCRIPT_LOAD' });
