@@ -1,0 +1,13 @@
+Input	Encoding	Mode
+Buffer	ASCII	Transform
+Shared	ASCII	Strip
+Unaligned	Invalid	Transform
+String	UTF8	Transform
+Buffer	UTF8	Strip
+Shared	Invalid	Strip
+String	ASCII	Strip
+Unaligned	ASCII	Strip
+Buffer	Invalid	Strip
+String	Invalid	Strip
+Unaligned	UTF8	Transform
+Shared	UTF8	Transform

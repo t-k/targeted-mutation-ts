@@ -1,7 +1,7 @@
 'use strict';
 
-const { isUtf8 } = require('node:buffer');
-const { types } = require('node:util');
+let validUtf8;
+let types;
 function optionalAddon(specifier) {
   let filename;
   try {
@@ -221,6 +221,7 @@ function eraseModule(addon, source, file, format) {
 }
 
 function snapshot(input) {
+  types ??= require('node:util').types;
   if (types.isSharedArrayBuffer(input)) return Buffer.from(new Uint8Array(input));
   if (ArrayBuffer.isView(input) && types.isSharedArrayBuffer(input.buffer)) {
     return Buffer.from(new Uint8Array(input.buffer, input.byteOffset, input.byteLength));
@@ -254,19 +255,25 @@ function compile(input, options = {}) {
   if (mode === 'strip' && !/\.[cm]?ts$/i.test(file)) {
     return inputError(file, 'STRIP_DIALECT', 'strip mode requires a non-JSX TypeScript filename');
   }
-  const stableInput = snapshot(input);
   const format = outputFormat(file, module);
   const typed = /\.(?:m?ts|tsx)$/i.test(file);
   const jsxFile = /\.[jt]sx$/i.test(file);
+  let direct;
+  if (typed && !jsxFile && target === 'esnext' && format !== 'cjs' && !sourceMap &&
+      Buffer.isBuffer(input) && input.length > 0 && input.length <= 512) {
+    direct = loadDirectAddon()?.compileAscii?.(input);
+    if (typeof direct === 'string') return { backend: 'pulse', code: direct, sourceMap: null, diagnostics: [] };
+  }
+  const stableInput = snapshot(input);
   if ((typed || jsxFile) && target === 'esnext' && format !== 'cjs' && !sourceMap) {
     const source = Buffer.isBuffer(stableInput) ? stableInput :
       typeof stableInput === 'string' && stableInput.isWellFormed() ? Buffer.from(stableInput) : null;
     // The direct grammar starts at an export after trivia. Imports and interfaces cannot use it.
     const skipsDirectAddon = typed && mode === 'transform' && source?.[0] === 105;
     const native = source && !skipsDirectAddon ? loadDirectAddon() : null;
-    if (source && (skipsDirectAddon || native) && isUtf8(source) &&
+    if (source && (skipsDirectAddon || native) && (validUtf8 ??= require('node:buffer').isUtf8)(source) &&
         (skipsDirectAddon || mode === 'strip' || !source.includes('///') || !native.leadingDirective(source))) {
-      const simple = native && typed && !jsxFile ? native.compile(source) : null;
+      const simple = native && typed && !jsxFile && direct !== null ? native.compile(source) : null;
       if (simple !== null) return { backend: 'pulse', code: simple, sourceMap: null, diagnostics: [] };
       const runtime = mode === 'transform' && (jsxFile ? jsx !== 'preserve' &&
         (!source.includes('@') || !/@jsx/i.test(source.toString('latin1'))) && !source.includes('_tmt') :

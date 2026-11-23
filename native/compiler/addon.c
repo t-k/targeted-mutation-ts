@@ -148,7 +148,29 @@ error:
 #endif
 
 #ifdef TMT_DIRECT
-static napi_value compile_source(napi_env env, napi_callback_info info) {
+static bool unshared_buffer(napi_env env, napi_value value) {
+  napi_value backing;
+  bool ordinary;
+  return napi_get_typedarray_info(env, value, NULL, NULL, NULL, &backing, NULL) == napi_ok &&
+    napi_is_arraybuffer(env, backing, &ordinary) == napi_ok && ordinary;
+}
+
+static bool ascii_buffer(const uint8_t *source, size_t size) {
+  while (size >= 8) {
+    uint64_t word;
+    memcpy(&word, source, sizeof(word));
+    if (word & UINT64_C(0x8080808080808080)) return false;
+    source += 8;
+    size -= 8;
+  }
+  while (size) {
+    if (*source++ >= 128) return false;
+    size--;
+  }
+  return true;
+}
+
+static napi_value compile_direct(napi_env env, napi_callback_info info, bool ascii_export) {
   napi_value arg, result;
   size_t argc = 1, size;
   void *source;
@@ -156,10 +178,19 @@ static napi_value compile_source(napi_env env, napi_callback_info info) {
   NAPI(napi_get_cb_info(env, info, &argc, &arg, NULL, NULL));
   if (argc != 1) goto error;
   NAPI(napi_get_buffer_info(env, arg, &source, &size));
+  if (ascii_export && (!size || !unshared_buffer(env, arg) || ((const uint8_t *)source)[0] != 'e')) {
+    NAPI(napi_get_undefined(env, &result));
+    return result;
+  }
   if (size <= source_limit) {
     const uint32_t width = (uint32_t)size;
     const TmtPulseMemory_tape input = { .source = source, .size = width };
     const TmtPulseCompiler_edit_plan plan = TmtPulseCompiler_read_plan(input, 0);
+    /* Validate encoding only when the direct plan would publish source bytes. */
+    if (ascii_export && plan.valid && !ascii_buffer(source, size)) {
+      NAPI(napi_get_undefined(env, &result));
+      return result;
+    }
     uint32_t previous = 0;
     const TmtGrammar_span edits[] = { plan.binding, plan.parameter, plan.result_type };
     if (plan.valid && plan.stop == width && ordered(edits[0], width, &previous) &&
@@ -191,6 +222,13 @@ error:
   free(output);
   napi_throw_error(env, NULL, "Native compilation arguments or allocation failed");
   return NULL;
+}
+static napi_value compile_source(napi_env env, napi_callback_info info) {
+  return compile_direct(env, info, false);
+}
+
+static napi_value compile_ascii_export(napi_env env, napi_callback_info info) {
+  return compile_direct(env, info, true);
 }
 #endif
 
@@ -348,6 +386,8 @@ static napi_value init(napi_env env, napi_value exports) {
 #ifdef TMT_DIRECT
   NAPI(napi_create_function(env, "compile", NAPI_AUTO_LENGTH, compile_source, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "compile", entry));
+  NAPI(napi_create_function(env, "compileAscii", NAPI_AUTO_LENGTH, compile_ascii_export, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "compileAscii", entry));
 #endif
   NAPI(napi_create_function(env, "lower", NAPI_AUTO_LENGTH, lower_source, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "lower", entry));

@@ -1,0 +1,5 @@
+Input	Encoding	Mode
+Buffer	ASCII	Transform
+Shared	ASCII	Strip
+Unaligned	Invalid	Transform
+String	UTF8	Transform
