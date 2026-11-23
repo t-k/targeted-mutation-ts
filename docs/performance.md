@@ -2,16 +2,21 @@
 
 ## Mutation runs compared with StrykerJS
 
-A Vitest session decides mutations inside running workers instead of starting one Vitest run for each ([how mutations run on Vitest](analysis.md#how-mutations-run-on-vitest)). The table compares whole command runs with StrykerJS 10.1.1 and its Vitest runner (`coverageAnalysis: perTest`) on Vitest 4.0.18. Both tools produced the same mutations and the same verdict for every one of them.
+A Vitest session decides mutations inside running workers instead of starting one Vitest run for each ([how mutations run on Vitest](analysis.md#how-mutations-run-on-vitest)). The table compares whole command runs of `--mutators full` with StrykerJS and its Vitest runner (`coverageAnalysis: perTest`). Both tools produced the same mutations and the same verdict for every one of them in every row.
 
-| Sample | Mutations | StrykerJS | `--mutators full` | StrykerJS, `--concurrency 1` | `full`, `--concurrency 1` | `--mutators standard` | default profile |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| One source file, one test file | 220 | 22.1 s | 4.6 s | 59.8 s | 7.0 s | 4.5 s | 3.9 s |
-| Twelve source files, twelve test files | 2,640 | 98.3 s | 12.3 s | 528.4 s | 20.8 s | 3.2 s | 2.7 s |
+| Project | Mutations | StrykerJS | `--mutators full` |
+| --- | ---: | ---: | ---: |
+| Sample, one source file and one test file | 220 | 20.0 s, 33.7 s | 3.1 s, 6.1 s |
+| Sample, twelve source files and twelve test files | 2,640 | 120.8 s | 19.9 s |
+| jsdom UI library, a store module with three test files (StrykerJS configured with 4 workers) | 85 | 58.4 s, 78.3 s | 14.5 s, 28.6 s |
+| Same library, a router module with one test file (2 workers) | 160 | 144.2 s | 21.1 s |
+| Firestore data library, five utility modules with six test files (1 worker) | 210 | 93.0 s | 14.1 s |
 
-The first row gives the median of three alternating rounds and the second row one round. The default profile edits 10 and 120 comparison boundaries in these samples and none of the other mutations. The host, an Apple M5 Max with 18 cores and Node 24.14.0, was carrying other work during every run (load average 16 to 30), so the absolute times are slower than on an idle machine and vary between rounds; the [raw rounds](../evidence/performance/stryker-comparison.json) include the measurements from before this change, when `full` took 34 to 53 seconds on the first sample.
+Each pair of numbers in a cell is one round, StrykerJS first and this tool directly after it. The two libraries are private projects with their own StrykerJS 10.0.0 configuration, used as it is, on Vitest 4.1; the samples use StrykerJS 10.1.1 with its default concurrency on Vitest 4.0.18. The host, an Apple M5 Max with 18 cores and Node 24.14.0, was carrying other work during every run (load average 17 to 50), so the times are slower than on an idle machine and vary between rounds. With one worker on each side the store module took 118.8 s and 157.8 s with StrykerJS and 22.7 s and 37.5 s with this tool. The [raw rounds](../evidence/performance/stryker-comparison.json) include earlier states of this tool.
 
-To reproduce, install `vitest`, `@stryker-mutator/core` and `@stryker-mutator/vitest-runner` in a Vitest project, add a `stryker.conf.json` with the Vitest runner and `perTest` coverage analysis, and run `scripts/bench-stryker-comparison.sh PROJECT 3`.
+Where the time goes in the store module's run (85 mutations, 44 tests, about 9 s on a quieter round): the baseline run takes 2 to 3 s, loading Vitest and the first instance 0.4 to 1 s, the project copy about 0.5 s, and the trials 3 to 5 s. Vitest's own breakdown of that suite is 0.3 s of transforms against 1.0 s of jsdom setup and 0.6 s of tests. In a profile of the single-file sample the worker thread spent 0.77 s on 190 mutations, a quarter of it waiting for the main thread. The remaining time is test code, module evaluation and process start, so faster byte scanning (SIMD or assembly in the parser) would not change these totals.
+
+To reproduce the sample rows, install `vitest`, `@stryker-mutator/core` and `@stryker-mutator/vitest-runner` in a Vitest project, add a `stryker.conf.json` with the Vitest runner and `perTest` coverage analysis, and run `scripts/bench-stryker-comparison.sh PROJECT 3`.
 
 ## Full Pulse parser migration
 
