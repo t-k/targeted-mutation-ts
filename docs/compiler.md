@@ -23,13 +23,13 @@ CommonJS callers can load the same implementation from `src/compiler.cjs`. Strip
 
 ## Native path and proof
 
-The `pulse` backend handles bounded exported constants, simple typed arrows, complete type-only modules, and runtime JSX and enum forms. The native JSX emitter handles automatic and classic runtimes, elements and fragments, nested children, multiline text, typical attributes and object spreads. Its entry points include direct and parenthesized initializers, arrow expressions, and simple exported function components. The enum emitter handles numeric and string literal members, signed values, implicit numbering, reverse maps, and literal `const enum` declarations under isolated emission semantics.
+The `pulse` backend handles bounded exported constants, simple typed arrows, complete type-only modules, and runtime JSX and enum forms. Explicitly separated sequences of eligible constants share the direct path. The emitter checks duplicate bindings before publishing JavaScript. Type-only modules with comments or a hashbang use Pulse's initialized statement ranges to preserve the surrounding source. The native JSX emitter handles automatic and classic runtimes, elements and fragments, nested children, multiline text, typical attributes and object spreads. Its entry points include direct and parenthesized initializers, arrow expressions, and simple exported function components. The enum emitter handles numeric and string literal members, signed values, implicit numbering, reverse maps, and literal `const enum` declarations under isolated emission semantics.
 
 The direct Node addon includes only the necessary Pulse entry points and the runtime emitter. The full-module addon records JSX element and expression spans during the validated Pulse parse. It publishes initialized records only after reaching EOF. The emitter visits the captured spans, reuses expression boundaries, and copies the surrounding source. This supports JSX in function bodies, nested callback expressions, attributes, conditionals, and scripts. ESNext JavaScript scripts use V8 syntax validation and preserve the original source and strictness whenever possible.
 
 The `pulse+node-strip` route passes the remaining erasable syntax through Node. The `node-strip` route covers validated TypeScript modules and ordinary scripts. The Node 24 compatibility path also lowers constructor parameter properties. ESNext compilation can use the native paths without the full TypeScript compiler or the optional TypeScript syntax projection.
 
-The Pulse span writer proves that a successful replacement changes only the requested bytes and that invalid spans leave the buffer untouched. The extracted parser preserves its input borrow. The runtime C emitter is checked by executable differential tests. The NEON and SSE2 builds accelerate comment and string scanning when the generated scalar functions match the checked versions. The extraction check regenerates and compares both variants of the generated C and headers.
+The Pulse span writer proves that a successful replacement changes only the requested bytes and that invalid spans leave the buffer untouched. The extracted parser preserves its input borrow. Syntax-only validation counts comparisons without reserving candidate slots. The NEON and SSE2 builds also skip ordinary 16-byte JSX runs. Lean proves that these skips preserve the scalar cursor state, and the native test checks the matching predicates for every byte in every lane. The extraction check regenerates and compares both variants of the generated C and headers.
 
 Computed enum initializers, runtime namespaces, object-literal JSX spreads, CommonJS, downlevel targets, and source maps can still require the TypeScript emitter. Output formatting can differ across the supported backends.
 
@@ -82,3 +82,19 @@ Medians are in milliseconds. The timing snapshot is commit `d434e54`. The subseq
 The four supported official TypeScript and TSX transform inputs also matched the normalized TypeScript reference. The Oxc transformer `parser.ts` fixture contains a runtime namespace outside the native grammar. The Yuku `checker.ts` parser fixture did not have a common valid JavaScript emission in the measured engines. These two cases have no TMT timing. The reference engines retain a lead on real TypeScript and TSX emission. A retest on `830b5de` measured the 8.2 MB JavaScript bundle at 96.92 ms warm, compared with Oxc at 262.80 ms, SWC Next at 381.17 ms and unified Yuku at 428.02 ms. The same retest measured App.tsx at 57.76 ms warm, compared with Oxc at 14.15 ms and SWC Next at 19.77 ms. The bottleneck remains the type-erasure pass and initialization for inputs that cannot be emitted by the direct Pulse route. A separate macOS profile of App.tsx measured 9.12 ms for Pulse parsing and JSX rewriting, followed by 39.84 ms for Node type erasure.
 
 The [raw timing and coverage evidence](../evidence/compiler/complete-corpus.json) includes engine declines, input hashes, and separate first-process samples. The [earlier runtime-lowering benchmark](../evidence/compiler/runtime-lowering.json) records the previous 532/537 TypeScript and 39/116 TSX coverage.
+
+### Retest with direct declaration sequences
+
+The [optimization retest](../evidence/compiler/optimized-compiler.json) includes the same pinned inputs and a 256-declaration module. The new direct path leads that module's warm comparison. SWC Next still leads its first-process comparison. Both retests put the large JavaScript bundle ahead of the three engines in warm complete emission, and its first-process ranking reversed between runs. Host load varies between container runs. Each row compares engines measured in the same run.
+
+| Workload | TMT warm (ms) | Fastest reference warm (ms) | TMT first (ms) | Fastest reference first (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| 256 declarations in one module | 0.06 | 0.23 (Oxc) | 4.24 | 1.85 (SWC Next) |
+| TypeScript JavaScript bundle | 96.06 | 219.68 (SWC Next) | 299.67 | 220.06 (SWC Next) |
+| React JavaScript bundle | 0.086 | 2.05 (Yuku) | 7.23 | 4.64 (SWC Next) |
+| App.tsx | 50.85 | 14.51 (Oxc) | 216.04 | 24.09 (SWC Next) |
+| renderer.ts | 9.40 | 2.25 (Oxc) | 99.84 | 4.87 (SWC Next) |
+
+The paired macOS run reduced warm emission of a 64 KiB JSX text fixture from 0.97 ms to 0.42 ms with identical output. The first-process result moved from 7.89 ms to 8.70 ms. Whole-corpus mreact comparisons changed direction between runs, and the retest establishes no reproducible throughput gain for it.
+
+An AST-guided measurement erased 342 ordinary annotations before passing App.tsx to Node. Node's warm erasure time moved from 29.97 ms to 28.03 ms and produced identical bytes. This measurement excludes the cost of finding and erasing the ranges. The production compiler keeps one Node erasure pass for that file. The remaining cost is the complete second parse across the emitted module.
