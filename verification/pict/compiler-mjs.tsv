@@ -1,0 +1,13 @@
+Source	Input	Output
+ImportExport	Bytes	ESM
+TopLevelAwait	Text	ESM
+Directive	Bytes	ESM
+Invalid	Text	ESM
+ImportExport	Text	CommonJS
+ImportExport	Bytes	Map
+TopLevelAwait	Bytes	CommonJS
+Directive	Text	CommonJS
+Invalid	Bytes	CommonJS
+TopLevelAwait	Text	Map
+Directive	Bytes	Map
+Invalid	Bytes	Map

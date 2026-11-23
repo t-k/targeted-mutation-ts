@@ -178,6 +178,9 @@ function modernJavaScript(source, file, format) {
   if (!addon) return null;
   const bytes = Buffer.from(source);
   if (source.includes('///') && loadDirectAddon()?.leadingDirective(bytes) !== false) return null;
+  if (format === 'esm' && /\.mjs$/i.test(file) && addon.validModule) {
+    return addon.validModule(bytes) ? source : null;
+  }
   return addon.moduleMarker(bytes, true) && strip(source, file).code === source ? source : null;
 }
 

@@ -791,6 +791,10 @@ bool tmt_audit_javascript_module(const char *code, size_t length, const char *ph
 bool tmt_valid_javascript_module(const char *code, size_t length);
 #define validate_emission(code, length, phase) tmt_valid_javascript_module(code, length)
 #endif
+bool tmt_valid_module_source(const char *source, size_t size) {
+  return validate_emission(source, size, "javascript");
+}
+
 static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records);
 
 enum {

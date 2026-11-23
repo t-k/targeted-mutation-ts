@@ -10,6 +10,7 @@ char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescrip
 
 bool tmt_unbound_export(uint8_t *source, uint32_t size);
 bool tmt_plain_script(uint8_t *source, uint32_t size);
+bool tmt_valid_module_source(const char *source, size_t size);
 bool tmt_module_marker(uint8_t *source, uint32_t size, bool validate);
 char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool esm, size_t *length, bool *checked, bool *complete);
 bool tmt_leading_directive(uint8_t *source, uint32_t size);
