@@ -3507,7 +3507,7 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
       let start = { tracked with local_names = decl.used } in
       let name_span = { G.first = named.offset; G.last = decl.state.offset } in
-      let! after = (fun () -> local_function_group input start (minus fuel 1ul) (st.offset <> function_head.at)
+      let! after = (fun () -> local_function_group input start st.offset (minus fuel 1ul) (st.offset <> function_head.at)
         head.generator name_span 64ul) in
       ret input ({ decl with state = after })
   else if class_ then
@@ -3530,13 +3530,14 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       ret input { declared with state = recorded }
     else control_statement input st fuel in_function jumps floor used root_control
 
-and local_function_group (input:tape) (start:parser_state) (fuel:U32.t) (async_ generator:bool) (expected:G.span) (remaining:U32.t)
+and local_function_group (input:tape) (start:parser_state) (declaration_start fuel:U32.t) (async_ generator:bool) (expected:G.span) (remaining:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 54; U32.v remaining]) =
   let! form = (fun () -> function_form input start fuel async_ NoSuper (start.module_mode && not generator) OrdinaryParameters generator) in
   let after = form.after_function in
   if after.status <> 0ul || not form.signature_only then ret input after
   else if remaining = 0ul then ret input (failed after 3ul)
   else
+    let! after = (fun () -> record_jsx_span input { after with count = start.count } 21ul declaration_start after.offset) in
     let! following = (fun () -> skip input after) in
     let! head = (fun () -> function_start input following.offset) in
     if not head.ok || (following.offset <> head.at) <> async_ then ret input (failed following 1ul)
@@ -3547,7 +3548,7 @@ and local_function_group (input:tape) (start:parser_state) (fuel:U32.t) (async_ 
       let! matches = (fun () -> if named.ok && minus named.at start.offset = length then
         same_bytes input expected.G.first start.offset length else ret input false) in
       if not matches then ret input (failed start 1ul)
-      else local_function_group input (from_cursor start named) fuel async_ false expected (minus remaining 1ul)
+      else local_function_group input (from_cursor start named) following.offset fuel async_ false expected (minus remaining 1ul)
 
 and control_sequence (input:tape) (state:parser_state) (fuel remaining:U32.t) (in_function:bool) (jumps:jump_context)
   (floor used:names_used) (root_control:bool)
@@ -3901,7 +3902,10 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
               let pending = if result.signature_only then
                 { key_span = { G.first = key.first; G.last = key.last }; key_flags = key.modifier_flags; key_async = key.async_ }
                 else no_overload in
-              ret input (result.after_function, pending)
+              let after = result.after_function in
+              let! after = (fun () -> if result.signature_only then
+                record_jsx_span input { after with count = st.count } 21ul st.offset after.offset else ret input after) in
+              ret input (after, pending)
           else if key.async_ || key.generator_ then ret input (failed tail 1ul, no_overload)
           else let! field = (fun () -> class_field_tail input { tail with offset = key.after_key.offset } fuel) in ret input (field, no_overload)) in
         class_members input after fuel (minus remaining 1ul) derived (seen_constructor || (constructor && pending.key_span.G.first = pending.key_span.G.last)) kind pending

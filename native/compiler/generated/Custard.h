@@ -1777,6 +1777,7 @@ TmtPulseParser_parser_state
 TmtPulseParser_local_function_group(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state start0,
+  uint32_t declaration_start0,
   uint32_t fuel0,
   bool async_0,
   bool generator0,
