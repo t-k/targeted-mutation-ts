@@ -2855,6 +2855,26 @@ and arrow_parameters (input:tape) (state:parser_state) (fuel:U32.t)
 and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 25; 0]) =
   let! start = (fun () -> skip input current) in
+  let! first = (fun () -> peek input start.offset) in
+  let! yielding = (fun () -> if first = 121uy && start.yield_allowed then keyword input start.offset 5ul 0x7969656c64uL else ret input (false)) in
+  if yielding then
+    // A yield takes an optional operand. A star before the operand delegates, and the star stays on the keyword's line.
+    let head = plus start.offset 5ul in
+    let! after = (fun () -> trivia input head) in
+    let! byte = (fun () -> peek input after.at) in
+    let bare = { (empty_range (from_cursor start after)) with range = { G.first = start.offset; G.last = head } } in
+    if not after.ok || after.newline || byte = 59uy || byte = 125uy || byte = 41uy || byte = 93uy || byte = 44uy || byte = 58uy then ret input (bare)
+    else if fuel = 0ul then ret input (empty_range (failed start 3ul))
+    else
+      let! operand =
+        (fun () -> if byte = 42uy then
+          let! delegated = (fun () -> trivia input (next after.at)) in
+          // The reference parsers reject a line break between the star and its operand.
+          ret input (if delegated.newline then failed start 1ul else from_cursor start delegated)
+        else ret input (from_cursor start after)) in
+      let! value = (fun () -> comparison input operand (minus fuel 1ul)) in
+      ret input ({ value with range = { value.range with G.first = start.offset }; outer_or = false; shortcut = 0ul; target = NotAssignable })
+  else
   let! arrow = (fun () -> arrow_parameters input { start with yield_allowed = false } fuel) in
   if arrow.names.state.status = 0ul then
     let! body = (fun () -> skip input (enter_function_locals { arrow.names.state with local_names = arrow.names.used })) in
@@ -3449,29 +3469,13 @@ and for_header (input:tape) (state:parser_state) (top_level local_var:bool) (fue
   else if async_ then ret input (collection)
   else classic_for_header input st top_level local_var fuel
 
-and return_statement (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 44; 0]) =
+and return_statement (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 45; 0]) =
   let after = plus state.offset 6ul in
   let! body = (fun () -> trivia input after) in
   let st = from_cursor state body in
   let! byte = (fun () -> peek input st.offset) in
   if byte = 59uy || byte = 125uy || body.newline then statement_end input st after true
-  else
-    let! value = (fun () -> comparison input st fuel) in
-    statement_end input value.parser value.range.G.last true
-and yield_statement (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 44; 0]) =
-  let head = plus state.offset 5ul in
-  let! after = (fun () -> trivia input head) in
-  let st = from_cursor state after in
-  let! byte = (fun () -> peek input st.offset) in
-  if byte = 59uy || byte = 125uy || after.newline then statement_end input st head true
-  else
-    let! start =
-      (fun () -> if byte = 42uy then
-        let! operand = (fun () -> trivia input (next st.offset)) in
-        ret input (if operand.newline then failed st 1ul else from_cursor st operand)
-      else ret input (st)) in
-    let! value = (fun () -> comparison input start fuel) in
-    statement_end input value.parser value.range.G.last true
+  else statement_expressions input st fuel input.size
 
 and statement_expressions (input:tape) (state:parser_state) (fuel remaining:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 44; U32.v remaining]) =
@@ -3526,8 +3530,13 @@ and simple_statement (input:tape) (state:parser_state) (in_function:bool) (jumps
     (fun () -> if byte = 98uy then ((let! anf_value_1 = (fun () -> keyword input state.offset 5ul 0x627265616buL) in if anf_value_1 then ret input (5ul) else ret input (0ul)))
     else if byte = 99uy then ((let! anf_value_2 = (fun () -> keyword input state.offset 8ul 0x636f6e74696e7565uL) in if anf_value_2 then ret input (8ul) else ret input (0ul)))
     else ret input (0ul)) in
+  let! is_debugger = (fun () -> if byte = 100uy then keyword input state.offset 8ul 0x6465627567676572uL else ret input (false)) in
   if is_return then return_statement input state fuel
-  else if is_yield then yield_statement input state fuel
+  else if is_yield then statement_expressions input state fuel input.size
+  else if is_debugger then
+    let after = plus state.offset 8ul in
+    let! body = (fun () -> trivia input after) in
+    statement_end input (from_cursor state body) after true
   else if jump <> 0ul then jump_statement input state jumps jump
   else if is_throw then
     let! body = (fun () -> trivia input (plus state.offset 5ul)) in

@@ -1232,6 +1232,8 @@ typedef struct TmtPulseParser_parsed_s
 }
 TmtPulseParser_parsed;
 
+TmtPulseParser_parsed TmtPulseParser_empty_range(TmtPulseParser_parser_state state);
+
 TmtPulseParser_parameter_list TmtPulseParser_missed_arrow(TmtPulseParser_parser_state state);
 
 TmtPulseParser_parser_state
@@ -1248,8 +1250,6 @@ TmtPulseParser_generic_arrow_head(TmtPulseMemory_tape input, TmtPulseParser_pars
 
 TmtPulseParser_parser_state
 TmtPulseParser_enter_function_locals(TmtPulseParser_parser_state state);
-
-TmtPulseParser_parsed TmtPulseParser_empty_range(TmtPulseParser_parser_state state);
 
 bool TmtPulseParser_strict_locals(TmtPulseParser_parser_state state);
 
@@ -1887,25 +1887,18 @@ TmtPulseParser_local_var_declaration(
 );
 
 TmtPulseParser_parser_state
-TmtPulseParser_return_statement(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t fuel
-);
-
-TmtPulseParser_parser_state
-TmtPulseParser_yield_statement(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t fuel
-);
-
-TmtPulseParser_parser_state
 TmtPulseParser_statement_expressions(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state state0,
   uint32_t fuel0,
   uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_return_statement(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel
 );
 
 TmtPulseParser_parser_state
