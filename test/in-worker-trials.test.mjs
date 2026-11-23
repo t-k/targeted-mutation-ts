@@ -85,7 +85,7 @@ it('first ticket', () => expect(ticket(2)).toBe(1));
 test('mutations decided inside a worker get the verdict of a fresh Vitest run each', () => temporaryProject(hazards, root => {
   for (const profile of ['full', 'standard']) {
     const subjects = ['subject.ts', 'ticket.ts', 'names.ts'];
-    const shared = analyze(root, ...subjects, '--mutators', profile, '--concurrency', '2');
+    const shared = analyze(root, ...subjects, '--mutators', profile, '--concurrency', '2', '--verify-trials', '6');
     const fresh = analyze(root, ...subjects, '--mutators', profile, '--isolated-trials');
     assert.equal(shared.evaluation, 'evaluated');
     assert.equal(fresh.evaluation, 'evaluated');
@@ -97,6 +97,11 @@ test('mutations decided inside a worker get the verdict of a fresh Vitest run ea
     }
     if (profile !== 'standard') continue;
     assert.equal(fresh.trials.inWorker, 0);
+    // The sampled worker verdicts agree with their fresh runs, and each mutation a worker left open says why.
+    assert.deepEqual(shared.trials.verified, { sampled: 6, mismatches: [] });
+    const reasons = new Set(shared.mutants.map(mutant => mutant.fallback).filter(Boolean));
+    // After a control run differs, the test file starts again in a new worker, so only that mutation is left open.
+    for (const reason of ['control-differs', 'unhandled-error', 'tests-changed']) assert.ok(reasons.has(reason), [...reasons].join());
     assert.ok(shared.trials.inWorker >= 20, JSON.stringify(shared.trials));
     assert.equal(shared.trials.inWorker + shared.trials.isolated, shared.mutants.filter(mutant => mutant.status !== 'unreached').length);
     // The suite leaves a global and a counter in a dependency behind. Those mutations need the fresh runs.

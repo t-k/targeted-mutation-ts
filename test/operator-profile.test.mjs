@@ -35,7 +35,7 @@ test('Vitest merges focused comparison results with operator swaps from one sess
   assert.deepEqual(run.calls.map(call => call[0]), ['session', 'prepare', 'complete']);
   const { signal, ...passed } = run.calls[0][1];
   assert.deepEqual(passed, { mutators: 'operators', lines: ['a.ts:1'], since: undefined, config: undefined,
-    test: ['a.test.ts'], 'copy-exclude': ['x'], dialect: 'ts', 'isolated-trials': undefined, concurrency: undefined });
+    test: ['a.test.ts'], 'copy-exclude': ['x'], dialect: 'ts', 'isolated-trials': undefined, concurrency: undefined, 'verify-trials': undefined });
   assert.equal(signal.aborted, false);
   assert.deepEqual(run.calls[1], ['prepare', undefined]);
   assert.deepEqual([report.mutators, report.operatorExecution, report.evaluation], ['operators', 'session', 'evaluated']);

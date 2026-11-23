@@ -163,7 +163,7 @@ export async function analyzeConventional(project, files, options) {
     writeFileSync(manifest, JSON.stringify({
       workspace, setup, workerRunner, output, temporary: temp, mutants: runnable.map(({ id }) => ({ id })),
       focused: focused.map(({ id }) => ({ id })), isolatedTrials: options['isolated-trials'] === true,
-      concurrency: options.concurrency ?? Math.max(1, availableParallelism() - 1),
+      concurrency: options.concurrency ?? Math.max(1, availableParallelism() - 1), verifyTrials: options['verify-trials'] ?? 0,
       replay: options.deterministic ? focus.comparisonReplays(runnable, focused, originals) : [],
       config: options.config === undefined ? undefined : inside(workspace, options.config),
       files: [...new Set((options.test ?? []).map(file => inside(workspace, file)))],

@@ -108,5 +108,7 @@ test('--concurrency and --isolated-trials are checked before anything runs', () 
       assert.match(run.stderr, /apply to Vitest sessions/);
     }
   }
+  assert.match(cli('analyze', 'fixtures/eligibility', '--verify-trials', 'some').stderr, /Expected --verify-trials to be a count/);
+  assert.match(cli('analyze', 'fixtures/eligibility', '--audit', '--verify-trials', '2').stderr, /apply to Vitest sessions/);
   assert.match(cli('--help').stdout, /--concurrency N[\s\S]*--isolated-trials/);
 });

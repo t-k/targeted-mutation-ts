@@ -177,12 +177,50 @@ export function withoutMutations(plans, ids) {
     .filter(([, list]) => list.length));
 }
 
-// What a run left for another one: entries without an answer in test files that did not stop.
-// A stopped test file keeps its unanswered entries for fresh runs, and a worker that hung has its mutation settled.
-export function unanswered(plans, events) {
-  const stopped = new Set(events.filter(event => event.stop !== undefined).map(event => event.module));
+// What the runs so far left for another one: entries without an answer. A test file whose control run differed
+// starts again in a new worker without the mutation it stopped at, up to `restarts` times; after that its
+// unanswered entries wait for fresh runs. A worker that hung has its mutation settled.
+export function unanswered(plans, events, restarts = 0) {
+  const stops = new Map();
+  for (const event of events) {
+    if (event.stop === undefined) continue;
+    if (!stops.has(event.module)) stops.set(event.module, new Set());
+    stops.get(event.module).add(event.stop);
+  }
   const done = new Set(events.filter(event => event.id !== undefined).map(event => JSON.stringify([event.module, event.id])));
-  return Object.fromEntries(Object.entries(plans).filter(([module]) => !stopped.has(module))
-    .map(([module, list]) => [module, list.filter(plan => !done.has(JSON.stringify([module, plan.id])))])
+  return Object.fromEntries(Object.entries(plans).filter(([module]) => (stops.get(module)?.size ?? 0) <= restarts)
+    .map(([module, list]) => [module, list.filter(plan => !done.has(JSON.stringify([module, plan.id])) && !stops.get(module)?.has(plan.id))])
     .filter(([, list]) => list.length));
+}
+
+// Why a worker left a mutation for a fresh run, for the report. The first reason found among its test files is given.
+export function openReasons(plans, events) {
+  const answers = new Map(events.filter(event => event.id !== undefined).map(event => [JSON.stringify([event.module, event.id]), event]));
+  const stops = new Map();
+  for (const event of events) {
+    if (event.stop !== undefined) stops.set(event.module, (stops.get(event.module) ?? new Set()).add(event.stop));
+  }
+  const reasons = new Map();
+  for (const [module, list] of Object.entries(plans)) {
+    for (const plan of list) {
+      if (reasons.has(plan.id)) continue;
+      const event = answers.get(JSON.stringify([module, plan.id]));
+      const reason = !event ? (stops.get(module)?.has(plan.id) ? 'control-differs' : stops.has(module) ? 'worker-stopped' : 'not-answered')
+        : event.stuckControl ? 'control-hung'
+          : event.stuck ? null
+            : event.unhandled ? 'unhandled-error'
+              : event.errors?.length ? 'error-outside-tests'
+                : event.foreign || event.missing ? 'tests-changed'
+                  : classify(plan, event) === 'open' ? 'inconclusive' : null;
+      if (reason) reasons.set(plan.id, reason);
+    }
+  }
+  return reasons;
+}
+
+// Evenly spaced picks from the mutations a worker settled, for checking them against fresh runs.
+export function sampleSettled(ids, count) {
+  if (!(count > 0) || !ids.length) return [];
+  const step = Math.max(1, Math.floor(ids.length / count));
+  return ids.filter((_, index) => index % step === 0).slice(0, count);
 }

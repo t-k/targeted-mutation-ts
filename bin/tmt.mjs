@@ -20,6 +20,7 @@ try {
       mutators: { type: 'string' },
       concurrency: { type: 'string' },
       'isolated-trials': { type: 'boolean' },
+      'verify-trials': { type: 'string' },
       runner: { type: 'string' },
       project: { type: 'string', multiple: true },
       config: { type: 'string' },
@@ -48,8 +49,12 @@ try {
     if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
     if (values.mutators && !['focused', 'operators', 'full', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|operators|full|standard|all');
     const session = values.runner !== 'playwright' && !values.witnesses && !values.audit;
-    if ((values.concurrency !== undefined || values['isolated-trials']) && !session) {
-      throw new Error('--concurrency and --isolated-trials apply to Vitest sessions, which --witnesses, --audit and Playwright do not use');
+    if ((values.concurrency !== undefined || values['isolated-trials'] || values['verify-trials'] !== undefined) && !session) {
+      throw new Error('--concurrency, --isolated-trials and --verify-trials apply to Vitest sessions, which --witnesses, --audit and Playwright do not use');
+    }
+    if (values['verify-trials'] !== undefined) {
+      if (!/^\d{1,6}$/.test(values['verify-trials'])) throw new Error('Expected --verify-trials to be a count');
+      values['verify-trials'] = Number(values['verify-trials']);
     }
     if (values.concurrency !== undefined) {
       if (!/^[1-9]\d{0,3}$/.test(values.concurrency)) throw new Error('Expected --concurrency to be a positive integer');

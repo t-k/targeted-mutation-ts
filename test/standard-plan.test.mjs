@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { cheapestFirst, indexCoverage, assessTrial, planInThread, settleInThread, sharePlans, unanswered, withoutMutations } from '../src/standard-plan.mjs';
+import { cheapestFirst, openReasons, sampleSettled, indexCoverage, assessTrial, planInThread, settleInThread, sharePlans, unanswered, withoutMutations } from '../src/standard-plan.mjs';
 
 const rows = readFileSync(new URL('../verification/pict/session-plan.tsv', import.meta.url), 'utf8')
   .trim().split('\n').slice(1).map(line => line.trim().split('\t'));
@@ -174,9 +174,31 @@ test('a run hands back what it did not answer, except in test files that stopped
     { module: 'b', id: 1, stuckControl: true }, { module: 'c', stop: 5, reason: 'control' },
   ];
   assert.deepEqual(unanswered(plans, events), { a: [{ id: 2 }, { id: 3 }], b: [{ id: 4 }] });
+  // With restarts allowed a stopped test file comes back without the mutation it stopped at, a limited number of times.
+  const twice = { c: [{ id: 5 }, { id: 6 }, { id: 7 }] };
+  assert.deepEqual(unanswered(twice, [{ module: 'c', stop: 5 }], 1), { c: [{ id: 6 }, { id: 7 }] });
+  assert.deepEqual(unanswered(twice, [{ module: 'c', stop: 5 }, { module: 'c', stop: 6 }], 1), {});
+  assert.deepEqual(unanswered(twice, [{ module: 'c', stop: 5 }, { module: 'c', stop: 6 }], 2), { c: [{ id: 7 }] });
   assert.deepEqual(unanswered(plans, []), plans);
   assert.deepEqual(unanswered({ a: [{ id: 1 }] }, [{ module: 'a', id: 1, stuck: true }]), {});
   // A control run that hung leaves its mutation for a fresh run, and no other answer replaces it.
   const entry = { id: 'm', hits: 1, hitLimit: 100, static: false, tests: ['t1'] };
   assert.equal(settleInThread({ a: [entry] }, [{ module: 'a', id: 'm', stuckControl: true }], names).has('m'), false);
+});
+
+test('each mutation left for a fresh run carries the reason, and a sample of settled ones is evenly spaced', () => {
+  const entry = id => ({ id, hits: 1, hitLimit: 100, static: false, tests: ['t1'] });
+  const ok = { expected: 1, passed: 1, failed: [], errors: [], timeout: false, unhandled: 0, hits: 1 };
+  const plans = { a: ['ok', 'late', 'outside', 'changed', 'silent', 'hung', 'stuck', 'differs', 'after'].map(entry), b: [entry('lost')] };
+  const events = [
+    { module: 'a', id: 'ok', ...ok }, { module: 'a', id: 'late', ...ok, unhandled: 1 }, { module: 'a', id: 'outside', ...ok, errors: ['afterAll'] },
+    { module: 'a', id: 'changed', ...ok, missing: 1 }, { module: 'a', id: 'silent', ...ok, hits: 0 }, { module: 'a', id: 'hung', stuckControl: true },
+    { module: 'a', id: 'stuck', stuck: true }, { module: 'a', stop: 'differs', reason: 'control' },
+  ];
+  assert.deepEqual(Object.fromEntries(openReasons(plans, events)), { late: 'unhandled-error', outside: 'error-outside-tests', changed: 'tests-changed',
+    silent: 'inconclusive', hung: 'control-hung', differs: 'control-differs', after: 'worker-stopped', lost: 'not-answered' });
+  assert.deepEqual(sampleSettled(['a', 'b', 'c', 'd', 'e', 'f', 'g'], 3), ['a', 'c', 'e']);
+  assert.deepEqual(sampleSettled(['a', 'b'], 5), ['a', 'b']);
+  assert.deepEqual(sampleSettled(['a', 'b'], 0), []);
+  assert.deepEqual(sampleSettled([], 3), []);
 });

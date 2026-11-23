@@ -32,7 +32,7 @@ async function besideSession(project, files, options, run, profile, stopsSession
   const started = run.analyzeConventional(project, files, {
     mutators: profile, lines: options.lines, since: options.since, config: options.config, test: options.test,
     'copy-exclude': options['copy-exclude'], dialect: options.dialect, 'isolated-trials': options['isolated-trials'],
-    concurrency: options.concurrency, signal: stop.signal,
+    concurrency: options.concurrency, 'verify-trials': options['verify-trials'], signal: stop.signal,
   }).then(report => ({ report }), error => ({ error }));
   let prepared;
   try {
