@@ -1,3 +1,5 @@
 Phase: TS, JSX, TSX, PassThrough
 Verdict: Accept, Reject
 Fixture: Initial, Subsequent
+Certification: Certified, Uncertified, Unreported
+IF [Phase] IN {"JSX", "PassThrough"} THEN [Certification] = "Unreported";

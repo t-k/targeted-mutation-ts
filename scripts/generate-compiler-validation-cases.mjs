@@ -56,8 +56,45 @@ export function mutateCases(path, corpus) {
   return variants;
 }
 
+const certificationShapes = new Map([
+  ['annotation', 'const result: number = 42;'],
+  ['arguments', 'const result = new Map<string, number>().size + 42;'],
+  ['assertion', 'const result = 42 as number;'],
+  ['markers', 'class Box { value?: number; ready!: boolean }\\LINE\\const result = new Box();'],
+  ['erased-statement', 'interface Shape { side: number }\\LINE\\const result = 42;'],
+  ['overload', 'function pick(value: string): string;\\LINE\\function pick(value: number): number;\\LINE\\' +
+    'function pick(value: any) { return value; }\\LINE\\const result = pick(42);'],
+  ['modifiers', 'class Box { private readonly value = 42; }\\LINE\\const result = new Box();'],
+  ['literal-enum', 'enum Flag { Ready = 42 }\\LINE\\const result = Flag.Ready;'],
+  ['computed-enum', 'function next() { return 9; }\\LINE\\enum Flag { On = next() }\\LINE\\const result = Flag.On;'],
+  ['string-enum-implicit', 'enum Ready { A = "s", B }\\LINE\\const result = Ready.A;'],
+  ['constructor-this', 'class Box { constructor(this: Box) {} }\\LINE\\const result = 42;'],
+  ['ambient-class-export', 'declare class Ambient {}\\LINE\\export { Ambient };\\LINE\\const result = 42;'],
+  ['ambient-const-export', 'declare const ambient: number;\\LINE\\export { ambient };\\LINE\\const result = 42;'],
+  ['parameter-property', 'class Box { constructor(public value: number) {} }\\LINE\\const result = new Box(42);'],
+]);
+
+// Shapes that the emitter certifies, and shapes that only V8 or a compatibility route can decide.
+export function certificationCases() {
+  const inputs = [];
+  for (const dialect of ['ts', 'tsx']) {
+    const view = dialect === 'tsx' ? 'export const view = () => <i title="&amp;"/>;\\LINE\\' : '';
+    for (const [shape, code] of certificationShapes) {
+      for (const [newlineName, newline] of [['lf', '\n'], ['crlf', '\r\n']]) {
+        for (const [position, lead] of [['first', ''], ['after-import', 'import { lead } from "./lead.js";\\LINE\\'],
+          ['after-erased', 'type Lead = string;\\LINE\\']]) {
+          const text = lead + view + code + '\\LINE\\export const output = result;\\LINE\\';
+          inputs.push(fixture('certification/' + shape + '/' + newlineName + '/' + position + '.' + dialect,
+            text.replaceAll('\\LINE\\', newline)));
+        }
+      }
+    }
+  }
+  return inputs;
+}
+
 if (import.meta.main) {
-  const inputs = generatedCases();
+  const inputs = generatedCases().concat(certificationCases());
   for (const path of process.argv.slice(2)) {
     const raw = JSON.parse(readFileSync(path));
     inputs.push(...mutateCases(path, raw.rows ?? raw));

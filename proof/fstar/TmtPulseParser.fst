@@ -3772,13 +3772,12 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
       let! comma = (fun () -> same input end_.offset 44uy) in
       if comma then
         let! after = (fun () -> consume input end_ 44uy) in
-        let! after = (fun () -> if not constructor then
-          record_jsx_span input after 14ul st.offset after.offset else ret input after) in
+        // A constructor keeps its receiver. Kind 29 withholds certification from the projection.
+        let! after = (fun () -> record_jsx_span input after (if constructor then 29ul else 14ul) st.offset after.offset) in
         function_parameters input after floor used fuel (minus remaining 1ul) non_simple constructor
       else
         let erasure_end = if bare then receiver_end else typed.offset in
-        let! end_ = (fun () -> if not constructor then
-          record_jsx_span input end_ 14ul st.offset erasure_end else ret input end_) in
+        let! end_ = (fun () -> record_jsx_span input end_ (if constructor then 29ul else 14ul) st.offset erasure_end) in
         let! closed = (fun () -> consume input end_ 41uy) in
         ret input ({ names = { state = closed; used }; non_simple })
     else if spread then rest_parameter input st floor used
@@ -4630,7 +4629,9 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
           statement_end input annotation annotation.offset false) in
       let! result =
         (fun () -> if input.capture_types && head.ambient_declaration then
-          record_jsx_span input { result with count = state.count } 8ul state.offset result.offset
+          let! erased = (fun () -> record_jsx_span input { result with count = state.count } 8ul state.offset result.offset) in
+          // An ambient class or variable binds a value name that has no runtime declaration.
+          if type_only then ret input erased else record_jsx_span input erased 29ul state.offset result.offset
         else if type_only then record_jsx_span input result 8ul state.offset result.offset
         else ret input result) in
       ret input ({ decl with state = { result with await_allowed = state.await_allowed } })

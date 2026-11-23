@@ -17098,16 +17098,13 @@ TmtPulseParser_function_parameters(
           if (value8)
           {
             TmtPulseParser_parser_state value9 = TmtPulseParser_consume(input, value7, 44U);
-            TmtPulseParser_parser_state value10;
-            if (!constructor)
-              value10 =
-                TmtPulseParser_record_jsx_span(input,
-                  value9,
-                  14U,
-                  value.offset,
-                  value9.offset);
-            else
-              value10 = value9;
+            TmtPulseParser_parser_state
+            value10 =
+              TmtPulseParser_record_jsx_span(input,
+                value9,
+                constructor ? 29U : 14U,
+                value.offset,
+                value9.offset);
             TmtPulseParser_parser_state tmp0 = value10;
             uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
             state = tmp0;
@@ -17116,11 +17113,13 @@ TmtPulseParser_function_parameters(
           else
           {
             uint32_t erasure_end = bare ? receiver_end : value60.offset;
-            TmtPulseParser_parser_state value9;
-            if (!constructor)
-              value9 = TmtPulseParser_record_jsx_span(input, value7, 14U, value.offset, erasure_end);
-            else
-              value9 = value7;
+            TmtPulseParser_parser_state
+            value9 =
+              TmtPulseParser_record_jsx_span(input,
+                value7,
+                constructor ? 29U : 14U,
+                value.offset,
+                erasure_end);
             TmtPulseParser_parser_state value10 = TmtPulseParser_consume(input, value9, 41U);
             return
               (
@@ -20792,8 +20791,10 @@ TmtPulseParser_module_declaration(
         value7 = TmtPulseParser_annotation_type(input, value6, 16U, 64U);
         value60 = TmtPulseParser_statement_end(input, value7, value7.offset, false);
       }
-      TmtPulseParser_parser_state value7;
+      TmtPulseParser_parser_state value70;
       if (input.capture_types && value.ambient_declaration)
+      {
+        TmtPulseParser_parser_state
         value7 =
           TmtPulseParser_record_jsx_span(input,
             (
@@ -20822,24 +20823,29 @@ TmtPulseParser_module_declaration(
             8U,
             state.offset,
             value60.offset);
+        if (type_only)
+          value70 = value7;
+        else
+          value70 = TmtPulseParser_record_jsx_span(input, value7, 29U, state.offset, value60.offset);
+      }
       else if (type_only)
-        value7 = TmtPulseParser_record_jsx_span(input, value60, 8U, state.offset, value60.offset);
+        value70 = TmtPulseParser_record_jsx_span(input, value60, 8U, state.offset, value60.offset);
       else
-        value7 = value60;
+        value70 = value60;
       return
         (
           (TmtPulseParser_named_state){
             .state = {
-              .offset = value7.offset, .count = value7.count, .depth = value7.depth,
-              .status = value7.status, .local_names = value7.local_names,
-              .await_allowed = state.await_allowed, .yield_allowed = value7.yield_allowed,
-              .jsx_allowed = value7.jsx_allowed, .module_mode = value7.module_mode,
-              .strict_script = value7.strict_script, .in_allowed = value7.in_allowed,
-              .for_initializer = value7.for_initializer,
-              .arrow_defaults_allowed = value7.arrow_defaults_allowed,
-              .binding_mode = value7.binding_mode, .super_context = value7.super_context,
-              .private_scope = value7.private_scope, .private_count = value7.private_count,
-              .local_log_floor = value7.local_log_floor, .local_log_used = value7.local_log_used
+              .offset = value70.offset, .count = value70.count, .depth = value70.depth,
+              .status = value70.status, .local_names = value70.local_names,
+              .await_allowed = state.await_allowed, .yield_allowed = value70.yield_allowed,
+              .jsx_allowed = value70.jsx_allowed, .module_mode = value70.module_mode,
+              .strict_script = value70.strict_script, .in_allowed = value70.in_allowed,
+              .for_initializer = value70.for_initializer,
+              .arrow_defaults_allowed = value70.arrow_defaults_allowed,
+              .binding_mode = value70.binding_mode, .super_context = value70.super_context,
+              .private_scope = value70.private_scope, .private_count = value70.private_count,
+              .local_log_floor = value70.local_log_floor, .local_log_used = value70.local_log_used
             },
             .used = value40.used
           }

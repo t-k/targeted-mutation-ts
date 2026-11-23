@@ -1,5 +1,6 @@
-Phase	Verdict	Fixture
-TS	Reject	Initial
-TSX	Reject	Subsequent
-JSX	Accept	Initial
-PassThrough	Accept	Subsequent
+Phase	Verdict	Fixture	Certification
+TS	Reject	Initial	Uncertified
+TSX	Reject	Subsequent	Certified
+TS	Accept	Initial	Certified
+JSX	Accept	Initial	Unreported
+PassThrough	Accept	Subsequent	Unreported

@@ -795,6 +795,19 @@ bool tmt_valid_module_source(const char *source, size_t size) {
   return validate_emission(source, size, "javascript");
 }
 
+/*
+ * A certified projection contains only bytes the Pulse parse accepted as JavaScript, so the
+ * ordinary build publishes it without a second parse. The audit build still asks V8 and reports
+ * the decision first, which lets the audit fail on any certified projection that V8 rejects.
+ */
+#ifdef TMT_AUDIT_V8
+void tmt_audit_certification(const char *phase, bool certified);
+#define publishable(certified, code, length, phase) \
+  (tmt_audit_certification(phase, certified), validate_emission(code, length, phase))
+#else
+#define publishable(certified, code, length, phase) ((certified) || validate_emission(code, length, phase))
+#endif
+
 static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records);
 
 enum {
@@ -820,7 +833,16 @@ enum {
   parameter_derived_constructor = 26,
   parameter_super = 27,
   contextual_reference = 28,
+  uncertified_syntax = 29,
 };
+
+typedef struct {
+  bool remove_statement;
+  /* The parser kept TypeScript-only syntax, or a name whose runtime binding only V8 can decide. */
+  bool uncertified;
+  bool runtime_enums;
+  uint32_t properties;
+} projection_facts;
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
   if (!*certain) return at;
@@ -1141,21 +1163,22 @@ static bool begins_runtime_declaration(TmtPulseMemory_tape input, uint32_t at) {
     TmtPulseParser_keyword(input, at, 5, UINT64_C(0x636c617373));
 }
 
-static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool *remove_statement,
-  uint32_t *properties)
+static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool allow_properties,
+  projection_facts *facts)
 {
   char *code = NULL;
   uint32_t previous = 0;
   uint32_t prelude = TmtPulseCompiler_runtime_source_start(input).at;
   bool retained_module_statement = false;
-  *remove_statement = false;
+  *facts = (projection_facts){0};
   *output = NULL;
-  if (properties) *properties = 0;
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
+    if (event.original == uncertified_syntax) facts->uncertified = true;
+    if (event.original == runtime_enum) facts->runtime_enums = true;
     if (event.original == parameter_property) {
-      if (!properties || *properties == 512) goto decline;
-      (*properties)++;
+      if (!allow_properties || facts->properties == 512) goto decline;
+      facts->properties++;
     }
     const bool member = event.original == erased_list_member || event.original == erased_overload;
     const bool modifiers = event.original == class_modifiers || event.original == parameter_property;
@@ -1183,7 +1206,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
         retained_module_statement = true;
         continue;
       }
-      *remove_statement = true;
+      facts->remove_statement = true;
     } else if (local_type) {
       const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, span.last);
       if (!tail.ok || (tail.at < input.size && (input.source[tail.at] == '"' || input.source[tail.at] == '\''))) goto decline;
@@ -1428,28 +1451,31 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   size_t *length, bool *complete)
 {
   char *code = NULL;
-  bool remove_statement;
-  uint32_t properties;
-  if (!blank_type_records(input, records, &code, &remove_statement, &properties)) goto enum_only;
+  projection_facts facts;
+  if (!blank_type_records(input, records, &code, true, &facts)) goto enum_only;
   TmtPulseMemory_tape projected = input;
   if (code) projected.source = (uint8_t *)code;
   if (!unambiguous_projection(projected, records)) goto enum_only;
   *length = input.size;
-  const bool needs_module_marker = code && esm && remove_statement && !retained_module_marker(projected, marker, records);
-  if (properties) {
+  const bool needs_module_marker = code && esm && facts.remove_statement && !retained_module_marker(projected, marker, records);
+  if (facts.properties) {
     if (!module || enums) goto enum_only;
-    char *lowered = emit_parameter_properties(input, code, records, properties, length);
+    char *lowered = emit_parameter_properties(input, code, records, facts.properties, length);
     if (!lowered) goto enum_only;
     free(code);
     code = lowered;
   }
+  bool unlowered_enum = facts.runtime_enums;
   if (enums) {
     char *lowered = lower_recorded_enums(projected, records, length);
     if (lowered) {
       free(code);
       code = lowered;
+      unlowered_enum = false;
     }
   }
+  /* JavaScript reserves enum, so a module that keeps a declaration can never validate. */
+  if (unlowered_enum && module) goto enum_only;
   if (*length > 1048576) goto enum_only;
   if (needs_module_marker && !tmt_module_marker((uint8_t *)code, (uint32_t)*length, false)) {
     char *with_marker = realloc(code, *length + sizeof(esm_marker));
@@ -1458,7 +1484,9 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
     memcpy(code + *length, esm_marker, sizeof(esm_marker) - 1);
     *length += sizeof(esm_marker) - 1;
   }
-  if (module && !validate_emission(code ? code : (const char *)input.source, *length, "ts")) goto enum_only;
+  /* Inserted parameter-property statements stay on the validated route. */
+  const bool certified = !facts.uncertified && !facts.properties;
+  if (module && !publishable(certified, code ? code : (const char *)input.source, *length, "ts")) goto enum_only;
   if (!code) {
     code = malloc(*length);
     if (!code) return NULL;
@@ -1778,15 +1806,15 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   }
   if (input.capture_types) {
     char *masked;
-    bool remove_statement;
-    if (blank_type_records(input, records, &masked, &remove_statement, NULL)) {
+    projection_facts facts;
+    if (blank_type_records(input, records, &masked, false, &facts)) {
       TmtPulseMemory_tape projected = input;
       if (masked) projected.source = (uint8_t *)masked;
       if (unambiguous_projection(projected, records)) {
         char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length, enum_records);
-        if (code && (!remove_statement || retained_module_marker(projected, insertion, records) ||
+        if (code && (!facts.remove_statement || retained_module_marker(projected, insertion, records) ||
                      (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&
-            validate_emission(code, *length, "tsx")) {
+            publishable(!facts.uncertified, code, *length, "tsx")) {
           *complete = true;
           free(masked);
           return code;

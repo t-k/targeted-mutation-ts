@@ -19,26 +19,45 @@ const phases = new Set(['ts', 'jsx', 'tsx', 'passthrough', 'javascript']);
 const reasons = new Set(['accepted', 'unavailable', 'string-allocation', 'no-diagnostic',
   'unbound-export', 'redeclaration', 'strict-mode', 'unexpected-token', 'syntax']);
 
-export function summarizeValidation(trace, cases) {
+export function summarizeValidation(trace, cases, options = {}) {
   const checks = {};
+  const certified = {};
   const rejections = [];
+  const certifiedRejections = [];
+  const decisions = [];
   let current;
+  let pending;
   for (const line of trace.split(/\r?\n/)) {
     const [prefix, phase, reason, position] = line.split('\t');
     if (prefix === 'TMT_V8_CASE') {
       assert.match(phase, /^(?:0|[1-9]\d*)$/);
+      assert.equal(pending, undefined, 'A certification decision has no validation verdict');
       current = cases[Number(phase)];
       assert.ok(current, 'Unknown audit fixture');
+    } else if (prefix === 'TMT_V8_CERTIFIED') {
+      // The audit build reports the emitter's decision before it asks V8.
+      assert.ok(current && (phase === 'ts' || phase === 'tsx') && (reason === '0' || reason === '1') &&
+        pending === undefined, 'Invalid certification audit event');
+      pending = { phase, certified: reason === '1' };
     } else if (prefix === 'TMT_V8_AUDIT') {
       assert.ok(current && phases.has(phase) && reasons.has(reason), 'Invalid validation audit event');
       assert.match(position, /^(?:-1|0|[1-9]\d*)$/);
+      assert.ok(pending === undefined || pending.phase === phase, 'A certification decision names another phase');
       const table = checks[phase] ??= {};
       table[reason] = (table[reason] ?? 0) + 1;
-      if (reason !== 'accepted') rejections.push({ file: current.file, phase, reason,
-        outputOffset: position === '-1' ? null : Number(position) });
+      const rejection = { file: current.file, phase, reason, outputOffset: position === '-1' ? null : Number(position) };
+      if (reason !== 'accepted') rejections.push(rejection);
+      const decided = pending?.certified === true;
+      if (decided) {
+        certified[phase] = (certified[phase] ?? 0) + 1;
+        if (reason !== 'accepted') certifiedRejections.push(rejection);
+      }
+      if (options.decisions) decisions.push({ file: current.file, phase, certified: decided, reason });
+      pending = undefined;
     }
   }
-  return { checks, rejections };
+  assert.equal(pending, undefined, 'A certification decision has no validation verdict');
+  return { checks, rejections, certified, certifiedRejections, ...(options.decisions ? { decisions } : {}) };
 }
 
 async function runWorker(cases, instrumented) {
@@ -78,10 +97,17 @@ async function runWorker(cases, instrumented) {
 
 function worker(cases, mode) {
   const child = spawnSync(process.execPath, ['--no-compilation-cache', entry, mode], {
-    encoding: 'utf8', input: JSON.stringify(cases), timeout: 90_000, maxBuffer: 32 * 1024 * 1024,
+    encoding: 'utf8', input: JSON.stringify(cases), timeout: 300_000, maxBuffer: 256 * 1024 * 1024,
   });
   assert.equal(child.status, 0, child.error?.message ?? child.stderr);
   return { output: JSON.parse(child.stdout), trace: child.stderr };
+}
+
+// Compare the audit build with the ordinary build and summarize every validation event.
+export function auditCases(cases, options = {}) {
+  const { output, trace } = worker(cases, '--audit-worker');
+  assert.deepEqual(output, worker(cases, '--ordinary-worker').output, 'The audit and ordinary builds disagree');
+  return summarizeValidation(trace, cases, options);
 }
 
 if (import.meta.main) {
@@ -95,11 +121,11 @@ if (import.meta.main) {
       const input = JSON.parse(raw);
       const cases = (input.rows ?? input).filter(test => test.mode === 'module' &&
         /\.[cm]?[jt]sx?$/.test(test.file) && !/\.d\.[cm]?ts$/.test(test.file));
-      const { output, trace } = worker(cases, '--audit-worker');
-      assert.deepEqual(output, worker(cases, '--ordinary-worker').output, path);
       return { path, inputSha256: createHash('sha256').update(raw).digest('hex'), files: cases.length,
-        ...summarizeValidation(trace, cases) };
+        ...auditCases(cases) };
     });
     console.log(JSON.stringify({ node: process.version, compilationCache: 'disabled', reports }, null, 2));
+    // A certified projection that V8 rejects is a compiler defect.
+    if (reports.some(report => report.certifiedRejections.length)) process.exitCode = 1;
   }
 }

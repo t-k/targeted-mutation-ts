@@ -1,0 +1,4 @@
+Shape: annotation, arguments, assertion, markers, erased-statement, overload, modifiers, literal-enum, computed-enum, string-enum-implicit, constructor-this, ambient-class-export, ambient-const-export, parameter-property
+Dialect: ts, tsx
+Newline: lf, crlf
+Position: first, after-import, after-erased
