@@ -45,7 +45,7 @@ static inline void tmt_map_vlq(tmt_map_writer *map, int64_t value) {
 }
 
 static inline bool tmt_map_word(uint8_t byte) {
-  return (byte | 32) - 'a' < 26u || byte - '0' < 10u || byte == '_' || byte == '$' || byte >= 0x80;
+  return (unsigned)((byte | 32) - 'a') < 26u || (unsigned)(byte - '0') < 10u || byte == '_' || byte == '$' || byte >= 0x80;
 }
 
 static inline bool tmt_map_blank(uint8_t byte) {
