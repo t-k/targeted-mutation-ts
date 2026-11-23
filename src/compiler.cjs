@@ -53,19 +53,28 @@ function compile(input, options) {
   let file = 'input.ts';
   let flags = 0;
   let defaults = options === undefined;
-  if (!defaults && options !== null && typeof options === 'object' && options.mode === undefined &&
-      options.target === undefined && options.module === undefined && options.sourceMap === undefined) {
+  let explicitModule = false;
+  // An option spelled out with its default value selects the same route as an omitted one.
+  if (!defaults && options !== null && typeof options === 'object' &&
+      (options.mode === undefined || options.mode === 'transform') &&
+      (options.target === undefined || options.target === 'esnext') &&
+      (options.sourceMap === undefined || options.sourceMap === false)) {
     const name = options.file;
     const jsx = options.jsx;
-    if ((name === undefined || typeof name === 'string') && (jsx === undefined || jsx === 'automatic' || jsx === 'classic')) {
+    const format = options.module;
+    if ((name === undefined || typeof name === 'string') && (jsx === undefined || jsx === 'automatic' || jsx === 'classic') &&
+        (format === undefined || format === 'preserve' || format === 'esm')) {
       defaults = true;
       if (name !== undefined) file = name;
       if (jsx === 'classic') flags = classic;
+      if (format === 'esm') explicitModule = true;
     }
   }
   if (defaults) {
     const kind = sourceKind(file);
-    if (kind >= script) {
+    if (kind === script && explicitModule) {
+      // An explicit module format for a .js name disables the script route, which the router decides.
+    } else if (kind >= script) {
       if (Buffer.isBuffer(input)) {
         // A module that the certified parse leaves unedited needs no second parse. V8 decides the rest.
         const module = (pulse ??= nativeAddon('compiler-module.node')).emitJavaScriptModule;
@@ -81,7 +90,7 @@ function compile(input, options) {
         typeof input === 'string' && input.isWellFormed() ? Buffer.from(input) : null;
       const emit = source === null ? undefined : (pulse ??= nativeAddon('compiler-module.node')).emitTypeScript;
       if (emit !== undefined) {
-        const code = emit(source, kind | flags);
+        const code = emit(source, kind | flags | (explicitModule ? esm : 0));
         if (code !== undefined) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
       }
     }
