@@ -19,7 +19,7 @@ for (const row of rows) {
     const input = samples[source];
     const result = compile(input, { target: target === 'Modern' ? 'esnext' : 'es2018', sourceMap: map === 'On' });
     const bridged = (source === 'Module' || source === 'Empty') && target === 'Modern' && map === 'Off';
-    assert.equal(result.backend, bridged ? 'node-strip' : 'typescript');
+    assert.equal(result.backend, bridged ? (source === 'Empty' ? 'pulse' : 'node-strip') : 'typescript');
     if (source === 'Invalid') assert.equal(result.code, null);
     if (bridged && source === 'Module') {
       const module = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
@@ -80,7 +80,7 @@ test('parameter properties can lower without TypeScript while preserving constru
 
 test('a fully erased module retains an explicit ESM marker and its comments', async () => {
   const result = compile(samples.Empty.replace(/^#!.*\n/, ''), { file: 'input.mts' });
-  assert.equal(result.backend, 'node-strip');
+  assert.equal(result.backend, 'pulse');
   assert.match(result.code, /\/\* license \*\//);
   assert.match(result.code, /export \{\};\n$/);
   const empty = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
@@ -173,6 +173,8 @@ test('plain JavaScript scripts do not load compiler addons on the first call', (
     const result = compile(source, { file: 'script.js' });
     assert.equal(result.backend, 'javascript');
     assert.equal(result.code, '"use strict";\\n' + source.toString());
+    Object.defineProperty(source, 'length', { value: 1 });
+    assert.equal(compile(source, { file: 'script.js' }).code, result.code);
     assert.equal(compile(Buffer.from([0xc0, 0x80]), { file: 'script.js' }).diagnostics[0].code, 'INVALID_ENCODING');
   `;
   const result = spawnSync(process.execPath, ['--input-type=module', '--eval', source], { encoding: 'utf8', timeout: 15000 });

@@ -27,9 +27,11 @@ for (const row of rows) {
       assert.equal(result.code, null);
       assert.equal(result.backend, 'typescript');
     } else {
-      const emitsComments = shape === 'TypeModule' && layout !== 'Compact';
-      assert.equal(result.backend, emitsComments ? 'typescript' : 'pulse');
-      assert.equal(result.code, shape === 'TypeModule' ? '' : stripTypeScriptTypes(source));
+      assert.equal(result.backend, 'pulse');
+      if (shape === 'TypeModule' && layout !== 'Compact') {
+        assert.ok(result.code.startsWith(layouts[layout]));
+        assert.doesNotMatch(result.code, /interface|import|export type/);
+      } else assert.equal(result.code, shape === 'TypeModule' ? '' : stripTypeScriptTypes(source));
       assert.deepEqual(result.diagnostics, []);
     }
   });
@@ -125,10 +127,11 @@ test('native compilation erases complete type-only modules and preserves ESM', a
 });
 
 test('type-only files preserve comments without TypeScript', () => {
-  const source = 'export type Coordinate = number;\n/*! Copyright Example */\n';
+  const source = '#!/usr/bin/env node\r\n/* 東京 */\nexport type Coordinate = number;\n/*! Copyright Example */\n';
   const result = compile(source);
-  assert.equal(result.backend, 'node-strip');
-  assert.match(result.code, /Copyright Example/);
+  assert.equal(result.backend, 'pulse');
+  assert.equal(result.code, '#!/usr/bin/env node\r\n/* 東京 */\n\n/*! Copyright Example */\n');
+  assert.equal(compile(source, { mode: 'strip' }).code, stripTypeScriptTypes(source));
 });
 
 test('generated annotation layouts preserve the exact stripped source', () => {

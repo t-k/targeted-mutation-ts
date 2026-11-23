@@ -8,6 +8,8 @@
 #define NAPI(call) do { if ((call) != napi_ok) goto error; } while (0)
 enum { source_limit = 1048576, binding_capacity = 2367 };
 
+#ifdef TMT_DIRECT
+
 static bool ordered(TmtGrammar_span span, uint32_t size, uint32_t *previous) {
   if (span.first == span.last) return span.last <= size;
   if (span.first < *previous || span.first > span.last || span.last > size) return false;
@@ -56,7 +58,7 @@ static bool blank_declarations(TmtPulseMemory_tape input, uint8_t *output, TmtPu
   return false;
 }
 
-#ifndef TMT_DIRECT
+#else
 static bool contains_comment_marker(const uint8_t *source, uint32_t size) {
   for (uint32_t index = 0; index + 1 < size; index++) {
     if (source[index] == '/' && (source[index + 1] == '/' || source[index + 1] == '*')) return true;
@@ -64,29 +66,96 @@ static bool contains_comment_marker(const uint8_t *source, uint32_t size) {
   return false;
 }
 
-static bool type_only_module(uint8_t *source, uint32_t size) {
+static uint8_t *copy_type_only_trivia(TmtPulseMemory_tape input, bool esm, size_t *length) {
+  enum { capacity = 512 };
+  TmtGrammar_candidate spans[capacity];
+  uint8_t marks[capacity] = {0};
+  input.capture_jsx = true;
+  input.output = spans;
+  input.capacity = capacity;
+  input.marks = marks;
+  const TmtPulseParser_parser_state parsed = TmtPulseCompiler_type_only_module(input);
+  if (parsed.status != 0 || parsed.count > capacity) return NULL;
+  const char suffix[] = "\nexport {};\n";
+  uint8_t *code = malloc((size_t)input.size + sizeof(suffix));
+  if (!code) return NULL;
+  uint32_t previous = 0;
+  size_t written = 0;
+  for (uint32_t index = 0; index < parsed.count; index++) {
+    const TmtGrammar_span span = spans[index].left;
+    if (spans[index].original != 6 || span.first < previous || span.first >= span.last || span.last > input.size) {
+      free(code);
+      return NULL;
+    }
+    const uint32_t gap = span.first - previous;
+    memcpy(code + written, input.source + previous, gap);
+    written += gap;
+    previous = span.last;
+  }
+  memcpy(code + written, input.source + previous, input.size - previous);
+  written += input.size - previous;
+  if (esm) {
+    memcpy(code + written, suffix, sizeof(suffix) - 1);
+    written += sizeof(suffix) - 1;
+  }
+  *length = written;
+  return code;
+}
+
+static uint8_t *type_only_module(uint8_t *source, uint32_t size, bool esm, size_t *length) {
   TmtPulseMemory_binding_name bindings[binding_capacity] = {0};
   TmtGrammar_candidate output;
   uint8_t mark;
   const TmtPulseMemory_tape input = {
     .source = source, .size = size, .output = &output, .bindings = bindings, .marks = &mark,
   };
-  return TmtPulseCompiler_type_only_module(input);
+  if (TmtPulseCompiler_type_only_module(input).status != 0) return NULL;
+  if ((size >= 2 && source[0] == '#' && source[1] == '!') || contains_comment_marker(source, size)) {
+    return copy_type_only_trivia(input, esm, length);
+  }
+  const char marker[] = "export {};\n";
+  uint8_t *code = malloc(sizeof(marker));
+  if (!code) return NULL;
+  memcpy(code, marker, sizeof(marker));
+  *length = esm ? sizeof(marker) - 1 : 0;
+  return code;
 }
 
-#endif
-
-static napi_value compile_source(napi_env env, napi_callback_info info) {
+static napi_value erase_type_module(napi_env env, napi_callback_info info) {
   napi_value args[2], result;
-  size_t argc = 2, size;
-  uint32_t type_only_output;
+  size_t argc = 2, size, length;
+  bool esm;
   void *source;
   uint8_t *output = NULL;
   NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
   if (argc != 2) goto error;
   NAPI(napi_get_buffer_info(env, args[0], &source, &size));
-  NAPI(napi_get_value_uint32(env, args[1], &type_only_output));
-  if (type_only_output > 2) goto error;
+  NAPI(napi_get_value_bool(env, args[1], &esm));
+  if (size <= source_limit) output = type_only_module(source, (uint32_t)size, esm, &length);
+  if (output) {
+    NAPI(napi_create_string_utf8(env, (char *)output, length, &result));
+    free(output);
+  } else {
+    NAPI(napi_get_null(env, &result));
+  }
+  return result;
+error:
+  free(output);
+  napi_throw_type_error(env, NULL, "Expected a source buffer and an ESM flag");
+  return NULL;
+}
+
+#endif
+
+#ifdef TMT_DIRECT
+static napi_value compile_source(napi_env env, napi_callback_info info) {
+  napi_value arg, result;
+  size_t argc = 1, size;
+  void *source;
+  uint8_t *output = NULL;
+  NAPI(napi_get_cb_info(env, info, &argc, &arg, NULL, NULL));
+  if (argc != 1) goto error;
+  NAPI(napi_get_buffer_info(env, arg, &source, &size));
   if (size <= source_limit) {
     const uint32_t width = (uint32_t)size;
     const TmtPulseMemory_tape input = { .source = source, .size = width };
@@ -115,13 +184,6 @@ static napi_value compile_source(napi_env env, napi_callback_info info) {
       output = NULL;
       if (valid) return result;
     }
-#ifndef TMT_DIRECT
-    if (type_only_output != 0 && type_only_module(source, width) && !contains_comment_marker(source, width)) {
-      const char *code = type_only_output == 2 ? "export {};\n" : "";
-      NAPI(napi_create_string_utf8(env, code, NAPI_AUTO_LENGTH, &result));
-      return result;
-    }
-#endif
   }
   NAPI(napi_get_null(env, &result));
   return result;
@@ -130,6 +192,7 @@ error:
   napi_throw_error(env, NULL, "Native compilation arguments or allocation failed");
   return NULL;
 }
+#endif
 
 static napi_value lower_source(napi_env env, napi_callback_info info) {
   napi_value args[5], result;
@@ -245,11 +308,15 @@ error:
 
 static napi_value init(napi_env env, napi_value exports) {
   napi_value entry;
+#ifdef TMT_DIRECT
   NAPI(napi_create_function(env, "compile", NAPI_AUTO_LENGTH, compile_source, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "compile", entry));
+#endif
   NAPI(napi_create_function(env, "lower", NAPI_AUTO_LENGTH, lower_source, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "lower", entry));
 #ifndef TMT_DIRECT
+  NAPI(napi_create_function(env, "eraseTypeModule", NAPI_AUTO_LENGTH, erase_type_module, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "eraseTypeModule", entry));
   NAPI(napi_create_function(env, "moduleMarker", NAPI_AUTO_LENGTH, module_marker, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "moduleMarker", entry));
   NAPI(napi_create_function(env, "unboundExport", NAPI_AUTO_LENGTH, unbound_export, NULL, &entry));

@@ -228,10 +228,15 @@ function snapshot(input) {
   return input;
 }
 
+let sourceDecoder;
 function compilerSource(input) {
   if (typeof input === 'string') return input.isWellFormed() ? input : null;
-  if (Buffer.isBuffer(input)) return isUtf8(input) ? Buffer.prototype.toString.call(input) : null;
-  return require('./source-text.mjs').normalize(input);
+  try {
+    sourceDecoder ??= new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
+    return sourceDecoder.decode(input);
+  } catch {
+    return null;
+  }
 }
 
 function compile(input, options = {}) {
@@ -258,7 +263,7 @@ function compile(input, options = {}) {
     const source = Buffer.isBuffer(stableInput) ? stableInput :
       typeof stableInput === 'string' && stableInput.isWellFormed() ? Buffer.from(stableInput) : null;
     if (source && isUtf8(source) && (mode === 'strip' || !source.includes('///') || !native.leadingDirective(source))) {
-      const simple = typed && !jsxFile ? native.compile(source, 0) : null;
+      const simple = typed && !jsxFile ? native.compile(source) : null;
       if (simple !== null) return { backend: 'pulse', code: simple, sourceMap: null, diagnostics: [] };
       const runtime = mode === 'transform' && (jsxFile ? jsx !== 'preserve' &&
         (!source.includes('@') || !/@jsx/i.test(source.toString('latin1'))) && !source.includes('_tmt') :
@@ -270,7 +275,7 @@ function compile(input, options = {}) {
       if (mode === 'transform' && typed) {
         const addon = loadModuleAddon();
         if (addon) {
-          const empty = !jsxFile ? addon.compile(source, format === 'esm' ? 2 : 1) : null;
+          const empty = !jsxFile ? addon.eraseTypeModule(source, format === 'esm') : null;
           if (empty !== null) return { backend: 'pulse', code: empty, sourceMap: null, diagnostics: [] };
           if (runtime && (!jsxFile || !source.includes('\\u'))) {
             const mixed = addon.lower(source, jsxFile, true, jsx === 'classic', true);

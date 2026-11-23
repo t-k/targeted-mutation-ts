@@ -2543,7 +2543,7 @@ TmtPulseCompiler_type_declaration(
   uint32_t width
 );
 
-bool
+TmtPulseParser_parser_state
 TmtPulseCompiler_type_only_statements(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state state0,
@@ -2552,7 +2552,7 @@ TmtPulseCompiler_type_only_statements(
   uint32_t fuel0
 );
 
-bool TmtPulseCompiler_type_only_module(TmtPulseMemory_tape input);
+TmtPulseParser_parser_state TmtPulseCompiler_type_only_module(TmtPulseMemory_tape input);
 
 TmtPulseParser_cursor TmtPulseCompiler_runtime_source_start(TmtPulseMemory_tape input);
 
