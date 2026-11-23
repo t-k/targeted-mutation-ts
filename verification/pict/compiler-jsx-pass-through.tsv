@@ -1,0 +1,7 @@
+Shape	Leading	Runtime
+Async	Direct	Automatic
+Class	Direct	Classic
+Expression	Directive	Automatic
+Expression	Direct	Classic
+Class	Directive	Automatic
+Async	Directive	Classic

@@ -1478,6 +1478,15 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, b
   if (!typescript && !module) return NULL;
   const uint32_t insertion = module ? marker : jsx_script_prelude(input, first.at);
 #ifdef TMT_V8_VALIDATOR
+  if (!typescript && !memchr(source, '<', size)) {
+    if (!tmt_valid_javascript_module((const char *)source, size)) return NULL;
+    char *code = malloc(size);
+    if (!code) return NULL;
+    memcpy(code, source, size);
+    *length = size;
+    *complete = true;
+    return code;
+  }
   input.capture_types = typescript && module;
 #endif
   if (size < 16 * 1024) {

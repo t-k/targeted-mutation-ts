@@ -296,7 +296,8 @@ function compile(input, options = {}) {
             const mixed = addon.lower(source, jsxFile, typed, jsx === 'classic', true);
             if (mixed !== null) {
               if (typeof mixed !== 'string') {
-                return { backend: 'pulse', code: mixed.code, sourceMap: null, diagnostics: [] };
+                const backend = !typed && !source.includes('<') ? 'javascript' : 'pulse';
+                return { backend, code: mixed.code, sourceMap: null, diagnostics: [] };
               }
               if (typed) {
                 const result = eraseLoweredModule(addon, mixed, file, format);

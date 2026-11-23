@@ -446,3 +446,27 @@ test('the full JavaScript JSX route does not erase TypeScript syntax', () => {
   assert.notEqual(compile(input, { file: 'view.jsx' }).backend, 'pulse');
   assert.equal(compile(input, { file: 'view.tsx' }).backend, 'pulse');
 });
+
+const jsxPlainRows = readFileSync(new URL('../verification/pict/compiler-jsx-pass-through.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of jsxPlainRows) {
+  const [shape, leading, runtime] = row.split('\t');
+  test('unchanged JavaScript in a JSX module ' + row.replaceAll('\t', ' '), async () => {
+    const body = {
+      Async: 'export const value = async () => { function* values() { yield 42; } return values().next().value; };',
+      Class: 'export const value = () => { class K { #v = 42; value() { return this.#v; } } return new K().value(); };',
+      Expression: 'export const value = () => (2 ** 3 ** 2) - (470 ?? 0);',
+    }[shape];
+    const source = (leading === 'Directive' ? '"use client";\n' : '') + body;
+    const result = compile(Buffer.from(source), { file: 'plain.jsx', jsx: runtime.toLowerCase() });
+    assert.equal(result.backend, 'javascript');
+    assert.equal(result.code, source);
+    assert.equal(await (await import(data(result.code))).value(), 42);
+  });
+}
+
+test('JavaScript JSX pass-through rejects an unbound export and a type annotation', () => {
+  for (const source of ['export { missing };', 'export const a: number = 1;']) {
+    assert.notEqual(compile(source, { file: 'plain.jsx' }).backend, 'javascript');
+  }
+});
