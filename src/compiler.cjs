@@ -3,6 +3,13 @@
 let validUtf8;
 let types;
 function optionalAddon(specifier) {
+  const addon = { exports: {} };
+  try {
+    process.dlopen(addon, __dirname + '/' + specifier);
+    return addon.exports;
+  } catch (error) {
+    if (error.code !== 'ERR_DLOPEN_FAILED') throw error;
+  }
   try {
     return require(specifier);
   } catch (error) {

@@ -473,6 +473,11 @@ test('plain JavaScript scripts do not load compiler addons on the first call', (
   const source = `
     import assert from 'node:assert/strict';
     import { registerHooks } from 'node:module';
+    const dlopen = process.dlopen;
+    process.dlopen = (module, filename, ...flags) => {
+      if (/compiler(?:-module)?\\.node$/.test(filename)) throw new Error(filename);
+      return dlopen(module, filename, ...flags);
+    };
     registerHooks({ resolve(specifier, context, next) {
       if (context.parentURL?.endsWith('/src/compiler.cjs') &&
           /(?:compiler(?:-module)?\\.node|source-text\\.mjs)$/.test(specifier)) throw new Error(specifier);

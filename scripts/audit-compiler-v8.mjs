@@ -3,11 +3,13 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, writeSync } from 'node:fs';
 import { registerHooks } from 'node:module';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const entry = fileURLToPath(import.meta.url);
 const auditAddon = new URL('../build/compiler-v8-audit/compiler-module.node', import.meta.url);
 const ordinaryAddon = '../build/compiler-module.node';
+const ordinaryAddonPath = fileURLToPath(new URL('../build/compiler-module.node', import.meta.url));
 const compilerEntry = new URL('../src/compiler.cjs', import.meta.url);
 const phases = new Set(['ts', 'jsx', 'tsx', 'passthrough', 'javascript']);
 const reasons = new Set(['accepted', 'unavailable', 'string-allocation', 'no-diagnostic',
@@ -36,7 +38,12 @@ export function summarizeValidation(trace, cases) {
 }
 
 async function runWorker(cases, instrumented) {
-  if (instrumented) assert.ok(existsSync(auditAddon), 'Build the audit addon with npm run build:compiler -- --audit-v8');
+  if (instrumented) {
+    assert.ok(existsSync(auditAddon), 'Build the audit addon with npm run build:compiler -- --audit-v8');
+    const dlopen = process.dlopen;
+    process.dlopen = (module, filename, ...flags) => dlopen(module,
+      resolve(filename) === ordinaryAddonPath ? fileURLToPath(auditAddon) : filename, ...flags);
+  }
   registerHooks({ resolve(specifier, context, next) {
     if (instrumented && context.parentURL === compilerEntry.href && specifier === ordinaryAddon) {
       return next(fileURLToPath(auditAddon), context);
