@@ -59,13 +59,21 @@ test('native grammar declines module and syntax hazards', () => {
     'export const value: number = 042;',
     'export const value = (x: number)\r\n=> x;',
     'export const value = (x: number): number\u2028=> x;',
-    'export const value = (x: /*keep*/ number) => x;',
     'export const value = (x: number) => x;\0',
   ]) {
     assert.notEqual(compile(input).backend, 'pulse', JSON.stringify(input));
   }
   assert.notEqual(compile(forms.Arrow, { file: 'source.cts' }).backend, 'pulse');
   assert.notEqual(compile(forms.Arrow, { target: 'es2018' }).backend, 'pulse');
+});
+
+test('the module emitter erases comments inside a delimited arrow parameter annotation', async () => {
+  const source = 'export const value = (x: /* type comment */ number) => x;';
+  const result = compile(source);
+  assert.equal(result.backend, 'pulse');
+  assert.doesNotMatch(result.code, /type comment|number/);
+  const { value } = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+  assert.equal(value(42), 42);
 });
 
 test('multi-declaration erasure checks syntax and duplicate names before publishing', () => {
