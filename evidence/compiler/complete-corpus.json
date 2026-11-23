@@ -1873,5 +1873,663 @@
       }
     ]
   },
-  "compatibilityImplementation": "b99d359"
+  "compatibilityImplementation": "830b5de",
+  "packageFreeSmoke": {
+    "files": 653,
+    "typescriptPresent": false,
+    "output": "V8 module syntax validation"
+  },
+  "expandedProjects": [
+    {
+      "name": "astro",
+      "sha256": "891441fdc3a59cec23d1a73f0ec4171fa1da1c10d359f0b8bf707239fe486637",
+      "files": 642,
+      "valid": 639,
+      "invalid": [],
+      "backends": {
+        "node-strip": 629,
+        "pulse": 10
+      },
+      "declined": [
+        {
+          "file": "packages/astro/src/runtime/client/hmr.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/astro/src/types/public/config.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/astro/src/types/public/context.ts",
+          "backend": "typescript-required"
+        }
+      ]
+    },
+    {
+      "name": "hono",
+      "sha256": "cead316d73ad38d6a59c872828e0429aabf434866d870671ce95adaf46a7ba0e",
+      "files": 223,
+      "valid": 220,
+      "invalid": [],
+      "backends": {
+        "node-strip": 220,
+        "pulse+node-strip": 3
+      },
+      "declined": [
+        {
+          "file": "src/jsx/dom/index.ts",
+          "backend": "node-strip",
+          "diagnostic": "UNBOUND_RUNTIME_EXPORT"
+        },
+        {
+          "file": "src/jsx/index.ts",
+          "backend": "node-strip",
+          "diagnostic": "UNBOUND_RUNTIME_EXPORT"
+        },
+        {
+          "file": "src/middleware/timing/index.ts",
+          "backend": "node-strip",
+          "diagnostic": "UNBOUND_RUNTIME_EXPORT"
+        }
+      ]
+    },
+    {
+      "name": "react-router",
+      "sha256": "ddad17da30059f1568077bb5f57cab29e85b9a512ace6ceb4d7ffde585784243",
+      "files": 75,
+      "valid": 74,
+      "invalid": [],
+      "backends": {
+        "node-strip": 53,
+        "pulse+node-strip": 19,
+        "node-transform": 1,
+        "pulse": 1
+      },
+      "declined": [
+        {
+          "file": "packages/react-router/lib/dom/ssr/components.tsx",
+          "backend": "typescript-required"
+        }
+      ]
+    },
+    {
+      "name": "vitest",
+      "sha256": "73b0035950b4a219180b88caf88873e03f318d9b1ea6ff893ce17401c95a49aa",
+      "files": 486,
+      "valid": 473,
+      "invalid": [],
+      "backends": {
+        "node-strip": 414,
+        "node-transform": 46,
+        "pulse": 13
+      },
+      "declined": [
+        {
+          "file": "packages/pretty-format/src/types.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/vitest/src/integrations/env/edge-runtime.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/vitest/src/integrations/env/happy-dom.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/vitest/src/integrations/env/jsdom.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/vitest/src/integrations/env/node.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/vitest/src/node/pools/poolRunner.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/vitest/src/node/types/browser.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/vitest/src/node/types/config.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/vitest/src/runtime/external-executor.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/vitest/src/runtime/moduleRunner/moduleEvaluator.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/vitest/src/runtime/vm/esm-executor.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/vitest/src/runtime/workers/watchdog.ts",
+          "backend": "typescript-required"
+        },
+        {
+          "file": "packages/vitest/src/types/global.ts",
+          "backend": "typescript-required"
+        }
+      ]
+    }
+  ],
+  "publishedTransformParity": {
+    "node": "v24.14.0",
+    "reports": [
+      {
+        "name": "official-oxc-transform-renderer.ts.json",
+        "hash": "b512bee302cbf1ae0ef0babf1cb9ad9e824af05de50b399ab0da93e1bacb4b50",
+        "files": 1,
+        "backends": {
+          "pulse+node-strip": 1
+        },
+        "equivalent": 1,
+        "declined": [],
+        "differences": []
+      },
+      {
+        "name": "official-oxc-transform-UserSettings.tsx.json",
+        "hash": "792413f7a5214026d95bb0586bc59d2b8ceb0786ca84009de4800e701ea262a5",
+        "files": 1,
+        "backends": {
+          "pulse+node-strip": 1
+        },
+        "equivalent": 1,
+        "declined": [],
+        "differences": []
+      },
+      {
+        "name": "official-oxc-transform-table.tsx.json",
+        "hash": "9445c3cabc4debfb9c03bcade57bde7f05e8a82883f6b4cfa9e04708a30a5a13",
+        "files": 1,
+        "backends": {
+          "pulse+node-strip": 1
+        },
+        "equivalent": 1,
+        "declined": [],
+        "differences": []
+      },
+      {
+        "name": "official-swc-next-App.tsx.json",
+        "hash": "55c5704ef748350496177ebfd9aef722b05466dcd207de988b06345fee50729f",
+        "files": 1,
+        "backends": {
+          "pulse+node-strip": 1
+        },
+        "equivalent": 1,
+        "declined": [],
+        "differences": []
+      }
+    ]
+  },
+  "checkedTiming": {
+    "implementation": "830b5de",
+    "scope": "Four published inputs were retimed after the review corrections and unbound export diagnostics.",
+    "performance": {
+      "node": "v24.14.0",
+      "os": "linux",
+      "arch": "arm64",
+      "rounds": 5,
+      "reports": [
+        {
+          "name": "/benchmark/official/official-oxc-parser-typescript.js.json",
+          "cases": 1,
+          "selected": 1,
+          "coverage": {
+            "tmt": {
+              "accepted": 1,
+              "native": 0,
+              "backends": {
+                "javascript": 1
+              }
+            },
+            "oxc": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 1,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 1,
+              "native": 0
+            }
+          },
+          "inputSha256": "a845b36dee165cbae3b3aeadf0dddda8d03ca379aa37528f2d6e883f94837a62",
+          "samples": {
+            "tmt": {
+              "warm": [
+                87.1554587999999,
+                96.91932499999966,
+                158.08515679999982,
+                101.51796119999926,
+                52.292355200002206
+              ],
+              "first": [
+                268.98936000000003,
+                325.903009,
+                391.270631,
+                329.40280600000006,
+                122.794929
+              ]
+            },
+            "oxc": {
+              "warm": [
+                262.79575619999997,
+                216.6119595999997,
+                390.81780839999993,
+                345.6859067999991,
+                127.03550119999855
+              ],
+              "first": [
+                349.44713,
+                275.339048,
+                552.849076,
+                730.431067,
+                234.278914
+              ]
+            },
+            "yuku": {
+              "warm": [
+                637.4527706000001,
+                924.8827424000003,
+                1045.2876543999998,
+                1668.6723712000007,
+                1027.8600146000013
+              ],
+              "first": [
+                2105.408892,
+                1970.8928569999998,
+                1836.407765,
+                3321.200385,
+                1772.2402430000002
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                341.6814788,
+                481.8113153999999,
+                381.16617140000017,
+                581.3592307999992,
+                315.98799440000147
+              ],
+              "first": [
+                293.33431700000006,
+                361.864297,
+                477.918994,
+                564.3408119999999,
+                288.939267
+              ]
+            },
+            "yuku-current": {
+              "warm": [
+                271.3285012,
+                336.0526100000003,
+                469.5689493999991,
+                482.95193620000066,
+                428.0228039999987
+              ],
+              "first": [
+                325.993009,
+                498.512254,
+                729.385471,
+                672.692131,
+                442.27576899999997
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 96.91932499999966,
+              "first": 325.903009
+            },
+            "oxc": {
+              "warm": 262.79575619999997,
+              "first": 349.44713
+            },
+            "yuku": {
+              "warm": 1027.8600146000013,
+              "first": 1970.8928569999998
+            },
+            "swc-next": {
+              "warm": 381.16617140000017,
+              "first": 361.864297
+            },
+            "yuku-current": {
+              "warm": 428.0228039999987,
+              "first": 498.512254
+            }
+          }
+        },
+        {
+          "name": "/benchmark/official/official-yuku-react.js.json",
+          "cases": 1,
+          "selected": 1,
+          "coverage": {
+            "tmt": {
+              "accepted": 1,
+              "native": 0,
+              "backends": {
+                "javascript": 1
+              }
+            },
+            "oxc": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 1,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 1,
+              "native": 0
+            }
+          },
+          "inputSha256": "6686fc2e82fae3bcaf3672573879345e044b513eaf2d48a44c8d8f3c80a68fd1",
+          "samples": {
+            "tmt": {
+              "warm": [
+                0.16620220000040717,
+                0.1549938000011025,
+                0.1426685999991605,
+                0.12215999999898486,
+                0.19832779999997002
+              ],
+              "first": [
+                9.300874,
+                10.323178999999996,
+                13.338052999999995,
+                14.044896000000008,
+                9.335749000000007
+              ]
+            },
+            "oxc": {
+              "warm": [
+                2.133936800001538,
+                1.4173689999995986,
+                2.5127917999983764,
+                3.1761755999992602,
+                3.0623074000002815
+              ],
+              "first": [
+                33.579114000000004,
+                30.443656000000004,
+                116.46934300000001,
+                59.53171000000002,
+                77.03727699999999
+              ]
+            },
+            "yuku": {
+              "warm": [
+                5.067984199998318,
+                4.636820200001239,
+                4.98023300000059,
+                6.049297200000728,
+                7.246421599999303
+              ],
+              "first": [
+                107.93448000000001,
+                107.06755199999998,
+                160.872185,
+                185.592182,
+                181.10708
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                1.8851083999994445,
+                2.16709559999872,
+                4.866681400002562,
+                2.6031014000007415,
+                2.1275617999985115
+              ],
+              "first": [
+                4.252723000000003,
+                4.895732000000002,
+                6.51983700000001,
+                4.1973059999999975,
+                4.607103000000009
+              ]
+            },
+            "yuku-current": {
+              "warm": [
+                1.7247813999973005,
+                2.109619800001383,
+                1.5434038000006693,
+                2.4005070000013804,
+                2.8157542000000833
+              ],
+              "first": [
+                53.27779400000001,
+                55.407697,
+                63.642056,
+                128.70508999999998,
+                113.49293000000002
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 0.1549938000011025,
+              "first": 10.323178999999996
+            },
+            "oxc": {
+              "warm": 2.5127917999983764,
+              "first": 59.53171000000002
+            },
+            "yuku": {
+              "warm": 5.067984199998318,
+              "first": 160.872185
+            },
+            "swc-next": {
+              "warm": 2.16709559999872,
+              "first": 4.607103000000009
+            },
+            "yuku-current": {
+              "warm": 2.109619800001383,
+              "first": 63.642056
+            }
+          }
+        },
+        {
+          "name": "/benchmark/official/official-oxc-transform-renderer.ts.json",
+          "cases": 1,
+          "selected": 1,
+          "coverage": {
+            "tmt": {
+              "accepted": 1,
+              "native": 0,
+              "backends": {
+                "pulse+node-strip": 1
+              }
+            },
+            "oxc": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 0,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 0,
+              "native": 0
+            }
+          },
+          "inputSha256": "b512bee302cbf1ae0ef0babf1cb9ad9e824af05de50b399ab0da93e1bacb4b50",
+          "samples": {
+            "tmt": {
+              "warm": [
+                22.812462400001824,
+                14.676537199999439,
+                13.499488199999906,
+                13.053448999999091,
+                11.317467599999508
+              ],
+              "first": [
+                128.664756,
+                138.42684500000001,
+                141.229965,
+                141.849599,
+                162.18203599999998
+              ]
+            },
+            "oxc": {
+              "warm": [
+                3.3974620000022697,
+                3.4962716000009095,
+                2.6923108000017235,
+                2.9780979999981354,
+                2.3189975999994203
+              ],
+              "first": [
+                68.60678899999999,
+                118.105783,
+                54.56430999999999,
+                56.35020900000001,
+                77.889621
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                3.39626200000057,
+                3.3853868000005605,
+                3.143591999998898,
+                3.4358042000007116,
+                3.1578336000005947
+              ],
+              "first": [
+                6.834340999999995,
+                5.053234000000003,
+                5.712700999999996,
+                6.362502000000006,
+                5.050567999999998
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 13.499488199999906,
+              "first": 141.229965
+            },
+            "oxc": {
+              "warm": 2.9780979999981354,
+              "first": 68.60678899999999
+            },
+            "swc-next": {
+              "warm": 3.3853868000005605,
+              "first": 5.712700999999996
+            }
+          }
+        },
+        {
+          "name": "/benchmark/official/official-swc-next-App.tsx.json",
+          "cases": 1,
+          "selected": 1,
+          "coverage": {
+            "tmt": {
+              "accepted": 1,
+              "native": 0,
+              "backends": {
+                "pulse+node-strip": 1
+              }
+            },
+            "oxc": {
+              "accepted": 1,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 1,
+              "native": 0
+            }
+          },
+          "inputSha256": "55c5704ef748350496177ebfd9aef722b05466dcd207de988b06345fee50729f",
+          "samples": {
+            "tmt": {
+              "warm": [
+                58.7431660000002,
+                68.69418979999901,
+                57.755606400000396,
+                49.271826200000945,
+                44.78513580000144
+              ],
+              "first": [
+                228.014205,
+                244.858812,
+                262.213754,
+                172.47327900000002,
+                132.258335
+              ]
+            },
+            "oxc": {
+              "warm": [
+                14.659420399999362,
+                16.709488799999235,
+                14.151775600001566,
+                12.899044399999548,
+                13.004296200000681
+              ],
+              "first": [
+                89.68819500000001,
+                76.58194300000001,
+                84.558672,
+                41.445091,
+                46.718687
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                20.003581200001644,
+                19.773403200000757,
+                21.064401799999178,
+                16.9989109999995,
+                16.935559799999464
+              ],
+              "first": [
+                24.400987999999998,
+                23.555222999999998,
+                28.736650999999995,
+                21.307348999999995,
+                22.073653
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 57.755606400000396,
+              "first": 228.014205
+            },
+            "oxc": {
+              "warm": 14.151775600001566,
+              "first": 76.58194300000001
+            },
+            "swc-next": {
+              "warm": 19.773403200000757,
+              "first": 23.555222999999998
+            }
+          }
+        }
+      ]
+    }
+  }
 }
