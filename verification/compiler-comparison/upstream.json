@@ -1,0 +1,42 @@
+{
+  "suites": [
+    {
+      "id": "oxc-transform",
+      "repository": "oxc-project/bench-transformer",
+      "revision": "f231ee598545160ecb217a0d6bec7ed1a0ebf29e",
+      "files": [
+        { "path": "fixtures/parser.ts", "sha256": "2ad44b9862b02e313ee0cf926ea57a93ce263c3e8177a2c58c8f7c42169c15af", "emit": true },
+        { "path": "fixtures/renderer.ts", "sha256": "367b66a78490ca50e2154c0fcc94a148adc2d24f13a9db7997f6e456364fc1a0", "emit": true },
+        { "path": "fixtures/UserSettings.tsx", "sha256": "8409031a7f4d350f676e7835fe09cd2c20347d7ab96abd2097f31fe0fad1a86e", "emit": true },
+        { "path": "fixtures/table.tsx", "sha256": "6d9f70688cc209cd0b22dd18b310808007b738b879e191c2ddfa13a72037c04d", "emit": true }
+      ]
+    },
+    {
+      "id": "oxc-parser",
+      "repository": "oxc-project/bench-javascript-parser-written-in-rust",
+      "revision": "9dc757153c416f39b6350ce68b44a0f26bcee287",
+      "files": [
+        { "path": "files/cal.com.tsx", "sha256": "9e5766aecbce9b71b6e0f1536386c40638e0c754c7e99ad157eb3f96a7e976b7" },
+        { "path": "files/typescript.js", "sha256": "804f9c1b6c64568c39dd48eee88b77ba92d0b5d0f44f425bc96bcfe052824644", "emit": true }
+      ]
+    },
+    {
+      "id": "swc-next",
+      "repository": "swc-project/swc-next",
+      "revision": "f34d2b07073935432d68ffc04b066c39fc4f2196",
+      "files": [
+        { "path": "tasks/benchmark/files/App.tsx", "sha256": "44f7de53b6370fe8126cd8f66eeafa0221b6114278ef2a40c437abbae26923c7", "emit": true }
+      ]
+    },
+    {
+      "id": "yuku",
+      "repository": "yuku-toolchain/parser-benchmark-files",
+      "revision": "e25ab06730f743838b2c693d2126ea0162a661c6",
+      "files": [
+        { "path": "checker.ts", "sha256": "ae146e68e6a201befeb45683310d13fc5eaa8875146daf046203a49648286ab1", "emit": true },
+        { "path": "react.js", "sha256": "ec670cc82d2aac81844bae49353d11bef1a8a21e727290a3bcc24a2928839496", "emit": true },
+        { "path": "lib.dom.d.ts", "sha256": "d6b1eba8496bdd0eed6fc8a685768fe01b2da4a0388b5fe7df558290bffcf32f" }
+      ]
+    }
+  ]
+}

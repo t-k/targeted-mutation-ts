@@ -26,3 +26,11 @@ NODE_OPTIONS="--experimental-vm-modules --max-old-space-size=512" \
 The benchmark prints which inputs produced valid JavaScript on each route, exact checks for the synthetic fixtures, and warm and first-process samples. A common-input timing excludes a file if one engine produces no valid JavaScript. The coverage counts record every measured input before this restriction.
 
 The `jsx` and `enum` workloads execute the generated fixtures against independent expected results. Files named `*.tsx.json` select a real TSX workload. These comparisons omit Yuku because the parser and code generator used here do not provide the corresponding JSX and enum lowering API. The benchmark never evaluates code from the real corpus or loads its configuration.
+
+## Published workloads
+
+Run `node scripts/fetch-compiler-benchmarks.mjs` to stage the pinned upstream source blobs and check their SHA-256 digests. The generated case JSON files are under `build/compiler-upstream`. Download dependencies in a disposable environment with lifecycle scripts disabled. Install `yuku@0.28.1` there to compare its unified parse/print API.
+
+Run the compiler comparison with `TMT_BENCH_NO_TYPESCRIPT=1` to block TypeScript in the timed compiler. Use `TMT_COMPARE_CURRENT_YUKU=1` to include the unified Yuku engine. Pass the generated `official-*.json` files to `scripts/bench-compiler.mjs` in addition to project corpora. The per-file results record engine declines and compare timings only for engines that produce valid JavaScript. No upstream benchmark code or project configuration runs.
+
+The original workloads and exact input digests are listed in [upstream.json](upstream.json). Timing AST parsing requires equivalent AST output APIs. The public Cal.com benchmark input contains repeated default exports and the DOM fixture is a declaration library. They remain parser inputs.

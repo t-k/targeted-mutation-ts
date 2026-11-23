@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { createRequire, stripTypeScriptTypes } from 'node:module';
+import { createRequire, registerHooks, stripTypeScriptTypes } from 'node:module';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { SourceTextModule, createContext } from 'node:vm';
@@ -10,6 +10,7 @@ import { SourceTextModule, createContext } from 'node:vm';
 const entry = fileURLToPath(import.meta.url);
 const require = createRequire(import.meta.url);
 const engines = ['tmt', 'oxc', 'yuku', 'swc-next'];
+if (process.env.TMT_COMPARE_CURRENT_YUKU === '1') engines.push('yuku-current');
 const rounds = 5;
 
 function isTsxCorpus(path) { return path.endsWith('.tsx.json'); }
@@ -30,7 +31,7 @@ function readCases(path) {
       return { file: path === 'jsx' ? 'view.tsx' : 'flags.ts', source, bytes: Buffer.from(source), lowering: path, value };
     });
   }
-  const dialect = isTsxCorpus(path) ? /\.tsx$/i : /\.m?ts$/i;
+  const dialect = isTsxCorpus(path) ? /\.tsx$/i : path.endsWith('.js.json') ? /\.m?js$/i : /\.m?ts$/i;
   return JSON.parse(readFileSync(path, 'utf8'))
     .filter(test => dialect.test(test.file) && !/\.d\.m?ts$/i.test(test.file) && test.mode === 'module')
     .map(({ file, source }) => {
@@ -41,8 +42,23 @@ function readCases(path) {
 
 async function load(name) {
   if (name === 'tmt') {
+    if (process.env.TMT_BENCH_NO_TYPESCRIPT === '1') {
+      registerHooks({ resolve(specifier, context, next) {
+        if (specifier === 'typescript' || /typescript-syntax\.[cm]?js$/.test(specifier)) {
+          throw Object.assign(new Error(specifier), { code: 'BENCH_TYPESCRIPT_LOAD' });
+        }
+        return next(specifier, context);
+      } });
+    }
     const { compile } = require('../src/compiler.cjs');
-    return test => compile(test.bytes, { file: test.file });
+    return test => {
+      try {
+        return compile(test.bytes, { file: test.file });
+      } catch (error) {
+        if (error.code !== 'BENCH_TYPESCRIPT_LOAD') throw error;
+        return { backend: 'typescript-required', code: null };
+      }
+    };
   }
   if (name === 'node-strip') {
     return test => ({ code: stripTypeScriptTypes(test.source) });
@@ -60,10 +76,20 @@ async function load(name) {
   if (name === 'yuku') {
     const [{ parse }, { generate }] = await Promise.all([import('yuku-parser'), import('yuku-codegen')]);
     return test => {
-      const parsed = parse(test.source, { path: test.file, lang: 'ts', sourceType: 'module',
+      const parsed = parse(test.source, { path: test.file, lang: /\.m?js$/i.test(test.file) ? 'js' : 'ts', sourceType: 'module',
         preserveParens: true, semanticErrors: true });
       if (parsed.diagnostics.length) return { code: null };
       const result = generate(parsed.program, { strip: true, comments: 'all' });
+      return { code: result.diagnostics.length ? null : result.code };
+    };
+  }
+  if (name === 'yuku-current') {
+    const { parse, print } = await import('yuku');
+    return test => {
+      const source = parse(test.bytes, { filename: test.file, lang: /\.m?js$/i.test(test.file) ? 'js' : 'ts',
+        sourceType: 'module', preserveParens: true });
+      if (source.diagnostics.length) return { code: null };
+      const result = print(source, { strip: true, comments: 'all' });
       return { code: result.diagnostics.length ? null : result.code };
     };
   }
@@ -116,7 +142,7 @@ async function inspect(name, run, test) {
   let result;
   try {
     result = run(test);
-    if (result.code === null) return { accepted: false, native: false };
+    if (result.code === null) return { accepted: false, native: false, backend: result.backend };
     const module = new SourceTextModule(result.code);
     if (test.expected !== undefined) {
       assert.match(result.code, new RegExp(`^export\\s+const\\s+pick\\s*=\\s*(?:\\(\\s*x\\s*\\)|x)\\s*=>\\s*x\\s*>=\\s*${test.expected}\\s*;?\\s*$`));
@@ -148,8 +174,10 @@ if (first === '--first') {
   for (const path of paths) {
     const cases = readCases(path);
     const generated = path === 'synthetic' || path === 'jsx' || path === 'enum';
+    const official = path.includes('/official-');
+    if (official) assert.equal(cases.length, 1, path);
     const names = path === 'synthetic' ? [...engines, 'node-strip'] :
-      generated || isTsxCorpus(path) ? engines.filter(name => name !== 'yuku') : engines;
+      generated || isTsxCorpus(path) ? engines.filter(name => !name.startsWith('yuku')) : engines;
     const coverage = Object.fromEntries(names.map(name => [name, { accepted: 0, native: 0 }]));
     coverage.tmt.backends = {};
     let mask = '';
@@ -167,16 +195,24 @@ if (first === '--first') {
       }
       mask += Number(common);
     }
+    // A single official file can be timed for its supported output contracts.
+    // Preserve coverage counts for unavailable or unsupported engines.
+    const measured = official ? names.filter(name => coverage[name].accepted === 1) : names;
+    if (official && measured.includes('tmt') && measured.length > 1) mask = '1';
     const selected = cases.filter((_, index) => mask[index] === '1');
-    assert.ok(selected.length, path);
     if (generated) assert.equal(selected.length, cases.length);
     const result = { name: path, cases: cases.length, selected: selected.length, coverage,
       inputSha256: generated ? null : createHash('sha256').update(readFileSync(path)).digest('hex'),
-      samples: Object.fromEntries(names.map(name => [name, { warm: [], first: [] }])) };
-    const iterations = generated ? 25 : 1;
-    const expected = Object.fromEntries(names.map(name => [name, sample(active[name], selected, 1).sum]));
+      samples: Object.fromEntries(measured.map(name => [name, { warm: [], first: [] }])) };
+    if (!selected.length) {
+      reports.push({ ...result, medians: {} });
+      console.error(path, JSON.stringify({ selected: 0, coverage }));
+      continue;
+    }
+    const iterations = generated ? 25 : official ? 5 : 1;
+    const expected = Object.fromEntries(measured.map(name => [name, sample(active[name], selected, 1).sum]));
     for (let turn = 0; turn < rounds; turn++) {
-      const order = [...names.slice(turn % names.length), ...names.slice(0, turn % names.length)];
+      const order = [...measured.slice(turn % measured.length), ...measured.slice(0, turn % measured.length)];
       for (const name of order) {
         const warm = sample(active[name], selected, iterations);
         assert.equal(warm.sum, iterations * expected[name]);
@@ -191,7 +227,7 @@ if (first === '--first') {
         result.samples[name].first.push(cold.ms);
       }
     }
-    result.medians = Object.fromEntries(names.map(name => [name, Object.fromEntries(
+    result.medians = Object.fromEntries(measured.map(name => [name, Object.fromEntries(
       Object.entries(result.samples[name]).map(([mode, list]) => [
         mode, list.toSorted((a, b) => a - b)[Math.floor(list.length / 2)],
       ]))]));

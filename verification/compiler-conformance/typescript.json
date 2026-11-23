@@ -1,0 +1,14 @@
+{
+  "repository": "https://github.com/microsoft/TypeScript",
+  "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+  "cases": [
+    { "path": "conformance/externalModules/verbatimModuleSyntaxConstEnum.ts", "baseline": "verbatimModuleSyntaxConstEnum.js" },
+    { "path": "compiler/jsxFragmentWrongType.tsx", "baseline": "jsxFragmentWrongType.js", "options": { "jsx": "classic" } },
+    { "path": "compiler/commentOnExportEnumDeclaration.ts", "baseline": "commentOnExportEnumDeclaration.js", "options": { "module": "cjs" } },
+    { "path": "compiler/emptyEnum.ts", "baseline": "emptyEnum.js" },
+    { "path": "compiler/jsxAttributeWithoutExpressionReact.tsx", "baseline": "jsxAttributeWithoutExpressionReact.js", "options": { "jsx": "classic" } },
+    { "path": "conformance/jsx/tsxReactEmit1.tsx", "baseline": "tsxReactEmit1.js", "options": { "jsx": "classic" } },
+    { "path": "conformance/jsx/tsxReactEmit2.tsx", "baseline": "tsxReactEmit2.js", "options": { "jsx": "classic" } },
+    { "path": "conformance/jsx/tsxFragmentReactEmit.tsx", "baseline": "tsxFragmentReactEmit.js", "options": { "jsx": "classic" } }
+  ]
+}

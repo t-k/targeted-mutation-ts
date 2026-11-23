@@ -1,0 +1,37 @@
+[
+  {
+    "file": "packages/vite/src/node/server/pluginContainer.ts",
+    "source": "30f1a9a3ddf4cbfb157dd60afaaedf34adc064175d9ab5b55a020886709d5c1c",
+    "actual": "a4c525db99bb34fefed85036195e044d2eade5fa59d6c8db7fe7fb9a7cdf5434",
+    "expected": "22afdc478c5c68f8cc702200666c72d9dafd612ae348fcf011cb00102a97b953",
+    "reason": "Constructor statement grouping"
+  },
+  {
+    "file": "packages/vite/src/node/ssr/ssrModuleLoader.ts",
+    "source": "a3f87505c1fe973ec2a122610cb969dcc3e1fdd2461439286e674c0c03c6e9cd",
+    "actual": "4a11713b3b842053216f694c176b8883112a5f762e617a4062eccc8d2633a6d9",
+    "expected": "8712a5c079d3bf3775ce47e685f9cfdf2f02ccbdf8109dc340b5d3328a6c21a6",
+    "reason": "Constructor statement grouping"
+  },
+  {
+    "file": "packages/vite/src/node/watch.ts",
+    "source": "5ec66aeea1bf529e21bd4fd8deb44cc4734f1d7da5e93d4b73341a47ebf6fe78",
+    "actual": "39bbb99b6a1e99618864b346f21f2f0576f6ca5f7c3f3fc0c29ba942b12ad905",
+    "expected": "6ac85a440786fb5537e858b6c190650bf80cee8d4a27fb88d69649380c153a52",
+    "reason": "Constructor statement grouping"
+  },
+  {
+    "file": "packages/query/src/form-mutation.ts",
+    "source": "7440d5692131acfa20f66506628b76c715795180572bf8aba5cd3067315cc057",
+    "actual": "41384b45b0c6526d88101d7b79fb2ef4d02c546b5da40e68665ea47f09a176b3",
+    "expected": "f8dd746523ec94c774945a93b5de2b548b5f1a01be650de1fb2c2d2c70673261",
+    "reason": "Constructor statement grouping"
+  },
+  {
+    "file": "packages/query/src/query-lifecycle.ts",
+    "source": "66542f1d74149e0c17067ba902e811dc9b833a1ed491d0202d16b5a87071e0a1",
+    "actual": "5a6eabba3fec16bd62441f8944e3d319e7250c19847b1fb793cf7fb6433b0e28",
+    "expected": "31c70bb046da81857750d4a7a19ffaa47d47d242a69ac4ee5a921169ec5257f6",
+    "reason": "Optional-chain parentheses"
+  }
+]
