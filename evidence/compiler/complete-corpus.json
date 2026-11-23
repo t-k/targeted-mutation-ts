@@ -2602,5 +2602,33 @@
         }
       }
     ]
+  },
+  "verification": {
+    "testSuite": {
+      "passed": 2872,
+      "failed": 0
+    },
+    "compilerFocused": {
+      "passed": 107,
+      "failed": 0
+    },
+    "fstar": {
+      "compilerVerified": true,
+      "compilerRegenerationMatched": true,
+      "extractorVerified": true
+    },
+    "pict": {
+      "rows": 9,
+      "validPairs": 21,
+      "requiredCases": 4
+    },
+    "tla": {
+      "distinctStates": 270,
+      "violations": 0
+    },
+    "killedMutants": [
+      "JSX key-after-spread helper selection",
+      "JSX expression span end"
+    ]
   }
 }
