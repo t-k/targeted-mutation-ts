@@ -29,12 +29,13 @@ function loadModuleAddon() {
   if (fullAddon === undefined) fullAddon = optionalAddon('../build/compiler-module.node');
   return fullAddon;
 }
-let validateJavaScript;
+let javascriptAddon;
+function javascriptValidators() {
+  if (javascriptAddon === undefined) javascriptAddon = optionalAddon('../build/compiler-js.node', true) ?? {};
+  return javascriptAddon;
+}
 function javascriptTextValidator() {
-  if (validateJavaScript === undefined) {
-    validateJavaScript = optionalAddon('../build/compiler-js.node', true)?.validModule ?? null;
-  }
-  return validateJavaScript;
+  return javascriptValidators().validModule ?? null;
 }
 const extensions = /\.(?:[cm]?[jt]s|[jt]sx)$/i;
 const declarations = /\.d\.[cm]?ts$/i;
@@ -109,6 +110,9 @@ function strictScript(source, file) {
   const strict = directive.test(source);
   if ((first === '"' || first === "'") && !strict) return null;
   const code = strict ? source : source.slice(0, hashbang) + '"use strict";\n' + source.slice(hashbang);
+  // Node can abort while decorating a syntax error from vm.Script. The addon asks V8 directly.
+  const valid = javascriptValidators().validScript;
+  if (valid) return valid(code) ? code : null;
   try {
     new (require('node:vm').Script)(code, { filename: file });
     return code;
