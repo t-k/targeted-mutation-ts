@@ -274,25 +274,27 @@ function compile(input, options = {}) {
     const skipsDirectAddon = typed && mode === 'transform' && source?.[0] === 105;
     const native = source && !skipsDirectAddon ? loadDirectAddon() : null;
     if (source && (skipsDirectAddon || native) && (validUtf8 ??= require('node:buffer').isUtf8)(source) &&
-        (skipsDirectAddon || mode === 'strip' || !source.includes('///') || !native.leadingDirective(source))) {
+        (skipsDirectAddon || mode === 'strip' || !native.leadingTripleSlash(source))) {
       const simple = native && typed && !jsxFile && direct !== null ? native.compile(source) : null;
       if (simple !== null) return { backend: 'pulse', code: simple, sourceMap: null, diagnostics: [] };
-      const runtime = mode === 'transform' && (jsxFile ? jsx !== 'preserve' &&
+      // Whole-source scans are deferred. The native emitters find enum declarations themselves.
+      let scanned;
+      const runtime = () => scanned ??= mode === 'transform' && (jsxFile ? jsx !== 'preserve' &&
         (!source.includes('@') || !/@jsx/i.test(source.toString('latin1'))) && !source.includes('_tmt') :
         typed && source.includes('enum') && /\benum\b/.test(typeof stableInput === 'string' ? stableInput : source.toString()));
-      if (runtime && native) {
+      // The single-declaration emitter accepts a TypeScript file only when it starts with an enum.
+      if (mode === 'transform' && native && (jsxFile ? runtime() : typed)) {
         const code = native.lower(source, jsxFile, typed, jsx === 'classic', false);
         if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
       }
-      if (mode === 'transform' && (typed || runtime)) {
+      if (mode === 'transform' && (typed || runtime())) {
         const addon = loadModuleAddon();
         if (addon) {
-          const hasAngles = typed && source.includes('<');
-          const moduleProjection = typed && (!jsxFile || !hasAngles);
+          const moduleProjection = typed && (!jsxFile || !source.includes('<'));
           const empty = moduleProjection ? addon.eraseTypeModule(source, format === 'esm') : null;
           if (empty !== null) return { backend: 'pulse', code: empty, sourceMap: null, diagnostics: [] };
           const annotated = moduleProjection ?
-            addon.emitAnnotatedModule(source, runtime, format === 'esm', format === 'preserve' && !jsxFile) : null;
+            addon.emitAnnotatedModule(source, jsxFile ? runtime() : undefined, format === 'esm', format === 'preserve' && !jsxFile) : null;
           if (typeof annotated === 'string') {
             return { backend: 'pulse', code: annotated, sourceMap: null, diagnostics: [] };
           }
@@ -308,7 +310,7 @@ function compile(input, options = {}) {
             const result = eraseLoweredModule(addon, annotated.code, file, format);
             if (result) return result;
           }
-          if (runtime && (!jsxFile || !source.includes('\\u'))) {
+          if (runtime() && (!jsxFile || !source.includes('\\u'))) {
             const mixed = addon.lower(source, jsxFile, typed, jsx === 'classic', true);
             if (mixed !== null) {
               if (typeof mixed !== 'string') {

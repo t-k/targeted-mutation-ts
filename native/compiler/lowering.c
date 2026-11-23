@@ -1452,7 +1452,25 @@ static bool retained_module_marker(TmtPulseMemory_tape input, uint32_t at, uint3
   return false;
 }
 
-static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, uint32_t marker, bool enums, bool esm, bool module,
+static bool word_byte(uint8_t byte) {
+  return (byte >= '0' && byte <= '9') || (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') || byte == '_';
+}
+
+/* The caller's hint is the regular expression \benum\b over the whole source. */
+static bool mentions_enum(const uint8_t *source, uint32_t size, tmt_enum_hint hint) {
+  if (hint != TMT_ENUMS_UNKNOWN) return hint == TMT_ENUMS_PRESENT;
+  for (uint32_t at = 0; size - at >= 4;) {
+    const uint8_t *found = memchr(source + at, 'e', size - at - 3);
+    if (!found) return false;
+    at = (uint32_t)(found - source);
+    if (!memcmp(found, "enum", 4) && (!at || !word_byte(source[at - 1])) &&
+        (size - at == 4 || !word_byte(source[at + 4]))) return true;
+    at++;
+  }
+  return false;
+}
+
+static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, uint32_t marker, tmt_enum_hint enums, bool esm, bool module,
   size_t *length, bool *complete)
 {
   char *code = NULL;
@@ -1464,14 +1482,15 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   *length = input.size;
   const bool needs_module_marker = code && esm && facts.remove_statement && !retained_module_marker(projected, marker, records);
   if (facts.properties) {
-    if (!module || enums) goto enum_only;
+    if (!module || mentions_enum(input.source, input.size, enums)) goto enum_only;
     char *lowered = emit_parameter_properties(input, code, records, facts.properties, length);
     if (!lowered) goto enum_only;
     free(code);
     code = lowered;
   }
   bool unlowered_enum = facts.runtime_enums;
-  if (enums) {
+  /* A committed enum record implies the word, so an unknown hint needs no scan here. */
+  if (enums != TMT_ENUMS_ABSENT) {
     char *lowered = lower_recorded_enums(projected, records, length);
     if (lowered) {
       free(code);
@@ -1500,11 +1519,11 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   return code;
 enum_only:
   free(code);
-  return enums ? lower_recorded_enums(input, records, length) : NULL;
+  return enums != TMT_ENUMS_ABSENT ? lower_recorded_enums(input, records, length) : NULL;
 }
 #endif
 
-char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool esm, bool allow_script,
+char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint enums, bool esm, bool allow_script,
   size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property)
 {
   *checked = false;
@@ -1518,7 +1537,8 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool
   if (!first.ok) return NULL;
   const uint32_t marker = find_marker(input, first.at, false);
   const bool module = marker < size;
-  if (!module && (!allow_script || enums || first.at == size || source[first.at] == '"' || source[first.at] == '\'')) return NULL;
+  if (!module && (!allow_script || first.at == size || source[first.at] == '"' || source[first.at] == '\'' ||
+      mentions_enum(source, size, enums))) return NULL;
   TmtGrammar_candidate *records = NULL;
   uint8_t *marks = NULL;
   if (size >= 4096) {
@@ -1586,6 +1606,17 @@ bool tmt_plain_script(uint8_t *source, uint32_t size) {
 }
 
 #endif
+
+/* Equals a triple slash anywhere in the source and a leading directive, without scanning ordinary files. */
+bool tmt_leading_triple_slash(uint8_t *source, uint32_t size) {
+  const TmtPulseMemory_tape input = { .source = source, .size = size };
+  const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
+  const uint32_t limit = first.ok ? first.at : size;
+  for (uint32_t index = 0; index + 2 < limit; index++) {
+    if (source[index] == '/' && source[index + 1] == '/' && source[index + 2] == '/') return true;
+  }
+  return false;
+}
 
 bool tmt_leading_directive(uint8_t *source, uint32_t size) {
   const TmtPulseMemory_tape input = { .source = source, .size = size };

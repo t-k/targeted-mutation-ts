@@ -232,6 +232,23 @@ static napi_value compile_ascii_export(napi_env env, napi_callback_info info) {
 }
 #endif
 
+static bool ascii_text(const char *text, size_t size) {
+  uint64_t seen = 0;
+  for (; size >= 8; text += 8, size -= 8) {
+    uint64_t word;
+    memcpy(&word, text, sizeof(word));
+    seen |= word;
+  }
+  for (; size; text++, size--) seen |= (uint8_t)*text;
+  return !(seen & UINT64_C(0x8080808080808080));
+}
+
+/* ASCII output needs no UTF-8 decoding. */
+static napi_status create_source_string(napi_env env, const char *text, size_t size, napi_value *result) {
+  return ascii_text(text, size) ? napi_create_string_latin1(env, text, size, result) :
+    napi_create_string_utf8(env, text, size, result);
+}
+
 static napi_value lower_source(napi_env env, napi_callback_info info) {
   napi_value args[5], result;
   size_t argc = 5, size, length;
@@ -247,7 +264,7 @@ static napi_value lower_source(napi_env env, napi_callback_info info) {
   NAPI(napi_get_value_bool(env, args[4], &mixed));
   if (size <= source_limit) output = tmt_lower_runtime(source, (uint32_t)size, jsx, typescript, classic, mixed, &length, &complete);
   if (output) {
-    NAPI(napi_create_string_utf8(env, output, length, &result));
+    NAPI(create_source_string(env, output, length, &result));
     if (complete) {
       napi_value code = result;
       NAPI(napi_create_object(env, &result));
@@ -268,22 +285,26 @@ error:
 static napi_value emit_annotated_module(napi_env env, napi_callback_info info) {
   napi_value args[4], result;
   size_t argc = 4, size, length;
-  bool enums, esm, allow_script = false, checked = false, complete = false, script = false;
+  bool enums = false, esm, allow_script = false, checked = false, complete = false, script = false;
+  napi_valuetype hint;
   tmt_parameter_route property = TMT_PARAMETER_NONE;
   void *source;
   char *output = NULL;
   NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
   if (argc != 3 && argc != 4) goto error;
   NAPI(napi_get_buffer_info(env, args[0], &source, &size));
-  NAPI(napi_get_value_bool(env, args[1], &enums));
+  /* An undefined hint lets the emitter look for the word only where the route depends on it. */
+  NAPI(napi_typeof(env, args[1], &hint));
+  if (hint != napi_undefined) NAPI(napi_get_value_bool(env, args[1], &enums));
   NAPI(napi_get_value_bool(env, args[2], &esm));
   if (argc == 4) NAPI(napi_get_value_bool(env, args[3], &allow_script));
   if (size <= source_limit) {
-    output = tmt_emit_annotated_module(source, (uint32_t)size, enums, esm, allow_script,
+    output = tmt_emit_annotated_module(source, (uint32_t)size,
+      hint == napi_undefined ? TMT_ENUMS_UNKNOWN : enums ? TMT_ENUMS_PRESENT : TMT_ENUMS_ABSENT, esm, allow_script,
       &length, &checked, &complete, &script, &property);
   }
   if (output) {
-    NAPI(napi_create_string_utf8(env, output, length, &result));
+    NAPI(create_source_string(env, output, length, &result));
     if (!complete || script) {
       napi_value code = result;
       NAPI(napi_create_object(env, &result));
@@ -394,6 +415,28 @@ error:
 
 #endif
 
+static napi_value leading_triple_slash(napi_env env, napi_callback_info info) {
+  napi_value arg, result;
+  size_t argc = 1, size;
+  void *source;
+  NAPI(napi_get_cb_info(env, info, &argc, &arg, NULL, NULL));
+  if (argc != 1) goto error;
+  NAPI(napi_get_buffer_info(env, arg, &source, &size));
+  bool directive;
+  if (size > source_limit) {
+    /* Oversized input never reaches the emitters. Report any triple slash as the caller's scan did. */
+    directive = false;
+    for (size_t index = 0; index + 2 < size && !directive; index++) {
+      directive = !memcmp((const char *)source + index, "///", 3);
+    }
+  } else directive = tmt_leading_triple_slash(source, (uint32_t)size);
+  NAPI(napi_get_boolean(env, directive, &result));
+  return result;
+error:
+  napi_throw_type_error(env, NULL, "Expected a source buffer");
+  return NULL;
+}
+
 static napi_value leading_directive(napi_env env, napi_callback_info info) {
   napi_value arg, result;
   size_t argc = 1, size;
@@ -437,6 +480,8 @@ static napi_value init(napi_env env, napi_value exports) {
   NAPI(napi_create_function(env, "triviaOnly", NAPI_AUTO_LENGTH, trivia_only, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "triviaOnly", entry));
 #endif
+  NAPI(napi_create_function(env, "leadingTripleSlash", NAPI_AUTO_LENGTH, leading_triple_slash, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "leadingTripleSlash", entry));
   NAPI(napi_create_function(env, "leadingDirective", NAPI_AUTO_LENGTH, leading_directive, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "leadingDirective", entry));
   return exports;
