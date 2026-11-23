@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { indexCoverage, assessTrial, planInThread, settleInThread, sharePlans } from '../src/standard-plan.mjs';
+import { cheapestFirst, indexCoverage, assessTrial, planInThread, settleInThread, sharePlans, unanswered, withoutMutations } from '../src/standard-plan.mjs';
 
 const rows = readFileSync(new URL('../verification/pict/session-plan.tsv', import.meta.url), 'utf8')
   .trim().split('\n').slice(1).map(line => line.trim().split('\t'));
@@ -70,7 +70,9 @@ test('an in-worker answer without activation, with a suite error or with a missi
   const plans = { a: [{ id: 'm', hits: 2, hitLimit: 200, static: false, total: 2, tests: ['t1', 't2'] }] };
   const event = { module: 'a', id: 'm', expected: 2, passed: 2, failed: [], errors: [], timeout: false, unhandled: 0, hits: 2 };
   assert.equal(settleInThread(plans, [event], names).get('m').status, 'survived');
-  for (const change of [{ hits: 0 }, { errors: ['afterAll failed'] }, { passed: 1 }, { hits: 0, failed: ['t1'], passed: 0 }]) {
+  // `foreign` counts tests the baseline did not run for this entry, and `missing` the ones no longer registered.
+  for (const change of [{ hits: 0 }, { errors: ['afterAll failed'] }, { passed: 1 }, { hits: 0, failed: ['t1'], passed: 0 },
+    { foreign: 1 }, { foreign: 1, failed: ['t1'], passed: 1 }, { missing: 1, failed: ['t1'], passed: 0 }]) {
     assert.equal(settleInThread(plans, [{ ...event, ...change }], names).has('m'), false, JSON.stringify(change));
   }
   assert.deepEqual(settleInThread(plans, [{ ...event, passed: 0, failed: ['t1'], timeout: true }], names).get('m'),
@@ -89,16 +91,20 @@ test('the in-worker plan gives each test file its own hits, tests and activation
     { modules: [['', '/w/b.test.ts']], coverage: { static: {}, perTest: { b1: { m: 4, s: 2 } } } },
   ];
   const pending = ['m', 's', 'n'].map(id => ({ mutant: { id }, plan: indexCoverage(records, tests)(id) }));
-  const plans = planInThread(records, tests, pending, '/w');
+  const timing = { tests: { a1: 5, a2: 7, b1: 40 }, collection: { '["","/w/a.test.ts"]': 100, '["","/w/b.test.ts"]': 10 } };
+  const plans = planInThread(records, tests, pending, '/w', timing);
+  // Without timing every entry costs nothing and keeps its place.
+  assert.ok(Object.values(planInThread(records, tests, pending, '/w')).flat().every(plan => plan.cost === 0));
   assert.deepEqual(plans, {
     '["","/w/a.test.ts"]': [
-      { id: 'm', hits: 3, hitLimit: 700, static: false, total: 2, tests: ['a1', 'a2'] },
-      { id: 's', hits: 2, hitLimit: 400, static: true, total: 2 },
+      { id: 'm', hits: 3, hitLimit: 700, static: false, cost: 112, tests: ['a1', 'a2'] },
+      // Active while the file loads, so all its tests run.
+      { id: 's', hits: 2, hitLimit: 400, static: true, cost: 112, tests: ['a1', 'a2'] },
     ],
     '["","/w/b.test.ts"]': [
-      { id: 'm', hits: 4, hitLimit: 700, static: false, total: 1, tests: ['b1'] },
+      { id: 'm', hits: 4, hitLimit: 700, static: false, cost: 50, tests: ['b1'] },
       // Reached only inside a test here, although another test file reaches it while loading.
-      { id: 's', hits: 2, hitLimit: 400, static: false, total: 1, tests: ['b1'] },
+      { id: 's', hits: 2, hitLimit: 400, static: false, cost: 50, tests: ['b1'] },
     ],
   });
   // Coverage that does not come as one record per test file cannot be split.
@@ -106,17 +112,17 @@ test('the in-worker plan gives each test file its own hits, tests and activation
   assert.equal(planInThread([records[0], records[0]], tests, pending, '/w'), null);
 });
 
-test('shares keep every planned entry once and stay within one entry of each other', () => {
+test('shares cut every test file across the lanes and keep each planned entry once', () => {
   const plans = { a: Array.from({ length: 7 }, (_, id) => ({ id })), b: [{ id: 7 }, { id: 8 }], c: [{ id: 9 }] };
   for (const count of [1, 2, 3, 4, 10, 40]) {
     const shares = sharePlans(plans, count);
-    assert.ok(shares.length <= count);
-    if (count <= 4) assert.equal(shares.length, count);
-    const sizes = shares.map(share => Object.values(share).flat().length);
-    assert.equal(sizes.reduce((sum, size) => sum + size, 0), 10);
-    assert.ok(Math.max(...sizes) - Math.min(...sizes) <= Math.ceil(10 / shares.length));
+    assert.equal(shares.length, Math.min(count, 7));
     const seen = shares.flatMap(share => Object.entries(share).flatMap(([module, list]) => list.map(plan => `${module}:${plan.id}`)));
-    assert.deepEqual(seen, ['a:0', 'a:1', 'a:2', 'a:3', 'a:4', 'a:5', 'a:6', 'b:7', 'b:8', 'c:9']);
+    assert.deepEqual(seen.sort(), ['a:0', 'a:1', 'a:2', 'a:3', 'a:4', 'a:5', 'a:6', 'b:7', 'b:8', 'c:9']);
+    // The longest file is spread evenly; a file with a single entry stays in the first lane.
+    const perLane = shares.map(share => share.a?.length ?? 0);
+    assert.ok(Math.max(...perLane) - Math.min(...perLane) <= 1, JSON.stringify(perLane));
+    assert.deepEqual(shares[0].c, [{ id: 9 }]);
   }
   assert.deepEqual(sharePlans({}, 4), []);
 });
@@ -140,5 +146,37 @@ test('in-worker settling at its edges: hit limit, unknown killers, mixed timeout
     { modules: [['edge', '/w/a.test.ts']], coverage: { static: {}, perTest: { p2: { m: 1 } } } },
   ];
   const plans = planInThread(records, tests, [{ mutant: { id: 'm' }, plan: indexCoverage(records, tests)('m') }], '/w');
-  assert.deepEqual(Object.values(plans).map(([plan]) => [plan.total, plan.tests]), [[1, ['p1']], [1, ['p2']]]);
+  assert.deepEqual(Object.values(plans).map(([plan]) => plan.tests), [['p1'], ['p2']]);
+});
+
+test('shares follow the estimated cost, and the cheapest test file takes each mutation first', () => {
+  const plans = {
+    slow: [{ id: 'x', cost: 90 }, { id: 'y', cost: 90 }, { id: 'only-slow', cost: 90 }],
+    fast: [{ id: 'x', cost: 10 }, { id: 'y', cost: 10 }, { id: 'z', cost: 10 }],
+    even: [{ id: 'z', cost: 10 }],
+  };
+  // Within a file the cut follows cost: one expensive entry weighs as much as the cheap ones together.
+  const uneven = sharePlans({ a: [{ id: 1, cost: 300 }, { id: 2, cost: 100 }, { id: 3, cost: 100 }, { id: 4, cost: 100 }] }, 2);
+  assert.deepEqual(uneven.map(share => share.a.map(plan => plan.id)), [[1], [2, 3, 4]]);
+  const { first, rest } = cheapestFirst(plans);
+  assert.deepEqual(first, { slow: [plans.slow[2]], fast: plans.fast });
+  // On equal cost the first test file listed keeps the mutation.
+  assert.deepEqual(rest, { slow: [plans.slow[0], plans.slow[1]], even: plans.even });
+  assert.deepEqual(withoutMutations(rest, new Set(['x', 'z'])), { slow: [plans.slow[1]] });
+  assert.deepEqual(withoutMutations(rest, new Set()), rest);
+  assert.deepEqual(cheapestFirst({}), { first: {}, rest: {} });
+});
+
+test('a run hands back what it did not answer, except in test files that stopped', () => {
+  const plans = { a: [{ id: 1 }, { id: 2 }, { id: 3 }], b: [{ id: 1 }, { id: 4 }], c: [{ id: 5 }] };
+  const events = [
+    { module: 'a', start: 1 }, { module: 'a', id: 1, failed: [], hits: 1 }, { module: 'a', start: 2 }, { module: 'a', yielded: true },
+    { module: 'b', id: 1, stuckControl: true }, { module: 'c', stop: 5, reason: 'control' },
+  ];
+  assert.deepEqual(unanswered(plans, events), { a: [{ id: 2 }, { id: 3 }], b: [{ id: 4 }] });
+  assert.deepEqual(unanswered(plans, []), plans);
+  assert.deepEqual(unanswered({ a: [{ id: 1 }] }, [{ module: 'a', id: 1, stuck: true }]), {});
+  // A control run that hung leaves its mutation for a fresh run, and no other answer replaces it.
+  const entry = { id: 'm', hits: 1, hitLimit: 100, static: false, tests: ['t1'] };
+  assert.equal(settleInThread({ a: [entry] }, [{ module: 'a', id: 'm', stuckControl: true }], names).has('m'), false);
 });

@@ -1,12 +1,14 @@
 import { appendFileSync, closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, rmSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { createRequire, enableCompileCache } from 'node:module';
 import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { failedTests, snapshotVitestRun } from './vitest-reporter.mjs';
-import { indexCoverage, agreesWithCoverage, assessTrial, planInThread, settleInThread, sharePlans } from './standard-plan.mjs';
+import { failedTests, snapshotVitestRun, timeVitestRun } from './vitest-reporter.mjs';
+import { indexCoverage, agreesWithCoverage, assessTrial, cheapestFirst, planInThread, settleInThread, sharePlans, unanswered, withoutMutations } from './standard-plan.mjs';
 import { checkReplay } from './lean-replay.mjs';
 import { inside } from './vitest.mjs';
 
+// Vitest and Vite are loaded on every run. Node keeps their compiled code between runs when it can.
+try { enableCompileCache?.(); } catch { /* The cache is an optimisation only. */ }
 const input = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const { workspace, config, files, mutants, focused, replay, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1 } = input;
 const destination = resolve(temporary, 'coverage.jsonl');
@@ -39,8 +41,8 @@ function follow(path) {
 }
 
 // A lane is one Vitest instance with its own worker. The first lane also runs the baseline and the isolated trials.
-async function openLane(index) {
-  const lane = { snapshot: null, events: resolve(temporary, `trials-${index}.jsonl`) };
+async function openLane(index, serial = false) {
+  const lane = { snapshot: null, events: resolve(temporary, `trials-${index}.jsonl`), serial };
   lane.context = await createContext(lane);
   lane.specs = await lane.context.globTestSpecifications(files);
   return lane;
@@ -48,13 +50,13 @@ async function openLane(index) {
 
 // Runs a lane's share of the planned mutations inside its worker, one Vitest run per round. A worker that stops
 // answering is replaced, its mutation is a timeout, and the rest continue in the next round.
-async function runInThread(lane, plans, limit) {
+async function runInThread(lane, plans, limit, deadline) {
   const events = [];
   let remaining = plans;
   while (Object.keys(remaining).length) {
     rmSync(lane.events, { force: true });
     lane.snapshot = null;
-    lane.context.provide('tmtSession', { phase: 'trials', plans: remaining, events: lane.events, runnerEntry });
+    lane.context.provide('tmtSession', { phase: 'trials', plans: remaining, events: lane.events, runnerEntry, deadline });
     const chosen = lane.specs.filter(spec => remaining[JSON.stringify([spec.project.name, spec.moduleId])]);
     if (!chosen.length) break;
     const read = follow(lane.events);
@@ -68,6 +70,7 @@ async function runInThread(lane, plans, limit) {
       for (const event of read()) {
         round.push(event);
         if (event.start !== undefined) started.set(event.module, { id: event.start, at: Date.now() });
+        else if (event.control !== undefined) started.set(event.module, { id: event.control, at: Date.now(), control: true });
         else started.delete(event.module);
       }
       if (ended) break;
@@ -80,7 +83,8 @@ async function runInThread(lane, plans, limit) {
       if (lane.snapshot && lane.snapshot.errors.length <= flagged) events.push(...round);
       break;
     }
-    events.push(...round, { module: stuck[0], id: stuck[1].id, stuck: true });
+    // A worker that hangs in the control run says nothing about the mutation, which then gets a fresh run.
+    events.push(...round, { module: stuck[0], id: stuck[1].id, ...(stuck[1].control ? { stuckControl: true } : { stuck: true }) });
     const answered = new Set(round.filter(event => event.id !== undefined).map(event => JSON.stringify([event.module, event.id])));
     const stopped = new Set(round.filter(event => event.stop !== undefined).map(event => event.module));
     remaining = Object.fromEntries(Object.entries(remaining).filter(([module]) => !stopped.has(module))
@@ -93,8 +97,7 @@ async function runInThread(lane, plans, limit) {
   return events;
 }
 
-async function run(specs, state) {
-  const lane = lanes[0];
+async function run(specs, state, lane = lanes[0]) {
   lane.snapshot = null;
   rmSync(destination, { force: true });
   lane.context.provide('tmtSession', { ...state, destination });
@@ -151,25 +154,30 @@ try {
   if (!version.startsWith('4.')) throw new Error(`The standard profile requires Vitest 4, found ${version}`);
   supportsIds = !version.startsWith('4.0.');
   runnerEntry = pathToFileURL(realpathSync(createRequire(require.resolve('vitest/package.json')).resolve('@vitest/runner'))).href;
+  // Test files run beside each other when the project allows it: each has its own worker, and its coverage and
+  // its mutations are kept per file. Recorded comparisons are replayed in a fixed order, so that profile stays serial.
+  const oneByOne = { maxWorkers: 1, fileParallelism: false };
+  const beside = focused.length || concurrency === 1 || isolatedTrials ? oneByOne : { maxWorkers: concurrency };
   createContext = async lane => {
+    const workers = lane.serial ? oneByOne : beside;
     const created = await createVitest('test', {
       root: workspace, config, watch: false, api: false, ui: false, cache: false,
-      pool: 'threads', isolate: true, maxWorkers: 1, maxConcurrency: 1, fileParallelism: false,
+      pool: 'threads', isolate: true, maxConcurrency: 1, ...workers,
       coverage: { enabled: false }, onConsoleLog: () => false, bail: 1,
-      reporters: [{ onTestRunEnd(modules, errors, reason) { lane.snapshot = snapshotVitestRun(workspace, modules, errors, reason); } }],
+      reporters: [{ onTestRunEnd(modules, errors, reason) {
+        lane.snapshot = snapshotVitestRun(workspace, modules, errors, reason);
+        lane.timing = timeVitestRun(modules);
+      } }],
     });
     for (const project of created.projects) {
       if (project.config.browser?.enabled || project.config.typecheck?.enabled || project.config.runner) {
         throw new Error('The standard profile requires the default Vitest runner without browser mode or type checking');
       }
       Object.assign(project.config, { setupFiles: [setup, ...project.config.setupFiles],
-        runner: workerRunner, pool: 'threads', isolate: true, maxWorkers: 1, maxConcurrency: 1, fileParallelism: false, bail: 1 });
+        runner: workerRunner, pool: 'threads', isolate: true, maxConcurrency: 1, ...workers, bail: 1 });
     }
     return created;
   };
-  // Further lanes start while the baseline runs. They are only used when the plan is large enough to share.
-  const laneCount = isolatedTrials ? 1 : Math.max(1, Math.min(concurrency, Math.ceil((mutants.length + focused.length) / 24)));
-  const opening = Array.from({ length: laneCount - 1 }, (_, index) => openLane(index + 1).then(lane => lanes.push(lane), () => {}));
   lanes.push(await openLane(0));
   const { specs } = lanes[0];
   const discovered = new Set(specs.map(spec => inside(workspace, spec.moduleId)));
@@ -179,6 +187,7 @@ try {
   const baselineState = { phase: 'baseline', focusedIds: focused.map(({ id }) => id) };
   const baselineStarted = Date.now();
   const baseline = await run(specs, baselineState);
+  const baselineTiming = lanes[0].timing;
   const baselineTime = Date.now() - baselineStarted;
   const passed = baseline.snapshot.tests.filter(test => test.status === 'passed');
   const tests = new Map(passed.map(test => [test.id, test]));
@@ -237,15 +246,42 @@ try {
       }
       pending.push({ mutant, plan });
     }
-    const plans = isolatedTrials ? null : planInThread(baseline.records, tests, pending, workspace);
+    const plans = isolatedTrials ? null : planInThread(baseline.records, tests, pending, workspace, baselineTiming);
     let settled = new Map();
     let isolated = 0;
-    await Promise.all(opening);
+    let fresh;
     if (plans) {
       const limit = 15_000 + 3 * baselineTime;
-      const shares = sharePlans(plans, lanes.length);
-      const events = await Promise.all(shares.map((share, index) => runInThread(lanes[index], share, limit)));
-      settled = settleInThread(plans, events.flat(), tests);
+      // The first lane starts alone with a deadline. Most plans end within it. What is left is timed by then, and a
+      // further lane, which costs a Vitest instance, its transforms and an environment per test file, opens for
+      // every six seconds of measured work in the longest test file.
+      const inLanes = async step => {
+        const pilot = await runInThread(lanes[0], step, limit, Date.now() + 2_000);
+        const left = unanswered(step, pilot);
+        const entries = Object.values(left).flat();
+        if (!entries.length) return pilot;
+        const timed = pilot.filter(event => event.elapsed !== undefined);
+        const planned = new Map(Object.entries(step).flatMap(([module, list]) => list.map(plan => [JSON.stringify([module, plan.id]), plan])));
+        const paid = timed.reduce((sum, event) => sum + planned.get(JSON.stringify([event.module, event.id])).cost + 1, 0);
+        // Before anything was timed, an entry is taken as its baseline cost twice: a trial and a control run.
+        const rate = timed.length ? timed.reduce((sum, event) => sum + event.elapsed, 0) / paid : 2;
+        // Test files already run beside each other inside a lane. A further lane only helps the longest file.
+        const work = Math.max(...Object.values(left).map(list => list.reduce((sum, plan) => sum + (plan.cost + 1) * rate, 0)));
+        const wanted = Math.max(1, Math.min(concurrency, Math.ceil(work / 6_000)));
+        const opened = await Promise.all(Array.from({ length: Math.max(0, wanted - lanes.length) },
+          (_, index) => openLane(lanes.length + index).catch(() => null)));
+        lanes.push(...opened.filter(Boolean));
+        const shares = sharePlans(left, Math.min(wanted, lanes.length));
+        return [...pilot, ...(await Promise.all(shares.map((share, index) => runInThread(lanes[index], share, limit)))).flat()];
+      };
+      const { first, rest } = cheapestFirst(plans);
+      const firstEvents = await inLanes(first);
+      const killed = new Set([...settleInThread(first, firstEvents, tests)].filter(([, verdict]) => verdict.status === 'killed').map(([id]) => id));
+      const restEvents = await inLanes(withoutMutations(rest, killed));
+      // A mutation killed in the first step is settled by that step alone. The others need every test file's answer.
+      const decisive = Object.fromEntries(Object.entries(plans).map(([module, list]) =>
+        [module, list.filter(plan => !killed.has(plan.id) || first[module]?.includes(plan))]).filter(([, list]) => list.length));
+      settled = settleInThread(decisive, [...firstEvents, ...restEvents], tests);
     }
     for (const { mutant, plan } of pending) {
       const { id } = mutant;
@@ -257,12 +293,15 @@ try {
         continue;
       }
       isolated++;
-      const selected = chooseTests(lanes[0].specs, tests, plan);
+      // A fresh run stops at its first failing test. Beside each other, test files would be cut off mid-run,
+      // so these runs take the files one by one.
+      fresh ??= beside === oneByOne ? lanes[0] : await openLane('fresh', true).then(lane => (lanes.push(lane), lane));
+      const selected = chooseTests(fresh.specs, tests, plan);
       const hitLimit = plan.hits * 100;
-      const trial = await run(selected, { id, phase: 'trial', active: id, hitLimit, staticActivation: plan.staticActivation });
+      const trial = await run(selected, { id, phase: 'trial', active: id, hitLimit, staticActivation: plan.staticActivation }, fresh);
       record({ id, ...assessTrial(trial, expected, hitLimit), ...covering });
     }
-    record({ trials: { workers: plans ? lanes.length : 1, inWorker: settled.size, isolated } });
+    record({ trials: { workers: plans ? lanes.filter(lane => !lane.serial).length : 1, inWorker: settled.size, isolated } });
     record({ complete: true });
   }
   exitStatus = 0;

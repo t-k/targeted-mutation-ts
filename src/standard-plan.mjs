@@ -70,7 +70,7 @@ export function assessTrial(trial, expectedTests, hitLimit) {
 
 // Splits each pending mutation over the test files that reach it. A test file runs its share inside one worker.
 // Returns null when the baseline did not report exactly one record per test file.
-export function planInThread(records, tests, pending, workspace) {
+export function planInThread(records, tests, pending, workspace, timing = { tests: {}, collection: {} }) {
   const modules = new Map();
   for (const record of records) {
     if (record.modules?.length !== 1) return null;
@@ -78,15 +78,19 @@ export function planInThread(records, tests, pending, workspace) {
     const key = JSON.stringify([project, file]);
     if (modules.has(key)) return null;
     const own = new Map([...tests].filter(([, test]) => test.project === project && resolve(workspace, test.file) === file));
-    modules.set(key, { coverage: indexCoverage([record], own), total: own.size });
+    modules.set(key, { coverage: indexCoverage([record], own), own: [...own.keys()] });
   }
   const plans = {};
   for (const { mutant, plan } of pending) {
-    for (const [key, { coverage, total }] of modules) {
+    for (const [key, { coverage, own }] of modules) {
       const local = coverage(mutant.id);
       if (!local.hits) continue;
-      (plans[key] ??= []).push({ id: mutant.id, hits: local.hits, hitLimit: plan.hits * 100, static: local.staticActivation, total,
-        ...(local.staticActivation ? {} : { tests: [...local.covered] }) });
+      // One run of this entry: loading the test file, then the tests it selects.
+      const cost = (timing.collection[key] ?? 0) + (local.staticActivation ? own : [...local.covered])
+        .reduce((sum, test) => sum + (timing.tests[test] ?? 0), 0);
+      // A mutation that is active while the file loads runs every test of the file.
+      (plans[key] ??= []).push({ id: mutant.id, hits: local.hits, hitLimit: plan.hits * 100, static: local.staticActivation, cost,
+        tests: local.staticActivation ? own : [...local.covered] });
     }
   }
   return plans;
@@ -95,7 +99,8 @@ export function planInThread(records, tests, pending, workspace) {
 function classify(plan, event) {
   if (!event) return 'open';
   if (event.stuck) return 'timeout';
-  if (event.unhandled || event.errors?.length) return 'open';
+  if (event.stuckControl) return 'open';
+  if (event.unhandled || event.errors?.length || event.foreign || event.missing) return 'open';
   if (event.hits > plan.hitLimit || event.timeout) return 'timeout';
   if (event.hits > 0 && event.failed.length) return 'killed';
   if (event.hits > 0 && event.passed === event.expected) return 'survived';
@@ -129,16 +134,55 @@ export function settleInThread(plans, events, tests) {
   return settled;
 }
 
-// Cuts the plan into near-equal shares, one per lane. A test file's list stays together unless it crosses a cut.
+// Cuts each test file's list into parts of near-equal estimated cost, one part per lane. A lane runs its test
+// files beside each other, so every lane gets a part of every file that is long enough to cut.
 export function sharePlans(plans, count) {
-  const entries = Object.entries(plans).flatMap(([module, list]) => list.map(plan => [module, plan]));
-  const lanes = Math.max(1, Math.min(count, entries.length));
-  const size = Math.ceil(entries.length / lanes);
   const shares = [];
-  for (let start = 0; start < entries.length; start += size) {
-    const share = {};
-    for (const [module, plan] of entries.slice(start, start + size)) (share[module] ??= []).push(plan);
-    shares.push(share);
+  for (const [module, list] of Object.entries(plans)) {
+    const lanes = Math.max(1, Math.min(count, list.length));
+    const weight = plan => (plan.cost ?? 0) + 1;
+    const total = list.reduce((sum, plan) => sum + weight(plan), 0);
+    let spent = 0;
+    for (const plan of list) {
+      // An entry belongs to the lane in which its midpoint falls.
+      const lane = Math.min(lanes - 1, Math.floor((spent + weight(plan) / 2) * lanes / total));
+      spent += weight(plan);
+      ((shares[lane] ??= {})[module] ??= []).push(plan);
+    }
   }
-  return shares;
+  return [...shares].filter(Boolean);
+}
+
+// The first step runs each mutation only in the test file where it is cheapest. Most mutations are killed there,
+// and the other test files then run only what is left.
+export function cheapestFirst(plans) {
+  const cheapest = new Map();
+  for (const [module, list] of Object.entries(plans)) {
+    for (const plan of list) {
+      const best = cheapest.get(plan.id);
+      if (!best || (plan.cost ?? 0) < (best.plan.cost ?? 0)) cheapest.set(plan.id, { module, plan });
+    }
+  }
+  const first = {};
+  const rest = {};
+  for (const [module, list] of Object.entries(plans)) {
+    for (const plan of list) ((cheapest.get(plan.id).module === module ? first : rest)[module] ??= []).push(plan);
+  }
+  return { first, rest };
+}
+
+// The plan without the entries of the given mutations.
+export function withoutMutations(plans, ids) {
+  return Object.fromEntries(Object.entries(plans).map(([module, list]) => [module, list.filter(plan => !ids.has(plan.id))])
+    .filter(([, list]) => list.length));
+}
+
+// What a run left for another one: entries without an answer in test files that did not stop.
+// A stopped test file keeps its unanswered entries for fresh runs, and a worker that hung has its mutation settled.
+export function unanswered(plans, events) {
+  const stopped = new Set(events.filter(event => event.stop !== undefined).map(event => event.module));
+  const done = new Set(events.filter(event => event.id !== undefined).map(event => JSON.stringify([event.module, event.id])));
+  return Object.fromEntries(Object.entries(plans).filter(([module]) => !stopped.has(module))
+    .map(([module, list]) => [module, list.filter(plan => !done.has(JSON.stringify([module, plan.id])))])
+    .filter(([, list]) => list.length));
 }

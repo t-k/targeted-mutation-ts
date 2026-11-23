@@ -34,14 +34,20 @@ function choose(suite, selected) {
   return any;
 }
 
-function summarize(suite, summary) {
+// `expected` holds the tests the baseline ran for this entry. A test outside it that ran, or one of them that is
+// no longer registered, means the file now holds different tests, which only a fresh run can judge.
+function summarize(suite, summary, expected) {
   for (const error of suite.result?.errors ?? []) summary.errors.push(String(error.message ?? error));
   for (const task of suite.tasks) {
-    if (task.type !== 'test') summarize(task, summary);
-    else if (task.result?.state === 'pass') summary.passed++;
-    else if (task.result?.state === 'fail') {
-      summary.failed.push(task.id);
-      summary.timeout ||= (task.result.errors ?? []).some(timedOut);
+    if (task.type !== 'test') summarize(task, summary, expected);
+    else if (expected.has(task.id)) summary.missing--;
+    if (task.type === 'test' && (task.result?.state === 'pass' || task.result?.state === 'fail')) {
+      if (!expected.has(task.id)) summary.foreign++;
+      if (task.result.state === 'pass') summary.passed++;
+      else {
+        summary.failed.push(task.id);
+        summary.timeout ||= (task.result.errors ?? []).some(timedOut);
+      }
     }
   }
   return summary;
@@ -66,19 +72,29 @@ export default class StandardMutationRunner extends VitestTestRunner {
         const { startTests } = await import(state.runnerEntry);
         const inner = this.#engine(startTests, path);
         for (const plan of plans) {
+          // Past the deadline the session takes the rest back and decides how many workers it is worth.
+          if (state.deadline !== undefined && Date.now() > state.deadline) {
+            emit({ yielded: true });
+            break;
+          }
+          const began = Date.now();
           emit({ start: plan.id });
-          const expected = plan.tests?.length ?? plan.total;
-          const trial = await inner({ phase: 'trial', active: plan.id, hitLimit: plan.hitLimit, staticActivation: plan.static }, plan.tests);
+          const expected = plan.tests.length;
+          const selected = plan.static ? undefined : plan.tests;
+          const trial = await inner({ phase: 'trial', active: plan.id, hitLimit: plan.hitLimit, staticActivation: plan.static }, selected, plan.tests);
           const hits = globalThis.__stryker__.hitCount;
+          // From here on a silent worker is a failed control, not a mutation that never returns.
+          emit({ control: plan.id });
           // The same tests without the mutation, directly afterwards. They must behave as in the baseline, or the
           // trial ran in an environment that an earlier run, or the trial itself, had changed.
-          const control = await inner({ phase: 'control' }, plan.tests);
+          const control = await inner({ phase: 'control' }, selected, plan.tests);
           const controlHits = globalThis.__stryker__.mutantCoverage?.static?.[plan.id] ?? 0;
-          if (control.unhandled || control.errors.length || control.failed.length || control.passed !== expected || controlHits !== plan.hits) {
+          if (control.unhandled || control.errors.length || control.failed.length || control.foreign || control.missing || control.passed !== expected ||
+              controlHits !== plan.hits) {
             emit({ stop: plan.id, reason: 'control' });
             break;
           }
-          emit({ id: plan.id, expected, ...trial, hits });
+          emit({ id: plan.id, expected, ...trial, hits, elapsed: Date.now() - began });
         }
         await inner.reset();
       } catch (error) {
@@ -132,15 +148,16 @@ export default class StandardMutationRunner extends VitestTestRunner {
       if (trial) globalThis[trialKey] = trial;
       else delete globalThis[trialKey];
     };
-    const inner = async (trial, tests) => {
+    const inner = async (trial, tests, baselineTests) => {
       await reset(trial);
       selected = tests && new Set(tests);
+      const expected = new Set(baselineTests);
       quiet.cancelRun = false;
       const before = unhandled.count;
       const files = await startTests([path], quiet);
       await new Promise(resolve => immediate(resolve));
-      const summary = { passed: 0, failed: [], errors: [], timeout: false };
-      for (const file of files) summarize(file, summary);
+      const summary = { passed: 0, failed: [], errors: [], timeout: false, foreign: 0, missing: expected.size };
+      for (const file of files) summarize(file, summary, expected);
       return { ...summary, unhandled: unhandled.count - before };
     };
     inner.reset = () => reset();

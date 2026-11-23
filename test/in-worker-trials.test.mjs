@@ -69,6 +69,13 @@ import { price } from './subject';
 it('price small member', () => expect(price(3, true)).toBe(3));
 it('price large member', () => expect(price(20, true)).toBe(19));
 `,
+  // The tests are registered from a list the source builds while it loads, so a mutation can change which tests exist.
+  'names.ts': `export const NAMES = ['a', 'b', 'cc'].filter(name => name.length < 2);
+`,
+  'names.test.ts': `import { expect, it } from 'vitest';
+import { NAMES } from './names';
+for (const name of NAMES) it('case ' + name, () => expect(name.length).toBe(1));
+`,
   'ticket.test.ts': `import { expect, it } from 'vitest';
 import { ticket } from './ticket';
 it('first ticket', () => expect(ticket(2)).toBe(1));
@@ -77,7 +84,7 @@ it('first ticket', () => expect(ticket(2)).toBe(1));
 
 test('mutations decided inside a worker get the verdict of a fresh Vitest run each', () => temporaryProject(hazards, root => {
   for (const profile of ['full', 'standard']) {
-    const subjects = ['subject.ts', 'ticket.ts'];
+    const subjects = ['subject.ts', 'ticket.ts', 'names.ts'];
     const shared = analyze(root, ...subjects, '--mutators', profile, '--concurrency', '2');
     const fresh = analyze(root, ...subjects, '--mutators', profile, '--isolated-trials');
     assert.equal(shared.evaluation, 'evaluated');
@@ -94,7 +101,7 @@ test('mutations decided inside a worker get the verdict of a fresh Vitest run ea
     assert.equal(shared.trials.inWorker + shared.trials.isolated, shared.mutants.filter(mutant => mutant.status !== 'unreached').length);
     // The suite leaves a global and a counter in a dependency behind. Those mutations need the fresh runs.
     assert.ok(shared.trials.isolated >= 2, JSON.stringify(shared.trials));
-    assert.equal(shared.trials.workers, 2);
+    assert.ok(shared.trials.workers >= 1 && shared.trials.workers <= 2, JSON.stringify(shared.trials));
     const status = (file, original, replacement) => find(shared, file, original, replacement)?.status;
     assert.equal(status('subject.ts', 'n >= 10', 'n > 10'), 'killed');
     assert.equal(status('subject.ts', 'n * 2', 'n / 2'), 'killed');
@@ -107,8 +114,8 @@ test('mutations decided inside a worker get the verdict of a fresh Vitest run ea
     assert.equal(status('subject.ts', "(globalThis as any).__seen ?? 'none'", "(globalThis as any).__seen && 'none'"), 'killed');
     assert.equal(status('ticket.ts', 'n > 1', 'n >= 1'), 'survived');
     assert.equal(status('ticket.ts', 'n > 1', 'n <= 1'), 'killed');
-    // Both test files that reach the boundary report their failing test.
-    assert.deepEqual(find(shared, 'subject.ts', 'n >= 10', 'n < 10').tests.map(killer => killer.file).sort(), ['a.test.ts', 'b.test.ts']);
+    // The test file where the mutation is cheapest kills it, and the other file is not asked.
+    assert.equal(find(shared, 'subject.ts', 'n >= 10', 'n < 10').tests.length, 1);
   }
 }));
 
@@ -121,7 +128,21 @@ import { after, drain } from './subject';
 it('drains', () => expect(drain()).toBe(3));
 it('counts', () => { expect(after(3)).toBe('many'); expect(after(2)).toBe('few'); });
 `,
+  // The mutation sets a global that makes the next run of the same test spin, which is the control run.
+  'trap.ts': `export function guarded() { while ((globalThis as any).__trap) {} return 1; }
+export function mark(n: number) { if (n > 5) (globalThis as any).__trap = true; return n; }
+`,
+  'trap.test.ts': `import { expect, it } from 'vitest';
+import { guarded, mark } from './trap';
+it('guards then marks', () => { expect(guarded()).toBe(1); expect(mark(1)).toBe(1); });
+`,
 }, root => {
+  const trapped = analyze(root, 'trap.ts', '--mutators', 'standard');
+  assert.equal(trapped.evaluation, 'evaluated');
+  // The trial itself finished and passed. Only the control run hung, so a fresh run decides: the mutation survives.
+  assert.equal(find(trapped, 'trap.ts', 'n > 5', 'true').status, 'survived');
+  assert.ok(trapped.trials.isolated >= 1, JSON.stringify(trapped.trials));
+  assert.ok(trapped.mutants.every(mutant => ['killed', 'survived', 'unreached'].includes(mutant.status)), JSON.stringify(trapped.mutants.map(mutant => mutant.status)));
   const report = analyze(root, 'subject.ts', '--mutators', 'standard');
   assert.equal(report.evaluation, 'evaluated');
   const stuck = find(report, 'subject.ts', 'true', 'false');

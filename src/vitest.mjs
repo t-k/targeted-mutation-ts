@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
+import { constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -145,6 +145,8 @@ export function withCopy(project, action, { exclude = [] } = {}) {
     const moduleTrees = [];
     cpSync(source, root, {
       recursive: true,
+      // Copy-on-write where the file system offers it (APFS, Btrfs, XFS); an ordinary copy elsewhere.
+      mode: constants.COPYFILE_FICLONE,
       filter(path) {
         if (path !== source && basename(path) === 'node_modules' && !exclusions.includes(path) &&
             !copyPathIsExcluded(source, dirname(path), exclusions) &&
