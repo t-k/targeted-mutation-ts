@@ -857,9 +857,11 @@ static bool value_keyword(const uint8_t *code, uint32_t size, uint32_t first, ui
 }
 
 /* Some TypeScript constructs can also be valid JavaScript with a different meaning. */
-static bool unambiguous_javascript(uint8_t *code, uint32_t size) {
-  const TmtPulseMemory_tape input = { .source = code, .size = size };
+static bool unambiguous_javascript(TmtPulseMemory_tape input, uint8_t *code, uint32_t records) {
+  input.source = code;
+  const uint32_t size = input.size;
   bool certain = size <= 1048576;
+  uint32_t event = 0;
   static const char *const reserved[] = {
     "declare", "namespace", "type", "interface", "abstract", "enum",
     "readonly", "public", "private", "protected", "override", "implements",
@@ -878,7 +880,13 @@ static bool unambiguous_javascript(uint8_t *code, uint32_t size) {
     uint32_t end = first + 1;
     while (end < size && TmtGrammar_identifier_continue(code[end])) end++;
     const uint32_t width = end - first;
-    if (width <= 10) {
+    const bool assertion = (width == 2 && !memcmp(code + first, "as", 2)) ||
+      (width == 9 && !memcmp(code + first, "satisfies", 9));
+    if (assertion) {
+      while (event < records &&
+          (input.output[event].original != runtime_import || input.output[event].left.last <= first)) event++;
+      if (event == records || first < input.output[event].left.first || end > input.output[event].left.last) return false;
+    } else if (width >= 4 && width <= 10) {
       for (size_t index = 0; index < sizeof(reserved) / sizeof(*reserved); index++) {
         const char *word = reserved[index];
         if (code[first] == (uint8_t)word[0] && width == strlen(word) && !memcmp(code + first, word, width)) {
@@ -892,36 +900,6 @@ static bool unambiguous_javascript(uint8_t *code, uint32_t size) {
 }
 
 static const char esm_marker[] = "\nexport {};\n";
-
-/* A line break can make an unerased assertion look like separate JS expressions. */
-static bool unambiguous_assertions(TmtPulseMemory_tape input, uint8_t *code, uint32_t records) {
-  input.source = code;
-  bool certain = true;
-  uint32_t event = 0;
-  for (uint32_t first = 0; first < input.size;) {
-    const uint32_t literal = skip_js_literal_or_comment(input, first, &certain);
-    if (literal != first) {
-      first = literal;
-      continue;
-    }
-    if (!TmtGrammar_identifier_continue(code[first])) {
-      first++;
-      continue;
-    }
-    uint32_t end = first + 1;
-    while (end < input.size && TmtGrammar_identifier_continue(code[end])) end++;
-    const uint32_t width = end - first;
-    const bool possible = (width == 2 && !memcmp(code + first, "as", 2)) ||
-      (width == 9 && !memcmp(code + first, "satisfies", 9));
-    if (possible) {
-      while (event < records &&
-          (input.output[event].original != runtime_import || input.output[event].left.last <= first)) event++;
-      if (event == records || first < input.output[event].left.first || end > input.output[event].left.last) return false;
-    }
-    first = end;
-  }
-  return true;
-}
 
 static bool erasable_expression_range(TmtPulseMemory_tape input, uint32_t kind, TmtGrammar_span span) {
   const uint8_t first = input.source[span.first];
@@ -1312,7 +1290,7 @@ static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records) 
   }
   if (!count) {
     free(regions);
-    return unambiguous_assertions(input, input.source, records) && unambiguous_javascript(input.source, input.size);
+    return unambiguous_javascript(input, input.source, records);
   }
   uint8_t *view = malloc(input.size);
   if (!view) {
@@ -1342,7 +1320,7 @@ static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records) 
       }
     }
   }
-  const bool valid = ordered && unambiguous_assertions(input, view, records) && unambiguous_javascript(view, input.size);
+  const bool valid = ordered && unambiguous_javascript(input, view, records);
   free(view);
   free(regions);
   return valid;
