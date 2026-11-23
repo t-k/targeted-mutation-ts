@@ -530,7 +530,7 @@ let ordinary_module_item_end (input:tape) (state:P.parser_state)
     let! item = (fun () -> P.star_reexport input exported.after_export 0ul) in
     ret input item.state
   else if exported.export_kind = 3ul then
-    let! item, _ = (fun () -> P.named_reexport input exported.after_export 0ul 0ul 0ul) in
+    let! item, _ = (fun () -> P.named_reexport input exported.after_export 0ul 0ul 0ul exported.type_only) in
     ret input item.state
   else if exported.export_kind = 4ul then ret input (P.failed state 1ul)
   else

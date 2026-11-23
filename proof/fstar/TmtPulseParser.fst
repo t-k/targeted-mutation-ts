@@ -4550,7 +4550,8 @@ let rec export_string_name (input:tape) (#frame:slprop) (state:parser_state) (de
 
 type resolved_exports = { named:named_state; locals_known:bool }
 
-let rec reexport_members (input:tape) (state:parser_state) (used locals:names_used) (remaining:U32.t) (locals_known reserve_names:bool)
+let rec reexport_members (input:tape) (state:parser_state) (used locals:names_used) (remaining:U32.t)
+  (locals_known reserve_names type_statement:bool)
   : Tot (stt resolved_exports (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
   let! st = (fun () -> skip input state) in
   if st.status <> 0ul then ret input ({ named = { state = st; used }; locals_known = false })
@@ -4581,9 +4582,18 @@ let rec reexport_members (input:tape) (state:parser_state) (used locals:names_us
     let start, stop = if quoted then next first.offset, minus last.offset 1ul else first.offset, last.offset in
     let! named = (fun () -> if reserve_names then reserve_export input last used start stop else ret input { state = last; used }) in
     let! tail = (fun () -> skip input named.state) in
-    (let! anf_value_6 = (fun () -> same input tail.offset 44uy) in if anf_value_6 then
-      (let! anf_value_7 = (fun () -> (consume input tail 44uy)) in reexport_members input anf_value_7 named.used locals (minus remaining 1ul) locals_known reserve_names)
-    else (let! anf_value_8 = (fun () -> (let! anf_value_9 = (fun () -> consume input tail 125uy) in ret input ({ named with state = anf_value_9 }))) in ret input ({ named = anf_value_8; locals_known }))))
+    let! comma = (fun () -> same input tail.offset 44uy) in
+    let! ending = (fun () -> if comma then consume input tail 44uy else ret input tail) in
+    let! recorded =
+      (fun () -> if source.offset = st.offset || not reserve_names || not input.capture_types then ret input ending
+      else if type_statement then ret input (failed ending 1ul)
+      else
+        let last = if comma then ending.offset else named.state.offset in
+        record_jsx_span input ending 14ul st.offset last) in
+    if comma then reexport_members input recorded named.used locals (minus remaining 1ul) locals_known reserve_names type_statement
+    else
+      let! closed = (fun () -> consume input recorded 125uy) in
+      ret input ({ named = { named with state = closed }; locals_known }))
 
 type pending_exports = n:U32.t{U32.v n <= U32.v deferred_export_limit}
 
@@ -4591,10 +4601,10 @@ let deferred_export_slot (index:U32.t{U32.v index < U32.v deferred_export_limit}
   : at:U32.t{U32.v at < U32.v binding_capacity} =
   U32.add deferred_export_base index
 
-let named_reexport (input:tape) (state:parser_state) (used locals:names_used) (pending:pending_exports)
+let named_reexport (input:tape) (state:parser_state) (used locals:names_used) (pending:pending_exports) (type_statement:bool)
   : Tot (stt (named_state & pending_exports) (heap input) (fun _ -> heap input)) =
   let! start = (fun () -> consume input state 123uy) in
-  let! resolved = (fun () -> reexport_members input start used locals 64ul true true) in
+  let! resolved = (fun () -> reexport_members input start used locals 64ul true true type_statement) in
   let named = resolved.named in
   let! tail = (fun () -> skip input named.state) in
   let! from = (fun () -> keyword input tail.offset 4ul 0x66726f6duL) in
@@ -4619,31 +4629,31 @@ let rec check_local_exports (input:tape) (state:parser_state) (locals:names_used
   else
     let index = U32.sub pending 1ul in
     let! saved = (fun () -> get_binding input (deferred_export_slot index)) in
-    let! checked = (fun () -> reexport_members input { state with offset = saved.span.G.first } 0ul locals 64ul true false) in
+    let! checked = (fun () -> reexport_members input { state with offset = saved.span.G.first } 0ul locals 64ul true false false) in
     if checked.named.state.status = 0ul && checked.named.state.offset = saved.span.G.last then
       if checked.locals_known then check_local_exports input state locals index
       else ret input (failed state (if input.capture_jsx then unbound_runtime_export_status else 1ul))
     else ret input (failed state 1ul)
 
-type export_prefix = { after_export:parser_state; export_kind:U32.t; direct:bool }
+type export_prefix = { after_export:parser_state; export_kind:U32.t; direct:bool; type_only:bool }
 
 let module_export (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt export_prefix (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! start = (fun () -> peek input #frame state.offset) in
   let! exported = (fun () -> if start = 101uy then keyword input #frame state.offset 6ul 0x6578706f7274uL else read_ret input #frame (false)) in
-  if not exported then read_ret input #frame ({ after_export = state; export_kind = 0ul; direct = false })
+  if not exported then read_ret input #frame ({ after_export = state; export_kind = 0ul; direct = false; type_only = false })
   else
     let! tail = (fun () -> skip input #frame { state with offset = plus state.offset 6ul }) in
     (let! anf_value_1 = (fun () -> keyword input #frame tail.offset 7ul 0x64656661756c74uL) in if anf_value_1 then
-      read_ret input #frame ({ after_export = tail; export_kind = 1ul; direct = false })
+      read_ret input #frame ({ after_export = tail; export_kind = 1ul; direct = false; type_only = false })
     else
       let! type_only = (fun () -> keyword input #frame tail.offset 4ul 0x74797065uL) in
       let! start = (fun () -> if type_only then skip input #frame { tail with offset = plus tail.offset 4ul } else read_ret input #frame (tail)) in
       let! byte = (fun () -> peek input #frame start.offset) in
-      if byte = 42uy then (let! anf_value_2 = (fun () -> (let! anf_value_3 = (fun () -> (consume input #frame start 42uy)) in skip input #frame anf_value_3)) in read_ret input #frame ({ after_export = anf_value_2; export_kind = 2ul; direct = false }))
+      if byte = 42uy then (let! anf_value_2 = (fun () -> (let! anf_value_3 = (fun () -> (consume input #frame start 42uy)) in skip input #frame anf_value_3)) in read_ret input #frame ({ after_export = anf_value_2; export_kind = 2ul; direct = false; type_only }))
       else if byte = 61uy && not type_only then
-        read_ret input #frame ({ after_export = start; export_kind = 4ul; direct = false })
-      else read_ret input #frame (if byte = 123uy then { after_export = start; export_kind = 3ul; direct = false }
-      else { after_export = state; export_kind = 0ul; direct = true }))
+        read_ret input #frame ({ after_export = start; export_kind = 4ul; direct = false; type_only = false })
+      else read_ret input #frame (if byte = 123uy then { after_export = start; export_kind = 3ul; direct = false; type_only }
+      else { after_export = state; export_kind = 0ul; direct = true; type_only = false }))
 
 let rec default_function_body (input:tape) (state:parser_state) (spelling:G.span) (async_:bool) (remaining:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
@@ -4776,10 +4786,12 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
           (let! anf_value_3 = (fun () -> default_declaration input body used) in ret input (anf_value_3, reserved.used, pending))
         else if exported.export_kind = 2ul then
           let! reexported = (fun () -> star_reexport input exported.after_export exports) in
-          ret input ({ state = reexported.state; used }, reexported.used, pending)
+          let! recorded = (fun () -> record_jsx_span input reexported.state (if exported.type_only then 8ul else 9ul) st.offset reexported.state.offset) in
+          ret input ({ state = recorded; used }, reexported.used, pending)
         else if exported.export_kind = 3ul then
-          let! imported, pending = (fun () -> named_reexport input exported.after_export exports used pending) in
-          ret input ({ state = imported.state; used }, imported.used, pending)
+          let! reexported, pending = (fun () -> named_reexport input exported.after_export exports used pending exported.type_only) in
+          let! recorded = (fun () -> record_jsx_span input reexported.state (if exported.type_only then 8ul else 9ul) st.offset reexported.state.offset) in
+          ret input ({ state = recorded; used }, reexported.used, pending)
         else if exported.export_kind = 4ul then
           let! closed = (fun () -> if exports <> 0ul || pending <> 0ul then ret input (failed st 1ul)
             else

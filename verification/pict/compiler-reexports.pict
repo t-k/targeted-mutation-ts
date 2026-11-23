@@ -1,0 +1,5 @@
+Form: TypeList, TypeStar, TypeStarAlias, MixedLeading, MixedTrailing, InlineOnly, ValueAlias
+Scope: Local, Remote
+Dialect: TS, TSX
+
+IF [Form] IN {"TypeStar", "TypeStarAlias"} THEN [Scope] = "Remote";

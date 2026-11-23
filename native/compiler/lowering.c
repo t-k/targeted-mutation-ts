@@ -766,12 +766,12 @@ static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records);
 enum {
   type_annotation = 7,
   erased_type_statement = 8,
-  runtime_import = 9,
+  runtime_module_statement = 9,
   type_arguments = 10,
   type_assertion = 11,
   type_marker = 12,
   runtime_enum = 13,
-  erased_import_member = 14,
+  erased_module_member = 14,
   class_modifiers = 15,
   generic_arrow = 16,
   lexical_text = 17,
@@ -880,19 +880,21 @@ static bool unambiguous_javascript(TmtPulseMemory_tape input, uint8_t *code, uin
     uint32_t end = first + 1;
     while (end < size && TmtGrammar_identifier_continue(code[end])) end++;
     const uint32_t width = end - first;
-    const bool assertion = (width == 2 && !memcmp(code + first, "as", 2)) ||
+    bool needs_module_context = (width == 2 && !memcmp(code + first, "as", 2)) ||
       (width == 9 && !memcmp(code + first, "satisfies", 9));
-    if (assertion) {
-      while (event < records &&
-          (input.output[event].original != runtime_import || input.output[event].left.last <= first)) event++;
-      if (event == records || first < input.output[event].left.first || end > input.output[event].left.last) return false;
-    } else if (width >= 4 && width <= 10) {
+    if (!needs_module_context && width >= 4 && width <= 10) {
       for (size_t index = 0; index < sizeof(reserved) / sizeof(*reserved); index++) {
         const char *word = reserved[index];
         if (code[first] == (uint8_t)word[0] && width == strlen(word) && !memcmp(code + first, word, width)) {
-          if (!value_keyword(code, size, first, end)) return false;
+          needs_module_context = !value_keyword(code, size, first, end);
+          break;
         }
       }
+    }
+    if (needs_module_context) {
+      while (event < records &&
+          (input.output[event].original != runtime_module_statement || input.output[event].left.last <= first)) event++;
+      if (event == records || first < input.output[event].left.first || end > input.output[event].left.last) return false;
     }
     first = end;
   }
@@ -975,29 +977,29 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
   char *code = NULL;
   uint32_t previous = 0;
   uint32_t prelude = TmtPulseCompiler_runtime_source_start(input).at;
-  bool retained_import = false;
+  bool retained_module_statement = false;
   *remove_statement = false;
   *output = NULL;
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
-    const bool member = event.original == erased_import_member;
+    const bool member = event.original == erased_module_member;
     const bool modifiers = event.original == class_modifiers;
     const bool arrow = event.original == generic_arrow;
     if (!member && !modifiers && !arrow && (event.original < type_annotation || event.original > type_marker)) continue;
     const TmtGrammar_span span = event.left;
     if (span.first >= span.last || span.last > input.size) goto decline;
-    const bool statement = event.original == erased_type_statement || event.original == runtime_import;
+    const bool statement = event.original == erased_type_statement || event.original == runtime_module_statement;
     bool separate = false;
     if (statement) {
       const TmtPulseParser_cursor first = TmtPulseParser_trivia(input, prelude);
       if (first.ok && first.at == span.first) prelude = span.last;
       else if (event.original == erased_type_statement) {
-        if (!retained_import) goto decline;
+        if (!retained_module_statement) goto decline;
         separate = true;
         prelude = span.last;
       }
-      if (event.original == runtime_import) {
-        retained_import = true;
+      if (event.original == runtime_module_statement) {
+        retained_module_statement = true;
         continue;
       }
       *remove_statement = true;

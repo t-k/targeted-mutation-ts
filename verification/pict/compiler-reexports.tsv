@@ -1,0 +1,15 @@
+Form	Scope	Dialect
+TypeList	Local	TS
+TypeStar	Remote	TS
+TypeStarAlias	Remote	TSX
+MixedTrailing	Local	TSX
+InlineOnly	Remote	TS
+ValueAlias	Local	TS
+MixedTrailing	Remote	TS
+InlineOnly	Local	TSX
+MixedLeading	Local	TSX
+MixedLeading	Remote	TS
+TypeList	Remote	TSX
+TypeStar	Remote	TSX
+TypeStarAlias	Remote	TS
+ValueAlias	Remote	TSX

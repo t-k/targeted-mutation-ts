@@ -164,12 +164,14 @@ for (const row of annotationRows) {
     const input = prefix + declarations[binding] + suffix;
     const result = compile(input);
     if (source === 'Malformed') assert.equal(result.code, null);
-    if (source !== 'Module' && source !== 'TypePrelude') {
+    const followingExportList = source === 'LateType' && binding === 'Local';
+    if (source !== 'Module' && source !== 'TypePrelude' && !followingExportList) {
       assert.notEqual(result.backend, 'pulse', input);
       return;
     }
     assert.equal(result.backend, 'pulse', input);
-    assert.equal(result.code, stripTypeScriptTypes(input));
+    const code = followingExportList ? result.code.replace(/^;(?= +$)/gm, ' ') : result.code;
+    assert.equal(code, stripTypeScriptTypes(input));
     const module = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
     assert.equal(module.value, 6);
   });
@@ -487,4 +489,48 @@ test('type erasure diagnoses local exports whose runtime bindings disappeared', 
   for (const text of ['export { X } from "elsewhere";', 'export const A = 42; export { A as B };']) {
     assert.notEqual(compile(text).code, null);
   }
+});
+
+const reexportRows = readFileSync(new URL('../verification/pict/compiler-reexports.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of reexportRows) {
+  const [form, scope, dialect] = row.split('\t');
+  test('native type re-export ' + row.replaceAll('\t', ' '), () => {
+    const clauses = {
+      TypeList: 'export type { Shape as PublicShape }',
+      TypeStar: 'export type *',
+      TypeStarAlias: 'export type * as Shapes',
+      MixedLeading: 'export { type Shape, one as count }',
+      MixedTrailing: 'export { one as count, type Shape as PublicShape }',
+      InlineOnly: 'export { type Shape }',
+      ValueAlias: 'export { one as type }',
+    };
+    const from = scope === 'Remote' ? ' from "fixture"' : '';
+    const input = `${clauses[form]}${from};\ninterface Shape { x: number }\nconst one: number = 1;\n`;
+    const result = compile(input, { file: dialect === 'TS' ? 'input.ts' : 'input.tsx' });
+    assert.equal(result.backend, 'pulse', input);
+    const expected = stripTypeScriptTypes(input);
+    assert.equal(result.code.replace(/^;(?= +$)/gm, ' '), expected);
+    if (form === 'InlineOnly' && scope === 'Remote') {
+      assert.match(result.code, /^export \{\s*\} from "fixture";/);
+    }
+  });
+}
+
+test('type re-export erasure preserves runtime aliases in a JSX module', () => {
+  const input = 'export type * as Shapes from "kinds";\nexport { value as type } from "value";\n' +
+    'export const View = (x: number) => <b>{x}</b>;';
+  const result = compile(input, { file: 'view.tsx' });
+  assert.equal(result.backend, 'pulse');
+  assert.doesNotMatch(result.code, /from "kinds"/);
+  assert.match(result.code, /export \{ value as type \} from "value"/);
+  assert.match(result.code, /_tmtJsx0\("b",\{children: \(x\)\}\)/);
+});
+
+test('re-export records cannot hide an invalid declaration or runtime binding', () => {
+  const doubled = 'export type { type Shape } from "fixture";';
+  assert.notEqual(compile(doubled).backend, 'pulse');
+  assert.equal(compile(doubled, { mode: 'strip' }).code, null);
+  const unbound = 'export { Missing as value, type Shape }; interface Shape {}';
+  assert.equal(compile(unbound).code, null);
 });

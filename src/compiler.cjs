@@ -278,9 +278,11 @@ function compile(input, options = {}) {
       if (mode === 'transform' && typed) {
         const addon = loadModuleAddon();
         if (addon) {
-          const empty = !jsxFile ? addon.eraseTypeModule(source, format === 'esm') : null;
+          const hasAngles = source.includes('<');
+          const moduleProjection = !jsxFile || !hasAngles;
+          const empty = moduleProjection ? addon.eraseTypeModule(source, format === 'esm') : null;
           if (empty !== null) return { backend: 'pulse', code: empty, sourceMap: null, diagnostics: [] };
-          const annotated = !jsxFile && (runtime || source.includes(':') || source.includes('<') || source.includes('type')) ?
+          const annotated = moduleProjection && (runtime || source.includes(':') || hasAngles || source.includes('type')) ?
             addon.emitAnnotatedModule(source, runtime, format === 'esm') : null;
           if (typeof annotated === 'string') {
             return { backend: 'pulse', code: annotated, sourceMap: null, diagnostics: [] };
