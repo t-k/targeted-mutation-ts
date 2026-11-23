@@ -116,6 +116,8 @@ For the pending Save fixture, StrykerJS 10.1.1's command runner killed its five 
 
 `--witnesses` runs the Vitest witness profile. It searches for a source rewrite that survives the selected tests, then checks an input edit or assertion that distinguishes it. It runs each trial in a fresh copy and reports a confirmed gap when the original passes and the attributed assertion fails with the expected alternate value. Source and fixture edit offsets are half-open UTF-8 byte ranges.
 
+Every candidate is tried in its own copy of the project, and so is each run that verifies a proposed test. The copies are independent, so the profile runs several at once: up to eight by default, or the number given with `--concurrency N`. The report lists the candidates in the order they were planned, whatever order they finished in.
+
 ```sh
 npx targeted-mutation analyze fixtures/witnesses src/queries.ts --witnesses --test test/queries.test.ts
 npx targeted-mutation analyze fixtures/witnesses src/text-order.ts --witnesses --test test/text-order.test.ts --spec order-spec.json

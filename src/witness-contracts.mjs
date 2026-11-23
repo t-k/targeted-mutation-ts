@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { verdict } from './analysis.mjs';
+import { inParallel } from './in-parallel.mjs';
 
 const isValue = value => value === null || ['string', 'boolean'].includes(typeof value) || (Number.isFinite(value) && !Object.is(value, -0));
 const nonempty = value => typeof value === 'string' && value.trim().length > 0;
@@ -52,9 +53,9 @@ export function confirmsContract(status, seedPassed, singletons, checked) {
   return status === 'survived' && seedPassed && singletons.every(result => result.status === 'killed' && result.seedFailed) && checked;
 }
 
-export function evaluateContracts(plans, attempt, baseline, snapshots, verifyAppend, report) {
+export async function evaluateContracts(plans, attempt, baseline, snapshots, verifyAppend, report, concurrency = 1) {
   const testFiles = new Set(baseline.tests.map(test => test.file));
-  for (const plan of plans) {
+  const evaluated = await inParallel(plans, concurrency, async plan => {
     const { id, edits, name, seedTest, testFile, expected, alternate, requirement, observe, expectation, borrowedFrom, observation, connection } = plan;
     const rule = edits.length === 2 ? 'paired-source/v1' : 'contract-source/v1';
     const scope = edits.map(edit => {
@@ -65,22 +66,21 @@ export function evaluateContracts(plans, attempt, baseline, snapshots, verifyApp
     const seed = seeds.length === 1 && seeds[0].status === 'passed' && !seeds[0].retry && !seeds[0].repeats ? seeds[0] : null;
     const result = { id, rule, name, edits: scope, location: { file: scope[0].file, line: scope[0].line,
       start: scope[0].start, end: scope[0].end }, status: 'unevaluated' };
-    report.mutants.push(result);
     if (!seed || edits.some(edit => testFiles.has(edit.file)) || !snapshots.has(testFile)) {
       result.statusReason = 'Expected one passing, unmodified seed test';
-      continue;
+      return { result };
     }
-    const raw = attempt(edits);
+    const raw = await attempt(edits);
     result.status = verdict(raw, baseline);
     result.evidence = 'reexecuted';
-    if (result.status !== 'survived') continue;
-    const singletons = edits.length === 2 ? edits.map(edit => {
-      const single = attempt([edit]);
+    if (result.status !== 'survived') return { result };
+    const singletons = edits.length === 2 ? await Promise.all(edits.map(async edit => {
+      const single = await attempt([edit]);
       return { status: verdict(single, baseline), seedFailed: !!single.tests?.some(test => test.file === seed.file &&
         test.project === seed.project && test.id === seed.id && test.name === seed.name && test.status === 'failed') };
-    }) : [];
+    })) : [];
     if (edits.length === 2) result.singletons = singletons;
-    if (!confirmsContract(result.status, true, singletons, true)) continue;
+    if (!confirmsContract(result.status, true, singletons, true)) return { result };
 
     const suffix = randomUUID().replaceAll('-', '');
     const marker = 'TMT witness ' + suffix;
@@ -93,14 +93,18 @@ __tmtIt_${suffix}(${JSON.stringify(marker)}, async () => {
   __tmtExpect_${suffix}(isExpected, ${JSON.stringify(marker)}).toBe(true);
 });
 ` };
-    if (!verifyAppend(attempt, baseline, edits, append, marker, true, false)) continue;
-    report.diagnostics.push({
+    if (!await verifyAppend(attempt, baseline, edits, append, marker, true, false)) return { result };
+    return { result, diagnostic: {
       kind: edits.length === 2 ? 'PAIRED MUTATION GAP' : 'STATE ASSERTION GAP',
       site: id, rule, location: result.location, requirement, seed: { file: testFile, test: seedTest },
       borrowedFrom, observation, connection,
       witness: { expression: observe, original: expected, mutant: alternate, expectation: expectation === 'original' ? 'original' : 'specification' },
       suggestedTest: `expect(await (${observe})).toBe(${JSON.stringify(expected)})`,
       verification: { status: 'confirmed', original: 'passed', rewrite: 'failed' },
-    });
+    } };
+  });
+  for (const { result, diagnostic } of evaluated) {
+    report.mutants.push(result);
+    if (diagnostic) report.diagnostics.push(diagnostic);
   }
 }

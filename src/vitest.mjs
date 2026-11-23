@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
@@ -171,7 +171,8 @@ export function withCopy(project, action, { exclude = [] } = {}) {
   }
 }
 
-export function runVitest(root, temp, { trace, config, testFiles = [], product = false, active, probePreload, synchronousTrace, timeout = 60_000 } = {}) {
+// How one Vitest run is started, shared by the blocking and the concurrent form.
+function vitestCommand(root, temp, { trace, config, testFiles = [], product = false, active, probePreload, synchronousTrace, timeout = 60_000 } = {}) {
   const vitest = resolve(dirname(runnerPackage(root, 'vitest')), 'vitest.mjs');
   const testsToRun = [...new Set(testFiles.map(file => inside(root, file)))];
   const configuration = config === undefined ? [] : ['--config', inside(root, config)];
@@ -179,12 +180,12 @@ export function runVitest(root, temp, { trace, config, testFiles = [], product =
   rmSync(report, { force: true });
   const cache = resolve(temp, 'vite-cache');
   mkdirSync(cache, { recursive: true });
-  const result = spawnSync(process.execPath, [
+  return { report, testsToRun, product, args: [
     supervisor, resolve(temp, 'vitest.pid'), String(timeout),
     vitest, 'run', '--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism', '--no-cache',
     ...configuration, ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]),
     ...testsToRun,
-  ], {
+  ], options: {
     cwd: root,
     env: {
       ...process.env, CI: 'true', VITE_CACHE_DIR: cache, TMT_WORKSPACE: root, TMT_REPORT: report,
@@ -195,7 +196,10 @@ export function runVitest(root, temp, { trace, config, testFiles = [], product =
     encoding: 'utf8',
     timeout: timeout + 5000,
     maxBuffer: 4 * 1024 * 1024,
-  });
+  } };
+}
+
+function vitestOutcome(root, { report, testsToRun, product }, result) {
   if (result.status === 124 || result.error?.code === 'ETIMEDOUT') return { status: 'timeout', output: result.stderr ?? '' };
   if (result.error || !existsSync(report)) {
     return { status: 'error', output: result.error?.message ?? (result.stderr + result.stdout) };
@@ -232,4 +236,27 @@ export function runVitest(root, temp, { trace, config, testFiles = [], product =
       data.testResults.every(file => file.status !== 'failed' || file.assertionResults.some(test => test.status === 'failed'))
       ? 'failed' : 'error';
   return { status, tests, output: result.stderr + result.stdout };
+}
+
+export function runVitest(root, temp, settings) {
+  const command = vitestCommand(root, temp, settings);
+  return vitestOutcome(root, command, spawnSync(process.execPath, command.args, command.options));
+}
+
+// The same run without blocking, so several project copies can run their suites side by side.
+export async function runVitestAsync(root, temp, settings) {
+  const command = vitestCommand(root, temp, settings);
+  const result = await new Promise(settle => {
+    const child = spawn(process.execPath, command.args, { ...command.options, stdio: ['ignore', 'pipe', 'pipe'] });
+    const output = { stdout: '', stderr: '' };
+    for (const stream of ['stdout', 'stderr']) {
+      child[stream].setEncoding('utf8');
+      child[stream].on('data', chunk => { if (output[stream].length < command.options.maxBuffer) output[stream] += chunk; });
+    }
+    let failure;
+    child.once('error', error => { failure = error; });
+    child.once('close', (status, signal) => settle({ status, signal, ...output,
+      error: failure ?? (signal && status === null ? Object.assign(new Error('Vitest did not finish in time'), { code: 'ETIMEDOUT' }) : undefined) }));
+  });
+  return vitestOutcome(root, command, result);
 }

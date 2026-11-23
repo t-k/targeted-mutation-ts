@@ -22,6 +22,7 @@ Profiles (analyze):
   --audit                       Re-run predicted trials against the rewritten source.
   --displace-thresholds         Also try displaced thresholds (Vitest only).
   --concurrency N               Vitest workers that share the mutations (default: CPU count minus one).
+                                With --witnesses: suite runs side by side (default: up to 8).
   --verify-trials N             Run N of the mutations decided inside workers again in fresh Vitest runs and
                                 report any verdict that differs.
   --isolated-trials             Start a fresh Vitest run for every mutation instead of switching mutations

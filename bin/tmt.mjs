@@ -49,8 +49,11 @@ try {
     if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
     if (values.mutators && !['focused', 'operators', 'full', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|operators|full|standard|all');
     const session = values.runner !== 'playwright' && !values.witnesses && !values.audit;
-    if ((values.concurrency !== undefined || values['isolated-trials'] || values['verify-trials'] !== undefined) && !session) {
-      throw new Error('--concurrency, --isolated-trials and --verify-trials apply to Vitest sessions, which --witnesses, --audit and Playwright do not use');
+    if ((values['isolated-trials'] || values['verify-trials'] !== undefined) && !session) {
+      throw new Error('--isolated-trials and --verify-trials apply to Vitest sessions, which --witnesses, --audit and Playwright do not use');
+    }
+    if (values.concurrency !== undefined && !session && !values.witnesses) {
+      throw new Error('--concurrency applies to Vitest sessions and to --witnesses, not to --audit or Playwright');
     }
     if (values['verify-trials'] !== undefined) {
       if (!/^\d{1,6}$/.test(values['verify-trials'])) throw new Error('Expected --verify-trials to be a count');
@@ -67,7 +70,7 @@ try {
       if (values.runner === 'playwright' || ['operators', 'full', 'standard', 'all'].includes(values.mutators) ||
           values.deterministic || values.project || values.audit || values['displace-thresholds']) throw new Error('--witnesses runs its own Vitest source trials');
       const { analyzeWitnesses } = await import('../src/witness-analysis.mjs');
-      result = analyzeWitnesses(project, files, values);
+      result = await analyzeWitnesses(project, files, values);
     } else if (['standard', 'all'].includes(values.mutators)) {
       if (values.runner === 'playwright' || values.audit || values.spec || values['displace-thresholds'] ||
           values.mutators === 'standard' && values.deterministic) {
