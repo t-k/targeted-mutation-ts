@@ -27,6 +27,8 @@ The `pulse` backend handles bounded exported constants, simple typed arrows, com
 
 The direct Node addon includes only the necessary Pulse entry points and the runtime emitter. The full-module addon records JSX element and expression spans during the validated Pulse parse. It publishes initialized records only after reaching EOF. The emitter visits the captured spans, reuses expression boundaries, and copies the surrounding source. This supports JSX in function bodies, nested callback expressions, attributes, conditionals, and scripts. ESNext JavaScript scripts use V8 syntax validation and preserve the original source and strictness whenever possible.
 
+The full-module parse can also publish erasure ranges for annotations, type parameters and arguments, delimited assertions, optional and non-null markers, type-only declarations, overload signatures, and inline type imports. The emitter retains value imports and explicit module settings. Runtime enum emission visits the committed declaration ranges. JSX uses the same source offsets after masking the type ranges. Lean checks length preservation, bytes outside a mask, and LF and CR preservation. The completed native output is checked by V8 before the compiler returns it.
+
 The `pulse+node-strip` route passes the remaining erasable syntax through Node. The `node-strip` route covers validated TypeScript modules and ordinary scripts. The Node 24 compatibility path also lowers constructor parameter properties. ESNext compilation can use the native paths without the full TypeScript compiler or the optional TypeScript syntax projection.
 
 The Pulse span writer proves that a successful replacement changes only the requested bytes and that invalid spans leave the buffer untouched. The extracted parser preserves its input borrow. Syntax-only validation counts comparisons without reserving candidate slots. The NEON and SSE2 builds also skip ordinary 16-byte JSX runs. Lean proves that these skips preserve the scalar cursor state, and the native test checks the matching predicates for every byte in every lane. The extraction check regenerates and compares both variants of the generated C and headers.
@@ -98,3 +100,17 @@ The [optimization retest](../evidence/compiler/optimized-compiler.json) includes
 The paired macOS run reduced warm emission of a 64 KiB JSX text fixture from 0.97 ms to 0.42 ms with identical output. The first-process result moved from 7.89 ms to 8.70 ms. Whole-corpus mreact comparisons changed direction between runs, and the retest establishes no reproducible throughput gain for it.
 
 An AST-guided measurement erased 342 ordinary annotations before passing App.tsx to Node. Node's warm erasure time moved from 29.97 ms to 28.03 ms and produced identical bytes. This measurement excludes the cost of finding and erasing the ranges. The production compiler keeps one Node erasure pass for that file. The remaining cost is the complete second parse across the emitted module.
+
+### Native type-range projection
+
+In an alternating macOS arm64 comparison with seven samples per revision, all three rows retained byte-identical output between `6f98caa` and `0d5b16f`. These medians compare two TMT revisions in the same run.
+
+| Workload | Previous warm (ms) | Projected warm (ms) | Previous first (ms) | Projected first (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| renderer.ts | 19.29 | 10.86 | 265.12 | 238.94 |
+| UserSettings.tsx | 0.61 | 0.14 | 230.21 | 7.17 |
+| tachyon-dom TSX, 32 files | 8.41 | 1.24 | 202.74 | 30.56 |
+
+The same source set contains 293 fully projected outputs at this checkpoint, compared with 20 before the type-range changes. All 653 inputs still emit valid JavaScript with the TypeScript package unavailable. The real-project probe also compares newly native outputs on Astro, Hono, React Router, Vitest, and Vue. Svelte's 376 JavaScript modules pass the JavaScript emission path.
+
+The [type projection evidence](../evidence/compiler/native-type-projection.json) includes the isolated compiler comparisons and the paired measurements. Warm runs showed a lead for the small declarations workload. The real-project and first-process rankings did not converge across runs. SWC Next retained the first-process lead for the official TS and TSX transform inputs that the compared compilers emitted. A combined native addon and a Clang profile-guided build showed no consistent gain in the paired experiments and were excluded from the release build.
