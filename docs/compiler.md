@@ -33,7 +33,7 @@ The `pulse+node-strip` route passes the remaining erasable syntax through Node. 
 
 The Pulse span writer proves that a successful replacement changes only the requested bytes and that invalid spans leave the buffer untouched. The extracted parser preserves its input borrow. Syntax-only validation counts comparisons without reserving candidate slots. The NEON and SSE2 builds also skip ordinary 16-byte JSX runs. Lean proves that these skips preserve the scalar cursor state, and the native test checks the matching predicates for every byte in every lane. The extraction check regenerates and compares both variants of the generated C and headers.
 
-Computed enum initializers, runtime namespaces, object-literal JSX spreads, CommonJS, downlevel targets, and source maps can still require the TypeScript emitter. Output formatting can differ across the supported backends.
+Computed enum initializers, runtime namespaces, object-literal JSX spreads, CommonJS, and downlevel targets can still require the TypeScript emitter. Source maps for ESNext module output come from the native emitter (see "Native source maps"). Output formatting can differ across the supported backends.
 
 ```sh
 FSTAR_EXE=/path/to/fstar.exe KARAMEL_EXE=/path/to/krml npm run verify:compiler
@@ -373,3 +373,15 @@ TMT leads all 23 common warm rows on Linux arm64 and all 20 on the Ryzen host. I
 `scripts/fuzz-compiler-native.mjs` builds `native/compiler/fuzz.c` with libFuzzer, AddressSanitizer and UndefinedBehaviorSanitizer and runs every emitter entry on exactly sized inputs. It needs a clang that ships libFuzzer (`TMT_FUZZ_CLANG`). Ten minutes on four workers found no defect.
 
 The entry also accepts options spelled out with their default values, so `tmt-compile file.ts` and callers that pass `target: 'esnext'` or `sourceMap: false` take the native call.
+
+### Native source maps
+
+With `sourceMap: true` the ESNext module routes for `.ts`, `.mts` and `.tsx` publish the same code as without it, plus a map written by the native emitter. The TypeScript emitter is used only where it already produced the code (scripts, CommonJS, downlevel targets, `jsx: 'preserve'`, a byte order mark, names with unusual extensions).
+
+The writer logs every copy of source bytes into the output as a run of output offset, source offset and length. Type erasure is one run that covers the whole file. Parameter properties, enums and JSX produce several runs with generated text between them, and the inserted JSX helper import moves the runs after it. `native/compiler/source-map.h` walks the runs once. Inside a run it checks that the output is a projection of the source (equal bytes, a space, `;`, `(` or `)` written over erased syntax, the eraser's equal-width blanks over erased non-ASCII text, every line terminator kept) and writes a segment where a run of word or punctuation characters starts. Generated text has no segment. Columns are UTF-16 code units and lines end at LF, CRLF, CR, U+2028 and U+2029. If a run fails the check, no native map is published and the TypeScript route produces code and map.
+
+`version`, `file`, `sourceRoot`, `sources`, `names` and `sourcesContent` equal what TypeScript writes. `mappings` is finer for copied text and absent for generated text. A module of types alone has empty mappings.
+
+Checks: 36 pairwise rows over line endings, non-ASCII placement, edit kind, input form and name; every output token (TypeScript scanner) maps to the same token in the source for position-preserving output, and every segment maps to the same text for lowered output, over the fixtures and 2,400 files of the fixed projects; direct tests of the scan with hand-made runs; 26 mutants of the scan, of which 24 fail the tests, one does not build and one guards a position that cannot occur.
+
+On an Apple M-series host under load, the fixed projects with maps take 1.6 to 2.2 times the time without maps and about one twentieth to one thirtieth of the TypeScript emitter's time (Vite 26 ms against 545 ms, mreact 66 ms against 2,370 ms, mreact TSX 3.4 ms against 105 ms). Competitors were not measured with maps.
