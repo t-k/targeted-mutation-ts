@@ -807,16 +807,25 @@ let is_function_binding (namespace:binding_namespace) : bool =
 let is_interface_binding (namespace:binding_namespace) : bool =
   namespace = InterfaceName || namespace = ExportedInterfaceName
 
+let is_class_binding (namespace:binding_namespace) : bool =
+  namespace = ClassName || namespace = AmbientClassName
+
 let names_overlap (left right:binding_namespace) : bool =
-  if left = RuntimeExport then right = ValueName || right = BothNames || right = FunctionImplementation
+  if left = RuntimeExport then right = ValueName || right = BothNames || right = FunctionImplementation || right = ClassName
   else if is_function_binding left && is_function_binding right then
     left = FunctionImplementation && right = FunctionImplementation
   else if left = ExportedInterfaceName && right = ExportedInterfaceName then false
-  else if (is_interface_binding left && right = TypeNamespace) || (left = TypeNamespace && is_interface_binding right) then false
+  // An interface and a class of one name merge into the class.
+  else if (is_interface_binding left && is_class_binding right) || (is_class_binding left && is_interface_binding right) then false
+  else if left = TypeNamespace || right = TypeNamespace then
+    // A namespace of types emits nothing and merges with any local declaration of its name.
+    // An import or an enum of that name still conflicts, and a lookup by BothNames still finds it.
+    let other = if left = TypeNamespace then right else left in
+    other = BothNames || other = TypeOnlyImport || other = AmbientBothNames
   else
     let effective binding = if is_function_binding binding || binding = AmbientValueName then ValueName
       else if is_interface_binding binding then TypeName
-      else if binding = TypeNamespace || binding = TypeOnlyImport || binding = AmbientBothNames then BothNames else binding in
+      else if binding = TypeOnlyImport || binding = AmbientBothNames || is_class_binding binding then BothNames else binding in
     let left = effective left in
     let right = effective right in
     left = BothNames || right = BothNames || left = right
@@ -2366,18 +2375,20 @@ let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (st
 let constructor_property (input:tape) (#frame:slprop) (state:parser_state)
   : Tot (stt (parser_state & U32.t) (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! first = (fun () -> peek input #frame state.offset) in
-  if first <> 112uy && first <> 114uy then read_ret input #frame (state, state.offset)
+  if first <> 112uy && first <> 114uy && first <> 111uy then read_ret input #frame (state, state.offset)
   else
-    let! prefixes = (fun () -> class_modifiers input #frame state 0ul 2ul) in
+    // An accessibility modifier, override and readonly may each appear once. static and declare cannot.
+    let! prefixes = (fun () -> class_modifiers input #frame state 0ul 3ul) in
     let property = prefixes.key_state in
-    if property.status <> 0ul || prefixes.flags = 0ul || U32.logand prefixes.flags 25ul <> 0ul then read_ret input #frame (state, state.offset)
+    if property.status <> 0ul || prefixes.flags = 0ul || prefixes.flags = 8ul || U32.logand prefixes.flags 17ul <> 0ul then read_ret input #frame (state, state.offset)
     else
       let! binding = (fun () -> name input #frame property.offset false true) in
       let! tail = (fun () -> trivia input #frame binding.at) in
       let! optional = (fun () -> same input #frame tail.at 63uy) in
       let! colon = (fun () -> if optional then trivia input #frame (next tail.at) else read_ret input #frame (tail)) in
       let! typed = (fun () -> same input #frame colon.at 58uy) in
-      let! initialized = (fun () -> if optional || typed then read_ret input #frame false else same input #frame tail.at 61uy) in
+      let! follower = (fun () -> peek input #frame tail.at) in
+      let initialized = not optional && not typed && (follower = 61uy || follower = 44uy || follower = 41uy) in
       read_ret input #frame (if binding.ok && tail.ok && colon.ok && (typed || initialized) then (property, binding.at)
         else (state, state.offset))
 
@@ -4655,7 +4666,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
       let type_only = width = 4ul || width = 9ul in
       let! decl =
         (fun () -> if head.class_declaration then
-          bind_in_namespace input start 0ul 0ul used start.offset (if head.ambient_declaration then AmbientBothNames else BothNames)
+          bind_in_namespace input start 0ul 0ul used start.offset (if head.ambient_declaration then AmbientClassName else ClassName)
         else
           let! namespace = (fun () -> if width <> 9ul then
               ret input (if type_only then TypeName else if head.ambient_declaration then AmbientValueName else ValueName)

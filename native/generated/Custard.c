@@ -1580,6 +1580,11 @@ bool TmtPulseParser_is_interface_binding(TmtPulseMemory_binding_namespace namesp
       namespace0 == TmtPulseMemory_ExportedInterfaceName;
 }
 
+bool TmtPulseParser_is_class_binding(TmtPulseMemory_binding_namespace namespace0)
+{
+  return namespace0 == TmtPulseMemory_ClassName || namespace0 == TmtPulseMemory_AmbientClassName;
+}
+
 bool
 TmtPulseParser_names_overlap(
   TmtPulseMemory_binding_namespace left,
@@ -1589,7 +1594,8 @@ TmtPulseParser_names_overlap(
   if (left == TmtPulseMemory_RuntimeExport)
     return
       right == TmtPulseMemory_ValueName || right == TmtPulseMemory_BothNames ||
-        right == TmtPulseMemory_FunctionImplementation;
+        right == TmtPulseMemory_FunctionImplementation
+      || right == TmtPulseMemory_ClassName;
   else if (TmtPulseParser_is_function_binding(left) && TmtPulseParser_is_function_binding(right))
     return
       left == TmtPulseMemory_FunctionImplementation &&
@@ -1599,10 +1605,17 @@ TmtPulseParser_names_overlap(
     return false;
   else if
   (
-    TmtPulseParser_is_interface_binding(left) && right == TmtPulseMemory_TypeNamespace ||
-      left == TmtPulseMemory_TypeNamespace && TmtPulseParser_is_interface_binding(right)
+    TmtPulseParser_is_interface_binding(left) && TmtPulseParser_is_class_binding(right) ||
+      TmtPulseParser_is_class_binding(left) && TmtPulseParser_is_interface_binding(right)
   )
     return false;
+  else if (left == TmtPulseMemory_TypeNamespace || right == TmtPulseMemory_TypeNamespace)
+  {
+    TmtPulseMemory_binding_namespace other = left == TmtPulseMemory_TypeNamespace ? right : left;
+    return
+      other == TmtPulseMemory_BothNames || other == TmtPulseMemory_TypeOnlyImport ||
+        other == TmtPulseMemory_AmbientBothNames;
+  }
   else
   {
     TmtPulseMemory_binding_namespace left1;
@@ -1610,21 +1623,27 @@ TmtPulseParser_names_overlap(
       left1 = TmtPulseMemory_ValueName;
     else if (TmtPulseParser_is_interface_binding(left))
       left1 = TmtPulseMemory_TypeName;
+    else if
+    (
+      left == TmtPulseMemory_TypeOnlyImport || left == TmtPulseMemory_AmbientBothNames ||
+        TmtPulseParser_is_class_binding(left)
+    )
+      left1 = TmtPulseMemory_BothNames;
     else
-      left1 =
-        left == TmtPulseMemory_TypeNamespace || left == TmtPulseMemory_TypeOnlyImport ||
-          left == TmtPulseMemory_AmbientBothNames ? TmtPulseMemory_BothNames
-                                                  : left;
+      left1 = left;
     TmtPulseMemory_binding_namespace right1;
     if (TmtPulseParser_is_function_binding(right) || right == TmtPulseMemory_AmbientValueName)
       right1 = TmtPulseMemory_ValueName;
     else if (TmtPulseParser_is_interface_binding(right))
       right1 = TmtPulseMemory_TypeName;
+    else if
+    (
+      right == TmtPulseMemory_TypeOnlyImport || right == TmtPulseMemory_AmbientBothNames ||
+        TmtPulseParser_is_class_binding(right)
+    )
+      right1 = TmtPulseMemory_BothNames;
     else
-      right1 =
-        right == TmtPulseMemory_TypeNamespace || right == TmtPulseMemory_TypeOnlyImport ||
-          right == TmtPulseMemory_AmbientBothNames ? TmtPulseMemory_BothNames
-                                                   : right;
+      right1 = right;
     return
       left1 == TmtPulseMemory_BothNames || right1 == TmtPulseMemory_BothNames || left1 == right1;
   }
@@ -7673,7 +7692,7 @@ TmtPulseParser_constructor_property(
 )
 {
   uint8_t value = TmtPulseMemory_peek(input, state.offset);
-  if (value != 112U && value != 114U)
+  if (value != 112U && value != 114U && value != 111U)
     return
       (
         (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t){
@@ -7683,9 +7702,13 @@ TmtPulseParser_constructor_property(
       );
   else
   {
-    TmtPulseParser_class_prefix value1 = TmtPulseParser_class_modifiers(input, state, 0U, 2U);
+    TmtPulseParser_class_prefix value1 = TmtPulseParser_class_modifiers(input, state, 0U, 3U);
     TmtPulseParser_parser_state property = value1.key_state;
-    if (property.status != 0U || value1.flags == 0U || (value1.flags & 25U) != 0U)
+    if
+    (
+      property.status != 0U || value1.flags == 0U || value1.flags == 8U ||
+        (value1.flags & 17U) != 0U
+    )
       return
         (
           (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t){
@@ -7704,24 +7727,21 @@ TmtPulseParser_constructor_property(
       else
         value5 = value3;
       bool value6 = TmtPulseParser_same(input, value5.at, 58U);
-      bool value7;
-      if (value4 || value6)
-        value7 = false;
-      else
-        value7 = TmtPulseParser_same(input, value3.at, 61U);
+      uint8_t value7 = TmtPulseMemory_peek(input, value3.at);
+      bool initialized = !value4 && !value6 && (value7 == 61U || value7 == 44U || value7 == 41U);
       return
-        value2.ok && value3.ok && value5.ok && (value6 || value7) ? (
-                                                                    (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t){
-                                                                      ._1 = property,
-                                                                      ._2 = value2.at
-                                                                    }
-                                                                  )
-                                                                  : (
-                                                                    (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t){
-                                                                      ._1 = state,
-                                                                      ._2 = state.offset
-                                                                    }
-                                                                  );
+        value2.ok && value3.ok && value5.ok && (value6 || initialized) ? (
+                                                                         (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t){
+                                                                           ._1 = property,
+                                                                           ._2 = value2.at
+                                                                         }
+                                                                       )
+                                                                       : (
+                                                                         (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint32_t){
+                                                                           ._1 = state,
+                                                                           ._2 = state.offset
+                                                                         }
+                                                                       );
     }
   }
 }
@@ -20902,7 +20922,7 @@ TmtPulseParser_module_declaration(
             0U,
             used,
             value3.offset,
-            value.ambient_declaration ? TmtPulseMemory_AmbientBothNames : TmtPulseMemory_BothNames);
+            value.ambient_declaration ? TmtPulseMemory_AmbientClassName : TmtPulseMemory_ClassName);
       else
       {
         TmtPulseMemory_binding_namespace value41;

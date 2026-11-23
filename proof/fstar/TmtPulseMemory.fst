@@ -30,6 +30,9 @@ type binding_namespace =
   // Ambient declarations conflict like their runtime forms but leave no runtime binding to export.
   | AmbientValueName
   | AmbientBothNames
+  // A class declares a value and a type like BothNames, and merges with an interface of its name.
+  | ClassName
+  | AmbientClassName
 
 type binding_name = { span:G.span; namespace:binding_namespace; owner:U8.t }
 

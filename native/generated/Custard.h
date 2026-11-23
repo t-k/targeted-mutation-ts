@@ -47,6 +47,8 @@ TmtGrammar_candidate;
 #define TmtPulseMemory_RuntimeExport 14
 #define TmtPulseMemory_AmbientValueName 15
 #define TmtPulseMemory_AmbientBothNames 16
+#define TmtPulseMemory_ClassName 17
+#define TmtPulseMemory_AmbientClassName 18
 
 typedef uint8_t TmtPulseMemory_binding_namespace;
 
@@ -370,6 +372,8 @@ TmtPulseParser_export_identifier(TmtPulseMemory_tape input, TmtPulseParser_parse
 bool TmtPulseParser_is_function_binding(TmtPulseMemory_binding_namespace namespace0);
 
 bool TmtPulseParser_is_interface_binding(TmtPulseMemory_binding_namespace namespace0);
+
+bool TmtPulseParser_is_class_binding(TmtPulseMemory_binding_namespace namespace0);
 
 bool
 TmtPulseParser_names_overlap(
