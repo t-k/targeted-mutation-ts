@@ -186,3 +186,27 @@ Seven alternating macOS samples against `6add454` measure mreact TSX at 3.66 →
 The macOS profile of mreact's Pulse-only inputs attributes about 49% of process CPU time to the Pulse module parse, 19% to the ambiguity guard, and 12% to V8 validation. The length-based guard keyword dispatch experiment produced byte-identical output and changed warm medians by at most 2%, with mixed first-emission results. The implementation retains the original guard dispatch.
 
 The upstream source sample uses a fixed TypeScript revision and reads test blobs as data. It selected 503 single-source candidates and found 126 module inputs with valid reference ESNext emission. With TypeScript loading blocked, TMT emitted 66 of those inputs, including 32 through Pulse alone. This sample reports input and emission coverage. All 3,036 repository tests passed. The [raw profiles and comparison samples](../evidence/compiler/native-type-projection.json) record the measured paths and source hashes.
+
+### JavaScript JSX modules and local type declarations
+
+The JavaScript JSX emitter handles multiple exports and preserves directive placement. It validates the rendered module with V8 before publishing. JSX-extension modules without markup can preserve their original JavaScript bytes after validation. JSX and TSX share the F★ reader for namespace-qualified attribute names such as `prop:id`. The fixed JSX audit compiled 50 valid SolidJS modules and the tachyon-dom Solid benchmark without TypeScript. The 48 newly supported outputs matched the normalized TypeScript reference.
+
+At `c8b62a3`, all 653 fixed inputs emit without loading TypeScript. The Pulse path handles 553, including all 116 TSX files. The upstream sample contains 126 modules with valid TypeScript reference output. Of those, 69 emit without TypeScript, including 40 through Pulse. The other 57 exercise remaining compatibility work.
+
+On macOS, the six highest file medians account for 0.592 ms of the 2.009 ms sum of mreact's 84 TSX file medians. `api-reference-data.tsx` spends about 103 µs in the Pulse parse and 4 µs sorting JSX and lexical spans. In the six-file profile, only the Hacker News `render.tsx` needed a second parse. Extra inline workspace reduced that file from 0.089 to 0.068 ms and changed the full TSX corpus from 2.381 to 2.362 ms. The wider-workspace, sorted-range check, trivia-prefix, and borrowed-tape experiments delivered mixed results across workloads.
+
+The local type declaration change moves mreact's 267,218-byte router `build.ts` to Pulse. Seven alternating samples measured 6.53 → 1.59 ms warm and 29.18 → 4.11 ms on first emission. The 321-file mreact TypeScript corpus fell from 52.41 to 47.43 ms warm. The corpus audit reports the same normalized output and dependencies.
+
+The Linux arm64 comparison at `c8b62a3` led eight of 17 comparable warm workloads and one first-emission workload. The table uses complete ESNext JavaScript emission from in-memory bytes. Each row compares engines within the same run.
+
+| Workload | TMT warm (ms) | Fastest reference warm (ms) | TMT first (ms) | Fastest reference first (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| mreact TSX, 84 files | 3.00 | 2.46 (Oxc) | 5.52 | 3.07 (SWC Next) |
+| tachyon-dom TSX, 32 files | 0.43 | 0.44 (SWC Next) | 1.74 | 0.71 (SWC Next) |
+| App.tsx | 3.55 | 3.02 (Oxc) | 7.05 | 5.08 (SWC Next) |
+| Vite TS, 113 common files | 22.68 | 8.70 (Oxc) | 50.39 | 9.54 (SWC Next) |
+| mreact TS, 315 common files | 61.01 | 31.05 (Oxc) | 104.99 | 33.34 (SWC Next) |
+| tachyon-dom TS, 94 common files | 22.22 | 9.26 (Oxc) | 53.76 | 10.33 (SWC Next) |
+| TypeScript JavaScript bundle | 19.96 | 54.75 (Oxc) | 50.37 | 63.66 (Oxc) |
+
+All 3,080 repository tests passed. The [raw benchmarks, phase samples, and coverage results](../evidence/compiler/native-type-projection.json) record the current workloads and source hashes.
