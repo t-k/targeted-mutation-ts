@@ -8,14 +8,15 @@ const rows = readFileSync(new URL('../verification/pict/compiler-v8-audit.tsv', 
 const cases = [{ file: 'before.ts' }, { file: 'after.tsx' }];
 
 for (const row of rows) {
-  const [rawPhase, verdict, fixture, certification] = row.split('\t');
+  const [rawPhase, verdict, fixture, certification, guard] = row.split('\t');
   test('compiler validation audit ' + row.replaceAll('\t', ' '), () => {
     const phase = rawPhase.toLowerCase();
     const reason = verdict === 'Accept' ? 'accepted' : 'syntax';
     const prefix = 'TMT_V8_CASE\t0\n';
     const prelude = fixture === 'Initial' ? prefix : prefix + 'TMT_V8_AUDIT\tts\taccepted\t-1\nTMT_V8_CASE\t1\n';
+    const scan = guard === 'Unreported' ? '' : `TMT_V8_GUARD\t${phase}\t${Number(guard === 'Accepts')}\n`;
     const decision = certification === 'Unreported' ? '' :
-      `TMT_V8_CERTIFIED\t${phase}\t${Number(certification === 'Certified')}\n`;
+      scan + `TMT_V8_CERTIFIED\t${phase}\t${Number(certification === 'Certified')}\n`;
     const report = summarizeValidation(prelude + decision + `TMT_V8_AUDIT\t${phase}\t${reason}\t15\n`, cases,
       { decisions: true });
     assert.equal(report.checks[phase][reason], phase === 'ts' && fixture === 'Subsequent' && reason === 'accepted' ? 2 : 1);
@@ -26,6 +27,8 @@ for (const row of rows) {
     assert.deepEqual(report.certified, certified ? { [phase]: 1 } : {});
     assert.deepEqual(report.certifiedRejections, certified && verdict === 'Reject' ? [rejection] : []);
     assert.deepEqual(report.decisions.at(-1), { file, phase, certified, reason });
+    // The retired guard only objects. A published projection it objects to needs a reference comparison.
+    assert.deepEqual(report.guardObjections, guard === 'Objects' && certified ? [{ file, phase }] : []);
   });
 }
 

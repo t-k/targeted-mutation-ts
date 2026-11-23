@@ -110,3 +110,28 @@ test('a statement that TypeScript reads as a global augmentation is not emitted 
     assert.equal(sameAsTypeScript(source, 'global.ts').backend, 'pulse', source);
   }
 });
+
+test('an asserted default export object is never published with its type', () => {
+  for (const source of ['type Config = { a: number };\nexport default <Config>{ a: 1 };\n',
+    'type Config = { a: number };\nexport default <Config>{\n  a: 1,\n}\n']) {
+    const result = compile(Buffer.from(source), { file: 'config.ts' });
+    assert.equal(typeof result.code, 'string', source);
+    assert.doesNotMatch(result.code, /<Config>/, source);
+    assert.deepEqual(inspect(ts, result.code, 'config.ts'), inspect(ts, reference(source, 'config.ts'), 'config.ts'), source);
+  }
+});
+
+test('a statement that TypeScript rejects as a malformed declaration keeps its diagnostic', () => {
+  for (const word of ['namespace', 'module', 'readonly', 'accessor']) {
+    for (const tail of [' as any;', ' satisfies any;', ' instanceof Object;', ' in {};', ' "name";']) {
+      if ((word === 'namespace' || word === 'module') && !/as|satisfies|name/.test(tail)) continue;
+      const source = `var ${word}: any;\n${word}${tail}\nexport {};\n`;
+      const result = compile(Buffer.from(source), { file: 'word.ts' });
+      assert.notEqual(result.backend, 'pulse', source);
+    }
+    for (const tail of [';', '.x = 1;', '(1);', ' = 1;', '\nfoo;', ' + 1;', '[0];', ' ? 1 : 2;']) {
+      const source = `var ${word}: any, foo: any;\n${word}${tail}\nexport {};\n`;
+      assert.equal(sameAsTypeScript(source, 'word.ts').backend, 'pulse', source);
+    }
+  }
+});

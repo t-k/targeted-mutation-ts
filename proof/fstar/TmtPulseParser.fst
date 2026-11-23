@@ -3497,7 +3497,22 @@ and ordinary_statement (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt
       let! after = (fun () -> trivia input (plus state.offset 6ul)) in
       let! follower = (fun () -> peek input after.at) in
       ret input (not after.ok || follower = 123uy || G.identifier_start follower)) in
-  if block || function_head.ok || class_ || augmentation then ret input (failed state 1ul)
+  // It also rejects these words before a name or a string on the same line, where JavaScript has an expression.
+  let! modifier_width = (fun () ->
+    if first = 110uy then
+      let! prefix = (fun () -> word input state.offset 8ul 0uL) in
+      let! found = (fun () -> if prefix = 0x6e616d6573706163uL then keyword input (plus state.offset 8ul) 1ul 0x65uL else ret input false) in
+      ret input (if found then 9ul else 0ul)
+    else if first = 109uy then (let! found = (fun () -> keyword input state.offset 6ul 0x6d6f64756c65uL) in ret input (if found then 6ul else 0ul))
+    else if first = 114uy then (let! found = (fun () -> keyword input state.offset 8ul 0x726561646f6e6c79uL) in ret input (if found then 8ul else 0ul))
+    else if first = 97uy then (let! found = (fun () -> keyword input state.offset 8ul 0x6163636573736f72uL) in ret input (if found then 8ul else 0ul))
+    else ret input 0ul) in
+  let! declaration_like = (fun () -> if modifier_width = 0ul then ret input false
+    else
+      let! after = (fun () -> trivia input (plus state.offset modifier_width)) in
+      let! follower = (fun () -> peek input after.at) in
+      ret input (not after.ok || (not after.newline && (G.identifier_start follower || follower = 34uy || follower = 39uy)))) in
+  if block || function_head.ok || class_ || augmentation || declaration_like then ret input (failed state 1ul)
   else statement_expressions input state fuel input.size
 
 and simple_statement (input:tape) (state:parser_state) (in_function:bool) (jumps:jump_context) (fuel:U32.t) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 46; 0]) =
@@ -4889,6 +4904,8 @@ let default_declaration (input:tape) (state:parser_state) (declaration_start:U32
           let! typed = (fun () -> annotation_type input start 16ul 64ul) in
           let! close = (fun () -> skip input typed) in
           let! after = (fun () -> consume input close 62uy) in
+          // The angle-bracket assertion stays in the source. Kind 29 withholds it from publication.
+          let! after = (fun () -> record_jsx_span input after 29ul state.offset after.offset) in
           let! object_ = (fun () -> skip input after) in
           consume input object_ 123uy) in
     let! completed = (fun () -> if asserted_object.status = 0ul then

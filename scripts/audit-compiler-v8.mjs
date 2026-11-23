@@ -26,20 +26,30 @@ export function summarizeValidation(trace, cases, options = {}) {
   const rejections = [];
   const certifiedRejections = [];
   const decisions = [];
+  const guardObjections = [];
   let current;
   let pending;
+  let guard;
   for (const line of trace.split(/\r?\n/)) {
     const [prefix, phase, reason, position] = line.split('\t');
     if (prefix === 'TMT_V8_CASE') {
       assert.match(phase, /^(?:0|[1-9]\d*)$/);
       assert.equal(pending, undefined, 'A certification decision has no validation verdict');
+      // A projection can be declined after the scan and before the certification decision.
+      guard = undefined;
       current = cases[Number(phase)];
       assert.ok(current, 'Unknown audit fixture');
+    } else if (prefix === 'TMT_V8_GUARD') {
+      // The audit build still runs the retired projection guard and reports its verdict.
+      assert.ok(current && (phase === 'ts' || phase === 'tsx') && (reason === '0' || reason === '1') &&
+        pending === undefined, 'Invalid guard audit event');
+      guard = { phase, accepts: reason === '1' };
     } else if (prefix === 'TMT_V8_CERTIFIED') {
       // The audit build reports the emitter's decision before it asks V8.
       assert.ok(current && (phase === 'ts' || phase === 'tsx') && (reason === '0' || reason === '1') &&
-        pending === undefined, 'Invalid certification audit event');
-      pending = { phase, certified: reason === '1' };
+        pending === undefined && (guard === undefined || guard.phase === phase), 'Invalid certification audit event');
+      pending = { phase, certified: reason === '1', objected: guard?.accepts === false };
+      guard = undefined;
     } else if (prefix === 'TMT_V8_AUDIT') {
       assert.ok(current && phases.has(phase) && reasons.has(reason), 'Invalid validation audit event');
       assert.match(position, /^(?:-1|0|[1-9]\d*)$/);
@@ -52,13 +62,15 @@ export function summarizeValidation(trace, cases, options = {}) {
       if (decided) {
         certified[phase] = (certified[phase] ?? 0) + 1;
         if (reason !== 'accepted') certifiedRejections.push(rejection);
+        if (pending.objected) guardObjections.push({ file: current.file, phase });
       }
       if (options.decisions) decisions.push({ file: current.file, phase, certified: decided, reason });
       pending = undefined;
     }
   }
   assert.equal(pending, undefined, 'A certification decision has no validation verdict');
-  return { checks, rejections, certified, certifiedRejections, ...(options.decisions ? { decisions } : {}) };
+  return { checks, rejections, certified, certifiedRejections, guardObjections,
+    ...(options.decisions ? { decisions } : {}) };
 }
 
 async function runWorker(cases, instrumented) {
@@ -111,22 +123,52 @@ export function auditCases(cases, options = {}) {
   return summarizeValidation(trace, cases, options);
 }
 
+// The guard objected to these published projections. Each must have the syntax TypeScript emits,
+// unless TypeScript itself reports the source as invalid.
+export async function referenceObjections(cases, objections) {
+  const { inspect } = await import('./audit-compiler-coverage.mjs');
+  const { compile } = await import(compilerEntry.href);
+  const { createRequire } = await import('node:module');
+  const ts = createRequire(import.meta.url)('typescript');
+  const report = { matched: 0, invalidReference: 0, mismatches: [] };
+  const sources = new Map(cases.map(test => [test.file, test]));
+  for (const { file } of objections) {
+    const test = sources.get(file);
+    const source = Buffer.from(test.source, 'base64');
+    const emitted = compile(source, { file, ...test.options });
+    const reference = ts.transpileModule(source.toString(), { fileName: file, reportDiagnostics: true, compilerOptions: {
+      target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, jsx: ts.JsxEmit.ReactJSX, verbatimModuleSyntax: true,
+    } });
+    if (reference.diagnostics.some(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error)) {
+      report.invalidReference++;
+    } else if (emitted.code !== null && JSON.stringify(inspect(ts, emitted.code, file).shape) ===
+        JSON.stringify(inspect(ts, reference.outputText, file).shape)) {
+      report.matched++;
+    } else report.mismatches.push(file);
+  }
+  return report;
+}
+
 if (import.meta.main) {
   const args = process.argv.slice(2);
   if (args[0] === '--audit-worker' || args[0] === '--ordinary-worker') {
     console.log(JSON.stringify(await runWorker(JSON.parse(readFileSync(0, 'utf8')), args[0] === '--audit-worker')));
   } else {
     assert.ok(args.length, 'Pass one or more JSON corpora');
-    const reports = args.map(path => {
+    const reports = [];
+    for (const path of args) {
       const raw = readFileSync(path);
       const input = JSON.parse(raw);
       const cases = (input.rows ?? input).filter(test => test.mode === 'module' &&
         /\.[cm]?[jt]sx?$/.test(test.file) && !/\.d\.[cm]?ts$/.test(test.file));
-      return { path, inputSha256: createHash('sha256').update(raw).digest('hex'), files: cases.length,
-        ...auditCases(cases) };
-    });
+      const summary = auditCases(cases);
+      reports.push({ path, inputSha256: createHash('sha256').update(raw).digest('hex'), files: cases.length,
+        ...summary, guardReference: await referenceObjections(cases, summary.guardObjections) });
+    }
     console.log(JSON.stringify({ node: process.version, compilationCache: 'disabled', reports }, null, 2));
-    // A certified projection that V8 rejects is a compiler defect.
-    if (reports.some(report => report.certifiedRejections.length)) process.exitCode = 1;
+    // A certified projection that V8 rejects, or a guard objection that differs from TypeScript, is a defect.
+    if (reports.some(report => report.certifiedRejections.length || report.guardReference.mismatches.length)) {
+      process.exitCode = 1;
+    }
   }
 }

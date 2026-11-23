@@ -4,8 +4,8 @@ import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { auditCases } from '../scripts/audit-compiler-v8.mjs';
-import { certificationCases } from '../scripts/generate-compiler-validation-cases.mjs';
+import { auditCases, referenceObjections } from '../scripts/audit-compiler-v8.mjs';
+import { ambiguityCases, certificationCases } from '../scripts/generate-compiler-validation-cases.mjs';
 import { compile } from '../src/compiler.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -73,4 +73,18 @@ test('the audit build certifies exactly the expected shapes and V8 accepts every
       }
     }
   }
+});
+
+test('published projections the retired guard objects to have the syntax TypeScript emits', { timeout: 180_000 }, async () => {
+  const built = spawnSync(process.execPath, ['scripts/build-compiler.mjs', '--audit-v8'], { cwd: root, encoding: 'utf8' });
+  assert.equal(built.status, 0, built.stderr);
+  const cases = ambiguityCases();
+  assert.deepEqual(cases, ambiguityCases());
+  const report = auditCases(cases);
+  assert.deepEqual(report.certifiedRejections, []);
+  // The scan was conservative: it objects to hundreds of projections that are correct.
+  assert.ok(report.guardObjections.length > 100, String(report.guardObjections.length));
+  const reference = await referenceObjections(cases, report.guardObjections);
+  assert.deepEqual(reference.mismatches, []);
+  assert.ok(reference.matched > 100, JSON.stringify(reference));
 });

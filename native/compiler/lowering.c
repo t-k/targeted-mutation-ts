@@ -805,13 +805,23 @@ bool tmt_valid_module_source(const char *source, size_t size) {
  */
 #ifdef TMT_AUDIT_V8
 void tmt_audit_certification(const char *phase, bool certified);
+void tmt_audit_guard(const char *phase, bool accepts);
 #define publishable(certified, code, length, phase) \
   (tmt_audit_certification(phase, certified), validate_emission(code, length, phase) && (certified))
+/*
+ * The projection guard scanned every output for TypeScript words and angle brackets outside the
+ * committed records. The parse now marks or declines those shapes itself. The audit build still
+ * runs the scan and reports its verdict, and the audit compares each objection with TypeScript.
+ */
+#define audit_projection_guard(projected, records, phase) tmt_audit_guard(phase, unambiguous_projection(projected, records))
 #else
 #define publishable(certified, code, length, phase) (certified)
+#define audit_projection_guard(projected, records, phase) ((void)0)
 #endif
 
+#ifdef TMT_AUDIT_V8
 static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records);
+#endif
 
 enum {
   type_annotation = 7,
@@ -847,6 +857,7 @@ typedef struct {
   uint32_t properties;
 } projection_facts;
 
+#ifdef TMT_AUDIT_V8
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
   if (!*certain) return at;
   const uint8_t byte = input.source[at];
@@ -1025,6 +1036,8 @@ static bool unambiguous_javascript(TmtPulseMemory_tape input, uint8_t *code, uin
   }
   return true;
 }
+
+#endif
 
 static const char esm_marker[] = "\nexport {};\n";
 
@@ -1481,7 +1494,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   if (!blank_type_records(input, records, &code, true, &facts)) goto enum_only;
   TmtPulseMemory_tape projected = input;
   if (code) projected.source = (uint8_t *)code;
-  if (!unambiguous_projection(projected, records)) goto enum_only;
+  if (module) audit_projection_guard(projected, records, "ts");
   *length = input.size;
   const bool needs_module_marker = code && esm && facts.remove_statement && !retained_module_marker(projected, marker, records);
   if (facts.properties) {
@@ -1748,7 +1761,7 @@ static char *render_jsx_spans(TmtPulseMemory_tape input, const TmtGrammar_span *
   return NULL;
 }
 
-#ifdef TMT_V8_VALIDATOR
+#ifdef TMT_AUDIT_V8
 typedef struct {
   TmtGrammar_span span;
   bool code;
@@ -1848,7 +1861,8 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
     if (blank_type_records(input, records, &masked, false, &facts)) {
       TmtPulseMemory_tape projected = input;
       if (masked) projected.source = (uint8_t *)masked;
-      if (unambiguous_projection(projected, records)) {
+      {
+        audit_projection_guard(projected, records, "tsx");
         char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length, enum_records);
         if (code && (!facts.remove_statement || retained_module_marker(projected, insertion, records) ||
                      (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&

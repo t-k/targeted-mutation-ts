@@ -1,12 +1,16 @@
-Phase	Verdict	Fixture	Certification
-TS	Reject	Initial	Uncertified
-TSX	Reject	Subsequent	Certified
-TS	Accept	Initial	Certified
-JSX	Accept	Initial	Unreported
-PassThrough	Accept	Subsequent	Unreported
-TS	Accept	Subsequent	Uncertified
-TSX	Accept	Initial	Unreported
-PassThrough	Reject	Initial	Unreported
-TSX	Accept	Subsequent	Uncertified
-JSX	Reject	Subsequent	Unreported
-TS	Accept	Initial	Unreported
+Phase	Verdict	Fixture	Certification	Guard
+TS	Reject	Initial	Uncertified	Accepts
+TSX	Reject	Subsequent	Certified	Objects
+TS	Accept	Initial	Certified	Accepts
+TS	Accept	Subsequent	Certified	Objects
+JSX	Accept	Initial	Unreported	Unreported
+PassThrough	Accept	Subsequent	Unreported	Unreported
+TS	Reject	Subsequent	Unreported	Unreported
+PassThrough	Reject	Initial	Unreported	Unreported
+TSX	Accept	Subsequent	Uncertified	Objects
+TSX	Accept	Initial	Certified	Unreported
+TSX	Reject	Initial	Certified	Objects
+TSX	Reject	Subsequent	Uncertified	Unreported
+TSX	Reject	Subsequent	Uncertified	Accepts
+JSX	Reject	Subsequent	Unreported	Unreported
+TSX	Accept	Subsequent	Unreported	Unreported

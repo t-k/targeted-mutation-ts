@@ -18,6 +18,11 @@ static void audit(const char *phase, const char *reason, int position = -1)
   std::fprintf(stderr, "TMT_V8_AUDIT\t%s\t%s\t%d\n", phase, reason, position);
 }
 
+extern "C" void tmt_audit_guard(const char *phase, bool accepts)
+{
+  std::fprintf(stderr, "TMT_V8_GUARD\t%s\t%d\n", phase, accepts ? 1 : 0);
+}
+
 extern "C" void tmt_audit_certification(const char *phase, bool certified)
 {
   std::fprintf(stderr, "TMT_V8_CERTIFIED\t%s\t%d\n", phase, certified ? 1 : 0);
