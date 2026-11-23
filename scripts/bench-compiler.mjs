@@ -75,6 +75,17 @@ function readCases(path) {
     });
 }
 
+// Only the parent needs vm.SourceTextModule for its output checks. Under that flag Node loads every
+// CommonJS source through a slower path, which would be charged to engines with a JavaScript entry.
+export function firstProcessEnvironment(environment = process.env) {
+  const child = { ...environment, NODE_DISABLE_COMPILE_CACHE: '1' };
+  if (typeof environment.NODE_OPTIONS === 'string') {
+    child.NODE_OPTIONS = environment.NODE_OPTIONS.split(/\s+/)
+      .filter(option => option && option !== '--experimental-vm-modules').join(' ');
+  }
+  return child;
+}
+
 // Module paths that show the TypeScript compiler or its syntax projection was loaded.
 export function loadedTypeScript(cache = require.cache) {
   return Object.keys(cache).filter(path => /[\\/]node_modules[\\/]typescript[\\/]|typescript-syntax\.[cm]?js$/.test(path));
@@ -222,7 +233,7 @@ async function measure(path, cases, active, plan, metadata, cache) {
       assert.equal(warm.sum, iterations * expected[name]);
       result.samples[name].warm.push(warm.ms);
       const child = spawnSync(process.execPath, [...cache.flags, entry, '--first', name, path, mask], {
-        encoding: 'utf8', env: { ...process.env, NODE_DISABLE_COMPILE_CACHE: '1' },
+        encoding: 'utf8', env: firstProcessEnvironment(),
         timeout: 60_000, maxBuffer: 1024 * 1024,
       });
       assert.equal(child.status, 0, child.error?.message ?? child.stderr);

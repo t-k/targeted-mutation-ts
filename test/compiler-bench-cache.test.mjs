@@ -49,3 +49,15 @@ test('the first-process sample detects a loaded TypeScript compiler after the ti
     'C:\\repo\\node_modules\\typescript\\lib\\typescript.js': {}, '/repo/src/typescript-compiler.mjs': {} };
   assert.deepEqual(loadedTypeScript(loaded), Object.keys(loaded).slice(0, 3));
 });
+
+test('the first-process child does not inherit the parent-only module flag', async () => {
+  const { firstProcessEnvironment } = await import('../scripts/bench-compiler.mjs');
+  const environment = firstProcessEnvironment({ PATH: '/bin', NODE_COMPILE_CACHE: '/tmp/cache',
+    NODE_OPTIONS: '--experimental-vm-modules --max-old-space-size=512  --experimental-vm-modules' });
+  assert.deepEqual(environment, { PATH: '/bin', NODE_COMPILE_CACHE: '/tmp/cache',
+    NODE_OPTIONS: '--max-old-space-size=512', NODE_DISABLE_COMPILE_CACHE: '1' });
+  assert.equal(firstProcessEnvironment({ NODE_OPTIONS: '--experimental-vm-modules' }).NODE_OPTIONS, '');
+  assert.equal(firstProcessEnvironment({}).NODE_OPTIONS, undefined);
+  assert.equal(firstProcessEnvironment({ NODE_OPTIONS: '--no-experimental-vm-modules-x' }).NODE_OPTIONS,
+    '--no-experimental-vm-modules-x');
+});

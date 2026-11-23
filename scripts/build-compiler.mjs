@@ -43,7 +43,13 @@ try {
     if (built.status !== 0) throw new Error(built.stderr || built.error?.message);
     binaries.push(javascript);
   }
-  const common = ['-std=c11', '-O3', '-fPIC', '-fvisibility=hidden', '-Wall', '-Wextra', '-Werror',
+  // The extracted parser is hundreds of small functions that pass their state by value. The default
+  // inlining limits leave most of them as calls, which costs 20 to 30 percent of a pass.
+  const clang = /clang/i.test(spawnSync(compiler, ['--version'], { encoding: 'utf8' }).stdout ?? '');
+  const inlining = clang ? (macOS ? ['-mllvm', '-inline-threshold=2000', '-Wl,-mllvm,-inline-threshold=2000'] : []) :
+    ['--param=inline-unit-growth=1000', '--param=max-inline-insns-single=6000', '--param=max-inline-insns-auto=600',
+      '--param=large-function-growth=2000', '--param=large-unit-insns=400000', '--param=large-function-insns=20000'];
+  const common = ['-std=c11', '-O3', ...inlining, '-fPIC', '-fvisibility=hidden', '-Wall', '-Wextra', '-Werror',
     '-Wno-parentheses', '-I', headers, '-I', 'native/runtime',
     ...(values['scalar-scans'] ? ['-DTMT_SCALAR_SCANS'] : []),
     ...shared,
