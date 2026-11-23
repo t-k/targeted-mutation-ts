@@ -155,7 +155,8 @@ const annotationRows = readFileSync(new URL('../verification/pict/compiler-annot
 for (const row of annotationRows) {
   const [binding, source, layout] = row.split('\t');
   test('module type annotation erasure ' + row.replaceAll('\t', ' '), async () => {
-    const gap = layout === 'Inline' ? ' ' : '\n  ';
+    const gap = { Inline: ' ', Multiline: '\n  ', Comment: ' /* type comment */ ',
+      Unicode: ' /* サイズ 😀\u2028 annotation */ ' }[layout];
     const declarations = {
       Local: 'const value:' + gap + 'number = Math.abs(-6);\nexport { value };',
       Parameter: 'function twice(x:' + gap + 'number) { return x * 2; }\nexport const value = twice(3);',
@@ -168,13 +169,13 @@ for (const row of annotationRows) {
     const input = prefix + declarations[binding] + suffix;
     const result = compile(input);
     if (source === 'Malformed') assert.equal(result.code, null);
-    const followingExportList = source === 'LateType' && binding === 'Local';
-    if (source !== 'Module' && source !== 'TypePrelude' && !followingExportList) {
+    const lateType = source === 'LateType';
+    if (source !== 'Module' && source !== 'TypePrelude' && !lateType) {
       assert.notEqual(result.backend, 'pulse', input);
       return;
     }
     assert.equal(result.backend, 'pulse', input);
-    const code = followingExportList ? result.code.replace(/^;(?= +$)/gm, ' ') : result.code;
+    const code = lateType ? result.code.replace(/^;(?= +$)/gm, ' ') : result.code;
     assert.equal(code, stripTypeScriptTypes(input));
     const module = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
     assert.equal(module.value, 6);
@@ -198,6 +199,18 @@ test('annotation erasure distinguishes a comparison, a generic call and import a
     assert.ok(bridged.code);
     assert.doesNotMatch(bridged.code, /below\s*[<]|below as/);
   }
+});
+
+test('a colon closes assertions in conditional results and switch labels', async () => {
+  const source = 'export function conditional(flag: boolean) { return flag ? 42 as number : 0; }\n' +
+    'export function select(value: number) { switch (value) { case 42 satisfies number: return true; default: return false; } }';
+  const result = compile(source);
+  assert.equal(result.backend, 'pulse');
+  const { conditional, select } = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+  assert.equal(conditional(true), 42);
+  assert.equal(conditional(false), 0);
+  assert.equal(select(42), true);
+  assert.equal(select(0), false);
 });
 
 test('native multiline parameter annotations preserve delimiters and line endings', () => {

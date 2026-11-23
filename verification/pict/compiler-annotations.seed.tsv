@@ -6,3 +6,6 @@ Parameter	Module	Inline
 Return	Module	Inline
 Local	TypePrelude	Inline
 Return	LateType	Inline
+Local	Module	Unicode
+Parameter	Module	Comment
+Return	TypePrelude	Unicode

@@ -879,6 +879,8 @@ static bool comparison_angle(TmtPulseMemory_tape input, uint32_t at, bool certai
   while (at < size) {
     const uint8_t byte = code[at++];
     if (byte == ')' || byte == ']' || byte == '}' || byte == ';') return true;
+    // After a flat operand, a second '>' excludes an expression type-argument closer.
+    if (byte == '>' && token && flat && certain && at < size && code[at] == '>') return true;
     if (byte == '?' && token && flat && (at == size || (code[at] != '?' && code[at] != '.'))) return true;
     if ((byte == '&' || byte == '|') && token && flat && at < size && code[at] == byte) return true;
     if (space(byte)) gap = token;
@@ -1000,7 +1002,7 @@ static bool erasable_expression_range(TmtPulseMemory_tape input, TmtGrammar_cand
   if (tail.at == input.size) return true;
   if (!tail.newline && tail.at == next_assertion) return true;
   const uint8_t byte = input.source[tail.at];
-  return byte == ';' || byte == ',' || byte == ')' || byte == ']' || byte == '}' ||
+  return byte == ';' || byte == ',' || byte == ':' || byte == ')' || byte == ']' || byte == '}' ||
     assertion_line_boundary(input, tail);
 }
 
@@ -1087,8 +1089,8 @@ static bool preserve_generic_arrow(TmtPulseMemory_tape input, TmtGrammar_span sp
   return true;
 }
 
-/* A retained variable declaration ends the directive prologue. */
-static bool begins_runtime_variable(TmtPulseMemory_tape input, uint32_t at) {
+/* A retained declaration ends the directive prologue. */
+static bool begins_runtime_declaration(TmtPulseMemory_tape input, uint32_t at) {
   if (TmtPulseParser_keyword(input, at, 6, UINT64_C(0x6578706f7274))) {
     const TmtPulseParser_cursor declaration = TmtPulseParser_trivia(input, at + 6);
     if (!declaration.ok) return false;
@@ -1099,7 +1101,9 @@ static bool begins_runtime_variable(TmtPulseMemory_tape input, uint32_t at) {
     return name.ok && !TmtPulseParser_keyword(input, name.at, 4, UINT64_C(0x656e756d));
   }
   return TmtPulseParser_keyword(input, at, 3, UINT64_C(0x6c6574)) ||
-    TmtPulseParser_keyword(input, at, 3, UINT64_C(0x766172));
+    TmtPulseParser_keyword(input, at, 3, UINT64_C(0x766172)) ||
+    TmtPulseParser_keyword(input, at, 8, UINT64_C(0x66756e6374696f6e)) ||
+    TmtPulseParser_keyword(input, at, 5, UINT64_C(0x636c617373));
 }
 
 static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool *remove_statement,
@@ -1135,7 +1139,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
       const TmtPulseParser_cursor first = TmtPulseParser_trivia(input, prelude);
       if (first.ok && first.at == span.first) prelude = span.last;
       else if (event.original == erased_type_statement) {
-        if (!retained_module_statement && (!first.ok || !begins_runtime_variable(input, first.at))) goto decline;
+        if (!retained_module_statement && (!first.ok || !begins_runtime_declaration(input, first.at))) goto decline;
         retained_module_statement = true;
         separate = true;
         prelude = span.last;
@@ -1164,17 +1168,20 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     bool preserve_lines = statement || member || modifiers || arrow || result || heritage || local_type || field ||
       event.original == type_arguments || event.original == type_assertion;
     if (!preserve_lines || modifiers) {
-      bool multiline = false, slash = false;
+      bool multiline = false, slash = false, unicode = false;
       for (uint32_t byte = span.first; byte < span.last; byte++) {
         const uint8_t value = input.source[byte];
-        if (value >= 128) goto decline;
+        if (value >= 128) {
+          if (!annotation) goto decline;
+          unicode = true;
+        }
         if (value == '\n' || value == '\r') multiline = true;
         if (value == '/') slash = true;
       }
-      if (!preserve_lines && multiline) {
+      if (!preserve_lines && (multiline || slash || unicode)) {
         if (!annotation || !delimited_annotation(input, span.last)) goto decline;
         preserve_lines = true;
-      } else if (!preserve_lines && slash) goto decline;
+      }
     }
     if (!code) {
       code = malloc((size_t)input.size + sizeof(esm_marker));
@@ -1185,7 +1192,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
       if (!blank_class_modifiers(input, span, code)) goto decline;
     } else if (!preserve_lines) memset(code + span.first, ' ', span.last - span.first);
     else if (!blank_lines((uint8_t *)code + span.first, input.source + span.first, span.last - span.first,
-                          statement || local_type || event.original == erased_overload)) goto decline;
+                          statement || local_type || annotation || event.original == erased_overload)) goto decline;
     if (separate) code[span.first] = ';';
     if (arrow && !preserve_generic_arrow(input, span, code)) goto decline;
     if (result && (memchr(input.source + span.first, '\n', span.last - span.first) ||

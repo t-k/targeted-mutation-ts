@@ -12,19 +12,21 @@ function load(code) {
 
 for (const row of rows) {
   const [prefix, statement, dialect] = row.split('\t');
-  test('late type erasure after lexical export ' + row.replaceAll('\t', ' '), async () => {
+  test('late type erasure after a retained declaration ' + row.replaceAll('\t', ' '), async () => {
     const exports = {
       Const: 'export const metadata = { value: 42 };',
       TwoConst: 'export const helper = true;\nexport const metadata = { value: 42 };',
       Let: 'export let metadata = { value: 42 };',
       Var: 'export var metadata = { value: 42 };',
+      Function: 'export function metadata() { return { value: 42 }; }',
+      Class: 'export class metadata { value = 42; }',
     };
     const types = {
       Interface: 'interface Shape { value: number }',
       Alias: 'type Shape = { value: number };',
       TypeExport: 'export type { Shape } from "pure-type-source";',
     };
-    const value = 'const shape: Shape = metadata;';
+    const value = 'const shape: Shape = ' + (prefix === 'Function' ? 'metadata()' : prefix === 'Class' ? 'new metadata()' : 'metadata') + ';';
     const suffix = dialect === 'TS' ? 'export const view = shape.value;' :
       'const React = { createElement: (_tag, _props, child) => child };\nexport const view = <i>{shape.value}</i>;';
     const input = [exports[prefix], '// retain this comment', types[statement], value, suffix].join('\n');
@@ -34,7 +36,8 @@ for (const row of rows) {
     assert.doesNotMatch(result.code, /pure-type-source|interface Shape|type Shape/);
     const output = await load(result.code);
     assert.equal(output.view, 42);
-    assert.equal(output.metadata.value, 42);
+    const metadata = prefix === 'Function' ? output.metadata() : prefix === 'Class' ? new output.metadata() : output.metadata;
+    assert.equal(metadata.value, 42);
   });
 }
 

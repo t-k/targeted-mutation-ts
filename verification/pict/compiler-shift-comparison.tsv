@@ -1,0 +1,6 @@
+Shift	Gap	Dialect
+Unsigned	Spaced	TS
+Signed	Adjacent	TSX
+Signed	Spaced	TSX
+Unsigned	Adjacent	TSX
+Signed	Adjacent	TS

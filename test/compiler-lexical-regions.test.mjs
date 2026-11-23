@@ -111,3 +111,21 @@ test('type assertion line projection keeps contextual continuation operators con
   const input = 'export const contains = "value" as string\nin { value: 1 };';
   assert.notEqual(compile(input).backend, 'pulse');
 });
+
+const shiftComparisons = readFileSync(new URL('../verification/pict/compiler-shift-comparison.tsv', import.meta.url), 'utf8')
+  .trimEnd().split(/\r?\n/).slice(1);
+for (const row of shiftComparisons) {
+  test('a shift following a flat comparison operand ' + row.replaceAll('\t', ' '), async () => {
+    const [kind, gap, dialect] = row.split('\t');
+    const operator = kind === 'Signed' ? '>>' : '>>>';
+    const space = gap === 'Adjacent' ? '' : ' ';
+    const source = 'export function check(index: number, length: number) { return index < length' +
+      space + operator + space + '1; }' + (dialect === 'TSX' ? '\nexport const View = () => <i/>;' : '');
+    const result = compile(source, { file: 'source.' + dialect.toLowerCase(), jsx: 'classic' });
+    assert.equal(result.backend, 'pulse', source);
+    const { check } = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+    assert.equal(check(2, 6), true);
+    assert.equal(check(3, 6), false);
+    assert.equal(check(0, -1), kind === 'Unsigned');
+  });
+}

@@ -3,3 +3,5 @@ Const	Interface	TS
 TwoConst	Interface	TSX
 Let	Alias	TSX
 Var	TypeExport	TS
+Function	Interface	TS
+Class	Alias	TSX
