@@ -1,0 +1,5 @@
+Cache: Repeated, Disabled
+Workload: Corpus, Official
+Acceptance: Complete, YukuDeclines, TmtDeclines
+
+IF [Workload] = "Official" THEN [Acceptance] IN {"Complete", "TmtDeclines"};

@@ -1,0 +1,8 @@
+Cache	Workload	Acceptance
+Disabled	Corpus	YukuDeclines
+Repeated	Corpus	Complete
+Disabled	Official	TmtDeclines
+Disabled	Official	Complete
+Repeated	Official	TmtDeclines
+Repeated	Corpus	TmtDeclines
+Repeated	Corpus	YukuDeclines

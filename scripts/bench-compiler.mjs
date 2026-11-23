@@ -5,13 +5,37 @@ import { readFileSync } from 'node:fs';
 import { createRequire, registerHooks, stripTypeScriptTypes } from 'node:module';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { SourceTextModule, createContext } from 'node:vm';
+import vm from 'node:vm';
 
 const entry = fileURLToPath(import.meta.url);
 const require = createRequire(import.meta.url);
 const engines = ['tmt', 'oxc', 'yuku', 'swc-next'];
 if (process.env.TMT_COMPARE_CURRENT_YUKU === '1') engines.push('yuku-current');
-const rounds = 5;
+const rounds = 7;
+
+export function benchmarkCache(args) {
+  const flag = args.findLast(arg => arg === '--no-compilation-cache' || arg === '--compilation-cache');
+  return flag === '--no-compilation-cache'
+    ? { mode: 'disabled', flags: [flag] }
+    : { mode: 'repeated', flags: [] };
+}
+
+export function comparisonCohorts(accepted, size, official) {
+  const names = Object.keys(accepted);
+  const maskFor = members => Array.from({ length: size }, (_, i) =>
+    Number(members.every(name => accepted[name][i]))).join('');
+  const participants = official ? names.filter(name => accepted[name][0]) : names;
+  const common = {
+    cohort: 'common', engines: participants,
+    mask: official ? String(Number(participants.includes('tmt') && participants.length > 1)) : maskFor(participants),
+  };
+  const trio = ['tmt', 'oxc', 'swc-next'].filter(name => Object.hasOwn(accepted, name));
+  if (!official && trio.length === 3) {
+    const mask = maskFor(trio);
+    if (mask !== common.mask) return [common, { cohort: 'tmt-oxc-swc-next', engines: trio, mask }];
+  }
+  return [common];
+}
 
 function isTsxCorpus(path) { return path.endsWith('.tsx.json'); }
 
@@ -119,14 +143,14 @@ function sample(run, cases, iterations) {
 }
 
 async function compareLowered(code, test) {
-  const context = createContext();
-  const runtime = new SourceTextModule(
+  const context = vm.createContext();
+  const runtime = new vm.SourceTextModule(
     'export const Fragment = "fragment"; export function jsx(type, props) { return {type, props}; } export function jsxs(type, props) { return {type, props, multiple: true}; }',
     { context },
   );
   await runtime.link(() => { throw new Error('Unexpected JSX runtime import'); });
   await runtime.evaluate();
-  const module = new SourceTextModule(code, { context });
+  const module = new vm.SourceTextModule(code, { context });
   await module.link(specifier => {
     assert.equal(specifier, 'react/jsx-runtime');
     return runtime;
@@ -148,7 +172,7 @@ async function inspect(name, run, test) {
   try {
     result = run(test);
     if (result.code === null) return { accepted: false, native: false, backend: result.backend };
-    const module = new SourceTextModule(result.code);
+    const module = new vm.SourceTextModule(result.code);
     if (test.expected !== undefined) {
       assert.match(result.code, new RegExp(`^export\\s+const\\s+pick\\s*=\\s*(?:\\(\\s*x\\s*\\)|x)\\s*=>\\s*x\\s*>=\\s*${test.expected}\\s*;?\\s*$`));
       if (name === 'tmt' || name === 'node-strip') assert.equal(result.code, stripTypeScriptTypes(test.source));
@@ -169,19 +193,55 @@ async function inspect(name, run, test) {
   }
 }
 
-const [first, second, third, fourth] = process.argv.slice(2);
-if (first === '--first') {
-  const cases = readCases(third).filter((_, index) => fourth[index] === '1');
-  const start = performance.now();
-  const run = await load(second);
-  const { sum } = sample(run, cases, 1);
-  console.log(JSON.stringify({ ms: performance.now() - start, sum }));
-} else {
+async function measure(path, cases, active, plan, metadata, cache) {
+  const { cohort, engines: measured, mask } = plan;
+  const selected = cases.filter((_, index) => mask[index] === '1');
+  const result = { ...metadata, cohort, selected: selected.length,
+    samples: Object.fromEntries(measured.map(name => [name, { warm: [], first: [] }])) };
+  if (!selected.length) return { ...result, medians: {} };
+
+  const { generated, official } = metadata;
+  const iterations = generated ? 25 : official ? 5 : 1;
+  const expected = Object.fromEntries(measured.map(name => [name, sample(active[name], selected, 1).sum]));
+  for (let turn = 0; turn < rounds; turn++) {
+    const order = [...measured.slice(turn % measured.length), ...measured.slice(0, turn % measured.length)];
+    for (const name of order) {
+      const warm = sample(active[name], selected, iterations);
+      assert.equal(warm.sum, iterations * expected[name]);
+      result.samples[name].warm.push(warm.ms);
+      const child = spawnSync(process.execPath, [...cache.flags, entry, '--first', name, path, mask], {
+        encoding: 'utf8', env: { ...process.env, NODE_DISABLE_COMPILE_CACHE: '1' },
+        timeout: 60_000, maxBuffer: 1024 * 1024,
+      });
+      assert.equal(child.status, 0, child.error?.message ?? child.stderr);
+      const cold = JSON.parse(child.stdout);
+      assert.equal(cold.sum, expected[name]);
+      result.samples[name].first.push(cold.ms);
+    }
+  }
+  result.medians = Object.fromEntries(measured.map(name => [name, Object.fromEntries(
+    Object.entries(result.samples[name]).map(([mode, list]) => [
+      mode, list.toSorted((a, b) => a - b)[Math.floor(list.length / 2)],
+    ]))]));
+  return result;
+}
+
+async function main(args) {
+  const [first, second, third, fourth] = args;
+  if (first === '--first') {
+    const cases = readCases(third).filter((_, index) => fourth[index] === '1');
+    const start = performance.now();
+    const run = await load(second);
+    const { sum } = sample(run, cases, 1);
+    console.log(JSON.stringify({ ms: performance.now() - start, sum }));
+    return;
+  }
+
+  const cache = benchmarkCache(process.execArgv);
   const reports = [];
-  const paths = process.argv.slice(2);
-  assert.ok(paths.length, 'Pass synthetic or one or more corpus JSON files');
+  assert.ok(args.length, 'Pass synthetic or one or more corpus JSON files');
   const active = Object.fromEntries(await Promise.all([...engines, 'node-strip'].map(async name => [name, await load(name)])));
-  for (const path of paths) {
+  for (const path of args) {
     const cases = readCases(path);
     const generated = ['synthetic', 'declarations', 'jsx', 'enum'].includes(path);
     const official = path.includes('/official-');
@@ -189,60 +249,31 @@ if (first === '--first') {
     const names = path === 'synthetic' || path === 'declarations' ? [...engines, 'node-strip'] :
       generated || isTsxCorpus(path) ? engines.filter(name => !name.startsWith('yuku')) : engines;
     const coverage = Object.fromEntries(names.map(name => [name, { accepted: 0, native: 0 }]));
+    const accepted = Object.fromEntries(names.map(name => [name, []]));
     coverage.tmt.backends = {};
-    let mask = '';
     for (const test of cases) {
-      let common = true;
       for (const name of names) {
         const result = await inspect(name, active[name], test);
+        accepted[name].push(result.accepted);
         coverage[name].accepted += Number(result.accepted);
         coverage[name].native += Number(result.native);
         if (name === 'tmt' && result.backend) {
           const backends = coverage.tmt.backends;
           backends[result.backend] = (backends[result.backend] ?? 0) + 1;
         }
-        common &&= result.accepted;
-      }
-      mask += Number(common);
-    }
-    // A single official file can be timed for its supported output contracts.
-    // Preserve coverage counts for unavailable or unsupported engines.
-    const measured = official ? names.filter(name => coverage[name].accepted === 1) : names;
-    if (official && measured.includes('tmt') && measured.length > 1) mask = '1';
-    const selected = cases.filter((_, index) => mask[index] === '1');
-    if (generated) assert.equal(selected.length, cases.length);
-    const result = { name: path, cases: cases.length, selected: selected.length, coverage,
-      inputSha256: generated ? null : createHash('sha256').update(readFileSync(path)).digest('hex'),
-      samples: Object.fromEntries(measured.map(name => [name, { warm: [], first: [] }])) };
-    if (!selected.length) {
-      reports.push({ ...result, medians: {} });
-      console.error(path, JSON.stringify({ selected: 0, coverage }));
-      continue;
-    }
-    const iterations = generated ? 25 : official ? 5 : 1;
-    const expected = Object.fromEntries(measured.map(name => [name, sample(active[name], selected, 1).sum]));
-    for (let turn = 0; turn < rounds; turn++) {
-      const order = [...measured.slice(turn % measured.length), ...measured.slice(0, turn % measured.length)];
-      for (const name of order) {
-        const warm = sample(active[name], selected, iterations);
-        assert.equal(warm.sum, iterations * expected[name]);
-        result.samples[name].warm.push(warm.ms);
-        const child = spawnSync(process.execPath, [entry, '--first', name, path, mask], {
-          encoding: 'utf8', env: { ...process.env, NODE_DISABLE_COMPILE_CACHE: '1' },
-          timeout: 60_000, maxBuffer: 1024 * 1024,
-        });
-        assert.equal(child.status, 0, child.error?.message ?? child.stderr);
-        const cold = JSON.parse(child.stdout);
-        assert.equal(cold.sum, expected[name]);
-        result.samples[name].first.push(cold.ms);
       }
     }
-    result.medians = Object.fromEntries(measured.map(name => [name, Object.fromEntries(
-      Object.entries(result.samples[name]).map(([mode, list]) => [
-        mode, list.toSorted((a, b) => a - b)[Math.floor(list.length / 2)],
-      ]))]));
-    reports.push(result);
-    console.error(path, JSON.stringify({ selected: selected.length, coverage, medians: result.medians }));
+    const metadata = { name: path, cases: cases.length, coverage, generated, official,
+      inputSha256: generated ? null : createHash('sha256').update(readFileSync(path)).digest('hex') };
+    for (const cohort of comparisonCohorts(accepted, cases.length, official)) {
+      const result = await measure(path, cases, active, cohort, metadata, cache);
+      if (generated) assert.equal(result.selected, cases.length);
+      reports.push(result);
+      console.error(path, JSON.stringify({ cohort: result.cohort, selected: result.selected, coverage, medians: result.medians }));
+    }
   }
-  console.log(JSON.stringify({ node: process.version, os: process.platform, arch: process.arch, rounds, reports }, null, 2));
+  console.log(JSON.stringify({ node: process.version, os: process.platform, arch: process.arch, rounds,
+    compilationCache: cache.mode, reports }, null, 2));
 }
+
+if (import.meta.main) await main(process.argv.slice(2));
