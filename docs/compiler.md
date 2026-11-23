@@ -27,7 +27,7 @@ The `pulse` backend handles bounded exported constants, simple typed arrows, com
 
 The direct Node addon includes only the necessary Pulse entry points and the runtime emitter. The full-module addon records JSX element and expression spans during the validated Pulse parse. It publishes initialized records only after reaching EOF. The emitter visits the captured spans, reuses expression boundaries, and copies the surrounding source. This supports JSX in function bodies, nested callback expressions, attributes, conditionals, and scripts. ESNext JavaScript scripts use V8 syntax validation and preserve the original source and strictness whenever possible.
 
-The full-module parse can also publish erasure ranges for annotations, type parameters and arguments, delimited assertions, optional and non-null markers, type-only declarations, overload signatures, and inline type imports. The emitter retains value imports and explicit module settings. Runtime enum emission visits the committed declaration ranges. JSX uses the same source offsets after masking the type ranges. Lean checks length preservation, bytes outside a mask, and LF and CR preservation. V8 checks the full-module projection before the compiler returns it.
+The full-module parse can also publish erasure ranges for annotations, type parameters and arguments, delimited assertions, optional and non-null markers, type-only declarations, overload signatures, and inline type imports. The emitter retains value imports and explicit module settings. Runtime enum emission visits the committed declaration ranges. JSX uses the same source offsets after masking the type ranges. Lean checks length preservation, bytes outside a mask, and LF and CR preservation. A projection is published when the parse certifies it, as described under Certified emission and native entries. The audit build still passes every projection to V8.
 
 The `pulse+node-strip` route passes the remaining erasable syntax through Node. The `node-strip` route covers validated TypeScript modules and ordinary scripts. The Node 24 compatibility path also lowers constructor parameter properties. ESNext compilation can use the native paths without the full TypeScript compiler or the optional TypeScript syntax projection.
 
@@ -317,3 +317,51 @@ A separate prototype mapped function braces through the JSX writer and removed s
 The fixed TypeScript upstream sample had 126 inputs with valid reference ESNext module emission. The current compiler emitted 72 through Pulse and one through Pulse plus Node's eraser with TypeScript loading blocked. The emitted AST shapes and dependency lists matched the reference for all 73. The other 53 still require TypeScript, including cases with import-equals declarations.
 
 Two extra V8 validation experiments remained outside the release build. The public Node-API string bridge retained the validated string but gave mixed timings across the main TypeScript cohorts. Replacing static intrinsic JSX calls in the validation input increased validation and construction time on all four measured workloads. On the Ryzen 9 9950X, the packed keyword load with type capture shortened tachyon-dom TS from 19.32 to 18.61 ms warm. It also increased mreact TSX first-process time from 6.13 to 6.34 ms. Lean proved the word-fold identity for all eight supported arities. The compiler retains its scalar keyword fold.
+
+### Certified emission and native entries
+
+At `1f1bcb7`, a TypeScript or TSX module projection is published without a second parse. The Pulse parse records kind 29 wherever it accepts TypeScript-only syntax that the projection would keep, and the emitter declines those files to the compatibility routes. An enum that the emitter cannot lower is declined the same way. The V8 reparse and the textual projection guard are compiled only into the audit build (`npm run build:compiler -- --audit-v8`). That build validates every projection, reports the certification decision and the guard's verdict, and `scripts/audit-compiler-v8.mjs` fails on a certified projection that V8 rejects or on a guard objection whose output differs from TypeScript's emit.
+
+The audit covered 198,020 inputs: the fixed project corpora, 12,357 TypeScript compiler and conformance cases, test262 as TypeScript and JavaScript modules, 4,769 generated ambiguity shapes and 100,000 mutations. V8 accepted all 61,301 certified projections. The guard objected to 601 published projections, and all 601 have the syntax TypeScript emits. `scripts/fuzz-compiler-certification.mjs` compared the audit and ordinary builds on 3.3 million mutated sources without a certified rejection or a difference.
+
+A differential against TypeScript's own emit found results that V8 and the guard both accepted. The JSX writer emitted `return_tmtJsx0(...)` for `return<div/>`. A line break after `declare` was read as an ambient module, and `global` before a name was read as an expression where TypeScript reads a declaration. These are fixed, and `test/compiler-typescript-reference.test.mjs` holds the regressions. The remaining differences on 900,000 mutated sources are TypeScript emit details: the `default_1` name for an anonymous default class, a setter return type that TypeScript keeps, and the `export {}` marker under preserved modules.
+
+`src/compiler.cjs` is now a small entry. Default-option `.ts`, `.mts` and `.tsx` sources go to `emitTypeScript`, and `.js` and `.mjs` sources to `emitJavaScriptModule` and then `emitJavaScript`. Each native call repeats the steps of the router in `src/compiler-routes.cjs` and returns `undefined` for every input the router must decide. A JavaScript module whose certified parse commits no edit is published as its own bytes, and every other JavaScript source is validated by V8. Scripts are validated inside the addon, because Node 24 aborts the process while decorating some syntax errors from `vm.Script`, for example `await using x = null, [] = null`.
+
+Three changes account for most of the time. Skipping the V8 reparse removed about 45% of a warm pass on the TypeScript corpora. The block comment scanner now skips to a star followed by a slash, which cut TanStack Query from 3.53 to 2.61 ms on macOS. Raising the inlining limits for the extracted parser cut a warm mreact pass from 28.0 to 20.0 ms on Linux arm64 and from 29.9 to 24.2 ms on the Ryzen host. `-O2` and `-Os` were 25 to 150% slower than `-O3`. A second, compact addon for cold small inputs was slower on mid-sized cold workloads and is not part of the build.
+
+All fixed inputs of Vite, mreact, tachyon-dom, Solid and TanStack Query emit through Pulse, and 641 of 642 Astro files. The normalized TypeScript audit reports 1,417 of 1,418 as equivalent and one reviewed difference. The Oxc `parser.ts` and Yuku `checker.ts` fixtures still have no common emitted result: they need runtime namespace lowering, non-literal const enums and, for `checker.ts`, inputs above the 1 MiB parser limit.
+
+The comparison uses Node 24.14.0 on Linux arm64 and Node 24.22.3 on the Ryzen 9 9950X, UTF-8 byte input, the V8 compilation cache disabled, and three suite runs of seven interleaved samples pooled per engine. The first-process child no longer installs the resolve hook that blocks TypeScript and no longer inherits `--experimental-vm-modules`. Both slowed module loading inside the timed region for engines with a JavaScript entry. The child asserts after the timed region that no TypeScript module was loaded. Medians are in milliseconds.
+
+| Linux arm64 workload | Files | TMT warm | Fastest reference warm | TMT first | Fastest reference first |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Vite TS | 113 | 5.86 | 9.61 (Oxc) | 7.21 | 10.30 (SWC Next) |
+| mreact TS | 315 | 21.13 | 37.14 (Yuku 0.28) | 21.94 | 36.79 (SWC Next) |
+| tachyon-dom TS | 94 | 6.17 | 10.35 (Oxc) | 6.71 | 11.13 (SWC Next) |
+| mreact TSX | 84 | 1.80 | 2.86 (Oxc) | 2.03 | 3.32 (SWC Next) |
+| TanStack Query TS | 93 | 2.96 | 4.36 (SWC Next) | 3.49 | 4.32 (SWC Next) |
+| Astro TS | 641 | 11.75 | 21.59 (SWC Next) | 13.08 | 21.36 (SWC Next) |
+| Svelte JS | 376 | 13.44 | 18.09 (Oxc) | 13.56 | 18.66 (SWC Next) |
+| Local .mjs modules | 10 | 0.65 | 1.16 (Oxc) | 1.06 | 1.54 (SWC Next) |
+| SWC Next App.tsx | 1 | 1.84 | 3.59 (Oxc) | 2.73 | 5.48 (SWC Next) |
+| renderer.ts | 1 | 0.33 | 0.50 (Oxc) | 0.93 | 1.33 (SWC Next) |
+| UserSettings.tsx | 1 | 0.03 | 0.07 (SWC Next) | 0.52 | 0.48 (SWC Next) |
+| TypeScript JavaScript bundle | 1 | 51.18 | 59.34 (Oxc) | 53.03 | 70.02 (Oxc) |
+
+| Ryzen 9 9950X workload | Files | TMT warm | Fastest reference warm | TMT first | Fastest reference first |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Vite TS | 113 | 6.78 | 10.13 (SWC Next) | 8.66 | 10.64 (SWC Next) |
+| mreact TS | 315 | 24.48 | 36.36 (SWC Next) | 26.30 | 36.48 (SWC Next) |
+| tachyon-dom TS | 94 | 7.29 | 11.16 (SWC Next) | 7.91 | 11.35 (SWC Next) |
+| mreact TSX | 84 | 1.91 | 3.09 (Oxc) | 2.58 | 3.88 (SWC Next) |
+| TanStack Query TS | 93 | 2.92 | 3.94 (SWC Next) | 3.75 | 4.63 (SWC Next) |
+| Astro TS | 641 | 12.79 | 22.30 (SWC Next) | 14.59 | 22.25 (SWC Next) |
+| Svelte JS | 376 | 12.30 | 18.32 (SWC Next) | 15.80 | 19.37 (SWC Next) |
+| Local .mjs modules | 10 | 0.73 | 1.21 (Yuku 0.28) | 1.86 | 1.82 (SWC Next) |
+| SWC Next App.tsx | 1 | 2.21 | 3.70 (Oxc) | 3.37 | 5.88 (SWC Next) |
+| renderer.ts | 1 | 0.41 | 0.67 (Oxc) | 1.22 | 1.66 (SWC Next) |
+| UserSettings.tsx | 1 | 0.04 | 0.08 (SWC Next) | 0.74 | 0.80 (SWC Next) |
+| TypeScript JavaScript bundle | 1 | 54.58 | 88.64 (Oxc) | 56.10 | 92.73 (Oxc) |
+
+TMT leads all 23 common warm rows on Linux arm64 and all 20 on the Ryzen host. It leads 22 of 23 and 19 of 20 first-process rows. The two exceptions are `UserSettings.tsx` on arm64 (0.52 against 0.48 ms) and the ten local modules on the Ryzen host (1.86 against 1.82 ms). Single runs disagree on both, and a direct 41-sample repetition of the Ryzen first-process sample measured 2.04 ms for TMT against 2.38 ms for SWC Next. The [pooled samples, audit totals and experiments](../evidence/compiler/certified-native-emission.json) record every row.
