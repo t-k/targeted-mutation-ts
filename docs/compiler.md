@@ -138,3 +138,25 @@ The isolated Linux arm64 run had 17 comparable emission rows. TMT led 8 warm com
 | TypeScript JavaScript bundle | 20.020 | 62.753 (Oxc) | 54.479 | 79.350 (Oxc) |
 
 The review regressions exercise runtime behavior for multiline generic arrows in return and yield positions. They also check the exported object from a namespace that contains a standalone empty statement. The latter continues through the runtime lowering route. All 2,960 tests passed on this revision.
+
+### Committed lexical regions and one-pass validation
+
+At `d28736a`, the Pulse emitter handles 438 of the same 653 core inputs without Node's type eraser. All 653 still emit with the TypeScript module blocked. The output audit identifies only the previously reviewed reference normalization differences. The official `App.tsx` and `renderer.ts` fixtures now use the Pulse emitter and match the normalized TypeScript reference. Pulse records inert JSX, template, and regex spans alongside type spans, so validation can inspect embedded expressions without interpreting the surrounding text as TypeScript. The final emitted JavaScript still undergoes V8 syntax validation.
+
+Seven alternating macOS samples measure `App.tsx` at 23.03 → 6.83 ms warm and 86.35 → 16.78 ms on first emission from `1d0c208`. The `renderer.ts` medians are 3.48 → 0.90 ms warm and 46.84 → 4.18 ms on first emission. Isolating the shared guard from the preceding change gives 8.14 → 6.80 ms for `App.tsx` and 1.31 → 1.11 ms for `renderer.ts` warm, with byte-identical output. An additional SIMD experiment inside the guard gave mixed results and was discarded. SIMD still masks erased ASCII type ranges.
+
+The isolated Linux arm64 retest uses in-memory inputs and includes module loading in the first emission measurement. TMT led eight of 17 comparable warm emission workloads and one first emission workload. The following rows show total milliseconds per input or corpus. Yuku contributes timings only where it emits the same kind of JavaScript, which excludes the TSX rows.
+
+| Workload | TMT warm | Fastest reference warm | TMT first | Fastest reference first |
+| --- | ---: | ---: | ---: | ---: |
+| Vite, 113 common .ts files | 57.51 | 20.96 (Oxc) | 130.92 | 21.95 (SWC Next) |
+| mreact, 315 common .ts files | 287.79 | 79.68 (Oxc) | 361.87 | 87.02 (SWC Next) |
+| tachyon-dom, 94 common .ts files | 77.59 | 24.00 (Oxc) | 175.67 | 26.91 (SWC Next) |
+| mreact TSX, 84 files | 14.13 | 6.85 (Oxc) | 81.24 | 8.44 (SWC Next) |
+| tachyon-dom TSX, 32 files | 0.96 | 1.10 (SWC Next) | 4.47 | 1.89 (SWC Next) |
+| renderer.ts | 1.51 | 1.32 (Oxc) | 6.02 | 3.22 (SWC Next) |
+| table.tsx | 0.75 | 0.72 (Oxc) | 3.88 | 2.25 (SWC Next) |
+| App.tsx | 8.07 | 7.25 (Oxc) | 16.47 | 11.71 (SWC Next) |
+| TypeScript JavaScript bundle | 43.54 | 143.28 (Oxc) | 130.31 | 152.94 (Oxc) |
+
+The [raw samples, coverage, and framework differential](../evidence/compiler/native-type-projection.json) record all engines and workload hashes. The framework differential against `6f98caa` covered 2,165 source inputs on `99a2a8b`. The 974 newly native outputs retained normalized output and dependency equivalence.

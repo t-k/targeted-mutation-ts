@@ -7670,5 +7670,3680 @@
         ]
       }
     }
+  },
+  "committedLexicalRegions": {
+    "revision": "d28736a",
+    "baseline": "1d0c208",
+    "coverage": {
+      "node": "v24.14.0",
+      "reports": [
+        {
+          "name": "vite.json",
+          "hash": "ceac02e2c6995a85cd09ee7a31025133f8c8b0df563c21fa18ce4672de3a35e4",
+          "files": 122,
+          "backends": {
+            "node-strip": 39,
+            "node-transform": 7,
+            "pulse": 74,
+            "pulse+node-strip": 2
+          },
+          "equivalent": 119,
+          "declined": [],
+          "differences": [
+            {
+              "file": "packages/vite/src/node/server/pluginContainer.ts",
+              "backend": "node-transform",
+              "dependencies": true,
+              "allowed": true,
+              "source": "30f1a9a3ddf4cbfb157dd60afaaedf34adc064175d9ab5b55a020886709d5c1c",
+              "actual": "a4c525db99bb34fefed85036195e044d2eade5fa59d6c8db7fe7fb9a7cdf5434",
+              "expected": "22afdc478c5c68f8cc702200666c72d9dafd612ae348fcf011cb00102a97b953"
+            },
+            {
+              "file": "packages/vite/src/node/ssr/ssrModuleLoader.ts",
+              "backend": "node-transform",
+              "dependencies": true,
+              "allowed": true,
+              "source": "a3f87505c1fe973ec2a122610cb969dcc3e1fdd2461439286e674c0c03c6e9cd",
+              "actual": "4a11713b3b842053216f694c176b8883112a5f762e617a4062eccc8d2633a6d9",
+              "expected": "8712a5c079d3bf3775ce47e685f9cfdf2f02ccbdf8109dc340b5d3328a6c21a6"
+            },
+            {
+              "file": "packages/vite/src/node/watch.ts",
+              "backend": "node-transform",
+              "dependencies": true,
+              "allowed": true,
+              "source": "5ec66aeea1bf529e21bd4fd8deb44cc4734f1d7da5e93d4b73341a47ebf6fe78",
+              "actual": "39bbb99b6a1e99618864b346f21f2f0576f6ca5f7c3f3fc0c29ba942b12ad905",
+              "expected": "6ac85a440786fb5537e858b6c190650bf80cee8d4a27fb88d69649380c153a52"
+            }
+          ]
+        },
+        {
+          "name": "mreact.json",
+          "hash": "5fce596fc53d9b4e3b95807db7c1047e1f653f4858885442968bde0f8f896eb9",
+          "files": 321,
+          "backends": {
+            "node-strip": 126,
+            "pulse": 193,
+            "node-transform": 2
+          },
+          "equivalent": 319,
+          "declined": [],
+          "differences": [
+            {
+              "file": "packages/query/src/form-mutation.ts",
+              "backend": "node-transform",
+              "dependencies": true,
+              "allowed": true,
+              "source": "7440d5692131acfa20f66506628b76c715795180572bf8aba5cd3067315cc057",
+              "actual": "41384b45b0c6526d88101d7b79fb2ef4d02c546b5da40e68665ea47f09a176b3",
+              "expected": "f8dd746523ec94c774945a93b5de2b548b5f1a01be650de1fb2c2d2c70673261"
+            },
+            {
+              "file": "packages/query/src/query-lifecycle.ts",
+              "backend": "node-strip",
+              "dependencies": true,
+              "allowed": true,
+              "source": "66542f1d74149e0c17067ba902e811dc9b833a1ed491d0202d16b5a87071e0a1",
+              "actual": "5a6eabba3fec16bd62441f8944e3d319e7250c19847b1fb793cf7fb6433b0e28",
+              "expected": "31c70bb046da81857750d4a7a19ffaa47d47d242a69ac4ee5a921169ec5257f6"
+            }
+          ]
+        },
+        {
+          "name": "tachyon-dom.json",
+          "hash": "7a78674b08297992c654a239167e743828c93aff00b178b0c0ff894d8b5eeaf9",
+          "files": 94,
+          "backends": {
+            "node-strip": 35,
+            "pulse": 59
+          },
+          "equivalent": 94,
+          "declined": [],
+          "differences": []
+        },
+        {
+          "name": "mreact.tsx.json",
+          "hash": "7f6b68c54014d0f7fe0cd72fdef10cf9f51ecc70631815f5161c78c36ee57ddf",
+          "files": 84,
+          "backends": {
+            "pulse": 80,
+            "pulse+node-strip": 4
+          },
+          "equivalent": 84,
+          "declined": [],
+          "differences": []
+        },
+        {
+          "name": "tachyon-dom.tsx.json",
+          "hash": "ba4f6c8d3bd0d0320811d6597e9583b4c443b30f671ca81340f52eb2892a46f5",
+          "files": 32,
+          "backends": {
+            "pulse": 32
+          },
+          "equivalent": 32,
+          "declined": [],
+          "differences": []
+        },
+        {
+          "name": "official-oxc-transform-renderer.ts.json",
+          "hash": "b512bee302cbf1ae0ef0babf1cb9ad9e824af05de50b399ab0da93e1bacb4b50",
+          "files": 1,
+          "backends": {
+            "pulse": 1
+          },
+          "equivalent": 1,
+          "declined": [],
+          "differences": []
+        },
+        {
+          "name": "official-oxc-transform-UserSettings.tsx.json",
+          "hash": "792413f7a5214026d95bb0586bc59d2b8ceb0786ca84009de4800e701ea262a5",
+          "files": 1,
+          "backends": {
+            "pulse": 1
+          },
+          "equivalent": 1,
+          "declined": [],
+          "differences": []
+        },
+        {
+          "name": "official-oxc-transform-table.tsx.json",
+          "hash": "9445c3cabc4debfb9c03bcade57bde7f05e8a82883f6b4cfa9e04708a30a5a13",
+          "files": 1,
+          "backends": {
+            "pulse": 1
+          },
+          "equivalent": 1,
+          "declined": [],
+          "differences": []
+        },
+        {
+          "name": "official-swc-next-App.tsx.json",
+          "hash": "55c5704ef748350496177ebfd9aef722b05466dcd207de988b06345fee50729f",
+          "files": 1,
+          "backends": {
+            "pulse": 1
+          },
+          "equivalent": 1,
+          "declined": [],
+          "differences": []
+        },
+        {
+          "name": "typescript-upstream",
+          "revision": "c63de15a992d37f0d6cec03ac7631872838602cb",
+          "files": 8,
+          "backends": {
+            "pulse": 1,
+            "pulse+node-strip": 1,
+            "typescript-required": 6
+          },
+          "equivalent": 2,
+          "declined": [
+            {
+              "file": "commentOnExportEnumDeclaration.ts",
+              "backend": "typescript-required"
+            },
+            {
+              "file": "emptyEnum.ts",
+              "backend": "typescript-required"
+            },
+            {
+              "file": "jsxAttributeWithoutExpressionReact.tsx",
+              "backend": "typescript-required"
+            },
+            {
+              "file": "tsxReactEmit1.tsx",
+              "backend": "typescript-required"
+            },
+            {
+              "file": "tsxReactEmit2.tsx",
+              "backend": "typescript-required"
+            },
+            {
+              "file": "tsxFragmentReactEmit.tsx",
+              "backend": "typescript-required"
+            }
+          ],
+          "differences": []
+        }
+      ]
+    },
+    "frameworkDifferential": {
+      "revision": "99a2a8b",
+      "baseline": "6f98caa",
+      "reports": [
+        {
+          "name": "solid.json",
+          "hash": "c8b07517f998689507f3db053a636191289e9299c0f18ad11d88a1cff64027ff",
+          "files": 26,
+          "baseline": {
+            "node-strip": 23,
+            "pulse": 2,
+            "typescript-required": 1
+          },
+          "current": {
+            "node-strip": 19,
+            "pulse": 6,
+            "typescript-required": 1
+          },
+          "newNative": 4,
+          "different": [],
+          "changedStatus": []
+        },
+        {
+          "name": "tanstack-query.json",
+          "hash": "73adf3e1eb8bfb6d3f157fea435c493d999ea615ed1222dbbfb7af5a9807f5f9",
+          "files": 103,
+          "baseline": {
+            "node-strip": 88,
+            "typescript-required": 1,
+            "node-transform": 3,
+            "pulse+node-strip": 7,
+            "pulse": 4
+          },
+          "current": {
+            "pulse": 32,
+            "node-strip": 64,
+            "typescript-required": 1,
+            "node-transform": 3,
+            "pulse+node-strip": 3
+          },
+          "newNative": 28,
+          "different": [],
+          "changedStatus": []
+        },
+        {
+          "name": "input-astro.json",
+          "hash": "891441fdc3a59cec23d1a73f0ec4171fa1da1c10d359f0b8bf707239fe486637",
+          "files": 642,
+          "baseline": {
+            "node-strip": 615,
+            "pulse": 24,
+            "typescript-required": 3
+          },
+          "current": {
+            "pulse": 444,
+            "node-strip": 195,
+            "typescript-required": 3
+          },
+          "newNative": 420,
+          "different": [],
+          "changedStatus": []
+        },
+        {
+          "name": "input-hono.json",
+          "hash": "cead316d73ad38d6a59c872828e0429aabf434866d870671ce95adaf46a7ba0e",
+          "files": 223,
+          "baseline": {
+            "node-strip": 209,
+            "pulse": 11,
+            "pulse+node-strip": 3
+          },
+          "current": {
+            "pulse": 113,
+            "node-strip": 108,
+            "pulse+node-strip": 2
+          },
+          "newNative": 102,
+          "different": [],
+          "changedStatus": []
+        },
+        {
+          "name": "input-react-router.json",
+          "hash": "ddad17da30059f1568077bb5f57cab29e85b9a512ace6ceb4d7ffde585784243",
+          "files": 75,
+          "baseline": {
+            "node-strip": 43,
+            "pulse+node-strip": 19,
+            "typescript-required": 1,
+            "pulse": 11,
+            "node-transform": 1
+          },
+          "current": {
+            "pulse": 58,
+            "pulse+node-strip": 5,
+            "typescript-required": 1,
+            "node-strip": 10,
+            "node-transform": 1
+          },
+          "newNative": 47,
+          "different": [],
+          "changedStatus": []
+        },
+        {
+          "name": "input-svelte.json",
+          "hash": "08589d66e5e177e7397fecdf05ea9d2976a336c53387a55a781483fd4e92103b",
+          "files": 376,
+          "baseline": {
+            "javascript": 376
+          },
+          "current": {
+            "javascript": 376
+          },
+          "newNative": 0,
+          "different": [],
+          "changedStatus": []
+        },
+        {
+          "name": "input-vitest.json",
+          "hash": "73b0035950b4a219180b88caf88873e03f318d9b1ea6ff893ce17401c95a49aa",
+          "files": 488,
+          "baseline": {
+            "node-strip": 393,
+            "node-transform": 46,
+            "javascript": 2,
+            "pulse": 35,
+            "typescript-required": 12
+          },
+          "current": {
+            "pulse": 259,
+            "node-strip": 170,
+            "node-transform": 46,
+            "javascript": 2,
+            "typescript-required": 11
+          },
+          "newNative": 224,
+          "different": [],
+          "changedStatus": [
+            "packages/vitest/src/runtime/workers/watchdog.ts"
+          ]
+        },
+        {
+          "name": "input-vue.json",
+          "hash": "6810f1e2a164e9c5fb41fafe79949a4afb2efa17b7e20cf443ba1ade239718ce",
+          "files": 232,
+          "baseline": {
+            "pulse+node-strip": 25,
+            "node-strip": 188,
+            "typescript-required": 10,
+            "node-transform": 6,
+            "pulse": 3
+          },
+          "current": {
+            "pulse": 152,
+            "pulse+node-strip": 12,
+            "node-strip": 52,
+            "typescript-required": 10,
+            "node-transform": 6
+          },
+          "newNative": 149,
+          "different": [],
+          "changedStatus": []
+        }
+      ]
+    },
+    "paired": {
+      "node": "v24.14.0",
+      "arch": "arm64",
+      "os": "darwin",
+      "reports": [
+        {
+          "name": "App.tsx",
+          "files": 1,
+          "inspect": {
+            "before": {
+              "backends": {
+                "pulse+node-strip": 1
+              },
+              "sha256": "7e24819517302912b22196737333fe6bdb1b7f4f4c54bb97aa0b08fa477a9209"
+            },
+            "after": {
+              "backends": {
+                "pulse": 1
+              },
+              "sha256": "c899e017d3815fdf5531de83ae1a94828937377a82d702f7694fc66e3e5911a3"
+            }
+          },
+          "medians": {
+            "before": {
+              "warm": 23.02693750000001,
+              "first": 86.349583
+            },
+            "after": {
+              "warm": 6.828054099999986,
+              "first": 16.781334
+            }
+          },
+          "timing": {
+            "before": {
+              "warm": [
+                22.490933300000002,
+                24.271716700000002,
+                23.914145799999982,
+                23.02693750000001,
+                23.66171669999999,
+                20.287687499999993,
+                17.72792089999998
+              ],
+              "first": [
+                86.404791,
+                86.661,
+                87.350083,
+                86.349583,
+                80.83237500000001,
+                74.5595,
+                65.620959
+              ]
+            },
+            "after": {
+              "warm": [
+                6.8712875000000055,
+                6.832920799999999,
+                6.828054099999986,
+                6.977670899999998,
+                5.892633399999977,
+                5.858649999999988,
+                5.1419124999999894
+              ],
+              "first": [
+                16.841333,
+                17.872708000000003,
+                16.781334,
+                16.858167,
+                15.366541999999999,
+                15.005958,
+                13.493416
+              ]
+            }
+          }
+        },
+        {
+          "name": "renderer.ts",
+          "files": 1,
+          "inspect": {
+            "before": {
+              "backends": {
+                "pulse+node-strip": 1
+              },
+              "sha256": "934e6aa119f7e9e7aac4efa801fa456c9bfc18e57a4c35910789d24db26f5704"
+            },
+            "after": {
+              "backends": {
+                "pulse": 1
+              },
+              "sha256": "991c3118f0ec273087218147a2b8ab89e4509c4615495433eb26fdd488757d28"
+            }
+          },
+          "medians": {
+            "before": {
+              "warm": 3.4838917000000036,
+              "first": 46.842916
+            },
+            "after": {
+              "warm": 0.8969874999999774,
+              "first": 4.180625000000003
+            }
+          },
+          "timing": {
+            "before": {
+              "warm": [
+                3.459037499999977,
+                3.5728833000000124,
+                3.5932875000000424,
+                3.4838917000000036,
+                3.457524999999987,
+                3.4886459000000287,
+                3.4472874999999474
+              ],
+              "first": [
+                46.920834,
+                47.200500000000005,
+                47.072708000000006,
+                46.842916,
+                46.360583000000005,
+                46.280125,
+                45.95399999999999
+              ]
+            },
+            "after": {
+              "warm": [
+                0.8933125000000018,
+                0.9072415999999975,
+                0.930279100000007,
+                0.9092542000000321,
+                0.8950541999999586,
+                0.8969874999999774,
+                0.871087500000067
+              ],
+              "first": [
+                4.126167000000002,
+                4.312541000000003,
+                4.238166999999997,
+                4.328625000000002,
+                4.180625000000003,
+                4.108708,
+                4.138375
+              ]
+            }
+          }
+        },
+        {
+          "name": "table.tsx",
+          "files": 1,
+          "inspect": {
+            "before": {
+              "backends": {
+                "pulse": 1
+              },
+              "sha256": "981bfa4b77b4d93a2d4357d66c5ebc0c6dd69743d9e37b0e88188b1543db6be2"
+            },
+            "after": {
+              "backends": {
+                "pulse": 1
+              },
+              "sha256": "981bfa4b77b4d93a2d4357d66c5ebc0c6dd69743d9e37b0e88188b1543db6be2"
+            }
+          },
+          "medians": {
+            "before": {
+              "warm": 0.5058332999999948,
+              "first": 3.562583
+            },
+            "after": {
+              "warm": 0.4616707999999562,
+              "first": 3.4872080000000025
+            }
+          },
+          "timing": {
+            "before": {
+              "warm": [
+                0.5058332999999948,
+                0.5190332999999555,
+                0.525500000000011,
+                0.4700249999999869,
+                0.4751458000000639,
+                0.518762499999957,
+                0.4754750000000058
+              ],
+              "first": [
+                3.6273750000000007,
+                3.5553750000000015,
+                3.556667000000001,
+                3.562583,
+                4.050416000000002,
+                3.595915999999999,
+                3.130709000000003
+              ]
+            },
+            "after": {
+              "warm": [
+                0.4616707999999562,
+                0.4218832999999904,
+                0.46427499999999783,
+                0.5331791999999951,
+                0.45492919999996956,
+                0.47040420000002997,
+                0.41293329999998607
+              ],
+              "first": [
+                3.575416999999998,
+                3.5081249999999997,
+                3.578500000000002,
+                3.429416,
+                3.4872080000000025,
+                3.3352090000000025,
+                2.9085409999999996
+              ]
+            }
+          }
+        },
+        {
+          "name": "UserSettings.tsx",
+          "files": 1,
+          "inspect": {
+            "before": {
+              "backends": {
+                "pulse": 1
+              },
+              "sha256": "e786881b80f1a8b3f2dcb7c05720e6edbc5d2e1577889115eb112967217528af"
+            },
+            "after": {
+              "backends": {
+                "pulse": 1
+              },
+              "sha256": "e786881b80f1a8b3f2dcb7c05720e6edbc5d2e1577889115eb112967217528af"
+            }
+          },
+          "medians": {
+            "before": {
+              "warm": 0.06307079999996859,
+              "first": 2.522166000000002
+            },
+            "after": {
+              "warm": 0.0578125,
+              "first": 2.506667
+            }
+          },
+          "timing": {
+            "before": {
+              "warm": [
+                0.05577080000002752,
+                0.057916599999953175,
+                0.06570419999998194,
+                0.06307079999996859,
+                0.06477499999991779,
+                0.05415840000005119,
+                0.06326249999992797
+              ],
+              "first": [
+                2.531749999999999,
+                2.7293330000000005,
+                2.541125000000001,
+                2.522166000000002,
+                2.413333999999999,
+                2.466791999999998,
+                2.482083000000003
+              ]
+            },
+            "after": {
+              "warm": [
+                0.058729200000016135,
+                0.057304199999998674,
+                0.059529199999997215,
+                0.0578125,
+                0.05721670000002632,
+                0.06126249999997526,
+                0.05530420000004597
+              ],
+              "first": [
+                2.512708,
+                2.4737089999999995,
+                2.4717079999999996,
+                2.506667,
+                2.8417910000000006,
+                2.545833000000002,
+                2.4695
+              ]
+            }
+          }
+        },
+        {
+          "name": "vite",
+          "files": 122,
+          "inspect": {
+            "before": {
+              "backends": {
+                "node-strip": 70,
+                "node-transform": 7,
+                "pulse": 43,
+                "pulse+node-strip": 2
+              },
+              "sha256": "acd55feb9794847d1af3853cf9cf89791008fb6f168030cbbbe89f31fae39d55"
+            },
+            "after": {
+              "backends": {
+                "node-strip": 39,
+                "node-transform": 7,
+                "pulse": 74,
+                "pulse+node-strip": 2
+              },
+              "sha256": "346c807a0fd813a69cec6670bfa1f89a57804f7f1e3e022b26ea78c85fa2e0cb"
+            }
+          },
+          "medians": {
+            "before": {
+              "warm": 76.96360450000066,
+              "first": 182.244792
+            },
+            "after": {
+              "warm": 67.14552099999946,
+              "first": 163.435291
+            }
+          },
+          "timing": {
+            "before": {
+              "warm": [
+                64.92781250000007,
+                75.91949999999997,
+                75.96054200000026,
+                79.29339600000003,
+                76.96360450000066,
+                87.13668750000033,
+                97.18985450000037
+              ],
+              "first": [
+                138.568834,
+                167.211084,
+                171.17866700000002,
+                182.244792,
+                187.090959,
+                202.6605,
+                233.674041
+              ]
+            },
+            "after": {
+              "warm": [
+                56.156395500000144,
+                55.1037295000001,
+                64.69766649999929,
+                67.14552099999946,
+                73.67277100000047,
+                72.0799375000006,
+                88.07574999999997
+              ],
+              "first": [
+                135.53050000000002,
+                141.54066699999998,
+                163.435291,
+                154.865458,
+                190.549083,
+                188.108542,
+                224.48429199999998
+              ]
+            }
+          }
+        },
+        {
+          "name": "mreact",
+          "files": 321,
+          "inspect": {
+            "before": {
+              "backends": {
+                "node-strip": 190,
+                "pulse": 129,
+                "node-transform": 2
+              },
+              "sha256": "b1a13dba95cddd92f1d0af4d3557678360578248b9d4f796c27abc4b05914820"
+            },
+            "after": {
+              "backends": {
+                "node-strip": 126,
+                "pulse": 193,
+                "node-transform": 2
+              },
+              "sha256": "2b75ecfd3f5817e9879aecf0429f2e1bdbcdac8aa69f6f437afb6166fa88c4d6"
+            }
+          },
+          "medians": {
+            "before": {
+              "warm": 297.81097950000003,
+              "first": 485.59583299999997
+            },
+            "after": {
+              "warm": 235.2256455000006,
+              "first": 414.512916
+            }
+          },
+          "timing": {
+            "before": {
+              "warm": [
+                291.45710449999933,
+                317.81016649999947,
+                324.89418750000004,
+                312.2059584999988,
+                297.81097950000003,
+                296.00579149999976,
+                279.75439600000027
+              ],
+              "first": [
+                488.353583,
+                496.07170800000006,
+                485.59583299999997,
+                481.01574999999997,
+                479.034834,
+                477.32345799999996,
+                489.9828749999999
+              ]
+            },
+            "after": {
+              "warm": [
+                253.65316650000022,
+                236.8688955000007,
+                232.09777100000065,
+                235.2256455000006,
+                218.7996045,
+                221.66049999999996,
+                238.55883299999914
+              ],
+              "first": [
+                414.512916,
+                413.675458,
+                419.714917,
+                419.816375,
+                409.955916,
+                400.764084,
+                421.692458
+              ]
+            }
+          }
+        },
+        {
+          "name": "tachyon-dom",
+          "files": 94,
+          "inspect": {
+            "before": {
+              "backends": {
+                "node-strip": 61,
+                "pulse": 33
+              },
+              "sha256": "64591cf36de8b5f8c2be5c691bd5f4f87b94a754cb2be0765443dd49914cdb67"
+            },
+            "after": {
+              "backends": {
+                "node-strip": 35,
+                "pulse": 59
+              },
+              "sha256": "17c1b5217391164fbfcbf7575b13c1c3867d0abece30180a3622763ed703cb1c"
+            }
+          },
+          "medians": {
+            "before": {
+              "warm": 93.38583350000044,
+              "first": 190.221875
+            },
+            "after": {
+              "warm": 69.92264599999908,
+              "first": 167.408792
+            }
+          },
+          "timing": {
+            "before": {
+              "warm": [
+                93.83072899999934,
+                93.88987500000076,
+                93.38583350000044,
+                93.9793750000008,
+                92.61358300000029,
+                93.3183955000004,
+                93.18010399999912
+              ],
+              "first": [
+                190.221875,
+                190.42087500000002,
+                191.335083,
+                189.233709,
+                190.722083,
+                189.232584,
+                188.109917
+              ]
+            },
+            "after": {
+              "warm": [
+                69.71537499999977,
+                69.92264599999908,
+                71.56670850000046,
+                69.78349999999955,
+                70.06868749999921,
+                70.28270800000064,
+                69.81741649999822
+              ],
+              "first": [
+                169.462667,
+                166.186375,
+                167.408792,
+                168.67620799999997,
+                167.16595800000002,
+                168.242959,
+                166.47
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "singlePass": {
+      "baseline": "e229da3",
+      "paired": {
+        "node": "v24.14.0",
+        "arch": "arm64",
+        "os": "darwin",
+        "reports": [
+          {
+            "name": "App.tsx",
+            "files": 1,
+            "inspect": {
+              "before": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "c899e017d3815fdf5531de83ae1a94828937377a82d702f7694fc66e3e5911a3"
+              },
+              "after": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "c899e017d3815fdf5531de83ae1a94828937377a82d702f7694fc66e3e5911a3"
+              }
+            },
+            "medians": {
+              "before": {
+                "warm": 8.141533300000015,
+                "first": 18.555124999999997
+              },
+              "after": {
+                "warm": 6.795795799999996,
+                "first": 16.880959000000004
+              }
+            },
+            "timing": {
+              "before": {
+                "warm": [
+                  7.225204200000002,
+                  7.474004100000002,
+                  8.251695899999993,
+                  8.141533300000015,
+                  8.219366600000011,
+                  8.122137499999985,
+                  8.271116600000004
+                ],
+                "first": [
+                  16.053417,
+                  18.468625000000003,
+                  18.867375000000003,
+                  18.261958,
+                  18.707667,
+                  18.911916000000005,
+                  18.555124999999997
+                ]
+              },
+              "after": {
+                "warm": [
+                  6.092620800000003,
+                  5.9614958,
+                  6.850149999999997,
+                  6.795795799999996,
+                  6.804529099999991,
+                  6.87064170000001,
+                  6.790545900000007
+                ],
+                "first": [
+                  14.90775,
+                  15.489458000000003,
+                  17.045250000000003,
+                  17.065208,
+                  17.102459000000003,
+                  16.880959000000004,
+                  16.863707999999995
+                ]
+              }
+            }
+          },
+          {
+            "name": "renderer.ts",
+            "files": 1,
+            "inspect": {
+              "before": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "991c3118f0ec273087218147a2b8ab89e4509c4615495433eb26fdd488757d28"
+              },
+              "after": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "991c3118f0ec273087218147a2b8ab89e4509c4615495433eb26fdd488757d28"
+              }
+            },
+            "medians": {
+              "before": {
+                "warm": 1.3147875000000113,
+                "first": 5.446458
+              },
+              "after": {
+                "warm": 1.1081040999999914,
+                "first": 5.131917000000001
+              }
+            },
+            "timing": {
+              "before": {
+                "warm": [
+                  1.2871625000000222,
+                  1.3147875000000113,
+                  1.3129292000000077,
+                  1.3275333000000047,
+                  1.3137666000000081,
+                  1.3180499999999937,
+                  1.3618417000000136
+                ],
+                "first": [
+                  5.336084,
+                  5.446458,
+                  5.4587080000000014,
+                  5.343333999999999,
+                  6.121249999999996,
+                  5.413334000000006,
+                  5.4885420000000025
+                ]
+              },
+              "after": {
+                "warm": [
+                  1.1081040999999914,
+                  1.1203416999999718,
+                  1.109845800000039,
+                  1.1781917000000248,
+                  1.108095800000001,
+                  1.078412500000013,
+                  1.0861499999999977
+                ],
+                "first": [
+                  5.032833000000004,
+                  4.985250000000001,
+                  5.131917000000001,
+                  5.224041999999997,
+                  5.231999999999999,
+                  5.126083999999999,
+                  5.250833
+                ]
+              }
+            }
+          },
+          {
+            "name": "table.tsx",
+            "files": 1,
+            "inspect": {
+              "before": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "981bfa4b77b4d93a2d4357d66c5ebc0c6dd69743d9e37b0e88188b1543db6be2"
+              },
+              "after": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "981bfa4b77b4d93a2d4357d66c5ebc0c6dd69743d9e37b0e88188b1543db6be2"
+              }
+            },
+            "medians": {
+              "before": {
+                "warm": 0.6754457999999885,
+                "first": 4.636625000000002
+              },
+              "after": {
+                "warm": 0.5892708000000312,
+                "first": 4.475000000000001
+              }
+            },
+            "timing": {
+              "before": {
+                "warm": [
+                  0.6579917000000023,
+                  0.69252919999999,
+                  0.6609792000000198,
+                  0.6743165999999746,
+                  0.6754457999999885,
+                  0.6955582999999933,
+                  0.6922958999999537
+                ],
+                "first": [
+                  4.739332999999995,
+                  4.6356660000000005,
+                  4.636625000000002,
+                  4.496958000000003,
+                  4.698667,
+                  4.521625,
+                  4.755792
+                ]
+              },
+              "after": {
+                "warm": [
+                  0.5761707999999999,
+                  0.591866600000003,
+                  0.5750915999999962,
+                  0.6530207999999675,
+                  0.5915415999999822,
+                  0.5892708000000312,
+                  0.573266700000022
+                ],
+                "first": [
+                  4.234833000000002,
+                  4.375374999999998,
+                  4.923625000000001,
+                  4.456541999999999,
+                  4.837624999999996,
+                  4.475000000000001,
+                  4.617874999999998
+                ]
+              }
+            }
+          },
+          {
+            "name": "UserSettings.tsx",
+            "files": 1,
+            "inspect": {
+              "before": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "e786881b80f1a8b3f2dcb7c05720e6edbc5d2e1577889115eb112967217528af"
+              },
+              "after": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "e786881b80f1a8b3f2dcb7c05720e6edbc5d2e1577889115eb112967217528af"
+              }
+            },
+            "medians": {
+              "before": {
+                "warm": 0.07838329999995039,
+                "first": 3.1804580000000016
+              },
+              "after": {
+                "warm": 0.0740708999999697,
+                "first": 3.0854169999999996
+              }
+            },
+            "timing": {
+              "before": {
+                "warm": [
+                  0.07542079999993803,
+                  0.08127919999997175,
+                  0.08191670000005616,
+                  0.08388749999994616,
+                  0.07759999999998399,
+                  0.07838329999995039,
+                  0.07242919999998776
+                ],
+                "first": [
+                  3.8934169999999995,
+                  3.9767919999999997,
+                  3.4482500000000016,
+                  3.1804580000000016,
+                  3.0177499999999995,
+                  3.027208999999999,
+                  2.982666000000002
+                ]
+              },
+              "after": {
+                "warm": [
+                  0.08484589999998207,
+                  0.0820625000000291,
+                  0.08548339999997552,
+                  0.06410410000007687,
+                  0.0740708999999697,
+                  0.07162499999994906,
+                  0.07058749999996508
+                ],
+                "first": [
+                  3.672374999999999,
+                  3.894416999999997,
+                  3.0854169999999996,
+                  2.9707919999999994,
+                  3.506292000000002,
+                  3.048833000000002,
+                  3.0105840000000015
+                ]
+              }
+            }
+          },
+          {
+            "name": "vite",
+            "files": 122,
+            "inspect": {
+              "before": {
+                "backends": {
+                  "node-strip": 39,
+                  "node-transform": 7,
+                  "pulse": 74,
+                  "pulse+node-strip": 2
+                },
+                "sha256": "346c807a0fd813a69cec6670bfa1f89a57804f7f1e3e022b26ea78c85fa2e0cb"
+              },
+              "after": {
+                "backends": {
+                  "node-strip": 39,
+                  "node-transform": 7,
+                  "pulse": 74,
+                  "pulse+node-strip": 2
+                },
+                "sha256": "346c807a0fd813a69cec6670bfa1f89a57804f7f1e3e022b26ea78c85fa2e0cb"
+              }
+            },
+            "medians": {
+              "before": {
+                "warm": 56.733854000000065,
+                "first": 138.361958
+              },
+              "after": {
+                "warm": 55.51291649999985,
+                "first": 136.88162499999999
+              }
+            },
+            "timing": {
+              "before": {
+                "warm": [
+                  56.86045849999982,
+                  56.733854000000065,
+                  55.02102049999985,
+                  56.509000000000015,
+                  56.41145849999975,
+                  65.74004150000019,
+                  70.44843750000018
+                ],
+                "first": [
+                  115.446459,
+                  130.398125,
+                  131.80175,
+                  138.986042,
+                  138.361958,
+                  168.124167,
+                  160.60816699999998
+                ]
+              },
+              "after": {
+                "warm": [
+                  53.07577100000026,
+                  55.345646000000215,
+                  54.882333500000186,
+                  55.51291649999985,
+                  62.03270850000035,
+                  62.670562500000415,
+                  57.07854150000003
+                ],
+                "first": [
+                  129.77137499999998,
+                  131.266334,
+                  133.228417,
+                  136.88162499999999,
+                  156.840083,
+                  160.998125,
+                  169.914333
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "rejectedGuardSIMD": {
+      "baseline": "d28736a",
+      "reason": "Equal output with no consistent end-to-end speedup",
+      "paired": {
+        "node": "v24.14.0",
+        "arch": "arm64",
+        "os": "darwin",
+        "reports": [
+          {
+            "name": "App.tsx",
+            "files": 1,
+            "inspect": {
+              "before": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "c899e017d3815fdf5531de83ae1a94828937377a82d702f7694fc66e3e5911a3"
+              },
+              "after": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "c899e017d3815fdf5531de83ae1a94828937377a82d702f7694fc66e3e5911a3"
+              }
+            },
+            "medians": {
+              "before": {
+                "warm": 5.910479199999986,
+                "first": 15.017
+              },
+              "after": {
+                "warm": 5.7446541999999905,
+                "first": 14.23825
+              }
+            },
+            "timing": {
+              "before": {
+                "warm": [
+                  5.351699999999999,
+                  5.987350000000004,
+                  5.969349999999997,
+                  5.910479199999986,
+                  5.410879199999999,
+                  5.459637500000008,
+                  6.068833399999994
+                ],
+                "first": [
+                  13.290916999999997,
+                  15.017,
+                  15.216207999999998,
+                  13.254041999999998,
+                  14.943166999999999,
+                  15.119709000000004,
+                  15.119875
+                ]
+              },
+              "after": {
+                "warm": [
+                  5.925041600000003,
+                  5.542095900000004,
+                  6.419612500000005,
+                  5.7446541999999905,
+                  5.729191700000001,
+                  5.634833400000002,
+                  6.2477332999999815
+                ],
+                "first": [
+                  14.400875,
+                  15.203166,
+                  14.225707999999997,
+                  14.23825,
+                  13.685125,
+                  13.793541999999999,
+                  15.979000000000003
+                ]
+              }
+            }
+          },
+          {
+            "name": "renderer.ts",
+            "files": 1,
+            "inspect": {
+              "before": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "991c3118f0ec273087218147a2b8ab89e4509c4615495433eb26fdd488757d28"
+              },
+              "after": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "991c3118f0ec273087218147a2b8ab89e4509c4615495433eb26fdd488757d28"
+              }
+            },
+            "medians": {
+              "before": {
+                "warm": 0.9474165999999968,
+                "first": 4.996874999999999
+              },
+              "after": {
+                "warm": 1.0262542000000394,
+                "first": 5.019082999999998
+              }
+            },
+            "timing": {
+              "before": {
+                "warm": [
+                  0.9292124999999942,
+                  0.9474165999999968,
+                  0.9403499999999895,
+                  0.9720083000000159,
+                  0.9600625000000036,
+                  0.9351833000000169,
+                  1.0231125000000247
+                ],
+                "first": [
+                  4.875125000000001,
+                  5.076958999999999,
+                  4.653207999999999,
+                  5.1526660000000035,
+                  4.996874999999999,
+                  4.902375000000006,
+                  5.563665999999998
+                ]
+              },
+              "after": {
+                "warm": [
+                  1.0100417000000106,
+                  1.0386625000000094,
+                  1.0210417000000234,
+                  1.0885083000000122,
+                  1.0262542000000394,
+                  1.0199333000000024,
+                  1.1318167000000359
+                ],
+                "first": [
+                  5.031415999999997,
+                  4.968250000000001,
+                  5.019082999999998,
+                  4.915542000000002,
+                  5.117291999999999,
+                  4.8415830000000035,
+                  5.596125000000001
+                ]
+              }
+            }
+          },
+          {
+            "name": "table.tsx",
+            "files": 1,
+            "inspect": {
+              "before": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "981bfa4b77b4d93a2d4357d66c5ebc0c6dd69743d9e37b0e88188b1543db6be2"
+              },
+              "after": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "981bfa4b77b4d93a2d4357d66c5ebc0c6dd69743d9e37b0e88188b1543db6be2"
+              }
+            },
+            "medians": {
+              "before": {
+                "warm": 0.5762917000000016,
+                "first": 4.904540999999995
+              },
+              "after": {
+                "warm": 0.5808665999999902,
+                "first": 4.699957999999995
+              }
+            },
+            "timing": {
+              "before": {
+                "warm": [
+                  0.5697374999999738,
+                  0.5942999999999756,
+                  0.5762917000000016,
+                  0.5904042000000118,
+                  0.5705582999999933,
+                  0.563866599999983,
+                  0.5935541000000285
+                ],
+                "first": [
+                  4.681750000000001,
+                  4.904540999999995,
+                  4.936875000000001,
+                  4.942625,
+                  5.281790999999998,
+                  4.618875000000003,
+                  4.712541000000002
+                ]
+              },
+              "after": {
+                "warm": [
+                  0.5759791999999834,
+                  0.5882958000000145,
+                  0.5808665999999902,
+                  0.6678832999999941,
+                  0.5734249999999974,
+                  0.578099999999995,
+                  0.6281833000000006
+                ],
+                "first": [
+                  4.5588750000000005,
+                  4.699957999999995,
+                  4.963625,
+                  4.599625000000003,
+                  4.950041999999996,
+                  4.935292000000004,
+                  4.674834000000004
+                ]
+              }
+            }
+          },
+          {
+            "name": "UserSettings.tsx",
+            "files": 1,
+            "inspect": {
+              "before": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "e786881b80f1a8b3f2dcb7c05720e6edbc5d2e1577889115eb112967217528af"
+              },
+              "after": {
+                "backends": {
+                  "pulse": 1
+                },
+                "sha256": "e786881b80f1a8b3f2dcb7c05720e6edbc5d2e1577889115eb112967217528af"
+              }
+            },
+            "medians": {
+              "before": {
+                "warm": 0.0813083000000006,
+                "first": 4.083582999999997
+              },
+              "after": {
+                "warm": 0.08024170000007871,
+                "first": 4.038375000000002
+              }
+            },
+            "timing": {
+              "before": {
+                "warm": [
+                  0.07069170000004306,
+                  0.08138749999998254,
+                  0.07905840000003081,
+                  0.08046250000006694,
+                  0.0813083000000006,
+                  0.08355830000000423,
+                  0.08873329999996712
+                ],
+                "first": [
+                  3.9297499999999985,
+                  4.6193329999999975,
+                  3.9637499999999974,
+                  4.855416999999996,
+                  4.083582999999997,
+                  3.9207080000000047,
+                  4.172750000000001
+                ]
+              },
+              "after": {
+                "warm": [
+                  0.08061670000006416,
+                  0.08032499999999346,
+                  0.08251669999999649,
+                  0.07617079999999987,
+                  0.08024170000007871,
+                  0.07979169999998703,
+                  0.07993340000002717
+                ],
+                "first": [
+                  4.038375000000002,
+                  3.9110410000000044,
+                  4.073917000000002,
+                  4.1719170000000005,
+                  4.009082999999997,
+                  3.9411660000000026,
+                  4.569749999999999
+                ]
+              }
+            }
+          },
+          {
+            "name": "vite",
+            "files": 122,
+            "inspect": {
+              "before": {
+                "backends": {
+                  "node-strip": 39,
+                  "node-transform": 7,
+                  "pulse": 74,
+                  "pulse+node-strip": 2
+                },
+                "sha256": "346c807a0fd813a69cec6670bfa1f89a57804f7f1e3e022b26ea78c85fa2e0cb"
+              },
+              "after": {
+                "backends": {
+                  "node-strip": 39,
+                  "node-transform": 7,
+                  "pulse": 74,
+                  "pulse+node-strip": 2
+                },
+                "sha256": "346c807a0fd813a69cec6670bfa1f89a57804f7f1e3e022b26ea78c85fa2e0cb"
+              }
+            },
+            "medians": {
+              "before": {
+                "warm": 110.48102100000051,
+                "first": 283.592875
+              },
+              "after": {
+                "warm": 115.55370850000054,
+                "first": 284.66662499999995
+              }
+            },
+            "timing": {
+              "before": {
+                "warm": [
+                  97.00093749999996,
+                  94.47210399999994,
+                  109.85297900000023,
+                  157.11772950000068,
+                  131.4400415,
+                  118.23214600000028,
+                  110.48102100000051
+                ],
+                "first": [
+                  209.251959,
+                  229.441041,
+                  282.20516699999996,
+                  383.196083,
+                  339.245417,
+                  322.33604099999997,
+                  283.592875
+                ]
+              },
+              "after": {
+                "warm": [
+                  87.90937500000018,
+                  91.13306250000005,
+                  117.75975000000017,
+                  115.55370850000054,
+                  129.39658299999974,
+                  120.35722900000019,
+                  109.56437499999993
+                ],
+                "first": [
+                  200.023416,
+                  229.19162500000002,
+                  284.66662499999995,
+                  318.104083,
+                  306.581542,
+                  301.45324999999997,
+                  270.73924999999997
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "isolated": {
+      "node": "v24.14.0",
+      "os": "linux",
+      "arch": "arm64",
+      "rounds": 5,
+      "reports": [
+        {
+          "name": "synthetic",
+          "cases": 256,
+          "selected": 256,
+          "coverage": {
+            "tmt": {
+              "accepted": 256,
+              "native": 256,
+              "backends": {
+                "pulse": 256
+              }
+            },
+            "oxc": {
+              "accepted": 256,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 256,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 256,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 256,
+              "native": 0
+            },
+            "node-strip": {
+              "accepted": 256,
+              "native": 0
+            }
+          },
+          "inputSha256": null,
+          "samples": {
+            "tmt": {
+              "warm": [
+                0.20100791999999956,
+                0.15678600000000187,
+                0.14273427999999513,
+                0.14399591999999756,
+                0.11786243999998987
+              ],
+              "first": [
+                2.0325539999999975,
+                1.9624710000000007,
+                1.9708039999999976,
+                2.1398059999999965,
+                2.009888
+              ]
+            },
+            "oxc": {
+              "warm": [
+                1.4058156400000008,
+                1.3000549999999975,
+                1.3801271600000018,
+                1.3017416799999955,
+                1.2863182400000006
+              ],
+              "first": [
+                9.972147999999997,
+                9.681853999999998,
+                9.0426,
+                9.476311000000003,
+                9.804146
+              ]
+            },
+            "yuku": {
+              "warm": [
+                3.1598902399999997,
+                2.6941205599999964,
+                2.7931145599999945,
+                2.4793308800000067,
+                2.7208840800000145
+              ],
+              "first": [
+                26.054999999999996,
+                24.100445999999998,
+                24.512865,
+                24.573031999999998,
+                23.835860999999998
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                0.5280900399999996,
+                0.5166949600000044,
+                0.5430701599999975,
+                0.519663359999995,
+                0.47260968000000503
+              ],
+              "first": [
+                1.1891740000000013,
+                1.1311319999999974,
+                1.1248819999999995,
+                1.1389239999999994,
+                1.0212150000000015
+              ]
+            },
+            "yuku-current": {
+              "warm": [
+                1.0763318800000001,
+                1.3757737999999973,
+                0.8622305200000028,
+                0.729871320000002,
+                0.8896690399999989
+              ],
+              "first": [
+                18.827786999999997,
+                16.240438000000005,
+                16.469188,
+                16.447354999999998,
+                16.067520000000002
+              ]
+            },
+            "node-strip": {
+              "warm": [
+                2.4059037200000013,
+                2.1426787200000037,
+                1.9462707600000066,
+                1.9068405600000005,
+                2.2828062800000044
+              ],
+              "first": [
+                33.586757,
+                33.848967,
+                34.224511,
+                34.439262,
+                33.781758
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 0.14399591999999756,
+              "first": 2.009888
+            },
+            "oxc": {
+              "warm": 1.3017416799999955,
+              "first": 9.681853999999998
+            },
+            "yuku": {
+              "warm": 2.7208840800000145,
+              "first": 24.512865
+            },
+            "swc-next": {
+              "warm": 0.519663359999995,
+              "first": 1.1311319999999974
+            },
+            "yuku-current": {
+              "warm": 0.8896690399999989,
+              "first": 16.447354999999998
+            },
+            "node-strip": {
+              "warm": 2.1426787200000037,
+              "first": 33.848967
+            }
+          }
+        },
+        {
+          "name": "declarations",
+          "cases": 1,
+          "selected": 1,
+          "coverage": {
+            "tmt": {
+              "accepted": 1,
+              "native": 1,
+              "backends": {
+                "pulse": 1
+              }
+            },
+            "oxc": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 1,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 1,
+              "native": 0
+            },
+            "node-strip": {
+              "accepted": 1,
+              "native": 0
+            }
+          },
+          "inputSha256": null,
+          "samples": {
+            "tmt": {
+              "warm": [
+                0.018446799999983342,
+                0.021115120000013123,
+                0.02396679999999833,
+                0.0234401600000092,
+                0.023563480000011624
+              ],
+              "first": [
+                1.2350080000000005,
+                1.5996349999999993,
+                1.8283450000000023,
+                1.4289249999999996,
+                1.5162179999999985
+              ]
+            },
+            "oxc": {
+              "warm": [
+                0.0805238399999871,
+                0.0813455200000135,
+                0.09168059999999968,
+                0.09633232000000135,
+                0.09489728000000469
+              ],
+              "first": [
+                7.782966999999999,
+                8.234261,
+                8.845057,
+                9.123058,
+                9.518811000000003
+              ]
+            },
+            "yuku": {
+              "warm": [
+                0.38125244000000746,
+                0.3551022799999919,
+                0.7954217599999902,
+                0.36146232000000966,
+                0.3584206000000086
+              ],
+              "first": [
+                18.59691,
+                18.930746,
+                21.298136000000003,
+                21.601138000000002,
+                20.7873
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                0.0814622000000054,
+                0.08460220000000845,
+                0.10210399999999936,
+                0.0971922799999993,
+                0.09661395999999513
+              ],
+              "first": [
+                0.5951699999999995,
+                0.6404619999999994,
+                0.7517549999999993,
+                0.6421710000000012,
+                0.7495459999999987
+              ]
+            },
+            "yuku-current": {
+              "warm": [
+                0.1236507999999958,
+                0.11398740000000544,
+                0.138549239999993,
+                0.1399808800000028,
+                0.15419767999999748
+              ],
+              "first": [
+                16.130768999999997,
+                12.935500000000001,
+                15.776475999999995,
+                15.494265000000002,
+                16.375938
+              ]
+            },
+            "node-strip": {
+              "warm": [
+                0.2558316399999967,
+                0.25651327999999923,
+                0.2877268399999957,
+                0.28780520000000254,
+                0.2820684800000163
+              ],
+              "first": [
+                24.340821999999996,
+                25.040326999999998,
+                28.726142,
+                28.480473999999997,
+                28.043929000000002
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 0.0234401600000092,
+              "first": 1.5162179999999985
+            },
+            "oxc": {
+              "warm": 0.09168059999999968,
+              "first": 8.845057
+            },
+            "yuku": {
+              "warm": 0.36146232000000966,
+              "first": 20.7873
+            },
+            "swc-next": {
+              "warm": 0.09661395999999513,
+              "first": 0.6421710000000012
+            },
+            "yuku-current": {
+              "warm": 0.138549239999993,
+              "first": 15.776475999999995
+            },
+            "node-strip": {
+              "warm": 0.2820684800000163,
+              "first": 28.043929000000002
+            }
+          }
+        },
+        {
+          "name": "jsx",
+          "cases": 256,
+          "selected": 256,
+          "coverage": {
+            "tmt": {
+              "accepted": 256,
+              "native": 256,
+              "backends": {
+                "pulse": 256
+              }
+            },
+            "oxc": {
+              "accepted": 256,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 256,
+              "native": 0
+            }
+          },
+          "inputSha256": null,
+          "samples": {
+            "tmt": {
+              "warm": [
+                0.4033975599999758,
+                0.35980396000002657,
+                0.5006148799999938,
+                0.37081903999998755,
+                0.34419052000001105
+              ],
+              "first": [
+                2.4436409999999995,
+                3.0728529999999985,
+                2.7228509999999986,
+                2.542348999999998,
+                2.4727239999999995
+              ]
+            },
+            "oxc": {
+              "warm": [
+                1.8958287600000039,
+                1.9159672800000045,
+                1.8797220000000017,
+                1.887887039999987,
+                1.8924170799999773
+              ],
+              "first": [
+                11.967825999999999,
+                11.936035,
+                11.657325,
+                12.208870000000001,
+                11.409405999999997
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                1.3047716800000126,
+                1.3580786799999987,
+                1.2949899199999708,
+                1.35752199999999,
+                1.3645387199999823
+              ],
+              "first": [
+                2.283057000000003,
+                2.191846999999999,
+                2.103888999999999,
+                2.1519309999999976,
+                2.1109299999999998
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 0.37081903999998755,
+              "first": 2.542348999999998
+            },
+            "oxc": {
+              "warm": 1.8924170799999773,
+              "first": 11.936035
+            },
+            "swc-next": {
+              "warm": 1.35752199999999,
+              "first": 2.1519309999999976
+            }
+          }
+        },
+        {
+          "name": "enum",
+          "cases": 256,
+          "selected": 256,
+          "coverage": {
+            "tmt": {
+              "accepted": 256,
+              "native": 256,
+              "backends": {
+                "pulse": 256
+              }
+            },
+            "oxc": {
+              "accepted": 256,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 256,
+              "native": 0
+            }
+          },
+          "inputSha256": null,
+          "samples": {
+            "tmt": {
+              "warm": [
+                0.3767490800000087,
+                0.3895391600000221,
+                0.3832141200000115,
+                0.3770823999999993,
+                0.29816188000000693
+              ],
+              "first": [
+                2.941852000000001,
+                2.841975999999999,
+                2.7965599999999995,
+                2.8316440000000007,
+                2.8762690000000006
+              ]
+            },
+            "oxc": {
+              "warm": [
+                1.6508122000000003,
+                1.6598989599999914,
+                1.6657790000000023,
+                1.6594289199999912,
+                1.6655756800000017
+              ],
+              "first": [
+                12.532789000000005,
+                11.902908999999998,
+                12.446913000000002,
+                12.005369000000002,
+                12.727415000000004
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                1.0339232800000173,
+                1.0432600000000094,
+                1.0533034000000043,
+                1.0335466000000089,
+                1.0345132799999919
+              ],
+              "first": [
+                1.7962200000000017,
+                1.8303450000000012,
+                1.8726790000000015,
+                1.8525530000000003,
+                1.7917609999999975
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 0.3770823999999993,
+              "first": 2.841975999999999
+            },
+            "oxc": {
+              "warm": 1.6598989599999914,
+              "first": 12.446913000000002
+            },
+            "swc-next": {
+              "warm": 1.0345132799999919,
+              "first": 1.8303450000000012
+            }
+          }
+        },
+        {
+          "name": "/benchmark/inputs/vite.json",
+          "cases": 122,
+          "selected": 113,
+          "coverage": {
+            "tmt": {
+              "accepted": 122,
+              "native": 74,
+              "backends": {
+                "node-strip": 39,
+                "node-transform": 7,
+                "pulse": 74,
+                "pulse+node-strip": 2
+              }
+            },
+            "oxc": {
+              "accepted": 122,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 113,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 122,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 113,
+              "native": 0
+            }
+          },
+          "inputSha256": "ceac02e2c6995a85cd09ee7a31025133f8c8b0df563c21fa18ce4672de3a35e4",
+          "samples": {
+            "tmt": {
+              "warm": [
+                49.39094099999966,
+                65.43904300000031,
+                59.00900299999921,
+                57.50670200000059,
+                56.29306899999938
+              ],
+              "first": [
+                124.977633,
+                130.331708,
+                130.916088,
+                133.530687,
+                135.649117
+              ]
+            },
+            "oxc": {
+              "warm": [
+                19.188873000000058,
+                20.960634000000937,
+                22.506226999999853,
+                20.36833899999874,
+                23.13856499999929
+              ],
+              "first": [
+                32.349624,
+                36.705068000000004,
+                35.45764400000001,
+                34.764806,
+                36.945528
+              ]
+            },
+            "yuku": {
+              "warm": [
+                81.73656399999982,
+                73.8380560000005,
+                87.61147700000038,
+                99.7106789999998,
+                83.713119
+              ],
+              "first": [
+                166.705858,
+                171.92168300000003,
+                166.338272,
+                174.136239,
+                190.709678
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                20.728423999998995,
+                22.727687000000515,
+                49.78581900000063,
+                21.09046799999851,
+                42.964733000000706
+              ],
+              "first": [
+                21.949514999999998,
+                25.980708,
+                21.368053000000003,
+                20.902634,
+                23.959903000000004
+              ]
+            },
+            "yuku-current": {
+              "warm": [
+                21.92122399999971,
+                22.389392999999473,
+                22.818187000000762,
+                19.68250099999932,
+                25.01520199999868
+              ],
+              "first": [
+                45.316581,
+                48.380643000000006,
+                44.374325,
+                45.18787199999999,
+                43.579154
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 57.50670200000059,
+              "first": 130.916088
+            },
+            "oxc": {
+              "warm": 20.960634000000937,
+              "first": 35.45764400000001
+            },
+            "yuku": {
+              "warm": 83.713119,
+              "first": 171.92168300000003
+            },
+            "swc-next": {
+              "warm": 22.727687000000515,
+              "first": 21.949514999999998
+            },
+            "yuku-current": {
+              "warm": 22.389392999999473,
+              "first": 45.18787199999999
+            }
+          }
+        },
+        {
+          "name": "/benchmark/inputs/mreact.json",
+          "cases": 321,
+          "selected": 315,
+          "coverage": {
+            "tmt": {
+              "accepted": 321,
+              "native": 193,
+              "backends": {
+                "node-strip": 126,
+                "pulse": 193,
+                "node-transform": 2
+              }
+            },
+            "oxc": {
+              "accepted": 321,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 315,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 321,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 315,
+              "native": 0
+            }
+          },
+          "inputSha256": "5fce596fc53d9b4e3b95807db7c1047e1f653f4858885442968bde0f8f896eb9",
+          "samples": {
+            "tmt": {
+              "warm": [
+                234.8939190000001,
+                287.79413300000306,
+                290.93107000000236,
+                229.9730129999989,
+                362.15810899999997
+              ],
+              "first": [
+                359.20709,
+                361.676064,
+                366.499053,
+                361.869982,
+                417.66842199999996
+              ]
+            },
+            "oxc": {
+              "warm": [
+                79.3800910000009,
+                115.99461700000029,
+                79.63725999999951,
+                79.68409299999985,
+                79.9352620000027
+              ],
+              "first": [
+                98.754798,
+                97.91262600000002,
+                99.370177,
+                97.82275099999998,
+                98.262629
+              ]
+            },
+            "yuku": {
+              "warm": [
+                370.89058099999966,
+                316.9559019999979,
+                328.80706199999986,
+                332.35637600000337,
+                480.848326000003
+              ],
+              "first": [
+                570.630484,
+                695.571366,
+                622.2386469999999,
+                564.133942,
+                578.2675330000001
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                86.95959800000128,
+                97.56220699999903,
+                105.85275999999794,
+                91.39425100000153,
+                90.50187100000039
+              ],
+              "first": [
+                86.847181,
+                87.402976,
+                87.024723,
+                86.442595,
+                87.591352
+              ]
+            },
+            "yuku-current": {
+              "warm": [
+                98.17883599999914,
+                85.15021200000047,
+                98.4896719999997,
+                86.03550900000118,
+                86.54801199999929
+              ],
+              "first": [
+                137.645006,
+                121.213359,
+                142.97687299999998,
+                116.345369,
+                125.806388
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 287.79413300000306,
+              "first": 361.869982
+            },
+            "oxc": {
+              "warm": 79.68409299999985,
+              "first": 98.262629
+            },
+            "yuku": {
+              "warm": 332.35637600000337,
+              "first": 578.2675330000001
+            },
+            "swc-next": {
+              "warm": 91.39425100000153,
+              "first": 87.024723
+            },
+            "yuku-current": {
+              "warm": 86.54801199999929,
+              "first": 125.806388
+            }
+          }
+        },
+        {
+          "name": "/benchmark/inputs/tachyon-dom.json",
+          "cases": 94,
+          "selected": 94,
+          "coverage": {
+            "tmt": {
+              "accepted": 94,
+              "native": 59,
+              "backends": {
+                "node-strip": 35,
+                "pulse": 59
+              }
+            },
+            "oxc": {
+              "accepted": 94,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 94,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 94,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 94,
+              "native": 0
+            }
+          },
+          "inputSha256": "7a78674b08297992c654a239167e743828c93aff00b178b0c0ff894d8b5eeaf9",
+          "samples": {
+            "tmt": {
+              "warm": [
+                77.59382999999798,
+                79.81217699999979,
+                93.2600969999985,
+                73.3543439999994,
+                72.92575799999759
+              ],
+              "first": [
+                176.243961,
+                179.83419200000003,
+                175.67066499999999,
+                163.71342199999998,
+                160.979739
+              ]
+            },
+            "oxc": {
+              "warm": [
+                28.03842900000018,
+                23.382942000000185,
+                28.643307999998797,
+                23.675193000002764,
+                23.99732000000222
+              ],
+              "first": [
+                38.555997000000005,
+                40.390634,
+                39.419459999999994,
+                38.881915,
+                38.84024899999999
+              ]
+            },
+            "yuku": {
+              "warm": [
+                71.5537910000021,
+                112.8091800000002,
+                124.49258800000098,
+                83.2941580000006,
+                75.99382000000332
+              ],
+              "first": [
+                218.695607,
+                214.974209,
+                256.520641,
+                219.67119699999998,
+                215.664588
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                27.208590999998705,
+                26.993046999999933,
+                70.1290740000004,
+                28.55855800000063,
+                28.396598999999696
+              ],
+              "first": [
+                26.733087999999995,
+                26.641754,
+                32.380999,
+                26.941464000000003,
+                26.909923
+              ]
+            },
+            "yuku-current": {
+              "warm": [
+                25.963208000001032,
+                26.233459999999468,
+                32.139579999999114,
+                28.571766000000935,
+                26.09933400000591
+              ],
+              "first": [
+                52.912797,
+                75.654318,
+                64.81787299999999,
+                52.930921999999995,
+                53.04650600000001
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 77.59382999999798,
+              "first": 175.67066499999999
+            },
+            "oxc": {
+              "warm": 23.99732000000222,
+              "first": 38.881915
+            },
+            "yuku": {
+              "warm": 83.2941580000006,
+              "first": 218.695607
+            },
+            "swc-next": {
+              "warm": 28.396598999999696,
+              "first": 26.909923
+            },
+            "yuku-current": {
+              "warm": 26.233459999999468,
+              "first": 53.04650600000001
+            }
+          }
+        },
+        {
+          "name": "/benchmark/inputs/mreact.tsx.json",
+          "cases": 84,
+          "selected": 84,
+          "coverage": {
+            "tmt": {
+              "accepted": 84,
+              "native": 80,
+              "backends": {
+                "pulse": 80,
+                "pulse+node-strip": 4
+              }
+            },
+            "oxc": {
+              "accepted": 84,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 84,
+              "native": 0
+            }
+          },
+          "inputSha256": "7f6b68c54014d0f7fe0cd72fdef10cf9f51ecc70631815f5161c78c36ee57ddf",
+          "samples": {
+            "tmt": {
+              "warm": [
+                13.077292000001762,
+                14.734385999996448,
+                15.613892000001215,
+                14.130840000005264,
+                13.632379000002402
+              ],
+              "first": [
+                81.779065,
+                81.894565,
+                81.24114499999999,
+                80.575224,
+                80.45838900000001
+              ]
+            },
+            "oxc": {
+              "warm": [
+                6.547166999996989,
+                6.9154599999965285,
+                6.846252000003005,
+                6.769167999998899,
+                6.911003000001074
+              ],
+              "first": [
+                21.865056000000003,
+                23.711194,
+                22.995022000000006,
+                21.744264,
+                21.857307
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                8.846807000001718,
+                8.619722000003094,
+                8.256552999999258,
+                8.201552999998967,
+                8.481179000002157
+              ],
+              "first": [
+                8.476513000000004,
+                8.310386999999999,
+                8.425179,
+                8.449095999999997,
+                8.441179000000005
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 14.130840000005264,
+              "first": 81.24114499999999
+            },
+            "oxc": {
+              "warm": 6.846252000003005,
+              "first": 21.865056000000003
+            },
+            "swc-next": {
+              "warm": 8.481179000002157,
+              "first": 8.441179000000005
+            }
+          }
+        },
+        {
+          "name": "/benchmark/inputs/tachyon-dom.tsx.json",
+          "cases": 32,
+          "selected": 32,
+          "coverage": {
+            "tmt": {
+              "accepted": 32,
+              "native": 32,
+              "backends": {
+                "pulse": 32
+              }
+            },
+            "oxc": {
+              "accepted": 32,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 32,
+              "native": 0
+            }
+          },
+          "inputSha256": "ba4f6c8d3bd0d0320811d6597e9583b4c443b30f671ca81340f52eb2892a46f5",
+          "samples": {
+            "tmt": {
+              "warm": [
+                0.8282559999934165,
+                1.060341000003973,
+                0.9642560000065714,
+                0.9458809999996447,
+                0.9937559999962104
+              ],
+              "first": [
+                4.941323000000004,
+                4.470029000000004,
+                4.293193999999996,
+                4.395029000000001,
+                4.699863000000001
+              ]
+            },
+            "oxc": {
+              "warm": [
+                1.1724660000036238,
+                1.4042170000029728,
+                1.2485910000032163,
+                1.2270910000006552,
+                1.2519249999968451
+              ],
+              "first": [
+                15.716308999999999,
+                15.315556,
+                14.275883,
+                13.796629000000003,
+                14.526050999999999
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                1.1580079999985173,
+                1.2862999999997555,
+                1.095923999993829,
+                1.037464999993972,
+                1.0635479999982635
+              ],
+              "first": [
+                2.2841390000000033,
+                2.1101389999999967,
+                1.8294700000000006,
+                1.8489699999999978,
+                1.8899290000000022
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 0.9642560000065714,
+              "first": 4.470029000000004
+            },
+            "oxc": {
+              "warm": 1.2485910000032163,
+              "first": 14.526050999999999
+            },
+            "swc-next": {
+              "warm": 1.095923999993829,
+              "first": 1.8899290000000022
+            }
+          }
+        },
+        {
+          "name": "/benchmark/inputs/solid.json",
+          "cases": 26,
+          "selected": 25,
+          "coverage": {
+            "tmt": {
+              "accepted": 25,
+              "native": 6,
+              "backends": {
+                "node-strip": 19,
+                "pulse": 6,
+                "typescript-required": 1
+              }
+            },
+            "oxc": {
+              "accepted": 26,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 26,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 26,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 26,
+              "native": 0
+            }
+          },
+          "inputSha256": "c8b07517f998689507f3db053a636191289e9299c0f18ad11d88a1cff64027ff",
+          "samples": {
+            "tmt": {
+              "warm": [
+                35.92431299999589,
+                39.615420000001905,
+                36.371815999998944,
+                33.82188299999689,
+                34.879722999998194
+              ],
+              "first": [
+                103.79016399999999,
+                108.180192,
+                107.44081200000001,
+                108.15927500000001,
+                107.545313
+              ]
+            },
+            "oxc": {
+              "warm": [
+                12.881499000002805,
+                11.095445999999356,
+                13.023750000000291,
+                13.077499999999418,
+                13.533628000004683
+              ],
+              "first": [
+                28.065597000000004,
+                25.063284999999997,
+                28.249556000000005,
+                27.862260999999997,
+                28.956267999999994
+              ]
+            },
+            "yuku": {
+              "warm": [
+                26.768255000002682,
+                148.32557399999496,
+                30.04185800000414,
+                32.866086000001815,
+                25.009326999999757
+              ],
+              "first": [
+                98.37446299999999,
+                108.722196,
+                108.920947,
+                105.79176000000001,
+                98.41667100000001
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                10.23002400000405,
+                12.89150000000518,
+                12.584038000000874,
+                12.663747999999032,
+                12.683289000000514
+              ],
+              "first": [
+                11.627615999999996,
+                13.419544000000002,
+                13.362502,
+                13.585836999999998,
+                11.963367999999996
+              ]
+            },
+            "yuku-current": {
+              "warm": [
+                11.063446000000113,
+                12.614998000004562,
+                13.13125000000582,
+                12.78366499999538,
+                12.223078000002715
+              ],
+              "first": [
+                35.427476999999996,
+                42.154561,
+                37.750241,
+                35.243059,
+                35.152058
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 35.92431299999589,
+              "first": 107.545313
+            },
+            "oxc": {
+              "warm": 13.023750000000291,
+              "first": 28.065597000000004
+            },
+            "yuku": {
+              "warm": 30.04185800000414,
+              "first": 105.79176000000001
+            },
+            "swc-next": {
+              "warm": 12.663747999999032,
+              "first": 13.362502
+            },
+            "yuku-current": {
+              "warm": 12.614998000004562,
+              "first": 35.427476999999996
+            }
+          }
+        },
+        {
+          "name": "/benchmark/inputs/tanstack-query.json",
+          "cases": 97,
+          "selected": 92,
+          "coverage": {
+            "tmt": {
+              "accepted": 96,
+              "native": 29,
+              "backends": {
+                "pulse": 29,
+                "node-strip": 64,
+                "typescript-required": 1,
+                "node-transform": 3
+              }
+            },
+            "oxc": {
+              "accepted": 97,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 93,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 97,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 93,
+              "native": 0
+            }
+          },
+          "inputSha256": "73adf3e1eb8bfb6d3f157fea435c493d999ea615ed1222dbbfb7af5a9807f5f9",
+          "samples": {
+            "tmt": {
+              "warm": [
+                43.13656799999444,
+                37.453990000001795,
+                112.37350999999762,
+                43.775612999997975,
+                38.852207000003546
+              ],
+              "first": [
+                123.97175100000001,
+                118.61455099999998,
+                122.39349200000001,
+                121.348235,
+                119.085886
+              ]
+            },
+            "oxc": {
+              "warm": [
+                10.224481999997806,
+                11.48924000000261,
+                11.624824999998964,
+                11.416614999994636,
+                11.492448000004515
+              ],
+              "first": [
+                29.290229000000004,
+                26.511585999999994,
+                26.93367200000001,
+                25.944457999999997,
+                26.669171
+              ]
+            },
+            "yuku": {
+              "warm": [
+                59.7145490000039,
+                26.04766599999857,
+                30.419903000001796,
+                65.79308799999853,
+                29.39460500000132
+              ],
+              "first": [
+                112.954139,
+                106.46843100000001,
+                103.333077,
+                112.35988499999999,
+                104.519793
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                10.733359999998356,
+                9.382519000006141,
+                9.160933999999543,
+                11.240031000001181,
+                10.047022999999172
+              ],
+              "first": [
+                10.576983999999996,
+                10.650109999999998,
+                10.599859000000002,
+                10.863445000000006,
+                10.620235000000001
+              ]
+            },
+            "yuku-current": {
+              "warm": [
+                11.24348800000007,
+                11.09648699999525,
+                30.62898700000369,
+                11.873158999995212,
+                11.481865000001562
+              ],
+              "first": [
+                38.494996,
+                40.397716,
+                40.930846,
+                37.976076,
+                38.51724699999999
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 43.13656799999444,
+              "first": 121.348235
+            },
+            "oxc": {
+              "warm": 11.48924000000261,
+              "first": 26.669171
+            },
+            "yuku": {
+              "warm": 30.419903000001796,
+              "first": 106.46843100000001
+            },
+            "swc-next": {
+              "warm": 10.047022999999172,
+              "first": 10.620235000000001
+            },
+            "yuku-current": {
+              "warm": 11.481865000001562,
+              "first": 38.51724699999999
+            }
+          }
+        },
+        {
+          "name": "/benchmark/official/official-oxc-transform-parser.ts.json",
+          "cases": 1,
+          "selected": 0,
+          "coverage": {
+            "tmt": {
+              "accepted": 0,
+              "native": 0,
+              "backends": {
+                "typescript-required": 1
+              }
+            },
+            "oxc": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 0,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 0,
+              "native": 0
+            }
+          },
+          "inputSha256": "20292d03d2cbe388ef01cf1be6e8bb6d7d0d66989f69332998713c22c32a04f8",
+          "samples": {
+            "oxc": {
+              "warm": [],
+              "first": []
+            },
+            "swc-next": {
+              "warm": [],
+              "first": []
+            }
+          },
+          "medians": {}
+        },
+        {
+          "name": "/benchmark/official/official-oxc-transform-renderer.ts.json",
+          "cases": 1,
+          "selected": 1,
+          "coverage": {
+            "tmt": {
+              "accepted": 1,
+              "native": 1,
+              "backends": {
+                "pulse": 1
+              }
+            },
+            "oxc": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 0,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 0,
+              "native": 0
+            }
+          },
+          "inputSha256": "b512bee302cbf1ae0ef0babf1cb9ad9e824af05de50b399ab0da93e1bacb4b50",
+          "samples": {
+            "tmt": {
+              "warm": [
+                1.513226399999985,
+                1.4878761999993002,
+                1.5053348000001279,
+                1.5249764000007417,
+                1.5066677999988314
+              ],
+              "first": [
+                6.550792000000001,
+                5.984829999999995,
+                6.086080000000003,
+                6.023705,
+                5.97983
+              ]
+            },
+            "oxc": {
+              "warm": [
+                1.2902666000009049,
+                1.3581254000004264,
+                1.314999999999418,
+                1.3483752000000095,
+                1.3214667999985976
+              ],
+              "first": [
+                17.155817999999996,
+                15.866976000000001,
+                15.835017999999998,
+                17.586362,
+                15.805516999999995
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                1.6453437999996823,
+                1.6667939999999362,
+                1.6534771999999065,
+                1.6835939999989933,
+                1.632951999999932
+              ],
+              "first": [
+                3.214562000000001,
+                3.222145000000001,
+                3.2651460000000014,
+                3.326603999999996,
+                3.181936999999998
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 1.5066677999988314,
+              "first": 6.023705
+            },
+            "oxc": {
+              "warm": 1.3214667999985976,
+              "first": 15.866976000000001
+            },
+            "swc-next": {
+              "warm": 1.6534771999999065,
+              "first": 3.222145000000001
+            }
+          }
+        },
+        {
+          "name": "/benchmark/official/official-oxc-transform-UserSettings.tsx.json",
+          "cases": 1,
+          "selected": 1,
+          "coverage": {
+            "tmt": {
+              "accepted": 1,
+              "native": 1,
+              "backends": {
+                "pulse": 1
+              }
+            },
+            "oxc": {
+              "accepted": 1,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 1,
+              "native": 0
+            }
+          },
+          "inputSha256": "792413f7a5214026d95bb0586bc59d2b8ceb0786ca84009de4800e701ea262a5",
+          "samples": {
+            "tmt": {
+              "warm": [
+                0.09890059999888763,
+                0.1653841999999713,
+                0.13106759999936912,
+                0.12958419999922627,
+                0.12281740000034916
+              ],
+              "first": [
+                2.9080179999999984,
+                3.109770000000001,
+                2.6484330000000043,
+                2.5106409999999997,
+                3.1254370000000016
+              ]
+            },
+            "oxc": {
+              "warm": [
+                0.14579260000027716,
+                0.18060120000009192,
+                0.2223764000009396,
+                0.16498439999995754,
+                0.16910099999950035
+              ],
+              "first": [
+                15.808809000000004,
+                14.773053000000004,
+                12.853373999999999,
+                13.775713000000003,
+                13.655878999999999
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                0.16290119999903255,
+                0.20056800000020303,
+                0.16603440000035335,
+                0.14869259999977658,
+                0.1420425999996951
+              ],
+              "first": [
+                1.6081350000000043,
+                1.2870080000000037,
+                1.2936329999999998,
+                1.0704649999999987,
+                1.0670070000000003
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 0.12958419999922627,
+              "first": 2.9080179999999984
+            },
+            "oxc": {
+              "warm": 0.16910099999950035,
+              "first": 13.775713000000003
+            },
+            "swc-next": {
+              "warm": 0.16290119999903255,
+              "first": 1.2870080000000037
+            }
+          }
+        },
+        {
+          "name": "/benchmark/official/official-oxc-transform-table.tsx.json",
+          "cases": 1,
+          "selected": 1,
+          "coverage": {
+            "tmt": {
+              "accepted": 1,
+              "native": 1,
+              "backends": {
+                "pulse": 1
+              }
+            },
+            "oxc": {
+              "accepted": 1,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 1,
+              "native": 0
+            }
+          },
+          "inputSha256": "9445c3cabc4debfb9c03bcade57bde7f05e8a82883f6b4cfa9e04708a30a5a13",
+          "samples": {
+            "tmt": {
+              "warm": [
+                0.725296199999866,
+                0.7549631999994745,
+                0.7527547999998205,
+                0.7564715999993495,
+                0.7475797999999486
+              ],
+              "first": [
+                3.8826910000000048,
+                3.7706899999999948,
+                4.020775,
+                4.0855679999999985,
+                3.7794409999999985
+              ]
+            },
+            "oxc": {
+              "warm": [
+                0.6440792000008514,
+                0.7251296000002185,
+                0.7227129999999307,
+                0.7240130000005592,
+                0.7199796000000788
+              ],
+              "first": [
+                13.526753000000003,
+                13.920256000000002,
+                13.794380000000004,
+                14.257466,
+                13.846962999999999
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                0.8618054000005941,
+                0.8166220000013709,
+                0.8388722000003327,
+                0.8751056000008248,
+                0.8660388000003877
+              ],
+              "first": [
+                2.4600989999999996,
+                2.152930999999999,
+                2.134346999999998,
+                2.2555140000000016,
+                2.2536810000000003
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 0.7527547999998205,
+              "first": 3.8826910000000048
+            },
+            "oxc": {
+              "warm": 0.7227129999999307,
+              "first": 13.846962999999999
+            },
+            "swc-next": {
+              "warm": 0.8618054000005941,
+              "first": 2.2536810000000003
+            }
+          }
+        },
+        {
+          "name": "/benchmark/official/official-swc-next-App.tsx.json",
+          "cases": 1,
+          "selected": 1,
+          "coverage": {
+            "tmt": {
+              "accepted": 1,
+              "native": 1,
+              "backends": {
+                "pulse": 1
+              }
+            },
+            "oxc": {
+              "accepted": 1,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 1,
+              "native": 0
+            }
+          },
+          "inputSha256": "55c5704ef748350496177ebfd9aef722b05466dcd207de988b06345fee50729f",
+          "samples": {
+            "tmt": {
+              "warm": [
+                7.903708799999731,
+                12.072368799999822,
+                8.067451599999913,
+                9.001582400000188,
+                8.030217999999877
+              ],
+              "first": [
+                16.42373,
+                16.720607,
+                16.359520999999997,
+                16.468231000000003,
+                16.639273
+              ]
+            },
+            "oxc": {
+              "warm": [
+                7.275455000001239,
+                7.28689660000091,
+                7.245221400000446,
+                7.20554620000039,
+                7.199737599999935
+              ],
+              "first": [
+                20.242921999999997,
+                20.876342,
+                20.224921000000002,
+                20.019961999999996,
+                20.456631
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                8.95293219999876,
+                9.092683199999737,
+                9.10810819999897,
+                8.980873999999313,
+                9.05500800000009
+              ],
+              "first": [
+                11.690490999999994,
+                11.851199999999999,
+                11.362739000000001,
+                11.711075000000001,
+                12.075368000000001
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 8.067451599999913,
+              "first": 16.468231000000003
+            },
+            "oxc": {
+              "warm": 7.245221400000446,
+              "first": 20.242921999999997
+            },
+            "swc-next": {
+              "warm": 9.05500800000009,
+              "first": 11.711075000000001
+            }
+          }
+        },
+        {
+          "name": "/benchmark/official/official-oxc-parser-typescript.js.json",
+          "cases": 1,
+          "selected": 1,
+          "coverage": {
+            "tmt": {
+              "accepted": 1,
+              "native": 0,
+              "backends": {
+                "javascript": 1
+              }
+            },
+            "oxc": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 1,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 1,
+              "native": 0
+            }
+          },
+          "inputSha256": "a845b36dee165cbae3b3aeadf0dddda8d03ca379aa37528f2d6e883f94837a62",
+          "samples": {
+            "tmt": {
+              "warm": [
+                34.11951839999965,
+                43.53845739999961,
+                53.99934200000134,
+                26.728147600000376,
+                51.89602599999925
+              ],
+              "first": [
+                130.306875,
+                117.190457,
+                128.254859,
+                130.99863499999998,
+                131.39115600000002
+              ]
+            },
+            "oxc": {
+              "warm": [
+                139.63822680000013,
+                122.72948739999993,
+                144.11166559999984,
+                143.2785864000005,
+                145.34885880000076
+              ],
+              "first": [
+                152.938729,
+                107.235617,
+                163.85490399999998,
+                140.291021,
+                160.267331
+              ]
+            },
+            "yuku": {
+              "warm": [
+                1286.425211999999,
+                547.3041981999995,
+                1029.7691321999998,
+                1016.0795445999975,
+                1217.0698608000007
+              ],
+              "first": [
+                809.907542,
+                577.322061,
+                750.65707,
+                900.623667,
+                985.161157
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                224.02115199999972,
+                167.38938980000094,
+                198.02521119999875,
+                178.9159249999997,
+                234.28896759999915
+              ],
+              "first": [
+                194.86840399999997,
+                164.145252,
+                195.027329,
+                174.915054,
+                238.807992
+              ]
+            },
+            "yuku-current": {
+              "warm": [
+                197.64708220000028,
+                177.07524020000128,
+                189.9011968000006,
+                173.64285099999978,
+                214.5787733999983
+              ],
+              "first": [
+                188.05727900000002,
+                179.11857799999999,
+                223.273344,
+                228.76702200000003,
+                263.031284
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 43.53845739999961,
+              "first": 130.306875
+            },
+            "oxc": {
+              "warm": 143.2785864000005,
+              "first": 152.938729
+            },
+            "yuku": {
+              "warm": 1029.7691321999998,
+              "first": 809.907542
+            },
+            "swc-next": {
+              "warm": 198.02521119999875,
+              "first": 194.86840399999997
+            },
+            "yuku-current": {
+              "warm": 189.9011968000006,
+              "first": 223.273344
+            }
+          }
+        },
+        {
+          "name": "/benchmark/official/official-yuku-react.js.json",
+          "cases": 1,
+          "selected": 1,
+          "coverage": {
+            "tmt": {
+              "accepted": 1,
+              "native": 0,
+              "backends": {
+                "javascript": 1
+              }
+            },
+            "oxc": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 1,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 1,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 1,
+              "native": 0
+            }
+          },
+          "inputSha256": "6686fc2e82fae3bcaf3672573879345e044b513eaf2d48a44c8d8f3c80a68fd1",
+          "samples": {
+            "tmt": {
+              "warm": [
+                0.049677599998540246,
+                0.05854500000132248,
+                0.0660035999986576,
+                0.08684660000144503,
+                1.2129333999997471
+              ],
+              "first": [
+                3.814669000000002,
+                3.3643109999999936,
+                3.515901999999997,
+                3.4256889999999984,
+                3.4225640000000013
+              ]
+            },
+            "oxc": {
+              "warm": [
+                1.6035800000012386,
+                1.099035599999479,
+                1.1471549999987474,
+                1.126228799999808,
+                1.2007660000002942
+              ],
+              "first": [
+                17.497506,
+                16.086177999999997,
+                16.713379,
+                16.575372,
+                16.301857
+              ]
+            },
+            "yuku": {
+              "warm": [
+                5.059020400000736,
+                5.166851399998995,
+                4.001912199999788,
+                31.729765000002224,
+                4.426593799999682
+              ],
+              "first": [
+                45.91198800000001,
+                47.363984,
+                44.153225000000006,
+                46.380847,
+                44.347984999999994
+              ]
+            },
+            "swc-next": {
+              "warm": [
+                1.5989548000012292,
+                1.2385349999996833,
+                1.2511356000002707,
+                1.2168585999985226,
+                1.2618530000007013
+              ],
+              "first": [
+                2.7306079999999966,
+                2.7952790000000007,
+                2.7471509999999952,
+                2.7577770000000044,
+                2.6605209999999957
+              ]
+            },
+            "yuku-current": {
+              "warm": [
+                1.1232367999997224,
+                1.1491383999993559,
+                1.4624723999993876,
+                1.033823600001051,
+                1.1118030000012369
+              ],
+              "first": [
+                28.119757,
+                27.161162999999995,
+                27.328756,
+                26.926067000000003,
+                28.702247999999997
+              ]
+            }
+          },
+          "medians": {
+            "tmt": {
+              "warm": 0.0660035999986576,
+              "first": 3.4256889999999984
+            },
+            "oxc": {
+              "warm": 1.1471549999987474,
+              "first": 16.575372
+            },
+            "yuku": {
+              "warm": 5.059020400000736,
+              "first": 45.91198800000001
+            },
+            "swc-next": {
+              "warm": 1.2511356000002707,
+              "first": 2.7471509999999952
+            },
+            "yuku-current": {
+              "warm": 1.1232367999997224,
+              "first": 27.328756
+            }
+          }
+        },
+        {
+          "name": "/benchmark/official/official-yuku-checker.ts.json",
+          "cases": 1,
+          "selected": 0,
+          "coverage": {
+            "tmt": {
+              "accepted": 0,
+              "native": 0,
+              "backends": {
+                "typescript-required": 1
+              }
+            },
+            "oxc": {
+              "accepted": 0,
+              "native": 0
+            },
+            "yuku": {
+              "accepted": 0,
+              "native": 0
+            },
+            "swc-next": {
+              "accepted": 0,
+              "native": 0
+            },
+            "yuku-current": {
+              "accepted": 0,
+              "native": 0
+            }
+          },
+          "inputSha256": "361806b5641340853b7d63d3eecbb536dbbb78e797e9f6ed294975d3753dd848",
+          "samples": {},
+          "medians": {}
+        }
+      ]
+    },
+    "testRun": {
+      "total": 2974,
+      "passed": 2973,
+      "failed": 1,
+      "passingIsolatedRerun": "test/witness-expansion.test.mjs",
+      "isolatedPassed": 4
+    }
   }
 }
