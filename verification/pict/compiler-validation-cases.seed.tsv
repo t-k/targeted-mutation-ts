@@ -1,0 +1,4 @@
+Shape	Newline	Prologue	Dialect
+chain	lf	empty	ts
+newline	crlf	comment	tsx
+unbound-export	unicode	directive	ts

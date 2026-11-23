@@ -1,0 +1,4 @@
+Shape: chain, conditional, template, regex, comparison, instantiation, unbound-export, duplicate, newline, assertion-then-array, assertion-then-paren, class-computed, enum, raw-receiver
+Newline: lf, crlf, unicode
+Prologue: empty, directive, comment
+Dialect: ts, tsx
