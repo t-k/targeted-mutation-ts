@@ -120,3 +120,25 @@ test('shares keep every planned entry once and stay within one entry of each oth
   }
   assert.deepEqual(sharePlans({}, 4), []);
 });
+
+test('in-worker settling at its edges: hit limit, unknown killers, mixed timeouts and projects', () => {
+  const entry = { id: 'm', hits: 1, hitLimit: 100, static: false, total: 1, tests: ['t1'] };
+  const event = { module: 'a', id: 'm', expected: 1, passed: 0, failed: ['t1'], errors: [], timeout: false, unhandled: 0, hits: 100 };
+  // Exactly the hit limit is still an ordinary run.
+  assert.equal(settleInThread({ a: [entry] }, [event], names).get('m').status, 'killed');
+  assert.equal(settleInThread({ a: [entry] }, [{ ...event, hits: 101 }], names).get('m').status, 'timeout');
+  // A failing test the baseline did not list is left out of the killers.
+  assert.deepEqual(settleInThread({ a: [entry] }, [{ ...event, failed: ['t1', 'unlisted'] }], names).get('m').tests.map(killer => killer.id), ['t1']);
+  // One file at the hit limit and another at the test timeout: the test timeout is the reason given.
+  const mixed = settleInThread({ a: [entry], b: [entry] },
+    [{ ...event, hits: 101 }, { ...event, module: 'b', timeout: true, hits: 1 }], names);
+  assert.deepEqual(mixed.get('m'), { status: 'timeout', statusReason: 'Vitest test timeout' });
+  // Two projects run the same test file: each keeps its own tests.
+  const tests = new Map([['p1', { id: 'p1', project: 'node', file: 'a.test.ts' }], ['p2', { id: 'p2', project: 'edge', file: 'a.test.ts' }]]);
+  const records = [
+    { modules: [['node', '/w/a.test.ts']], coverage: { static: {}, perTest: { p1: { m: 1 } } } },
+    { modules: [['edge', '/w/a.test.ts']], coverage: { static: {}, perTest: { p2: { m: 1 } } } },
+  ];
+  const plans = planInThread(records, tests, [{ mutant: { id: 'm' }, plan: indexCoverage(records, tests)('m') }], '/w');
+  assert.deepEqual(Object.values(plans).map(([plan]) => [plan.total, plan.tests]), [[1, ['p1']], [1, ['p2']]]);
+});

@@ -40,11 +40,25 @@ With `--deterministic` and complete, stable observations, the compiled replay de
 
 Pass `--displace-thresholds` to try tightening strict comparisons by one integer step. For example, `measured.size > 0` becomes `measured.size > 1`, and `offset < source.length` becomes `offset < source.length - 1`. The rule requires complete safe-integer observations with a representable shifted bound and always runs the source rewrite. A surviving mutation can identify an observed result that changed or propose an operand pair to exercise. When the comparison is a directly callable exported unary arrow with an integer literal, an input gap includes a suggested assertion and `--audit` verifies it. Use an application-level test to confirm reachability and expected behavior for other comparisons.
 
+### How mutations run on Vitest
+
+Every profile on Vitest 4 with its default runner uses a test session. The session copies the project, rewrites each mutation into a runtime switch, and runs the suite once with every switch off to record which tests reach which switch. It then decides the mutations inside Vitest workers instead of starting one Vitest run per mutation.
+
+For each test file, one worker takes that file's mutations in turn. A trial resets the module graph, restores timers, mocks and stubbed globals, loads the test file again, and runs only the tests that reach the mutation with its switch on. A mutation that the file reaches while loading is active from the load and runs all the file's tests. Directly after each trial the worker runs the same tests with every switch off. This control run must pass, with the same number of hits on the switch as in the baseline.
+
+- When the control run differs, the worker itself has changed: a global, a counter inside a dependency, or anything else a module reset does not undo. The worker stops deciding for that test file. That mutation and the file's remaining ones each get a fresh Vitest run, as does a trial with an unhandled error or an error outside a test.
+- A mutation that turns a loop endless stops at the hit limit, and one that leaves a promise unsettled stops at the test timeout. Both are `timeout`. A worker that stops answering altogether is replaced; its mutation is `timeout` with the reason `The worker stopped answering`, and the rest continue.
+- A mutation is `killed` when any test file that reaches it fails, and `survived` when every such file passes with the switch on.
+
+`--concurrency N` sets how many Vitest instances share the mutations (default: the CPU count minus one, and never more than one per 24 mutations). `--isolated-trials` gives every mutation a fresh Vitest run from the start; use it for a suite whose tests depend on state from earlier tests in ways a control run would not show. The report's `trials` field counts both kinds: `{ "workers": 4, "inWorker": 180, "isolated": 10 }`.
+
+The default profile uses the same session for its comparison boundaries: `>=` with `>` and `<=` with `<` are decided in a worker, while its recorded comparisons, threshold edits and diagnostics come from its own runs. `--audit` and Playwright run every edit against the rewritten source instead.
+
 ### Built-in operator edits
 
 `--mutators operators` adds fixed operator swaps to the focused profile: `===` and `!==`, `==` and `!=`, `&&` and `||`, `??` to `&&`, `+` and `-`, `*` and `/`, and `%` to `*`. The sites come from the TypeScript syntax tree, so operator spellings in types, strings, comments and JSX text are ignored. `+` with a string or template literal operand, a `??` chained directly with another `??`, and enum member initializers are left alone. A swap replaces the operator of one expression and keeps that expression's grouping: in `a && b && c` the first swap means `(a || b) && c`. The profile needs no extra package.
 
-With Vitest 4 and its default runner, the tool rewrites each operator into a switch, `on(id) ? edited : (cover(id), original)`, and drives one test session: a baseline run records which tests reach each switch, and every swap then runs only those tests with its switch on. A swap that no test reaches is reported as `unreached`. Comparison edits in the same scope still go through the focused analysis, including Lean replay and threshold diagnostics, so the suite's baseline runs once for each part. The report's `operatorExecution` is `session`.
+With Vitest 4 and its default runner, the tool rewrites each operator into a switch, `on(id) ? edited : (cover(id), original)`, and drives one test session: a baseline run records which tests reach each switch, and every swap then runs only those tests with its switch on. A swap that no test reaches is reported as `unreached`. Comparison edits in the same scope still go through the focused analysis, including Lean replay and threshold diagnostics. That analysis records its comparisons while the session runs and takes the session's verdict for each comparison boundary. The report's `operatorExecution` is `session`.
 
 With Playwright, or when the session cannot start (another Vitest major, a custom runner, browser mode or type checking), each swap is a source rewrite followed by one run of the suite, and `operatorExecution` is `source-rewrite`. Reach is not measured on that path, so a swap in code that no test executes is reported as `survived`. Use `--lines` or `--since` to bound the number of runs.
 
@@ -58,7 +72,7 @@ Differences from a StrykerJS run: `// Stryker disable` comments are not read, so
 
 ### Standard mutation profile
 
-`--mutators standard` enables the pinned StrykerJS instrumenter's default TypeScript and TSX mutation families, including source comments that disable mutation. The profile applies a line range to complete mutable syntax nodes. It runs a disabled-switch baseline and trials in a disposable project workspace with isolated Vitest workers. On Vitest 4.1, covered tests are selected by task ID. Import-time hits run the selected suite with the mutation active at module load. An unreached mutation uses baseline coverage evidence. A partial session reports any remaining trials as unevaluated and exits with an error.
+`--mutators standard` enables the pinned StrykerJS instrumenter's default TypeScript and TSX mutation families, including source comments that disable mutation. The profile applies a line range to complete mutable syntax nodes. It runs a disabled-switch baseline and trials in a disposable project workspace, as described under [How mutations run on Vitest](#how-mutations-run-on-vitest). Import-time hits run the file's tests with the mutation active at module load. An unreached mutation uses baseline coverage evidence. A partial session reports any remaining trials as unevaluated and exits with an error.
 
 This profile uses Vitest 4 worker pools. Install the compatibility instrumenter in the project or its workspace before using `standard` or `all`.
 
