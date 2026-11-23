@@ -69,4 +69,12 @@ theorem eraseRange_preserves_line_end (bytes : List UInt8) (first last offset : 
   · simp [eraseRange, List.getElem_zipIdx, eraseTypeByte, lf]
   · simp [eraseRange, List.getElem_zipIdx, eraseTypeByte, cr]
 
+def eraseBlock (bytes : List UInt8) : Bool × List UInt8 :=
+  (bytes.all (fun byte => byte < 128), bytes.map eraseTypeByte)
+
+theorem eraseBlock_append (left right : List UInt8) :
+    eraseBlock (left ++ right) =
+      ((eraseBlock left).1 && (eraseBlock right).1, (eraseBlock left).2 ++ (eraseBlock right).2) := by
+  simp [eraseBlock, List.all_append, List.map_append]
+
 end CompilerRuns

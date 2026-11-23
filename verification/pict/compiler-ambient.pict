@@ -1,0 +1,3 @@
+Declaration: Global, Module, TypeNamespace, AmbientEnum
+Placement: Prelude, Late
+Dialect: TS, TSX

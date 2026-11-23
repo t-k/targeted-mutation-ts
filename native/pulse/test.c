@@ -25,6 +25,28 @@ static void check_jsx_blocks(void)
   }
   puts("SIMD JSX predicates matched all bytes in every lane");
 }
+
+static void check_type_blocks(void)
+{
+  uint8_t input[18], output[18];
+  for (unsigned lane = 0; lane < 16; lane++) {
+    for (unsigned byte = 0; byte < 256; byte++) {
+      memset(input, 'a', sizeof(input));
+      memset(output, 0xc7, sizeof(output));
+      input[lane + 1] = (uint8_t)byte;
+      assert(tmt_erase_type_run(output + 1, input + 1) == (byte < 128));
+      for (unsigned offset = 0; offset < sizeof(output); offset++) {
+        uint8_t expected = 0xc7;
+        if (byte < 128 && offset > 0 && offset < 17) {
+          const uint8_t source = input[offset];
+          expected = source == '\n' || source == '\r' ? source : ' ';
+        }
+        assert(output[offset] == expected);
+      }
+    }
+  }
+  puts("SIMD type masking matched all bytes in every lane");
+}
 #endif
 
 enum { SPACE, IDENTIFIER, DECIMAL_DIGITS };
@@ -172,6 +194,7 @@ int main(int argc, char **argv)
   check_parser_publication();
 #if defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))
   check_jsx_blocks();
+  check_type_blocks();
 #endif
   for (uint8_t cls = SPACE; cls <= DECIMAL_DIGITS; cls++)
   {

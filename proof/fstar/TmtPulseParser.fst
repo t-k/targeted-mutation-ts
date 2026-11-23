@@ -4420,8 +4420,8 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
     keyword input st.offset 4ul 0x656e756duL else ret input false) in
   if enumeration then
     let! declared = (fun () -> enum_declaration input st used head.ambient_declaration) in
-    let! recorded = (fun () -> if head.ambient_declaration then ret input declared.state
-      else record_jsx_span input declared.state 13ul state.offset declared.state.offset) in
+    let! recorded = (fun () -> record_jsx_span input declared.state (if head.ambient_declaration then 8ul else 13ul)
+      state.offset declared.state.offset) in
     ret input { declared with state = recorded }
   else if width = 0ul then
     let! namespace_ = (fun () -> if st.module_mode then named_namespace_start input st
@@ -4432,7 +4432,8 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
       if named.state.status <> 0ul then ret input named
       else
         let! body = (fun () -> type_namespace_members input namespace_.body_start 0ul 0ul used 8ul input.size head.ambient_declaration) in
-        ret input { named with state = body }
+        let! recorded = (fun () -> record_jsx_span input body 8ul state.offset body.offset) in
+        ret input { named with state = recorded }
   else
     let! start = (fun () -> skip input { st with offset = plus st.offset width }) in
     if width = 8ul then module_function input start used state.offset head.async_declaration head.ambient_declaration
@@ -4718,7 +4719,10 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
     else
       let! width = (fun () -> local_width input st.offset) in ret input (width <> 0ul)) in
   if resource.status = 0ul then module_lexical_list input resource used true true input.size
-  else if ambient_module.status = 0ul then (let! anf_value_5 = (fun () -> ambient_interfaces input ambient_module input.size true) in ret input ({ state = anf_value_5; used }))
+  else if ambient_module.status = 0ul then
+    let! body = (fun () -> ambient_interfaces input ambient_module input.size true) in
+    let! recorded = (fun () -> record_jsx_span input body 8ul st.offset body.offset) in
+    ret input ({ state = recorded; used })
   else if declared then module_declaration input st used
   else (let! anf_value_6 = (fun () -> (let! anf_value_7 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_7.state))) in ret input ({ state = anf_value_6; used }))
 
@@ -4735,7 +4739,8 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
     let! augmentation = (fun () -> if first = 100uy then global_augmentation_start input st else ret input (failed st 1ul)) in
     if augmentation.status = 0ul then
       let! closed, family = (fun () -> global_augmentation_members input augmentation input.size family) in
-      module_sequence input closed used (minus fuel 1ul) exports pending family
+      let! recorded = (fun () -> record_jsx_span input closed 8ul st.offset closed.offset) in
+      module_sequence input recorded used (minus fuel 1ul) exports pending family
     else
       let! exported = (fun () -> module_export input st) in
       let! decl, exports, pending =

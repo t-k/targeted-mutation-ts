@@ -10,7 +10,7 @@
 
 #if !defined(TMT_SCALAR_SCANS) && (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__)))
 #include "tmt_simd_scan.h"
-#define TMT_SIMD_JSX 1
+#define TMT_SIMD_COMPILER 1
 #endif
 
 typedef struct {
@@ -150,7 +150,7 @@ static size_t entity(const uint8_t *bytes, size_t limit, char escaped[16]) {
 static bool quote_contents(lowering *lower, TmtGrammar_span span, bool decode) {
   uint32_t run = span.first;
   for (uint32_t at = span.first; at < span.last; at++) {
-#ifdef TMT_SIMD_JSX
+#ifdef TMT_SIMD_COMPILER
     if (span.last - at >= 64 && tmt_jsx_quote_run(lower->input.source + at, decode)) {
       at += 15;
       continue;
@@ -463,7 +463,7 @@ static bool jsx_text(lowering *lower, TmtGrammar_span *text, bool *multiline, bo
   *text = (TmtGrammar_span){ lower->at, lower->at };
   const uint8_t *source = lower->input.source;
   while (lower->at < lower->input.size && peek(lower) != '<' && peek(lower) != '{') {
-#ifdef TMT_SIMD_JSX
+#ifdef TMT_SIMD_COMPILER
     if ((lower->at & 15U) == 0 && lower->input.size - lower->at >= 16 && tmt_jsx_text_run(source + lower->at)) {
       *visible = true;
       lower->at += 16;
@@ -909,7 +909,9 @@ static bool erasable_expression_range(TmtPulseMemory_tape input, uint32_t kind, 
   if (!tail.ok) return false;
   if (tail.at == input.size) return true;
   const uint8_t byte = input.source[tail.at];
-  return byte == ';' || byte == ',' || byte == ')' || byte == ']' || byte == '}';
+  return byte == ';' || byte == ',' || byte == ')' || byte == ']' || byte == '}' ||
+    (tail.newline && ((byte == 'c' && TmtPulseParser_keyword(input, tail.at, 5, UINT64_C(0x636f6e7374))) ||
+      (byte == 'l' && TmtPulseParser_keyword(input, tail.at, 3, UINT64_C(0x6c6574)))));
 }
 
 static bool delimited_annotation(TmtPulseMemory_tape input, uint32_t last) {
@@ -935,6 +937,20 @@ static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span spa
           (width == 9 && !memcmp(word, "protected", 9)) ||
           (width == 8 && (!memcmp(word, "readonly", 8) || !memcmp(word, "override", 8))))) return false;
     memset(code + token.at, ' ', width);
+  }
+  return true;
+}
+
+static bool blank_ascii_lines(uint8_t *output, const uint8_t *source, uint32_t width) {
+#ifdef TMT_SIMD_COMPILER
+  for (; width >= 16; width -= 16, output += 16, source += 16) {
+    if (!tmt_erase_type_run(output, source)) return false;
+  }
+#endif
+  for (uint32_t at = 0; at < width; at++) {
+    const uint8_t byte = source[at];
+    if (byte >= 128) return false;
+    output[at] = byte == '\n' || byte == '\r' ? byte : ' ';
   }
   return true;
 }
@@ -972,18 +988,18 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool
     if (span.first < previous) goto decline;
     const bool annotation = event.original == type_annotation;
     bool preserve_lines = statement || member || modifiers || event.original == type_arguments || event.original == type_assertion;
-    bool multiline = false, slash = false;
-    for (uint32_t byte = span.first; byte < span.last; byte++) {
-      const uint8_t value = input.source[byte];
-      if (value >= 128) goto decline;
-      if (value == '\n' || value == '\r') multiline = true;
-      if (value == '/') slash = true;
-    }
-    if (!preserve_lines) {
-      if (multiline) {
+    if (!preserve_lines || modifiers) {
+      bool multiline = false, slash = false;
+      for (uint32_t byte = span.first; byte < span.last; byte++) {
+        const uint8_t value = input.source[byte];
+        if (value >= 128) goto decline;
+        if (value == '\n' || value == '\r') multiline = true;
+        if (value == '/') slash = true;
+      }
+      if (!preserve_lines && multiline) {
         if (!annotation || !delimited_annotation(input, span.last)) goto decline;
         preserve_lines = true;
-      } else if (slash) goto decline;
+      } else if (!preserve_lines && slash) goto decline;
     }
     if (!code) {
       code = malloc((size_t)input.size + sizeof(esm_marker));
@@ -993,11 +1009,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool
     if (modifiers) {
       if (!blank_class_modifiers(input, span, code)) goto decline;
     } else if (!preserve_lines) memset(code + span.first, ' ', span.last - span.first);
-    else {
-      for (uint32_t byte = span.first; byte < span.last; byte++) {
-        if (code[byte] != '\r' && code[byte] != '\n') code[byte] = ' ';
-      }
-    }
+    else if (!blank_ascii_lines((uint8_t *)code + span.first, input.source + span.first, span.last - span.first)) goto decline;
     if (separate) code[span.first] = ';';
     previous = span.last;
   }

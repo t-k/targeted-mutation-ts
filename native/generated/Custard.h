@@ -882,6 +882,58 @@ TmtPulseParser_global_augmentation_members(
   uint8_t family0
 );
 
+void
+TmtPulseScan_save_candidate(
+  TmtGrammar_candidate *records,
+  uint32_t slot,
+  TmtGrammar_candidate candidate
+);
+
+uint32_t TmtGrammar_flip(uint32_t operator0);
+
+TmtGrammar_candidate
+TmtGrammar_make_candidate(
+  uint32_t operator0,
+  TmtGrammar_span edit,
+  TmtGrammar_span left,
+  TmtGrammar_span right
+);
+
+uint32_t TmtPulseParser_operator_end(uint32_t start, uint32_t op);
+
+TmtGrammar_span TmtPulseParser_comparison_edit(uint32_t start, uint32_t op);
+
+TmtPulseParser_parser_state
+TmtPulseParser_emit_comparison(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t slot,
+  uint32_t op,
+  uint32_t start,
+  TmtGrammar_span left,
+  TmtGrammar_span right
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_emit_comparison_in_workspace(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t slot,
+  uint32_t op,
+  uint32_t start,
+  TmtGrammar_span left,
+  TmtGrammar_span right
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_record_jsx_span(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t kind,
+  uint32_t first,
+  uint32_t last
+);
+
 typedef struct TmtPulseParser_export_prefix_s
 {
   TmtPulseParser_parser_state after_export;
@@ -942,58 +994,6 @@ TmtPulseParser_bind_at(
 #define TmtPulseParser_AmbientClass 2
 
 typedef uint8_t TmtPulseParser_class_kind;
-
-void
-TmtPulseScan_save_candidate(
-  TmtGrammar_candidate *records,
-  uint32_t slot,
-  TmtGrammar_candidate candidate
-);
-
-uint32_t TmtGrammar_flip(uint32_t operator0);
-
-TmtGrammar_candidate
-TmtGrammar_make_candidate(
-  uint32_t operator0,
-  TmtGrammar_span edit,
-  TmtGrammar_span left,
-  TmtGrammar_span right
-);
-
-uint32_t TmtPulseParser_operator_end(uint32_t start, uint32_t op);
-
-TmtGrammar_span TmtPulseParser_comparison_edit(uint32_t start, uint32_t op);
-
-TmtPulseParser_parser_state
-TmtPulseParser_emit_comparison(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t slot,
-  uint32_t op,
-  uint32_t start,
-  TmtGrammar_span left,
-  TmtGrammar_span right
-);
-
-TmtPulseParser_parser_state
-TmtPulseParser_emit_comparison_in_workspace(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t slot,
-  uint32_t op,
-  uint32_t start,
-  TmtGrammar_span left,
-  TmtGrammar_span right
-);
-
-TmtPulseParser_parser_state
-TmtPulseParser_record_jsx_span(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t kind,
-  uint32_t first,
-  uint32_t last
-);
 
 TmtPulseParser_parser_state
 TmtPulseParser_capture_type_parameters(

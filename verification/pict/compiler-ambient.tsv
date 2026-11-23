@@ -1,0 +1,9 @@
+Declaration	Placement	Dialect
+Global	Late	TSX
+Module	Prelude	TS
+TypeNamespace	Prelude	TS
+AmbientEnum	Late	TS
+TypeNamespace	Late	TSX
+AmbientEnum	Prelude	TSX
+Module	Late	TSX
+Global	Prelude	TS

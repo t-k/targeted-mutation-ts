@@ -1,0 +1,5 @@
+Declaration	Placement	Dialect
+Global	Late	TSX
+Module	Prelude	TS
+TypeNamespace	Prelude	TS
+AmbientEnum	Late	TS

@@ -310,6 +310,20 @@ test('delimited assertions can span lines and contextual words can be value bind
   assert.notEqual(compile(constructorProperty).backend, 'pulse');
 });
 
+test('assertion erasure preserves ASI before a lexical declaration', async () => {
+  for (const binding of ['const', 'let']) {
+    const source = 'export function read(value: unknown) {\n' +
+      '  const name = value as string\n' +
+      `  ${binding} size: number = name.length;\n` +
+      '  return size;\n}';
+    const result = compile(source);
+    assert.equal(result.backend, 'pulse');
+    assert.equal(result.code, stripTypeScriptTypes(source));
+    const actual = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+    assert.equal(actual.read('sample'), 6);
+  }
+});
+
 const modifierRows = readFileSync(new URL('../verification/pict/compiler-class-modifiers.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1);
 for (const row of modifierRows) {
@@ -374,6 +388,34 @@ test('JavaScript pass-through declines TypeScript syntax and ambiguous strict di
   for (const source of ['export const bad: number = 0;', '"use strict" + effect();']) {
     assert.notEqual(compile(source, { file: 'plain.js' }).backend, 'javascript');
   }
+});
+
+const ambientRows = readFileSync(new URL('../verification/pict/compiler-ambient.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of ambientRows) {
+  const [declaration, placement, dialect] = row.split('\t');
+  test('ambient range erasure ' + row.replaceAll('\t', ' '), () => {
+    const declarations = {
+      Global: 'declare global { interface Window { value: number } }',
+      Module: 'declare module "fixture" { export interface Shape { value: number } }',
+      TypeNamespace: 'namespace Types { export interface Shape { value: number } }',
+      AmbientEnum: 'declare enum Key { A = 1 }',
+    };
+    const active = 'export const one: number = read();';
+    const range = declarations[declaration];
+    const source = 'import { read } from "fixture";\n' +
+      (placement === 'Prelude' ? `${range}\n${active}` : `${active}\n${range}`);
+    const result = compile(source, { file: dialect === 'TS' ? 'ambient.ts' : 'ambient.tsx' });
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(result.code.replace(/^[; \t]+$/gm, '').trim(), stripTypeScriptTypes(source).replace(/^[; \t]+$/gm, '').trim());
+  });
+}
+
+test('an ambient declaration cannot erase a runtime namespace or a malformed member', () => {
+  const runtime = 'export namespace State { export const value: number = 3; }';
+  assert.notEqual(compile(runtime).backend, 'pulse');
+  const malformed = 'export {}; declare global { interface Window { value: } }';
+  assert.equal(compile(malformed).code, null);
 });
 
 test('JavaScript pass-through rejects Annex B HTML comment syntax', () => {

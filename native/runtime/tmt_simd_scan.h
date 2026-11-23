@@ -36,6 +36,14 @@ static inline bool tmt_jsx_text_run(const uint8_t *source) {
   blocked = vorrq_u8(blocked, vceqq_u8(bytes, vdupq_n_u8('}')));
   return vmaxvq_u8(blocked) == 0;
 }
+
+static inline bool tmt_erase_type_run(uint8_t *output, const uint8_t *source) {
+  const uint8x16_t bytes = vld1q_u8(source);
+  if (vmaxvq_u8(bytes) >= 128) return false;
+  const uint8x16_t endings = vorrq_u8(vceqq_u8(bytes, vdupq_n_u8('\n')), vceqq_u8(bytes, vdupq_n_u8('\r')));
+  vst1q_u8(output, vbslq_u8(endings, bytes, vdupq_n_u8(' ')));
+  return true;
+}
 #elif defined(__x86_64__) && defined(__SSE2__)
 #include <emmintrin.h>
 
@@ -70,6 +78,15 @@ static inline bool tmt_jsx_text_run(const uint8_t *source) {
   blocked = _mm_or_si128(blocked, _mm_cmpeq_epi8(bytes, _mm_set1_epi8('{')));
   blocked = _mm_or_si128(blocked, _mm_cmpeq_epi8(bytes, _mm_set1_epi8('}')));
   return _mm_movemask_epi8(blocked) == 0;
+}
+
+static inline bool tmt_erase_type_run(uint8_t *output, const uint8_t *source) {
+  const __m128i bytes = _mm_loadu_si128((const __m128i *)source);
+  if (_mm_movemask_epi8(bytes)) return false;
+  const __m128i endings = _mm_or_si128(_mm_cmpeq_epi8(bytes, _mm_set1_epi8('\n')), _mm_cmpeq_epi8(bytes, _mm_set1_epi8('\r')));
+  const __m128i masked = _mm_or_si128(_mm_and_si128(endings, bytes), _mm_andnot_si128(endings, _mm_set1_epi8(' ')));
+  _mm_storeu_si128((__m128i *)output, masked);
+  return true;
 }
 #endif
 

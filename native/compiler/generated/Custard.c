@@ -5223,6 +5223,150 @@ TmtPulseParser_global_augmentation_members(
   KRML_HOST_EXIT(255U);
 }
 
+void
+TmtPulseScan_save_candidate(
+  TmtGrammar_candidate *records,
+  uint32_t slot,
+  TmtGrammar_candidate candidate
+)
+{
+  records[(size_t)slot] = candidate;
+}
+
+uint32_t TmtGrammar_flip(uint32_t operator0)
+{
+  return
+    operator0 == 1U ? 2U
+                    : operator0 == 2U ? 1U : operator0 == 3U ? 4U : operator0 == 4U ? 3U : 0U;
+}
+
+TmtGrammar_candidate
+TmtGrammar_make_candidate(
+  uint32_t operator0,
+  TmtGrammar_span edit,
+  TmtGrammar_span left,
+  TmtGrammar_span right
+)
+{
+  return
+    (
+      (TmtGrammar_candidate){
+        .original = operator0,
+        .replacement = TmtGrammar_flip(operator0),
+        .edit = edit,
+        .left = left,
+        .right = right
+      }
+    );
+}
+
+uint32_t TmtPulseParser_operator_end(uint32_t start, uint32_t op)
+{
+  return TmtPulseParser_plus(start, op == 2U || op == 4U ? 2U : 1U);
+}
+
+TmtGrammar_span TmtPulseParser_comparison_edit(uint32_t start, uint32_t op)
+{
+  return ((TmtGrammar_span){ .first = start, .last = TmtPulseParser_operator_end(start, op) });
+}
+
+TmtPulseParser_parser_state
+TmtPulseParser_emit_comparison(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t slot,
+  uint32_t op,
+  uint32_t start,
+  TmtGrammar_span left,
+  TmtGrammar_span right
+)
+{
+  if (slot < input.capacity)
+  {
+    TmtPulseScan_save_candidate(input.output,
+      slot,
+      TmtGrammar_make_candidate(op, TmtPulseParser_comparison_edit(start, op), left, right));
+    return state;
+  }
+  else
+    return TmtPulseParser_failed(state, 4U);
+}
+
+TmtPulseParser_parser_state
+TmtPulseParser_emit_comparison_in_workspace(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t slot,
+  uint32_t op,
+  uint32_t start,
+  TmtGrammar_span left,
+  TmtGrammar_span right
+)
+{
+  TmtPulseParser_parser_state
+  result = TmtPulseParser_emit_comparison(input, state, slot, op, start, left, right);
+  if (slot < input.capacity)
+    input.marks[(size_t)slot] = 1U;
+  return result;
+}
+
+TmtPulseParser_parser_state
+TmtPulseParser_record_jsx_span(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t kind,
+  uint32_t first,
+  uint32_t last
+)
+{
+  if
+  (
+    !(kind >= 7U ? input.capture_types : input.capture_jsx) || input.count_only ||
+      state.status != 0U
+  )
+    return state;
+  else
+  {
+    TmtGrammar_span span = { .first = first, .last = last };
+    TmtPulseParser_parser_state
+    value =
+      TmtPulseParser_emit_comparison_in_workspace(input,
+        state,
+        state.count,
+        kind,
+        first,
+        span,
+        span);
+    if (value.status != 0U)
+      return value;
+    else
+      return
+        (
+          (TmtPulseParser_parser_state){
+            .offset = value.offset,
+            .count = TmtPulseParser_next(value.count),
+            .depth = value.depth,
+            .status = value.status,
+            .local_names = value.local_names,
+            .await_allowed = value.await_allowed,
+            .yield_allowed = value.yield_allowed,
+            .jsx_allowed = value.jsx_allowed,
+            .module_mode = value.module_mode,
+            .strict_script = value.strict_script,
+            .in_allowed = value.in_allowed,
+            .for_initializer = value.for_initializer,
+            .arrow_defaults_allowed = value.arrow_defaults_allowed,
+            .binding_mode = value.binding_mode,
+            .super_context = value.super_context,
+            .private_scope = value.private_scope,
+            .private_count = value.private_count,
+            .local_log_floor = value.local_log_floor,
+            .local_log_used = value.local_log_used
+          }
+        );
+  }
+}
+
 TmtPulseParser_export_prefix
 TmtPulseParser_module_export(TmtPulseMemory_tape input, TmtPulseParser_parser_state state)
 {
@@ -5511,150 +5655,6 @@ TmtPulseParser_bind_at(
 )
 {
   return TmtPulseParser_bind_since(input, st, base, 0U, used, pos);
-}
-
-void
-TmtPulseScan_save_candidate(
-  TmtGrammar_candidate *records,
-  uint32_t slot,
-  TmtGrammar_candidate candidate
-)
-{
-  records[(size_t)slot] = candidate;
-}
-
-uint32_t TmtGrammar_flip(uint32_t operator0)
-{
-  return
-    operator0 == 1U ? 2U
-                    : operator0 == 2U ? 1U : operator0 == 3U ? 4U : operator0 == 4U ? 3U : 0U;
-}
-
-TmtGrammar_candidate
-TmtGrammar_make_candidate(
-  uint32_t operator0,
-  TmtGrammar_span edit,
-  TmtGrammar_span left,
-  TmtGrammar_span right
-)
-{
-  return
-    (
-      (TmtGrammar_candidate){
-        .original = operator0,
-        .replacement = TmtGrammar_flip(operator0),
-        .edit = edit,
-        .left = left,
-        .right = right
-      }
-    );
-}
-
-uint32_t TmtPulseParser_operator_end(uint32_t start, uint32_t op)
-{
-  return TmtPulseParser_plus(start, op == 2U || op == 4U ? 2U : 1U);
-}
-
-TmtGrammar_span TmtPulseParser_comparison_edit(uint32_t start, uint32_t op)
-{
-  return ((TmtGrammar_span){ .first = start, .last = TmtPulseParser_operator_end(start, op) });
-}
-
-TmtPulseParser_parser_state
-TmtPulseParser_emit_comparison(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t slot,
-  uint32_t op,
-  uint32_t start,
-  TmtGrammar_span left,
-  TmtGrammar_span right
-)
-{
-  if (slot < input.capacity)
-  {
-    TmtPulseScan_save_candidate(input.output,
-      slot,
-      TmtGrammar_make_candidate(op, TmtPulseParser_comparison_edit(start, op), left, right));
-    return state;
-  }
-  else
-    return TmtPulseParser_failed(state, 4U);
-}
-
-TmtPulseParser_parser_state
-TmtPulseParser_emit_comparison_in_workspace(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t slot,
-  uint32_t op,
-  uint32_t start,
-  TmtGrammar_span left,
-  TmtGrammar_span right
-)
-{
-  TmtPulseParser_parser_state
-  result = TmtPulseParser_emit_comparison(input, state, slot, op, start, left, right);
-  if (slot < input.capacity)
-    input.marks[(size_t)slot] = 1U;
-  return result;
-}
-
-TmtPulseParser_parser_state
-TmtPulseParser_record_jsx_span(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t kind,
-  uint32_t first,
-  uint32_t last
-)
-{
-  if
-  (
-    !(kind >= 7U ? input.capture_types : input.capture_jsx) || input.count_only ||
-      state.status != 0U
-  )
-    return state;
-  else
-  {
-    TmtGrammar_span span = { .first = first, .last = last };
-    TmtPulseParser_parser_state
-    value =
-      TmtPulseParser_emit_comparison_in_workspace(input,
-        state,
-        state.count,
-        kind,
-        first,
-        span,
-        span);
-    if (value.status != 0U)
-      return value;
-    else
-      return
-        (
-          (TmtPulseParser_parser_state){
-            .offset = value.offset,
-            .count = TmtPulseParser_next(value.count),
-            .depth = value.depth,
-            .status = value.status,
-            .local_names = value.local_names,
-            .await_allowed = value.await_allowed,
-            .yield_allowed = value.yield_allowed,
-            .jsx_allowed = value.jsx_allowed,
-            .module_mode = value.module_mode,
-            .strict_script = value.strict_script,
-            .in_allowed = value.in_allowed,
-            .for_initializer = value.for_initializer,
-            .arrow_defaults_allowed = value.arrow_defaults_allowed,
-            .binding_mode = value.binding_mode,
-            .super_context = value.super_context,
-            .private_scope = value.private_scope,
-            .private_count = value.private_count,
-            .local_log_floor = value.local_log_floor,
-            .local_log_used = value.local_log_used
-          }
-        );
-  }
 }
 
 TmtPulseParser_parser_state
@@ -19524,16 +19524,13 @@ TmtPulseParser_module_declaration(
   {
     TmtPulseParser_named_state
     value2 = TmtPulseParser_enum_declaration(input, st, used, value.ambient_declaration);
-    TmtPulseParser_parser_state value3;
-    if (value.ambient_declaration)
-      value3 = value2.state;
-    else
-      value3 =
-        TmtPulseParser_record_jsx_span(input,
-          value2.state,
-          13U,
-          state.offset,
-          value2.state.offset);
+    TmtPulseParser_parser_state
+    value3 =
+      TmtPulseParser_record_jsx_span(input,
+        value2.state,
+        value.ambient_declaration ? 8U : 13U,
+        state.offset,
+        value2.state.offset);
     return ((TmtPulseParser_named_state){ .state = value3, .used = value2.used });
   }
   else if (width == 0U)
@@ -19576,7 +19573,9 @@ TmtPulseParser_module_declaration(
             8U,
             input.size,
             value.ambient_declaration);
-        return ((TmtPulseParser_named_state){ .state = value4, .used = value3.used });
+        TmtPulseParser_parser_state
+        value5 = TmtPulseParser_record_jsx_span(input, value4, 8U, state.offset, value4.offset);
+        return ((TmtPulseParser_named_state){ .state = value5, .used = value3.used });
       }
     }
   }
@@ -19820,7 +19819,9 @@ module_plain_declaration(
   {
     TmtPulseParser_parser_state
     value4 = TmtPulseParser_ambient_interfaces(input, value2, input.size, true);
-    return ((TmtPulseParser_named_state){ .state = value4, .used = used });
+    TmtPulseParser_parser_state
+    value5 = TmtPulseParser_record_jsx_span(input, value4, 8U, st.offset, value4.offset);
+    return ((TmtPulseParser_named_state){ .state = value5, .used = used });
   }
   else if (value30)
     return TmtPulseParser_module_declaration(input, st, used);
@@ -19943,7 +19944,9 @@ TmtPulseParser_module_sequence(
           value4 = TmtPulseParser_global_augmentation_members(input, value3, input.size, family);
           TmtPulseParser_parser_state closed = value4._1;
           uint8_t family1 = value4._2;
-          TmtPulseParser_parser_state tmp0 = closed;
+          TmtPulseParser_parser_state
+          value5 = TmtPulseParser_record_jsx_span(input, closed, 8U, value.offset, closed.offset);
+          TmtPulseParser_parser_state tmp0 = value5;
           uint32_t tmp1 = TmtPulseParser_minus(fuel, 1U);
           uint8_t tmp = family1;
           state = tmp0;
