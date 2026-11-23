@@ -197,7 +197,7 @@ On macOS, the six highest file medians account for 0.592 ms of the 2.009 ms sum 
 
 The local type declaration change moves mreact's 267,218-byte router `build.ts` to Pulse. Seven alternating samples measured 6.53 → 1.59 ms warm and 29.18 → 4.11 ms on first emission. The 321-file mreact TypeScript corpus fell from 52.41 to 47.43 ms warm. The corpus audit reports the same normalized output and dependencies.
 
-The Linux arm64 comparison at `c8b62a3` led eight of 17 comparable warm workloads and one first-emission workload. The table uses complete ESNext JavaScript emission from in-memory bytes. Each row compares engines within the same run.
+The Linux arm64 comparison at `c8b62a3` led eight of 17 comparable warm workloads and one first-emission workload. The table times complete ESNext JavaScript emission from source prepared in each engine's accepted representation. Each row compares engines within the same run.
 
 | Workload | TMT warm (ms) | Fastest reference warm (ms) | TMT first (ms) | Fastest reference first (ms) |
 | --- | ---: | ---: | ---: | ---: |
@@ -210,3 +210,41 @@ The Linux arm64 comparison at `c8b62a3` led eight of 17 comparable warm workload
 | TypeScript JavaScript bundle | 19.96 | 54.75 (Oxc) | 50.37 | 63.66 (Oxc) |
 
 All 3,080 repository tests passed. The [raw benchmarks, phase samples, and coverage results](../evidence/compiler/native-type-projection.json) record the current workloads and source hashes.
+
+### Cache-disabled emission and native coverage
+
+The benchmark tracks V8 compilation caching and source preparation as independent settings. Use `node --no-compilation-cache scripts/bench-compiler.mjs` for the cache-disabled condition. The first-emission workers receive the same V8 setting. The default `prepared` input mode supplies each engine its accepted representation. TMT, SWC Next, and unified Yuku receive UTF-8 buffers. Oxc, legacy Yuku, and Node's type stripper receive prepared strings. Set `TMT_BENCH_INPUT=bytes` to include UTF-8 decoding in the timed path for the string-only APIs.
+
+The paired baseline at `c8b62a3` led eight of 17 comparable warm workloads with repeated-source caching and six with the V8 cache disabled. It led one first-emission workload in both modes. The harness also reports a separate TMT/Oxc/SWC Next row when the common cohort across all available engines excludes additional inputs. The official Oxc runtime namespace fixture and the Yuku checker fixture still have no common emitted JavaScript result.
+
+The audit build preserves V8's decision and correlates each validation with its input and emission phase. Use `npm run build:compiler -- --audit-v8`, then pass JSON corpora to `scripts/audit-compiler-v8.mjs`. The audit independently checks that the ordinary and instrumented binaries return the same output hash, backend and diagnostics. `scripts/generate-compiler-validation-cases.mjs` produces the bounded generated and corpus-mutated input used for the validation audit.
+
+The native emitter now handles typed and bare receiver parameters, multiline arrow return types, standalone instantiation expressions, and matching overload groups. Unicode masking inside erased declarations preserves UTF-8 and UTF-16 offsets and line terminators. The emitter preserves implicit class field boundaries even when erasure exposes a contextual keyword such as `static`. This distinction matters independently of syntax validity. V8 accepts `static next = 42` as a static field when the original typed source declares two instance fields. The class field event retains the separator in the removed type span. Vue's constant enum shifts use unsigned C operations with signed shift and value reconstruction checked in Lean.
+
+An experimental build omitted only V8 module parsing. On the macOS inputs with identical emitted bytes, App.tsx moved from 4.34 ms to 2.48 ms warm and the 84-file mreact TSX cohort moved from 3.20 ms to 1.82 ms. The shipped emitter retains V8 validation. The packed-state experiment improved several macOS medians and regressed all seven Linux arm64 medians in an alternating run. The wide-keyword load and guard whitespace experiments delivered mixed results. These experiments are excluded from the normal build.
+
+The following Linux arm64 run at `f6c1831` used Node 24.14.0, seven rotating samples, the cache disabled, and byte-input timing. Each row compares engines measured in the same run. On this revision, TMT led six of 20 timed warm rows and one first-emission row. Three native-only subsets extend the original 17-row comparison. The two official fixtures without a common emitted result are excluded from the rank count.
+
+| Workload | TMT warm (ms) | Fastest reference warm (ms) | TMT first (ms) | Fastest reference first (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Vite TS, 113 common files | 18.33 | 8.73 (Yuku 0.28) | 48.03 | 9.45 (SWC Next) |
+| Vite TS, 122 TMT/Oxc/SWC Next files | 27.65 | 10.51 (Oxc) | 70.52 | 11.52 (SWC Next) |
+| mreact TS, 315 common files | 69.48 | 31.55 (Oxc) | 100.77 | 33.64 (SWC Next) |
+| tachyon-dom TS, 94 files | 18.99 | 9.19 (Oxc) | 20.24 | 10.39 (SWC Next) |
+| mreact TSX, 84 files | 4.18 | 2.61 (Oxc) | 5.31 | 3.14 (SWC Next) |
+| App.tsx | 5.56 | 3.25 (Oxc) | 7.07 | 5.11 (SWC Next) |
+| table.tsx | 0.53 | 0.28 (Oxc) | 1.55 | 0.89 (SWC Next) |
+| TypeScript JavaScript bundle | 46.58 | 54.05 (Oxc) | 49.76 | 63.24 (Oxc) |
+
+The same container measured a one-input startup floor using eleven alternating fresh processes. An empty N-API addon took 0.20 ms. The direct Pulse addon emitted the small typed input in 0.20 ms, the public TMT facade in 0.69 ms, and the SWC Next adapter in 0.33 ms. The corresponding values after the small ASCII export path were 0.18, 0.18, 0.64, and 0.29 ms. These experiments isolate initialization from the larger first-emission workloads.
+
+The instrumented Pulse parser counted 1.72–2.44 in-bounds logical `peek` reads per input byte across the selected real workloads. The count covers successful whole parses and omits class scan block reads and subsequent JS validation. App.tsx used 1.76 reads per byte. The [raw timing, audit, and coverage evidence](../evidence/compiler/cache-disabled-emission.json) preserves input hashes, individual measurements, and the explicitly labeled architecture experiments.
+
+
+At this checkpoint, all 653 fixed project inputs emit valid JavaScript with TypeScript loading blocked. Pulse emits 628 directly, including all 94 TypeScript and 32 TSX files from tachyon-dom and all 84 mreact TSX files. The core comparison retains five previously reviewed normalized output differences. Across the broader 2,818-file framework comparison, 358 files moved to Pulse with matching normalized output or dependencies. The additional sources include Astro, Hono, React Router, Solid, Svelte, TanStack Query, Vitest, and Vue.
+
+The original 3,321-input audit recorded 77 V8 rejections. At the current revision, the same corpus and 408 generated or mutated inputs produce 2,487 successful V8 validations and zero rejections. An expanded set of 1,709 raw TypeScript compiler and conformance inputs produces 361 successful validations and zero rejections. Its previous 16 rejections were CommonJS export assignments sent to the ESM path. The current parser also checks whether a local export has a runtime binding before emission.
+
+All 3,248 repository tests pass. F★/Pulse checked both generated snapshots, Lean built the compiler arithmetic proofs, and TLC explored all 270 reachable publication model states.
+
+A final paired Linux experiment isolated V8 module parsing on outputs that were byte-identical with validation enabled and disabled. App.tsx moved from 5.35 to 3.40 ms warm and from 7.04 to 4.77 ms on first emission. The mreact TSX cohort moved from 3.85 to 2.31 ms warm. The 260-file native mreact TypeScript cohort still took 28.72 ms warm in the ablation. The performance comparison above uses the release path with validation enabled.
