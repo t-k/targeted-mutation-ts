@@ -4519,6 +4519,8 @@ let named_reexport (input:tape) (state:parser_state) (used locals:names_used) (p
       let more:pending_exports = U32.add pending 1ul in
       ret input ({ named with state = complete }, more)
 
+let unbound_runtime_export_status = 7ul
+
 let rec check_local_exports (input:tape) (state:parser_state) (locals:names_used) (pending:pending_exports)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v pending) =
   if pending = 0ul then ret input state
@@ -4526,8 +4528,9 @@ let rec check_local_exports (input:tape) (state:parser_state) (locals:names_used
     let index = U32.sub pending 1ul in
     let! saved = (fun () -> get_binding input (deferred_export_slot index)) in
     let! checked = (fun () -> reexport_members input { state with offset = saved.span.G.first } 0ul locals 64ul true false) in
-    if checked.locals_known && checked.named.state.status = 0ul && checked.named.state.offset = saved.span.G.last then
-      check_local_exports input state locals index
+    if checked.named.state.status = 0ul && checked.named.state.offset = saved.span.G.last then
+      if checked.locals_known then check_local_exports input state locals index
+      else ret input (failed state (if input.capture_jsx then unbound_runtime_export_status else 1ul))
     else ret input (failed state 1ul)
 
 type export_prefix = { after_export:parser_state; export_kind:U32.t; direct:bool }

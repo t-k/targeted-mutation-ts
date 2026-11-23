@@ -1074,6 +1074,8 @@ TmtPulseParser_reexport_members(
   KRML_HOST_EXIT(255U);
 }
 
+uint32_t TmtPulseParser_unbound_runtime_export_status = 7U;
+
 TmtPulseParser_parser_state
 TmtPulseParser_check_local_exports(
   TmtPulseMemory_tape input0,
@@ -1125,14 +1127,17 @@ TmtPulseParser_check_local_exports(
           64U,
           true,
           false);
-      if
-      (
-        value1.locals_known && value1.named.state.status == 0U &&
-          value1.named.state.offset == value.span.last
-      )
+      if (value1.named.state.status == 0U && value1.named.state.offset == value.span.last)
       {
-        uint32_t tmp = index;
-        pending = tmp;
+        if (value1.locals_known)
+        {
+          uint32_t tmp = index;
+          pending = tmp;
+        }
+        else
+          return
+            TmtPulseParser_failed(state,
+              input.capture_jsx ? TmtPulseParser_unbound_runtime_export_status : 1U);
       }
       else
         return TmtPulseParser_failed(state, 1U);
@@ -20492,6 +20497,12 @@ TmtPulseParser_parse_candidates(TmtPulseMemory_tape input, bool jsx, bool module
     TmtPulseMemory_clear_marks(input);
     return TmtPulseParser_parse_attempt(input, jsx, module_mode, TmtPulseParser_inactive_locals);
   }
+}
+
+bool TmtPulseCompiler_unbound_runtime_export(TmtPulseMemory_tape input)
+{
+  TmtPulseParser_parser_state result = TmtPulseParser_parse_candidates(input, false, true);
+  return result.status == TmtPulseParser_unbound_runtime_export_status;
 }
 
 bool TmtPulseCompiler_supported_script(TmtPulseMemory_tape input)

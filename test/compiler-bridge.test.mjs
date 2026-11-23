@@ -146,3 +146,17 @@ test('JavaScript pass-through rejects Annex B HTML comment syntax', () => {
   assert.equal(result.backend, 'javascript');
   assert.equal(result.code, ordinary);
 });
+
+test('type erasure diagnoses local exports whose runtime bindings disappeared', () => {
+  for (const trivia of [' /* list */ ', ' // list of bindings\n']) {
+    const source = 'export const value = 42; interface OnlyType { x: number } export' + trivia + '{ OnlyType };';
+    for (const sourceMap of [false, true]) {
+      const result = compile(source, { sourceMap });
+      assert.equal(result.code, null);
+      assert.equal(result.diagnostics[0].code, 'UNBOUND_RUNTIME_EXPORT');
+    }
+  }
+  for (const text of ['export { X } from "elsewhere";', 'export const A = 42; export { A as B };']) {
+    assert.notEqual(compile(text).code, null);
+  }
+});

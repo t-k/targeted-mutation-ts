@@ -424,6 +424,8 @@ TmtPulseParser_reexport_members(
   bool reserve_names0
 );
 
+extern uint32_t TmtPulseParser_unbound_runtime_export_status;
+
 TmtPulseParser_parser_state
 TmtPulseParser_check_local_exports(
   TmtPulseMemory_tape input0,

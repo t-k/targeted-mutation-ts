@@ -471,6 +471,15 @@ fn supported_module (input:tape) (jsx:bool)
   result.status = 0ul
 }
 
+fn unbound_runtime_export (input:tape)
+  requires heap input
+  returns rejected:bool
+  ensures heap input
+{
+  let result = P.parse_candidates input false true;
+  result.status = P.unbound_runtime_export_status
+}
+
 fn supported_script (input:tape)
   requires heap input
   returns accepted:bool

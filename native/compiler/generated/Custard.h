@@ -316,6 +316,8 @@ TmtPulseParser_reexport_members(
   bool reserve_names0
 );
 
+extern uint32_t TmtPulseParser_unbound_runtime_export_status;
+
 TmtPulseParser_parser_state
 TmtPulseParser_check_local_exports(
   TmtPulseMemory_tape input0,
@@ -2497,6 +2499,8 @@ extern uint16_t TmtPulseParser_inactive_locals;
 
 TmtPulseParser_parser_state
 TmtPulseParser_parse_candidates(TmtPulseMemory_tape input, bool jsx, bool module_mode);
+
+bool TmtPulseCompiler_unbound_runtime_export(TmtPulseMemory_tape input);
 
 bool TmtPulseCompiler_supported_script(TmtPulseMemory_tape input);
 

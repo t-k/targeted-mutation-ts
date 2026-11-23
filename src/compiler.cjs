@@ -99,7 +99,8 @@ function transform(source, { file, target, module, jsx, sourceMap }) {
     const error = commonJsError(code, file);
     if (error) return fail('typescript', [...diagnostics, error]);
   }
-  return { backend: 'typescript', code, sourceMap: map, diagnostics };
+  const output = { backend: 'typescript', code, sourceMap: map, diagnostics };
+  return outputModule === 'cjs' ? output : verifyRuntimeExports(output, file);
 }
 
 function strip(source, file) {
@@ -109,6 +110,16 @@ function strip(source, file) {
     if (error.code !== 'ERR_INVALID_TYPESCRIPT_SYNTAX' && error.code !== 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') throw error;
     return fail('node-strip', [{ file, code: error.code, severity: 'error', message: error.message, start: 0, end: 0 }]);
   }
+}
+
+function verifyRuntimeExports(result, file, addon, bytes) {
+  if (!/\bexport(?:\s|\/\*[^]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*\{/.test(result.code)) return result;
+  const checker = addon ?? loadModuleAddon();
+  if (!checker?.unboundExport?.(bytes ?? Buffer.from(result.code))) return result;
+  return fail(result.backend, [...result.diagnostics, {
+    file, code: 'UNBOUND_RUNTIME_EXPORT', severity: 'error',
+    message: 'A local export has no runtime binding after type erasure', start: 0, end: 0,
+  }]);
 }
 
 function hasModuleMarker(addon, code, bytes = Buffer.from(code)) {
@@ -171,7 +182,7 @@ function eraseLoweredModule(addon, source, file, format) {
     code = strictScript(code, file);
     if (code === null) return null;
   }
-  return { ...result, code, backend: 'pulse+node-strip' };
+  return verifyRuntimeExports({ ...result, code, backend: 'pulse+node-strip' }, file, addon);
 }
 
 function eraseModule(addon, source, file, format) {
@@ -189,7 +200,7 @@ function eraseModule(addon, source, file, format) {
   }
   if (result.code === null) return null;
   const emitted = Buffer.from(result.code);
-  if (hasModuleMarker(addon, result.code, emitted)) return result;
+  if (hasModuleMarker(addon, result.code, emitted)) return verifyRuntimeExports(result, file, addon, emitted);
   if (!addon.triviaOnly(emitted)) return null;
   if (format === 'esm') result.code += '\nexport {};\n';
   return result;

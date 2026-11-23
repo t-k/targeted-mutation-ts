@@ -740,6 +740,13 @@ bool tmt_module_marker(uint8_t *source, uint32_t size, bool validate) {
   return module_after_prelude(source, size, first.at, initial, validate);
 }
 
+bool tmt_unbound_export(uint8_t *source, uint32_t size) {
+  module_workspace memory = {0};
+  TmtPulseMemory_tape input = with_workspace(source, size, &memory);
+  input.capture_jsx = true;
+  return TmtPulseCompiler_unbound_runtime_export(input);
+}
+
 bool tmt_plain_script(uint8_t *source, uint32_t size) {
   module_workspace memory = {0};
   const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
