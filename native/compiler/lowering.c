@@ -803,6 +803,16 @@ static bool comparison_angle(const uint8_t *code, uint32_t size, uint32_t at) {
   return true;
 }
 
+static bool value_keyword(const uint8_t *code, uint32_t size, uint32_t first, uint32_t end) {
+  if (first && code[first - 1] == '.' && (first == 1 || code[first - 2] != '.')) return true;
+  if (first && end < size && (code[end] == '"' || code[end] == '\'') && code[first - 1] == code[end]) end++;
+  while (end < size && space(code[end])) end++;
+  if (end == size) return false;
+  const uint8_t byte = code[end];
+  return byte == ':' || byte == ',' || byte == ';' || byte == ')' || byte == '}' ||
+    ((byte == '&' || byte == '|') && size - end >= 2 && code[end + 1] == byte);
+}
+
 /* Some TypeScript constructs can also be valid JavaScript with a different meaning. */
 static bool unambiguous_javascript(uint8_t *code, uint32_t size) {
   const TmtPulseMemory_tape input = { .source = code, .size = size };
@@ -829,11 +839,7 @@ static bool unambiguous_javascript(uint8_t *code, uint32_t size) {
       for (size_t index = 0; index < sizeof(reserved) / sizeof(*reserved); index++) {
         const char *word = reserved[index];
         if (code[first] == (uint8_t)word[0] && width == strlen(word) && !memcmp(code + first, word, width)) {
-          uint32_t next = end;
-          if (first && next < size && (code[next] == '"' || code[next] == '\'') &&
-              code[first - 1] == code[next]) next++;
-          while (next < size && space(code[next])) next++;
-          if (next == size || code[next] != ':') return false;
+          if (!value_keyword(code, size, first, end)) return false;
         }
       }
     }
@@ -905,6 +911,14 @@ static bool erasable_expression_range(TmtPulseMemory_tape input, uint32_t kind, 
   return byte == ';' || byte == ',' || byte == ')' || byte == ']' || byte == '}';
 }
 
+static bool delimited_annotation(TmtPulseMemory_tape input, uint32_t last) {
+  const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, last);
+  if (!tail.ok) return false;
+  if (tail.at == input.size) return true;
+  const uint8_t byte = input.source[tail.at];
+  return byte == ';' || byte == ',' || byte == ')' || byte == ']' || byte == '}' || byte == '{' || byte == '=';
+}
+
 static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool jsx, char **output, bool *remove_statement) {
   char *code = NULL;
   uint32_t previous = 0;
@@ -935,10 +949,20 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool
       *remove_statement = true;
     } else if (!member && !erasable_expression_range(input, event.original, span)) goto decline;
     if (span.first < previous) goto decline;
-    const bool preserve_lines = statement || member || event.original == type_arguments;
+    const bool annotation = event.original == type_annotation;
+    bool preserve_lines = statement || member || event.original == type_arguments || event.original == type_assertion;
+    bool multiline = false, slash = false;
     for (uint32_t byte = span.first; byte < span.last; byte++) {
       const uint8_t value = input.source[byte];
-      if (value >= 128 || (!preserve_lines && (value == '\n' || value == '\r' || value == '/'))) goto decline;
+      if (value >= 128) goto decline;
+      if (value == '\n' || value == '\r') multiline = true;
+      if (value == '/') slash = true;
+    }
+    if (!preserve_lines) {
+      if (multiline) {
+        if (!annotation || !delimited_annotation(input, span.last)) goto decline;
+        preserve_lines = true;
+      } else if (slash) goto decline;
     }
     if (!code) {
       code = malloc((size_t)input.size + sizeof(esm_marker));

@@ -17,6 +17,13 @@ Record ==
        /\ edits' = Append(edits, end)
   /\ UNCHANGED <<operation, mode, output, checked>>
 
+ReplaceSignature ==
+  /\ operation = "erase" /\ mode = "scanning" /\ Len(edits) > 0
+  /\ \E prefix \in 0..(Len(edits) - 1), end \in Offsets:
+       /\ end >= edits[Len(edits)]
+       /\ edits' = Append(SubSeq(edits, 1, prefix), end)
+  /\ UNCHANGED <<operation, mode, output, checked>>
+
 Finish ==
   /\ mode = "scanning"
   /\ mode' \in {"complete", "fallback", "invalid"}
@@ -33,7 +40,7 @@ Publish ==
   /\ mode' = "published" /\ output' = edits
   /\ UNCHANGED <<operation, edits, checked>>
 
-Spec == Init /\ [][Record \/ Finish \/ Validate \/ Publish]_vars
+Spec == Init /\ [][Record \/ ReplaceSignature \/ Finish \/ Validate \/ Publish]_vars
 Ordered == \A i, j \in 1..Len(edits): i < j => edits[i] < edits[j]
 Atomic == IF mode = "published" THEN checked /\ output = edits ELSE output = <<>>
 ====

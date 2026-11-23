@@ -164,7 +164,7 @@ for (const row of annotationRows) {
     const input = prefix + declarations[binding] + suffix;
     const result = compile(input);
     if (source === 'Malformed') assert.equal(result.code, null);
-    if ((source !== 'Module' && source !== 'TypePrelude') || layout !== 'Inline') {
+    if (source !== 'Module' && source !== 'TypePrelude') {
       assert.notEqual(result.backend, 'pulse', input);
       return;
     }
@@ -191,6 +191,21 @@ test('annotation erasure distinguishes a comparison, a generic call and import a
     assert.notEqual(bridged.backend, 'pulse', suffix);
     assert.ok(bridged.code);
     assert.doesNotMatch(bridged.code, /below\s*[<]|below as/);
+  }
+});
+
+test('native multiline parameter annotations preserve delimiters and line endings', () => {
+  const source = [
+    'import { one } from "fixture";',
+    'export const value = ({ name, values }: {',
+    '  name: string;',
+    '  values: number[]; // Removed with the annotation.',
+    '}) => name + (values[0] ?? one);',
+  ].join('\r\n');
+  for (const file of ['params.ts', 'params.tsx']) {
+    const result = compile(source, { file });
+    assert.equal(result.backend, 'pulse', file);
+    assert.equal(result.code, stripTypeScriptTypes(source));
   }
 });
 
@@ -238,6 +253,31 @@ test('native generic arguments preserve line endings inside an erased object typ
   }
 });
 
+const overloadRows = readFileSync(new URL('../verification/pict/compiler-overload.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of overloadRows) {
+  const [binding, parameters, signature] = row.split('\t');
+  test('module overload erasure ' + row.replaceAll('\t', ' '), async () => {
+    const prefix = binding === 'Local' ? '' : 'export ';
+    const generic = parameters === 'Generic';
+    const type = generic ? 'T' : 'number';
+    const defaultValue = signature === 'Default' ? ' = 0 < 1' : '';
+    const source = `${prefix}function pick${generic ? '<T>' : ''}(value: ${type}${defaultValue}): ${type};
+${prefix}function pick(value: number) { return value * 2; }
+export const value = pick(6);`;
+    const result = compile(source);
+    if (signature === 'Default') {
+      assert.notEqual(result.backend, 'pulse');
+      return;
+    }
+    assert.equal(result.backend, 'pulse');
+    const actual = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+    assert.equal(actual.value, 12);
+    assert.equal(typeof actual.pick, binding === 'Local' ? 'undefined' : 'function');
+    assert.doesNotMatch(result.code, /pick<(?:T|number)>|value: /);
+  });
+}
+
 test('native assertions and optional markers leave the value grammar intact', async () => {
   const source = 'export function pick(x?: number) {\n' +
     '  const record = { current: x! };\n' +
@@ -251,6 +291,23 @@ test('native assertions and optional markers leave the value grammar intact', as
   const bridged = compile(continuation);
   assert.notEqual(bridged.backend, 'pulse');
   assert.equal(bridged.code, stripTypeScriptTypes(continuation));
+});
+
+test('delimited assertions can span lines and contextual words can be value bindings', () => {
+  const source = [
+    'import { readonly } from "fixture";',
+    'export function select(object: { type: string }) {',
+    '  return (readonly && object.type) as',
+    '    string | false;',
+    '}',
+  ].join('\n');
+  for (const file of ['assertion.ts', 'assertion.tsx']) {
+    const result = compile(source, { file });
+    assert.equal(result.backend, 'pulse', file);
+    assert.equal(result.code, stripTypeScriptTypes(source));
+  }
+  const modifier = 'export class C { readonly n: number = 0; }';
+  assert.notEqual(compile(modifier).backend, 'pulse');
 });
 
 test('an erased type-only import keeps a runtime module and its directives', () => {

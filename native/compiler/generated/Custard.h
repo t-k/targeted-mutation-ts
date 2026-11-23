@@ -2435,6 +2435,7 @@ TmtPulseParser_module_function(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   uint32_t used,
+  uint32_t declaration_start,
   bool async_,
   bool ambient
 );

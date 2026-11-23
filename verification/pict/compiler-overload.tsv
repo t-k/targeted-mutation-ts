@@ -1,0 +1,5 @@
+Binding	Parameters	Signature
+Local	Generic	Valid
+Exported	Ordinary	Valid
+Exported	Generic	Default
+Local	Ordinary	Default

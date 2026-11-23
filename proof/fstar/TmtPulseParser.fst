@@ -2405,7 +2405,8 @@ let signature_end (input:tape) (#frame:slprop) (state opening:parser_state) (par
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! typed = (fun () -> skip input #frame params.names.state) in
   let! annotated_return = (fun () -> same input #frame typed.offset 58uy) in
-  if (not annotated_return && not constructor) || st.count <> state.count then read_ret input #frame (failed st 1ul)
+  if (not annotated_return && not constructor) || (not input.capture_types && st.count <> state.count) then
+    read_ret input #frame (failed st 1ul)
   else
     let! checked = (fun () -> if params.non_simple || constructor then signature_parameters input #frame opening 15ul 64ul opening.offset empty_signature_names else read_ret input #frame (params.names.state)) in
     if checked.status <> 0ul || checked.offset <> params.names.state.offset then read_ret input #frame (failed st 1ul)
@@ -4170,7 +4171,7 @@ let declaration_start (input:tape) (#frame:slprop) (state:parser_state) : Tot (s
   read_ret input #frame ({ after_modifiers = st; width; async_declaration = async_.ok; ambient_declaration = ambient.ok;
     class_declaration = class_; abstract_class = abstract_.ok })
 
-let module_function (input:tape) (state:parser_state) (used:names_used) (async_ ambient:bool)
+let module_function (input:tape) (state:parser_state) (used:names_used) (declaration_start:U32.t) (async_ ambient:bool)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! head = (fun () -> read_generator_head input state) in
   let state = if ambient && head.generator then failed head.after_star 1ul else head.after_star in
@@ -4181,7 +4182,12 @@ let module_function (input:tape) (state:parser_state) (used:names_used) (async_ 
   else
     let namespace = if function_.signature_only then FunctionSignature else FunctionImplementation in
     let! binding = (fun () -> bind_in_namespace input state 0ul 0ul used state.offset namespace) in
-    ret input ({ binding with state = if binding.state.status = 0ul then after else failed after 1ul })
+    let! result = (fun () -> if binding.state.status <> 0ul then ret input (failed after 1ul)
+      else if input.capture_types && function_.signature_only then
+        // The validated signature has no runtime operands. Replace its private child spans.
+        record_jsx_span input { after with count = state.count } 8ul declaration_start after.offset
+      else ret input after) in
+    ret input ({ binding with state = result })
 
 #push-options "--z3rlimit 20"
 let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) (constant names_only:bool) (remaining:U32.t)
@@ -4427,7 +4433,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
         ret input { named with state = body }
   else
     let! start = (fun () -> skip input { st with offset = plus st.offset width }) in
-    if width = 8ul then module_function input start used head.async_declaration head.ambient_declaration
+    if width = 8ul then module_function input start used state.offset head.async_declaration head.ambient_declaration
     else if (width = 3ul || width = 5ul) && not head.ambient_declaration && not head.class_declaration then
       let! enumeration = (fun () -> if width = 5ul then keyword input start.offset 4ul 0x656e756duL else ret input (false)) in
       if enumeration then
