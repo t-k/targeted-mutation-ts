@@ -117,6 +117,7 @@ function hasModuleMarker(addon, code, bytes = Buffer.from(code)) {
 }
 
 function strictScript(source, file) {
+  if (source.includes('<!--') || (source.includes('-->') && /(?:^|\*\/)[^\S\r\n\u2028\u2029]*-->/m.test(source))) return null;
   const hashbang = source.startsWith('#!') ? source.search(/[\r\n]/) + 1 : 0;
   const trivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[\s\S]*?\*\/)*/y;
   trivia.lastIndex = hashbang;

@@ -136,3 +136,13 @@ test('JavaScript pass-through declines TypeScript syntax and ambiguous strict di
     assert.notEqual(compile(source, { file: 'plain.js' }).backend, 'javascript');
   }
 });
+
+test('JavaScript pass-through rejects Annex B HTML comment syntax', () => {
+  for (const text of ['<!-- ignored\nconsole.log(1);', ' --> ignored\nconsole.log(1);', '/* ignored */ --> ignored\nvar x = 1;']) {
+    assert.equal(compile(text, { file: 'plain.js' }).code, null);
+  }
+  const ordinary = '"use strict";\n// arrow --> example\nvar text = "-->";';
+  const result = compile(ordinary, { file: 'plain.js' });
+  assert.equal(result.backend, 'javascript');
+  assert.equal(result.code, ordinary);
+});

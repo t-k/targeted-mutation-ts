@@ -384,7 +384,7 @@ static bool jsx_property_value(lowering *lower, uint32_t depth, uint32_t name_en
 }
 
 static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *properties) {
-  bool spread = false, literal_spread = false;
+  bool spread = false;
   for (;;) {
     const uint32_t previous = lower->at;
     if (!tag_trivia(lower)) return false;
@@ -394,8 +394,8 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *propertie
       if (!trivia(lower) || !consume(lower, '.') || !consume(lower, '.') || !consume(lower, '.') || !trivia(lower)) return false;
       if (properties->count++ != 0) put(&lower->output, ",");
       put(&lower->output, "...");
-      if (peek(lower) == '{') literal_spread = true;
-      else spread = true;
+      if (peek(lower) == '{') return false;
+      spread = true;
       if (!jsx_value(lower, depth)) return false;
       continue;
     }
@@ -406,7 +406,7 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *propertie
     const TmtGrammar_span key = { first, prop.at };
     if (same_bytes(lower, key, "__proto__")) return false;
     if (!lower->classic && same_bytes(lower, key, "key")) {
-      if (properties->has_key || (literal_spread && !spread)) return false;
+      if (properties->has_key) return false;
       properties->has_key = true;
       properties->create = spread;
       if (!spread) {

@@ -295,3 +295,12 @@ test('whole-module JSX accepts comments between attributes and a spaced closing 
   const reference = compile(source, { file: 'comment.tsx', sourceMap: true });
   assert.deepEqual((await load(result.code)).View(), (await load(reference.code)).View());
 });
+
+test('literal JSX spread with a getter retains the original accessor', async () => {
+  const source = 'let reads = 0; export const View = <b {...{ get count() { reads++; return 1 } }} />;' +
+    ' export const count = () => reads;';
+  const { View, count } = await load(compile(source, { file: 'accessor.tsx' }).code);
+  assert.equal(count(), 0);
+  assert.equal(View.props.count, 1);
+  assert.equal(count(), 1);
+});
