@@ -49,3 +49,19 @@ test('extended runtime escapes keep subsequent comments outside the ambiguity sc
   assert.equal(loaded.replacement, '\ufffd');
   assert.equal(loaded.answer, 42);
 });
+
+test('projection scanning keeps identifier interiors, witnesses, and final scalar bytes across alignments', async () => {
+  const text = 'import { value as as } from "data:text/javascript,export%20const%20value%3D42%3B";\n' +
+    'const p_as: number = as\n' +
+    'const replacement: string = "\\ufffd"; // as a literal\n' +
+    'export const value = p_as';
+  for (let offset = 0; offset <= 16; offset++) {
+    const source = ' '.repeat(offset) + text;
+    const result = compile(source);
+    assert.equal(result.backend, 'pulse', 'source alignment ' + offset);
+    assert.match(result.code, /p_as\s*= as\n/);
+    assert.match(result.code, /p_as$/);
+    const { value } = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+    assert.equal(value, 42);
+  }
+});

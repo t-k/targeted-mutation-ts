@@ -250,3 +250,25 @@ All 3,248 repository tests pass. F★/Pulse checked both generated snapshots, Le
 A final paired Linux experiment isolated V8 module parsing on outputs that were byte-identical with validation enabled and disabled. App.tsx moved from 5.35 to 3.40 ms warm and from 7.04 to 4.77 ms on first emission. The mreact TSX cohort moved from 3.85 to 2.31 ms warm. The 260-file native mreact TypeScript cohort still took 28.72 ms warm in the ablation. The performance comparison above uses the release path with validation enabled.
 
 A per-source trivia memo preserved all output hashes and regressed the warm and first-emission medians on all seven tested macOS workloads. The release parser keeps the existing trivia reader.
+
+### Native coverage and projection scanning
+
+At `82ab0c5`, Pulse emits all 653 fixed Vite, mreact, and tachyon-dom inputs without either compatibility emitter. The normalized TypeScript audit retains one previously reviewed output difference with identical static dependencies. Committed ranges now cover parameter properties, abstract and declared members, optional method signatures, contextual references, and delimited type annotations. Markerless TypeScript scripts use the same projection with V8 script validation. ESNext .mjs validates once and preserves the input text. The fallback emitter loads on demand.
+
+The Arm64 projection scan checks sixteen possible token starts at once. It advances to the first lexical sentinel or contextual-keyword prefix, then applies the ordinary check. Lean verifies the lookup predicates for all byte values. The C checks exercise every byte pair in every lane. A separate scalar-to-NEON comparison matched code, backend, and diagnostics for 2,501 inputs. Native emission continues to call V8 validation.
+
+The following Linux arm64 comparison used Node 24.14.0, disabled V8 compilation caching, and supplied UTF-8 bytes. Each row uses seven interleaved samples. The complete common suite still leads in six of 20 warm rows and one first-emission row. The two official fixtures without a common emitted result are excluded. The full Vite and mreact rows compare the three engines that emitted all files. TanStack Query has one more file outside the shared cohort.
+
+| Workload | TMT warm before → current (ms) | Fastest reference warm (ms) | TMT first before → current (ms) | Fastest reference first (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Vite TS, 122 files | 28.32 → 18.91 | 10.97 (Oxc) | 73.98 → 20.50 | 11.83 (SWC Next) |
+| mreact TS, 321 files | 73.69 → 61.44 | 32.12 (Oxc) | 120.50 → 64.25 | 34.84 (SWC Next) |
+| tachyon-dom TS, 94 files | 19.29 → 18.63 | 9.35 (Oxc) | 20.53 → 19.62 | 10.54 (SWC Next) |
+| mreact TSX, 84 files | 4.43 → 4.25 | 2.85 (Oxc) | 5.37 → 5.00 | 3.16 (SWC Next) |
+| TanStack Query TS, 96 files | 12.32 → 8.43 | 4.71 (SWC Next) | 54.58 → 9.67 | 4.39 (SWC Next) |
+| SWC Next App.tsx | 5.84 → 5.39 | 3.38 (Oxc) | 7.27 → 6.75 | 5.26 (SWC Next) |
+| Local .mjs scripts, 10 files | 3.18 → 1.22 | 1.07 (Yuku 0.28) | 33.37 → 1.92 | 1.38 (SWC Next) |
+
+The direct Pulse addon emitted one representative small input in 0.21 ms. The public facade took 0.58 ms and the SWC Next adapter took 0.32 ms. The direct addon and the public facade have different option and compatibility responsibilities.
+
+A separate validation ablation with the starting implementation reduced warm tachyon-dom from 18.28 to 8.54 ms and App.tsx from 5.53 to 2.50 ms. The 260-file native mreact TS cohort reached 23.22 ms against Oxc's 23.36 ms. These experiments quantify the cost of output validation. The measured release path retains both the ambiguity check and V8 parsing. The [timings and conformance evidence](../evidence/compiler/all-pulse-neon.json) includes each final sample, input hashes, and the separate experiments.
