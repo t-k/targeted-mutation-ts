@@ -1863,6 +1863,7 @@ TmtPulseParser_parser_state
 TmtPulseParser_template_body(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state state0,
+  uint32_t raw_start0,
   uint32_t fuel0,
   uint32_t remaining0,
   bool tagged0

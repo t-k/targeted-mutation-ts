@@ -2605,7 +2605,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
                 ret input (if closed || declaration then (named, NotAssignable) else (failed tail 1ul, NotAssignable))
           else
             let inside = { st with offset = next start_pos } in
-            if ch = 96uy then (let! anf_value_9 = (fun () -> template_body input inside inner input.size false) in ret input (anf_value_9, NotAssignable))
+            if ch = 96uy then (let! anf_value_9 = (fun () -> template_body input inside start_pos inner input.size false) in ret input (anf_value_9, NotAssignable))
             else if ch = 91uy then
               if U32.(inner <=^ 8ul) then (let! anf_value_10 = (fun () -> deep_array_literal input inside inner) in ret input (anf_value_10, NotAssignable))
               else
@@ -2639,7 +2639,11 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
     else
       let! named, target =
         (fun () -> if ch = 34uy || ch = 39uy then ((let! anf_value_13 = (fun () -> (let! anf_value_14 = (fun () -> (string_end input (next start_pos) ch input.size true)) in ret input (from_cursor st anf_value_14))) in ret input (anf_value_13, NotAssignable)))
-        else if ch = 47uy then ((let! anf_value_15 = (fun () -> (let! anf_value_16 = (fun () -> (regex_end input (next start_pos))) in ret input (from_cursor st anf_value_16))) in ret input (anf_value_15, NotAssignable)))
+        else if ch = 47uy then
+          let! end_ = (fun () -> regex_end input (next start_pos)) in
+          let body = from_cursor st end_ in
+          let! recorded = (fun () -> record_jsx_span input body 17ul start_pos end_.at) in
+          ret input (recorded, NotAssignable)
         else
           let! width =
             (fun () -> if ch = 116uy then
@@ -2924,7 +2928,7 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
             let inside = { operand with offset = next operand.offset; depth } in
             if kind = 40uy then (let! anf_value_2 = (fun () -> (expression_list input inside (minus fuel 1ul) input.size 41uy false)) in ret input (anf_value_2.list_end, false))
             else if kind = 96uy then
-              let! tail = (fun () -> template_body input inside (minus fuel 1ul) input.size true) in ret input (tail, false)
+              let! tail = (fun () -> template_body input inside operand.offset (minus fuel 1ul) input.size true) in ret input (tail, false)
             else
               let! index = (fun () -> comparison input inside (minus fuel 1ul)) in
               let! tail = (fun () -> consume input index.parser 93uy) in ret input (tail, false)
@@ -3091,7 +3095,7 @@ and object_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (col
       (let! anf_value_2 = (fun () -> (consume input st 44uy)) in object_members input anf_value_2 fuel (minus remaining 1ul)
         value.open_angle (seen_prototype || member.prototype_setter))
     else consume input st 125uy)
-and template_body (input:tape) (state:parser_state) (fuel remaining:U32.t) (tagged:bool)
+and template_body (input:tape) (state:parser_state) (raw_start fuel remaining:U32.t) (tagged:bool)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 26; U32.v remaining]) =
   if state.status <> 0ul then ret input (state)
   else if remaining = 0ul || U32.(state.offset >=^ input.size) then ret input (failed state 1ul)
@@ -3099,19 +3103,24 @@ and template_body (input:tape) (state:parser_state) (fuel remaining:U32.t) (tagg
     let at = state.offset in
     let! byte = (fun () -> peek input at) in
     let! following = (fun () -> peek input (next at)) in
-    if byte = 96uy then ret input ({ state with offset = next at })
+    if byte = 96uy then
+      let stop = next at in
+      record_jsx_span input { state with offset = stop } 17ul raw_start stop
+    else if byte = 36uy && following = 123uy then
+      let stop = plus at 2ul in
+      let! before = (fun () -> record_jsx_span input { state with offset = stop; in_allowed = true } 17ul raw_start stop) in
+      let! value = (fun () -> comparison input before fuel) in
+      let! closed = (fun () -> consume input { value.parser with in_allowed = state.in_allowed } 125uy) in
+      template_body input closed closed.offset fuel (minus remaining 1ul) tagged
     else
       let! st =
-        (fun () -> if byte = 36uy && following = 123uy then
-          let! value = (fun () -> comparison input { state with offset = plus at 2ul; in_allowed = true } fuel) in
-          consume input { value.parser with in_allowed = state.in_allowed } 125uy
-        else if byte = 92uy then
+        (fun () -> if byte = 92uy then
           // Tagged templates may contain invalid cooked escapes. Only the next
           // byte can escape a template delimiter, regardless of cooked value.
           if tagged then ret input ({ state with offset = plus at 2ul })
           else (let! anf_value_1 = (fun () -> (escape_end input at true true)) in ret input (from_cursor state anf_value_1))
         else ret input ({ state with offset = next at })) in
-      template_body input st fuel (minus remaining 1ul) tagged
+      template_body input st raw_start fuel (minus remaining 1ul) tagged
 
 and jsx_attribute (input:tape) (state:parser_state) (fuel:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 30; 0]) =

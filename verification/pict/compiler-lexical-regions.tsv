@@ -1,0 +1,10 @@
+Template	Location	Syntax
+Plain	Before	Assertion
+Tagged	Inside	Assertion
+Nested	After	Generic
+Nested	Inside	Assertion
+Plain	Inside	Generic
+Nested	Before	Generic
+Tagged	After	Assertion
+Tagged	Before	Generic
+Plain	After	Generic

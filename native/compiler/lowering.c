@@ -761,6 +761,7 @@ bool tmt_module_marker(uint8_t *source, uint32_t size, bool validate) {
 
 #ifdef TMT_V8_VALIDATOR
 bool tmt_valid_javascript_module(const char *code, size_t length);
+static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records);
 
 enum {
   type_annotation = 7,
@@ -773,6 +774,7 @@ enum {
   erased_import_member = 14,
   class_modifiers = 15,
   generic_arrow = 16,
+  lexical_text = 17,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
@@ -786,8 +788,9 @@ static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t a
     if (input.size - at >= 2 && (input.source[at + 1] == '/' || input.source[at + 1] == '*')) {
       const TmtPulseParser_cursor end = TmtPulseParser_trivia(input, at);
       if (end.ok) return end.at;
+      *certain = false;
     }
-    *certain = false;
+    /* The committed lexical regions have already removed regex literals from the view. */
   } else if (byte == '`' || byte == '\\') {
     *certain = false;
   }
@@ -797,10 +800,16 @@ static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t a
 /* A flat comparison before a closing delimiter cannot contain type arguments. */
 static bool comparison_angle(const uint8_t *code, uint32_t size, uint32_t at) {
   if (at < size && code[at] == '=') return true;
+  bool token = false, gap = false, flat = true;
   while (at < size) {
     const uint8_t byte = code[at++];
     if (byte == ')' || byte == ']' || byte == '}' || byte == ';') return true;
-    if (!(TmtGrammar_identifier_continue(byte) || byte == '.' || space(byte))) return false;
+    if (byte == '?' && token && flat && (at == size || (code[at] != '?' && code[at] != '.'))) return true;
+    if (space(byte)) gap = token;
+    else if (TmtGrammar_identifier_continue(byte) || byte == '.') {
+      flat = flat && !gap;
+      token = true;
+    } else return false;
   }
   return true;
 }
@@ -853,34 +862,11 @@ static bool unambiguous_javascript(uint8_t *code, uint32_t size) {
 static const char esm_marker[] = "\nexport {};\n";
 
 /* A line break can make an unerased assertion look like separate JS expressions. */
-static bool jsx_text_contains(TmtPulseMemory_tape input, uint32_t records, uint32_t first, uint32_t end) {
-  TmtGrammar_span tag = {0};
-  for (uint32_t index = 0; index < records; index++) {
-    const TmtGrammar_span span = input.output[index].left;
-    if (input.output[index].original == 0 && span.first <= first && end <= span.last &&
-        (!tag.last || (tag.first <= span.first && span.last <= tag.last))) tag = span;
-  }
-  if (!tag.last) return false;
-  for (uint32_t index = 0; index < records; index++) {
-    const TmtGrammar_span span = input.output[index].left;
-    if (input.output[index].original == 5 && tag.first <= span.first && span.last <= tag.last &&
-        span.first <= first && first < span.last) return false;
-  }
-  return true;
-}
-
-static bool unambiguous_assertions(TmtPulseMemory_tape input, uint8_t *code, uint32_t records,
-  const TmtGrammar_span *tags, size_t tag_count)
-{
+static bool unambiguous_assertions(TmtPulseMemory_tape input, uint8_t *code, uint32_t records) {
   input.source = code;
   bool certain = true;
   uint32_t event = 0;
-  size_t tag = 0;
   for (uint32_t first = 0; first < input.size;) {
-    if (certain && tag_count && code[first] == '<') {
-      while (tag < tag_count && tags[tag].first < first) tag++;
-      if (tag < tag_count && tags[tag].first == first) certain = false;
-    }
     const uint32_t literal = skip_js_literal_or_comment(input, first, &certain);
     if (literal != first) {
       first = literal;
@@ -898,8 +884,7 @@ static bool unambiguous_assertions(TmtPulseMemory_tape input, uint8_t *code, uin
     if (possible) {
       while (event < records &&
           (input.output[event].original != runtime_import || input.output[event].left.last <= first)) event++;
-      if ((event == records || first < input.output[event].left.first || end > input.output[event].left.last) &&
-          (!tag_count || !jsx_text_contains(input, records, first, end))) return false;
+      if (event == records || first < input.output[event].left.first || end > input.output[event].left.last) return false;
     }
     first = end;
   }
@@ -975,8 +960,7 @@ static bool preserve_generic_arrow(TmtPulseMemory_tape input, TmtGrammar_span sp
   return true;
 }
 
-static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records,
-  const TmtGrammar_span *tags, size_t tag_count, char **output, bool *remove_statement)
+static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool *remove_statement)
 {
   char *code = NULL;
   uint32_t previous = 0;
@@ -1038,7 +1022,6 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records,
     if (arrow && !preserve_generic_arrow(input, span, code)) goto decline;
     previous = span.last;
   }
-  if (!unambiguous_assertions(input, code ? (uint8_t *)code : input.source, records, tags, tag_count)) goto decline;
   *output = code;
   return true;
 decline:
@@ -1077,18 +1060,20 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
 {
   char *code = NULL;
   bool remove_statement;
-  if (!blank_type_records(input, records, NULL, 0, &code, &remove_statement)) goto enum_only;
+  if (!blank_type_records(input, records, &code, &remove_statement)) goto enum_only;
+  if (!code && !enums) return NULL;
+  TmtPulseMemory_tape projected = input;
+  if (code) projected.source = (uint8_t *)code;
+  if (!unambiguous_projection(projected, records)) goto enum_only;
   *length = input.size;
   if (enums) {
-    TmtPulseMemory_tape projected = input;
-    if (code) projected.source = (uint8_t *)code;
     char *lowered = lower_recorded_enums(projected, records, length);
     if (lowered) {
       free(code);
       code = lowered;
     }
   }
-  if (!code || *length > 1048576 || !unambiguous_javascript((uint8_t *)code, (uint32_t)*length)) goto enum_only;
+  if (!code || *length > 1048576) goto enum_only;
   if (esm && remove_statement && !tmt_module_marker((uint8_t *)code, (uint32_t)*length, false)) {
     char *with_marker = realloc(code, *length + sizeof(esm_marker));
     if (!with_marker) goto enum_only;
@@ -1266,6 +1251,72 @@ static char *render_jsx_spans(TmtPulseMemory_tape input, const TmtGrammar_span *
   return NULL;
 }
 
+#ifdef TMT_V8_VALIDATOR
+typedef struct {
+  TmtGrammar_span span;
+  bool code;
+} guard_region;
+
+static int compare_regions(const void *lhs, const void *rhs) {
+  const guard_region *a = lhs, *b = rhs;
+  const int span_order = compare_spans(&a->span, &b->span);
+  return span_order ? span_order : (int)b->code - (int)a->code;
+}
+
+/* Check only bytes that can become JavaScript syntax in the projection. */
+static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records) {
+  guard_region *regions = malloc((size_t)records * sizeof(*regions));
+  if (!regions && records) return false;
+  size_t count = 0;
+  for (uint32_t index = 0; index < records; index++) {
+    const TmtGrammar_candidate event = input.output[index];
+    const uint32_t kind = event.original;
+    if (kind != 0 && kind != 5 && kind != lexical_text && kind != runtime_enum) continue;
+    if (event.left.first > event.left.last || event.left.last > input.size) {
+      free(regions);
+      return false;
+    }
+    if (event.left.first != event.left.last) regions[count++] = (guard_region){ event.left, kind == 5 };
+  }
+  if (!count) {
+    free(regions);
+    return unambiguous_assertions(input, input.source, records) && unambiguous_javascript(input.source, input.size);
+  }
+  uint8_t *view = malloc(input.size);
+  if (!view) {
+    free(regions);
+    return false;
+  }
+  memcpy(view, input.source, input.size);
+  qsort(regions, count, sizeof(*regions), compare_regions);
+  uint32_t ends[128];
+  size_t depth = 0;
+  bool ordered = true;
+  for (size_t index = 0; index < count; index++) {
+    const guard_region region = regions[index];
+    const TmtGrammar_span span = region.span;
+    while (depth && ends[depth - 1] <= span.first) depth--;
+    if ((depth && ends[depth - 1] < span.last) || (region.code && !depth) ||
+        depth == sizeof(ends) / sizeof(*ends)) {
+      ordered = false;
+      break;
+    }
+    ends[depth++] = span.last;
+    if (region.code) memcpy(view + span.first, input.source + span.first, span.last - span.first);
+    else {
+      for (uint32_t at = span.first; at < span.last; at++) {
+        const uint8_t byte = input.source[at];
+        view[at] = byte == '\n' || byte == '\r' ? byte : ' ';
+      }
+    }
+  }
+  const bool valid = ordered && unambiguous_assertions(input, view, records) && unambiguous_javascript(view, input.size);
+  free(view);
+  free(regions);
+  return valid;
+}
+#endif
+
 static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans, uint32_t records,
   uint32_t insertion, bool classic, size_t *length, bool *complete)
 {
@@ -1282,19 +1333,20 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   if (input.capture_types) {
     char *masked;
     bool remove_statement;
-    if (blank_type_records(input, records, spans, elements, &masked, &remove_statement)) {
+    if (blank_type_records(input, records, &masked, &remove_statement)) {
       TmtPulseMemory_tape projected = input;
       if (masked) projected.source = (uint8_t *)masked;
-      char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length);
-      if (code && *length <= UINT32_MAX && unambiguous_javascript((uint8_t *)code, (uint32_t)*length) &&
-          (!remove_statement || (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&
-          tmt_valid_javascript_module(code, *length)) {
-        *complete = true;
-        free(masked);
-        return code;
+      if (unambiguous_projection(projected, records)) {
+        char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length);
+        if (code && (!remove_statement || (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&
+            tmt_valid_javascript_module(code, *length)) {
+          *complete = true;
+          free(masked);
+          return code;
+        }
+        if (!masked) return code;
+        free(code);
       }
-      if (!masked) return code;
-      free(code);
       free(masked);
     }
   }
