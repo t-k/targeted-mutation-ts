@@ -120,3 +120,21 @@ Class modifier projection made the published `table.tsx` fixture fully native at
 The multiline type masker uses NEON or SSE2 on complete 16-byte ASCII blocks, then a scalar loop for the tail. The block preserves LF and CR and rejects bytes with the high bit set. Lean checks the composition of block results. Both native implementations match the scalar contract for every byte value and lane. The paired whole-compiler test retained identical output. Its per-thread CPU medians moved by less than 2% in either direction on the four tested upstream sources.
 
 At the `88f665b` checkpoint, 309 of the 653 core inputs used the full native path. The additional framework probe covered 2,036 TypeScript and JavaScript modules. Of these, 2,011 emitted JavaScript with TypeScript unavailable. It compared 664 newly native outputs with the previous compiler or the TypeScript reference and found no new structural difference.
+
+### Reviewed projection benchmark
+
+At `1d0c208`, all 653 core inputs emitted valid JavaScript in a temporary directory with no TypeScript package installed. The Pulse emitter handled 311 inputs without Node's type eraser. The expanded framework probe emitted 2,138 of 2,165 inputs with TypeScript unavailable. It includes 25 of 26 Solid modules and 102 of 103 TanStack Query modules. The probe reads source blobs from fixed revisions and verifies output without running those modules.
+
+The isolated Linux arm64 run had 17 comparable emission rows. TMT led 8 warm comparisons and 1 first-process comparison. The official transformer `parser.ts` and the Yuku `checker.ts` input had no common eligible emission row.
+
+| Workload | TMT warm (ms) | Fastest reference warm (ms) | TMT first (ms) | Fastest reference first (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| 256 declarations in one module | 0.014 | 0.058 (Oxc) | 0.900 | 0.452 (SWC Next) |
+| tachyon-dom TSX, 32 files | 0.480 | 0.515 (SWC Next) | 1.874 | 0.800 (SWC Next) |
+| UserSettings.tsx | 0.051 | 0.069 (Oxc) | 1.081 | 0.469 (SWC Next) |
+| table.tsx | 0.375 | 0.292 (Oxc) | 1.819 | 0.981 (SWC Next) |
+| App.tsx | 11.958 | 3.343 (Oxc) | 44.251 | 5.908 (SWC Next) |
+| renderer.ts | 2.005 | 0.542 (Oxc) | 28.480 | 1.316 (SWC Next) |
+| TypeScript JavaScript bundle | 20.020 | 62.753 (Oxc) | 54.479 | 79.350 (Oxc) |
+
+The review regressions exercise runtime behavior for multiline generic arrows in return and yield positions. They also check the exported object from a namespace that contains a standalone empty statement. The latter continues through the runtime lowering route. All 2,960 tests passed on this revision.
