@@ -479,7 +479,12 @@ fn runtime_module_marker (input:tape) (#frame:slprop) (at:U32.t)
   let head = P.trivia input #frame at;
   if (not head.ok) { false } else {
     let exported = P.keyword input #frame head.at 6ul 0x6578706f7274uL;
-    if (exported) { true } else {
+    if (exported) {
+      let after = P.plus head.at 6ul;
+      let token = peek input #frame after;
+      if (token = 226uy) { separator input #frame after }
+      else { G.whitespace token || token = 47uy || token = 123uy || token = 42uy }
+    } else {
       let imported = P.keyword input #frame head.at 6ul 0x696d706f7274uL;
       if (not imported) { false } else {
         let after = P.trivia input #frame (P.plus head.at 6ul);

@@ -146,6 +146,15 @@ theorem projectionKeywordTables (head follower : BitVec 8) :
   unfold projectionHeadFlags projectionFollowerFlags projectionKeywordPrefix
   bv_decide
 
+theorem projectionLookupGroups (index : BitVec 8) :
+    ((index &&& 240) == 0 || (index &&& 240) == 16) = decide (index < 32) := by
+  bv_decide
+
+theorem projectionMaskSuffix (mask : BitVec 64) (first lane stride : Nat) :
+    (mask >>> (first * stride)).getLsbD (lane * stride) =
+      mask.getLsbD ((first + lane) * stride) := by
+  simp [Nat.add_mul]
+
 -- The enum writer uses unsigned C shifts and reconstructs signed right shift.
 theorem enumSignedRight (word distance : BitVec 32) :
     let count := distance &&& 31

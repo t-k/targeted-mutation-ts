@@ -3,3 +3,6 @@ Space	Zero	Hit
 Identifier	Middle	Stop
 DecimalDigits	End	Empty
 Identifier	Zero	NonAscii
+HorizontalSpace	Zero	Hit
+HorizontalSpace	Middle	Stop
+HorizontalSpace	End	Empty

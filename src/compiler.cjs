@@ -134,9 +134,12 @@ function moduleTriviaEnd(source, at) {
   return moduleTrivia.lastIndex;
 }
 
-function startsStaticModule(source) {
+function javascriptModuleStart(source) {
   const hashbang = source.startsWith('#!') ? /^#![^\r\n\u2028\u2029]*/.exec(source)[0].length : 0;
-  const start = moduleTriviaEnd(source, hashbang);
+  return moduleTriviaEnd(source, hashbang);
+}
+
+function startsStaticModule(source, start) {
   const after = start + 6;
   const follower = source[after] ?? '';
   if (source.startsWith('export', start)) return /^[\s{/*]$/.test(follower);
@@ -147,11 +150,14 @@ function startsStaticModule(source) {
 
 function modernJavaScript(source, file, format) {
   const moduleFile = format === 'esm' && /\.mjs$/i.test(file);
-  const staticHead = !moduleFile && startsStaticModule(source);
+  const start = moduleFile ? undefined : javascriptModuleStart(source);
+  const staticHead = start !== undefined && startsStaticModule(source, start);
   const script = format === 'preserve' && !staticHead ? strictScript(source, file) : null;
   if (script !== null) return script;
   let bytes;
-  if (source.includes('///')) {
+  const directive = source.indexOf('///');
+  if (directive !== -1) {
+    if (directive < (start ?? javascriptModuleStart(source))) return null;
     bytes = Buffer.from(source);
     if (loadDirectAddon()?.leadingDirective(bytes) !== false) return null;
   }

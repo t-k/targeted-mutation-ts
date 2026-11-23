@@ -39,15 +39,18 @@ let identifier_start (ch: U8.t) : bool =
 
 let decimal_digit (ch: U8.t) : bool = U8.(ch >=^ 48uy && ch <=^ 57uy)
 let identifier_continue (ch: U8.t) : bool = identifier_start ch || decimal_digit ch
-let whitespace (ch: U8.t) : bool = ch = 32uy || ch = 9uy || ch = 10uy || ch = 13uy
+let horizontal_space (ch: U8.t) : bool = ch = 32uy || ch = 9uy
+let whitespace (ch: U8.t) : bool = horizontal_space ch || ch = 10uy || ch = 13uy
 
 type byte_class =
   | Space
   | Identifier
   | DecimalDigits
+  | HorizontalSpace
 
 let in_class (cls:byte_class) (ch:U8.t) : bool =
   match cls with
   | Space -> whitespace ch
   | Identifier -> identifier_continue ch
   | DecimalDigits -> decimal_digit ch
+  | HorizontalSpace -> horizontal_space ch

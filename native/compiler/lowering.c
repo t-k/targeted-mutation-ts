@@ -919,17 +919,30 @@ static bool unambiguous_javascript(TmtPulseMemory_tape input, uint8_t *code, uin
   const uint32_t size = input.size;
   bool certain = size <= 1048576;
   uint32_t event = 0;
-  // tmt_projection_run keeps the two-byte prefixes of these words and the assertion keywords.
+#ifdef TMT_SIMD_COMPILER
+  const unsigned width = tmt_projection_width();
+  uint32_t block = 0, limit = 0;
+  uint64_t lanes = 0;
+#endif
+  // The mask keeps the two-byte prefixes of these words and the assertion keywords.
   static const char *const reserved[] = {
     "declare", "namespace", "type", "interface", "abstract", "enum",
     "readonly", "public", "private", "protected", "override", "implements",
   };
   for (uint32_t first = 0; first < size;) {
-#if defined(TMT_SIMD_COMPILER) && defined(__aarch64__)
-    while (size - first >= 17) {
-      const unsigned step = tmt_projection_run(code + first);
-      first += step;
-      if (step < 16) break;
+#ifdef TMT_SIMD_COMPILER
+    while (width && (first < limit || size - first > width)) {
+      if (first >= limit) {
+        block = first;
+        limit = first + width;
+        lanes = tmt_projection_mask(code + first, width);
+      }
+      const uint64_t remaining = lanes >> ((first - block) << TMT_PROJECTION_LANE_SHIFT);
+      if (remaining) {
+        first += (unsigned)__builtin_ctzll(remaining) >> TMT_PROJECTION_LANE_SHIFT;
+        break;
+      }
+      first = limit;
     }
 #endif
     const uint32_t literal = skip_js_literal_or_comment(input, first, &certain);
@@ -949,8 +962,8 @@ static bool unambiguous_javascript(TmtPulseMemory_tape input, uint8_t *code, uin
       if (!comparison_angle(input, first + 1, certain)) return false;
     }
     bool identifier = TmtGrammar_identifier_continue(code[first]);
-#if defined(TMT_SIMD_COMPILER) && defined(__aarch64__)
-    identifier = identifier && (!first || !TmtGrammar_identifier_continue(code[first - 1]));
+#ifdef TMT_SIMD_COMPILER
+    if (width) identifier = identifier && (!first || !TmtGrammar_identifier_continue(code[first - 1]));
 #endif
     if (!identifier) {
       first++;

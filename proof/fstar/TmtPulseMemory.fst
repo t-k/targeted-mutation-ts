@@ -156,7 +156,7 @@ fn boundary (input:tape) (#frame:slprop) (offset:U32.t)
   operator
 }
 
-fn scan_class (input:tape) (#frame:slprop) (offset:U32.t{U32.v offset <= U32.v input.size}) (code:U8.t{U8.v code <= 2})
+fn scan_class (input:tape) (#frame:slprop) (offset:U32.t{U32.v offset <= U32.v input.size}) (code:U8.t{U8.v code <= 3})
   requires input_ready input ** frame
   returns stop:U32.t
   ensures input_ready input ** frame

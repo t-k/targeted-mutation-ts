@@ -129,6 +129,8 @@ TmtPulseParser_cursor;
 
 uint8_t TmtPulseMemory_peek(TmtPulseMemory_tape input, uint32_t at);
 
+bool TmtGrammar_horizontal_space(uint8_t ch);
+
 bool TmtGrammar_whitespace(uint8_t ch);
 
 uint32_t TmtPulseParser_plus(uint32_t value, uint32_t amount);
@@ -199,6 +201,7 @@ uint32_t TmtPulseParser_local_width(TmtPulseMemory_tape input, uint32_t start);
 #define TmtGrammar_Space 0
 #define TmtGrammar_Identifier 1
 #define TmtGrammar_DecimalDigits 2
+#define TmtGrammar_HorizontalSpace 3
 
 typedef uint8_t TmtGrammar_byte_class;
 
@@ -1232,11 +1235,19 @@ typedef struct TmtPulseParser_parsed_s
 }
 TmtPulseParser_parsed;
 
-TmtPulseParser_parser_state
-TmtPulseParser_generic_arrow_head(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+TmtPulseParser_parameter_list TmtPulseParser_missed_arrow(TmtPulseParser_parser_state state);
 
 TmtPulseParser_parser_state
 TmtPulseParser_arrow_token(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+
+TmtPulseParser_parameter_list
+TmtPulseParser_bare_arrow_parameters(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_generic_arrow_head(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
 
 TmtPulseParser_parser_state
 TmtPulseParser_enter_function_locals(TmtPulseParser_parser_state state);

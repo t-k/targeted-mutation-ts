@@ -14,11 +14,12 @@ module Seq = FStar.Seq
 module Size = FStar.SizeT
 module S = TmtPulseScan
 
-let class_code (cls:G.byte_class) : n:U8.t{U8.v n <= 2} =
+let class_code (cls:G.byte_class) : n:U8.t{U8.v n <= 3} =
   match cls with
   | G.Space -> 0uy
   | G.Identifier -> 1uy
   | G.DecimalDigits -> 2uy
+  | G.HorizontalSpace -> 3uy
 
 let plus (value:U32.t) (amount:U32.t) : U32.t = U32.add_mod value amount
 let minus (value:U32.t) (amount:U32.t) : U32.t = U32.sub_mod value amount
@@ -1861,6 +1862,28 @@ let arrow_token (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt par
     read_ret input #frame (if not tail.newline && equal && greater then { st with offset = plus st.offset 2ul }
     else failed st 1ul)
 
+let missed_arrow (state:parser_state) : parameter_list =
+  { names = { state = failed state 1ul; used = state.local_names }; non_simple = false }
+
+let bare_arrow_parameters (input:tape) (state:parser_state)
+  : Tot (stt parameter_list (heap input) (fun _ -> heap input)) =
+  let used = state.local_names in
+  let missed = missed_arrow state in
+  let! end_ = (fun () -> scan_class input state.offset G.Identifier) in
+  let! at = (fun () -> scan_class input end_ G.HorizontalSpace) in
+  let! byte = (fun () -> peek input at) in
+  let! body = (fun () ->
+    if byte = 47uy then arrow_token input { state with offset = end_ }
+    else if byte = 61uy then
+      let! greater = (fun () -> same input (next at) 62uy) in
+      ret input (if greater then { state with offset = plus at 2ul } else failed state 1ul)
+    else ret input (failed state 1ul)) in
+  if body.status <> 0ul then ret input missed
+  else
+    let! param = (fun () -> bind_since input state binding_region_width used used state.offset) in
+    ret input (if param.state.status <> 0ul then missed
+      else { missed with names = { param with state = { param.state with offset = body.offset } } })
+
 let generic_arrow_head (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! head = (fun () -> consume input #frame state 60uy) in
   let! eligible =
@@ -2776,10 +2799,12 @@ and arrow_parameter_list (input:tape) (state:parser_state) (floor used:names_use
 and plain_arrow_parameters (input:tape) (state:parser_state) (fuel:U32.t)
   : Tot (stt parameter_list (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 23; 0]) =
   let used = state.local_names in
-  let missed = { names = { state = failed state 1ul; used }; non_simple = false } in
+  let missed = missed_arrow state in
   if state.status <> 0ul then ret input (missed)
   else
     let! byte = (fun () -> peek input state.offset) in
+    if G.identifier_start byte then bare_arrow_parameters input state
+    else
     let! opening = (fun () -> if byte = 60uy then
       let! generic = (fun () -> generic_arrow_head input state) in
       let! recorded = (fun () -> record_jsx_span input generic 16ul state.offset generic.offset) in
@@ -2802,24 +2827,24 @@ and plain_arrow_parameters (input:tape) (state:parser_state) (fuel:U32.t)
         let closing = { G.first = minus params.names.state.offset 1ul; G.last = params.names.state.offset } in
         record_compiler_span input body 20ul span closing else ret input body) in
       ret input ({ params with names = { params.names with state = body } })
-    else if G.identifier_start byte then
-      let! end_ = (fun () -> scan_class input state.offset G.Identifier) in
-      let! body = (fun () -> arrow_token input { state with offset = end_ }) in
-      if body.status <> 0ul then ret input (missed)
-      else
-        let! param = (fun () -> bind_since input state binding_region_width used used state.offset) in
-        ret input (if param.state.status <> 0ul then missed
-          else { missed with names = { param with state = { param.state with offset = body.offset } } })
     else ret input (missed)
 
 and arrow_parameters (input:tape) (state:parser_state) (fuel:U32.t)
   : Tot (stt parameter_list (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 24; 0]) =
-  let! modifier = (fun () -> async_modifier input state.offset) in
-  if modifier.ok && state.status = 0ul then
-    let! async_ = (fun () -> plain_arrow_parameters input { state with offset = modifier.at; await_allowed = true } fuel) in
-    if async_.names.state.status = 0ul || async_.names.state.status = 4ul then ret input (async_)
-    else plain_arrow_parameters input { state with await_allowed = false } fuel
-  else plain_arrow_parameters input { state with await_allowed = false } fuel
+  let normal = { state with await_allowed = false } in
+  if state.status <> 0ul then ret input (missed_arrow normal)
+  else
+    let! byte = (fun () -> peek input state.offset) in
+    if byte = 97uy then
+      let! modifier = (fun () -> async_modifier input state.offset) in
+      if modifier.ok then
+        let! async_ = (fun () -> plain_arrow_parameters input { state with offset = modifier.at; await_allowed = true } fuel) in
+        if async_.names.state.status = 0ul || async_.names.state.status = 4ul then ret input async_
+        else plain_arrow_parameters input normal fuel
+      else plain_arrow_parameters input normal fuel
+    else if byte = 40uy || byte = 60uy then plain_arrow_parameters input normal fuel
+    else if G.identifier_start byte then bare_arrow_parameters input normal
+    else ret input (missed_arrow normal)
 
 and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 25; 0]) =

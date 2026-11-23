@@ -49,33 +49,42 @@ static void check_type_blocks(void)
 }
 #endif
 
-#if defined(__aarch64__)
-static unsigned projection_reference(const uint8_t *bytes)
+#if defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))
+static bool projection_candidates[256][256];
+
+static void prepare_projection_reference(void)
 {
   static const char *const words[] = {
     "as", "satisfies", "declare", "namespace", "type", "interface", "abstract",
     "enum", "readonly", "public", "private", "protected", "override", "implements",
   };
-  for (unsigned lane = 0; lane < 16; lane++) {
-    const uint8_t byte = bytes[lane];
-    if (byte && strchr("<\x22'/`\\", byte)) return lane;
-    for (unsigned word = 0; word < sizeof(words) / sizeof(*words); word++) {
-      if (!memcmp(bytes + lane, words[word], 2)) return lane;
-    }
+  for (unsigned first = 1; first <= UINT8_MAX; first++) {
+    if (strchr("<\x22'/`\\", first)) memset(projection_candidates[first], 1, sizeof(projection_candidates[first]));
   }
-  return 16;
+  for (size_t word = 0; word < sizeof(words) / sizeof(*words); word++) {
+    projection_candidates[(uint8_t)words[word][0]][(uint8_t)words[word][1]] = true;
+  }
 }
 
-static void compare_projection_run(unsigned lane, uint8_t first, uint8_t second)
+static void compare_projection_mask(const uint8_t *bytes, unsigned width)
 {
-  uint8_t bytes[17];
+  const uint64_t mask = tmt_projection_mask(bytes, width);
+  for (unsigned lane = 0; lane < width; lane++) {
+    const bool hit = (mask >> (lane << TMT_PROJECTION_LANE_SHIFT)) & 1U;
+    assert(hit == projection_candidates[bytes[lane]][bytes[lane + 1]]);
+  }
+}
+
+static void projection_example(unsigned width, unsigned lane, uint8_t first, uint8_t second)
+{
+  uint8_t bytes[33];
   memset(bytes, '_', sizeof(bytes));
   bytes[lane] = first;
   bytes[lane + 1] = second;
-  assert(tmt_projection_run(bytes) == projection_reference(bytes));
+  compare_projection_mask(bytes, width);
 }
 
-static void check_projection_blocks(const char *path)
+static void check_projection_blocks(const char *path, unsigned width)
 {
   FILE *matrix = fopen(path, "r");
   char header[128], first[32], second[32], position[32];
@@ -84,30 +93,34 @@ static void check_projection_blocks(const char *path)
   while (fscanf(matrix, "%31s %31s %31s", first, second, position) == 3) {
     const uint8_t head = strcmp(first, "Lexical") == 0 ? '<' : strcmp(first, "PairHead") == 0 ? 'a' : '_';
     const uint8_t tail = strcmp(second, "Lexical") == 0 ? '/' : strcmp(second, "PairTail") == 0 ? 's' : '_';
-    const unsigned lane = strcmp(position, "Start") == 0 ? 0 : strcmp(position, "End") == 0 ? 15 : 8;
-    compare_projection_run(lane, head, tail);
+    const unsigned lane = strcmp(position, "Start") == 0 ? 0 : strcmp(position, "End") == 0 ? width - 1 : width / 2;
+    projection_example(width, lane, head, tail);
     count++;
   }
   assert(feof(matrix) && count > 0);
   fclose(matrix);
-  for (unsigned lane = 0; lane < 16; lane++) {
+  uint8_t mixed[33];
+  for (unsigned lane = 0; lane < sizeof(mixed); lane++) mixed[lane] = (uint8_t)"as/_satisfies"[lane % 13];
+  compare_projection_mask(mixed, width);
+  for (unsigned lane = 0; lane < width; lane++) {
     for (unsigned first_byte = 0; first_byte <= UINT8_MAX; first_byte++) {
       for (unsigned second_byte = 0; second_byte <= UINT8_MAX; second_byte++) {
-        compare_projection_run(lane, (uint8_t)first_byte, (uint8_t)second_byte);
+        projection_example(width, lane, (uint8_t)first_byte, (uint8_t)second_byte);
       }
     }
   }
-  printf("SIMD projection guard matched %u PICT cases and every byte pair in every lane\n", count);
+  printf("SIMD projection guard matched %u PICT cases and every byte pair in %u lanes\n", count, width);
 }
 #endif
 
-enum { SPACE, IDENTIFIER, DECIMAL_DIGITS };
+enum { SPACE, IDENTIFIER, DECIMAL_DIGITS, HORIZONTAL_SPACE };
 
 static bool matches(uint8_t cls, uint8_t byte)
 {
   bool digit = byte >= '0' && byte <= '9';
   if (cls == SPACE) return byte == ' ' || byte == '\t' || byte == '\r' || byte == '\n';
   if (cls == DECIMAL_DIGITS) return digit;
+  if (cls == HORIZONTAL_SPACE) return byte == ' ' || byte == '\t';
   return digit || (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') || byte == '$' || byte == '_';
 }
 
@@ -122,7 +135,7 @@ static void compare(uint8_t *source, uint32_t size, uint32_t start, uint8_t cls)
   assert(memcmp(original, source, size) == 0);
 }
 
-static const uint8_t valid[] = { ' ', 'a', '9' };
+static const uint8_t valid[] = { ' ', 'a', '9', '\t' };
 
 static void check_matrix(const char *path)
 {
@@ -133,10 +146,11 @@ static void check_matrix(const char *path)
   while (fscanf(matrix, "%31s %31s %31s", name, start, run) == 3)
   {
     uint8_t cls = strcmp(name, "Space") == 0 ? SPACE
-      : strcmp(name, "Identifier") == 0 ? IDENTIFIER : DECIMAL_DIGITS;
+      : strcmp(name, "Identifier") == 0 ? IDENTIFIER
+      : strcmp(name, "DecimalDigits") == 0 ? DECIMAL_DIGITS : HORIZONTAL_SPACE;
     uint8_t buffer[8];
     memset(buffer, valid[cls], sizeof(buffer));
-    if (strcmp(run, "Stop") == 0) buffer[3] = '@';
+    if (strcmp(run, "Stop") == 0) buffer[3] = cls == HORIZONTAL_SPACE ? '\n' : '@';
     if (strcmp(run, "NonAscii") == 0) buffer[3] = 0xe3;
     uint32_t size = strcmp(run, "Empty") == 0 ? 0 : sizeof(buffer);
     uint32_t offset = strcmp(start, "End") == 0 ? size : strcmp(start, "Middle") == 0 ? 2 : 0;
@@ -291,9 +305,14 @@ int main(int argc, char **argv)
   check_type_blocks();
 #endif
 #if defined(__aarch64__)
-  check_projection_blocks(argv[5]);
+  prepare_projection_reference();
+  check_projection_blocks(argv[5], 16);
+#elif defined(__x86_64__) && defined(__SSE2__)
+  prepare_projection_reference();
+  if (__builtin_cpu_supports("ssse3")) check_projection_blocks(argv[5], 16);
+  if (__builtin_cpu_supports("avx2")) check_projection_blocks(argv[5], 32);
 #endif
-  for (uint8_t cls = SPACE; cls <= DECIMAL_DIGITS; cls++)
+  for (uint8_t cls = SPACE; cls <= HORIZONTAL_SPACE; cls++)
   {
     compare(buffer, 0, 0, cls);
     for (unsigned byte = 0; byte < 256; byte++)
@@ -305,5 +324,5 @@ int main(int argc, char **argv)
       compare(buffer, sizeof(buffer), sizeof(buffer), cls);
     }
   }
-  puts("Pulse matched the byte-class reference for all bytes and all three classes");
+  puts("Pulse matched the byte-class reference for all bytes and all four classes");
 }

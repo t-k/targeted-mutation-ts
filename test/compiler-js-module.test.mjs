@@ -11,6 +11,7 @@ const cases = {
   DynamicImport: '// stays a script\nimport // not static\n/* or here */ ("./dependency.js");',
   UnicodeIdentifier: 'exportπ: for (;;) break exportπ;\nimportπ: for (;;) break importπ;',
   Directive: '/// <reference types="types" />\nexport const value = 0;',
+  UnicodeDirective: '\uFEFF/// <reference path= />\nexport const value = 0;',
   Invalid: 'export const value = ;',
 };
 const rows = readFileSync(new URL('../verification/pict/compiler-js-module.tsv', import.meta.url), 'utf8')
@@ -22,7 +23,11 @@ for (const row of rows) {
     const source = cases[kind];
     const options = { file: 'entry.js', module: output === 'CommonJS' ? 'cjs' : 'preserve', sourceMap: output === 'Map' };
     const result = compile(input === 'Bytes' ? Buffer.from(source) : source, options);
-    if (kind === 'Invalid') {
+    if (kind === 'UnicodeDirective') {
+      assert.equal(result.backend, 'typescript');
+      assert.equal(result.code, null);
+      assert.ok(result.diagnostics.some(diagnostic => diagnostic.code === 1084));
+    } else if (kind === 'Invalid') {
       assert.equal(result.code, null);
       assert.ok(result.diagnostics.some(diagnostic => diagnostic.severity === 'error'));
     } else if (output === 'Preserve' && ['StaticImport', 'StaticExport', 'LateExport'].includes(kind)) {
@@ -113,4 +118,18 @@ test('import.meta without a static module item retains its compatibility behavio
   assert.equal(late.backend, 'typescript');
   assert.match(late.code, /import\.meta\.url/);
   assert.deepEqual(late.diagnostics, []);
+});
+
+test('contiguous Unicode and escaped export labels are not module markers', () => {
+  for (const name of ['exportπ', 'export\\u03c0']) {
+    const script = 'let value = 0; ' + name + ': for (;;) break ' + name + ';';
+    const explicit = compile(script, { file: 'entry.js', module: 'esm' });
+    assert.equal(explicit.backend, 'typescript');
+    assert.match(explicit.code, /^"use strict";/);
+    assert.deepEqual(explicit.diagnostics, []);
+    const implicit = compile(script + ' import.meta.url;', { file: 'entry.js' });
+    assert.equal(implicit.backend, 'typescript');
+    assert.match(implicit.code, /import\.meta\.url/);
+    assert.deepEqual(implicit.diagnostics, []);
+  }
 });

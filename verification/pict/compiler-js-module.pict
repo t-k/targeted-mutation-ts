@@ -1,3 +1,3 @@
-Source: StaticImport, StaticExport, LateExport, DynamicImport, UnicodeIdentifier, Directive, Invalid
+Source: StaticImport, StaticExport, LateExport, DynamicImport, UnicodeIdentifier, Directive, UnicodeDirective, Invalid
 Input: Text, Bytes
 Output: Preserve, CommonJS, Map

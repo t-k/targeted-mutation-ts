@@ -21,9 +21,14 @@ bool TmtGrammar_identifier_start(uint8_t ch)
   return ch >= 65U && ch <= 90U || ch >= 97U && ch <= 122U || ch == 36U || ch == 95U;
 }
 
+bool TmtGrammar_horizontal_space(uint8_t ch)
+{
+  return ch == 32U || ch == 9U;
+}
+
 bool TmtGrammar_whitespace(uint8_t ch)
 {
-  return ch == 32U || ch == 9U || ch == 10U || ch == 13U;
+  return TmtGrammar_horizontal_space(ch) || ch == 10U || ch == 13U;
 }
 
 bool TmtGrammar_decimal_digit(uint8_t ch)
@@ -42,8 +47,10 @@ bool TmtPulseScan_in_class(uint8_t code, uint8_t byte)
     return TmtGrammar_whitespace(byte);
   else if (code == 1U)
     return TmtGrammar_identifier_continue(byte);
-  else
+  else if (code == 2U)
     return TmtGrammar_decimal_digit(byte);
+  else
+    return TmtGrammar_horizontal_space(byte);
 }
 
 uint32_t TmtPulseScan_scan_class(uint8_t *source, uint32_t size, uint32_t start, uint8_t code)
@@ -88,6 +95,10 @@ uint8_t TmtPulseParser_class_code(TmtGrammar_byte_class cls)
     case TmtGrammar_DecimalDigits:
       {
         return 2U;
+      }
+    case TmtGrammar_HorizontalSpace:
+      {
+        return 3U;
       }
     default:
       {

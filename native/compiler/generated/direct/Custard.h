@@ -84,8 +84,11 @@ bool TmtGrammar_identifier_start(uint8_t ch);
 #define TmtGrammar_Space 0
 #define TmtGrammar_Identifier 1
 #define TmtGrammar_DecimalDigits 2
+#define TmtGrammar_HorizontalSpace 3
 
 typedef uint8_t TmtGrammar_byte_class;
+
+bool TmtGrammar_horizontal_space(uint8_t ch);
 
 bool TmtGrammar_whitespace(uint8_t ch);
 

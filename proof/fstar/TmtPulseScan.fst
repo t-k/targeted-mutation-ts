@@ -13,15 +13,17 @@ let prefix (bytes:Seq.seq U8.t) (cls:G.byte_class) (start stop:nat) : prop =
   forall (i:nat). start <= i /\ i < stop /\ i < Seq.length bytes ==> G.in_class cls (Seq.index bytes i)
 
 let byte_class (code:U8.t) : G.byte_class =
-  if code = 0uy then G.Space else if code = 1uy then G.Identifier else G.DecimalDigits
+  if code = 0uy then G.Space else if code = 1uy then G.Identifier
+  else if code = 2uy then G.DecimalDigits else G.HorizontalSpace
 
 let in_class (code byte:U8.t) : b:bool{b == G.in_class (byte_class code) byte} =
   if code = 0uy then G.whitespace byte
   else if code = 1uy then G.identifier_continue byte
-  else G.decimal_digit byte
+  else if code = 2uy then G.decimal_digit byte
+  else G.horizontal_space byte
 
 fn scan_class (source:array U8.t) (size:U32.t) (start:U32.t{U32.v start <= U32.v size})
-  (code:U8.t{U8.v code <= 2}) (#p:perm) (#bytes:FStar.Ghost.erased (Seq.seq U8.t))
+  (code:U8.t{U8.v code <= 3}) (#p:perm) (#bytes:FStar.Ghost.erased (Seq.seq U8.t))
   requires pts_to source #p bytes ** pure (U32.v size == Seq.length bytes)
   returns stop:U32.t
   ensures pts_to source #p bytes ** pure (

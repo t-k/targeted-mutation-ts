@@ -8,3 +8,5 @@ Invalid	Text	Preserve
 StaticImport	Bytes	CommonJS
 StaticExport	Text	Map
 LateExport	Bytes	Preserve
+UnicodeDirective	Bytes	Preserve
+UnicodeDirective	Text	Preserve
