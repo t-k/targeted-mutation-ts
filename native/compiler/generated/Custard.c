@@ -7744,6 +7744,20 @@ TmtPulseParser_finish_jsx_expression(
   return TmtPulseParser_record_jsx_span(input, value, 5U, first, state.offset);
 }
 
+TmtPulseParser_cursor TmtPulseParser_jsx_attribute_name(TmtPulseMemory_tape input, uint32_t at)
+{
+  TmtPulseParser_cursor value = TmtPulseParser_name(input, at, true, false);
+  bool value1;
+  if (value.ok)
+    value1 = TmtPulseParser_same(input, value.at, 58U);
+  else
+    value1 = false;
+  if (value1)
+    return TmtPulseParser_name(input, TmtPulseParser_next(value.at), true, false);
+  else
+    return value;
+}
+
 uint32_t
 TmtPulseParser_quote_end(
   TmtPulseMemory_tape input0,
@@ -11892,7 +11906,7 @@ TmtPulseParser_jsx_attribute(
   }
   else
   {
-    TmtPulseParser_cursor value1 = TmtPulseParser_name(input, state.offset, true, false);
+    TmtPulseParser_cursor value1 = TmtPulseParser_jsx_attribute_name(input, state.offset);
     TmtPulseParser_parser_state named_state = TmtPulseParser_from_cursor(state, value1);
     TmtPulseParser_parser_state value2 = TmtPulseParser_skip(input, named_state);
     bool value3 = TmtPulseParser_same(input, value2.offset, 61U);

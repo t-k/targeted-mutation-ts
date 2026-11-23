@@ -1,0 +1,5 @@
+Value	Dialect	Runtime
+Expression	JSX	Automatic
+Text	TSX	Automatic
+Boolean	JSX	Classic
+Expression	TSX	Classic

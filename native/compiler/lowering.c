@@ -411,7 +411,7 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *propertie
       continue;
     }
     const uint32_t first = lower->at;
-    const TmtPulseParser_cursor prop = TmtPulseParser_name(lower->input, first, true, false);
+    const TmtPulseParser_cursor prop = TmtPulseParser_jsx_attribute_name(lower->input, first);
     if (!prop.ok || prop.at <= first || prop.at > lower->input.size) return false;
     lower->at = prop.at;
     const TmtGrammar_span key = { first, prop.at };

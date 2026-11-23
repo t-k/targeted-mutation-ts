@@ -77,9 +77,53 @@ uint8_t TmtPulseScan_peek(uint8_t *source, uint32_t size, uint32_t at);
 
 uint8_t TmtPulseMemory_peek(TmtPulseMemory_tape input, uint32_t at);
 
+bool TmtGrammar_identifier_start(uint8_t ch);
+
+#define TmtGrammar_Space 0
+#define TmtGrammar_Identifier 1
+#define TmtGrammar_DecimalDigits 2
+
+typedef uint8_t TmtGrammar_byte_class;
+
+bool TmtGrammar_whitespace(uint8_t ch);
+
+bool TmtGrammar_decimal_digit(uint8_t ch);
+
+bool TmtGrammar_identifier_continue(uint8_t ch);
+
+bool TmtPulseScan_in_class(uint8_t code, uint8_t byte);
+
+uint32_t TmtPulseScan_scan_class(uint8_t *source, uint32_t size, uint32_t start, uint8_t code);
+
+uint32_t TmtPulseMemory_scan_class(TmtPulseMemory_tape input, uint32_t start, uint8_t code);
+
+uint8_t TmtPulseParser_class_code(TmtGrammar_byte_class cls);
+
+uint32_t
+TmtPulseParser_scan_class(TmtPulseMemory_tape input, uint32_t at, TmtGrammar_byte_class cls);
+
+bool TmtPulseParser_same(TmtPulseMemory_tape input, uint32_t at, uint8_t byte);
+
 uint32_t TmtPulseParser_plus(uint32_t value, uint32_t amount);
 
 uint32_t TmtPulseParser_next(uint32_t at);
+
+uint32_t TmtPulseParser_minus(uint32_t value, uint32_t amount);
+
+uint32_t TmtPulseParser_jsx_name_end(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0);
+
+uint64_t
+TmtPulseParser_word(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0, uint64_t value0);
+
+bool TmtPulseParser_long_reserved(uint64_t first, uint64_t rest);
+
+bool TmtPulseParser_short_reserved(uint64_t packed);
+
+TmtPulseParser_cursor
+TmtPulseParser_name(TmtPulseMemory_tape input, uint32_t at, bool jsx, bool binding);
+
+TmtPulseParser_cursor
+TmtPulseParser_jsx_attribute_name(TmtPulseMemory_tape input, uint32_t at);
 
 bool TmtPulseScan_unicode_line_separator(uint8_t *source, uint32_t size, uint32_t at);
 
@@ -87,18 +131,12 @@ bool TmtPulseMemory_separator(TmtPulseMemory_tape input, uint32_t at);
 
 bool TmtPulseParser_line_break(TmtPulseMemory_tape input, uint32_t at);
 
-bool TmtGrammar_decimal_digit(uint8_t ch);
-
 bool TmtPulseParser_simple_escape(TmtPulseMemory_tape input, uint32_t at, bool template0);
 
 uint32_t TmtPulseParser_hex_value(uint8_t ch);
 
-uint32_t TmtPulseParser_minus(uint32_t value, uint32_t amount);
-
 TmtPulseParser_cursor
 TmtPulseParser_fixed_hex(TmtPulseMemory_tape input0, uint32_t at0, uint32_t digits0);
-
-bool TmtPulseParser_same(TmtPulseMemory_tape input, uint32_t at, uint8_t byte);
 
 TmtPulseParser_cursor
 TmtPulseParser_unicode_escape(
@@ -131,8 +169,6 @@ TmtPulseParser_line_comment(TmtPulseMemory_tape input0, uint32_t at0, uint32_t f
 
 uint32_t TmtPulseParser_source_start(TmtPulseMemory_tape input);
 
-bool TmtGrammar_whitespace(uint8_t ch);
-
 TmtPulseParser_cursor
 TmtPulseParser_block_comment(
   TmtPulseMemory_tape input0,
@@ -153,31 +189,7 @@ TmtPulseParser_cursor TmtPulseParser_trivia(TmtPulseMemory_tape input, uint32_t 
 
 TmtPulseParser_cursor TmtPulseCompiler_runtime_source_start(TmtPulseMemory_tape input);
 
-#define TmtGrammar_Space 0
-#define TmtGrammar_Identifier 1
-#define TmtGrammar_DecimalDigits 2
-
-typedef uint8_t TmtGrammar_byte_class;
-
-bool TmtGrammar_identifier_start(uint8_t ch);
-
-bool TmtGrammar_identifier_continue(uint8_t ch);
-
-bool TmtPulseScan_in_class(uint8_t code, uint8_t byte);
-
-uint32_t TmtPulseScan_scan_class(uint8_t *source, uint32_t size, uint32_t start, uint8_t code);
-
-uint32_t TmtPulseMemory_scan_class(TmtPulseMemory_tape input, uint32_t start, uint8_t code);
-
-uint8_t TmtPulseParser_class_code(TmtGrammar_byte_class cls);
-
-uint32_t
-TmtPulseParser_scan_class(TmtPulseMemory_tape input, uint32_t at, TmtGrammar_byte_class cls);
-
 TmtPulseParser_cursor TmtPulseCompiler_plain_cursor(uint32_t at, bool ok);
-
-uint64_t
-TmtPulseParser_word(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0, uint64_t value0);
 
 bool
 TmtPulseParser_keyword(
@@ -186,15 +198,6 @@ TmtPulseParser_keyword(
   uint32_t size,
   uint64_t expected
 );
-
-uint32_t TmtPulseParser_jsx_name_end(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0);
-
-bool TmtPulseParser_long_reserved(uint64_t first, uint64_t rest);
-
-bool TmtPulseParser_short_reserved(uint64_t packed);
-
-TmtPulseParser_cursor
-TmtPulseParser_name(TmtPulseMemory_tape input, uint32_t at, bool jsx, bool binding);
 
 TmtPulseParser_cursor TmtPulseCompiler_atom(TmtPulseMemory_tape input, uint32_t start);
 

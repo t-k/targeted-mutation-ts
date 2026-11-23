@@ -16,6 +16,102 @@ uint8_t TmtPulseMemory_peek(TmtPulseMemory_tape input, uint32_t at)
   return TmtPulseScan_peek(input.source, input.size, at);
 }
 
+bool TmtGrammar_identifier_start(uint8_t ch)
+{
+  return ch >= 65U && ch <= 90U || ch >= 97U && ch <= 122U || ch == 36U || ch == 95U;
+}
+
+bool TmtGrammar_whitespace(uint8_t ch)
+{
+  return ch == 32U || ch == 9U || ch == 10U || ch == 13U;
+}
+
+bool TmtGrammar_decimal_digit(uint8_t ch)
+{
+  return ch >= 48U && ch <= 57U;
+}
+
+bool TmtGrammar_identifier_continue(uint8_t ch)
+{
+  return TmtGrammar_identifier_start(ch) || TmtGrammar_decimal_digit(ch);
+}
+
+bool TmtPulseScan_in_class(uint8_t code, uint8_t byte)
+{
+  if (code == 0U)
+    return TmtGrammar_whitespace(byte);
+  else if (code == 1U)
+    return TmtGrammar_identifier_continue(byte);
+  else
+    return TmtGrammar_decimal_digit(byte);
+}
+
+uint32_t TmtPulseScan_scan_class(uint8_t *source, uint32_t size, uint32_t start, uint8_t code)
+{
+  uint32_t cursor = start;
+  while (true)
+  {
+    uint32_t at = cursor;
+    bool ite;
+    if (at < size)
+    {
+      uint8_t __anf0 = source[(size_t)at];
+      ite = TmtPulseScan_in_class(code, __anf0);
+    }
+    else
+      ite = false;
+    if (!ite)
+      break;
+    uint32_t __anf0 = cursor;
+    cursor = __anf0 + 1U;
+  }
+  return cursor;
+}
+
+uint32_t TmtPulseMemory_scan_class(TmtPulseMemory_tape input, uint32_t start, uint8_t code)
+{
+  return TmtPulseScan_scan_class(input.source, input.size, start, code);
+}
+
+uint8_t TmtPulseParser_class_code(TmtGrammar_byte_class cls)
+{
+  switch (cls)
+  {
+    case TmtGrammar_Space:
+      {
+        return 0U;
+      }
+    case TmtGrammar_Identifier:
+      {
+        return 1U;
+      }
+    case TmtGrammar_DecimalDigits:
+      {
+        return 2U;
+      }
+    default:
+      {
+        KRML_HOST_EPRINTF("KaRaMeL incomplete match at %s:%d\n", __FILE__, __LINE__);
+        KRML_HOST_EXIT(253U);
+      }
+  }
+}
+
+uint32_t
+TmtPulseParser_scan_class(TmtPulseMemory_tape input, uint32_t at, TmtGrammar_byte_class cls)
+{
+  if (at <= input.size)
+    return TmtPulseMemory_scan_class(input, at, TmtPulseParser_class_code(cls));
+  else
+    return at;
+}
+
+bool TmtPulseParser_same(TmtPulseMemory_tape input, uint32_t at, uint8_t byte)
+{
+  uint8_t value = TmtPulseMemory_peek(input, at);
+  return value == byte;
+}
+
 uint32_t TmtPulseParser_plus(uint32_t value, uint32_t amount)
 {
   return value + amount;
@@ -24,6 +120,193 @@ uint32_t TmtPulseParser_plus(uint32_t value, uint32_t amount)
 uint32_t TmtPulseParser_next(uint32_t at)
 {
   return TmtPulseParser_plus(at, 1U);
+}
+
+uint32_t TmtPulseParser_minus(uint32_t value, uint32_t amount)
+{
+  return value - amount;
+}
+
+uint32_t TmtPulseParser_jsx_name_end(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0)
+{
+  TmtPulseMemory_tape input = input0;
+  uint32_t at = at0;
+  uint32_t fuel = fuel0;
+  while (true)
+    if (fuel == 0U)
+      return at;
+    else
+    {
+      uint32_t value = TmtPulseParser_scan_class(input, at, TmtGrammar_Identifier);
+      bool value1 = TmtPulseParser_same(input, value, 45U);
+      if (value1)
+      {
+        uint32_t tmp0 = TmtPulseParser_next(value);
+        uint32_t tmp = TmtPulseParser_minus(fuel, 1U);
+        at = tmp0;
+        fuel = tmp;
+      }
+      else
+        return value;
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+uint64_t
+TmtPulseParser_word(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0, uint64_t value0)
+{
+  TmtPulseMemory_tape input = input0;
+  uint32_t at = at0;
+  uint32_t fuel = fuel0;
+  uint64_t value = value0;
+  while (true)
+    if (fuel == 0U)
+      return value;
+    else
+    {
+      uint8_t value1 = TmtPulseMemory_peek(input, at);
+      uint32_t tmp0 = TmtPulseParser_next(at);
+      uint32_t tmp1 = TmtPulseParser_minus(fuel, 1U);
+      uint64_t tmp = value << 8U | (uint64_t)(uint32_t)value1;
+      at = tmp0;
+      fuel = tmp1;
+      value = tmp;
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+bool TmtPulseParser_long_reserved(uint64_t first, uint64_t rest)
+{
+  return
+    first == 0x696d706c656d656eULL ? rest == 0x7473ULL
+                                   : first == 0x696e7374616e6365ULL ? rest == 0x6f66ULL
+                                                                    : first == 0x696e746572666163ULL ? rest
+                                                                                                     ==
+                                                                                                       0x65ULL
+                                                                                                     : first
+                                                                                                     ==
+                                                                                                       0x70726f7465637465ULL
+                                                                                                     &&
+                                                                                                       rest
+                                                                                                       ==
+                                                                                                         0x64ULL;
+}
+
+bool TmtPulseParser_short_reserved(uint64_t packed)
+{
+  return
+    packed == 0x6177616974ULL || packed == 0x627265616bULL || packed == 0x63617365ULL ||
+      packed == 0x6361746368ULL
+    || packed == 0x636c617373ULL
+    || packed == 0x636f6e7374ULL
+    || packed == 0x636f6e74696e7565ULL
+    || packed == 0x6465627567676572ULL
+    || packed == 0x64656661756c74ULL
+    || packed == 0x64656c657465ULL
+    || packed == 0x646fULL
+    || packed == 0x656c7365ULL
+    || packed == 0x656e756dULL
+    || packed == 0x6578706f7274ULL
+    || packed == 0x657874656e6473ULL
+    || packed == 0x66616c7365ULL
+    || packed == 0x66696e616c6c79ULL
+    || packed == 0x666f72ULL
+    || packed == 0x66756e6374696f6eULL
+    || packed == 0x6966ULL
+    || packed == 0x696d706f7274ULL
+    || packed == 0x696eULL
+    || packed == 0x6c6574ULL
+    || packed == 0x6e6577ULL
+    || packed == 0x6e756c6cULL
+    || packed == 0x7061636b616765ULL
+    || packed == 0x70726976617465ULL
+    || packed == 0x7075626c6963ULL
+    || packed == 0x72657475726eULL
+    || packed == 0x737461746963ULL
+    || packed == 0x7375706572ULL
+    || packed == 0x737769746368ULL
+    || packed == 0x74686973ULL
+    || packed == 0x7468726f77ULL
+    || packed == 0x74727565ULL
+    || packed == 0x747279ULL
+    || packed == 0x747970656f66ULL
+    || packed == 0x766172ULL
+    || packed == 0x766f6964ULL
+    || packed == 0x7768696c65ULL
+    || packed == 0x77697468ULL
+    || packed == 0x7969656c64ULL;
+}
+
+TmtPulseParser_cursor
+TmtPulseParser_name(TmtPulseMemory_tape input, uint32_t at, bool jsx, bool binding)
+{
+  uint8_t value = TmtPulseMemory_peek(input, at);
+  if (!TmtGrammar_identifier_start(value))
+    return ((TmtPulseParser_cursor){ .at = at, .ok = false, .newline = false });
+  else if (jsx)
+  {
+    uint32_t value1 = TmtPulseParser_jsx_name_end(input, at, input.size);
+    return ((TmtPulseParser_cursor){ .at = value1, .ok = true, .newline = false });
+  }
+  else
+  {
+    uint32_t value1 = TmtPulseParser_scan_class(input, at, TmtGrammar_Identifier);
+    uint32_t width = TmtPulseParser_minus(value1, at);
+    if (width > 10U)
+      return ((TmtPulseParser_cursor){ .at = value1, .ok = true, .newline = false });
+    else
+    {
+      bool wide = width > 8U;
+      uint64_t value2 = TmtPulseParser_word(input, at, wide ? 8U : width, 0ULL);
+      uint64_t value3;
+      if (wide)
+        value3 =
+          TmtPulseParser_word(input,
+            TmtPulseParser_plus(at, 8U),
+            TmtPulseParser_minus(width, 8U),
+            0ULL);
+      else
+        value3 = 0ULL;
+      bool reserved;
+      if (wide)
+        reserved = TmtPulseParser_long_reserved(value2, value3);
+      else
+        reserved = TmtPulseParser_short_reserved(value2);
+      bool
+      invalid_binding =
+        binding && (value2 == 0x6576616cULL || value2 == 0x617267756d656e74ULL && value3 == 0x73ULL);
+      return
+        (
+          (TmtPulseParser_cursor){
+            .at = value1,
+            .ok = !(reserved || invalid_binding),
+            .newline = false
+          }
+        );
+    }
+  }
+}
+
+TmtPulseParser_cursor TmtPulseParser_jsx_attribute_name(TmtPulseMemory_tape input, uint32_t at)
+{
+  TmtPulseParser_cursor value = TmtPulseParser_name(input, at, true, false);
+  bool value1;
+  if (value.ok)
+    value1 = TmtPulseParser_same(input, value.at, 58U);
+  else
+    value1 = false;
+  if (value1)
+    return TmtPulseParser_name(input, TmtPulseParser_next(value.at), true, false);
+  else
+    return value;
 }
 
 bool TmtPulseScan_unicode_line_separator(uint8_t *source, uint32_t size, uint32_t at)
@@ -55,11 +338,6 @@ bool TmtPulseParser_line_break(TmtPulseMemory_tape input, uint32_t at)
     return false;
 }
 
-bool TmtGrammar_decimal_digit(uint8_t ch)
-{
-  return ch >= 48U && ch <= 57U;
-}
-
 bool TmtPulseParser_simple_escape(TmtPulseMemory_tape input, uint32_t at, bool template0)
 {
   uint8_t value = TmtPulseMemory_peek(input, TmtPulseParser_next(at));
@@ -81,11 +359,6 @@ uint32_t TmtPulseParser_hex_value(uint8_t ch)
     return n - 48U;
   else
     return ch >= 97U && ch <= 102U ? n - 87U : ch >= 65U && ch <= 70U ? n - 55U : 16U;
-}
-
-uint32_t TmtPulseParser_minus(uint32_t value, uint32_t amount)
-{
-  return value - amount;
 }
 
 TmtPulseParser_cursor
@@ -116,12 +389,6 @@ TmtPulseParser_fixed_hex(TmtPulseMemory_tape input0, uint32_t at0, uint32_t digi
     __LINE__,
     "unreachable, returns inserted above");
   KRML_HOST_EXIT(255U);
-}
-
-bool TmtPulseParser_same(TmtPulseMemory_tape input, uint32_t at, uint8_t byte)
-{
-  uint8_t value = TmtPulseMemory_peek(input, at);
-  return value == byte;
 }
 
 TmtPulseParser_cursor
@@ -340,11 +607,6 @@ uint32_t TmtPulseParser_source_start(TmtPulseMemory_tape input)
     return 0U;
 }
 
-bool TmtGrammar_whitespace(uint8_t ch)
-{
-  return ch == 32U || ch == 9U || ch == 10U || ch == 13U;
-}
-
 TmtPulseParser_cursor
 TmtPulseParser_block_comment(
   TmtPulseMemory_tape input0,
@@ -486,116 +748,9 @@ TmtPulseParser_cursor TmtPulseCompiler_runtime_source_start(TmtPulseMemory_tape 
   return TmtPulseParser_trivia(input, at);
 }
 
-bool TmtGrammar_identifier_start(uint8_t ch)
-{
-  return ch >= 65U && ch <= 90U || ch >= 97U && ch <= 122U || ch == 36U || ch == 95U;
-}
-
-bool TmtGrammar_identifier_continue(uint8_t ch)
-{
-  return TmtGrammar_identifier_start(ch) || TmtGrammar_decimal_digit(ch);
-}
-
-bool TmtPulseScan_in_class(uint8_t code, uint8_t byte)
-{
-  if (code == 0U)
-    return TmtGrammar_whitespace(byte);
-  else if (code == 1U)
-    return TmtGrammar_identifier_continue(byte);
-  else
-    return TmtGrammar_decimal_digit(byte);
-}
-
-uint32_t TmtPulseScan_scan_class(uint8_t *source, uint32_t size, uint32_t start, uint8_t code)
-{
-  uint32_t cursor = start;
-  while (true)
-  {
-    uint32_t at = cursor;
-    bool ite;
-    if (at < size)
-    {
-      uint8_t __anf0 = source[(size_t)at];
-      ite = TmtPulseScan_in_class(code, __anf0);
-    }
-    else
-      ite = false;
-    if (!ite)
-      break;
-    uint32_t __anf0 = cursor;
-    cursor = __anf0 + 1U;
-  }
-  return cursor;
-}
-
-uint32_t TmtPulseMemory_scan_class(TmtPulseMemory_tape input, uint32_t start, uint8_t code)
-{
-  return TmtPulseScan_scan_class(input.source, input.size, start, code);
-}
-
-uint8_t TmtPulseParser_class_code(TmtGrammar_byte_class cls)
-{
-  switch (cls)
-  {
-    case TmtGrammar_Space:
-      {
-        return 0U;
-      }
-    case TmtGrammar_Identifier:
-      {
-        return 1U;
-      }
-    case TmtGrammar_DecimalDigits:
-      {
-        return 2U;
-      }
-    default:
-      {
-        KRML_HOST_EPRINTF("KaRaMeL incomplete match at %s:%d\n", __FILE__, __LINE__);
-        KRML_HOST_EXIT(253U);
-      }
-  }
-}
-
-uint32_t
-TmtPulseParser_scan_class(TmtPulseMemory_tape input, uint32_t at, TmtGrammar_byte_class cls)
-{
-  if (at <= input.size)
-    return TmtPulseMemory_scan_class(input, at, TmtPulseParser_class_code(cls));
-  else
-    return at;
-}
-
 TmtPulseParser_cursor TmtPulseCompiler_plain_cursor(uint32_t at, bool ok)
 {
   return ((TmtPulseParser_cursor){ .at = at, .ok = ok, .newline = false });
-}
-
-uint64_t
-TmtPulseParser_word(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0, uint64_t value0)
-{
-  TmtPulseMemory_tape input = input0;
-  uint32_t at = at0;
-  uint32_t fuel = fuel0;
-  uint64_t value = value0;
-  while (true)
-    if (fuel == 0U)
-      return value;
-    else
-    {
-      uint8_t value1 = TmtPulseMemory_peek(input, at);
-      uint32_t tmp0 = TmtPulseParser_next(at);
-      uint32_t tmp1 = TmtPulseParser_minus(fuel, 1U);
-      uint64_t tmp = value << 8U | (uint64_t)(uint32_t)value1;
-      at = tmp0;
-      fuel = tmp1;
-      value = tmp;
-    }
-  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
-    __FILE__,
-    __LINE__,
-    "unreachable, returns inserted above");
-  KRML_HOST_EXIT(255U);
 }
 
 bool
@@ -626,147 +781,6 @@ TmtPulseParser_keyword(
     {
       uint8_t value2 = TmtPulseMemory_peek(input, TmtPulseParser_plus(at, size));
       return !TmtGrammar_identifier_continue(value2);
-    }
-  }
-}
-
-uint32_t TmtPulseParser_jsx_name_end(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0)
-{
-  TmtPulseMemory_tape input = input0;
-  uint32_t at = at0;
-  uint32_t fuel = fuel0;
-  while (true)
-    if (fuel == 0U)
-      return at;
-    else
-    {
-      uint32_t value = TmtPulseParser_scan_class(input, at, TmtGrammar_Identifier);
-      bool value1 = TmtPulseParser_same(input, value, 45U);
-      if (value1)
-      {
-        uint32_t tmp0 = TmtPulseParser_next(value);
-        uint32_t tmp = TmtPulseParser_minus(fuel, 1U);
-        at = tmp0;
-        fuel = tmp;
-      }
-      else
-        return value;
-    }
-  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
-    __FILE__,
-    __LINE__,
-    "unreachable, returns inserted above");
-  KRML_HOST_EXIT(255U);
-}
-
-bool TmtPulseParser_long_reserved(uint64_t first, uint64_t rest)
-{
-  return
-    first == 0x696d706c656d656eULL ? rest == 0x7473ULL
-                                   : first == 0x696e7374616e6365ULL ? rest == 0x6f66ULL
-                                                                    : first == 0x696e746572666163ULL ? rest
-                                                                                                     ==
-                                                                                                       0x65ULL
-                                                                                                     : first
-                                                                                                     ==
-                                                                                                       0x70726f7465637465ULL
-                                                                                                     &&
-                                                                                                       rest
-                                                                                                       ==
-                                                                                                         0x64ULL;
-}
-
-bool TmtPulseParser_short_reserved(uint64_t packed)
-{
-  return
-    packed == 0x6177616974ULL || packed == 0x627265616bULL || packed == 0x63617365ULL ||
-      packed == 0x6361746368ULL
-    || packed == 0x636c617373ULL
-    || packed == 0x636f6e7374ULL
-    || packed == 0x636f6e74696e7565ULL
-    || packed == 0x6465627567676572ULL
-    || packed == 0x64656661756c74ULL
-    || packed == 0x64656c657465ULL
-    || packed == 0x646fULL
-    || packed == 0x656c7365ULL
-    || packed == 0x656e756dULL
-    || packed == 0x6578706f7274ULL
-    || packed == 0x657874656e6473ULL
-    || packed == 0x66616c7365ULL
-    || packed == 0x66696e616c6c79ULL
-    || packed == 0x666f72ULL
-    || packed == 0x66756e6374696f6eULL
-    || packed == 0x6966ULL
-    || packed == 0x696d706f7274ULL
-    || packed == 0x696eULL
-    || packed == 0x6c6574ULL
-    || packed == 0x6e6577ULL
-    || packed == 0x6e756c6cULL
-    || packed == 0x7061636b616765ULL
-    || packed == 0x70726976617465ULL
-    || packed == 0x7075626c6963ULL
-    || packed == 0x72657475726eULL
-    || packed == 0x737461746963ULL
-    || packed == 0x7375706572ULL
-    || packed == 0x737769746368ULL
-    || packed == 0x74686973ULL
-    || packed == 0x7468726f77ULL
-    || packed == 0x74727565ULL
-    || packed == 0x747279ULL
-    || packed == 0x747970656f66ULL
-    || packed == 0x766172ULL
-    || packed == 0x766f6964ULL
-    || packed == 0x7768696c65ULL
-    || packed == 0x77697468ULL
-    || packed == 0x7969656c64ULL;
-}
-
-TmtPulseParser_cursor
-TmtPulseParser_name(TmtPulseMemory_tape input, uint32_t at, bool jsx, bool binding)
-{
-  uint8_t value = TmtPulseMemory_peek(input, at);
-  if (!TmtGrammar_identifier_start(value))
-    return ((TmtPulseParser_cursor){ .at = at, .ok = false, .newline = false });
-  else if (jsx)
-  {
-    uint32_t value1 = TmtPulseParser_jsx_name_end(input, at, input.size);
-    return ((TmtPulseParser_cursor){ .at = value1, .ok = true, .newline = false });
-  }
-  else
-  {
-    uint32_t value1 = TmtPulseParser_scan_class(input, at, TmtGrammar_Identifier);
-    uint32_t width = TmtPulseParser_minus(value1, at);
-    if (width > 10U)
-      return ((TmtPulseParser_cursor){ .at = value1, .ok = true, .newline = false });
-    else
-    {
-      bool wide = width > 8U;
-      uint64_t value2 = TmtPulseParser_word(input, at, wide ? 8U : width, 0ULL);
-      uint64_t value3;
-      if (wide)
-        value3 =
-          TmtPulseParser_word(input,
-            TmtPulseParser_plus(at, 8U),
-            TmtPulseParser_minus(width, 8U),
-            0ULL);
-      else
-        value3 = 0ULL;
-      bool reserved;
-      if (wide)
-        reserved = TmtPulseParser_long_reserved(value2, value3);
-      else
-        reserved = TmtPulseParser_short_reserved(value2);
-      bool
-      invalid_binding =
-        binding && (value2 == 0x6576616cULL || value2 == 0x617267756d656e74ULL && value3 == 0x73ULL);
-      return
-        (
-          (TmtPulseParser_cursor){
-            .at = value1,
-            .ok = !(reserved || invalid_binding),
-            .newline = false
-          }
-        );
     }
   }
 }

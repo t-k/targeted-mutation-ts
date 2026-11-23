@@ -1471,6 +1471,9 @@ typedef struct TmtPulseParser_jsx_opening_s
 }
 TmtPulseParser_jsx_opening;
 
+TmtPulseParser_cursor
+TmtPulseParser_jsx_attribute_name(TmtPulseMemory_tape input, uint32_t at);
+
 uint32_t
 TmtPulseParser_quote_end(
   TmtPulseMemory_tape input0,

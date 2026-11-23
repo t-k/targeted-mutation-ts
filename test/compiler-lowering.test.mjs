@@ -470,3 +470,27 @@ test('JavaScript JSX pass-through rejects an unbound export and a type annotatio
     assert.notEqual(compile(source, { file: 'plain.jsx' }).backend, 'javascript');
   }
 });
+
+const namespaceAttributeRows = readFileSync(new URL('../verification/pict/compiler-jsx-namespace-attribute.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of namespaceAttributeRows) {
+  const [value, dialect, runtime] = row.split('\t');
+  test('namespaced JSX attribute ' + row.replaceAll('\t', ' '), async () => {
+    const attribute = { Expression: 'prop:id={7}', Text: 'prop:id="a&amp;b"', Boolean: 'prop:id' }[value];
+    const source = `export const A = <i ${attribute}/>;\nexport const B = <b/>;`;
+    const options = { file: 'attribute.' + dialect.toLowerCase(), jsx: runtime.toLowerCase() };
+    const result = compile(source, options);
+    assert.equal(result.backend, 'pulse');
+    const actual = await load(result.code);
+    const reference = await load(compile(source, { ...options, sourceMap: true }).code);
+    assert.deepEqual(actual.A, reference.A);
+    assert.equal(actual.A.props['prop:id'], { Expression: 7, Text: 'a&b', Boolean: true }[value]);
+  });
+}
+
+test('malformed namespaced JSX attributes cannot produce native output', () => {
+  for (const attribute of ['prop:', ':name', 'prop::name']) {
+    const source = `export const A = <i ${attribute}/>;\nexport const B = <b/>;`;
+    assert.notEqual(compile(source, { file: 'attribute.jsx' }).backend, 'pulse');
+  }
+});

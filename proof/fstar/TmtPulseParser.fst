@@ -2104,6 +2104,13 @@ let tag_space (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parse
   let! at = (fun () -> scan_class input #frame state.offset G.Space) in
   read_ret input #frame ({ state with offset = at })
 
+let jsx_attribute_name (input:tape) (#frame:slprop) (at:U32.t)
+  : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! first = (fun () -> name input #frame at true false) in
+  let! qualified = (fun () -> if first.ok then same input #frame first.at 58uy else read_ret input #frame false) in
+  if qualified then name input #frame (next first.at) true false
+  else read_ret input #frame first
+
 let rec jsx_tag_name (input:tape) (#frame:slprop) (at remaining:U32.t)
   : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v remaining) =
   let! segment = (fun () -> name input #frame at true false) in
@@ -3136,7 +3143,7 @@ and jsx_attribute (input:tape) (state:parser_state) (fuel:U32.t)
       let! end_ = (fun () -> skip input value.parser) in
       finish_jsx_expression input end_ start.offset
   else
-    let! named = (fun () -> name input state.offset true false) in
+    let! named = (fun () -> jsx_attribute_name input state.offset) in
     let named_state = from_cursor state named in
     let! tail = (fun () -> skip input named_state) in
     let! equal = (fun () -> same input tail.offset 61uy) in

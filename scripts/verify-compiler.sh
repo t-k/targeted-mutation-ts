@@ -43,7 +43,7 @@ set -- "${1:-}" \
   --custard_entry TmtPulseCompiler.read_plan --custard_entry TmtPulseCompiler.blank_range \
   --custard_entry TmtPulseCompiler.read_runtime_head --custard_entry TmtPulseCompiler.runtime_tag_name \
   --custard_entry TmtPulseCompiler.runtime_atom --custard_entry TmtPulseCompiler.runtime_source_start \
-  --custard_entry TmtPulseParser.string_end
+  --custard_entry TmtPulseParser.string_end --custard_entry TmtPulseParser.jsx_attribute_name
 
 extract direct native/compiler/generated/direct "$@"
 extract module native/compiler/generated "$@" \
