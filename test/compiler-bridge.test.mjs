@@ -306,9 +306,31 @@ test('delimited assertions can span lines and contextual words can be value bind
     assert.equal(result.backend, 'pulse', file);
     assert.equal(result.code, stripTypeScriptTypes(source));
   }
-  const modifier = 'export class C { readonly n: number = 0; }';
-  assert.notEqual(compile(modifier).backend, 'pulse');
+  const constructorProperty = 'export class C { constructor(readonly n: number) {} }';
+  assert.notEqual(compile(constructorProperty).backend, 'pulse');
 });
+
+const modifierRows = readFileSync(new URL('../verification/pict/compiler-class-modifiers.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1);
+for (const row of modifierRows) {
+  const [member, placement, dialect] = row.split('\t');
+  test('class modifier erasure ' + row.replaceAll('\t', ' '), async () => {
+    const stat = placement === 'Static' ? 'static ' : '';
+    const members = {
+      Field: `public /* keep */ ${stat}readonly count: number = 1;`,
+      Method: `protected ${stat}count(value: number) { return value + 1; }`,
+      ContextualName: `${stat}readonly: number = 1;`,
+    };
+    const input = `export class C { ${members[member]} }`;
+    const result = compile(input, { file: dialect === 'TS' ? 'class.ts' : 'class.tsx' });
+    assert.equal(result.backend, 'pulse', input);
+    assert.equal(result.code, stripTypeScriptTypes(input));
+    const { C } = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
+    const target = stat ? C : new C();
+    if (member === 'Method') assert.equal(target.count(3), 4);
+    else assert.equal(target[member === 'Field' ? 'count' : 'readonly'], 1);
+  });
+}
 
 test('an erased type-only import keeps the requested module format and its directives', () => {
   const source = 'import type { T } from "unused";\n"use client";\nconst value: T = Math.abs(-6);';

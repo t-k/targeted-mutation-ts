@@ -997,6 +997,7 @@ typedef struct TmtPulseParser_class_key_s
   bool quoted_;
   bool computed;
   uint32_t modifier_flags;
+  uint32_t modifiers_end;
 }
 TmtPulseParser_class_key;
 

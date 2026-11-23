@@ -1,0 +1,3 @@
+Member: Field, Method, ContextualName
+Placement: Instance, Static
+Dialect: TS, TSX

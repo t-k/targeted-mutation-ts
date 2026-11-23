@@ -771,6 +771,7 @@ enum {
   type_marker = 12,
   runtime_enum = 13,
   erased_import_member = 14,
+  class_modifiers = 15,
 };
 
 static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t at, bool *certain) {
@@ -809,7 +810,7 @@ static bool value_keyword(const uint8_t *code, uint32_t size, uint32_t first, ui
   while (end < size && space(code[end])) end++;
   if (end == size) return false;
   const uint8_t byte = code[end];
-  return byte == ':' || byte == ',' || byte == ';' || byte == ')' || byte == '}' ||
+  return byte == ':' || byte == '=' || byte == ',' || byte == ';' || byte == ')' || byte == '}' ||
     ((byte == '&' || byte == '|') && size - end >= 2 && code[end + 1] == byte);
 }
 
@@ -919,6 +920,25 @@ static bool delimited_annotation(TmtPulseMemory_tape input, uint32_t last) {
   return byte == ';' || byte == ',' || byte == ')' || byte == ']' || byte == '}' || byte == '{' || byte == '=';
 }
 
+static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span span, char *code) {
+  for (uint32_t at = span.first; at < span.last;) {
+    const TmtPulseParser_cursor token = TmtPulseParser_trivia(input, at);
+    if (!token.ok || token.at > span.last) return false;
+    if (token.at == span.last) break;
+    at = token.at;
+    while (at < span.last && TmtGrammar_identifier_continue(input.source[at])) at++;
+    const uint32_t width = at - token.at;
+    const uint8_t *word = input.source + token.at;
+    if (width == 6 && !memcmp(word, "static", 6)) continue;
+    if (!((width == 6 && !memcmp(word, "public", 6)) ||
+          (width == 7 && !memcmp(word, "private", 7)) ||
+          (width == 9 && !memcmp(word, "protected", 9)) ||
+          (width == 8 && (!memcmp(word, "readonly", 8) || !memcmp(word, "override", 8))))) return false;
+    memset(code + token.at, ' ', width);
+  }
+  return true;
+}
+
 static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool jsx, char **output, bool *remove_statement) {
   char *code = NULL;
   uint32_t previous = 0;
@@ -929,7 +949,8 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
     const bool member = event.original == erased_import_member;
-    if (!member && (event.original < type_annotation || event.original > type_marker)) continue;
+    const bool modifiers = event.original == class_modifiers;
+    if (!member && !modifiers && (event.original < type_annotation || event.original > type_marker)) continue;
     const TmtGrammar_span span = event.left;
     if (span.first >= span.last || span.last > input.size) goto decline;
     const bool statement = event.original == erased_type_statement || event.original == runtime_import;
@@ -947,10 +968,10 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool
         continue;
       }
       *remove_statement = true;
-    } else if (!member && !erasable_expression_range(input, event.original, span)) goto decline;
+    } else if (!member && !modifiers && !erasable_expression_range(input, event.original, span)) goto decline;
     if (span.first < previous) goto decline;
     const bool annotation = event.original == type_annotation;
-    bool preserve_lines = statement || member || event.original == type_arguments || event.original == type_assertion;
+    bool preserve_lines = statement || member || modifiers || event.original == type_arguments || event.original == type_assertion;
     bool multiline = false, slash = false;
     for (uint32_t byte = span.first; byte < span.last; byte++) {
       const uint8_t value = input.source[byte];
@@ -969,7 +990,9 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, bool
       if (!code) return false;
       memcpy(code, input.source, input.size);
     }
-    if (!preserve_lines) memset(code + span.first, ' ', span.last - span.first);
+    if (modifiers) {
+      if (!blank_class_modifiers(input, span, code)) goto decline;
+    } else if (!preserve_lines) memset(code + span.first, ' ', span.last - span.first);
     else {
       for (uint32_t byte = span.first; byte < span.last; byte++) {
         if (code[byte] != '\r' && code[byte] != '\n') code[byte] = ' ';

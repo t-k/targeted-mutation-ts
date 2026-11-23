@@ -1,0 +1,8 @@
+Member	Placement	Dialect
+Field	Static	TS
+Method	Instance	TSX
+ContextualName	Static	TSX
+Field	Instance	TS
+ContextualName	Instance	TS
+Field	Static	TSX
+Method	Static	TS

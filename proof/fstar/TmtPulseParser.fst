@@ -2205,7 +2205,7 @@ let abstract_member_modifier (input:tape) (#frame:slprop) (start:U32.t) (byte:U8
 
 type class_key = {
   after_key:parser_state; first:U32.t; last:U32.t; static_:bool; async_:bool; readonly_:bool; arity:parameter_arity;
-  generator_:bool; private_:bool; quoted_:bool; computed:bool; modifier_flags:U32.t
+  generator_:bool; private_:bool; quoted_:bool; computed:bool; modifier_flags:U32.t; modifiers_end:U32.t
 }
 
 type class_kind = | OrdinaryClass | AbstractClass | AmbientClass
@@ -2299,7 +2299,7 @@ let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (st
   let first = if quoted then next key_start.offset else key_start.offset in
   let last = if quoted then minus key.at 1ul else key.at in
   { after_key = key_end; first; last; async_; arity = accessor.arity; generator_ = generator.generator; private_;
-    quoted_ = quoted; computed; modifier_flags = prefix.flags;
+    quoted_ = quoted; computed; modifier_flags = prefix.flags; modifiers_end = start.offset;
     static_ = U32.logand prefix.flags 1ul <> 0ul; readonly_ = U32.logand prefix.flags 2ul <> 0ul })
 
 let constructor_property (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
@@ -3837,6 +3837,8 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         (accessor && (key.async_ || key.generator_ || constructor || next_byte <> 40uy)) ||
         (constructor && (seen_constructor || key.async_ || key.generator_ || next_byte <> 40uy)) then ret input (failed tail 1ul)
       else
+        let! tail = (fun () -> if U32.logand key.modifier_flags 110ul <> 0ul then
+          record_jsx_span input tail 15ul st.offset key.modifiers_end else ret input tail) in
         let! tail = (fun () -> if key.private_ then record_private input tail { G.first = key.first; G.last = key.last } PrivateDeclaration
           else ret input tail) in
         let! after, pending =
