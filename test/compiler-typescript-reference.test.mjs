@@ -334,3 +334,52 @@ test('parameter properties take override, need no type, and lower beside enums',
   assert.equal(typeof result.code, 'string');
   assert.doesNotMatch(result.code, /this\.private|this\.readonly/);
 });
+
+test('heritage expressions and type arguments on call results and templates match TypeScript', () => {
+  for (const source of [
+    'export class A extends mixin(B) {}',
+    'export class A extends (cond ? B : C) {}',
+    'export class A extends B.c() {}',
+    'export class A extends B.C<T> {}',
+    'export class A extends B.c<T>() {}',
+    'export class A extends f()<T> {}',
+    'export class A extends S.Class<A>("A")({ a: S.String }) {}',
+    'export class ATag extends Context.Tag("ATag")<ATag, "A">() {}',
+    'export class Dog extends Data.TaggedClass("Dog")<{}> {}',
+    'export class Err extends Schema.TaggedError<Err>()("Err", {}) { x = 1 }',
+    'export class A extends B<T> implements I<T>, J { }',
+    'export class A<T> extends Base<T>(arg)<U> implements I { constructor(private a: T) { super(); } }',
+    'export const K = class extends mixin(B)<T> {};',
+    'export class A extends new B() {}',
+    'export class A extends class {} {}',
+    'export class A extends null {}',
+    'export class A extends B\n<T> {}',
+    'export const x = Context.Tag("T")<T, "A">();',
+    'export const x = f<T>()<U>(o);',
+    'export const x = f<T>(c)<U>(d)(e);',
+    'export const x = [f()<T>(g), h(i)<U>(j)];',
+    'export const x = sql<number>`rowid`;',
+    'export const x = a.b<T>`t${c as number}`;',
+    'export const x = f()<T>`a`;',
+    'export function f(obj: any) { obj.foo!++; obj.bar!--; return obj.baz!++ + 1; }',
+    'let n: number | undefined = 1;\nn!++;\nexport const r = n;',
+    'export function f(a: any) { a!.b!++; ++a.c; a.d!\n++a.e; }',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'heritage.ts').backend, 'pulse', source);
+  }
+});
+
+test('a unary heritage clause and a spaced comparison are not read as the new forms', () => {
+  for (const source of [
+    'export class A extends -B {}',
+    'export class A extends await b {}',
+    'export class A extends b ? c : d {}',
+    'export function f(a: any) { a()!++; }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'heritage.ts' }).backend, 'pulse', source);
+  }
+  // With white space before the angle TypeScript decides between a comparison and type arguments.
+  for (const source of ['export const x = f(a) < b > c;', 'export const x = f() < T > (g);']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'heritage.ts' }).backend, 'pulse', source);
+  }
+});

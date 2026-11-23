@@ -47,7 +47,6 @@ test('compound syntax keeps unsupported cases on the reference route', () => {
     'const x = (a, a) => a < b;',
     'const x = a\n=> a < b;',
     'const x = (...[arg]) => arg < 2;',
-    'const x = [tag<T>`>`, a < b];',
     '{ a: b < c }',
   ]) {
     const result = extract(source, { requireNative: true });

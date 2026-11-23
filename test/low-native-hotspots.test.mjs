@@ -41,7 +41,9 @@ test('only eligible single assignments retain their target through grouping', ()
   check('(state satisfies T) = ready >= threshold;', 'fast');
   check('(state?.index as number) = ready >= threshold;', 'diagnostic');
   check('(a, state.index as number) = ready >= threshold;', 'diagnostic');
-  check('(state.index as number)++; const keep = a < b;', 'fallback');
+  // An asserted operand stays assignable for an update, as it does for an assignment.
+  check('(state.index as number)++; const keep = a < b;', 'fast');
+  check('state.index!++; const keep = a < b;', 'fast');
 });
 
 test('raw regex braces persist across groups and remain separate from escapes and classes', () => {

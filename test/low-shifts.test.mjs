@@ -48,7 +48,8 @@ test('nested type arguments are never exposed as comparisons by a packed right s
     compare(`const before = one < two; const value = ${prefix}/x/;`, 'diagnostic');
     compare(`const value = ${prefix}/x/g < limit;`, 'fallback');
     compare(`const value = ${prefix}\n"text"; const ok = one < two;`, 'fallback');
-    compare(`const value = ${prefix}\u0060text\u0060; const ok = one < two;`, 'fallback');
+    // Type arguments that touch the tag belong to the tagged template.
+    compare(`const value = ${prefix}\u0060text\u0060; const ok = one < two;`, prefix.includes(' <') ? 'fallback' : 'fast');
   }
   compare('const value = data >> /x/g < limit;', 'fast');
 });

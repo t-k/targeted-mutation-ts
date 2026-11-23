@@ -62,5 +62,7 @@ test('class accessors and heritage cannot publish candidates in compatibility er
   check('abstract class C { abstract get value(): boolean; } const keep = a < b;', 'fallback');
   check('declare class C { get value(): boolean; } const keep = a < b;', 'fallback');
   check('const C = class extends {}; const keep = a < b;', 'diagnostic');
-  check('const C = class extends {} {}; const keep = a < b;', 'fallback');
+  // A heritage clause is any left-hand-side expression.
+  check('const C = class extends {} {}; const keep = a < b;', 'fast');
+  check('const C = class extends mixin(Base)<T> { m() { return c >= d; } }; const keep = a < b;', 'fast');
 });
