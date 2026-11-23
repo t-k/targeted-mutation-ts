@@ -135,3 +135,18 @@ test('a statement that TypeScript rejects as a malformed declaration keeps its d
     }
   }
 });
+
+test('only a literal dot starts a filename extension on the native entry', () => {
+  const source = Buffer.from('export const n: number = 1;\n');
+  for (const name of ['a\x0ets', 'a\x0ejs', 'a\x0emts', 'a\x0etsx', 'a\x0emjs', 'ats', 'a.t', '.s']) {
+    assert.throws(() => compile(source, { file: name }), TypeError, JSON.stringify(name));
+  }
+  for (const name of ['a.ts', 'A.TS', 'a.Ts', 'a.mts', 'a.MTS', 'a.tsx', '.ts']) {
+    assert.equal(compile(source, { file: name }).backend, 'pulse', name);
+  }
+  for (const name of ['a.d.ts', 'a.D.TS', 'a.d.mts', 'a.d.cts']) {
+    assert.equal(compile(source, { file: name }).diagnostics[0].code, 'DECLARATION_INPUT', name);
+  }
+  assert.equal(compile(Buffer.from('export const n = 1;\n'), { file: 'a.MJS' }).backend, 'javascript');
+  assert.equal(compile(Buffer.from('export const n = 1;\n'), { file: 'a.d.tsx' }).backend, 'pulse');
+});

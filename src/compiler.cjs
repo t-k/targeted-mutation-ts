@@ -30,8 +30,10 @@ function sourceKind(file) {
   if (size < 3) return -1;
   const last = file.charCodeAt(size - 1) | 32;
   const middle = file.charCodeAt(size - 2) | 32;
-  const first = file.charCodeAt(size - 3) | 32;
-  if (first === 46 && last === 115) {
+  // Folding case would also map the control character 0x0e to a dot, so the dot is compared as is.
+  const third = file.charCodeAt(size - 3);
+  const first = third | 32;
+  if (third === 46 && last === 115) {
     if (middle === 106) return script;
     if (middle !== 116) return -1;
     return size >= 5 && file.charCodeAt(size - 5) === 46 && (file.charCodeAt(size - 4) | 32) === 100 ? -1 : 0;
