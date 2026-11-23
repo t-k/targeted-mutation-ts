@@ -170,7 +170,7 @@ test('cold direct compilation does not initialize path or filesystem modules', (
     import assert from 'node:assert/strict';
     import { registerHooks } from 'node:module';
     registerHooks({ resolve(specifier, context, next) {
-      if (context.parentURL?.endsWith('/src/compiler.cjs') &&
+      if (/\/src\/compiler(?:-routes)?\.cjs$/.test(context.parentURL ?? '') &&
           ['node:path', 'node:fs'].includes(specifier)) throw new Error(specifier);
       return next(specifier, context);
     } });

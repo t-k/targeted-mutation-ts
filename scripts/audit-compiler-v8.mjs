@@ -15,6 +15,7 @@ const addons = ['compiler-module.node', 'compiler-js.node'].map(name => {
   };
 });
 const compilerEntry = new URL('../src/compiler.cjs', import.meta.url);
+const compilerRoutes = new URL('../src/compiler-routes.cjs', import.meta.url);
 const phases = new Set(['ts', 'jsx', 'tsx', 'passthrough', 'javascript']);
 const reasons = new Set(['accepted', 'unavailable', 'string-allocation', 'no-diagnostic',
   'unbound-export', 'redeclaration', 'strict-mode', 'unexpected-token', 'syntax']);
@@ -72,7 +73,7 @@ async function runWorker(cases, instrumented) {
     };
   }
   registerHooks({ resolve(specifier, context, next) {
-    if (instrumented && context.parentURL === compilerEntry.href) {
+    if (instrumented && (context.parentURL === compilerEntry.href || context.parentURL === compilerRoutes.href)) {
       const addon = addons.find(entry => entry.specifier === specifier);
       if (addon) return next(addon.audit, context);
     }

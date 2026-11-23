@@ -479,7 +479,7 @@ test('plain JavaScript scripts do not load compiler addons on the first call', (
       return dlopen(module, filename, ...flags);
     };
     registerHooks({ resolve(specifier, context, next) {
-      if (context.parentURL?.endsWith('/src/compiler.cjs') &&
+      if (/\/src\/compiler(?:-routes)?\.cjs$/.test(context.parentURL ?? '') &&
           /(?:compiler(?:-module)?\\.node|source-text\\.mjs)$/.test(specifier)) throw new Error(specifier);
       return next(specifier, context);
     } });

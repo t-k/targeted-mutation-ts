@@ -8,8 +8,6 @@
 #define NAPI(call) do { if ((call) != napi_ok) goto error; } while (0)
 enum { source_limit = 1048576, binding_capacity = 2367 };
 
-#ifdef TMT_DIRECT
-
 static bool ordered(TmtGrammar_span span, uint32_t size, uint32_t *previous) {
   if (span.first == span.last) return span.last <= size;
   if (span.first < *previous || span.first > span.last || span.last > size) return false;
@@ -58,7 +56,38 @@ static bool blank_declarations(TmtPulseMemory_tape input, uint8_t *output, TmtPu
   return false;
 }
 
-#else
+#ifndef TMT_DIRECT
+/* The restricted export plan. Returns false when the plan declines, and sets failed on allocation failure. */
+static bool direct_plan(uint8_t *source, size_t size, uint8_t **output, bool *failed) {
+  *output = NULL;
+  *failed = false;
+  if (size > source_limit) return false;
+  const uint32_t width = (uint32_t)size;
+  const TmtPulseMemory_tape input = { .source = source, .size = width };
+  const TmtPulseCompiler_edit_plan plan = TmtPulseCompiler_read_plan(input, 0);
+  uint32_t previous = 0;
+  const TmtGrammar_span edits[] = { plan.binding, plan.parameter, plan.result_type };
+  if (plan.valid && plan.stop == width && ordered(edits[0], width, &previous) &&
+      ordered(edits[1], width, &previous) && ordered(edits[2], width, &previous)) {
+    if (previous != 0) {
+      *output = malloc(size);
+      if (!*output) return !(*failed = true);
+      memcpy(*output, source, size);
+      if (!blank_edits(*output, width, plan)) return !(*failed = true);
+    }
+    return true;
+  }
+  if (plan.valid && plan.stop < width) {
+    *output = malloc(size);
+    if (!*output) return !(*failed = true);
+    memcpy(*output, source, size);
+    if (blank_declarations(input, *output, plan)) return true;
+    free(*output);
+    *output = NULL;
+  }
+  return false;
+}
+
 static bool contains_comment_marker(const uint8_t *source, uint32_t size) {
   for (uint32_t index = 0; index + 1 < size; index++) {
     if (source[index] == '/' && (source[index + 1] == '/' || source[index + 1] == '*')) return true;
@@ -147,7 +176,6 @@ error:
 
 #endif
 
-#ifdef TMT_DIRECT
 static bool unshared_buffer(napi_env env, napi_value value) {
   napi_value backing;
   bool ordinary;
@@ -155,6 +183,7 @@ static bool unshared_buffer(napi_env env, napi_value value) {
     napi_is_arraybuffer(env, backing, &ordinary) == napi_ok && ordinary;
 }
 
+#ifdef TMT_DIRECT
 static bool ascii_buffer(const uint8_t *source, size_t size) {
   while (size >= 8) {
     uint64_t word;
@@ -232,15 +261,20 @@ static napi_value compile_ascii_export(napi_env env, napi_callback_info info) {
 }
 #endif
 
-static bool ascii_text(const char *text, size_t size) {
-  uint64_t seen = 0;
-  for (; size >= 8; text += 8, size -= 8) {
-    uint64_t word;
-    memcpy(&word, text, sizeof(word));
-    seen |= word;
+/* Length of the leading ASCII run, tested 32 bytes at a time. */
+static size_t ascii_prefix(const uint8_t *text, size_t size) {
+  size_t at = 0;
+  for (; size - at >= 32; at += 32) {
+    uint64_t words[4];
+    memcpy(words, text + at, sizeof(words));
+    if ((words[0] | words[1] | words[2] | words[3]) & UINT64_C(0x8080808080808080)) break;
   }
-  for (; size; text++, size--) seen |= (uint8_t)*text;
-  return !(seen & UINT64_C(0x8080808080808080));
+  while (at < size && text[at] < 0x80) at++;
+  return at;
+}
+
+static bool ascii_text(const char *text, size_t size) {
+  return ascii_prefix((const uint8_t *)text, size) == size;
 }
 
 /* ASCII output needs no UTF-8 decoding. */
@@ -393,6 +427,118 @@ error:
 }
 #endif
 
+/* Well-formed UTF-8 as defined by the Unicode standard, table 3-7. */
+static bool valid_utf8(const uint8_t *text, size_t size) {
+  size_t at = 0;
+  while (at < size) {
+    const uint8_t lead = text[at];
+    if (lead < 0x80) {
+      at += ascii_prefix(text + at, size - at);
+      continue;
+    }
+    const size_t width = lead >= 0xc2 && lead <= 0xdf ? 2 : (lead & 0xf0) == 0xe0 ? 3 : lead >= 0xf0 && lead <= 0xf4 ? 4 : 0;
+    if (!width || size - at < width) return false;
+    const uint8_t second = text[at + 1];
+    const uint8_t low = lead == 0xe0 ? 0xa0 : lead == 0xf0 ? 0x90 : 0x80;
+    const uint8_t high = lead == 0xed ? 0x9f : lead == 0xf4 ? 0x8f : 0xbf;
+    if (second < low || second > high) return false;
+    for (size_t tail = 2; tail < width; tail++) {
+      if ((text[at + tail] & 0xc0) != 0x80) return false;
+    }
+    at += width;
+  }
+  return true;
+}
+
+static bool contains(const uint8_t *text, size_t size, const char *needle, bool fold) {
+  const size_t width = strlen(needle);
+  for (size_t at = 0; size - at >= width && size >= width; at++) {
+    const uint8_t *found = memchr(text + at, needle[0], size - at - width + 1);
+    if (!found) return false;
+    at = (size_t)(found - text);
+    size_t match = 1;
+    while (match < width && (fold ? (text[at + match] | 0x20) : text[at + match]) == (uint8_t)needle[match]) match++;
+    if (match == width) return true;
+  }
+  return false;
+}
+
+enum { emit_tsx = 1, emit_esm = 2, emit_classic = 4 };
+
+/*
+ * The default-option TypeScript route in one call. The steps and their order mirror compile() in
+ * src/compiler-routes.cjs, which also decides every input this entry returns undefined for.
+ */
+static napi_value emit_typescript(napi_env env, napi_callback_info info) {
+  napi_value args[2], result;
+  size_t argc = 2, size, length = 0;
+  uint32_t flags;
+  void *bytes;
+  char *output = NULL;
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc != 2) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &bytes, &size));
+  NAPI(napi_get_value_uint32(env, args[1], &flags));
+  uint8_t *source = bytes;
+  const bool jsx = flags & emit_tsx, esm = flags & emit_esm, classic = flags & emit_classic;
+  if (!size || size > source_limit || !unshared_buffer(env, args[0]) || !valid_utf8(source, size)) goto decline;
+  const uint32_t width = (uint32_t)size;
+  /* The restricted grammars start at an export after trivia. An import cannot use them. */
+  const bool restricted = source[0] != 'i';
+  if (restricted && tmt_leading_triple_slash(source, width)) goto decline;
+  if (restricted && !jsx) {
+    uint8_t *planned;
+    bool failed;
+    if (direct_plan(source, size, &planned, &failed)) {
+      const napi_status created = create_source_string(env, planned ? (char *)planned : (char *)source, size, &result);
+      free(planned);
+      NAPI(created);
+      return result;
+    }
+    free(planned);
+    if (failed) goto error;
+  }
+  const bool runtime = jsx && !(memchr(source, '@', size) && contains(source, size, "@jsx", true)) &&
+    !contains(source, size, "_tmt", false);
+  bool complete;
+  if (restricted && (!jsx || runtime)) {
+    output = tmt_lower_runtime(source, width, jsx, true, classic, false, &length, &complete);
+    if (output) goto publish;
+  }
+  if (!jsx || !memchr(source, '<', size)) {
+    output = (char *)type_only_module(source, width, esm, &length);
+    if (output) goto publish;
+    bool checked, script;
+    tmt_parameter_route property;
+    output = tmt_emit_annotated_module(source, width,
+      !jsx ? TMT_ENUMS_UNKNOWN : runtime ? TMT_ENUMS_PRESENT : TMT_ENUMS_ABSENT, esm, !esm && !jsx,
+      &length, &checked, &complete, &script, &property);
+    if (output && complete && !script) goto publish;
+    /* Scripts, partial projections and compatibility hints continue in JavaScript. */
+    goto decline;
+  }
+  if (runtime && !contains(source, size, "\\u", false)) {
+    output = tmt_lower_runtime(source, width, true, true, classic, true, &length, &complete);
+    if (output && complete) goto publish;
+  }
+decline:
+  free(output);
+  NAPI(napi_get_undefined(env, &result));
+  return result;
+publish:
+  {
+    const napi_status created = create_source_string(env, output, length, &result);
+    free(output);
+    output = NULL;
+    NAPI(created);
+  }
+  return result;
+error:
+  free(output);
+  napi_throw_error(env, NULL, "Native TypeScript emission arguments or allocation failed");
+  return NULL;
+}
+
 static napi_value trivia_only(napi_env env, napi_callback_info info) {
   napi_value arg, result;
   size_t argc = 1, size;
@@ -477,6 +623,8 @@ static napi_value init(napi_env env, napi_value exports) {
   NAPI(napi_create_function(env, "validModule", NAPI_AUTO_LENGTH, valid_module, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "validModule", entry));
 #endif
+  NAPI(napi_create_function(env, "emitTypeScript", NAPI_AUTO_LENGTH, emit_typescript, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "emitTypeScript", entry));
   NAPI(napi_create_function(env, "triviaOnly", NAPI_AUTO_LENGTH, trivia_only, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "triviaOnly", entry));
 #endif
