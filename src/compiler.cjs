@@ -48,63 +48,30 @@ function sourceKind(file) {
   return -1;
 }
 
-// A type-erased output keeps every byte position, so its map comes from one native scan.
-// Lowered output, a byte order mark and unusual names take the router, which asks TypeScript.
-function mappedTypeScript(input, file, flags) {
-  const slash = file.lastIndexOf('/');
-  const name = slash < 0 ? file : file.slice(slash + 1);
-  if (!name.endsWith('.mts') && !name.endsWith('.ts') && !name.endsWith('.tsx') || name.includes('\\')) return undefined;
-  const text = typeof input === 'string' ? input : Buffer.isBuffer(input) ? undefined : null;
-  if (text === null || text !== undefined && (!text.isWellFormed() || text.charCodeAt(0) === 0xFEFF)) return undefined;
-  const source = text === undefined ? input : Buffer.from(text);
-  if (source[0] === 0xEF) return undefined;
-  const emit = (pulse ??= nativeAddon('compiler-module.node')).emitTypeScript;
-  const result = emit === undefined ? undefined : emit(source, flags | 16);
-  if (result === undefined) return undefined;
-  return { backend: 'pulse', code: result[0], sourceMap: sourceMapObject(file, result[1], text ?? source.toString()), diagnostics: [] };
-}
-
-// The fields other than the mappings follow the map TypeScript writes for the same name.
-function sourceMapObject(file, mappings, text) {
-  const name = file.slice(file.lastIndexOf('/') + 1);
-  const module = name.endsWith('.mts');
-  const width = module || name.endsWith('.tsx') ? 4 : 3;
-  return { version: 3, file: name.slice(0, -width) + (module ? '.mjs' : '.js'), sourceRoot: '', sources: [name], names: [],
-    mappings, sourcesContent: [text] };
-}
-
 let routes;
 function compile(input, options) {
   let file = 'input.ts';
   let flags = 0;
   let defaults = options === undefined;
-  let explicitModule = false;
-  let mapped = false;
-  // An option spelled out with its default value selects the same route as an omitted one.
-  if (!defaults && options !== null && typeof options === 'object' &&
-      (options.mode === undefined || options.mode === 'transform') &&
-      (options.target === undefined || options.target === 'esnext') &&
-      (options.sourceMap === undefined || typeof options.sourceMap === 'boolean')) {
-    const name = options.file;
-    const jsx = options.jsx;
-    const format = options.module;
-    if ((name === undefined || typeof name === 'string') && (jsx === undefined || jsx === 'automatic' || jsx === 'classic') &&
-        (format === undefined || format === 'preserve' || format === 'esm')) {
-      defaults = true;
-      if (name !== undefined) file = name;
-      if (jsx === 'classic') flags = classic;
-      if (format === 'esm') explicitModule = true;
-      if (options.sourceMap === true) mapped = true;
+  if (!defaults && options !== null && typeof options === 'object') {
+    if (options.mode === undefined && options.target === undefined && options.module === undefined && options.sourceMap === undefined) {
+      const name = options.file;
+      const jsx = options.jsx;
+      if ((name === undefined || typeof name === 'string') && (jsx === undefined || jsx === 'automatic' || jsx === 'classic')) {
+        defaults = true;
+        if (name !== undefined) file = name;
+        if (jsx === 'classic') flags = classic;
+      }
+    } else {
+      // Spelled-out options are rarer. Their handling lives in a file that a default compile never loads.
+      const result = require('./compiler-maps.cjs').compileExplicit(input, options, compile, sourceKind,
+        () => pulse ??= nativeAddon('compiler-module.node'));
+      if (result !== undefined) return result;
     }
   }
   if (defaults) {
     const kind = sourceKind(file);
-    if (mapped) {
-      const result = kind >= 0 && kind < script ? mappedTypeScript(input, file, kind | flags | (explicitModule ? esm : 0)) : undefined;
-      if (result !== undefined) return result;
-    } else if (kind === script && explicitModule) {
-      // An explicit module format for a .js name disables the script route, which the router decides.
-    } else if (kind >= script) {
+    if (kind >= script) {
       if (Buffer.isBuffer(input)) {
         // A module that the certified parse leaves unedited needs no second parse. V8 decides the rest.
         const module = (pulse ??= nativeAddon('compiler-module.node')).emitJavaScriptModule;
@@ -120,7 +87,7 @@ function compile(input, options) {
         typeof input === 'string' && input.isWellFormed() ? Buffer.from(input) : null;
       const emit = source === null ? undefined : (pulse ??= nativeAddon('compiler-module.node')).emitTypeScript;
       if (emit !== undefined) {
-        const code = emit(source, kind | flags | (explicitModule ? esm : 0));
+        const code = emit(source, kind | flags);
         if (code !== undefined) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
       }
     }
@@ -129,5 +96,3 @@ function compile(input, options) {
 }
 
 exports.compile = compile;
-exports.mappedTypeScript = mappedTypeScript;
-exports.sourceMapObject = sourceMapObject;

@@ -507,7 +507,7 @@ enum { emit_tsx = 1, emit_esm = 2, emit_classic = 4, emit_mapped = 16 };
  * Publishes [code, mappings] for an output that is a projection of the source. Any other output
  * yields undefined, and the caller's compatibility route then produces the code and its map.
  */
-static napi_status create_mapped_result(napi_env env, const uint8_t *source, size_t size, const char *code, size_t length,
+static TMT_MAP_COLD napi_status create_mapped_result(napi_env env, const uint8_t *source, size_t size, const char *code, size_t length,
   const tmt_run_log *runs, napi_value *result)
 {
   size_t written = 0;
@@ -674,7 +674,7 @@ error:
  * projection of the first. A third argument lists copy runs as triples of output offset, source
  * offset and length in a Uint32Array, as a lowering logs them.
  */
-static napi_value projection_mappings(napi_env env, napi_callback_info info) {
+static TMT_MAP_COLD napi_value projection_mappings(napi_env env, napi_callback_info info) {
   napi_value args[3], result, buffer;
   size_t argc = 3, size, length, written = 0, count = 0, offset;
   void *source, *code, *triples = NULL;

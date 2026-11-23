@@ -259,7 +259,7 @@ function mappedScript(input, options) {
   if (plain.backend !== 'pulse' || !plain.code.startsWith(directive)) return undefined;
   const mappings = addon.projectionMappings(source, Buffer.from(plain.code.slice(directive.length)));
   if (mappings === undefined) return undefined;
-  return { ...plain, sourceMap: require('./compiler.cjs').sourceMapObject(file, ';' + mappings, source.toString()) };
+  return { ...plain, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, ';' + mappings, source.toString()) };
 }
 
 function compile(input, options = {}) {
@@ -281,9 +281,10 @@ function compile(input, options = {}) {
   const typed = /\.(?:m?ts|tsx)$/i.test(file);
   const jsxFile = /\.[jt]sx$/i.test(file);
   if (sourceMap && typed && jsx !== 'preserve' && target === 'esnext' && format !== 'cjs') {
-    // The entry owns the native map so that both callers publish the same result.
-    const result = require('./compiler.cjs').mappedTypeScript(input, file,
-      (format === 'esm' ? 2 : 0) | (jsxFile ? 1 : 0) | (jsxFile && jsx === 'classic' ? 4 : 0));
+    // The entry calls the same function, so both callers publish the same result.
+    const mapper = loadModuleAddon();
+    const result = mapper ? require('./compiler-maps.cjs').mappedTypeScript(input, file,
+      (format === 'esm' ? 2 : 0) | (jsxFile ? 1 : 0) | (jsxFile && jsx === 'classic' ? 4 : 0), mapper) : undefined;
     if (result !== undefined) return result;
     const script = mappedScript(input, options);
     if (script !== undefined) return script;

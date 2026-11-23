@@ -16,6 +16,13 @@
 
 #include "lowering.h"
 
+/* Map code runs only when a map is requested. Keeping it out of line and cold keeps it off the pages a default compile touches. */
+#if defined(__GNUC__) || defined(__clang__)
+#define TMT_MAP_COLD __attribute__((noinline, cold, unused))
+#else
+#define TMT_MAP_COLD
+#endif
+
 typedef struct {
   char *text;
   size_t length, capacity;
@@ -124,7 +131,7 @@ static inline bool tmt_map_seek(tmt_map_source *cursor, const uint8_t *source, s
  * Returns NULL when a run is not a projection, when runs overlap in the output, or when memory
  * runs out.
  */
-static inline char *tmt_run_mappings(const uint8_t *source, size_t size, const uint8_t *code, size_t length,
+static TMT_MAP_COLD char *tmt_run_mappings(const uint8_t *source, size_t size, const uint8_t *code, size_t length,
   const tmt_run *runs, size_t count, size_t *written)
 {
   tmt_map_writer map = { .capacity = length + length / 2 + 64 };
@@ -249,7 +256,7 @@ mismatch:
 }
 
 /* A projection is one copy of the whole source. */
-static inline char *tmt_projection_mappings(const uint8_t *source, const uint8_t *code, size_t size, size_t length,
+static TMT_MAP_COLD char *tmt_projection_mappings(const uint8_t *source, const uint8_t *code, size_t size, size_t length,
   size_t *written)
 {
   if (length != size || size > UINT32_MAX) return NULL;

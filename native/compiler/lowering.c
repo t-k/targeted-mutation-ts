@@ -121,7 +121,7 @@ static bool same_bytes(const lowering *lower, TmtGrammar_span part, const char *
     !memcmp(lower->input.source + part.first, word, part.last - part.first);
 }
 
-static void log_run(tmt_run_log *runs, size_t out, uint32_t src, uint32_t length) {
+static __attribute__((noinline, cold)) void log_run(tmt_run_log *runs, size_t out, uint32_t src, uint32_t length) {
   if (runs->failed || out > UINT32_MAX) { runs->failed = true; return; }
   if (runs->count) {
     tmt_run *last = &runs->items[runs->count - 1];
@@ -138,7 +138,7 @@ static void log_run(tmt_run_log *runs, size_t out, uint32_t src, uint32_t length
 }
 
 /* Text inserted at an output offset moves every later copy, and splits a copy that spans the offset. */
-static void shift_runs(tmt_run_log *runs, size_t at, size_t width) {
+static __attribute__((noinline, cold)) void shift_runs(tmt_run_log *runs, size_t at, size_t width) {
   for (size_t index = 0; index < runs->count && !runs->failed; index++) {
     tmt_run *run = &runs->items[index];
     if (run->out >= at) run->out += (uint32_t)width;
@@ -277,10 +277,14 @@ typedef struct {
   bool numeric;
 } enum_member;
 
+enum { enum_inline_members = 24 };
+
 typedef struct {
   enum_member *items;
   size_t count, capacity;
   TmtGrammar_span binding;
+  /* Most enums fit here, so the common case allocates nothing. */
+  enum_member inline_items[enum_inline_members];
 } enum_scope;
 
 enum { enum_safe_limit_shift = 53, enum_depth = 48 };
@@ -478,9 +482,11 @@ static bool enum_numeric(lowering *lower, const enum_scope *scope, int64_t *valu
 
 static bool enum_remember(enum_scope *scope, TmtGrammar_span key, int64_t value, bool numeric) {
   if (scope->count == scope->capacity) {
-    const size_t capacity = scope->capacity ? scope->capacity * 2 : 16;
-    enum_member *grown = realloc(scope->items, capacity * sizeof(*grown));
+    const size_t capacity = scope->capacity * 2;
+    const bool inline_ = scope->items == scope->inline_items;
+    enum_member *grown = realloc(inline_ ? NULL : scope->items, capacity * sizeof(*grown));
     if (!grown) return false;
+    if (inline_) memcpy(grown, scope->inline_items, scope->count * sizeof(*grown));
     scope->items = grown;
     scope->capacity = capacity;
   }
@@ -491,9 +497,13 @@ static bool enum_remember(enum_scope *scope, TmtGrammar_span key, int64_t value,
 static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exported, enum_scope *scope);
 
 static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported) {
-  enum_scope scope = { .binding = binding };
+  enum_scope scope;
+  scope.items = scope.inline_items;
+  scope.count = 0;
+  scope.capacity = enum_inline_members;
+  scope.binding = binding;
   const bool emitted = emit_enum_members(lower, binding, exported, &scope);
-  free(scope.items);
+  if (scope.items != scope.inline_items) free(scope.items);
   return emitted;
 }
 
