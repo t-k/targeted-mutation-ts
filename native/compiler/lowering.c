@@ -797,19 +797,50 @@ static uint32_t skip_js_literal_or_comment(TmtPulseMemory_tape input, uint32_t a
   return at;
 }
 
-/* A flat comparison before a closing delimiter cannot contain type arguments. */
-static bool comparison_angle(const uint8_t *code, uint32_t size, uint32_t at) {
+static bool comparison_without_type_closer(TmtPulseMemory_tape input, uint32_t at) {
+  const uint32_t full_size = input.size;
+  if (input.size - at > 2048) input.size = at + 2048;
+  uint8_t closing[32];
+  size_t depth = 0;
+  bool certain = true;
+  while (at < input.size) {
+    const uint32_t after = skip_js_literal_or_comment(input, at, &certain);
+    if (!certain) return false;
+    if (after != at) {
+      at = after;
+      continue;
+    }
+    const uint8_t byte = input.source[at++];
+    if (byte == '>') return false;
+    if (byte == ';' && !depth) return true;
+    if ((byte == '&' || byte == '|') && at < input.size && input.source[at] == byte) return true;
+    if (byte == ')' || byte == ']' || byte == '}') {
+      if (!depth) return true;
+      if (closing[--depth] != byte) return false;
+    } else if (byte == '(' || byte == '[' || byte == '{') {
+      if (depth == sizeof(closing)) return false;
+      closing[depth++] = byte == '(' ? ')' : byte == '[' ? ']' : '}';
+    }
+  }
+  return input.size == full_size;
+}
+
+/* A comparison with no possible closing angle cannot be a type argument list. */
+static bool comparison_angle(TmtPulseMemory_tape input, uint32_t at, bool certain) {
+  const uint8_t *code = input.source;
+  const uint32_t size = input.size;
   if (at < size && code[at] == '=') return true;
   bool token = false, gap = false, flat = true;
   while (at < size) {
     const uint8_t byte = code[at++];
     if (byte == ')' || byte == ']' || byte == '}' || byte == ';') return true;
     if (byte == '?' && token && flat && (at == size || (code[at] != '?' && code[at] != '.'))) return true;
+    if ((byte == '&' || byte == '|') && token && flat && at < size && code[at] == byte) return true;
     if (space(byte)) gap = token;
     else if (TmtGrammar_identifier_continue(byte) || byte == '.') {
       flat = flat && !gap;
       token = true;
-    } else return false;
+    } else return certain && comparison_without_type_closer(input, at - 1);
   }
   return true;
 }
@@ -821,6 +852,7 @@ static bool value_keyword(const uint8_t *code, uint32_t size, uint32_t first, ui
   if (end == size) return false;
   const uint8_t byte = code[end];
   return byte == ':' || byte == '=' || byte == ',' || byte == ';' || byte == ')' || byte == '}' ||
+    (byte == '!' && size - end >= 2 && code[end + 1] == '=') ||
     ((byte == '&' || byte == '|') && size - end >= 2 && code[end + 1] == byte);
 }
 
@@ -838,7 +870,7 @@ static bool unambiguous_javascript(uint8_t *code, uint32_t size) {
       first = literal;
       continue;
     }
-    if (code[first] == '<' && !comparison_angle(code, size, first + 1)) return false;
+    if (code[first] == '<' && !comparison_angle(input, first + 1, certain)) return false;
     if (!TmtGrammar_identifier_continue(code[first])) {
       first++;
       continue;
