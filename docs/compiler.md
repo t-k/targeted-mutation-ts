@@ -272,3 +272,21 @@ The following Linux arm64 comparison used Node 24.14.0, disabled V8 compilation 
 The direct Pulse addon emitted one representative small input in 0.21 ms. The public facade took 0.58 ms and the SWC Next adapter took 0.32 ms. The direct addon and the public facade have different option and compatibility responsibilities.
 
 A separate validation ablation with the starting implementation reduced warm tachyon-dom from 18.28 to 8.54 ms and App.tsx from 5.53 to 2.50 ms. The 260-file native mreact TS cohort reached 23.22 ms against Oxc's 23.36 ms. These experiments quantify the cost of output validation. The measured release path retains both the ambiguity check and V8 parsing. The [timings and conformance evidence](../evidence/compiler/all-pulse-neon.json) includes each final sample, input hashes, and the separate experiments.
+
+### ECMAScript module strings
+
+At `63d064a`, an ESNext `.mjs` transform without a source map passes the decoded JavaScript string directly to V8. The small validator addon avoids loading the full compiler and encoding the string as UTF-8 again. A missing or incompatible validator addon uses the previous module route. Directive handling, invalid encoding and V8's module syntax decision retain their existing behavior.
+
+The paired Linux arm64 run used Node 24.14.0 with UTF-8 byte inputs, seven interleaved samples, and V8 compilation caching disabled. On ten local `.mjs` scripts the change moved the warm median from 1.605 to 1.336 ms and the first-process median from 2.936 to 2.441 ms. SWC Next measured 1.340 and 1.888 ms respectively. The warm medians are within 0.004 ms of each other. A separate prototype run measured 1.20 to 1.10 ms warm and 2.05 to 1.95 ms first. The common suite led seven of 21 warm rows and one of 21 first-process rows. The four supplemental cohorts shared by TMT, Oxc and SWC Next remain behind.
+
+| Workload | TMT warm (ms) | Fastest reference warm (ms) | TMT first (ms) | Fastest reference first (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Vite TS, 122 files | 23.84 | 13.15 (Oxc) | 25.68 | 14.71 (SWC Next) |
+| mreact TS, 321 files | 70.21 | 39.50 (Oxc) | 74.36 | 40.54 (SWC Next) |
+| tachyon-dom TS, 94 files | 23.43 | 11.03 (Oxc) | 24.66 | 12.51 (SWC Next) |
+| mreact TSX, 84 files | 4.88 | 3.33 (Oxc) | 5.99 | 3.76 (SWC Next) |
+| SWC Next App.tsx | 5.90 | 3.64 (Oxc) | 7.27 | 5.78 (SWC Next) |
+
+The additional NEON byte-class loop, exact binding byte comparison, and binding-presence filter did not consistently improve the Linux warm and first medians. A packed byte-class index and a prototype that delegates lexically simple function bodies to the final V8 parse gave no repeatable gain on macOS. GCC profile-guided optimization trained on the 642 TypeScript inputs in the pinned Astro corpus. It shortened some TypeScript medians by 1–4.5% and increased the mreact TSX warm median by 6.5%. These experiments remain outside the release build.
+
+The text validation audit compared ordinary and instrumented results for 671 inputs. The case matrix covers BOM preservation, invalid Unicode, invalid module syntax, unbound exports, and unavailable addons. TLC explored 489 distinct states of the publication model. The [comparison and verification data](../evidence/compiler/mjs-text-validation.json) include sample timings and corpus hashes.
