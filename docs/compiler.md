@@ -248,3 +248,5 @@ The original 3,321-input audit recorded 77 V8 rejections. At the current revisio
 All 3,248 repository tests pass. F★/Pulse checked both generated snapshots, Lean built the compiler arithmetic proofs, and TLC explored all 270 reachable publication model states.
 
 A final paired Linux experiment isolated V8 module parsing on outputs that were byte-identical with validation enabled and disabled. App.tsx moved from 5.35 to 3.40 ms warm and from 7.04 to 4.77 ms on first emission. The mreact TSX cohort moved from 3.85 to 2.31 ms warm. The 260-file native mreact TypeScript cohort still took 28.72 ms warm in the ablation. The performance comparison above uses the release path with validation enabled.
+
+A per-source trivia memo preserved all output hashes and regressed the warm and first-emission medians on all seven tested macOS workloads. The release parser keeps the existing trivia reader.
