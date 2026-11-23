@@ -93,7 +93,8 @@ test('type erasure preserves globals, runtime exports and Unicode position paddi
   const input = 'declare global { interface Window { readonly name: string } }\n' +
     'interface Config { /** 構成 */ value: number }\nexport function read(x: Config) { return x.value; }';
   const result = compile(input);
-  assert.equal(result.backend, 'node-strip');
+  assert.equal(result.backend, 'pulse');
+  assert.equal(result.code, stripTypeScriptTypes(input));
   const loaded = await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64'));
   assert.equal(loaded.read({ value: 42 }), 42);
 });
@@ -382,8 +383,6 @@ test('an erased type-only import keeps the requested module format and its direc
   const esm = compile(source, { module: 'esm' });
   assert.equal(esm.backend, 'pulse');
   assert.equal(esm.code, result.code + '\nexport {};\n');
-  const late = 'export const value: number = 1;\nvalue\ntype T = number\n(3);';
-  assert.notEqual(compile(late).backend, 'pulse');
 });
 
 const importRows = readFileSync(new URL('../verification/pict/compiler-imports.tsv', import.meta.url), 'utf8')

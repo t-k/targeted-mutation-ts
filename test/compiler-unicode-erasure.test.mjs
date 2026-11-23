@@ -49,3 +49,15 @@ test('classic JSX finds a retained module marker after an erased Unicode prefix'
     assert.doesNotMatch(script.code, /export type|import type/);
   }
 });
+
+test('explicit ESM keeps exactly the surviving Unicode-module markers', () => {
+  const prefix = 'export type T = /* é😀 */ number;\n';
+  const retained = prefix + 'export const value = 42;';
+  const preserve = compile(retained);
+  const esm = compile(retained, { module: 'esm' });
+  assert.equal(esm.backend, 'pulse');
+  assert.equal(esm.code, preserve.code);
+  const erased = compile(prefix + 'const value = 42;', { module: 'esm' });
+  assert.equal(erased.backend, 'pulse');
+  assert.match(erased.code, /export \{\};\n$/);
+});

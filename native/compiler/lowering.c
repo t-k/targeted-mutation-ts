@@ -1187,7 +1187,20 @@ decline:
   return NULL;
 }
 
-static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, bool enums, bool esm,
+static bool retained_module_marker(TmtPulseMemory_tape input, uint32_t at, uint32_t records) {
+  if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
+  for (uint32_t index = 0; index < records; index++) {
+    const TmtGrammar_candidate event = input.output[index];
+    if (event.original != erased_type_statement || at < event.left.first || at >= event.left.last) continue;
+    const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, event.left.last);
+    if (!tail.ok || tail.at >= input.size) return false;
+    at = tail.at;
+    if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
+  }
+  return false;
+}
+
+static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, uint32_t marker, bool enums, bool esm,
   size_t *length, bool *complete)
 {
   char *code = NULL;
@@ -1197,6 +1210,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   if (code) projected.source = (uint8_t *)code;
   if (!unambiguous_projection(projected, records)) goto enum_only;
   *length = input.size;
+  const bool needs_module_marker = code && esm && remove_statement && !retained_module_marker(projected, marker, records);
   if (enums) {
     char *lowered = lower_recorded_enums(projected, records, length);
     if (lowered) {
@@ -1205,7 +1219,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
     }
   }
   if ((!code && enums) || *length > 1048576) goto enum_only;
-  if (code && esm && remove_statement && !tmt_module_marker((uint8_t *)code, (uint32_t)*length, false)) {
+  if (needs_module_marker && !tmt_module_marker((uint8_t *)code, (uint32_t)*length, false)) {
     char *with_marker = realloc(code, *length + sizeof(esm_marker));
     if (!with_marker) goto enum_only;
     code = with_marker;
@@ -1233,7 +1247,9 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool
   module_workspace memory = {0};
   TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
-  if (!first.ok || find_marker(input, first.at, false) == size) return NULL;
+  if (!first.ok) return NULL;
+  const uint32_t marker = find_marker(input, first.at, false);
+  if (marker == size) return NULL;
   TmtGrammar_candidate *records = NULL;
   uint8_t *marks = NULL;
   if (size >= 4096) {
@@ -1255,7 +1271,7 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, bool enums, bool
   char *code = NULL;
   if (parsed.status == 0 && parsed.count <= input.capacity) {
     *checked = true;
-    code = erase_annotation_records(input, parsed.count, enums, esm, length, complete);
+    code = erase_annotation_records(input, parsed.count, marker, enums, esm, length, complete);
   }
   free(records);
   free(marks);
@@ -1480,21 +1496,6 @@ static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records) 
 }
 #endif
 
-#ifdef TMT_V8_VALIDATOR
-static bool retained_jsx_marker(TmtPulseMemory_tape input, uint32_t at, uint32_t records) {
-  if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
-  for (uint32_t index = 0; index < records; index++) {
-    const TmtGrammar_candidate event = input.output[index];
-    if (event.original != erased_type_statement || at < event.left.first || at >= event.left.last) continue;
-    const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, event.left.last);
-    if (!tail.ok || tail.at >= input.size) return false;
-    at = tail.at;
-    if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
-  }
-  return false;
-}
-#endif
-
 static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans, uint32_t records,
   uint32_t insertion, bool typescript, bool classic, size_t *length, bool *complete)
 {
@@ -1531,7 +1532,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
       if (masked) projected.source = (uint8_t *)masked;
       if (unambiguous_projection(projected, records)) {
         char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length, enum_records);
-        if (code && (!remove_statement || retained_jsx_marker(projected, insertion, records) ||
+        if (code && (!remove_statement || retained_module_marker(projected, insertion, records) ||
                      (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&
             validate_emission(code, *length, "tsx")) {
           *complete = true;
