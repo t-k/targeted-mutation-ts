@@ -1,0 +1,6 @@
+Name: TS, MTS, TSX, MJS, JS
+Mode: Omitted, Transform, Strip
+Target: Omitted, ESNext, ES2020
+Module: Omitted, Preserve, ESM, CJS
+SourceMap: Omitted, False, True
+Jsx: Omitted, Automatic, Classic, Preserve
