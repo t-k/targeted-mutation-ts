@@ -514,6 +514,60 @@ function ${name}(value) {
 const valuesOf = run => (run.collected ?? '').split('\n').filter(Boolean).map(line => JSON.parse(line));
 const matcherFor = formatted => (formatted.startsWith('[') || formatted.startsWith('{')) ? 'toStrictEqual' : 'toBe';
 
+function parseFormattedObject(formatted, ts) {
+  if (typeof formatted !== 'string' || !formatted.startsWith('{') || !formatted.endsWith('}')) return null;
+  const wrapped = `(${formatted})`;
+  const tree = ts.createSourceFile('value.js', wrapped, ts.ScriptTarget.Latest, false);
+  if (tree.parseDiagnostics.length || tree.statements.length !== 1 || !ts.isExpressionStatement(tree.statements[0])) return null;
+  let expr = tree.statements[0].expression;
+  while (ts.isParenthesizedExpression(expr)) expr = expr.expression;
+  if (!ts.isObjectLiteralExpression(expr)) return null;
+  const entries = new Map();
+  for (const prop of expr.properties) {
+    if (!ts.isPropertyAssignment(prop)) return null;
+    const name = prop.name;
+    let key;
+    if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) key = name.text;
+    else return null;
+    if (key === '__proto__' || entries.has(key)) return null;
+    entries.set(key, wrapped.slice(prop.initializer.getStart(tree), prop.initializer.end));
+  }
+  return entries;
+}
+
+export function narrowSiblingPath(originalText, editedText, ts = loadTypeScript()) {
+  const origMap = parseFormattedObject(originalText, ts);
+  const editMap = parseFormattedObject(editedText, ts);
+  if (!origMap || !editMap || origMap.size < 2) return null;
+  const keys = new Set([...origMap.keys(), ...editMap.keys()]);
+  const diffKeys = [];
+  for (const key of keys) {
+    if (!origMap.has(key) || !editMap.has(key) || origMap.get(key) !== editMap.get(key)) diffKeys.push(key);
+  }
+  if (diffKeys.length !== 1) return null;
+  const [key] = diffKeys;
+  if (!origMap.has(key)) return null;
+  const origChild = origMap.get(key);
+  if (!editMap.has(key)) {
+    if (origChild === 'undefined') return null;
+    return { path: [key], original: origChild, edited: 'undefined' };
+  }
+  const editChild = editMap.get(key);
+  if (origChild.startsWith('{') && editChild.startsWith('{')) {
+    const deeper = narrowSiblingPath(origChild, editChild, ts);
+    if (deeper) return { path: [key, ...deeper.path], original: deeper.original, edited: deeper.edited };
+  }
+  return { path: [key], original: origChild, edited: editChild };
+}
+
+function formatTargetPath(base, path) {
+  let expr = path.length && base.startsWith('await ') ? `(${base})` : base;
+  for (const key of path) {
+    expr += /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
+  }
+  return expr;
+}
+
 // Reuses one temporary project copy and one warm Vitest 4 child process (`cwd: workspace`, dedicated IPC channel,
 // `isolate: true` per run) across all assertion-strength value recordings, terminating the child process group
 // cleanly on timeout or exit.
@@ -690,8 +744,17 @@ export async function strengthenAssertions(root, report, options, run = defaultR
         : -1;
       if (at === -1) continue;
       // A result the test keeps is compared where it is kept: calling again may give another value.
-      gap.suggestedTest = `expect(${call.bound ?? call.text}).${matcherFor(original[at])}(${original[at]})`;
-      gap.strengthens = { file: testFile, test: call.test, line: call.line, column: call.column, call: call.text, original: original[at], edited: edited[at] };
+      // When a multi-key plain object differs along a single sibling field path, narrow the suggestion to that path.
+      const narrowed = narrowSiblingPath(original[at], edited[at], ts);
+      const baseExpr = call.bound ?? call.text;
+      const targetExpr = narrowed ? formatTargetPath(baseExpr, narrowed.path) : baseExpr;
+      const expectedText = narrowed ? narrowed.original : original[at];
+      const editedText = narrowed ? narrowed.edited : edited[at];
+      gap.suggestedTest = `expect(${targetExpr}).${matcherFor(expectedText)}(${expectedText})`;
+      gap.strengthens = {
+        file: testFile, test: call.test, line: call.line, column: call.column, call: call.text,
+        original: expectedText, edited: editedText, ...(narrowed ? { path: narrowed.path } : {}),
+      };
       break;
     }
   };
