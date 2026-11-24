@@ -50,7 +50,7 @@ export function simdSource(root, original, scratch, scalar) {
 // only where the syntax occurs.
 const rare = ['angle_assertion_head', 'local_enum_declaration', 'local_enum_start', 'enum_body_tokens',
   'simple_less_argument', 'single_less_byte', 'type_arguments_end_at_call_close', 'local_abstract_class', 'class_index_signature', 'runtime_namespace', 'runtime_namespace_members',
-  'bare_greater_between', 'cover_assignment_members', 'expression_end'];
+  'bare_greater_between', 'cover_assignment_members', 'expression_end', 'declarators_end', 'first_less_from'];
 
 export function coldSource(root, original, scratch) {
   if (!existsSync(resolve(root, original))) return original;

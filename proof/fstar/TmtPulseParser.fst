@@ -2638,6 +2638,16 @@ let rec type_arguments_end_at_call_close (input:tape) (#frame:slprop) (state:par
       type_arguments_end_at_call_close input #frame { tail with offset = next tail.offset } (minus remaining 1ul)
     else read_ret input #frame (byte = 41uy)
 
+// One more than the offset of the first `<` byte from an offset on, or of that offset if there is none. A
+// closing angle can only matter behind the opening one, so the search for it starts there.
+let rec first_less_from (input:tape) (#frame:slprop) (at stop:U32.t) (fallback:U32.t) (fuel:U32.t)
+  : Tot (stt U32.t (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
+  if fuel = 0ul || U32.(at >=^ stop) then read_ret input #frame (next fallback)
+  else
+    let! byte = (fun () -> peek input #frame at) in
+    if byte = 60uy then read_ret input #frame (next at)
+    else first_less_from input #frame (next at) stop fallback (minus fuel 1ul)
+
 // Whether a `>` byte that is not the head of an arrow stands between two offsets. Bytes in strings and
 // comments count as well, which only declines more.
 let rec bare_greater_between (input:tape) (#frame:slprop) (at stop:U32.t) (fuel:U32.t)
@@ -2697,6 +2707,17 @@ let class_index_signature (input:tape) (st:parser_state) : Tot (stt parser_state
     let! value = (fun () -> (let! colon = (fun () -> skip input last) in consume input colon 58uy)) in
     let! typed = (fun () -> annotation_type input value 16ul 64ul) in
     statement_end input typed typed.offset true
+
+// The end of a declaration with several declarators. A declarator whose value holds a less-than comparison may
+// be followed by others only if no greater-than sign, an arrow head aside, follows up to the end of the
+// statement: const a = x < y, b > (c) is one declarator with a generic call.
+let declarators_end (input:tape) (ended:parser_state) (angled:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  if angled = 0ul || ended.status <> 0ul then ret input ended
+  else
+    let from = minus angled 1ul in
+    let! closer = (fun () -> bare_greater_between input from ended.offset (minus ended.offset from)) in
+    ret input (if closer then failed ended 1ul else ended)
 
 let expression_end (input:tape) (closed:parser_state) (valid_array_target:bool) (angled:U32.t)
   : Tot (stt expression_items (heap input) (fun _ -> heap input)) =
@@ -2776,8 +2797,11 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           skip input element else ret input element) in
         let! follower = (fun () -> peek input behind.offset) in
         let! dotted = (fun () -> if follower = 63uy then same input (next behind.offset) 46uy else ret input false) in
+        // A non-null mark is an error behind a JSX element as well; != and !== are operators.
+        let! marked = (fun () -> if follower = 33uy then (let! equality = (fun () -> same input (next behind.offset) 61uy) in ret input (not equality))
+          else ret input false) in
         let closed = if element.status = 0ul && behind.status = 0ul &&
-          (follower = 40uy || follower = 91uy || follower = 96uy || follower = 46uy || dotted) then failed element 1ul else element in
+          (follower = 40uy || follower = 91uy || follower = 96uy || follower = 46uy || dotted || marked) then failed element 1ul else element in
         postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
           open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
     else if constructor || ch = 96uy || ch = 91uy || ch = 123uy then
@@ -3348,7 +3372,9 @@ and expression_run (input:tape) (state:parser_state) (fuel remaining:U32.t) (clo
             let! simple = (fun () -> simple_less_argument input start st) in
             if simple then type_arguments_end_at_call_close input following 32ul else ret input false
           else ret input (false)) in
-        let angled = if arg.open_angle && not disambiguated && angled = 0ul then next start.offset else angled in
+        let! angled = (fun () -> if arg.open_angle && not disambiguated && angled = 0ul then
+            first_less_from input start.offset st.offset start.offset (minus st.offset start.offset)
+          else ret input angled) in
         expression_run input next_item fuel (minus remaining 1ul) close valid_array_target angled
       else (let! anf_value_5 = (fun () -> consume input st close) in expression_end input anf_value_5 valid_array_target angled)))
 and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required seen_prototype:bool)
@@ -3814,7 +3840,7 @@ and local_var_declaration (input:tape) (state:parser_state) (fuel:U32.t)
   let st = record_binding_mode state VarLocals in
   function_var_list input { st with offset = plus st.offset 3ul } fuel 64ul false
 
-and local_declarators (input:tape) (state:parser_state) (constant names_only:bool) (floor used:names_used) (fuel remaining:U32.t)
+and local_declarators (input:tape) (state:parser_state) (constant names_only:bool) (floor used:names_used) (fuel remaining angled:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 44; U32.v remaining]) =
   let! start = (fun () -> skip input state) in
   if start.status <> 0ul || remaining = 0ul then ret input ({ state = failed start 1ul; used })
@@ -3828,14 +3854,18 @@ and local_declarators (input:tape) (state:parser_state) (constant names_only:boo
     let! tail = (fun () -> skip input value.parser) in
     if tail.status <> 0ul then ret input ({ decl with state = tail })
     else (let! anf_value_1 = (fun () -> (let! anf_value_2 = (fun () -> (same input tail.offset 44uy)) in ret input (not anf_value_2))) in if anf_value_1 then
-      (let! anf_value_3 = (fun () -> statement_end input value.parser value.range.G.last true) in ret input ({ decl with state = anf_value_3 }))
-    else if value.open_angle then ret input ({ decl with state = failed tail 1ul })
-    else (let! anf_value_4 = (fun () -> (consume input tail 44uy)) in local_declarators input anf_value_4 constant names_only floor decl.used fuel (minus remaining 1ul)))
+      (let! anf_value_3 = (fun () -> (let! ended = (fun () -> statement_end input value.parser value.range.G.last true) in declarators_end input ended angled)) in
+        ret input ({ decl with state = anf_value_3 }))
+    else
+      let! angled = (fun () -> if value.open_angle && angled = 0ul then
+          first_less_from input start.offset tail.offset start.offset (minus tail.offset start.offset)
+        else ret input angled) in
+      (let! anf_value_4 = (fun () -> (consume input tail 44uy)) in local_declarators input anf_value_4 constant names_only floor decl.used fuel (minus remaining 1ul) angled))
 
 and local_declaration (input:tape) (state:parser_state) (width:U32.t) (floor used:names_used) (fuel:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 45; 0]) =
   let state = record_binding_mode state LexicalLocals in
-  local_declarators input { state with offset = plus state.offset width } (width <> 3ul) false floor used fuel input.size
+  local_declarators input { state with offset = plus state.offset width } (width <> 3ul) false floor used fuel input.size 0ul
 
 and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:bool) (jumps:jump_context)
   (floor used:names_used) (root_control allow_resource:bool)
@@ -3860,7 +3890,7 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
   if enumeration.ok then local_enum_declaration input st enumeration.at floor used
   else if width <> 0ul then local_declaration input st width floor used fuel
   else if resource.status = 0ul then
-    local_declarators input (record_binding_mode resource LexicalLocals) true true floor used fuel input.size
+    local_declarators input (record_binding_mode resource LexicalLocals) true true floor used fuel input.size 0ul
   else if function_head.ok then
     if fuel = 0ul then ret input ({ state = failed st 3ul; used })
     else
@@ -4553,8 +4583,10 @@ let import_source (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt p
   if st.status <> 0ul || (delimiter <> 34uy && delimiter <> 39uy) then read_ret input #frame (failed st 1ul)
   else
     let! literal = (fun () -> (let! anf_value_1 = (fun () -> (string_end input #frame (next st.offset) delimiter input.size false)) in read_ret input #frame (from_cursor st anf_value_1))) in
-    let! tail = (fun () -> skip input #frame literal) in
-    let! has_attributes = (fun () -> if tail.status = 0ul then keyword input #frame tail.offset 4ul 0x77697468uL else read_ret input #frame (false)) in
+    let! gap = (fun () -> trivia input #frame literal.offset) in
+    let tail = from_cursor literal gap in
+    // TypeScript takes `with` on the next line as a statement of its own behind a re-export.
+    let! has_attributes = (fun () -> if tail.status = 0ul && not gap.newline then keyword input #frame tail.offset 4ul 0x77697468uL else read_ret input #frame (false)) in
     let! ending = (fun () -> if has_attributes then static_import_attributes input #frame tail else read_ret input #frame (literal)) in
     statement_end input #frame ending ending.offset false
 
@@ -4726,7 +4758,7 @@ let module_function (input:tape) (state:parser_state) (used:names_used) (declara
     ret input ({ binding with state = result })
 
 #push-options "--z3rlimit 20"
-let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) (constant names_only:bool) (remaining:U32.t)
+let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) (constant names_only:bool) (remaining angled:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
   let! start = (fun () -> skip input state) in
   if start.status <> 0ul || remaining = 0ul then ret input ({ state = failed start 1ul; used })
@@ -4738,9 +4770,14 @@ let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) 
     let! tail = (fun () -> skip input value.parser) in
     let! comma = (fun () -> same input tail.offset 44uy) in
     if tail.status <> 0ul then ret input ({ decl with state = tail })
-    else if not comma then (let! anf_value_1 = (fun () -> statement_end input value.parser value.range.G.last false) in ret input ({ decl with state = anf_value_1 }))
-    else if value.open_angle then ret input ({ decl with state = failed tail 1ul })
-    else (let! anf_value_2 = (fun () -> (consume input tail 44uy)) in module_lexical_list input anf_value_2 decl.used constant names_only (minus remaining 1ul))
+    else if not comma then
+      (let! anf_value_1 = (fun () -> (let! ended = (fun () -> statement_end input value.parser value.range.G.last false) in declarators_end input ended angled)) in
+        ret input ({ decl with state = anf_value_1 }))
+    else
+      let! angled = (fun () -> if value.open_angle && angled = 0ul then
+          first_less_from input start.offset tail.offset start.offset (minus tail.offset start.offset)
+        else ret input angled) in
+      (let! anf_value_2 = (fun () -> (consume input tail 44uy)) in module_lexical_list input anf_value_2 decl.used constant names_only (minus remaining 1ul) angled)
 
 // The declarators of `declare const a: T, b;`: names with optional annotations and no initializers.
 let rec ambient_declarators (input:tape) (decl:named_state) (remaining:U32.t)
@@ -5021,7 +5058,7 @@ let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:
         let! recorded = (fun () -> record_compiler_span input named 35ul { G.first = st.offset; G.last = named.offset }
           { G.first = named.offset; G.last = name_end.at }) in
         let declared = record_binding_mode recorded LexicalLocals in
-        let! decl = (fun () -> if name_end.ok then local_declarators input declared (lexical = 5ul) true floor used 64ul 1ul
+        let! decl = (fun () -> if name_end.ok then local_declarators input declared (lexical = 5ul) true floor used 64ul 1ul 0ul
           else ret input ({ state = failed named 1ul; used })) in
         runtime_namespace_members input decl.state floor decl.used (minus remaining 1ul)
       else if function_head.ok || class_ || abstract_.ok then
@@ -5101,7 +5138,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
         let! declared = (fun () -> enum_declaration input start used false) in
         let! recorded = (fun () -> record_jsx_span input declared.state 13ul state.offset declared.state.offset) in
         ret input { declared with state = recorded }
-      else module_lexical_list input start used (width = 5ul) false input.size
+      else module_lexical_list input start used (width = 5ul) false input.size 0ul
     else if (width = 3ul || width = 5ul) && head.ambient_declaration && not head.class_declaration then
       let! first = (fun () -> bind_in_namespace input start 0ul 0ul used start.offset AmbientValueName) in
       let! all = (fun () -> ambient_declarators input first 64ul) in
@@ -5411,7 +5448,7 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
       ret input (namespace_.body_start.status = 0ul)
     else
       let! width = (fun () -> local_width input st.offset) in ret input (width <> 0ul)) in
-  if resource.status = 0ul then module_lexical_list input resource used true true input.size
+  if resource.status = 0ul then module_lexical_list input resource used true true input.size 0ul
   else if ambient_module.status = 0ul then
     let! body = (fun () -> ambient_interfaces input ambient_module input.size true) in
     let! recorded = (fun () -> record_jsx_span input body 8ul st.offset body.offset) in

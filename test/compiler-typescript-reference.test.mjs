@@ -1269,3 +1269,43 @@ test('the rest parameter of an arrow function may be a binding pattern', () => {
     assert.notEqual(compile(Buffer.from(source), { file: 'rest.ts' }).backend, 'pulse', source);
   }
 });
+
+test('review findings: a mark behind JSX, a string behind an erased declaration, with on the next line, and comparisons before declarators', () => {
+  // TypeScript rejects a non-null mark behind a JSX element.
+  assert.notEqual(compile(Buffer.from('export function r() { return <View />!; }'), { file: 'a.tsx' }).backend, 'pulse');
+  assert.equal(sameAsTypeScript('export const a = <V /> != b;', 'a.tsx').backend, 'pulse');
+  // With the declaration erased the string would become a directive in front of the helper import.
+  for (const source of [
+    'declare module "pkg" { interface O {} }\n"use client";\nexport const view = <View />;',
+    'interface O {}\n"use client";\nexport const view = <View />;',
+    '"use client";\ninterface O {}\n"x";\nexport const view = <View />;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'a.tsx').backend.includes('pulse'), false, source);
+  }
+  for (const source of [
+    '"use client";\ninterface O {}\nexport const view = <View />;',
+    '"use client";\n"use strict";\nimport a from "a";\nexport const view = <View />;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'a.tsx').backend.includes('pulse'), true, source);
+  }
+  assert.equal(sameAsTypeScript('declare module "pkg" { interface O {} }\n"use client";\nexport const v = 1;', 'a.ts').backend.includes('pulse'), false);
+  // TypeScript reads `with` on the next line as a statement of its own.
+  assert.notEqual(compile(Buffer.from('export { default as config } from "./config.json"\nwith { "type": "json" };'), { file: 'a.ts' }).backend, 'pulse');
+  // A comparison in a declarator may be followed by further declarators when no closing angle follows it.
+  for (const source of [
+    'const a = r < 3, b = 1;\nexport {};',
+    'export const ok = s >= 200 && s < 300, other = () => new E({ a });',
+    'export function f() { const a = x < y, b = 1; let c = a < b, d; return [a, b, c, d]; }',
+    'export const a = f(s >= 200 && s < 300, () => new E({ a }));',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'a.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'const a = x < y, b > (c);\nexport {};',
+    'const a = x < y, b = z > (w);\nexport {};',
+    'export function f() { let a = x < y, b > (c); }',
+    'export const a = f(s < 300, s > 1);',
+  ]) {
+    assert.notEqual(sameAsTypeScript(source, 'a.ts').backend, 'pulse', source);
+  }
+});

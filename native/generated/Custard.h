@@ -1072,6 +1072,22 @@ TmtPulseParser_local_enum_declaration(
   uint32_t used
 );
 
+TmtPulseParser_parser_state
+TmtPulseParser_declarators_end(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state ended,
+  uint32_t angled
+);
+
+uint32_t
+TmtPulseParser_first_less_from(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t stop0,
+  uint32_t fallback0,
+  uint32_t fuel0
+);
+
 typedef struct TmtPulseParser_generator_head_s
 {
   TmtPulseParser_parser_state after_star;
@@ -1791,7 +1807,8 @@ TmtPulseParser_local_declarators(
   uint32_t floor0,
   uint32_t used0,
   uint32_t fuel0,
-  uint32_t remaining0
+  uint32_t remaining0,
+  uint32_t angled0
 );
 
 TmtPulseParser_named_state
@@ -2567,7 +2584,8 @@ TmtPulseParser_module_lexical_list(
   uint32_t used0,
   bool constant0,
   bool names_only0,
-  uint32_t remaining0
+  uint32_t remaining0,
+  uint32_t angled0
 );
 
 typedef struct TmtPulseParser_declaration_head_s

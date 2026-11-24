@@ -1870,7 +1870,15 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     bool separate = field;
     if (statement) {
       const TmtPulseParser_cursor first = TmtPulseParser_trivia(input, prelude);
-      if (first.ok && first.at == span.first) prelude = span.last;
+      if (first.ok && first.at == span.first) {
+        prelude = span.last;
+        /*
+         * With the statement gone, a string behind it would stand first and become a directive. TypeScript
+         * writes helper imports in front of it in a JSX file, so the two outputs would differ in "use client".
+         */
+        const TmtPulseParser_cursor behind = TmtPulseParser_trivia(input, span.last);
+        if (behind.ok && behind.at < input.size && (input.source[behind.at] == '"' || input.source[behind.at] == '\'')) goto decline;
+      }
       else if (event.original == erased_type_statement) {
         if (!retained_module_statement && (!first.ok || !begins_runtime_declaration(input, first.at))) goto decline;
         retained_module_statement = true;
@@ -2581,6 +2589,27 @@ bool tmt_leading_directive(uint8_t *source, uint32_t size) {
 }
 
 #ifndef TMT_DIRECT
+/*
+ * Whether a string statement stands behind another kind of item and before the first import or export. If the
+ * items in front of it are erased later, the string would stand first and become a directive, with the helper import
+ * behind it. TypeScript writes the import in front, so such a file is declined.
+ */
+static bool string_behind_first_item(TmtPulseMemory_tape input, uint32_t first, uint32_t marker) {
+  /* Strings at the very start are the directives of the source and stay where they are. */
+  bool prologue = true;
+  for (uint32_t at = first; at < marker; ) {
+    const TmtPulseParser_cursor item = TmtPulseParser_trivia(input, at);
+    if (!item.ok || item.at >= marker) return false;
+    const bool string = input.source[item.at] == '"' || input.source[item.at] == '\'';
+    if (string && !prologue) return true;
+    if (!string) prologue = false;
+    const uint32_t next = TmtPulseCompiler_next_module_item(input, true, item.at);
+    if (next <= item.at) return false;
+    at = next;
+  }
+  return false;
+}
+
 static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic, size_t *length, tmt_run_log *runs) {
   module_workspace memory = {0};
   const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
@@ -2588,6 +2617,7 @@ static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic,
   if (!first.ok || !TmtPulseCompiler_supported_module(input, jsx)) return NULL;
   const uint32_t marker = find_marker(input, first.at, jsx);
   if (marker == size) return NULL;
+  if (jsx && string_behind_first_item(input, first.at, marker)) return NULL;
   if (runs) runs->count = 0;
   lowering lower = { .input = input, .classic = classic, .mixed = true, .output.limit = (size_t)size * 32 + 1024,
     .output.runs = runs };
@@ -2835,6 +2865,9 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, b
   const uint32_t marker = find_marker(input, first.at, true);
   const bool module = marker < size;
   if (!typescript && !module) return NULL;
+#ifndef TMT_DIRECT
+  if (typescript && module && string_behind_first_item(input, first.at, marker)) return NULL;
+#endif
   const uint32_t insertion = module ? marker : jsx_script_prelude(input, first.at);
 #ifdef TMT_V8_VALIDATOR
   if (!typescript && !memchr(source, '<', size)) {
