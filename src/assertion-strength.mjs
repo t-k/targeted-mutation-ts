@@ -89,12 +89,20 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
     if (!callback || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) || !ts.isCallExpression(callback.parent)) return undefined;
     const call = callback.parent;
     const title = call.arguments[0];
-    if (!ts.isIdentifier(call.expression) || !['it', 'test'].includes(call.expression.text) || call.arguments.at(-1) !== callback || call.arguments.length < 2 ||
+    // Options may stand before the callback and a timeout after it.
+    if (!ts.isIdentifier(call.expression) || !['it', 'test'].includes(call.expression.text) || call.arguments.indexOf(callback) < 1 ||
         !title || !ts.isStringLiteralLike(title)) return undefined;
     return { title: title.text, suites: suitesOf(call) };
   }
   const found = [];
+  // Every test of the file whose name is written out in full, with or without a call to take.
+  const spelled = new Set();
   (function visit(node) {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && ['it', 'test'].includes(node.expression.text) && node.arguments[0] &&
+        ts.isStringLiteralLike(node.arguments[0])) {
+      const suites = suitesOf(node);
+      if (suites) spelled.add([...suites, node.arguments[0].text].join(' > '));
+    }
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && imported.has(node.expression.text) && !node.questionDotToken &&
         node.arguments.every(written)) {
       const [parent, child] = up(node);
@@ -124,7 +132,6 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
   })(tree);
   // A test is named with its suites. Where a suite's title is not written out, the test's own title has to do,
   // for the names that no fully written test of the file has.
-  const spelled = new Set(found.map(call => call.full).filter(name => name !== undefined));
   return found.filter(call => (call.full !== undefined ? testNames.includes(call.full)
     : testNames.some(name => !spelled.has(name) && (name === call.test || name.endsWith(' > ' + call.test)))))
     .map(({ full: _full, ...call }) => call);
@@ -133,17 +140,18 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
 // The test file with one call wrapped so that every value it gives is written beside the file.
 export function recordingCall(text, call, key) {
   const name = `__tmtValue_${key}`;
-  // The file system is taken from Node itself, when the file has loaded: a test may replace the module with a
-  // mock, or `process` with something else.
+  // The file system is taken from Node itself, when the file has loaded or else at the first call: a test may
+  // replace the module with a mock, or `process` with something else for a while.
   const helper = `
-var __tmtFiles_${key} = globalThis.process.getBuiltinModule('node:fs');
+var __tmtFiles_${key};
+try { __tmtFiles_${key} = globalThis.process.getBuiltinModule('node:fs'); } catch (error) { /* taken at the first call */ }
 function ${name}(value) {
   var type = typeof value, shown = null;
   if (value === null || type === 'boolean' || type === 'undefined') shown = String(value);
   else if (type === 'number') shown = Object.is(value, -0) ? '-0' : String(value);
   else if (type === 'string') shown = JSON.stringify(value);
   else if (type === 'bigint') shown = value + 'n';
-  __tmtFiles_${key}.appendFileSync(new URL('./.tmt-values-${key}.jsonl', import.meta.url), JSON.stringify(shown) + '\\n');
+  (__tmtFiles_${key} || (__tmtFiles_${key} = globalThis.process.getBuiltinModule('node:fs'))).appendFileSync(new URL('./.tmt-values-${key}.jsonl', import.meta.url), JSON.stringify(shown) + '\\n');
   return value;
 }
 `;

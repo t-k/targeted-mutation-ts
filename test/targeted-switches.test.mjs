@@ -509,6 +509,11 @@ test('the edits of a sort, an awaited call and a copy, and where none is offered
   assert.deepEqual(list('async function f(g: any, on: boolean) { await (on ? g : g)(1); await async function start() { await g(); }(); }').map(entry => entry[1]),
     ['void (on ? g : g)(1);', 'void async function start() { await g(); }();', 'void g();']);
   assert.deepEqual(list('const f = (a: number[], o: object) => [[...a], { ...o }];'), [[targetedRules.copy, '(a)'], [targetedRules.copy, '(o)']]);
+  // Directly after `else` the edit is still a statement of its own.
+  const tight = 'async function f(cached, reuse, save) { if (cached) reuse();else(await save()); }';
+  const dropped = render(tight).mutants.find(mutant => mutant.mutatorName === targetedRules.awaited);
+  assert.equal(edited(tight, dropped), 'async function f(cached, reuse, save) { if (cached) reuse();else void save(); }');
+  assert.equal(loadTypeScript().createSourceFile('p.js', render(tight).output, 99, false).parseDiagnostics.length, 0);
   // A literal with anything beside the spread is not a copy, and a pattern on the left is no literal.
   assert.deepEqual(list('function f(a: number[], o: any) { let rest; [...rest] = a; ({ ...rest } = o); return [[...a, 1], [0, ...a], { ...o, k: 1 }, [], {}, [a], { o }]; }'), []);
 });

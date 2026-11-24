@@ -369,9 +369,9 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       const awaited = strip(node.expression);
       const call = ts.isAwaitExpression(awaited) ? strip(awaited.expression) : undefined;
       // The call goes on alone: what follows no longer waits for it. `void` keeps it an expression whatever it
-      // begins with (a parenthesis, a function that is called at once).
+      // begins with (a parenthesis, a function that is called at once), and the space keeps it off an `else`.
       if (call && ts.isCallExpression(call)) {
-        add(targetedRules.awaited, node, `void ${source(call)};`, { kind: 'statement', placement: [begin(node), node.end], mutated: `void ${source(call)};` },
+        add(targetedRules.awaited, node, `void ${source(call)};`, { kind: 'statement', placement: [begin(node), node.end], mutated: ` void ${source(call)};` },
           { targeted: { operator: 'await', form: 'dropped', left: source(call) } });
       }
       return;

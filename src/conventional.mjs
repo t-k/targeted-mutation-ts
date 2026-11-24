@@ -199,12 +199,13 @@ export async function analyzeConventional(project, files, options) {
     const observed = events.find(event => event.observed)?.observed ?? {};
     // The expressions behind the switches an edit's tests newly reach or no longer reach, without the edit's own.
     const places = new Map(prepared.map(mutant => [mutant.id, mutant]));
-    const expressionsOf = (entries, own) => {
+    const expressionsOf = (entries, own, plain) => {
       const seen = new Map();
       for (const { id, test } of entries) {
         const { location, original } = places.get(id) ?? {};
-        // What stands inside the edited code is evaluated by the edit itself, without a switch to show it.
-        if (!location || (location.file === own.file && own.start <= location.start && location.end <= own.end)) continue;
+        if (!location || (location.file === own.file && own.start === location.start && location.end === own.end)) continue;
+        // An edit without a probe is plain text: what stands inside it is evaluated without a switch to show it.
+        if (plain && location.file === own.file && own.start <= location.start && location.end <= own.end) continue;
         seen.set(`${test}:${location.file}:${location.start}:${location.end}`, { ...(test === undefined ? {} : { test }),
           location: { file: location.file, line: location.line, column: location.column }, expression: original });
       }
@@ -212,8 +213,9 @@ export async function analyzeConventional(project, files, options) {
     };
     const withEffects = (gap, mutant) => {
       if (!gap || !mutant.effects) return gap;
-      const nowRuns = expressionsOf(mutant.effects.now, mutant.location);
-      const noLongerRuns = expressionsOf(mutant.effects.gone, mutant.location);
+      const plain = ['await', 'copy'].includes(mutant.targeted?.operator);
+      const nowRuns = expressionsOf(mutant.effects.now, mutant.location, plain);
+      const noLongerRuns = expressionsOf(mutant.effects.gone, mutant.location, plain);
       return nowRuns.length || noLongerRuns.length ? { ...gap, effects: { nowRuns, noLongerRuns } } : gap;
     };
     const judged = mutants.map(mutant => {

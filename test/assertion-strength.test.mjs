@@ -64,6 +64,11 @@ test('a wrapped call gives its value on and writes down what a comparison can be
   assert.doesNotMatch(rewritten, /import .* from 'node:fs'/);
   const context = vm.createContext({ URL, process: { getBuiltinModule: name => ({ 'node:fs': { appendFileSync: (url, line) => written.push([String(url), line]) } })[name] } });
   vm.runInContext(rewritten.slice(rewritten.indexOf('var __tmtFiles_k1'), rewritten.indexOf('function __tmtValue_k1')) + '; process = undefined;', context);
+  // Where `process` is replaced while the file loads and back when the test runs, the file system is taken at the first call.
+  const late = vm.createContext({ URL, process: {} });
+  vm.runInContext(rewritten.slice(rewritten.indexOf('var __tmtFiles_k1')).replace('import.meta.url', "'file:///t/'") +
+    '; process = { getBuiltinModule: () => ({ appendFileSync: (url, line) => { globalThis.wrote = line; } }) }; __tmtValue_k1(7);', late);
+  assert.equal(late.wrote, '"7"\n');
   const shown = value => { context.value = value; vm.runInContext(helper + '; var given = __tmtValue_k1(value);', context); return [context.given === value || Number.isNaN(value), JSON.parse(written.pop()[1])]; };
   assert.deepEqual([3, -0, NaN, 'a"b', true, null, undefined, 5n].map(shown), [[true, '3'], [true, '-0'], [true, 'NaN'], [true, '"a\\"b"'], [true, 'true'],
     [true, 'null'], [true, 'undefined'], [true, '5n']]);
@@ -215,8 +220,14 @@ test('the conditions of a taken call, one at a time', () => {
   assert.deepEqual(weakCalls(`${head}it('t', () => {\n  const { size } = fee(1);\n  const kept = fee(2);\n});\n`, 'test/subject.test.ts', 'src/subject.ts', ['t']).map(call => call.bound), [undefined, 'kept']);
   // Only a test: `it` or `test` with a written title and its callback last.
   const outside = body => weakCalls(`${head}${body}\n`, 'test/subject.test.ts', 'src/subject.ts', ['t']).map(call => call.text);
-  assert.deepEqual(outside("bench('t', () => { fee(1); });\nit(() => { fee(2); });\nit('t', () => { fee(3); }, 500);\nit.only('t', () => { fee(4); });\nfee(5);\nconst t = () => { fee(6); };"), []);
-  assert.deepEqual(outside("test('t', function () { fee(1); });\nit('t', async () => { fee(2); });"), ['fee(1)', 'fee(2)']);
+  assert.deepEqual(outside("bench('t', () => { fee(1); });\nit(() => { fee(2); });\nit.only('t', () => { fee(4); });\nfee(5);\nconst t = () => { fee(6); };"), []);
+  // A timeout may stand after the callback, and options before it.
+  assert.deepEqual(outside("test('t', function () { fee(1); });\nit('t', async () => { fee(2); });\nit('t', () => { fee(3); }, 500);\nit('t', { retry: 1 }, () => { fee(4); });"),
+    ['fee(1)', 'fee(2)', 'fee(3)', 'fee(4)']);
+  // A test written out in full keeps its name even when its own call is pinned.
+  const pinned = `${head}describe('known', () => { test('same', () => { expect(fee(1)).toBe(1); }); });\ndescribe.each(['other'])('%s', () => { test('same', () => { fee(2); }); });\n`;
+  assert.deepEqual(weakCalls(pinned, 'test/subject.test.ts', 'src/subject.ts', ['known > same']), []);
+  assert.deepEqual(weakCalls(pinned, 'test/subject.test.ts', 'src/subject.ts', ['other > same']).map(call => call.text), ['fee(2)']);
   // A wrapper that is no suite gives no part of the name.
   assert.deepEqual(outside("each('rows', () => { it('t', () => { fee(1); }); });\ndescribe.skip('s', () => { it('t', () => { fee(2); }); });"), ['fee(1)']);
   // Only names imported by name from the edited file: no default, no namespace, no package of the same name.

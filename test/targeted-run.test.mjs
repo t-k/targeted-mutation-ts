@@ -278,6 +278,11 @@ it('rejects', () => { commit([['b', -5]]); });
     'subject.test.ts': "import { it } from 'vitest';\nimport { work } from './subject';\nit('works', () => { work(); });\n" });
   assert.deepEqual(constant.report.diagnostics.find(entry => entry.mutations[0].replacement === '(1, 1, false)').effects.noLongerRuns.map(entry => [entry.test, entry.expression]),
     [['works', '4 + 2']]);
+  // The right side of a probed operator is evaluated through its own switches, so losing it is told.
+  const fallback = analyzeProject({ 'subject.ts': 'export const limit = (given: number, defaults: number[]) => given || (defaults.length + 1);\n',
+    'subject.test.ts': "import { expect, it } from 'vitest';\nimport { limit } from './subject';\nit('limits', () => { expect(limit(0, [1])).toBeDefined(); expect(limit(5, [])).toBe(5); });\n" });
+  assert.deepEqual(fallback.report.diagnostics.find(entry => entry.mutations[0].replacement === '(given ?? (defaults.length + 1))').effects.noLongerRuns.map(entry => entry.expression),
+    ['defaults.length + 1']);
   const text = renderText(report);
   assert.match(text, /with the edit, `rejects` also evaluates `value \+ 0` \(subject\.ts:5\)\n {2}subject\.test\.ts > rejects calls `commit\(\[\['b', -5\]\]\)` without pinning its result: it gives false, and true with the edit/);
   assert.match(renderText({ runner: 'vitest', evaluation: 'evaluated', mutants: [], diagnostics: [{ kind: 'ASSERTION GAP', location: gap.location,
