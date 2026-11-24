@@ -25,7 +25,7 @@ const forms = {
     'export declare namespace Entry { export const valid = a < b; }'],
   AmbientEnum: ['declare enum Flag { Left, Right = 2 }', 'declare enum Flag { Left = }'],
   InterfaceMerge: ['export interface Entry { left: number; } export interface Entry { right: number; }',
-    'export interface Entry<T> { left: T; } export interface Entry<T> { right: T; }'],
+    'export interface Entry<T> { left: T; } export type Entry<T> = { right: T; };'],
   CallComma: ['test(actual < expected, `expected \${actual} less than \${expected}`, expected, actual, false,);',
     'test(actual < expected, ...remaining);'],
 };
@@ -62,9 +62,10 @@ test('generic calls, TypeScript assertions, and mixed interface declarations ret
   compare('const x = <T>await {};', false);
   compare('export default <T>{}\n(1) < 2;', false);
   compare('export default <Environment>{ valid: a >= b }', true);
-  compare('export interface Entry {} interface Entry { key: number; }', false);
+  compare('export interface Entry {} interface Entry { key: number; }', true);
+  compare('export interface Entry<T> { left: T; } export interface Entry<T> { right: T; }', true);
   compare('export interface Entry {} export type Entry = number;', false);
-  compare('export interface Entry {} export interface Entry extends Base {}', false);
+  compare('export interface Entry {} export interface Entry extends Base {}', true);
   compare('declare class Entry { constructor(key: string) {} }', false);
   compare('class Entry { 12foo: number; }', false);
   compare('declare enum A { X = () => { function f() {} } } const yes = x < y;', false);

@@ -833,7 +833,8 @@ let names_overlap (left right:binding_namespace) : bool =
   if left = RuntimeExport then right = ValueName || right = BothNames || right = FunctionImplementation || right = ClassName
   else if is_function_binding left && is_function_binding right then
     left = FunctionImplementation && right = FunctionImplementation
-  else if left = ExportedInterfaceName && right = ExportedInterfaceName then false
+  // Interfaces of one name merge, whatever they extend and whether or not they are exported.
+  else if is_interface_binding left && is_interface_binding right then false
   // An interface and a class of one name merge into the class.
   else if (is_interface_binding left && is_class_binding right) || (is_class_binding left && is_interface_binding right) then false
   else if left = TypeNamespace || right = TypeNamespace then
@@ -1442,7 +1443,12 @@ and tuple_element (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t)
   let! item_end = (fun () -> if rest_item && optional_item then read_ret input #frame (failed annotated 1ul)
     else if optional_suffix then
       // A question mark after a composite type may belong to its final operand.
-      let! primary = (fun () -> (let! anf_value_2 = (fun () -> (type_reference input #frame start fuel)) in type_suffixes input #frame anf_value_2 0ul 16ul false)) in
+      // The operand may also be an object type or a type in parentheses, as in [{ a: 1 }?] and [('a' | 'b')?].
+      let! opened = (fun () -> skip input #frame start) in
+      let! opener = (fun () -> peek input #frame opened.offset) in
+      let! operand = (fun () -> if opener = 123uy || opener = 40uy then type_term input #frame opened fuel false false
+        else type_reference input #frame start fuel) in
+      let! primary = (fun () -> type_suffixes input #frame operand 0ul 16ul false) in
       if after_value.newline || primary.status <> 0ul || primary.offset <> value.offset then read_ret input #frame (failed annotated 1ul)
       else (let! anf_value_3 = (fun () -> (consume input #frame annotated 63uy)) in skip input #frame anf_value_3)
     else read_ret input #frame (annotated)) in
@@ -4106,7 +4112,8 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         not accessor && not key.private_ && not key.quoted_ && not key.generator_ in
       let! compatible = (fun () -> if not awaiting_body then ret input true else
           let length = minus key.last key.first in
-          if overload && pending.key_flags = key.modifier_flags && pending.key_async = key.async_ &&
+          // An implementation may be async where its overload signatures are not.
+          if overload && pending.key_flags = key.modifier_flags && (pending.key_async = key.async_ || not pending.key_async) &&
             length = minus pending.key_span.G.last pending.key_span.G.first then
             same_bytes input key.first pending.key_span.G.first length
           else ret input false) in

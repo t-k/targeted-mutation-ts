@@ -748,3 +748,33 @@ test('a comparison with a name or a number before a comma in an argument list is
     assert.notEqual(sameAsTypeScript(source, 'less.ts').backend, 'pulse', source);
   }
 });
+
+test('interfaces of one name merge, optional tuple operands may be composite, and async implements plain overloads', () => {
+  for (const source of [
+    'export interface T<in out A> extends V<A> {}\nexport interface T<in out A> { }',
+    'interface T { a: 1 }\ninterface T { b: 2 }\nexport {};',
+    'export interface T { a: 1 }\ninterface T { b: 2 }',
+    'interface T { a: 1 }\nclass T { }\ninterface T { b: 2 }\nexport { T };',
+    'export type Q = [string[], { }?,];',
+    'export type O = [("method" | "property")?];',
+    'export type O = [((a: string) => void)?, { a: 1 }[]?, (A | B)[]?];',
+    'export class L { waitFor(): Promise<void>;\n  async waitFor(o?: any) { } }',
+    'export class L { waitFor(): Promise<void>; waitFor(a: 1): Promise<void>;\n  async waitFor(o?: any) { await o; } m() {} }',
+    'export class L { static f(): void;\n  static async f(o?: any) { } }',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'merge.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'interface T { a: 1 }\ntype T = 1;\nexport {};',
+    'import { T } from "m";\ninterface T { a: 1 }\nexport {};',
+    'export type O = [(a: string) => void?];',
+    'export type O = [{ a: 1 } | B?];',
+    'export type O = [readonly { a: 1 }[]?];',
+    'export class L { async waitFor(): Promise<void>;\n  waitFor(o?: any) { } }',
+    'export class L { f(): void;\n  static async f(o?: any) { } }',
+    'export class L { f(): void;\n  async g(o?: any) { } }',
+    'export class L { f(): void;\n  async *f(o?: any) { } }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'merge.ts' }).backend, 'pulse', source);
+  }
+});

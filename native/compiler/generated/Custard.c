@@ -981,7 +981,7 @@ TmtPulseParser_names_overlap(
       left == TmtPulseMemory_FunctionImplementation &&
         right == TmtPulseMemory_FunctionImplementation;
   else if
-  (left == TmtPulseMemory_ExportedInterfaceName && right == TmtPulseMemory_ExportedInterfaceName)
+  (TmtPulseParser_is_interface_binding(left) && TmtPulseParser_is_interface_binding(right))
     return false;
   else if
   (
@@ -3554,15 +3554,21 @@ TmtPulseParser_tuple_element(
     value130 = TmtPulseParser_failed(annotated, 1U);
   else if (value12)
   {
-    TmtPulseParser_parser_state value13 = TmtPulseParser_type_reference(input, value8, fuel);
+    TmtPulseParser_parser_state value13 = TmtPulseParser_skip(input, value8);
+    uint8_t value14 = TmtPulseMemory_peek(input, value13.offset);
+    TmtPulseParser_parser_state value15;
+    if (value14 == 123U || value14 == 40U)
+      value15 = TmtPulseParser_type_term(input, value13, fuel, false, false);
+    else
+      value15 = TmtPulseParser_type_reference(input, value8, fuel);
     TmtPulseParser_parser_state
-    value14 = TmtPulseParser_type_suffixes(input, value13, 0U, 16U, false);
-    if (value11.newline || value14.status != 0U || value14.offset != value100.offset)
+    value16 = TmtPulseParser_type_suffixes(input, value15, 0U, 16U, false);
+    if (value11.newline || value16.status != 0U || value16.offset != value100.offset)
       value130 = TmtPulseParser_failed(annotated, 1U);
     else
     {
-      TmtPulseParser_parser_state value15 = TmtPulseParser_consume(input, annotated, 63U);
-      value130 = TmtPulseParser_skip(input, value15);
+      TmtPulseParser_parser_state value17 = TmtPulseParser_consume(input, annotated, 63U);
+      value130 = TmtPulseParser_skip(input, value17);
     }
   }
   else
@@ -13924,7 +13930,7 @@ TmtPulseParser_class_members(
           if
           (
             overload && pending.key_flags == value4.modifier_flags &&
-              pending.key_async == value4.async_
+              (pending.key_async == value4.async_ || !pending.key_async)
             && length == TmtPulseParser_minus(pending.key_span.last, pending.key_span.first)
           )
             value10 = TmtPulseParser_same_bytes(input, value4.first, pending.key_span.first, length);

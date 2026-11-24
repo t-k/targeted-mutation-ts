@@ -198,7 +198,7 @@ test('fixtures keep every token mapped', () => {
 test('outputs that are not projections and unusual inputs take the router', () => {
   const typed = 'const n: number = 1;\nexport const result = n;\n';
   for (const [source, file] of [
-    ['export const view = <i {...{ a: 1 }}/>;\n', 'a.tsx'],
+    ['export const view = <i {...{ __proto__: null }}/>;\n', 'a.tsx'],
     ['\ufeff' + typed, 'a.ts'],
     [typed, 'a.cts'],
     [typed, 'index.d.ts'],
