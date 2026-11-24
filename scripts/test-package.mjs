@@ -35,13 +35,16 @@ try {
   assert.equal(addon.standalone, undefined);
   const home = homedir();
   const repoRoot = resolve('.');
-  // Lean's prebuilt runtime libraries are compiled on GitHub Actions under <home>/work/lean4/lean4/.
-  const leanUpstream = `${home}/work/lean4/lean4/`;
+  const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Lean's prebuilt runtime libraries are compiled on GitHub Actions under <home>/(actions-runner/_work|_work|work)/lean4/lean4/.
+  const leanUpstream = new RegExp(`${escapeRegExp(home)}/(?:actions-runner/_work|_work|work)/lean4/lean4/`, 'g');
+  const homeSnippet = new RegExp(`${escapeRegExp(home)}[^\\0\\r\\n"']{0,120}`, 'g');
   for (const binary of ['tmt.node', 'tmt-decide']) {
     const content = readFileSync(join(platformPackage, binary));
     assert.equal(content.includes(repoRoot), false, `${binary} records the build repository path`);
-    const scrubbed = binary === 'tmt-decide' ? content.toString('latin1').replaceAll(leanUpstream, '') : content;
-    assert.equal(scrubbed.includes(home), false, `${binary} records the build machine's home directory`);
+    const scrubbed = binary === 'tmt-decide' ? content.toString('latin1').replace(leanUpstream, '') : content.toString('latin1');
+    const leaks = scrubbed.includes(home) ? [...scrubbed.matchAll(homeSnippet)].slice(0, 5).map(m => m[0]) : [];
+    assert.equal(leaks.length, 0, `${binary} records the build machine's home directory: ${leaks.join(', ')}`);
   }
   for (const file of ['LICENSE', 'NOTICE', 'lean/LICENSE', 'lean/LICENSES', 'lean/GPL-3.0.txt', 'lean/libuv-LICENSE.txt', 'lean/libuv-LICENSE-extra.txt']) assert.ok(readFileSync(join(platformPackage, file)).length, file);
   const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
