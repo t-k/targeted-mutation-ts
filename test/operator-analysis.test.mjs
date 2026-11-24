@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -35,56 +35,42 @@ function analyze(...args) {
     rmSync(scratch, { recursive: true, force: true });
   }
 }
-const summary = report => report.mutants.map(mutant => [mutant.location.line, mutant.operator, mutant.replacement, mutant.status]);
 
-test('the operators profile edits equality, logical and arithmetic operators without an extra package', () => {
-  const run = analyze('--mutators', 'operators');
-  assert.equal(run.status, 0, run.stderr + run.stdout);
-  const report = JSON.parse(run.stdout);
-  assert.equal(report.mutators, 'operators');
-  assert.equal(report.evaluation, 'evaluated');
-  assert.deepEqual(summary(report), [
-    [2, '*', '/', 'killed'],
-    [3, '===', '!==', 'killed'],
-    // No test has a member order under 100 or a non-member order of 100 or more.
-    [3, '&&', '||', 'survived'],
-    [3, '>=', '>', 'survived'],
-    [3, '-', '+', 'killed'],
-    // Never called: per-test coverage from the session shows that no test reaches it.
-    [7, '+', '-', 'unreached'],
-  ]);
-  const rules = Object.fromEntries(report.mutants.map(mutant => [mutant.operator, mutant.rule]));
-  assert.deepEqual(rules, { '*': 'arithmetic-operator/v1', '===': 'equality-negation/v1', '&&': 'logical-operator/v1',
-    '>=': 'comparison-boundary/v1', '-': 'arithmetic-operator/v1', '+': 'arithmetic-operator/v1' });
-  const unreached = report.mutants.at(-1);
-  assert.equal(unreached.evidence, 'coverage');
-  assert.equal(report.operatorExecution, 'session');
-  assert.ok(report.mutants[0].tests.length > 0);
-  assert.deepEqual(report.diagnostics.map(gap => [gap.kind, gap.location.line]), [['INPUT GAP', 3]]);
-  assert.deepEqual(report.instrumented, { status: 'passed' });
-});
-
-test('the default profile keeps reporting comparison edits only', () => {
+test('the default profile is targeted and reports both comparison gaps and targeted rules in one session', () => {
   const run = analyze();
   assert.equal(run.status, 0, run.stderr + run.stdout);
   const report = JSON.parse(run.stdout);
-  assert.equal(report.mutators, undefined);
-  assert.deepEqual(summary(report), [[3, '>=', '>', 'survived']]);
+  assert.deepEqual([report.mutators, report.operatorExecution, report.evaluation], ['targeted', 'session', 'evaluated']);
+  assert.ok(report.mutants.some(mutant => mutant.rule === 'comparison-boundary/v1' && mutant.status === 'survived'));
+  assert.ok(report.mutants.some(mutant => mutant.rule === 'comparison-threshold/v1' && mutant.replacement === '99' && mutant.status === 'survived'));
+  assert.ok(report.mutants.some(mutant => mutant.rule === 'arithmetic-swap/v1' && mutant.location.line === 2 && mutant.status === 'killed'));
+  assert.ok(report.mutants.some(mutant => mutant.rule === 'arithmetic-swap/v1' && mutant.location.line === 7 && mutant.status === 'unreached'));
+  assert.ok(report.diagnostics.some(gap => gap.kind === 'INPUT GAP' && gap.location.line === 3));
+  assert.deepEqual(report.instrumented, { status: 'passed' });
 });
 
-test('the text report shows an operator edit as an operator change', () => {
-  const run = analyze('--mutators', 'operators', '--lines', 'src/price.ts:7', '--format', 'text');
+test('the text report shows targeted edits clearly', () => {
+  const run = analyze('--lines', 'src/price.ts:7', '--format', 'text');
   assert.equal(run.status, 0, run.stderr + run.stdout);
-  assert.match(run.stdout, /^src\/price\.ts:7:12 {2}unreached {2}arithmetic-operator\/v1: \+ -> -$/m);
+  assert.match(run.stdout, /^src\/price\.ts:7:10 {2}unreached {2}arithmetic-swap\/v1: a \+ b -> \(a - b\)$/m);
 });
 
-test('the operators profile is refused with the witness profile and unknown profiles keep their error', () => {
-  const witnesses = analyze('--mutators', 'operators', '--witnesses');
-  assert.equal(witnesses.status, 1);
-  assert.equal(witnesses.stderr, '--witnesses runs its own Vitest source trials\n');
-  const unknown = analyze('--mutators', 'everything');
-  assert.equal(unknown.status, 1);
-  assert.equal(unknown.stderr, 'Expected --mutators focused|targeted|operators|full|standard|all\n');
+test('removed profiles are rejected and --witnesses rejects --mutators', () => {
+  const rows = readFileSync(new URL('../verification/pict/profile-dispatch.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1);
+  const seeds = readFileSync(new URL('../verification/pict/profile-dispatch.seed.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1);
+  const table = new Set(rows);
+  for (const seed of seeds) assert.ok(table.has(seed), seed);
+
+  for (const removed of ['focused', 'operators', 'standard', 'all', 'everything']) {
+    const unknown = analyze('--mutators', removed);
+    assert.equal(unknown.status, 1, removed);
+    assert.equal(unknown.stderr, 'Expected --mutators targeted|full\n');
+  }
+  for (const profile of ['targeted', 'full']) {
+    const witnesses = analyze('--mutators', profile, '--witnesses');
+    assert.equal(witnesses.status, 1);
+    assert.equal(witnesses.stderr, '--witnesses runs its own Vitest source trials\n');
+  }
 });
 
 test('the full profile runs the complete built-in mutation set without an extra package', () => {
@@ -95,10 +81,11 @@ test('the full profile runs the complete built-in mutation set without an extra 
   const byName = {};
   for (const mutant of report.mutants) (byName[mutant.mutatorName ?? mutant.rule] ??= []).push(mutant.status);
   assert.deepEqual(Object.keys(byName).sort(), ['ArithmeticOperator', 'BlockStatement', 'BooleanLiteral', 'ConditionalExpression',
-    'EqualityOperator', 'LogicalOperator', 'comparison-boundary/v1']);
+    'EqualityOperator', 'LogicalOperator', 'comparison-boundary/v1', 'comparison-threshold/v1']);
   // `total >= 100` -> `total > 100` is reported once, by the focused analysis with its missing input.
   assert.deepEqual(byName['comparison-boundary/v1'], ['survived']);
-  assert.deepEqual(report.diagnostics.map(gap => [gap.kind, gap.location.line]), [['INPUT GAP', 3]]);
+  assert.deepEqual(byName['comparison-threshold/v1'], ['survived']);
+  assert.ok(report.diagnostics.some(gap => gap.kind === 'INPUT GAP' && gap.location.line === 3));
   const equality = report.mutants.filter(mutant => mutant.mutatorName === 'EqualityOperator').map(mutant => [mutant.original, mutant.replacement, mutant.status]);
   assert.deepEqual(equality, [['member === true', 'member !== true', 'killed'], ['total >= 100', 'total < 100', 'killed']]);
   // Nothing calls `unused`, so per-test coverage reports its mutations as unreached.
@@ -106,7 +93,7 @@ test('the full profile runs the complete built-in mutation set without an extra 
   assert.deepEqual(unused.map(mutant => [mutant.mutatorName, mutant.status]), [['BlockStatement', 'unreached'], ['ArithmeticOperator', 'unreached']]);
   assert.equal(report.mutants.find(mutant => mutant.mutatorName === 'BlockStatement' && mutant.location.line === 1).status, 'killed');
   assert.equal(report.mutants.every(mutant => mutant.source === undefined && mutant.operatorSwap === undefined), true);
-  assert.equal(new Set(report.mutants.map(mutant => mutant.id ?? mutant.site)).size, report.mutants.length);
+  assert.equal(new Set(report.mutants.map(mutant => `${mutant.id ?? mutant.site}:${mutant.rule ?? mutant.mutatorName}:${mutant.replacement}`)).size, report.mutants.length);
 });
 
 test('the full profile reads as mutator, original and replacement in the text report', () => {

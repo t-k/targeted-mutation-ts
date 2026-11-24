@@ -15,16 +15,14 @@ Scope (analyze):
   --copy-exclude PATH           Leave a project path out of the temporary copies. Repeatable.
 
 Profiles (analyze):
-  --mutators focused|targeted|operators|full|standard|all
-                                focused (default) edits comparison boundaries and thresholds.
-                                targeted adds edits that the values of the tests can tell apart: an equality
-                                that is always true or false, an operand of && || ?? that never decides,
+  --mutators targeted|full      targeted (default) edits comparison boundaries and integer thresholds
+                                across <, <=, >, >=, plus value-aware targeted rules: an equality that
+                                is always true or false, an operand of && || ?? that never decides,
                                 ?? for ||, == null for === null, another arithmetic operator, rounding or
                                 end of a list, a sort without its comparison, a dropped await or copy.
                                 Each survivor names the missing input or what to assert.
-                                operators adds equality, logical and arithmetic operator swaps.
-                                full adds the complete built-in mutation set (the StrykerJS mutators).
-                                standard and all use @stryker-mutator/instrumenter@10.1.1 instead.
+                                full adds the complete built-in mutation set (the StrykerJS mutators)
+                                without requiring any external instrumenter package.
   --witnesses                   Search for edits that survive and confirm a distinguishing test.
   --spec FILE                   Specification with expected thresholds or witness plans.
   --deterministic               Declare a deterministic suite so recorded comparisons can decide a trial.

@@ -83,45 +83,42 @@ it('first ticket', () => expect(ticket(2)).toBe(1));
 };
 
 test('mutations decided inside a worker get the verdict of a fresh Vitest run each', () => temporaryProject(hazards, root => {
-  for (const profile of ['full', 'standard']) {
-    const subjects = ['subject.ts', 'ticket.ts', 'names.ts'];
-    const shared = analyze(root, ...subjects, '--mutators', profile, '--concurrency', '2', '--verify-trials', '6');
-    const fresh = analyze(root, ...subjects, '--mutators', profile, '--isolated-trials');
-    assert.equal(shared.evaluation, 'evaluated');
-    assert.equal(fresh.evaluation, 'evaluated');
-    const expected = verdicts(fresh);
-    assert.equal(shared.mutants.length, fresh.mutants.length);
-    for (const [key, mutant] of verdicts(shared)) {
-      assert.equal(mutant.status, expected.get(key).status, `${profile} ${key}`);
-      if (mutant.status === 'killed') assert.ok(mutant.tests.length > 0, `${profile} ${key}`);
-    }
-    if (profile !== 'standard') continue;
-    assert.equal(fresh.trials.inWorker, 0);
-    // The sampled worker verdicts agree with their fresh runs, and each mutation a worker left open says why.
-    assert.deepEqual(shared.trials.verified, { sampled: 6, mismatches: [] });
-    const reasons = new Set(shared.mutants.map(mutant => mutant.fallback).filter(Boolean));
-    // After a control run differs, the test file starts again in a new worker, so only that mutation is left open.
-    for (const reason of ['control-differs', 'unhandled-error', 'tests-changed']) assert.ok(reasons.has(reason), [...reasons].join());
-    assert.ok(shared.trials.inWorker >= 20, JSON.stringify(shared.trials));
-    assert.equal(shared.trials.inWorker + shared.trials.isolated, shared.mutants.filter(mutant => mutant.status !== 'unreached').length);
-    // The suite leaves a global and a counter in a dependency behind. Those mutations need the fresh runs.
-    assert.ok(shared.trials.isolated >= 2, JSON.stringify(shared.trials));
-    assert.ok(shared.trials.workers >= 1 && shared.trials.workers <= 2, JSON.stringify(shared.trials));
-    const status = (file, original, replacement) => find(shared, file, original, replacement)?.status;
-    assert.equal(status('subject.ts', 'n >= 10', 'n > 10'), 'killed');
-    assert.equal(status('subject.ts', 'n * 2', 'n / 2'), 'killed');
-    assert.equal(status('subject.ts', 'n > 0', 'n >= 0'), 'survived');
-    assert.equal(status('subject.ts', 'n > 5', 'n <= 5'), 'error');
-    // An endless loop that keeps passing the mutation stops at the hit limit. A promise that never settles stops at the test timeout.
-    assert.equal(status('subject.ts', 'i++', 'i--'), 'timeout');
-    assert.equal(status('subject.ts', 'n > 7', 'false'), 'timeout');
-    assert.equal(status('subject.ts', 'n + 1', 'n - 1'), 'unreached');
-    assert.equal(status('subject.ts', "(globalThis as any).__seen ?? 'none'", "(globalThis as any).__seen && 'none'"), 'killed');
-    assert.equal(status('ticket.ts', 'n > 1', 'n >= 1'), 'survived');
-    assert.equal(status('ticket.ts', 'n > 1', 'n <= 1'), 'killed');
-    // The test file where the mutation is cheapest kills it, and the other file is not asked.
-    assert.equal(find(shared, 'subject.ts', 'n >= 10', 'n < 10').tests.length, 1);
+  const subjects = ['subject.ts', 'ticket.ts', 'names.ts'];
+  const shared = analyze(root, ...subjects, '--mutators', 'full', '--concurrency', '2', '--verify-trials', '6');
+  const fresh = analyze(root, ...subjects, '--mutators', 'full', '--isolated-trials');
+  assert.equal(shared.evaluation, 'evaluated');
+  assert.equal(fresh.evaluation, 'evaluated');
+  const expected = verdicts(fresh);
+  assert.equal(shared.mutants.length, fresh.mutants.length);
+  for (const [key, mutant] of verdicts(shared)) {
+    assert.equal(mutant.status, expected.get(key).status, `full ${key}`);
+    if (mutant.status === 'killed') assert.ok(mutant.tests.length > 0, `full ${key}`);
   }
+  assert.equal(fresh.trials.inWorker, 0);
+  // The sampled worker verdicts agree with their fresh runs, and each mutation a worker left open says why.
+  assert.deepEqual(shared.trials.verified, { sampled: 6, mismatches: [] });
+  const reasons = new Set(shared.mutants.map(mutant => mutant.fallback).filter(Boolean));
+  // After a control run differs, the test file starts again in a new worker, so only that mutation is left open.
+  for (const reason of ['control-differs', 'unhandled-error', 'tests-changed']) assert.ok(reasons.has(reason), [...reasons].join());
+  assert.ok(shared.trials.inWorker >= 20, JSON.stringify(shared.trials));
+  // The suite leaves a global and a counter in a dependency behind. Those mutations need the fresh runs.
+  assert.ok(shared.trials.isolated >= 2, JSON.stringify(shared.trials));
+  assert.ok(shared.trials.workers >= 1 && shared.trials.workers <= 2, JSON.stringify(shared.trials));
+  const status = (file, original, replacement) => find(shared, file, original, replacement)?.status;
+  const boundary = (file, op, replacement) => shared.mutants.find(m => m.location.file === file && m.rule === 'comparison-boundary/v1' && m.operator === op && m.replacement === replacement)?.status;
+  assert.equal(boundary('subject.ts', '>=', '>'), 'killed');
+  assert.equal(status('subject.ts', 'n * 2', 'n / 2'), 'killed');
+  assert.equal(boundary('subject.ts', '>', '>='), 'survived');
+  assert.equal(status('subject.ts', 'n > 5', 'n <= 5'), 'error');
+  // An endless loop that keeps passing the mutation stops at the hit limit. A promise that never settles stops at the test timeout.
+  assert.equal(status('subject.ts', 'i++', 'i--'), 'timeout');
+  assert.equal(status('subject.ts', 'n > 7', 'false'), 'timeout');
+  assert.equal(status('subject.ts', 'n + 1', 'n - 1'), 'unreached');
+  assert.equal(status('subject.ts', "(globalThis as any).__seen ?? 'none'", "(globalThis as any).__seen && 'none'"), 'killed');
+  assert.equal(boundary('ticket.ts', '>', '>='), 'survived');
+  assert.equal(status('ticket.ts', 'n > 1', 'n <= 1'), 'killed');
+  // The test file where the mutation is cheapest kills it, and the other file is not asked.
+  assert.equal(find(shared, 'subject.ts', 'n >= 10', 'n < 10').tests.length, 1);
 }));
 
 test('a mutation that never returns is a timeout and the others are still decided', () => temporaryProject({
@@ -142,18 +139,18 @@ import { guarded, mark } from './trap';
 it('guards then marks', () => { expect(guarded()).toBe(1); expect(mark(1)).toBe(1); });
 `,
 }, root => {
-  const trapped = analyze(root, 'trap.ts', '--mutators', 'standard');
+  const trapped = analyze(root, 'trap.ts', '--mutators', 'full');
   assert.equal(trapped.evaluation, 'evaluated');
   // The trial itself finished and passed. Only the control run hung, so a fresh run decides: the mutation survives.
   assert.equal(find(trapped, 'trap.ts', 'n > 5', 'true').status, 'survived');
   assert.ok(trapped.trials.isolated >= 1, JSON.stringify(trapped.trials));
   assert.ok(trapped.mutants.every(mutant => ['killed', 'survived', 'unreached'].includes(mutant.status)), JSON.stringify(trapped.mutants.map(mutant => mutant.status)));
-  const report = analyze(root, 'subject.ts', '--mutators', 'standard');
+  const report = analyze(root, 'subject.ts', '--mutators', 'full');
   assert.equal(report.evaluation, 'evaluated');
   const stuck = find(report, 'subject.ts', 'true', 'false');
   assert.deepEqual([stuck.status, stuck.statusReason], ['timeout', 'The worker stopped answering']);
-  assert.equal(find(report, 'subject.ts', 'n < 3', 'n <= 3').status, 'killed');
-  assert.equal(find(report, 'subject.ts', 'n > 2', 'n >= 2').status, 'killed');
+  assert.equal(report.mutants.find(m => m.rule === 'comparison-boundary/v1' && m.operator === '<').status, 'killed');
+  assert.equal(report.mutants.find(m => m.rule === 'comparison-boundary/v1' && m.operator === '>').status, 'killed');
   assert.equal(find(report, 'subject.ts', 'n > 2', 'n <= 2').status, 'killed');
   assert.ok(report.mutants.every(mutant => mutant.status !== 'unevaluated'));
 }));
@@ -178,9 +175,10 @@ it('fees', () => { expect(fee(100)).toBe(0); expect(fee(60)).toBe(5); expect(fee
   // Line 4 is still mutated, and the boundary on line 3 is not edited by the focused part either.
   assert.ok(full.mutants.some(mutant => mutant.location.line === 4 && mutant.status === 'killed'));
   assert.ok(full.mutants.every(mutant => mutant.location.line !== 3 || mutant.status === 'ignored'));
-  const focused = analyze(root, 'subject.ts');
-  assert.deepEqual(focused.mutants.map(mutant => mutant.location.line), [4]);
-  assert.equal(focused.extraction[0].ignored, 1);
+  const targeted = analyze(root, 'subject.ts');
+  assert.ok(targeted.mutants.filter(mutant => mutant.location.line === 3).every(mutant => mutant.status === 'ignored' && mutant.statusReason === 'rounding is display only'));
+  assert.ok(targeted.mutants.some(mutant => mutant.location.line === 4 && mutant.rule === 'comparison-boundary/v1' && mutant.status === 'survived'));
+  assert.equal(targeted.extraction[0].ignored, 1);
   const rewritten = analyze(root, 'subject.ts', '--mutators', 'full', '--isolated-trials');
   assert.deepEqual(rewritten.mutants.map(mutant => [mutant.location.start, mutant.replacement, mutant.status]),
     full.mutants.map(mutant => [mutant.location.start, mutant.replacement, mutant.status]));

@@ -3,14 +3,13 @@ import { createRequire, enableCompileCache } from 'node:module';
 import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { failedTests, snapshotVitestRun, timeVitestRun } from './vitest-reporter.mjs';
-import { changedReach, indexAgreement, indexCoverage, indexReach, reachOfRecords, agreesWithCoverage, assessTrial, cheapestFirst, openReasons, planInThread, sampleSettled, settleInThread, sharePlans, unanswered, withoutMutations } from './standard-plan.mjs';
-import { checkReplay } from './lean-replay.mjs';
+import { changedReach, indexAgreement, indexCoverage, indexReach, reachOfRecords, assessTrial, cheapestFirst, openReasons, planInThread, sampleSettled, settleInThread, sharePlans, unanswered, withoutMutations } from './standard-plan.mjs';
 import { inside } from './vitest.mjs';
 
 // Vitest and Vite are loaded on every run. Node keeps their compiled code between runs when it can.
 try { enableCompileCache?.(); } catch { /* The cache is an optimisation only. */ }
 const input = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-const { workspace, config, files, mutants, focused, replay, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1, verifyTrials = 0, awaitsExtras = false, runTimeout = 60_000 } = input;
+const { workspace, config, files, mutants, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1, verifyTrials = 0, awaitsExtras = false, runTimeout = 60_000 } = input;
 const destination = resolve(temporary, 'coverage.jsonl');
 const record = event => appendFileSync(output, JSON.stringify(event) + '\n');
 const lanes = [];
@@ -136,15 +135,6 @@ async function run(specs, state, lane = lanes[0]) {
   }
 }
 
-function numericTraces(records, candidates, tests) {
-  const accepted = {};
-  for (const { id } of candidates) {
-    const rows = records.flatMap(row => row.focused?.[id] ?? []);
-    if (rows.length && !rows.includes(false) && rows.every(([test]) => tests.has(test))) accepted[id] = rows;
-  }
-  return accepted;
-}
-
 function subjectKey(project, file) {
   return JSON.stringify([project, file]);
 }
@@ -169,13 +159,13 @@ try {
   const require = createRequire(resolve(workspace, 'package.json'));
   const { createVitest } = await import(pathToFileURL(require.resolve('vitest/node')).href);
   const version = require('vitest/package.json').version;
-  if (!version.startsWith('4.')) throw new Error(`The standard profile requires Vitest 4, found ${version}`);
+  if (!version.startsWith('4.')) throw new Error(`The Vitest session requires Vitest 4, found ${version}`);
   supportsIds = !version.startsWith('4.0.');
   runnerEntry = pathToFileURL(realpathSync(createRequire(require.resolve('vitest/package.json')).resolve('@vitest/runner'))).href;
   // Test files run beside each other when the project allows it: each has its own worker, and its coverage and
-  // its mutations are kept per file. Recorded comparisons are replayed in a fixed order, so that profile stays serial.
+  // its mutations are kept per file.
   const oneByOne = { maxWorkers: 1, fileParallelism: false };
-  const beside = focused.length || concurrency === 1 || isolatedTrials ? oneByOne : { maxWorkers: concurrency };
+  const beside = concurrency === 1 || isolatedTrials ? oneByOne : { maxWorkers: concurrency };
   createContext = async lane => {
     const workers = lane.serial ? oneByOne : beside;
     const created = await createVitest('test', {
@@ -191,7 +181,7 @@ try {
     });
     for (const project of created.projects) {
       if (project.config.browser?.enabled || project.config.typecheck?.enabled || project.config.runner) {
-        throw new Error('The standard profile requires the default Vitest runner without browser mode or type checking');
+        throw new Error('The Vitest session requires the default Vitest runner without browser mode or type checking');
       }
       Object.assign(project.config, { setupFiles: [setup, ...project.config.setupFiles],
         runner: workerRunner, pool: 'threads', isolate: true, maxConcurrency: 1, ...workers, bail: 1 });
@@ -204,7 +194,7 @@ try {
   if (files.length && (files.some(file => !discovered.has(file)) || discovered.size !== files.length)) {
     throw new Error('Vitest test selection mismatch');
   }
-  const baselineState = { phase: 'baseline', focusedIds: focused.map(({ id }) => id) };
+  const baselineState = { phase: 'baseline' };
   const baselineStarted = Date.now();
   const baseline = await run(specs, baselineState);
   const baselineTiming = lanes[0].timing;
@@ -229,44 +219,9 @@ try {
         differing: named(seen.differing), unsure: named(seen.unsure), outside: seen.outside, outsideUnsure: seen.outsideUnsure, differ: seen.differ, agree: seen.agree,
         unknown: seen.unknown, ...(seen.realCopy ? { realCopy: true } : {}), ...(seen.nonArray ? { nonArray: true } : {}), ...(seen.nonPlain ? { nonPlain: true } : {}) }])) });
     }
-    const focusedTrace = numericTraces(baseline.records, focused, tests);
-    for (const { id } of focused) {
-      if (!focusedTrace[id]) record({ id, status: 'unsupported', statusReason: 'Missing or unsupported numeric observations' });
-    }
-    if (focused.length) record({ focusedTrace });
-    const requests = [];
-    const ids = [];
-    if (!passed.some(test => test.retry || test.repeats || test.concurrent)) {
-      for (const { id, candidate, original, replacement } of replay) {
-        const rows = focusedTrace[candidate];
-        const plan = baselineCoverage(id);
-        if (!agreesWithCoverage(rows, plan)) continue;
-        requests.push({ candidate, traceCandidate: candidate, original, replacement, complete: true,
-          deterministic: true, observations: rows.map(([, lhs, rhs]) => [lhs, rhs]) });
-        ids.push(id);
-      }
-    }
-    const checked = checkReplay(requests);
-    let predicted = new Set(ids.filter((_, index) => checked?.[index] === true));
-    if (predicted.size) {
-      const confirmation = await run(specs, baselineState);
-      if (JSON.stringify(confirmation.snapshot) !== JSON.stringify(baseline.snapshot)) predicted.clear();
-      else {
-        const confirmationCoverage = indexCoverage(confirmation.records, tests);
-        const repeated = numericTraces(confirmation.records, focused, tests);
-        predicted = new Set(replay.filter(({ id, candidate }) => predicted.has(id) &&
-          agreesWithCoverage(repeated[candidate], confirmationCoverage(id)) &&
-          JSON.stringify(repeated[candidate]) === JSON.stringify(focusedTrace[candidate])).map(({ id }) => id));
-      }
-    }
-    const qualified = focused.filter(({ id }) => focusedTrace[id]).map(mutant => ({ ...mutant, focused: true }));
     const pending = [];
-    for (const mutant of [...mutants.filter(candidate => !candidate.parametric), ...qualified]) {
+    for (const mutant of mutants.filter(candidate => !candidate.parametric)) {
       const { id } = mutant;
-      if (predicted.has(id)) {
-        record({ id, status: 'survived', evidence: 'predicted' });
-        continue;
-      }
       const plan = baselineCoverage(id);
       if (!plan.hits) {
         record({ id, status: 'unreached' });
@@ -347,14 +302,12 @@ try {
         }
         for (const [id, list] of runs) effects.set(id, effectsOf(list));
       }
-      for (const id of sampleSettled(pending.map(({ mutant }) => mutant.id).filter(id => settled.has(id)), verifyTrials)) sampled.add(id);
+      for (const id of sampleSettled(pending.map(({ mutant }) => mutant.id).filter(id => settled.has(id)), Math.max(0, verifyTrials - totals.sampled))) sampled.add(id);
       for (const { mutant, plan } of pending) {
         const { id } = mutant;
         const expected = plan.staticActivation || !supportsIds ? tests : new Map([...plan.covered].map(id => [id, tests.get(id)]));
-        const covering = mutant.focused
-          ? { coveringTests: [...expected.values()].map(({ id, project, file, name }) => ({ id, project, file, name })) } : {};
         if (settled.has(id) && !sampled.has(id)) {
-          report(mutant, { ...settled.get(id), ...covering, ...(effects.has(id) ? { effects: effects.get(id) } : {}) });
+          report(mutant, { ...settled.get(id), ...(effects.has(id) ? { effects: effects.get(id) } : {}) });
           continue;
         }
         if (!sampled.has(id)) totals.isolated++;
@@ -368,7 +321,7 @@ try {
         const assessed = assessTrial(trial, expected, hitLimit);
         if (sampled.has(id) && assessed.status !== settled.get(id).status) totals.mismatches.push({ id, worker: settled.get(id).status, fresh: assessed.status });
         const changed = mutant.effects && assessed.status === 'survived' ? { effects: effectsOf(reachOfRecords(trial.records, expected.keys())) } : {};
-        report(mutant, { ...assessed, ...covering, ...changed, ...(reasons.has(id) ? { fallback: reasons.get(id) } : {}) });
+        report(mutant, { ...assessed, ...changed, ...(reasons.has(id) ? { fallback: reasons.get(id) } : {}) });
       }
       totals.inWorker += settled.size;
       totals.sampled += sampled.size;

@@ -49,7 +49,7 @@ try {
     const [project = '.', ...files] = positionals;
     if (values.runner && !['vitest', 'playwright'].includes(values.runner)) throw new Error('Expected --runner vitest|playwright');
     if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
-    if (values.mutators && !['focused', 'targeted', 'operators', 'full', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|targeted|operators|full|standard|all');
+    if (values.mutators && !['targeted', 'full'].includes(values.mutators)) throw new Error('Expected --mutators targeted|full');
     const session = values.runner !== 'playwright' && !values.witnesses && !values.audit;
     if ((values['isolated-trials'] || values['verify-trials'] !== undefined) && !session) {
       throw new Error('--isolated-trials and --verify-trials apply to Vitest sessions, which --witnesses, --audit and Playwright do not use');
@@ -60,8 +60,8 @@ try {
     if (values['undo-changes'] && (values.since === undefined || values.witnesses)) {
       throw new Error('--undo-changes requires --since REV and does not apply to --witnesses');
     }
-    if (values['suggest-assertions'] && (values.runner === 'playwright' || values.witnesses || ['standard', 'all'].includes(values.mutators))) {
-      throw new Error('--suggest-assertions applies to the focused, targeted, operators and full profiles on Vitest');
+    if (values['suggest-assertions'] && (values.runner === 'playwright' || values.witnesses)) {
+      throw new Error('--suggest-assertions applies to the targeted and full profiles on Vitest');
     }
     if (values.timeout !== undefined) {
       if (!/^[1-9]\d{0,4}$/.test(values.timeout)) throw new Error('Expected --timeout to be a number of seconds');
@@ -79,32 +79,25 @@ try {
     enablePreparedTypeScript();
     let result;
     if (values.witnesses) {
-      if (values.runner === 'playwright' || ['targeted', 'operators', 'full', 'standard', 'all'].includes(values.mutators) ||
+      if (values.runner === 'playwright' || values.mutators !== undefined ||
           values.deterministic || values.project || values.audit || values['displace-thresholds']) throw new Error('--witnesses runs its own Vitest source trials');
       const { analyzeWitnesses } = await import('../src/witness-analysis.mjs');
       result = await analyzeWitnesses(project, files, values);
-    } else if (['standard', 'all'].includes(values.mutators)) {
-      if (values.runner === 'playwright' || values.audit || values.spec || values['displace-thresholds'] ||
-          values.mutators === 'standard' && values.deterministic) {
-        throw new Error(`--mutators ${values.mutators} requires Vitest and excludes focused diagnostic options`);
-      }
-      const { analyzeConventional } = await import('../src/conventional.mjs');
-      result = await analyzeConventional(project, files, values);
-    } else if (['targeted', 'operators', 'full'].includes(values.mutators)) {
-      const { analyzeOperators } = await import('../src/operator-analysis.mjs');
-      result = await analyzeOperators(project, files, values);
     } else {
-      const { analyzeFocused } = await import('../src/operator-analysis.mjs');
-      result = await analyzeFocused(project, files, values);
+      const { analyzeOperators } = await import('../src/operator-analysis.mjs');
+      result = await analyzeOperators(project, files, { ...values, mutators: values.mutators ?? 'targeted' });
     }
-    if (!values.witnesses && !['standard', 'all'].includes(values.mutators)) {
+    if (!values.witnesses) {
       const { strengthenAssertions, withoutSourceEdits } = await import('../src/assertion-strength.mjs');
-      if (values['suggest-assertions'] && result.evaluation === 'evaluated') result = strengthenAssertions(realpathSync(project), result, values);
+      if (values['suggest-assertions'] && result.evaluation === 'evaluated') result = await strengthenAssertions(realpathSync(project), result, values);
       withoutSourceEdits(result);
     }
     if (values['undo-changes']) {
       const { analyzeUndoneChanges, withUndoneChanges } = await import('../src/change-undone.mjs');
-      if (result.evaluation !== 'baseline_error') result = withUndoneChanges(result, analyzeUndoneChanges(project, files, values));
+      const { baselineRunSymbol } = await import('../src/analysis.mjs');
+      if (result.evaluation !== 'baseline_error') {
+        result = withUndoneChanges(result, analyzeUndoneChanges(project, files, { ...values, existingBaseline: result[baselineRunSymbol] }));
+      }
     }
     if (format === 'json') console.log(JSON.stringify(result, null, 2));
     else console.log(renderText(result));
