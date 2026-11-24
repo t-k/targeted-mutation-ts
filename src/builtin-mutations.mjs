@@ -28,6 +28,8 @@ export const targetedRules = {
   arithmetic: 'arithmetic-swap/v1', extreme: 'extreme-swap/v1', rounding: 'rounding-swap/v1', ends: 'sequence-end/v1',
   order: 'sort-order/v1', awaited: 'await-dropped/v1', copy: 'copy-dropped/v1',
   spreadDrop: 'spread-property-drop/v1', prefixSubstring: 'prefix-to-substring/v1', replaceMultiplicity: 'replace-multiplicity/v1',
+  clampBound: 'clamp-bound/v1', literalSetPrune: 'literal-set-prune/v1', mergePrecedence: 'merge-precedence/v1',
+  quantifierSwap: 'quantifier-swap/v1', regexAnchor: 'regex-anchor-slack/v1', cleanupDropped: 'cleanup-dropped/v1',
 };
 // Two other operators for each arithmetic one: its inverse, and the one the same operands most often agree on.
 // (Maps: a method may be named like a property every object has.)
@@ -330,6 +332,24 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     return bindsMath;
   }
 
+  function isMathCall(node, expectedName) {
+    if (!ts.isCallExpression(node) || ts.isOptionalChain(node) || node.arguments.length !== 2 || node.arguments.some(ts.isSpreadElement)) return false;
+    const c = node.expression;
+    return ts.isPropertyAccessExpression(c) && ts.isIdentifier(c.expression) && c.expression.text === 'Math' &&
+      ts.isIdentifier(c.name) && c.name.text === expectedName;
+  }
+
+  function hasUnescapedTrailingDollar(pattern) {
+    if (!pattern.endsWith('$')) return false;
+    let slashes = 0;
+    for (let i = pattern.length - 2; i >= 0 && pattern[i] === '\\'; i--) slashes++;
+    return slashes % 2 === 0;
+  }
+
+  function compilesRegex(pattern, flags) {
+    try { new RegExp(pattern, flags); return true; } catch { return false; }
+  }
+
   function targetedCall(node) {
     const callee = node.expression;
     if (!ts.isPropertyAccessExpression(callee) || !ts.isIdentifier(callee.name) || ts.isOptionalChain(node) ||
@@ -339,6 +359,29 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     if (ts.isIdentifier(callee.expression) && callee.expression.text === 'Math') {
       if (ownMath()) return;
       if ((name === 'max' || name === 'min') && args.length === 2) {
+        const innerName = name === 'max' ? 'min' : 'max';
+        const innerPos = isMathCall(strip(args[0]), innerName) ? 0 : isMathCall(strip(args[1]), innerName) ? 1 : -1;
+        if (innerPos !== -1 && !staysInPlace(args[0]) && !staysInPlace(args[1])) {
+          const inner = strip(args[innerPos]);
+          const outerOther = args[1 - innerPos];
+          const [ia, ib] = inner.arguments;
+          const ordered = innerPos === 0 ? [ia, ib, outerOther] : [outerOther, ia, ib];
+          const pures = ordered.map(arg => written(arg) ? 1 : 0);
+          const edit = probed(node, 'clamp', ordered, { clampMeta: { outer: name, inner: innerName, innerPos, pures } });
+          edit(targetedRules.clampBound, 'dropOuter', source(inner), { boundKind: name === 'min' ? 'upper' : 'lower' });
+          const aLit = written(ia);
+          const bLit = written(ib);
+          if (aLit !== bLit) {
+            const keepIdx = aLit ? 1 : 0;
+            const keptNode = inner.arguments[keepIdx];
+            const innerReplacement = innerPos === 0 ? `Math.${name}(${source(keptNode)}, ${source(outerOther)})`
+              : `Math.${name}(${source(outerOther)}, ${source(keptNode)})`;
+            edit(targetedRules.clampBound, keepIdx === 0 ? 'dropInnerB' : 'dropInnerA', innerReplacement,
+              { boundKind: innerName === 'min' ? 'upper' : 'lower' });
+          }
+          unprobed.push([begin(inner), inner.end]);
+          return;
+        }
         probed(node, name, [args[0], args[1]])(targetedRules.extreme, name === 'max' ? 'min' : 'max', rename(node, callee.name, name === 'max' ? 'min' : 'max'));
       } else if (roundingSwaps.has(name) && args.length === 1) {
         const edit = probed(node, name, [args[0]]);
@@ -359,6 +402,42 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
         !staysInPlace(args[0]) && !staysInPlace(args[1])) {
       const swapped = name === 'replace' ? 'replaceAll' : 'replace';
       probed(node, name, [callee.expression, args[0], args[1]])(targetedRules.replaceMultiplicity, swapped, rename(node, callee.name, swapped));
+    } else if ((name === 'every' || name === 'some') && args.length === 1 && !staysInPlace(args[0])) {
+      const swapped = name === 'every' ? 'some' : 'every';
+      probed(node, name, [callee.expression, args[0]])(targetedRules.quantifierSwap, swapped, rename(node, callee.name, swapped));
+    } else if (name === 'includes' && args.length === 1 && !staysInPlace(args[0])) {
+      const recv = strip(callee.expression);
+      if (ts.isArrayLiteralExpression(recv) && recv.elements.length >= 2 && recv.elements.length <= 16 &&
+          recv.elements.every(el => !ts.isSpreadElement(el) && written(el))) {
+        const elems = recv.elements.map(el => source(el));
+        const edit = probed(node, 'literalIncludes', [args[0]], { setElems: elems, argName: source(args[0]) });
+        for (let j = 0; j < elems.length; j++) {
+          const kept = elems.filter((_, idx) => idx !== j);
+          edit(targetedRules.literalSetPrune, `prune:${j}`, `[${kept.join(', ')}].includes(${source(args[0])})`, { pruned: elems[j] });
+        }
+      }
+    } else if (name === 'test' && args.length === 1 && !staysInPlace(args[0])) {
+      const recv = strip(callee.expression);
+      if (recv.kind === K.RegularExpressionLiteral) {
+        const raw = source(recv);
+        const close = raw.lastIndexOf('/');
+        const pattern = raw.slice(1, close);
+        const flags = raw.slice(close + 1);
+        const alts = [];
+        if (pattern.startsWith('^') && compilesRegex(pattern.slice(1), flags)) {
+          alts.push(['dropStart', pattern.slice(1)]);
+        }
+        if (hasUnescapedTrailingDollar(pattern) && compilesRegex(pattern.slice(0, -1), flags)) {
+          alts.push(['dropEnd', pattern.slice(0, -1)]);
+        }
+        if (alts.length) {
+          const altMap = Object.fromEntries(alts);
+          const edit = probed(node, 'regexTest', [args[0]], { regexMeta: { pattern, flags, alts: altMap }, argName: source(args[0]) });
+          for (const [form, altPattern] of alts) {
+            edit(targetedRules.regexAnchor, form, `/${altPattern || '(?:)'}/${flags}.test(${source(args[0])})`);
+          }
+        }
+      }
     }
   }
 
@@ -370,14 +449,32 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       strip(body.left).text === node.parameters[0].name.text && strip(body.right).text === node.parameters[1].name.text;
   }
 
+  function insideFinallyBlock(node) {
+    let cur = node.parent;
+    let prev = node;
+    while (cur) {
+      if (ts.isFunctionLike(cur) || ts.isClassLike(cur)) return false;
+      if (ts.isTryStatement(cur) && cur.finallyBlock === prev) return true;
+      prev = cur;
+      cur = cur.parent;
+    }
+    return false;
+  }
+
   // Edits that no recording can judge: they change when something happens or which object is which, not a value.
   function unobservedEdits(node) {
     if (ts.isExpressionStatement(node)) {
-      const awaited = strip(node.expression);
-      const call = ts.isAwaitExpression(awaited) ? strip(awaited.expression) : undefined;
+      const expr = strip(node.expression);
+      const isAwaited = ts.isAwaitExpression(expr);
+      const call = isAwaited ? strip(expr.expression) : expr;
+      if (ts.isCallExpression(call) && call.expression.kind !== K.SuperKeyword && insideFinallyBlock(node)) {
+        add(targetedRules.cleanupDropped, node, ';', { kind: 'statement', placement: [begin(node), node.end], mutated: ' ;' },
+          { targeted: { operator: 'cleanup', form: 'dropped', left: source(call) } });
+        return;
+      }
       // The call goes on alone: what follows no longer waits for it. `void` keeps it an expression whatever it
       // begins with (a parenthesis, a function that is called at once), and the space keeps it off an `else`.
-      if (call && ts.isCallExpression(call)) {
+      if (isAwaited && ts.isCallExpression(call)) {
         add(targetedRules.awaited, node, `void ${source(call)};`, { kind: 'statement', placement: [begin(node), node.end], mutated: ` void ${source(call)};` },
           { targeted: { operator: 'await', form: 'dropped', left: source(call) } });
       }
@@ -391,6 +488,16 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     if (only.length === 1 && (ts.isSpreadElement(only[0]) || ts.isSpreadAssignment(only[0]))) {
       const original = source(only[0].expression);
       probed(node, isArray ? 'copyArray' : 'copyObject', [only[0].expression])(targetedRules.copy, 'dropped', `(${original})`);
+      return;
+    }
+    // `{ ...a, ...b }`: swap merge precedence to `{ ...b, ...a }`.
+    if (!isArray && only.length === 2 && ts.isSpreadAssignment(only[0]) && ts.isSpreadAssignment(only[1]) &&
+        !staysInPlace(only[0].expression) && !staysInPlace(only[1].expression)) {
+      const a = source(only[0].expression);
+      const b = source(only[1].expression);
+      probed(node, 'mergeSpread', [only[0].expression, only[1].expression], { right: b })(
+        targetedRules.mergePrecedence, 'swap', `{ ...${b}, ...${a} }`,
+      );
       return;
     }
     // `{ ...base, k1: v1, k2: v2 }`: drop one explicit static property at a time.

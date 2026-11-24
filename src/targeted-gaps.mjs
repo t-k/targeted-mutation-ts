@@ -9,10 +9,13 @@ const clip = text => {
 
 const rules = { arithmetic: 'arithmetic-swap/v1', extreme: 'extreme-swap/v1', rounding: 'rounding-swap/v1', ends: 'sequence-end/v1',
   order: 'sort-order/v1', awaited: 'await-dropped/v1', copy: 'copy-dropped/v1',
-  spreadDrop: 'spread-property-drop/v1', prefixSubstring: 'prefix-to-substring/v1', replaceMultiplicity: 'replace-multiplicity/v1' };
+  spreadDrop: 'spread-property-drop/v1', prefixSubstring: 'prefix-to-substring/v1', replaceMultiplicity: 'replace-multiplicity/v1',
+  clampBound: 'clamp-bound/v1', literalSetPrune: 'literal-set-prune/v1', mergePrecedence: 'merge-precedence/v1',
+  quantifierSwap: 'quantifier-swap/v1', regexAnchor: 'regex-anchor-slack/v1', cleanupDropped: 'cleanup-dropped/v1' };
 // What to assert where no recording can say which input is missing.
 const advice = {
   [rules.awaited]: 'the tests pass when this call is not waited for: assert on what it has done before what follows it goes on',
+  [rules.cleanupDropped]: 'the tests pass when this finally cleanup call is skipped: assert that the resource or state is cleaned up after the try block finishes or throws',
   [rules.copy]: 'the tests pass when this copy is the original itself: assert that the original is unchanged after the copy is changed, or that the two are not the same object',
   iterableCopy: 'the tests pass when this iterable is not converted to an array: assert that the result is an array (Array.isArray(...)) or use array operations on it',
   spreadCoercion: 'the tests pass when this object spread is replaced by its source directly: assert on the resulting plain object properties, prototype, or nullish handling',
@@ -22,13 +25,18 @@ const roundingDiffers = { 'floor trunc': 'negative and not a whole number (-0.5)
   'floor round': 'a number that rounds up (1.5, -1.5)', 'ceil round': 'a number that rounds down (1.4, -1.6)',
   'round trunc': 'a number that rounds away from zero (1.5, -1.6)', 'ceil floor': 'not a whole number (0.5)' };
 
-function missingInput({ operator, form, boolean, left, differsFor, subject, pureRight, key }, expression, rule, replacement) {
+function missingInput({ operator, form, boolean, left, right: rightExpr, differsFor, subject, pureRight, key, boundKind, pruned, argName }, expression, rule, replacement) {
   const side = '`' + clip(left) + '`';
   if (rule === rules.spreadDrop) return `a test in which \`${clip(left)}.${key}\` is missing or differs from its updated value`;
   if (rule === rules.prefixSubstring) {
     return `a test in which ${side} contains the ${operator === 'startsWith' ? 'prefix somewhere other than the start' : 'suffix somewhere other than the end'}`;
   }
   if (rule === rules.replaceMultiplicity) return `a test in which ${side} contains the searched text more than once`;
+  if (rule === rules.clampBound) return `a test in which the value exceeds the ${boundKind === 'upper' ? 'upper' : 'lower'} clamp bound of \`${clip(expression)}\``;
+  if (rule === rules.literalSetPrune) return `a test in which \`${clip(argName)}\` is ${pruned}`;
+  if (rule === rules.mergePrecedence) return `a test in which ${side} and \`${clip(rightExpr)}\` share a key with different values`;
+  if (rule === rules.quantifierSwap) return `a test in which ${side} is empty or has elements where the predicate gives both true and false`;
+  if (rule === rules.regexAnchor) return `a test in which \`${clip(argName)}\` matches without the ${form === 'dropStart' ? 'leading `^`' : 'trailing `$`'} anchor`;
   if (rule === rules.arithmetic) return `a test in which \`${clip(expression)}\` is not \`${clip(replacement)}\``;
   if (rule === rules.order) return `a test in which ${side} holds numbers whose order as text is not their order as numbers (9 and 10)`;
   if (rule === rules.extreme) return `a test in which the two arguments of \`${clip(expression)}\` differ`;

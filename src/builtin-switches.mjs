@@ -36,11 +36,13 @@ function ${see}(i, l, r, r2) {
   var utilTypes = ${table}.u !== void 0 ? ${table}.u : (${table}.u = typeof scope.process === 'object' && scope.process && typeof scope.process.getBuiltinModule === 'function' ? scope.process.getBuiltinModule('node:util').types : null);
   var isProxy = utilTypes ? utilTypes.isProxy : null;
   var isTypedArray = utilTypes ? utilTypes.isTypedArray : null;
-  function safeStrMethod(name) {
-    var d = scope.Object.getOwnPropertyDescriptor(scope.String.prototype, name);
+  function safeProtoMethod(proto, name) {
+    var d = scope.Object.getOwnPropertyDescriptor(proto, name);
     return d && 'value' in d && typeof d.value === 'function' ? d.value : null;
   }
-  var strMethods = ${table}.s || (${table}.s = { indexOf: safeStrMethod('indexOf'), lastIndexOf: safeStrMethod('lastIndexOf'), includes: safeStrMethod('includes'), replace: safeStrMethod('replace'), replaceAll: safeStrMethod('replaceAll') });
+  var strMethods = ${table}.s || (${table}.s = { indexOf: safeProtoMethod(scope.String.prototype, 'indexOf'), lastIndexOf: safeProtoMethod(scope.String.prototype, 'lastIndexOf'), includes: safeProtoMethod(scope.String.prototype, 'includes'), replace: safeProtoMethod(scope.String.prototype, 'replace'), replaceAll: safeProtoMethod(scope.String.prototype, 'replaceAll') });
+  var arrMethods = ${table}.a || (${table}.a = { includes: safeProtoMethod(scope.Array.prototype, 'includes'), every: safeProtoMethod(scope.Array.prototype, 'every'), some: safeProtoMethod(scope.Array.prototype, 'some') });
+  var reTest = ${table}.x !== void 0 ? ${table}.x : (${table}.x = safeProtoMethod(scope.RegExp.prototype, 'test'));
   var logical = kind === 'l', missing = l === null || l === void 0, k, form;
   var taken = op === '&&' ? !!l : op === '||' ? !l : missing;
   var constant = op === '&&' ? true : op === '||' ? false : void 0;
@@ -69,6 +71,35 @@ function ${see}(i, l, r, r2) {
     }
     return scope.Reflect.apply(fn, l, [a1]);
   }
+  function callClamp(mode) {
+    var cm = site[8], oFn = scope.Math[cm.outer], iFn = scope.Math[cm.inner];
+    if (mode === 'orig') {
+      if (cm.innerPos === 0) {
+        var v0 = l[0](), v1 = l[1](), iv = iFn(v0, v1), v2 = l[2]();
+        return oFn(iv, v2);
+      }
+      var u0 = l[0](), u1 = l[1](), u2 = l[2]();
+      return oFn(u0, iFn(u1, u2));
+    }
+    if (mode === 'dropOuter') {
+      return cm.innerPos === 0 ? iFn(l[0](), l[1]()) : iFn(l[1](), l[2]());
+    }
+    var keepA = mode === 'dropInnerB';
+    if (cm.innerPos === 0) return oFn(keepA ? l[0]() : l[1](), l[2]());
+    return oFn(l[0](), keepA ? l[1]() : l[2]());
+  }
+  function callLiteralIncludes(skipIdx) {
+    var arr = skipIdx < 0 ? l.slice() : l.filter(function (_, idx) { return idx !== skipIdx; });
+    var fn = arr.includes;
+    var arg = r();
+    return scope.Reflect.apply(fn, arr, [arg]);
+  }
+  function callRegexTest(pat) {
+    var re = new scope.RegExp(pat, site[8].flags);
+    var fn = re.test;
+    var arg = r();
+    return scope.Reflect.apply(fn, re, [arg]);
+  }
   function buildSpread(skipIndex) {
     var keys = site[8], out = { ...l }, m;
     for (m = 0; m < keys.length; m++) {
@@ -81,6 +112,10 @@ function ${see}(i, l, r, r2) {
     if (kind === 'c') return l;
     if (kind === 'p') return buildSpread(Number(f.slice(5)));
     if (kind === 'r') return callMethod(f);
+    if (kind === 'k') return callClamp(f);
+    if (kind === 'u') return callLiteralIncludes(Number(f.slice(6)));
+    if (kind === 'g') { var vb = r(), va = l(); return { ...vb, ...va }; }
+    if (kind === 'x') return callRegexTest(site[8].alts[f]);
     if (kind !== 'e') return apply(f, l, r, r2);
     if (f === 'true') return true;
     if (f === 'false') return false;
@@ -89,7 +124,17 @@ function ${see}(i, l, r, r2) {
     var subject = site[3] ? l : r, other = (site[3] ? r : l) === null ? void 0 : null;
     return (subject === other) === (op === '==');
   }
-  function original() { return logical ? (taken ? r() : l) : kind === 'e' ? equal(op, l, r) : kind === 'p' ? buildSpread(-1) : kind === 'r' ? callMethod(op) : apply(op, l, r, r2); }
+  function original() {
+    if (logical) return taken ? r() : l;
+    if (kind === 'e') return equal(op, l, r);
+    if (kind === 'p') return buildSpread(-1);
+    if (kind === 'r') return callMethod(op);
+    if (kind === 'k') return callClamp('orig');
+    if (kind === 'u') return callLiteralIncludes(-1);
+    if (kind === 'g') { var va = l(), vb = r(); return { ...va, ...vb }; }
+    if (kind === 'x') return callRegexTest(site[8].pattern);
+    return apply(op, l, r, r2);
+  }
   function plain(v) { return v === null || (typeof v !== 'object' && typeof v !== 'function'); }
   // An array of the built-in kind with the same elements: slice would call the constructor of a subclass.
   function copy(a) {
@@ -115,14 +160,21 @@ function ${see}(i, l, r, r2) {
       return true;
     }
     if (op === 'startsWith' || op === 'endsWith') {
-      var incFn = safeStrMethod(f);
+      var incFn = safeProtoMethod(scope.String.prototype, f);
       if (typeof l !== 'string' || !plain(arg1) || !incFn || incFn !== strMethods[f]) return null;
       try { return is(value, scope.Reflect.apply(incFn, l, [arg1])); } catch (error) { return false; }
     }
     if (op === 'replace' || op === 'replaceAll') {
-      var repFn = safeStrMethod(f);
+      var repFn = safeProtoMethod(scope.String.prototype, f);
       if (typeof l !== 'string' || !plain(arg1) || !plain(arg2) || !repFn || repFn !== strMethods[f]) return null;
       try { return is(value, scope.Reflect.apply(repFn, l, [arg1, arg2])); } catch (error) { return false; }
+    }
+    if (op === 'every' || op === 'some') {
+      var qFn = safeProtoMethod(scope.Array.prototype, f);
+      if (!sequence || !qFn || qFn !== arrMethods[f] || scope.Object.getOwnPropertyDescriptor(l, f)) return null;
+      if (l.length === 0) return false;
+      if (l.length === 1 && (0 in l)) return true;
+      return null;
     }
     if (kind === 'a' ? !plain(l) || !plain(r) : kind === 'm' ? typeof l !== 'number' || (site[7] === 2 && typeof r !== 'number')
       : (!sequence && typeof l !== 'string') || ((op === 'indexOf' || op === 'lastIndexOf') && typeof l === 'string' && (!plain(r) || l[f] !== strMethods[f]))) return null;
@@ -153,7 +205,7 @@ function ${see}(i, l, r, r2) {
   if (!state || state.phase !== 'baseline') return original();
   // An operation that throws is observed too: an edit that evaluates the same right side throws as well, and any other differs.
   // A sort in place loses the order it started from.
-  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? copy(l) : void 0, spreadBase, spreadVals, arg1, arg2;
+  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? copy(l) : void 0, spreadBase, spreadVals, arg1, arg2, clampVals, mergeA, mergeB, litFn, regexFn;
   try {
     if (kind === 'p') {
       spreadBase = { ...l };
@@ -174,6 +226,32 @@ function ${see}(i, l, r, r2) {
       } else {
         value = scope.Reflect.apply(origFn, l, [arg1]);
       }
+    } else if (kind === 'k') {
+      var cm = site[8], oFn = scope.Math[cm.outer], iFn = scope.Math[cm.inner];
+      if (cm.innerPos === 0) {
+        var cv0 = l[0](), cv1 = l[1](), civ = iFn(cv0, cv1), cv2 = l[2]();
+        clampVals = [cv0, cv1, cv2];
+        value = oFn(civ, cv2);
+      } else {
+        var cu0 = l[0](), cu1 = l[1](), cu2 = l[2]();
+        clampVals = [cu0, cu1, cu2];
+        value = oFn(cu0, iFn(cu1, cu2));
+      }
+    } else if (kind === 'u') {
+      var litArr = l.slice();
+      litFn = litArr.includes;
+      arg1 = r();
+      value = scope.Reflect.apply(litFn, litArr, [arg1]);
+    } else if (kind === 'g') {
+      var ma = l(), mb = r();
+      mergeA = { ...ma };
+      mergeB = { ...mb };
+      value = { ...mergeA, ...mergeB };
+    } else if (kind === 'x') {
+      var origRe = new scope.RegExp(site[8].pattern, site[8].flags);
+      regexFn = origRe.test;
+      arg1 = r();
+      value = scope.Reflect.apply(regexFn, origRe, [arg1]);
     } else {
       value = original();
     }
@@ -196,6 +274,47 @@ function ${see}(i, l, r, r2) {
         same = spreadHad && is(spreadBase[spreadKey], spreadVals[spreadIdx])
           ? (site[9][spreadIdx] ? true : null)
           : false;
+      } else if (kind === 'k') {
+        var cmeta = site[8];
+        if (typeof clampVals[0] !== 'number' || typeof clampVals[1] !== 'number' || typeof clampVals[2] !== 'number') same = null;
+        else {
+          var oF = scope.Math[cmeta.outer], iF = scope.Math[cmeta.inner], altV, droppedIdx;
+          if (f === 'dropOuter') {
+            altV = cmeta.innerPos === 0 ? iF(clampVals[0], clampVals[1]) : iF(clampVals[1], clampVals[2]);
+            droppedIdx = cmeta.innerPos === 0 ? 2 : 0;
+          } else {
+            var keepA = f === 'dropInnerB';
+            altV = cmeta.innerPos === 0 ? oF(keepA ? clampVals[0] : clampVals[1], clampVals[2]) : oF(clampVals[0], keepA ? clampVals[1] : clampVals[2]);
+            droppedIdx = cmeta.innerPos === 0 ? (keepA ? 1 : 0) : (keepA ? 2 : 1);
+          }
+          same = is(value, altV) ? (cmeta.pures[droppedIdx] ? true : null) : false;
+        }
+      } else if (kind === 'u') {
+        var curInc = safeProtoMethod(scope.Array.prototype, 'includes');
+        if (!curInc || litFn !== curInc || curInc !== arrMethods.includes) same = null;
+        else {
+          var skipU = Number(f.slice(6));
+          var prunedArr = l.filter(function (_, idx) { return idx !== skipU; });
+          same = is(value, scope.Reflect.apply(curInc, prunedArr, [arg1]));
+        }
+      } else if (kind === 'g') {
+        var bKeys = scope.Object.keys(mergeB), bk, collision = false;
+        for (bk = 0; bk < bKeys.length; bk++) {
+          var keyName = bKeys[bk];
+          if (scope.Object.prototype.hasOwnProperty.call(mergeA, keyName) && !is(mergeA[keyName], mergeB[keyName])) {
+            collision = true;
+            break;
+          }
+        }
+        same = !collision;
+      } else if (kind === 'x') {
+        var curTest = safeProtoMethod(scope.RegExp.prototype, 'test');
+        if (typeof arg1 !== 'string' || !curTest || regexFn !== curTest || curTest !== reTest) same = null;
+        else {
+          try {
+            same = is(value, scope.Reflect.apply(curTest, new scope.RegExp(site[8].alts[f], site[8].flags), [arg1]));
+          } catch (error) { same = false; }
+        }
       } else if (kind === 'e') same = value === edited(f);
       else if (!logical) same = alike(f, value);
       else if (site[5] || f === 'right') {
@@ -242,9 +361,15 @@ function ${see}(i, l, r, r2) {
       counts[same === null ? 2 : same ? 0 : 1]++;
       if (kind === 'p' && !threw && !entry[slot]) {
         entry[slot] = [spreadHad ? show(spreadBase[spreadKey]) : '(missing)', show(spreadVals[spreadIdx])];
+      } else if (kind === 'k' && !threw && !entry[slot]) {
+        entry[slot] = clampVals.map(show);
+      } else if ((kind === 'u' || kind === 'x') && !threw && !entry[slot]) {
+        entry[slot] = [show(arg1)];
+      } else if (kind === 'g' && !threw && !entry[slot]) {
+        entry[slot] = [show(mergeA), show(mergeB)];
       } else if (kind === 'r' && !entry[slot]) {
         entry[slot] = threw ? [show(l)] : [show(l), show(arg1)];
-      } else if (kind !== 'c' && kind !== 'p' && kind !== 'r' && !entry[slot]) entry[slot] = (logical ? !taken || threw : site[7] === 1) ? [show(l)] : [show(l), show(logical ? value : r)];
+      } else if (kind !== 'c' && kind !== 'p' && kind !== 'r' && kind !== 'k' && kind !== 'u' && kind !== 'g' && kind !== 'x' && !entry[slot]) entry[slot] = (logical ? !taken || threw : site[7] === 1) ? [show(l)] : [show(l), show(logical ? value : r)];
       var type = typeof l;
       if (type === 'number' || type === 'string' || type === 'bigint' || type === 'boolean') entry.typed = true;
     }
@@ -323,17 +448,23 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         // The operands are rendered in source order; what stands between them is the operation the probe performs.
         // Each in parentheses of its own: a probe inside may begin with `void 0,`, which must stay one argument.
         const operands = group.operands.map(([start, end]) => `(${render(start, end)})`);
-        const { operator, boolean, thunk, spreadKeys, pureProps } = group.targeted;
+        const { operator, boolean, thunk, spreadKeys, pureProps, clampMeta, setElems, regexMeta } = group.targeted;
         // Only the edits beside a written null or undefined say on which side it stands.
         const literalSide = group.mutants.find(mutant => mutant.targeted.literalSide !== undefined)?.targeted.literalSide ?? 0;
         const kind = thunk ? 'l' : ['===', '!==', '==', '!='].includes(operator) ? 'e' : operator.length === 1 ? 'a'
           : ['max', 'min', 'floor', 'ceil', 'round', 'trunc'].includes(operator) ? 'm'
             : operator === 'copyArray' || operator === 'copyObject' ? 'c'
               : operator === 'spreadUpdate' ? 'p'
-                : ['startsWith', 'endsWith', 'replace', 'replaceAll'].includes(operator) ? 'r' : 's';
+                : operator === 'clamp' ? 'k'
+                  : operator === 'literalIncludes' ? 'u'
+                    : operator === 'mergeSpread' ? 'g'
+                      : operator === 'regexTest' ? 'x'
+                        : ['startsWith', 'endsWith', 'replace', 'replaceAll', 'every', 'some'].includes(operator) ? 'r' : 's';
         const row = [operator, boolean ? 1 : 0, group.mutants.map(mutant => [mutant.id, mutant.targeted.form]), literalSide,
           group.mutants.map(mutant => mutant.id), group.targeted.pureRight ? 1 : 0, kind, operands.length];
         if (spreadKeys) row.push(spreadKeys, pureProps);
+        else if (clampMeta) row.push(clampMeta);
+        else if (regexMeta) row.push(regexMeta);
         probed.push(row);
         let callArgs;
         if (thunk) {
@@ -341,6 +472,14 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
           callArgs = operands.join(', ');
         } else if (kind === 'p') {
           callArgs = `${operands[0]}, [${operands.slice(1).map(opExpr => `() => ${opExpr}`).join(', ')}]`;
+        } else if (kind === 'k') {
+          callArgs = `[${operands.map(opExpr => `() => ${opExpr}`).join(', ')}]`;
+        } else if (kind === 'u') {
+          callArgs = `[${setElems.join(', ')}], () => ${operands[0]}`;
+        } else if (kind === 'g') {
+          callArgs = `() => ${operands[0]}, () => ${operands[1]}`;
+        } else if (kind === 'x') {
+          callArgs = `null, () => ${operands[0]}`;
         } else if (kind === 'r') {
           callArgs = `${operands[0]}, ${operands.slice(1).map(opExpr => `() => ${opExpr}`).join(', ')}`;
         } else {

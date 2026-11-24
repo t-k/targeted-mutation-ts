@@ -1,0 +1,9 @@
+Rule: ClampBound, LiteralSetPrune, MergePrecedence, QuantifierSwap, RegexAnchor
+Form: MinOuter, MaxOuter, StrSet, NumSet, Merge, Every, Some, BothAnchors, StartOnly, EndOnly
+InputCase: BelowLo, InRange, AboveHi, MatchFirst, MatchSecond, NoMatch, Disjoint, SameVal, DiffVal, EmptyArr, SingleArr, MultiArr, ExactMatch, PrefixExtra, SuffixExtra, NonMatch
+
+IF [Rule] = "ClampBound" THEN [Form] IN {"MinOuter", "MaxOuter"} AND [InputCase] IN {"BelowLo", "InRange", "AboveHi"};
+IF [Rule] = "LiteralSetPrune" THEN [Form] IN {"StrSet", "NumSet"} AND [InputCase] IN {"MatchFirst", "MatchSecond", "NoMatch"};
+IF [Rule] = "MergePrecedence" THEN [Form] = "Merge" AND [InputCase] IN {"Disjoint", "SameVal", "DiffVal"};
+IF [Rule] = "QuantifierSwap" THEN [Form] IN {"Every", "Some"} AND [InputCase] IN {"EmptyArr", "SingleArr", "MultiArr"};
+IF [Rule] = "RegexAnchor" THEN [Form] IN {"BothAnchors", "StartOnly", "EndOnly"} AND [InputCase] IN {"ExactMatch", "PrefixExtra", "SuffixExtra", "NonMatch"};
