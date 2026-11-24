@@ -424,3 +424,11 @@ A second round reduced declined files to their cause by deleting statements whil
 Over all corpora 14,824 of 14,828 native outputs have TypeScript's syntax. No output that was native before these parser changes differs after them, apart from the two defects above.
 
 Still declined, by what the reductions show: decorators (most of rxjs, whose documentation app is Angular), a JSX import-source pragma and a leading triple-slash directive (most of hono), JSX spread of an object literal, a comparison followed by a comma and a literal in an argument list (`skip(v < 104, 'reason')`, which the parser cannot yet tell from type arguments), enums and type declarations in blocks outside a function, runtime namespaces, `export =` and `import =`, ambient classes and modules, angle-bracket assertions, and non-ASCII identifiers.
+
+### Speed after the wider grammar and native maps
+
+On the Ryzen 9950X host the build before this work (`de3adb4`) and the current build were measured in alternating runs, three each, 21 samples pooled per row, with the usual isolation (rootless Podman, no network, CPU 13, 9 GiB scope). Warm time is unchanged and the compiler is ahead of every peer on 20 of 20 common rows. First-process time is ahead on 19 of 20, as before. The exception is still the ten local `.mjs` scripts (1.863 against 1.747 ms).
+
+The first measurement showed a first-process regression of 0.03 to 0.1 ms on small inputs. The entry's compile function and file had grown with explicit options and maps, and V8 compiles that function on the first call. The default call has its earlier shape again, and `src/compiler-maps.cjs` holds the handling of spelled-out options and maps and loads only when one is given. After that every row is within about one percent of the earlier build. A single first call remains 0.004 to 0.007 ms slower, which matches an addon that is about three percent larger.
+
+Peers were not measured with source maps.
