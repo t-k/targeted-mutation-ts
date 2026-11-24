@@ -1060,6 +1060,8 @@ tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_
       while (end + 1 < size && !(source[end] == '*' && source[end + 1] == '/')) end++;
       if (end + 1 >= size) return TMT_JSX_PRAGMA_OTHER;
       inside = found > at && found < end;
+      /* TypeScript matches a tag together with the rest of its text, so an earlier tag in the comment hides the pragma. */
+      if (inside && memchr(source + at, '@', found - at)) return TMT_JSX_PRAGMA_OTHER;
       at = end + 2;
     } else break;
   }
@@ -1166,15 +1168,15 @@ static TmtPulseMemory_tape with_workspace(uint8_t *source, uint32_t size, module
 }
 
 /* An import or an export at this item, also an exported class behind decorators. */
-static bool module_marker_at(TmtPulseMemory_tape input, uint32_t at) {
+static bool module_marker_at(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
   if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
   const TmtPulseParser_cursor head = TmtPulseParser_trivia(input, at);
-  return head.ok && head.at < input.size && input.source[head.at] == '@' && TmtPulseCompiler_decorated_module_marker(input, at);
+  return head.ok && head.at < input.size && input.source[head.at] == '@' && TmtPulseCompiler_decorated_module_marker(input, jsx, at);
 }
 
 static uint32_t find_marker(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
   while (at < input.size) {
-    if (module_marker_at(input, at)) return at;
+    if (module_marker_at(input, at, jsx)) return at;
     const uint32_t next = TmtPulseCompiler_next_module_item(input, jsx, at);
     if (next <= at || next > input.size) break;
     at = next;
@@ -1919,14 +1921,14 @@ decline:
 }
 
 static bool retained_module_marker(TmtPulseMemory_tape input, uint32_t at, uint32_t records) {
-  if (module_marker_at(input, at)) return true;
+  if (module_marker_at(input, at, false)) return true;
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
     if (event.original != erased_type_statement || at < event.left.first || at >= event.left.last) continue;
     const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, event.left.last);
     if (!tail.ok || tail.at >= input.size) return false;
     at = tail.at;
-    if (module_marker_at(input, at)) return true;
+    if (module_marker_at(input, at, false)) return true;
   }
   return false;
 }

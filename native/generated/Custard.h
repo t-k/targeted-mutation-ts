@@ -1367,6 +1367,8 @@ typedef struct TmtPulseParser_regex_class_end_s
 }
 TmtPulseParser_regex_class_end;
 
+bool TmtPulseParser_legacy_identity_escape(uint8_t byte);
+
 typedef struct TmtPulseParser_regex_unit_s
 {
   uint32_t unit_end;

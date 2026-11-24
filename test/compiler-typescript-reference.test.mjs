@@ -469,6 +469,8 @@ test('unusual import-source pragmas are left to TypeScript', () => {
   for (const comment of [
     '/** @jsxImportSource */', '/** @jsxImportSource\n * preact */', '/** @jsxImportSource "preact" */', '/** @jsxImportSourceX preact */',
     '/** @jsximportsource preact */\n/** @jsxFrag F */',
+    // TypeScript matches a tag with the text after it, so an earlier tag in the same comment hides the pragma.
+    '/* @license MIT @jsxImportSource preact */', '/*!\n * @preserve\n * @jsxImportSource preact\n */',
   ]) {
     const source = `${comment}\nexport const view = <i/>;\n`;
     assert.notEqual(compile(Buffer.from(source), { file: 'view.tsx' }).backend, 'pulse', source);
@@ -517,6 +519,17 @@ test('unusual import-source pragmas are left to TypeScript', () => {
     });
   }
 }
+
+test('a helper import goes before a decorated class that uses JSX in its decorator', () => {
+  const source = 'const placeholder = (node) => (value) => value;\n@placeholder(<span />)\nexport class Widget {}\nexport const title = "Widget";\n';
+  const result = sameAsTypeScript(source, 'widget.tsx');
+  assert.equal(result.backend, 'pulse');
+  assert.ok(result.code.indexOf('import{') < result.code.indexOf('@placeholder'), result.code);
+  // An earlier comment with its own tag does not hide a pragma in a later comment.
+  const pragma = sameAsTypeScript('/* @license MIT */\n/** @jsxImportSource preact */\nexport const view = <i/>;\n', 'view.tsx');
+  assert.equal(pragma.backend, 'pulse');
+  assert.match(pragma.code, /from"preact\/jsx-runtime"/);
+});
 
 test('decorators that the native grammar does not take are left to TypeScript', () => {
   for (const source of [

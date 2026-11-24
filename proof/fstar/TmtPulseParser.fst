@@ -359,10 +359,10 @@ let hex_value (ch:U8.t) : U32.t =
 let simple_escape (input:tape) (#frame:slprop) (at:U32.t) (template:bool) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! escape = (fun () -> peek input #frame (next at)) in
   let! following = (fun () -> peek input #frame (plus at 2ul)) in
-  read_ret input #frame (escape = 92uy || escape = 34uy || escape = 39uy ||
-  escape = 110uy || escape = 114uy || escape = 116uy || escape = 98uy ||
-  escape = 102uy || escape = 118uy || (escape = 48uy && not (G.decimal_digit following)) ||
-  escape = 96uy || (template && escape = 36uy))
+  // A backslash before any other printable ASCII character stands for that character. The exceptions have
+  // their own forms: x and u take hex digits, and a digit other than a lone zero is an octal or an invalid escape.
+  read_ret input #frame ((escape = 48uy && not (G.decimal_digit following)) ||
+    (U8.(escape >=^ 32uy && escape <^ 127uy) && escape <> 120uy && escape <> 117uy && not (G.decimal_digit escape)))
 
 let rec fixed_hex (input:tape) (#frame:slprop) (at digits:U32.t) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v digits) =
   if digits = 0ul then read_ret input #frame ({ at; ok = true; newline = false })
@@ -545,6 +545,12 @@ let regex_bmp_unit (input:tape) (#frame:slprop) (at:U32.t) (first:U8.t)
         read_ret input #frame { unit_end = plus at 3ul; unit_ok = true; character = value; repeatable = true; unicode_only = false }
       else read_ret input #frame invalid
 
+// Without the u or v flag a backslash before one of these characters stands for the character itself.
+// The pattern is then valid only without those flags.
+let legacy_identity_escape (byte:U8.t) : bool =
+  byte = 33uy || byte = 34uy || byte = 35uy || byte = 37uy || byte = 38uy || byte = 39uy || byte = 44uy || byte = 45uy ||
+  byte = 58uy || byte = 59uy || byte = 60uy || byte = 61uy || byte = 62uy || byte = 64uy || byte = 95uy || byte = 96uy || byte = 126uy
+
 let regex_class_unit (input:tape) (#frame:slprop) (at:U32.t) : Tot (stt regex_unit (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! byte = (fun () -> peek input #frame at) in
   if byte = 92uy then regex_escape input #frame at true
@@ -561,6 +567,15 @@ let rec regex_class (input:tape) (#frame:slprop) (at fuel:U32.t) (unicode_only l
   else (let! anf_value_1 = (fun () -> same input #frame at 93uy) in if anf_value_1 then
     read_ret input #frame ({ invalid with ending = { at = next at; ok = true; newline = false } })
   else
+    let! backslash = (fun () -> same input #frame at 92uy) in
+    let! escaped = (fun () -> if backslash then peek input #frame (next at) else read_ret input #frame 0uy) in
+    let! after = (fun () -> peek input #frame (plus at 2ul)) in
+    let! closing = (fun () -> peek input #frame (plus at 3ul)) in
+    // A legacy identity escape is taken as a single member. As the start of a range it is left to the reference parser.
+    if backslash && escaped <> 45uy && legacy_identity_escape escaped then
+      if after = 45uy && closing <> 93uy then read_ret input #frame invalid
+      else regex_class input #frame (plus at 2ul) (minus fuel 1ul) unicode_only true
+    else
     let! lhs = (fun () -> regex_class_unit input #frame at) in
     if not lhs.unit_ok then read_ret input #frame invalid
     else
@@ -663,7 +678,7 @@ let rec regex_pattern (input:tape) (#frame:slprop) (at depth fuel:U32.t) (nested
         if index.count_ok && U32.(index.count_value <=^ captures.count) then
           regex_pattern input #frame index.count_end depth rest nested true captures
         else read_ret input #frame (regex_result_at at false captures)
-      else if first = 58uy then
+      else if legacy_identity_escape first then
         regex_pattern input #frame (plus at 2ul) depth rest nested true { captures with legacy = true }
       else
         let! escaped = (fun () -> regex_escape input #frame at false) in

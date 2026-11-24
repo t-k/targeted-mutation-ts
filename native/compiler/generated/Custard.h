@@ -1309,6 +1309,8 @@ typedef struct TmtPulseParser_regex_class_end_s
 }
 TmtPulseParser_regex_class_end;
 
+bool TmtPulseParser_legacy_identity_escape(uint8_t byte);
+
 typedef struct TmtPulseParser_regex_unit_s
 {
   uint32_t unit_end;
@@ -2595,9 +2597,10 @@ TmtPulseParser_cursor TmtPulseCompiler_plain_cursor(uint32_t at, bool ok);
 TmtPulseParser_cursor
 TmtPulseCompiler_jsx_expression_end(TmtPulseMemory_tape input, uint32_t at);
 
-bool TmtPulseCompiler_decorated_export(TmtPulseMemory_tape input, uint32_t at);
+bool TmtPulseCompiler_decorated_export(TmtPulseMemory_tape input, bool jsx, uint32_t at);
 
-bool TmtPulseCompiler_decorated_module_marker(TmtPulseMemory_tape input, uint32_t at);
+bool
+TmtPulseCompiler_decorated_module_marker(TmtPulseMemory_tape input, bool jsx, uint32_t at);
 
 TmtPulseParser_parser_state
 TmtPulseCompiler_ordinary_module_item_end(

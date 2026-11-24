@@ -574,20 +574,20 @@ let next_module_boundary (input:tape) (jsx:bool) (at:U32.t)
     ret input (if end_.status = 0ul && U32.gt end_.offset at && U32.lte end_.offset input.size then end_.offset else 0ul)
 
 // An exported class may stand behind decorators. The item then marks a module like a plain export.
-let decorated_export (input:tape) (at:U32.t)
+let decorated_export (input:tape) (jsx:bool) (at:U32.t)
   : Tot (stt bool (heap input) (fun _ -> heap input)) =
-  let initial = P.initial_state false true P.primary_locals in
+  let initial = P.initial_state jsx true P.primary_locals in
   let! undecorated = (fun () -> P.skip input { initial with offset = at }) in
   let! st = (fun () -> P.decorated_class_start input undecorated) in
   if st.status <> 0ul || st.offset = undecorated.offset then ret input false
   else P.keyword input st.offset 6ul 0x6578706f7274uL
 
-fn decorated_module_marker (input:tape) (at:U32.t)
+fn decorated_module_marker (input:tape) (jsx:bool) (at:U32.t)
   requires heap input
   returns marked:bool
   ensures heap input
 {
-  decorated_export input at
+  decorated_export input jsx at
 }
 
 fn next_module_item (input:tape) (jsx:bool) (at:U32.t)
