@@ -1561,7 +1561,10 @@ and object_type_member (input:tape) (#frame:slprop) (st:parser_state) (fuel:U32.
           let! typed = (fun () -> same input #frame after_parameters.offset 58uy) in
           if typed then (let! anf_value_11 = (fun () -> consume input #frame after_parameters 58uy) in result_type input #frame anf_value_11 fuel)
           else read_ret input #frame parameters
-      else (let! anf_value_13 = (fun () -> (consume input #frame after 58uy)) in delimited_type input #frame anf_value_13 fuel)
+      // A property may stand without a type, as in interface I { x; y? }.
+      else if byte = 58uy then (let! anf_value_13 = (fun () -> (consume input #frame after 58uy)) in delimited_type input #frame anf_value_13 fuel)
+      // It is taken when a separator or the closing brace follows; a line break alone is left to TypeScript.
+      else read_ret input #frame (if byte = 59uy || byte = 44uy || byte = 125uy then after else failed after 1ul)
 and object_type (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 7; U32.v remaining]) =
   let! st = (fun () -> skip input #frame state) in
@@ -2598,7 +2601,8 @@ let signature_end (input:tape) (#frame:slprop) (state opening:parser_state) (par
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! typed = (fun () -> skip input #frame params.names.state) in
   let! annotated_return = (fun () -> same input #frame typed.offset 58uy) in
-  if (not annotated_return && not constructor) || (not input.capture_types && st.count <> state.count) then
+  // A signature may stand without a result type, as in function f(); the extractor keeps the stricter form.
+  if (not annotated_return && not constructor && not input.capture_types) || (not input.capture_types && st.count <> state.count) then
     read_ret input #frame (failed st 1ul)
   else
     let! checked = (fun () -> if params.non_simple || constructor then signature_parameters input #frame opening 15ul 64ul opening.offset empty_signature_names else read_ret input #frame (params.names.state)) in

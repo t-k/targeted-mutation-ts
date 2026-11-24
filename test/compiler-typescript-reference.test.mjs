@@ -1390,3 +1390,23 @@ test('a TypeScript script is read as strict code, module names a namespace, and 
   assert.equal(broken.code, null);
   assert.equal(broken.diagnostics[0].start, 17);
 });
+
+test('signatures without a result type and properties without a type are erased', () => {
+  for (const source of [
+    'function f();',
+    'function f(a);\nfunction f(a?: any) {}',
+    'export function f(a: string);\nexport function f(a: any) { return a; }',
+    'interface I { x }',
+    'interface I { x; y?; m(); }\nvar i: I;',
+    'class C { m(); m(a?: any) {} }',
+    'declare function f();',
+    'function f()\n{ return 1 }',
+    'class C { constructor(); constructor(a?: any) {} }',
+    'export default function f();\nexport default function f(a?: any) {}',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'bare.ts').backend, 'pulse', source);
+  }
+  for (const source of ['function f()\nf2();', 'class C { m()\n n() {} }', 'interface I { x\n y }']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'bare.ts' }).backend, 'pulse', source);
+  }
+});

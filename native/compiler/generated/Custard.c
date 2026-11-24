@@ -4029,11 +4029,15 @@ TmtPulseParser_object_type_member(
             return value13;
         }
       }
-      else
+      else if (value10 == 58U)
       {
         TmtPulseParser_parser_state value11 = TmtPulseParser_consume(input, value90, 58U);
         return TmtPulseParser_delimited_type(input, value11, fuel);
       }
+      else if (value10 == 59U || value10 == 44U || value10 == 125U)
+        return value90;
+      else
+        return TmtPulseParser_failed(value90, 1U);
     }
   }
 }
@@ -6268,7 +6272,11 @@ TmtPulseParser_signature_end(
 {
   TmtPulseParser_parser_state value = TmtPulseParser_skip(input, params.names.state);
   bool value1 = TmtPulseParser_same(input, value.offset, 58U);
-  if (!value1 && !constructor || !input.capture_types && st.count != state.count)
+  if
+  (
+    !value1 && !constructor && !input.capture_types ||
+      !input.capture_types && st.count != state.count
+  )
     return TmtPulseParser_failed(st, 1U);
   else
   {
