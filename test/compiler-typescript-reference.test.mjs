@@ -1449,3 +1449,28 @@ test('a namespace that holds types alone stays erased, whatever its interfaces r
     assert.match(result.code, /\(function \(N\)/, source);
   }
 });
+
+test('import-equals declarations become const or var', () => {
+  for (const source of [
+    'import x = require("x");\nx();',
+    'import fs = require("fs");\nexport const r = fs.readFileSync;',
+    'import A = B.C;\nA();\nexport {};',
+    'import A = B;\nexport const a: A.T = A.v;',
+    'import x = require("x");\nexport = x;',
+    'import x = require("x")\nimport y = require("y")\nx(y);',
+    'import a from "a";\nimport b = a.b;\nexport { b };',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'alias.ts').backend, 'pulse', source);
+  }
+  // An alias alone does not make the file a module, a type-only form is erased by TypeScript, and a name that
+  // is declared twice is an error.
+  for (const source of ['import x = require;\nx;', 'import type x = require("x");\nexport {};', 'export import A = B.C;',
+    'import x = require(y);\nx;', 'import x = require("x");\nconst x = 1;']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'alias.ts' }).backend, 'pulse', source);
+  }
+  for (const options of [{ file: 'alias.mts' }, { file: 'alias.ts', module: 'esm' }]) {
+    const result = compile(Buffer.from('import x = require("x");\nx();'), options);
+    assert.equal(result.code, null);
+    assert.equal(result.diagnostics[0].code, 'INCOMPATIBLE_MODULE_SYNTAX');
+  }
+});

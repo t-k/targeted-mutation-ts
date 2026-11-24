@@ -4673,10 +4673,40 @@ let import_bindings (input:tape) (state:parser_state) (used:names_used) (allow_t
     else ret input ({ state = failed st 1ul; used }))
   else ret input ({ state = failed st 1ul; used })
 
+// import x = require("m") and import A = B.C. TypeScript writes const x = require("m") and var A = B.C;
+// the emitter replaces the keyword, recorded as kind 40 or 41. The name is a value of the module.
+let import_equals (input:tape) (state st after_name:parser_state) (used:names_used)
+  : Tot (stt named_state (heap input) (fun _ -> heap input)) =
+  let! bound = (fun () -> bind_in_namespace input st 0ul 0ul used st.offset BothNames) in
+  let! value = (fun () -> skip input { bound.state with offset = next after_name.offset }) in
+  let! required = (fun () -> keyword input value.offset 7ul 0x72657175697265uL) in
+  let! opening = (fun () -> if required then skip input { value with offset = plus value.offset 7ul } else ret input value) in
+  let! call = (fun () -> if required then same input opening.offset 40uy else ret input false) in
+  let! target = (fun () -> if call then
+      let! inside = (fun () -> (let! opened = (fun () -> consume input opening 40uy) in skip input opened)) in
+      let! delimiter = (fun () -> peek input inside.offset) in
+      if delimiter <> 34uy && delimiter <> 39uy then ret input (failed inside 1ul)
+      else
+        let! literal = (fun () -> string_end input (next inside.offset) delimiter input.size false) in
+        let! closing = (fun () -> skip input (from_cursor inside literal)) in
+        consume input closing 41uy
+    else
+      let! first = (fun () -> name input value.offset false false) in
+      qualified_name input (from_cursor value first) 64ul) in
+  let! ended = (fun () -> statement_end input target target.offset false) in
+  let! recorded = (fun () -> record_jsx_span input ended (if call then 40ul else 41ul) state.offset (plus state.offset 6ul)) in
+  ret input ({ bound with state = recorded })
+
 let import_declaration (input:tape) (state:parser_state) (used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! st = (fun () -> skip input { state with offset = plus state.offset 6ul }) in
   let! byte = (fun () -> peek input st.offset) in
-  if byte = 34uy || byte = 39uy then
+  let! alias_end = (fun () -> if input.capture_types && G.identifier_start byte then name input st.offset false true
+    else ret input { at = st.offset; ok = false; newline = false }) in
+  let! after_alias = (fun () -> if alias_end.ok then skip input (from_cursor st alias_end) else ret input st) in
+  let! equals = (fun () -> if alias_end.ok then same input after_alias.offset 61uy else ret input false) in
+  let! doubled = (fun () -> if equals then same input (next after_alias.offset) 61uy else ret input false) in
+  if equals && not doubled then import_equals input state st after_alias used
+  else if byte = 34uy || byte = 39uy then
     let! after = (fun () -> import_source input st true) in
     let! after = (fun () -> record_jsx_span input after 9ul state.offset after.offset) in
     ret input ({ state = after; used })

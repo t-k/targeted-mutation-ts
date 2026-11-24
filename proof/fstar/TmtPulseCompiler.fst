@@ -489,7 +489,20 @@ fn runtime_module_marker (input:tape) (#frame:slprop) (at:U32.t)
       if (not imported) { false } else {
         let after = P.trivia input #frame (P.plus head.at 6ul);
         let token = peek input #frame after.at;
-        after.ok && (G.identifier_start token || token = 39uy || token = 34uy || token = 123uy || token = 42uy)
+        // import A = B.C names a value and does not make the file a module; import x = require("m") does.
+        let name_end = P.scan_class input #frame after.at G.Identifier;
+        let assigned = P.trivia input #frame name_end;
+        let equals = P.same input #frame assigned.at 61uy;
+        let alias = after.ok && G.identifier_start token && assigned.ok && equals;
+        if (alias) {
+          let value = P.trivia input #frame (P.next assigned.at);
+          let required = P.keyword input #frame value.at 7ul 0x72657175697265uL;
+          let opening = P.trivia input #frame (P.plus value.at 7ul);
+          let call = P.same input #frame opening.at 40uy;
+          value.ok && required && opening.ok && call
+        } else {
+          after.ok && (G.identifier_start token || token = 39uy || token = 34uy || token = 123uy || token = 42uy)
+        }
       }
     }
   }

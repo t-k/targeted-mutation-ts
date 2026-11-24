@@ -2552,6 +2552,15 @@ TmtPulseParser_import_expression_start(
 );
 
 TmtPulseParser_named_state
+TmtPulseParser_import_equals(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  TmtPulseParser_parser_state st,
+  TmtPulseParser_parser_state after_name,
+  uint32_t used
+);
+
+TmtPulseParser_named_state
 TmtPulseParser_import_members(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state state0,

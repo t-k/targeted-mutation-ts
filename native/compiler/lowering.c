@@ -1430,6 +1430,9 @@ enum {
   namespace_end = 38,
   /* An enum exported from a namespace, from `export` to its closing brace. */
   namespace_enum = 39,
+  /* The keyword of `import x = require("m")`, written as const, and of `import A = B.C`, written as var. */
+  import_require = 40,
+  import_alias = 41,
 };
 
 typedef struct {
@@ -1833,7 +1836,8 @@ static bool assertion_exposes_statement(TmtPulseMemory_tape input, TmtGrammar_sp
 static bool namespace_record(uint32_t kind) { return kind >= namespace_head && kind <= namespace_enum; }
 
 static bool enum_record(uint32_t kind) {
-  return kind == runtime_enum || kind == local_enum || kind == export_assignment || namespace_record(kind);
+  return kind == runtime_enum || kind == local_enum || kind == export_assignment || namespace_record(kind) ||
+    kind == import_require || kind == import_alias;
 }
 
 static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool allow_properties,
@@ -2131,7 +2135,7 @@ static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, uint32_t k
   /* A namespace is lowered only where no other lowering shares the file. */
   if (namespace_record(kind)) return false;
   /* An export assignment is written only by the pass that knows the output may be CommonJS. */
-  if (kind == export_assignment) return false;
+  if (kind == export_assignment || kind == import_require || kind == import_alias) return false;
   lower->input.size = span.last;
   const TmtPulseCompiler_runtime_head head = TmtPulseCompiler_read_runtime_head(lower->input, span.first, false, true, true);
   lower->at = head.body;
@@ -2282,6 +2286,14 @@ static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, b
       if (!commonjs) goto decline;
       source_bytes(&lower, copied, span.first);
       put(&lower.output, "module.exports =");
+      copied = span.last;
+      continue;
+    }
+    if (input.output[index].original == import_require || input.output[index].original == import_alias) {
+      /* require() exists only where the output may be CommonJS; an alias is an ordinary variable. */
+      if (input.output[index].original == import_require && !commonjs) goto decline;
+      source_bytes(&lower, copied, span.first);
+      put(&lower.output, input.output[index].original == import_require ? "const" : "var");
       copied = span.last;
       continue;
     }
