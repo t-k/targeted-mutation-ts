@@ -2628,6 +2628,29 @@ static bool directives_depend_on_erasure(TmtPulseMemory_tape input, uint32_t fir
         may_vanish = input.size - item.at > width && !memcmp(input.source + item.at, erasable[word], width) &&
           !TmtGrammar_identifier_continue(input.source[item.at + width]);
       }
+      /*
+       * An import or export stays unless a word of an erasable declaration follows it: `import x from`,
+       * `export const` and `export {` are the usual first items, and the scan ends at them without parsing.
+       */
+      if (may_vanish && (byte == 'i' || byte == 'e') && input.size - item.at > 6 &&
+          (!memcmp(input.source + item.at, "import", 6) || !memcmp(input.source + item.at, "export", 6))) {
+        const TmtPulseParser_cursor word = TmtPulseParser_trivia(input, item.at + 6);
+        may_vanish = false;
+        for (size_t next = 2; word.ok && next < sizeof(erasable) / sizeof(*erasable) && !may_vanish; next++) {
+          const uint32_t width = (uint32_t)strlen(erasable[next]);
+          may_vanish = input.size - word.at > width && !memcmp(input.source + word.at, erasable[next], width) &&
+            !TmtGrammar_identifier_continue(input.source[word.at + width]);
+        }
+        /* `export import A = B.C` and an import-equals of a type are erasable too. */
+        if (!may_vanish && word.ok && input.size - word.at > 6 && !memcmp(input.source + word.at, "import", 6)) may_vanish = true;
+        if (!may_vanish && byte == 'i' && word.ok) {
+          /* import A = ...: the name is followed by an equals sign. */
+          uint32_t end = word.at;
+          while (end < input.size && TmtGrammar_identifier_continue(input.source[end])) end++;
+          const TmtPulseParser_cursor after = TmtPulseParser_trivia(input, end);
+          may_vanish = after.ok && after.at < input.size && input.source[after.at] == '=';
+        }
+      }
       /* Behind an item that stays, no later string can become a directive. */
       if (!may_vanish) return false;
     }

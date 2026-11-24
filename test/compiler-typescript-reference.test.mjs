@@ -1287,9 +1287,19 @@ test('review findings: a mark behind JSX, a string behind an erased declaration,
     'import type { Props } from "./props";\n"use client";\nexport const View = () => <div />;',
     '"use client" as string;\nexport const x = <div />;',
     'export type A = 1;\n"x";\nexport const v = <a/>;',
-    'import { type A, b } from "m";  "x";\nexport const v = <a/>;',
   ]) {
     assert.equal(sameAsTypeScript(source, 'a.tsx').backend.includes('pulse'), false, source);
+  }
+  // An import or export that stays keeps every later string an ordinary statement, here and in TypeScript,
+  // so the scan ends at it and the file stays on the native route.
+  for (const source of [
+    'import { type A, b } from "m";  "x";\nexport const v = <a/>;',
+    'import { type A } from "m";\n"x";\nexport const v = <a/>;',
+    'import a from "m";\n"use client";\nexport const v = <a/>;',
+    'export { type A } from "m";\n"use client";\nexport const v = <a/>;',
+    'export * from "m";\n"use client";\nexport const v = <a/>;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'a.tsx').backend, 'pulse', source);
   }
   for (const source of [
     '"use client";\ninterface O {}\nexport const view = <View />;',
