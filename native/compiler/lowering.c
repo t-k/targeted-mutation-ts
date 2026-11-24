@@ -1008,21 +1008,102 @@ static bool emit_jsx(lowering *lower, TmtPulseCompiler_runtime_head head) {
   return !lower->output.failed;
 }
 
+static bool pragma_text(const uint8_t *text, uint32_t available, const char *word) {
+  const uint32_t width = (uint32_t)strlen(word);
+  if (available < width) return false;
+  for (uint32_t index = 0; index < width; index++) {
+    if ((text[index] | 32) != (uint8_t)word[index] && text[index] != (uint8_t)word[index]) return false;
+  }
+  return true;
+}
+
+/*
+ * TypeScript reads pragmas from the block comments before the first token and lower-cases their
+ * names. The import source is the first word after @jsxImportSource on its line. This reader
+ * accepts the plain case only and reports every other @jsx text as unsupported, so that the
+ * TypeScript emitter decides it.
+ */
+tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_t *first, uint32_t *last) {
+  uint32_t found = size, count = 0;
+  for (const uint8_t *at = memchr(source, '@', size); at; ) {
+    const uint32_t offset = (uint32_t)(at - source);
+    if (pragma_text(at + 1, size - offset - 1, "jsx")) {
+      found = offset;
+      if (++count > 1) return TMT_JSX_PRAGMA_OTHER;
+    }
+    at = offset + 1 < size ? memchr(at + 1, '@', size - offset - 1) : NULL;
+  }
+  if (!count) return TMT_JSX_PRAGMA_ABSENT;
+  /* Walk the trivia before the first token and require the pragma inside one of its block comments. */
+  uint32_t at = size >= 3 && source[0] == 0xEF && source[1] == 0xBB && source[2] == 0xBF ? 3 : 0;
+  if (size - at >= 2 && source[at] == '#' && source[at + 1] == '!') {
+    while (at < size && source[at] != '\n' && source[at] != '\r') at++;
+  }
+  bool inside = false;
+  while (at < size && !inside) {
+    const uint8_t byte = source[at];
+    if (byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r' || byte == '\v' || byte == '\f') at++;
+    else if (byte == '/' && at + 1 < size && source[at + 1] == '/') {
+      while (at < size && source[at] != '\n' && source[at] != '\r') at++;
+    } else if (byte == '/' && at + 1 < size && source[at + 1] == '*') {
+      uint32_t end = at + 2;
+      while (end + 1 < size && !(source[end] == '*' && source[end + 1] == '/')) end++;
+      if (end + 1 >= size) return TMT_JSX_PRAGMA_OTHER;
+      inside = found > at && found < end;
+      at = end + 2;
+    } else break;
+  }
+  if (!inside || !pragma_text(source + found + 1, size - found - 1, "jsximportsource")) return TMT_JSX_PRAGMA_OTHER;
+  uint32_t name = found + 16;
+  if (name >= size || (source[name] != ' ' && source[name] != '\t')) return TMT_JSX_PRAGMA_OTHER;
+  while (name < size && (source[name] == ' ' || source[name] == '\t')) name++;
+  uint32_t end = name;
+  while (end < size) {
+    const uint8_t byte = source[end];
+    if (!(((byte | 32) >= 'a' && (byte | 32) <= 'z') || (byte >= '0' && byte <= '9') || byte == '@' || byte == '/' ||
+          byte == '.' || byte == '_' || byte == '~' || byte == '-')) break;
+    end++;
+  }
+  /* The name ends at white space. A name that runs into the comment's end would include it. */
+  if (end == name || end - name > 96 || end >= size ||
+      (source[end] != ' ' && source[end] != '\t' && source[end] != '\n' && source[end] != '\r')) return TMT_JSX_PRAGMA_OTHER;
+  *first = name;
+  *last = end;
+  return TMT_JSX_PRAGMA_SOURCE;
+}
+
 static bool inject_jsx_runtime(lowering *lower, size_t at) {
   if (!lower->helpers) return true;
   writer *out = &lower->output;
   const bool one = (lower->helpers & jsx_one) != 0;
   const bool many = (lower->helpers & jsx_many) != 0;
   const bool fragment = (lower->helpers & jsx_fragment) != 0;
-  const char *create = lower->helpers & jsx_create ? "import{createElement as _tmtElem}from\"react\";\n" : "";
+  /* The helpers come from react unless the source names another package in a pragma. */
+  uint32_t name_first = 0, name_last = 0;
+  const char *package = "react";
+  int package_width = 5;
+  if (memchr(lower->input.source, '@', lower->input.size)) {
+    const tmt_jsx_pragma_kind pragma = tmt_jsx_pragma(lower->input.source, lower->input.size, &name_first, &name_last);
+    if (pragma == TMT_JSX_PRAGMA_OTHER) return false;
+    if (pragma == TMT_JSX_PRAGMA_SOURCE) {
+      package = (const char *)lower->input.source + name_first;
+      package_width = (int)(name_last - name_first);
+    }
+  }
+  char create[160] = "";
+  if (lower->helpers & jsx_create) {
+    snprintf(create, sizeof(create), "import{createElement as _tmtElem}from\"%.*s\";\n", package_width, package);
+  }
   /* The module requested first is printed last. */
   const bool create_first = lower->first_source == source_runtime;
-  char import[192];
+  char runtime[160] = "";
+  if (one || many || fragment) snprintf(runtime, sizeof(runtime), "}from\"%.*s/jsx-runtime\";\n", package_width, package);
+  char import[448];
   const int size = snprintf(import, sizeof(import), "%s%s%s%s%s%s%s%s",
     create_first ? create : "", one || many || fragment ? "import{" : "",
     one ? "jsx as _tmtJsx0" : "", one && many ? "," : "", many ? "jsxs as _tmtJsxs" : "",
     fragment ? (one || many ? ",Fragment as _tmtFragment" : "Fragment as _tmtFragment") : "",
-    one || many || fragment ? "}from\"react/jsx-runtime\";\n" : "", create_first ? "" : create);
+    runtime, create_first ? "" : create);
   if (size < 0 || (size_t)size >= sizeof(import) || at > out->length) return false;
   const size_t before = out->length;
   write_bytes(out, import, (size_t)size);

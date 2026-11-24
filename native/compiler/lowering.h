@@ -28,6 +28,12 @@ typedef enum { TMT_PARAMETER_NONE, TMT_PARAMETER_NODE, TMT_PARAMETER_REFERENCE }
 typedef enum { TMT_ENUMS_ABSENT, TMT_ENUMS_PRESENT, TMT_ENUMS_UNKNOWN } tmt_enum_hint;
 char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint enums, bool esm, bool allow_script,
   size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property, tmt_run_log *runs);
+/*
+ * The JSX pragma of a source. A supported pragma is one @jsxImportSource in a block comment before
+ * the first token, with a plain package name, and no other @jsx text anywhere in the source.
+ */
+typedef enum { TMT_JSX_PRAGMA_ABSENT, TMT_JSX_PRAGMA_SOURCE, TMT_JSX_PRAGMA_OTHER } tmt_jsx_pragma_kind;
+tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_t *first, uint32_t *last);
 bool tmt_leading_directive(uint8_t *source, uint32_t size);
 bool tmt_leading_triple_slash(uint8_t *source, uint32_t size);
 

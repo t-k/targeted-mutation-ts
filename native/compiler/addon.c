@@ -503,6 +503,14 @@ static bool contains(const uint8_t *text, size_t size, const char *needle, bool 
 
 enum { emit_tsx = 1, emit_esm = 2, emit_classic = 4, emit_mapped = 16 };
 
+/* A source without @jsx text, or with one import-source pragma under the automatic runtime. */
+static bool jsx_pragma_supported(const uint8_t *source, uint32_t size, bool classic) {
+  if (!memchr(source, '@', size)) return true;
+  uint32_t first, last;
+  const tmt_jsx_pragma_kind pragma = tmt_jsx_pragma(source, size, &first, &last);
+  return pragma == TMT_JSX_PRAGMA_ABSENT || (pragma == TMT_JSX_PRAGMA_SOURCE && !classic);
+}
+
 /*
  * Publishes [code, mappings] for an output that is a projection of the source. Any other output
  * yields undefined, and the caller's compatibility route then produces the code and its map.
@@ -577,8 +585,7 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     free(planned);
     if (failed) goto error;
   }
-  const bool runtime = jsx && !(memchr(source, '@', size) && contains(source, size, "@jsx", true)) &&
-    !contains(source, size, "_tmt", false);
+  const bool runtime = jsx && jsx_pragma_supported(source, width, classic) && !contains(source, size, "_tmt", false);
   bool complete;
   if (restricted && (!jsx || runtime)) {
     output = tmt_lower_runtime(source, width, jsx, true, classic, false, &length, &complete, flags & emit_mapped ? &runs : NULL);
@@ -666,6 +673,23 @@ decline:
 error:
   free(output);
   napi_throw_error(env, NULL, "Native JavaScript emission arguments or allocation failed");
+  return NULL;
+}
+
+/* Whether the JSX routes may take a source: it has no @jsx text, or one import-source pragma outside classic mode. */
+static napi_value jsx_pragma_supported_export(napi_env env, napi_callback_info info) {
+  napi_value args[2], result;
+  size_t argc = 2, size;
+  void *source;
+  bool classic;
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc != 2) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &source, &size));
+  NAPI(napi_get_value_bool(env, args[1], &classic));
+  NAPI(napi_get_boolean(env, size <= source_limit && jsx_pragma_supported(source, (uint32_t)size, classic), &result));
+  return result;
+error:
+  napi_throw_type_error(env, NULL, "Expected a source buffer and a classic flag");
   return NULL;
 }
 
@@ -791,6 +815,8 @@ static napi_value init(napi_env env, napi_value exports) {
   NAPI(napi_set_named_property(env, exports, "emitJavaScriptModule", entry));
   NAPI(napi_create_function(env, "emitTypeScript", NAPI_AUTO_LENGTH, emit_typescript, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "emitTypeScript", entry));
+  NAPI(napi_create_function(env, "jsxPragmaSupported", NAPI_AUTO_LENGTH, jsx_pragma_supported_export, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "jsxPragmaSupported", entry));
   NAPI(napi_create_function(env, "projectionMappings", NAPI_AUTO_LENGTH, projection_mappings, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "projectionMappings", entry));
   NAPI(napi_create_function(env, "triviaOnly", NAPI_AUTO_LENGTH, trivia_only, NULL, &entry));

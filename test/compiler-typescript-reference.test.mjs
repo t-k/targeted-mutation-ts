@@ -420,3 +420,62 @@ test('conflicting local names and enum member names that need care stay off the 
     assert.notEqual(compile(Buffer.from(source), { file: 'forms.ts' }).backend, 'pulse', source);
   }
 });
+
+// The JSX import-source pragma: the native route takes the plain case and leaves every other @jsx text to TypeScript.
+{
+  const { readFileSync } = await import('node:fs');
+  const { createRequire: requireFrom } = await import('node:module');
+  const router = requireFrom(import.meta.url)('../src/compiler-routes.cjs').compile;
+  const rows = readFileSync(new URL('../verification/pict/compiler-jsx-pragma.tsv', import.meta.url), 'utf8')
+    .trimEnd().split(/\r?\n/).slice(1);
+  const bodies = {
+    Runtime: 'export const view = <section><b>ready</b>{value}</section>;',
+    Create: 'export const view = <a {...props} key="k"/>;',
+    Both: 'export const view = <div><a {...props} key="k"/><b/></div>;',
+    Fragment: 'export const view = <><b/>{value}</>;',
+  };
+  for (const row of rows) {
+    test('JSX pragma ' + row.replaceAll('\t', ' '), () => {
+      const [pragma, place, mode, helpers, tail] = row.split('\t');
+      const text = { Absent: '', ImportSource: '@jsxImportSource preact', Runtime: '@jsxRuntime automatic', Factory: '@jsx h',
+        Twice: '@jsxImportSource preact\n * @jsxImportSource other' }[pragma];
+      const close = { SpaceClose: ' */', LineEnd: '\n */', DirectClose: '*/' }[tail];
+      const comment = pragma === 'Absent' ? '' : place === 'LeadingLine' ? `// ${text}\n` : `/** ${text}${close}\n`;
+      const source = place === 'AfterCode' ? `import { value } from "./v.js";\n${comment}${bodies[helpers]}\n` :
+        `${comment}import { value } from "./v.js";\n${bodies[helpers]}\n`;
+      const options = { file: 'view.tsx', jsx: mode === 'Classic' ? 'classic' : 'automatic' };
+      const result = compile(Buffer.from(source), options);
+      assert.deepEqual(router(Buffer.from(source), options), result, source);
+      assert.deepEqual(compile(source, options), result, source);
+      const native = pragma === 'Absent' ||
+        (pragma === 'ImportSource' && place === 'LeadingBlock' && mode === 'Automatic' && tail !== 'DirectClose');
+      assert.equal(result.backend === 'pulse', native, source);
+      if (!native) return;
+      const expected = ts.transpileModule(source, { fileName: 'view.tsx', compilerOptions: {
+        target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true,
+        jsx: mode === 'Classic' ? ts.JsxEmit.React : ts.JsxEmit.ReactJSX } }).outputText;
+      assert.deepEqual(inspect(ts, result.code, 'view.tsx'), inspect(ts, expected, 'view.tsx'), source);
+      // The helper imports name the same modules in the same order.
+      const modules = code => [...code.matchAll(/^import\s*\{[^}]*\b(?:jsxs?|Fragment|createElement) as _[^}]*\}\s*from\s*"([^"]+)";/gm)].map(match => match[1]);
+      assert.deepEqual(modules(result.code), modules(expected), source);
+      if (pragma === 'ImportSource' && mode === 'Automatic') assert.ok(modules(result.code).every(name => name.startsWith('preact')), source);
+    });
+  }
+}
+
+test('unusual import-source pragmas are left to TypeScript', () => {
+  for (const comment of [
+    '/** @jsxImportSource */', '/** @jsxImportSource\n * preact */', '/** @jsxImportSource "preact" */', '/** @jsxImportSourceX preact */',
+    '/** @jsximportsource preact */\n/** @jsxFrag F */',
+  ]) {
+    const source = `${comment}\nexport const view = <i/>;\n`;
+    assert.notEqual(compile(Buffer.from(source), { file: 'view.tsx' }).backend, 'pulse', source);
+  }
+  // The pragma name is matched without regard to case, as TypeScript matches it.
+  const source = '#!/usr/bin/env node\n// note\n/* @JSXIMPORTSOURCE @scope/pkg.name */\nexport const view = <i/>;\n';
+  const result = sameAsTypeScript(source, 'view.tsx');
+  assert.equal(result.backend, 'pulse');
+  assert.match(result.code, /from"@scope\/pkg\.name\/jsx-runtime"/);
+  // Only the first word after the pragma is the package, as in TypeScript.
+  assert.match(sameAsTypeScript('/* @jsxImportSource pre act*/\nexport const view = <i/>;\n', 'view.tsx').code, /from"pre\/jsx-runtime"/);
+});

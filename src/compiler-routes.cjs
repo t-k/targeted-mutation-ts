@@ -309,7 +309,9 @@ function compile(input, options = {}) {
       // Whole-source scans are deferred. The native emitters find enum declarations themselves.
       let scanned;
       const runtime = () => scanned ??= mode === 'transform' && (jsxFile ? jsx !== 'preserve' &&
-        (!source.includes('@') || !/@jsx/i.test(source.toString('latin1'))) && !source.includes('_tmt') :
+        // A source with @jsx text is native only for one import-source pragma, which the addon recognizes.
+        (!source.includes('@') || !/@jsx/i.test(source.toString('latin1')) ||
+          loadModuleAddon()?.jsxPragmaSupported?.(source, jsx === 'classic') === true) && !source.includes('_tmt') :
         typed && source.includes('enum') && /\benum\b/.test(typeof stableInput === 'string' ? stableInput : source.toString()));
       // The single-declaration emitter accepts a TypeScript file only when it starts with an enum.
       if (mode === 'transform' && native && (jsxFile ? runtime() : typed)) {
