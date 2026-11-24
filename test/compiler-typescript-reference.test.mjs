@@ -1507,6 +1507,31 @@ test('erasure through Node is refused where it would regroup or leave invalid co
     assert.equal(stripped.diagnostics[0].code, 'AMBIGUOUS_TYPE_ERASURE', source);
   }
   assert.equal(compile('const a = b as T\nconst c = d + e;', { file: 'group.ts', mode: 'strip' }).code, 'const a = b     \nconst c = d + e;');
+  // Comments between the assertion and the operator, or between the mark and the template, do not hide them.
+  for (const source of [
+    'export const v = 1 + 2 as number\n// scale\n* 3;',
+    'export const v = a + b as/*c*/ number * c;',
+    'export const v = a + b as Extract<number, number> * 3;',
+    'export const v = a << b as number + c;',
+    'const t = a?.b! /*comment*/ `hi`;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'group.ts').backend, 'typescript', source);
+    assert.equal(compile(source, { file: 'group.ts', mode: 'strip' }).diagnostics[0]?.code, 'AMBIGUOUS_TYPE_ERASURE', source);
+  }
+  // Erasure that keeps the grouping is accepted: the words in a comment, an assertion in front of a comment,
+  // a subtraction, a plain tag.
+  for (const source of [
+    '// x as number - y\nexport const v = 1;',
+    'export const x = value as number /* comment */;',
+    'export const v = x as number\n-y;',
+    'export const v = a * b as number + c;',
+    'export const v = x as number // m/s\nfoo<string>();',
+    'export const t = tag!`hello`;',
+  ]) {
+    const stripped = compile(source, { file: 'group.ts', mode: 'strip' });
+    assert.notEqual(stripped.code, null, source);
+    assert.equal(sameAsTypeScript(source, 'group.ts').code !== null, true, source);
+  }
   assert.equal(compile('﻿#!/usr/bin/env node\nconsole.log(1);', { file: 'bin.ts', mode: 'strip' }).diagnostics[0].code, 'MISPLACED_HASHBANG');
 });
 
@@ -1517,4 +1542,9 @@ test('the interpreter line is written with a line feed', () => {
     }
   }
   assert.match(compile('#!/usr/bin/env node\r\nexport const a: number = 1;\r\n', { file: 'bin.ts', mode: 'strip' }).code, /^#!\/usr\/bin\/env node\r\n/);
+  for (const options of [{ file: 'bin.ts', module: 'esm' }, { file: 'bin.ts', sourceMap: true }, { file: 'bin.mjs' }]) {
+    for (const input of ['#!/usr/bin/env node\r\nexport const n = 1;', Buffer.from('#!/usr/bin/env node\r\nexport const n = 1;')]) {
+      assert.match(compile(input, options).code, /^#!\/usr\/bin\/env node\n/, JSON.stringify(options));
+    }
+  }
 });

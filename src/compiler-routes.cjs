@@ -66,12 +66,58 @@ function transformCompatibility(source, options) {
   return require('./compiler-compat.cjs').transform(source, options, verifyRuntimeExports, fail);
 }
 
-// `a + b as T * c` is `((a + b) as T) * c`. Node's erasure blanks the assertion and leaves `a + b * c`, which
-// groups differently. An assertion followed on its line, or at the start of the next, by an arithmetic or shift
-// operator is therefore not erased here; the reference compiler writes the parentheses.
-const regroupingAssertion = /\b(?:as|satisfies)\s[^;,)}\n]*?(?:\r?\n\s*)?(?:[*%+-]|\/(?![/*])|<<|>>)/;
+// Node's erasure blanks a type in place, so the erased text shows what now stands behind each blanked assertion.
+const lineBreak = /[\r\n\u2028\u2029]/;
+function afterTrivia(code, at) {
+  let newline = false;
+  for (;;) {
+    const unit = code.charCodeAt(at);
+    if (unit === 10 || unit === 13 || unit === 0x2028 || unit === 0x2029) { newline = true; at++; }
+    else if (unit === 32 || unit === 9 || unit === 11 || unit === 12 || unit === 0xa0 || unit === 0xfeff) at++;
+    else if (unit === 47 && code.charCodeAt(at + 1) === 47) {
+      while (at < code.length && !lineBreak.test(code[at])) at++;
+    } else if (unit === 47 && code.charCodeAt(at + 1) === 42) {
+      const end = code.indexOf('*/', at + 2);
+      if (end < 0) return { at: code.length, newline };
+      if (lineBreak.test(code.slice(at, end))) newline = true;
+      at = end + 2;
+    } else return { at, newline };
+  }
+}
+
+// `a + b as T * c` is `((a + b) as T) * c`. Blanking the assertion leaves `a + b * c`, which groups differently.
+// An erased assertion with an arithmetic or shift operator behind it is therefore not accepted; the reference
+// compiler writes the parentheses.
+function regroupingAssertion(source, code) {
+  const assertion = /\b(?:as|satisfies)\b/g;
+  for (let match; (match = assertion.exec(source)) !== null;) {
+    // Inside a string or a comment the word is still there.
+    if (code.charCodeAt(match.index) !== 32) continue;
+    const next = afterTrivia(code, match.index);
+    const unit = code.charCodeAt(next.at);
+    const following = code.charCodeAt(next.at + 1);
+    if (unit === 42 || unit === 37 || unit === 47) return true;
+    // A sum binds tighter than a shift only: `a << b as T + c` regroups, `a * b as T + c` and `x as T - y` do not.
+    // A doubled sign after a line break starts the next statement.
+    if ((unit === 43 || unit === 45) && !(following === unit && next.newline)) {
+      const start = Math.max(...[';', '=', '(', ',', '{'].map(mark => source.lastIndexOf(mark, match.index))) + 1;
+      const operand = source.slice(start, match.index);
+      if (operand.includes('<<') || operand.includes('>>')) return true;
+    }
+    if ((unit === 60 || unit === 62) && following === unit) return true;
+  }
+  return false;
+}
+
 // `a?.b!\`x\`` is `(a?.b)\`x\``; without the mark the template would tag an optional chain, which is an error.
-const markedTag = /[\w$)\]]!\s*`/;
+function markedOptionalTag(source, code) {
+  for (let at = source.indexOf('!'); at >= 0; at = source.indexOf('!', at + 1)) {
+    if (code.charCodeAt(at) !== 32 || code.charCodeAt(afterTrivia(code, at).at) !== 96) continue;
+    const start = Math.max(source.lastIndexOf('\n', at), source.lastIndexOf(';', at), source.lastIndexOf('=', at)) + 1;
+    if (source.slice(start, at).includes('?.')) return true;
+  }
+  return false;
+}
 
 // TypeScript writes the interpreter line with a line feed. A carriage return left on it becomes part of the
 // interpreter's name when the file is run directly.
@@ -92,19 +138,19 @@ function strip(source, file) {
         message: "'#!' can only be used at the start of a file", start: 1, end: 3,
       }]);
     }
-    if (source.includes('`') && markedTag.test(source)) {
+    const code = require('node:module').stripTypeScriptTypes(source);
+    if (source.includes('`') && source.includes('!') && markedOptionalTag(source, code)) {
       return fail('node-strip', [{
         file, code: 'AMBIGUOUS_TYPE_ERASURE', severity: 'error',
         message: 'Position-preserving erasure of a non-null mark would leave an optional chain as a template tag', start: 0, end: 0,
       }]);
     }
-    if ((/\sas\s/.test(source) || source.includes('satisfies')) && regroupingAssertion.test(source)) {
+    if ((source.includes('as') || source.includes('satisfies')) && regroupingAssertion(source, code)) {
       return fail('node-strip', [{
         file, code: 'AMBIGUOUS_TYPE_ERASURE', severity: 'error',
         message: 'Position-preserving erasure of an assertion would regroup the operators around it', start: 0, end: 0,
       }]);
     }
-    const code = require('node:module').stripTypeScriptTypes(source);
     if (hasSplitDeclare(source, code)) {
       return fail('node-strip', [{
         file, code: 'AMBIGUOUS_TYPE_ERASURE', severity: 'error',

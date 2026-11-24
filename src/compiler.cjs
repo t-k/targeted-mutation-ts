@@ -66,7 +66,10 @@ function compile(input, options) {
       // Spelled-out options are rarer. Their handling lives in a file that a default compile never loads.
       const result = require('./compiler-maps.cjs').compileExplicit(input, options, compile, sourceKind,
         () => pulse ??= nativeAddon('compiler-module.node'));
-      if (result !== undefined) return result;
+      if (result !== undefined) {
+        return options.mode !== 'strip' && typeof result.code === 'string' && result.code.charCodeAt(0) === 35 ?
+          require('./compiler-routes.cjs').unixHashbang(result) : result;
+      }
     }
   }
   if (defaults) {
@@ -80,7 +83,10 @@ function compile(input, options) {
           const emit = (v8 ??= nativeAddon('compiler-js.node')).emitJavaScript;
           if (emit !== undefined) code = emit(input, kind >> 1 & 1);
         }
-        if (code !== undefined) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
+        if (code !== undefined) {
+          const result = { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
+          return code.charCodeAt(0) === 35 ? require('./compiler-routes.cjs').unixHashbang(result) : result;
+        }
       }
     } else if (kind >= 0) {
       const source = Buffer.isBuffer(input) ? input :
