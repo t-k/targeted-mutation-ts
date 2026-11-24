@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { verdict } from './analysis.mjs';
@@ -82,12 +82,31 @@ export async function detectWeakenedTests(project, report, options = {}) {
   if (!survivors.length) return report;
 
   const safeWorkspaceTarget = (workspace, relFile) => {
-    const target = resolve(workspace, relFile);
-    const fromRoot = relative(workspace, target);
+    const realWorkspace = realpathSync(workspace);
+    const target = resolve(realWorkspace, relFile);
+    const fromRoot = relative(realWorkspace, target);
     if (!fromRoot || isAbsolute(fromRoot) || fromRoot === '..' || fromRoot.startsWith('..' + sep)) {
       throw new Error(`Path escapes the workspace: ${relFile}`);
     }
-    mkdirSync(dirname(target), { recursive: true });
+    // Walk every path segment to ensure no existing parent or target is a symlink escaping the workspace.
+    const parts = fromRoot.split(sep);
+    let cursor = realWorkspace;
+    for (let i = 0; i < parts.length; i++) {
+      cursor = resolve(cursor, parts[i]);
+      if (existsSync(cursor)) {
+        const st = lstatSync(cursor);
+        if (st.isSymbolicLink()) {
+          throw new Error(`Refusing to write through symbolic link in workspace: ${relFile}`);
+        }
+        const realCursor = realpathSync(cursor);
+        const relCheck = relative(realWorkspace, realCursor);
+        if (relCheck === '..' || relCheck.startsWith('..' + sep) || isAbsolute(relCheck)) {
+          throw new Error(`Path escapes the workspace: ${relFile}`);
+        }
+      } else if (i < parts.length - 1) {
+        mkdirSync(cursor);
+      }
+    }
     return target;
   };
 

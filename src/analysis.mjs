@@ -710,14 +710,18 @@ export function completeAnalysis({ root, report, options, attempt, baseline, tra
       if (options.audit && gap.suggestedTest) gap.verification = verifyVitestWitness(root, attempt, baseline, trial, gap);
       const duplicate = trial.adjustment === undefined && report.diagnostics.find(other => other.site === gap.site && other.kind === gap.kind &&
         (gap.kind === 'ASSERTION GAP' || gap.witness.operands.every((value, index) => value === other.witness.operands[index])));
+      const mutationEntry = {
+        rule: result.rule, edit: result.edit, replacement: result.replacement, evidence: result.evidence,
+        ...(result.original !== undefined ? { original: result.original } : {}),
+      };
       if (duplicate) {
         if (gap.tests) {
           const existing = new Set(duplicate.tests.map(identity));
           duplicate.tests.push(...gap.tests.filter(test => !existing.has(identity(test))));
         }
-        duplicate.mutations.push({ rule: result.rule, edit: result.edit, replacement: result.replacement, evidence: result.evidence });
+        duplicate.mutations.push(mutationEntry);
       } else {
-        report.diagnostics.push({ ...gap, mutations: [{ rule: result.rule, edit: result.edit, replacement: result.replacement, evidence: result.evidence }] });
+        report.diagnostics.push({ ...gap, mutations: [mutationEntry] });
       }
     }
   }

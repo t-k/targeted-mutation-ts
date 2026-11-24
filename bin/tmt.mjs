@@ -58,7 +58,7 @@ try {
   } else if (command === 'analyze') {
     const [project = '.', ...rawFiles] = positionals;
     const { gitignoredCopyExclusions, loadProjectConfig, mergeProjectConfig, validateAndExpandInputs } = await import('../src/project-config.mjs');
-    const loadedConfig = values['no-config'] ? null : await loadProjectConfig(project);
+    const loadedConfig = values['no-config'] ? null : await loadProjectConfig(project, { allowCodeConfig: !values.list });
     const merged = mergeProjectConfig(loadedConfig?.config, values, rawFiles);
     const runValues = merged.values;
     if (runValues.runner !== undefined && !['vitest', 'playwright'].includes(runValues.runner)) throw new Error('Expected --runner vitest|playwright');

@@ -97,6 +97,7 @@ export function listCandidates(project, files, options = {}) {
   }));
   const { mutants: prepared } = prepareBuiltinSwitches(targets, {
     dialect: options.dialect,
+    excludeRules: options['exclude-rule'],
     ...(profile === 'targeted' ? { keep: targetedOrBoundary, targeted: true } : {}),
   });
   for (const mutant of prepared) {

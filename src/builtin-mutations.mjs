@@ -257,9 +257,9 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
 
   function isSimplePath(node) {
     node = strip(node);
-    if (!node) return false;
-    if (ts.isIdentifier(node)) return true;
-    return ts.isPropertyAccessExpression(node) && !node.questionDotToken && isSimplePath(node.expression);
+    // Restrict to bare identifiers so property getters that may return different values on
+    // re-evaluation (e.g. `typeof o.value === "object" && o.value !== null`) are never skipped.
+    return Boolean(node && ts.isIdentifier(node));
   }
 
   function isTypeofObjectCheck(term, targetText) {

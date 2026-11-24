@@ -59,6 +59,7 @@ export function validateAndExpandInputs(project, files = [], options = {}) {
     if (hasGlobPattern(entry)) {
       const matched = expandProjectGlob(root, entry);
       if (!matched.length) throw new Error(`Source file pattern matched no files: ${entry}`);
+      for (const m of matched) inside(root, m);
       expandedFiles.push(...matched);
     } else {
       const candidate = resolve(root, entry);
@@ -77,6 +78,7 @@ export function validateAndExpandInputs(project, files = [], options = {}) {
       if (hasGlobPattern(entry)) {
         const matched = expandProjectGlob(root, entry);
         if (!matched.length) throw new Error(`Test file pattern matched no files: ${entry}`);
+        for (const m of matched) inside(root, m);
         expandedTests.push(...matched);
       } else {
         const candidate = resolve(root, entry);
@@ -129,7 +131,8 @@ export function gitignoredCopyExclusions(root) {
 
 // Load project defaults from `targeted-mutation.config.json`, `targeted-mutation.config.mjs`,
 // or `package.json`'s `targetedMutation` field.
-export async function loadProjectConfig(project) {
+// When `allowCodeConfig` is false (e.g. `--list`), only data-only JSON configs are loaded.
+export async function loadProjectConfig(project, { allowCodeConfig = true } = {}) {
   if (!existsSync(project)) return null;
   const root = realpathSync(project);
   const jsonPath = resolve(root, CONFIG_JSON);
@@ -141,7 +144,7 @@ export async function loadProjectConfig(project) {
     return { source: CONFIG_JSON, config: data };
   }
   const mjsPath = resolve(root, CONFIG_MJS);
-  if (existsSync(mjsPath)) {
+  if (allowCodeConfig && existsSync(mjsPath)) {
     const mod = await import(pathToFileURL(mjsPath).href);
     const data = mod.default;
     if (!data || typeof data !== 'object' || Array.isArray(data)) {

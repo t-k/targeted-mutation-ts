@@ -302,14 +302,32 @@ export function extractLoopCounterNonNegative(sourceText, siteOffset, lhsText, t
   }
 
   let found = false;
-  (function visit(node) {
+  (function visit(node, shadowed = false) {
     if (found) return;
     if (node.pos <= siteOffset && siteOffset <= node.end) {
       if (ts.isForStatement(node) && initNonNegative(node) && incrementorNonDecreasing(node) && !bodyMutatesName(node.statement)) {
-        found = true;
-        return;
+        // Verify no inner block/declaration shadows `name` around `siteOffset`.
+        let innerShadowed = false;
+        (function checkShadow(inner) {
+          if (innerShadowed || inner === node.initializer) return;
+          if (inner.pos <= siteOffset && siteOffset <= inner.end) {
+            if (ts.isVariableDeclaration(inner) && ts.isIdentifier(inner.name) && inner.name.text === name && inner.end <= siteOffset) {
+              innerShadowed = true;
+              return;
+            }
+            if (ts.isParameter(inner) && ts.isIdentifier(inner.name) && inner.name.text === name) {
+              innerShadowed = true;
+              return;
+            }
+            ts.forEachChild(inner, checkShadow);
+          }
+        })(node.statement);
+        if (!innerShadowed) {
+          found = true;
+          return;
+        }
       }
-      ts.forEachChild(node, visit);
+      ts.forEachChild(node, child => visit(child, shadowed));
     }
   })(sf);
 

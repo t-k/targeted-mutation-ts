@@ -56,6 +56,9 @@ export function computeCampaignContext(targets, options = {}, root = null) {
     deterministic: !!options.deterministic,
     displaceThresholds: !!options['displace-thresholds'],
     excludeRules: options['exclude-rule'] ?? null,
+    timeout: options.timeout ?? null,
+    copyExclude: options['copy-exclude'] ?? null,
+    isolatedTrials: !!options['isolated-trials'],
   }));
   return hash.digest('hex');
 }
