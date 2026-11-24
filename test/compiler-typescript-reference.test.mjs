@@ -1073,3 +1073,18 @@ test('review findings on the super walk, export assignments in JSX files and nam
   assert.notEqual(sameAsTypeScript(separated, 'space.ts').backend, 'pulse');
   assert.notEqual(compile(Buffer.from('export namespace N { export const a = 1; const é = 2; }'), { file: 'space.ts' }).backend, 'pulse');
 });
+
+test('looking for a module marker behind a decorator leaves the records of the file intact', () => {
+  const source = 'class Base {}\nclass Item extends Base {\n  constructor(public id: number) { log(id); super(); }\n}\n' +
+    'namespace Data { export const size = 1; }export type Id = number;\n' +
+    '@tag(`a${1}b${2}c${3}d${4}e${5}f${6}g${7}h`) export class Marked {}\nexport enum Mode { Default }\nexport { Item, Data };';
+  for (const options of [{ file: 'a.ts', module: 'esm' }, { file: 'a.ts', module: 'esm', sourceMap: true }, { file: 'a.ts' }]) {
+    const result = compile(Buffer.from(source), options);
+    assert.equal(typeof result.code, 'string');
+    assert.doesNotMatch(result.code, /\bnamespace\b/, JSON.stringify(options));
+    assert.match(result.code, /this\.id = id/, JSON.stringify(options));
+  }
+  const mapped = compile(Buffer.from('export namespace Data { export const size = 1; }'), { file: 'a.ts', sourceMap: true });
+  assert.equal(mapped.backend, 'pulse');
+  assert.equal(mapped.sourceMap.mappings.length > 0, true);
+});

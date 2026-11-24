@@ -1308,6 +1308,8 @@ static TmtPulseMemory_tape with_workspace(uint8_t *source, uint32_t size, module
 
 /* An import or an export at this item, also an exported class behind decorators. */
 static bool module_marker_at(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
+  /* A decorated class is found by parsing. That parse must not write into records a caller is still reading. */
+  input.count_only = true;
   if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
   const TmtPulseParser_cursor head = TmtPulseParser_trivia(input, at);
   return head.ok && head.at < input.size && input.source[head.at] == '@' && TmtPulseCompiler_decorated_module_marker(input, jsx, at);
@@ -2148,8 +2150,9 @@ static uint32_t word_count(TmtPulseMemory_tape input, uint32_t first, uint32_t l
   return count;
 }
 
+/* A name is copied from the source, so a source map can lead back to it. */
 static void put_name(lowering *lower, TmtGrammar_span name) {
-  write_bytes(&lower->output, lower->input.source + name.first, name.last - name.first);
+  source_bytes(lower, name.first, name.last);
 }
 
 static bool skip_word(TmtPulseMemory_tape input, uint32_t *at, const char *word) {
@@ -2416,6 +2419,8 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   input.capture_types = true;
   input.count_only = false;
   const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(input, false, module);
+  /* From here on the records are read. Every later call into the parser counts without writing. */
+  input.count_only = true;
   char *code = NULL;
   if (parsed.status == 0 && parsed.count <= input.capacity) {
     *checked = module;
