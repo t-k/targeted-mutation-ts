@@ -6,12 +6,19 @@ describe('enclosing-site duplicate suppression', () => {
   const inner = {
     kind: 'INPUT GAP',
     location: { file: 'src/a.ts', line: 5, column: 10, start: 50, end: 55 },
-    rule: 'comparison-boundary/v1',
+    rule: 'equality-constant/v1',
   };
   const outerLogical = {
     kind: 'INPUT GAP',
     location: { file: 'src/a.ts', line: 5, column: 10, start: 50, end: 65 },
     rule: 'ignored-operand/v1',
+    mutations: [{ rule: 'ignored-operand/v1', replacement: '(a === 1, b)' }],
+  };
+  const outerRightDrop = {
+    kind: 'INPUT GAP',
+    location: { file: 'src/a.ts', line: 5, column: 10, start: 50, end: 65 },
+    rule: 'ignored-operand/v1',
+    mutations: [{ rule: 'ignored-operand/v1', replacement: '(a === 1 && (b, true))' }],
   };
   const sameSpan = {
     kind: 'INPUT GAP',
@@ -24,9 +31,9 @@ describe('enclosing-site duplicate suppression', () => {
     rule: 'ignored-operand/v1',
   };
 
-  it('suppresses strictly enclosing logical INPUT GAP over inner INPUT GAP', () => {
-    const out = suppressEnclosingDiagnostics([inner, outerLogical]);
-    assert.deepEqual(out, [inner]);
+  it('suppresses strictly enclosing left-drop ignored-operand INPUT GAP over inner constant INPUT GAP while keeping right-drop', () => {
+    const out = suppressEnclosingDiagnostics([inner, outerLogical, outerRightDrop]);
+    assert.deepEqual(out, [inner, outerRightDrop]);
   });
 
   it('preserves same-span diagnostics and outer ASSERTION GAP diagnostics', () => {

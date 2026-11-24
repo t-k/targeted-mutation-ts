@@ -53,6 +53,7 @@ export async function analyzeConventional(project, files, options) {
   const { sources, mutants: prepared } = prepareBuiltinSwitches(targets, {
     dialect: options.dialect,
     shifts: awaitsExtras,
+    excludeRules: options['exclude-rule'],
     ...(profile === 'targeted' ? { keep: targetedOrBoundary, targeted: true } : {}),
   });
   const report = {
@@ -80,13 +81,19 @@ export async function analyzeConventional(project, files, options) {
   const runnable = prepared.filter(mutant => mutant.status === undefined && inShard(mutant) && !cachedById.has(mutant.id));
   if (!mutants.length) return report;
   if (!runnable.length) {
+    const cachedDiagnostics = [];
+    const mapped = mutants.map(({ targeted: _rule, ...mutant }) => {
+      const cached = cachedById.get(mutant.id);
+      if (cached?.diagnostic) cachedDiagnostics.push(cached.diagnostic);
+      if (!cached) return mutant;
+      const { diagnostic: _diag, ...outcome } = cached;
+      return { ...mutant, ...outcome, evidence: outcome.evidence ?? 'checkpoint' };
+    });
     return {
       ...report,
       evaluation: 'evaluated',
-      mutants: mutants.map(({ targeted: _rule, ...mutant }) => {
-        const cached = cachedById.get(mutant.id);
-        return cached ? { ...mutant, ...cached, evidence: cached.evidence ?? 'checkpoint' } : mutant;
-      }),
+      mutants: mapped,
+      diagnostics: cachedDiagnostics,
     };
   }
 
@@ -183,22 +190,31 @@ export async function analyzeConventional(project, files, options) {
     };
     const judged = mutants.map(mutant => {
       const cached = cachedById.get(mutant.id);
-      if (cached) return { ...mutant, ...cached, evidence: cached.evidence ?? 'checkpoint' };
+      if (cached) {
+        const { diagnostic: _diag, ...outcome } = cached;
+        return { ...mutant, ...outcome, evidence: outcome.evidence ?? 'checkpoint', _cachedDiagnostic: cached.diagnostic };
+      }
       const result = results.get(mutant.id);
       // An edit the session left out was not run.
       if (result?.status === 'ignored') return { ...mutant, ...result };
       if (result) {
-        const entry = { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
-        if (ckpt) ckpt.record(checkpointKeyForTrial(mutant), entry);
-        return entry;
+        return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
       }
       return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Mutation session ended early' };
     });
+    const diagnostics = [];
+    for (const mutant of judged) {
+      const gap = mutant._cachedDiagnostic ?? withEffects(targetedGap(mutant, observed[mutant.id]), mutant);
+      if (gap) diagnostics.push(gap);
+      if (ckpt && !cachedById.has(mutant.id) && results.has(mutant.id)) {
+        ckpt.record(checkpointKeyForTrial(mutant), mutant, gap ?? undefined);
+      }
+    }
     return {
       ...report, baseline, evaluation: completed ? 'evaluated' : 'incomplete', trials: events.find(event => event.trials)?.trials,
       ...(awaitsExtras ? { extras: events.filter(event => event.extra !== undefined) } : {}),
-      mutants: judged.map(({ targeted: _rule, effects: _effects, ...mutant }) => mutant),
-      diagnostics: judged.flatMap(mutant => withEffects(targetedGap(mutant, observed[mutant.id]), mutant) ?? []),
+      mutants: judged.map(({ targeted: _rule, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),
+      diagnostics,
     };
   }, { exclude: options['copy-exclude'] });
 }

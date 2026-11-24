@@ -73,7 +73,7 @@ async function besideSession(project, files, options, run, profile, stopsSession
     mutators: profile, lines: options.lines, since: options.since, config: options.config, test: options.test,
     'copy-exclude': options['copy-exclude'], dialect: options.dialect, 'isolated-trials': options['isolated-trials'],
     concurrency: options.concurrency, 'verify-trials': options['verify-trials'], timeout: options.timeout, signal: stop.signal, extras,
-    shardKeys: options.shardKeys, checkpointStore: options.checkpointStore,
+    shardKeys: options.shardKeys, checkpointStore: options.checkpointStore, 'exclude-rule': options['exclude-rule'],
   }).then(report => ({ report }), error => ({ error }));
   let prepared;
   try {
@@ -108,7 +108,7 @@ export async function analyzeOperators(project, files, options, run = { analyze,
     const targets = selectScope(root, files, options).map(subject => ({
       ...subject, input: readFileSync(inside(root, subject.file)),
     }));
-    const context = computeCampaignContext(targets, { ...options, mutators: profile });
+    const context = computeCampaignContext(targets, { ...options, mutators: profile }, root);
     checkpointStore = openCheckpoint(options.checkpoint, context, { mutators: profile });
   }
   const runOptions = {

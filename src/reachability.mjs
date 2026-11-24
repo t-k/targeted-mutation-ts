@@ -68,13 +68,6 @@ export function extractReachability(lhsText, ts = loadTypeScript()) {
     if (op === ts.SyntaxKind.LessThanLessThanToken && rightLit !== undefined && rightLit >= 1 && rightLit <= 30) {
       return { kind: 'step', step: 1 << rightLit };
     }
-
-    if (op === ts.SyntaxKind.AsteriskToken) {
-      const factor = rightLit !== undefined ? rightLit : leftLit;
-      if (factor !== undefined && Math.abs(factor) >= 2 && Number.isSafeInteger(Math.abs(factor))) {
-        return { kind: 'step', step: Math.abs(factor) };
-      }
-    }
   }
 
   return null;
@@ -248,4 +241,77 @@ export function isBoundaryReachable(constraint, threshold, observations = []) {
   if (!constraint) return true;
   if (observations.length > 0 && observations.some(v => !isReachable(v, constraint))) return true;
   return isReachable(threshold, constraint);
+}
+
+// Check if `lhsText` is a simple identifier initialized to >= 0 and monotonically incremented
+// in an enclosing `for (let i = 0; ...; i++)` statement without downward mutation in the loop body.
+export function extractLoopCounterNonNegative(sourceText, siteOffset, lhsText, ts = loadTypeScript()) {
+  if (typeof lhsText !== 'string' || !/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(lhsText.trim())) return null;
+  const name = lhsText.trim();
+  const sf = ts.createSourceFile('loop.ts', sourceText, ts.ScriptTarget.Latest, true);
+  if (sf.parseDiagnostics.length) return null;
+
+  function initNonNegative(forNode) {
+    const init = forNode.initializer;
+    if (!init || !ts.isVariableDeclarationList(init)) return false;
+    for (const decl of init.declarations) {
+      if (ts.isIdentifier(decl.name) && decl.name.text === name && decl.initializer) {
+        const val = intLiteral(decl.initializer, ts);
+        if (val !== undefined && val >= 0) return true;
+      }
+    }
+    return false;
+  }
+
+  function incrementorNonDecreasing(forNode) {
+    const inc = stripParens(forNode.incrementor, ts);
+    if (!inc) return false;
+    if ((ts.isPostfixUnaryExpression(inc) || ts.isPrefixUnaryExpression(inc)) &&
+        inc.operator === ts.SyntaxKind.PlusPlusToken &&
+        ts.isIdentifier(inc.operand) && inc.operand.text === name) {
+      return true;
+    }
+    if (ts.isBinaryExpression(inc) && inc.operatorToken.kind === ts.SyntaxKind.PlusEqualsToken &&
+        ts.isIdentifier(inc.left) && inc.left.text === name) {
+      const step = intLiteral(inc.right, ts);
+      return step !== undefined && step >= 0;
+    }
+    return false;
+  }
+
+  function bodyMutatesName(body) {
+    let mutated = false;
+    (function walk(node) {
+      if (mutated) return;
+      if (ts.isBinaryExpression(node) &&
+          node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+          node.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+          ts.isIdentifier(stripParens(node.left, ts)) && stripParens(node.left, ts).text === name) {
+        mutated = true;
+        return;
+      }
+      if ((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) &&
+          (node.operator === ts.SyntaxKind.PlusPlusToken || node.operator === ts.SyntaxKind.MinusMinusToken) &&
+          ts.isIdentifier(stripParens(node.operand, ts)) && stripParens(node.operand, ts).text === name) {
+        mutated = true;
+        return;
+      }
+      ts.forEachChild(node, walk);
+    })(body);
+    return mutated;
+  }
+
+  let found = false;
+  (function visit(node) {
+    if (found) return;
+    if (node.pos <= siteOffset && siteOffset <= node.end) {
+      if (ts.isForStatement(node) && initNonNegative(node) && incrementorNonDecreasing(node) && !bodyMutatesName(node.statement)) {
+        found = true;
+        return;
+      }
+      ts.forEachChild(node, visit);
+    }
+  })(sf);
+
+  return found ? { kind: 'nonNegative', min: 0 } : null;
 }

@@ -13,6 +13,10 @@ Scope (analyze):
   --undo-changes                With --since: also put each change back as it was at REV and run the suite.
                                 A change the tests pass without is reported as UNTESTED CHANGE.
   --copy-exclude PATH           Leave a project path out of the temporary copies. Repeatable.
+  --copy-exclude-gitignore      Also exclude gitignored paths (except node_modules) from temporary copies.
+  --exclude-rule RULE           Exclude a mutation rule (e.g. nullish-equality/v1). Repeatable.
+  --no-config                   Ignore targeted-mutation.config.{json,mjs} and package.json#targetedMutation.
+  --progress                    Print lightweight progress updates to stderr.
 
 Profiles (analyze):
   --mutators targeted|full      targeted (default) edits comparison boundaries and integer thresholds
@@ -79,6 +83,17 @@ function describeEdit(mutant) {
 }
 
 function describeBaseline(baseline = {}) {
+  if (baseline.status === 'timeout') {
+    const limit = baseline.timeoutSeconds !== undefined ? ` after ${baseline.timeoutSeconds}s` : '';
+    const lines = [
+      `The baseline test suite timed out${limit} before any edit.`,
+      '  Try increasing the limit with --timeout <seconds> or narrowing the suite with --test <file|glob>.',
+    ];
+    if (baseline.output?.trim()) {
+      lines.push(...printable(baseline.output).trim().split('\n').slice(-10).map(line => `  ${line}`));
+    }
+    return lines;
+  }
   const lines = [`The test suite did not pass before any edit (baseline ${baseline.status ?? 'unknown'}). Fix it and run again.`];
   for (const failed of baseline.failedTests ?? []) {
     lines.push(`  FAILED ${printable(failed.file)} > ${printable(failed.name)}`);

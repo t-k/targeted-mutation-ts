@@ -68,6 +68,7 @@ npx targeted-mutation analyze --format sarif       # emit SARIF 2.1.0 for GitHub
 npx targeted-mutation analyze --write-baseline tmt-baseline.json  # save stable finding IDs
 npx targeted-mutation analyze --baseline tmt-baseline.json        # suppress already-recorded findings
 npx targeted-mutation analyze --checkpoint .tmt-checkpoint.jsonl  # resume interrupted runs safely
+npx targeted-mutation analyze --exclude-rule nullish-equality/v1 --copy-exclude-gitignore --test 'src/lib/**/*.test.ts'
 ```
 
 `tmts` is a short alias for the same command. `targeted-mutation --help` lists every option.

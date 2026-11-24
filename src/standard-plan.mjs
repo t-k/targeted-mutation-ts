@@ -136,7 +136,12 @@ export function assessTrial(trial, expectedTests, hitLimit) {
   if (hitCount > hitLimit || failed.some(test => test.timeout)) {
     return { status: 'timeout', statusReason: hitCount > hitLimit ? 'Mutation hit limit reached' : 'Vitest test timeout' };
   }
-  if (errors.length) return { status: 'error', statusReason: errors.join('\n') };
+  if (errors.length) {
+    if (hitCount > 0) {
+      return { status: 'killed', killedBy: 'unhandled-error', statusReason: errors.join('\n') };
+    }
+    return { status: 'error', statusReason: errors.join('\n') };
+  }
   if (hitCount > 0 && ['failed', 'interrupted'].includes(reason) && failed.length &&
       failed.every(test => expectedTests.has(test.id)) && [...expectedTests].every(([id, test]) =>
         registered.has(id) || reason === 'interrupted' && !collectedModules.has(moduleKey(test)))) {

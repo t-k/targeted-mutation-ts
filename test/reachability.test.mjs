@@ -12,12 +12,12 @@ import {
 import { thresholdGap } from '../src/threshold.mjs';
 
 describe('impossible-value filtering (reachability)', () => {
-  it('extracts constraints for %, &, <<, *, and .length', () => {
+  it('extracts constraints for %, &, <<, and .length', () => {
     assert.deepEqual(extractReachability('n % 10'), { kind: 'remainder', divisor: 10, min: -9, max: 9 });
     assert.deepEqual(extractReachability('arr.length % 10'), { kind: 'remainder', divisor: 10, min: 0, max: 9 });
     assert.deepEqual(extractReachability('flags & 0xF0'), { kind: 'bitmask', mask: 0xf0 });
     assert.deepEqual(extractReachability('blocks << 3'), { kind: 'step', step: 8 });
-    assert.deepEqual(extractReachability('blocks * 8'), { kind: 'step', step: 8 });
+    assert.equal(extractReachability('blocks * 8'), null);
     assert.deepEqual(extractReachability('arr.length'), { kind: 'nonNegative', min: 0 });
     assert.equal(extractReachability('age'), null);
   });
@@ -29,8 +29,8 @@ describe('impossible-value filtering (reachability)', () => {
     const remGap = thresholdGap(10, [0, 9], Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, '<');
     assert.equal(filterReachableThresholdGap(remGap, rem, 10, '<', [0, 9]), null);
 
-    // blocks * 8 >= 12 with observations 8 and 16: 9..15 are not multiples of 8
-    const mul = extractReachability('blocks * 8');
+    // blocks << 3 >= 12 with observations 8 and 16: 9..15 are not multiples of 8
+    const mul = extractReachability('blocks << 3');
     const mulGap = thresholdGap(12, [8, 16], Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, '>=');
     assert.ok(mulGap !== null);
     assert.equal(filterReachableThresholdGap(mulGap, mul, 12, '>=', [8, 16]), null);
@@ -49,8 +49,8 @@ describe('impossible-value filtering (reachability)', () => {
   });
 
   it('preserves reachable gaps and picks a reachable witness', () => {
-    // blocks * 8 >= 16 with observations 8 and 24 -> witness 16 is reachable!
-    const mul = extractReachability('blocks * 8');
+    // blocks << 3 >= 16 with observations 8 and 24 -> witness 16 is reachable!
+    const mul = extractReachability('blocks << 3');
     const gap = thresholdGap(16, [8, 24], Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, '>=');
     const filtered = filterReachableThresholdGap(gap, mul, 16, '>=', [8, 24]);
     assert.ok(filtered !== null);

@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
-import { sep } from 'node:path';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { verdict } from './analysis.mjs';
 import { inParallel } from './in-parallel.mjs';
 import { rewrite } from './probe.mjs';
-import { inside, runVitestAsync, withCopy } from './vitest.mjs';
+import { copyPathIsExcluded, inside, resolveCopyExclusions, runVitestAsync, withCopy } from './vitest.mjs';
 
 const TEST_FILE_RE = /\.(?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/;
 const MAX_WEAKENED_TRIALS = 32;
@@ -73,15 +73,27 @@ export async function detectWeakenedTests(project, report, options = {}) {
     return report;
   }
   const root = realpathSync(project);
-  const { revision, files: oldTests } = changedTestFiles(root, options.since);
+  const { revision, files: rawOldTests } = changedTestFiles(root, options.since);
+  const exclusions = resolveCopyExclusions(root, options['copy-exclude'] ?? []);
+  const oldTests = rawOldTests.filter(entry => !copyPathIsExcluded(root, resolve(root, entry.file), exclusions));
   if (!revision || !oldTests.length) return report;
 
   const survivors = (report.mutants ?? []).filter(isReplayableSurvivor).slice(0, MAX_WEAKENED_TRIALS);
   if (!survivors.length) return report;
 
+  const safeWorkspaceTarget = (workspace, relFile) => {
+    const target = resolve(workspace, relFile);
+    const fromRoot = relative(workspace, target);
+    if (!fromRoot || isAbsolute(fromRoot) || fromRoot === '..' || fromRoot.startsWith('..' + sep)) {
+      throw new Error(`Path escapes the workspace: ${relFile}`);
+    }
+    mkdirSync(dirname(target), { recursive: true });
+    return target;
+  };
+
   const runWithOldTests = mutant => withCopy(root, async (workspace, temp) => {
     for (const entry of oldTests) {
-      writeFileSync(inside(workspace, entry.file), entry.oldContent);
+      writeFileSync(safeWorkspaceTarget(workspace, entry.file), entry.oldContent);
     }
     if (mutant) {
       const targetPath = inside(workspace, mutant.location.file);
@@ -128,12 +140,10 @@ export async function detectWeakenedTests(project, report, options = {}) {
   });
 
   const diagnostics = (report.diagnostics ?? []).map(diag => {
-    const bySite = diag.site ? weakenedBySite.get(diag.site) : undefined;
     const byMutation = (diag.mutations ?? [])
       .map(m => weakenedByKey.get(`${diag.location?.file ?? ''}:${m.edit?.[0]}:${m.edit?.[1]}:${m.replacement ?? ''}`))
       .find(Boolean);
-    const info = bySite ?? byMutation;
-    return info ? { ...diag, weakened: info } : diag;
+    return byMutation ? { ...diag, weakened: byMutation } : diag;
   });
 
   return {

@@ -24,39 +24,47 @@ function lineOfOffset(starts, offset) {
   return low;
 }
 
-// Parse `// tmt:ignore [reason]` and `/* tmt:ignore [reason] */` comments using the TS scanner
-// so occurrences inside strings, templates, or regex literals are never mistaken for directives.
-// Returns a Map<0-based-line-index, string-reason>.
-export function tmtIgnoreLines(text, ts = loadTypeScript()) {
+// Parse `// tmt:ignore [reason]` and `/* tmt:ignore [reason] */` comments using the TypeScript AST
+// so occurrences inside template literals, strings, or after regex literals are handled accurately.
+export function tmtIgnoreLines(text, ts = loadTypeScript(), file = 'source.tsx') {
   const ignored = new Map();
-  if (!text.includes('tmt:ignore') && !text.includes('TMT:IGNORE') && !/tmt:ignore/i.test(text)) {
-    return ignored;
-  }
+  if (!/tmt:ignore/i.test(text)) return ignored;
+
   const starts = computeLineStarts(text);
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, false, ts.LanguageVariant.JSX, text);
-  let token = scanner.scan();
-  while (token !== ts.SyntaxKind.EndOfFileToken) {
-    if (token === ts.SyntaxKind.SingleLineCommentTrivia || token === ts.SyntaxKind.MultiLineCommentTrivia) {
-      const start = scanner.getTokenPos();
-      const end = scanner.getTextPos();
-      const raw = token === ts.SyntaxKind.SingleLineCommentTrivia
-        ? text.slice(start + 2, end)
-        : text.slice(start + 2, end - 2);
-      const match = TMT_IGNORE_RE.exec(raw.trim());
-      if (match) {
-        const reason = (match[1] ?? '').trim() || 'Ignored using tmt:ignore';
-        const startLine = lineOfOffset(starts, start);
-        const endLine = lineOfOffset(starts, Math.max(start, end - 1));
-        const linePrefix = text.slice(starts[startLine], start);
-        const nextLineStart = endLine + 1 < starts.length ? starts[endLine + 1] : text.length;
-        const lineSuffix = text.slice(end, nextLineStart).replace(/\r?\n$/, '');
-        const standalone = linePrefix.trim().length === 0 && lineSuffix.trim().length === 0;
-        const targetLine = standalone ? endLine + 1 : endLine;
-        ignored.set(targetLine, reason);
-      }
-    }
-    token = scanner.scan();
-  }
+  const sf = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const seenRanges = new Set();
+
+  const handleRange = range => {
+    const key = `${range.pos}:${range.end}`;
+    if (seenRanges.has(key)) return;
+    seenRanges.add(key);
+    const raw = range.kind === ts.SyntaxKind.SingleLineCommentTrivia
+      ? text.slice(range.pos + 2, range.end)
+      : text.slice(range.pos + 2, range.end - 2);
+    const match = TMT_IGNORE_RE.exec(raw.trim());
+    if (!match) return;
+    const reason = (match[1] ?? '').trim() || 'Ignored using tmt:ignore';
+    const startLine = lineOfOffset(starts, range.pos);
+    const endLine = lineOfOffset(starts, Math.max(range.pos, range.end - 1));
+    const linePrefix = text.slice(starts[startLine], range.pos);
+    const nextLineStart = endLine + 1 < starts.length ? starts[endLine + 1] : text.length;
+    const lineSuffix = text.slice(range.end, nextLineStart).replace(/\r?\n$/, '');
+    const standalone = linePrefix.trim().length === 0 && lineSuffix.trim().length === 0;
+    const targetLine = standalone ? endLine + 1 : endLine;
+    ignored.set(targetLine, reason);
+  };
+
+  const inspectPosition = pos => {
+    for (const range of ts.getLeadingCommentRanges(text, pos) ?? []) handleRange(range);
+    for (const range of ts.getTrailingCommentRanges(text, pos) ?? []) handleRange(range);
+  };
+
+  (function walk(node) {
+    inspectPosition(node.pos);
+    inspectPosition(node.end);
+    ts.forEachChild(node, walk);
+  })(sf);
+
   return ignored;
 }
 
@@ -65,7 +73,11 @@ function normalizePosixPath(file) {
 }
 
 function normalizeCodeSnippet(diagnostic) {
-  const raw = diagnostic.expression ?? diagnostic.mutations?.[0]?.original ?? diagnostic.rule ?? '';
+  const raw = diagnostic.expression ??
+    diagnostic.mutations?.[0]?.original ??
+    (diagnostic.mutations?.length
+      ? diagnostic.mutations.map(m => `${m.rule ?? ''}:${m.replacement ?? ''}`).join('|')
+      : diagnostic.rule ?? '');
   return String(raw).replace(/\s+/g, ' ').trim();
 }
 
@@ -83,11 +95,14 @@ export function findingId(diagnostic, occurrence = 0) {
   return `tmt-${createHash('sha256').update(payload).digest('hex').slice(0, 16)}`;
 }
 
-// Assign deterministic stable IDs to diagnostics, disambiguating identical (kind, file, rule, code)
-// entries by their occurrence index in document order.
+// Assign deterministic stable IDs to diagnostics, preserving any pre-assigned findingId
+// (so SARIF/JSONL output after baseline filtering never re-numbers remaining findings).
 export function annotateFindingIds(diagnostics) {
   const counts = new Map();
   return (diagnostics ?? []).map(diagnostic => {
+    if (typeof diagnostic?.findingId === 'string' && diagnostic.findingId.length > 0) {
+      return diagnostic;
+    }
     const base = findingKeyBase(diagnostic);
     const occurrence = counts.get(base) ?? 0;
     counts.set(base, occurrence + 1);

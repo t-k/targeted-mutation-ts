@@ -409,7 +409,7 @@ function ${see}(i, l, r, r2) {
         } else if (!isProxy || !isProxy(l)) {
           try {
             var proto = scope.Object.getPrototypeOf(l);
-            if (proto === scope.Object.prototype || proto === null) entry.realCopy = true; else entry.nonPlain = true;
+            if (proto === scope.Object.prototype) entry.realCopy = true; else entry.nonPlain = true;
           } catch (error) { /* leave unclassified */ }
         }
       }

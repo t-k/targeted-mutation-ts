@@ -40,7 +40,8 @@ const endSwaps = new Map([['find', 'findLast'], ['findLast', 'find'], ['findInde
   ['indexOf', 'lastIndexOf'], ['lastIndexOf', 'indexOf']]);
 const ignoredValue = { '&&': 'true', '||': 'false', '??': 'undefined' };
 
-export function collectMutations(text, file, { dialect, selected = () => true, shifts = false, targeted = false, ts = loadTypeScript() } = {}) {
+export function collectMutations(text, file, { dialect, selected = () => true, shifts = false, targeted = false, excludeRules = [], ts = loadTypeScript() } = {}) {
+  const excludedRuleSet = new Set((excludeRules ?? []).map(r => String(r).trim()).filter(Boolean));
   const kind = dialect === 'tsx' ? ts.ScriptKind.TSX : dialect === 'ts' ? ts.ScriptKind.TS : undefined;
   const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind);
   const K = ts.SyntaxKind;
@@ -146,6 +147,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
   // Code that a probe does not evaluate again (the index in `list[list.length - 1]`) holds no edit of its own.
   const unprobed = [];
   function add(name, node, replacement, placement, extra, from) {
+    if (excludedRuleSet.has(name)) return;
     const start = begin(node);
     if (extra?.targeted && unprobed.some(([from, to]) => from <= start && node.end <= to)) return;
     for (let line = lineOf(start); line <= lineOf(node.end); line++) if (!selected(line + 1)) return;
@@ -253,6 +255,52 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     return inner.kind === K.NullKeyword ? 'null' : ts.isIdentifier(inner) && inner.text === 'undefined' ? 'undefined' : undefined;
   };
 
+  function isSimplePath(node) {
+    node = strip(node);
+    if (!node) return false;
+    if (ts.isIdentifier(node)) return true;
+    return ts.isPropertyAccessExpression(node) && !node.questionDotToken && isSimplePath(node.expression);
+  }
+
+  function isTypeofObjectCheck(term, targetText) {
+    term = strip(term);
+    if (!ts.isBinaryExpression(term)) return false;
+    const op = operatorOf(term);
+    if (op !== '===' && op !== '==') return false;
+    const check = (typeNode, strNode) => {
+      typeNode = strip(typeNode);
+      strNode = strip(strNode);
+      return ts.isTypeOfExpression(typeNode) &&
+        ts.isStringLiteralLike(strNode) && strNode.text === 'object' &&
+        source(strip(typeNode.expression)) === targetText;
+    };
+    return check(term.left, term.right) || check(term.right, term.left);
+  }
+
+  function isGuardedTypeofObject(node, subjectNode) {
+    if (!isSimplePath(subjectNode)) return false;
+    const targetText = source(subjectNode);
+    let current = node;
+    let [parent] = up(current);
+    while (parent && isLogical(parent) && operatorOf(parent) === '&&') {
+      current = parent;
+      [parent] = up(current);
+    }
+    if (current === node) return false;
+    let guarded = false;
+    (function scanAnd(expr) {
+      if (guarded) return;
+      expr = strip(expr);
+      if (isLogical(expr) && operatorOf(expr) === '&&') {
+        scanAnd(expr.left);
+        scanAnd(expr.right);
+      } else if (expr !== node && isTypeofObjectCheck(expr, targetText)) {
+        guarded = true;
+      }
+    })(current);
+    return guarded;
+  }
+
   // An edit of one expression that a probe can stand for. `operands` are the parts the probe evaluates, in order.
   function probed(node, operator, operands, shared = {}) {
     // The probe stands where the expression stands, inside its own parentheses: what encloses them (a template
@@ -290,7 +338,11 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       if ((written[0] === undefined) === (written[1] === undefined)) return;
       const literalSide = written[0] === undefined ? 1 : 0;
       const other = written[literalSide] === 'null' ? 'undefined' : 'null';
+      const subjectNode = strip(literalSide ? node.left : node.right);
       const subject = literalSide ? left : right;
+      // In `typeof x === "object" && x !== null` (or reversed), `x` cannot be `undefined`, so
+      // relaxing `!== null` / `=== null` to loose equality is an unreachable equivalent mutant.
+      if (written[literalSide] === 'null' && isGuardedTypeofObject(node, subjectNode)) return;
       if (operator.length === 3) {
         edit(targetedRules.nullish, 'loose', swapToken(node, token, operator.slice(0, 2)), { literalSide, differsFor: other, subject });
       } else {

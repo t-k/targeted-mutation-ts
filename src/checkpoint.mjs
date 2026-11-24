@@ -1,18 +1,48 @@
 import { createHash } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, truncateSync, writeFileSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, truncateSync, writeFileSync } from 'node:fs';
+import { dirname, relative, resolve, sep } from 'node:path';
 
 const CHECKPOINT_VERSION = 1;
 const REUSABLE_STATUSES = new Set(['killed', 'survived', 'timeout', 'unreached']);
+const CONTEXT_SKIP_DIRS = new Set(['.git', '.worktree', '.worktrees', 'node_modules', 'dist', 'build', 'coverage', 'docs.local', '.stryker-tmp']);
+const CONTEXT_FILE_RE = /(?:\.(?:[cm]?[jt]s|[jt]sx|json)|^(?:package\.json|tsconfig(?:\.[^.]+)?\.json|(?:vite|vitest|playwright)(?:\.[^.]+)*\.config\.[cm]?[jt]s))$/;
 
-export function computeCampaignContext(targets, options = {}) {
+function collectProjectContextFiles(root, dir = root, out = []) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (CONTEXT_SKIP_DIRS.has(entry.name) || entry.name.startsWith('.tmt-')) continue;
+    const full = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectProjectContextFiles(root, full, out);
+    } else if (entry.isFile() && CONTEXT_FILE_RE.test(entry.name)) {
+      const size = statSync(full, { throwIfNoEntry: false })?.size ?? 0;
+      if (size <= 2 * 1024 * 1024) {
+        out.push(relative(root, full));
+      }
+    }
+  }
+  return out;
+}
+
+// Hash all relevant source, test, and config files plus execution options so any edit to tests,
+// dependencies, or runner configs invalidates cached checkpoint outcomes.
+export function computeCampaignContext(targets, options = {}, root = null) {
   const hash = createHash('sha256');
-  const sortedTargets = [...targets].sort((a, b) => a.file.localeCompare(b.file));
-  for (const target of sortedTargets) {
-    hash.update(target.file);
-    hash.update('\0');
-    hash.update(target.input);
-    hash.update('\0');
+  if (root && existsSync(root)) {
+    const projectFiles = collectProjectContextFiles(root).sort();
+    for (const rel of projectFiles) {
+      hash.update(rel.replaceAll(sep, '/'));
+      hash.update('\0');
+      hash.update(readFileSync(resolve(root, rel)));
+      hash.update('\0');
+    }
+  } else {
+    const sortedTargets = [...targets].sort((a, b) => a.file.localeCompare(b.file));
+    for (const target of sortedTargets) {
+      hash.update(target.file);
+      hash.update('\0');
+      hash.update(target.input);
+      hash.update('\0');
+    }
   }
   hash.update(JSON.stringify({
     mutators: options.mutators ?? 'targeted',
@@ -25,6 +55,7 @@ export function computeCampaignContext(targets, options = {}) {
     sharding: options.sharding ?? 'slice',
     deterministic: !!options.deterministic,
     displaceThresholds: !!options['displace-thresholds'],
+    excludeRules: options['exclude-rule'] ?? null,
   }));
   return hash.digest('hex');
 }
@@ -46,48 +77,55 @@ export function openCheckpoint(path, context, metadata = {}) {
 
   if (existsSync(path)) {
     const raw = readFileSync(path, 'utf8');
-    const lines = raw.split('\n');
-    let validByteLength = 0;
-    let sawFormat = false;
-    let logContext = null;
-    let truncated = false;
-    const candidateOutcomes = new Map();
+    if (raw.length > 0) {
+      const lines = raw.split('\n');
+      let validByteLength = 0;
+      let sawFormat = false;
+      let logContext = null;
+      let truncated = false;
+      let missingTrailingNewline = !raw.endsWith('\n');
+      const candidateOutcomes = new Map();
 
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      const isLast = i === lines.length - 1;
-      if (!line.length && isLast) break;
-      let parsed;
-      try {
-        parsed = JSON.parse(line);
-      } catch {
-        // Crash-safe recovery: discard an incomplete trailing line.
-        if (isLast) {
-          truncated = true;
-          break;
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i];
+        const isLast = i === lines.length - 1;
+        if (!line.length && isLast) break;
+        let parsed;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          if (isLast && sawFormat) {
+            truncated = true;
+            missingTrailingNewline = false;
+            break;
+          }
+          throw new Error(`Refusing to overwrite non-checkpoint file at ${path}`);
         }
-        logContext = null;
-        break;
+        validByteLength += Buffer.byteLength(line, 'utf8') + (isLast ? 0 : 1);
+        if (i === 0) {
+          if (parsed.event !== 'format' || parsed.version !== CHECKPOINT_VERSION) {
+            throw new Error(`Refusing to overwrite non-checkpoint file at ${path}`);
+          }
+          sawFormat = true;
+        } else if (parsed.event === 'campaign_started' && typeof parsed.context === 'string') {
+          logContext = parsed.context;
+        } else if (parsed.event === 'outcome' && typeof parsed.key === 'string' && parsed.outcome && REUSABLE_STATUSES.has(parsed.outcome.status)) {
+          candidateOutcomes.set(parsed.key, parsed.outcome);
+        }
       }
-      validByteLength += Buffer.byteLength(line, 'utf8') + (isLast ? 0 : 1);
-      if (parsed.event === 'format' && parsed.version === CHECKPOINT_VERSION) {
-        sawFormat = true;
-      } else if (parsed.event === 'campaign_started' && typeof parsed.context === 'string') {
-        logContext = parsed.context;
-      } else if (parsed.event === 'outcome' && typeof parsed.key === 'string' && parsed.outcome && REUSABLE_STATUSES.has(parsed.outcome.status)) {
-        candidateOutcomes.set(parsed.key, parsed.outcome);
-      }
-    }
 
-    if (sawFormat && logContext === context) {
-      matched = true;
-      if (truncated) {
-        truncateSync(path, validByteLength);
+      if (sawFormat && logContext === context) {
+        matched = true;
+        if (truncated) {
+          truncateSync(path, validByteLength);
+        } else if (missingTrailingNewline) {
+          appendFileSync(path, '\n', 'utf8');
+        }
+        for (const [k, v] of candidateOutcomes) {
+          stored.set(k, v);
+        }
+        reused = stored.size;
       }
-      for (const [k, v] of candidateOutcomes) {
-        stored.set(k, v);
-      }
-      reused = stored.size;
     }
   }
 
@@ -108,13 +146,14 @@ export function openCheckpoint(path, context, metadata = {}) {
     get(key) {
       return stored.get(key);
     },
-    record(key, outcome) {
+    record(key, outcome, diagnostic = undefined) {
       if (!outcome || !REUSABLE_STATUSES.has(outcome.status)) return false;
       if (stored.has(key)) return false;
       const sanitized = {
         status: outcome.status,
         ...(outcome.tests ? { tests: outcome.tests } : {}),
         ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
+        ...(diagnostic ? { diagnostic } : {}),
       };
       appendFileSync(path, JSON.stringify({ event: 'outcome', key, outcome: sanitized }) + '\n', 'utf8');
       stored.set(key, sanitized);

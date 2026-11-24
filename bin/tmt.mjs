@@ -29,6 +29,10 @@ try {
       config: { type: 'string' },
       test: { type: 'string', multiple: true },
       'copy-exclude': { type: 'string', multiple: true },
+      'copy-exclude-gitignore': { type: 'boolean' },
+      'exclude-rule': { type: 'string', multiple: true },
+      'no-config': { type: 'boolean' },
+      progress: { type: 'boolean' },
       format: { type: 'string' },
       baseline: { type: 'string' },
       'write-baseline': { type: 'string' },
@@ -52,76 +56,97 @@ try {
     console.log(JSON.stringify(result, null, 2));
     if (result.path === 'diagnostic') process.exitCode = 1;
   } else if (command === 'analyze') {
-    const [project = '.', ...files] = positionals;
-    if (values.runner !== undefined && !['vitest', 'playwright'].includes(values.runner)) throw new Error('Expected --runner vitest|playwright');
-    if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
-    if (values.mutators !== undefined && !['targeted', 'full'].includes(values.mutators)) throw new Error('Expected --mutators targeted|full');
-    const session = values.runner !== 'playwright' && !values.witnesses && !values.audit;
-    if ((values['isolated-trials'] || values['verify-trials'] !== undefined) && !session) {
+    const [project = '.', ...rawFiles] = positionals;
+    const { gitignoredCopyExclusions, loadProjectConfig, mergeProjectConfig, validateAndExpandInputs } = await import('../src/project-config.mjs');
+    const loadedConfig = values['no-config'] ? null : await loadProjectConfig(project);
+    const merged = mergeProjectConfig(loadedConfig?.config, values, rawFiles);
+    const runValues = merged.values;
+    if (runValues.runner !== undefined && !['vitest', 'playwright'].includes(runValues.runner)) throw new Error('Expected --runner vitest|playwright');
+    if (runValues.runner === 'playwright' && runValues['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
+    if (runValues.mutators !== undefined && !['targeted', 'full'].includes(runValues.mutators)) throw new Error('Expected --mutators targeted|full');
+    const session = runValues.runner !== 'playwright' && !runValues.witnesses && !runValues.audit;
+    if ((runValues['isolated-trials'] || runValues['verify-trials'] !== undefined) && !session) {
       throw new Error('--isolated-trials and --verify-trials apply to Vitest sessions, which --witnesses, --audit and Playwright do not use');
     }
-    if (values.concurrency !== undefined && !session && !values.witnesses) {
+    if (runValues.concurrency !== undefined && !session && !runValues.witnesses) {
       throw new Error('--concurrency applies to Vitest sessions and to --witnesses, not to --audit or Playwright');
     }
-    if (values['undo-changes'] && (values.since === undefined || values.witnesses)) {
+    if (runValues['undo-changes'] && (runValues.since === undefined || runValues.witnesses)) {
       throw new Error('--undo-changes requires --since REV and does not apply to --witnesses');
     }
-    if (values['suggest-assertions'] && (values.runner === 'playwright' || values.witnesses)) {
+    if (runValues['suggest-assertions'] && (runValues.runner === 'playwright' || runValues.witnesses)) {
       throw new Error('--suggest-assertions applies to the targeted and full profiles on Vitest');
     }
-    if (values.timeout !== undefined) {
-      if (!/^[1-9]\d{0,4}$/.test(values.timeout)) throw new Error('Expected --timeout to be a number of seconds');
-      values.timeout = Number(values.timeout);
+    if (runValues.timeout !== undefined) {
+      if (!/^[1-9]\d{0,4}$/.test(runValues.timeout)) throw new Error('Expected --timeout to be a number of seconds');
+      runValues.timeout = Number(runValues.timeout);
     }
-    if (values['verify-trials'] !== undefined) {
-      if (!/^\d{1,6}$/.test(values['verify-trials'])) throw new Error('Expected --verify-trials to be a count');
-      values['verify-trials'] = Number(values['verify-trials']);
+    if (runValues['verify-trials'] !== undefined) {
+      if (!/^\d{1,6}$/.test(runValues['verify-trials'])) throw new Error('Expected --verify-trials to be a count');
+      runValues['verify-trials'] = Number(runValues['verify-trials']);
     }
-    if (values.concurrency !== undefined) {
-      if (!/^[1-9]\d{0,3}$/.test(values.concurrency)) throw new Error('Expected --concurrency to be a positive integer');
-      values.concurrency = Number(values.concurrency);
+    if (runValues.concurrency !== undefined) {
+      if (!/^[1-9]\d{0,3}$/.test(runValues.concurrency)) throw new Error('Expected --concurrency to be a positive integer');
+      runValues.concurrency = Number(runValues.concurrency);
     }
-    const format = chooseFormat(values.format, process.stdout.isTTY === true);
+    if (runValues['exclude-rule']?.length) {
+      runValues['exclude-rule'] = runValues['exclude-rule'].flatMap(entry => entry.split(',')).map(s => s.trim()).filter(Boolean);
+    }
+    const format = chooseFormat(runValues.format, process.stdout.isTTY === true);
     const { parseShard, parseShardingStrategy, listCandidates } = await import('../src/shard.mjs');
-    const shard = parseShard(values.shard);
-    const sharding = parseShardingStrategy(values.sharding);
+    const shard = parseShard(runValues.shard);
+    const sharding = parseShardingStrategy(runValues.sharding);
     const { loadBaseline, writeBaseline, applyBaseline } = await import('../src/baseline.mjs');
-    const baselineIds = values.baseline ? loadBaseline(values.baseline) : null;
+    const baselineIds = runValues.baseline ? loadBaseline(runValues.baseline) : null;
+    // Validate project paths and expand any globs before copying the project to a temporary directory.
+    const validated = validateAndExpandInputs(project, merged.files, runValues);
+    const files = validated.files;
+    if (validated.tests) runValues.test = validated.tests;
+    if (runValues['copy-exclude-gitignore']) {
+      const ignoredExclusions = gitignoredCopyExclusions(validated.root);
+      if (ignoredExclusions.length) {
+        runValues['copy-exclude'] = [...new Set([...(runValues['copy-exclude'] ?? []), ...ignoredExclusions])];
+      }
+    }
+    const logProgress = runValues.progress ? message => process.stderr.write(`[tmt] ${message}\n`) : () => {};
     enablePreparedTypeScript();
     let result;
-    if (values.list) {
-      result = listCandidates(project, files, { ...values, mutators: values.mutators ?? 'targeted', shard: values.shard, sharding });
-    } else if (values.witnesses) {
-      if (values.runner === 'playwright' || values.mutators !== undefined ||
-          values.deterministic || values.project || values.audit || values['displace-thresholds']) throw new Error('--witnesses runs its own Vitest source trials');
+    if (runValues.list) {
+      result = listCandidates(project, files, { ...runValues, mutators: runValues.mutators ?? 'targeted', shard: runValues.shard, sharding });
+    } else if (runValues.witnesses) {
+      if (runValues.runner === 'playwright' || runValues.mutators !== undefined ||
+          runValues.deterministic || runValues.project || runValues.audit || runValues['displace-thresholds']) throw new Error('--witnesses runs its own Vitest source trials');
+      logProgress('Running witness analysis...');
       const { analyzeWitnesses } = await import('../src/witness-analysis.mjs');
-      result = await analyzeWitnesses(project, files, values);
+      result = await analyzeWitnesses(project, files, runValues);
     } else {
+      logProgress(`Analyzing ${files.length ? `${files.length} file(s)` : 'project'} (${runValues.mutators ?? 'targeted'})...`);
       const { analyzeOperators } = await import('../src/operator-analysis.mjs');
-      result = await analyzeOperators(project, files, { ...values, mutators: values.mutators ?? 'targeted', shard, sharding });
+      result = await analyzeOperators(project, files, { ...runValues, mutators: runValues.mutators ?? 'targeted', shard, sharding });
     }
-    if (!values.witnesses && !values.list) {
+    if (!runValues.witnesses && !runValues.list) {
       const { strengthenAssertions, withoutSourceEdits } = await import('../src/assertion-strength.mjs');
-      if (values['suggest-assertions'] && result.evaluation === 'evaluated') result = await strengthenAssertions(realpathSync(project), result, values);
+      if (runValues['suggest-assertions'] && result.evaluation === 'evaluated') result = await strengthenAssertions(realpathSync(project), result, runValues);
       withoutSourceEdits(result);
     }
-    if (values['undo-changes'] && !values.list) {
+    if (runValues['undo-changes'] && !runValues.list) {
       const { analyzeUndoneChangesAsync, withUndoneChanges } = await import('../src/change-undone.mjs');
       const { baselineRunSymbol } = await import('../src/analysis.mjs');
       if (result.evaluation !== 'baseline_error') {
-        result = withUndoneChanges(result, await analyzeUndoneChangesAsync(project, files, { ...values, existingBaseline: result[baselineRunSymbol] }));
+        result = withUndoneChanges(result, await analyzeUndoneChangesAsync(project, files, { ...runValues, existingBaseline: result[baselineRunSymbol] }));
       }
     }
-    if (values.since && !values.list && !values.witnesses && result.evaluation === 'evaluated') {
+    if (runValues.since && !runValues.list && !runValues.witnesses && result.evaluation === 'evaluated') {
       const { detectWeakenedTests } = await import('../src/weakened-tests.mjs');
-      result = await detectWeakenedTests(project, result, values);
+      result = await detectWeakenedTests(project, result, runValues);
     }
-    if (!values.list && values['write-baseline'] && result.evaluation !== 'baseline_error') {
-      writeBaseline(values['write-baseline'], result.diagnostics ?? []);
+    if (!runValues.list && runValues['write-baseline'] && result.evaluation !== 'baseline_error') {
+      writeBaseline(runValues['write-baseline'], result.diagnostics ?? []);
     }
-    if (!values.list && baselineIds) {
+    if (!runValues.list && baselineIds) {
       result = applyBaseline(result, baselineIds);
     }
+    logProgress(`Completed (${result.evaluation}, ${(result.mutants ?? []).length} edits, ${(result.diagnostics ?? []).length} gaps).`);
     if (format === 'json') {
       console.log(JSON.stringify(result, null, 2));
     } else if (format === 'jsonl') {

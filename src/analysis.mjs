@@ -4,7 +4,8 @@ import { dirname, relative, resolve, sep } from 'node:path';
 import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mjs';
 import { comparisonThresholdSites } from './prototype.mjs';
 import { marginGaps, thresholdGaps } from './threshold.mjs';
-import { extractReachability, filterReachableThresholdGap, isBoundaryReachable } from './reachability.mjs';
+import { extractLoopCounterNonNegative, extractReachability, filterReachableThresholdGap, isBoundaryReachable } from './reachability.mjs';
+import { checkpointKeyForTrial } from './checkpoint.mjs';
 import { shiftedReplacement, tightenComparison } from './displacement.mjs';
 import { failedTests } from './vitest-reporter.mjs';
 import { inside, runVitest, runVitestAsync, withCopy } from './vitest.mjs';
@@ -47,11 +48,11 @@ function builtInSites(comparisons, input, file, dialect, selected, options = {})
       left: [mutant.edit[0], mutant.edit[0]], right: [mutant.edit[1], mutant.edit[1]], source: mutant.source, unobserved: true }));
 }
 
-function withProfileSites(comparisons, input, file, { mutators, dialect }, selected) {
+function withProfileSites(comparisons, input, file, { mutators, dialect, 'exclude-rule': excludeRules }, selected) {
   const start = candidate => (candidate.operatorEdit ?? candidate.edit)[0];
   // Without a session nothing is recorded, so the targeted or full edits run as plain source edits.
-  const added = mutators === 'full' ? builtInSites(comparisons, input, file, dialect, selected)
-    : mutators === 'targeted' ? builtInSites(comparisons, input, file, dialect, selected, { targeted: true, keep: mutation => mutation.targeted !== undefined })
+  const added = mutators === 'full' ? builtInSites(comparisons, input, file, dialect, selected, { excludeRules })
+    : mutators === 'targeted' ? builtInSites(comparisons, input, file, dialect, selected, { targeted: true, excludeRules, keep: mutation => mutation.targeted !== undefined })
       : [];
   return added.length ? [...comparisons, ...added].sort((a, b) => start(a) - start(b)) : comparisons;
 }
@@ -291,7 +292,11 @@ export function planFocusedTrials(subjects, trace, baseline, specification, disp
       const constant = constantThreshold(site, observation, callable);
       const margin = variableMargin(site, observation, constant);
       const lhsText = site.left ? subject.input.subarray(...site.left).toString('utf8') : '';
-      const reachability = extractReachability(lhsText);
+      const charOffset = site.location?.start !== undefined
+        ? subject.input.subarray(0, site.location.start).toString('utf8').length
+        : 0;
+      const reachability = extractReachability(lhsText) ??
+        extractLoopCounterNonNegative(subject.input.toString('utf8'), charOffset, lhsText);
       if (constant) {
         constant.reachability = reachability;
         thresholdRequests.push(constant);
@@ -433,7 +438,8 @@ function diagnose(trial, result) {
   }
   const binary = observation.rows[0]?.operands;
   if (!binary) return null;
-  if (trial.rule === site.rule && trial.reachability &&
+  const isConstantRhs = observation.rows.every(row => row.operands[1] === binary[1]);
+  if (isConstantRhs && trial.rule === site.rule && trial.reachability &&
       !isBoundaryReachable(trial.reachability, binary[1], observation.rows.map(row => row.operands[0]))) {
     return null;
   }
@@ -532,6 +538,9 @@ function analyzePlaywright(root, subjects, report, options, specification) {
   report.instrumented = { status: 'unavailable', reason: 'browser-observations-unavailable' };
   for (const subject of subjects) {
     for (const site of subject.sites) {
+      if (options.shardKeys && !options.shardKeys.has(
+        `${site.location.file}:${site.location.start}:${site.location.end}:${site.rule}:${site.replacement}`,
+      )) continue;
       const trial = { site, edit: site.edit, replacement: site.replacement, source: site.source };
       const mutant = attempt({ trial });
       const result = {
@@ -608,10 +617,16 @@ export function prepareAnalysis(project, files, options) {
   // Beside a session, which runs the suite on its own, the recording run stands for the baseline when it passes.
   // Otherwise the plain baseline runs first, so a failing suite is reported as before.
   const recorded = options.traceIsBaseline ? attempt({ tracing: true }) : null;
-  const plainBaseline = recorded?.status === 'passed' ? null : attempt();
-  const baseline = plainBaseline ?? { status: 'passed', tests: recorded.tests };
+  // Do not re-run a plain baseline when the recording run already timed out under the same suite/limit.
+  const plainBaseline = recorded?.status === 'passed' || recorded?.status === 'timeout' ? null : attempt();
+  const baseline = plainBaseline ?? (recorded?.status === 'passed' ? { status: 'passed', tests: recorded.tests } : recorded);
   if (baseline.status !== 'passed') {
-    return { report: { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } } };
+    const timeoutSeconds = options.timeout ?? 60;
+    return { report: { ...report, evaluation: 'baseline_error', baseline: {
+      status: baseline.status,
+      ...(baseline.status === 'timeout' ? { timeoutSeconds } : {}),
+      output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline),
+    } } };
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
   if (plainBaseline) {
@@ -688,6 +703,9 @@ export function completeAnalysis({ root, report, options, attempt, baseline, tra
     // The runner broke down in this trial, which is neither a kill nor a survivor: the analysis is not complete.
     if (result.status === 'error') report.evaluation = 'incomplete';
     const gap = diagnose(trial, result);
+    if (options.checkpointStore) {
+      options.checkpointStore.record(checkpointKeyForTrial(result), result, gap ?? undefined);
+    }
     if (gap) {
       if (options.audit && gap.suggestedTest) gap.verification = verifyVitestWitness(root, attempt, baseline, trial, gap);
       const duplicate = trial.adjustment === undefined && report.diagnostics.find(other => other.site === gap.site && other.kind === gap.kind &&

@@ -19,7 +19,7 @@ for (const [activation, coverage, result] of rows) {
     assert.equal(plan.staticActivation, activation === 'Static' || activation === 'Runtime' && coverage === 'Unknown');
     assert.equal(plan.hits, { Static: 2, Runtime: 3, Missing: 0 }[activation]);
     if (activation === 'Missing') return;
-    const trial = { records: [{ hits: result === 'Timeout' ? 301 : 1 }], snapshot: {
+    const trial = { records: [{ hits: result === 'Timeout' ? 301 : result === 'Error' ? 0 : 1 }], snapshot: {
       reason: result === 'Passed' ? 'passed' : 'failed',
       errors: result === 'Error' ? ['bad environment'] : [],
       tests: [{ id: 'baseline', status: result === 'Failed' ? 'failed' : 'passed' }],

@@ -18,18 +18,31 @@ function strictlyEncloses(outer, inner) {
     (outer.location.start < inner.location.start || inner.location.end < outer.location.end);
 }
 
-// Suppress duplicate outer logical INPUT GAP diagnostics when an inner expression strictly inside
-// the same span already has an INPUT GAP (e.g., `a > 0` is always true, so `a > 0 && b` should not
-// emit a redundant ignored-operand INPUT GAP).
+function isConstantInnerGap(diagnostic) {
+  if (diagnostic?.kind !== 'INPUT GAP') return false;
+  const rule = diagnostic.rule ?? diagnostic.mutations?.[0]?.rule;
+  return rule === 'equality-constant/v1';
+}
+
+function isRedundantOuterGap(diagnostic) {
+  if (diagnostic?.kind !== 'INPUT GAP') return false;
+  const rule = diagnostic.rule ?? diagnostic.mutations?.[0]?.rule;
+  if (rule !== 'ignored-operand/v1') return false;
+  // Only suppress left-operand drop `(a, b)` when the inner left comparison is already reported as always-constant.
+  // Never suppress right-operand drop `a && (b, true)` since that represents an independent test obligation.
+  const replacement = String(diagnostic.mutations?.[0]?.replacement ?? '');
+  return !replacement.includes('&&') && !replacement.includes('||') && !replacement.includes('??');
+}
+
+// Suppress duplicate outer `ignored-operand/v1` (left-drop) INPUT GAP when an inner expression
+// strictly inside its span is already reported as an `equality-constant/v1` INPUT GAP.
 export function suppressEnclosingDiagnostics(diagnostics) {
   if (!Array.isArray(diagnostics) || diagnostics.length < 2) return diagnostics;
-  const innerInputGaps = diagnostics.filter(d => d?.kind === 'INPUT GAP' && hasSpan(d));
-  if (!innerInputGaps.length) return diagnostics;
+  const innerConstantGaps = diagnostics.filter(d => isConstantInnerGap(d) && hasSpan(d));
+  if (!innerConstantGaps.length) return diagnostics;
 
   return diagnostics.filter(outer => {
-    if (outer?.kind !== 'INPUT GAP' || !hasSpan(outer)) return true;
-    const rule = outer.rule ?? outer.mutations?.[0]?.rule;
-    if (!ENCLOSING_LOGICAL_RULES.has(rule)) return true;
-    return !innerInputGaps.some(inner => inner !== outer && strictlyEncloses(outer, inner));
+    if (!isRedundantOuterGap(outer) || !hasSpan(outer)) return true;
+    return !innerConstantGaps.some(inner => inner !== outer && strictlyEncloses(outer, inner));
   });
 }
