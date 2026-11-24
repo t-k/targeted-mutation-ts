@@ -140,7 +140,8 @@ test('type-only files preserve comments without TypeScript', () => {
   const source = '#!/usr/bin/env node\r\n/* 東京 */\nexport type Coordinate = number;\n/*! Copyright Example */\n';
   const result = compile(source);
   assert.equal(result.backend, 'pulse');
-  assert.equal(result.code, '#!/usr/bin/env node\r\n/* 東京 */\n\n/*! Copyright Example */\n');
+  // The interpreter line is written with a line feed, as TypeScript writes it; strip mode keeps every position.
+  assert.equal(result.code, '#!/usr/bin/env node\n/* 東京 */\n\n/*! Copyright Example */\n');
   assert.equal(compile(source, { mode: 'strip' }).code, stripTypeScriptTypes(source));
 });
 

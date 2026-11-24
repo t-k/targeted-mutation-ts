@@ -1482,11 +1482,13 @@ test('an import-equals declaration ends where TypeScript ends it', () => {
   for (const source of [
     'import fs = require("node:fs")\n(async () => { console.log(fs.existsSync(".")); })();',
     'import Client = SDK.Client\n/ready/.test(status);\nexport { Client };',
-    'import A = B.C\nA();\nexport {};',
   ]) {
     assert.equal(sameAsTypeScript(source, 'alias.ts').backend, 'typescript', source);
   }
   assert.equal(sameAsTypeScript('import A = B.C\nexport const a = A;', 'alias.ts').backend, 'pulse');
+  // A next line that begins with a word ends a variable declaration as well.
+  assert.equal(sameAsTypeScript('import A = B.C\nA();\nexport {};', 'alias.ts').backend, 'pulse');
+  assert.equal(sameAsTypeScript('import A = B.C\nin_use(A);\nexport {};', 'alias.ts').backend, 'typescript');
   // A reserved word in the entity name is an error.
   assert.equal(compile(Buffer.from('import Client = SDK.default; export { Client };'), { file: 'alias.mts' }).code, null);
 });
