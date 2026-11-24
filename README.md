@@ -62,7 +62,7 @@ npx targeted-mutation analyze --lines src/cart.ts:10-40
 npx targeted-mutation analyze --since origin/main  # edits on lines changed since a revision
 npx targeted-mutation analyze --since origin/main --undo-changes  # also: which changes do the tests pass without?
 npx targeted-mutation analyze --suggest-assertions # also: the exact value a weak assertion should compare with
-npx targeted-mutation analyze --mutators full      # full built-in StrykerJS mutation set
+npx targeted-mutation analyze --mutators full      # full built-in StrykerJS-compatible mutation set (no StrykerJS required)
 ```
 
 `tmts` is a short alias for the same command. `targeted-mutation --help` lists every option.
