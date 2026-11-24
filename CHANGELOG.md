@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.0
+
+- Add baseline management (`--baseline`, `--write-baseline`) with line-number-independent stable finding IDs (v2) and AST-aware inline suppression comments (`// tmt:ignore <reason>` on the same line or standalone line above).
+- Add SARIF 2.1.0 (`--format sarif`) and NDJSON (`--format jsonl`) output formats alongside text and JSON.
+- Add `--list` for dry-run candidate preview without running tests, `--shard K/N` (`--sharding slice|round-robin`) for CI sharding across Vitest and Playwright, and `--checkpoint <FILE>` for crash-safe JSONL resume (verified with TLA+ `CampaignCheckpoint.tla`).
+- Add weakened-test detection under `--since REV`: when test files changed since `REV`, surviving mutants are replayed against the old tests and regressions are flagged as `weakened` (and as `weakened-test` in SARIF).
+- Add impossible-value reachability filtering (`%`, `&`, `<<`, `.length`, and non-negative 0-based `for (let i = 0; ...; i++)` loop counters) and strict enclosing-site duplicate suppression.
+- Add automatic witness rules `composite-key-omit/v1` (template literal and `[...].join(...)` composite keys) and `divide-before-multiply/v1` (`Math.floor`/`Math.trunc` integer rounding order).
+- Add project configuration support (`targeted-mutation.config.json`, `targeted-mutation.config.mjs`, `package.json#targetedMutation`), glob expansion for `--test` and source paths, `--copy-exclude-gitignore`, `--exclude-rule`, `--no-config`, and `--progress`.
+- Improve real-world ergonomics and accuracy: validate `--test`, `--config`, `--spec`, and source paths before temporary project copy; classify `Object.create(null)` in `copy-dropped/v1` as `nonPlain` (`spreadCoercion` advice); skip `nullish-equality/v1` for `typeof x === "object" && x !== null`; classify post-hit unhandled runtime errors as `killed` (`killedBy: "unhandled-error"`); and report actionable baseline timeout diagnostics without redundant plain-baseline re-runs.
+
 ## 0.1.1
 
 - Fix `--witnesses` automatic contract discovery on Windows by preserving OS-native relative paths instead of TypeScript's `/`-normalized `fileName`, and canonicalize `importMatches` against 8.3 short paths and symlinks.
