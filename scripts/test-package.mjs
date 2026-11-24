@@ -96,66 +96,53 @@ registerHooks({ load(url, context, next) {
   writeFileSync(join(cwd, 'fixture/test/strict.test.ts'), "import { expect, it } from 'vitest'; import { positive } from '../src/strict'; it('checks two', () => expect(positive(2)).toBe(true));");
   cpSync(resolve('fixtures/witnesses'), join(cwd, 'witnesses'), { recursive: true });
   const profiles = {
-    Focused: ['fixture', 'src/eligibility.ts', '--test', 'test/eligibility.test.ts', '--spec', 'spec.json', '--deterministic', '--audit'],
+    Targeted: ['fixture', 'src/eligibility.ts', '--test', 'test/eligibility.test.ts', '--spec', 'spec.json', '--deterministic', '--audit'],
+    Full: ['fixture', 'src/eligibility.ts', '--mutators', 'full', '--test', 'test/eligibility.test.ts'],
     Witnesses: ['witnesses', 'src/queries.ts', '--witnesses', '--test', 'test/queries.test.ts', '--lines', 'src/queries.ts:5-5'],
-    Standard: ['fixture', 'src/eligibility.ts', '--mutators', 'standard', '--test', 'test/eligibility.test.ts'],
-    All: ['fixture', 'src/strict.ts', '--mutators', 'all', '--deterministic', '--test', 'test/strict.test.ts'],
   };
   install('vitest@4.0.18');
-  // The complete built-in set needs neither the instrumenter nor any other package.
+  // Built-in targeted and full profiles need no external instrumenter package.
   assert.equal(existsSync(join(cwd, 'node_modules/@stryker-mutator')), false);
   const builtIn = JSON.parse(run(process.execPath, [entry, 'analyze', 'fixture', 'src/eligibility.ts', '--mutators', 'full', '--test', 'test/eligibility.test.ts']));
   assert.deepEqual([builtIn.evaluation, builtIn.operatorExecution], ['evaluated', 'session']);
   assert.ok(builtIn.mutants.some(mutant => mutant.mutatorName === 'ArrowFunction' && mutant.status === 'killed'));
   assert.ok(builtIn.mutants.some(mutant => mutant.mutatorName === 'EqualityOperator' && mutant.replacement === 'age < 18' && mutant.status === 'killed'));
   assert.ok(builtIn.mutants.some(mutant => mutant.rule === 'comparison-boundary/v1' && mutant.status === 'survived'));
-  // The targeted profile runs from the installed files too, with the options that add runs of their own.
-  const targeted = JSON.parse(run(process.execPath, [entry, 'analyze', 'fixture', 'src/eligibility.ts', '--mutators', 'targeted', '--suggest-assertions',
+  // The default targeted profile runs from the installed files too, with --suggest-assertions.
+  const targeted = JSON.parse(run(process.execPath, [entry, 'analyze', 'fixture', 'src/eligibility.ts', '--suggest-assertions',
     '--test', 'test/eligibility.test.ts']));
   assert.deepEqual([targeted.evaluation, targeted.operatorExecution, targeted.mutators], ['evaluated', 'session', 'targeted']);
   assert.ok(targeted.mutants.some(mutant => mutant.rule === 'comparison-boundary/v1' && mutant.status === 'survived'));
   const vitest = join(cwd, 'node_modules/vitest');
   const hiddenVitest = join(cwd, 'hidden-vitest');
-  const instrumenter = join(cwd, 'node_modules/@stryker-mutator/instrumenter');
-  for (const version of ['Missing', 'Incompatible', 'Compatible']) {
-    if (version === 'Incompatible') {
-      mkdirSync(instrumenter, { recursive: true });
-      writeFileSync(join(instrumenter, 'package.json'), '{"version":"0.0.0"}');
+  const hiddenPlatform = join(cwd, 'hidden-platform');
+  for (const [profile, runner, nativeState] of combinations) {
+    if (runner === 'Missing') renameSync(vitest, hiddenVitest);
+    if (nativeState === 'Absent') renameSync(platformPackage, hiddenPlatform);
+    const localModules = join(cwd, profiles[profile][0], 'node_modules');
+    if (runner === 'HoistedWithLocalModules') mkdirSync(localModules);
+    const result = spawnSync(process.execPath, [entry, 'analyze', ...profiles[profile]],
+      { cwd, encoding: 'utf8', timeout: 240_000 });
+    if (runner === 'HoistedWithLocalModules') rmSync(localModules, { recursive: true });
+    if (nativeState === 'Absent') renameSync(hiddenPlatform, platformPackage);
+    if (runner === 'Missing') renameSync(hiddenVitest, vitest);
+    if (runner === 'Missing') {
+      assert.equal(result.status, 1, result.error?.message ?? result.stdout + result.stderr);
+      assert.match(result.stderr, /Install Vitest/);
+      continue;
     }
-    if (version === 'Compatible') {
-      rmSync(instrumenter, { recursive: true });
-      install('@stryker-mutator/instrumenter@10.1.1');
-    }
-    for (const [profile, runner, engine] of combinations.filter(row => row[2] === version)) {
-      if (runner === 'Missing') renameSync(vitest, hiddenVitest);
-      const localModules = join(cwd, profiles[profile][0], 'node_modules');
-      if (runner === 'HoistedWithLocalModules') mkdirSync(localModules);
-      const result = spawnSync(process.execPath, [entry, 'analyze', ...profiles[profile]],
-        { cwd, encoding: 'utf8', timeout: 240_000 });
-      if (runner === 'HoistedWithLocalModules') rmSync(localModules, { recursive: true });
-      if (runner === 'Missing') renameSync(hiddenVitest, vitest);
-      const expectsEngine = profile === 'Standard' || profile === 'All';
-      const missingEngine = expectsEngine && engine !== 'Compatible';
-      if (missingEngine || runner === 'Missing') {
-        assert.equal(result.status, 1, result.error?.message ?? result.stdout + result.stderr);
-        assert.match(result.stderr, missingEngine ? /@stryker-mutator\/instrumenter@10\.1\.1/ : /Install Vitest/);
-        continue;
-      }
-      assert.equal(result.status, 0, result.error?.message ?? result.stdout + result.stderr);
-      const report = JSON.parse(result.stdout);
-      assert.equal(report.evaluation, 'evaluated');
-      if (profile === 'Focused') {
-        assert.equal(report.extraction[0].path, 'fast');
-        assert.equal(report.mutants[0].evidence, 'predicted');
-        assert.equal(report.mutants[0].audit.status, 'agreed');
-      } else if (profile === 'Witnesses') {
-        assert.ok(report.diagnostics.some(gap => gap.rule === 'first-to-last-index/v1' && gap.verification.status === 'confirmed'));
-      } else if (profile === 'Standard') {
-        assert.ok(report.mutants.some(mutant => mutant.mutatorName === 'EqualityOperator' && mutant.status === 'survived'));
-      } else {
-        assert.ok(report.mutants.some(mutant => mutant.evidence === 'predicted'));
-        assert.ok(report.mutants.some(mutant => mutant.rule === 'comparison-tighten/v1' && mutant.status === 'survived'));
-      }
+    assert.equal(result.status, 0, result.error?.message ?? result.stdout + result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.evaluation, 'evaluated');
+    if (profile === 'Targeted') {
+      assert.equal(report.extraction[0].path, nativeState === 'Present' ? 'fast' : 'fallback');
+      assert.equal(report.mutants[0].status, 'survived');
+      assert.equal(report.mutants[0].audit.status, 'agreed');
+      if (nativeState === 'Present') assert.equal(report.mutants[0].evidence, 'predicted');
+    } else if (profile === 'Witnesses') {
+      assert.ok(report.diagnostics.some(gap => gap.rule === 'first-to-last-index/v1' && gap.verification.status === 'confirmed'));
+    } else {
+      assert.ok(report.mutants.some(mutant => mutant.mutatorName === 'ArrowFunction' && mutant.status === 'killed'));
     }
   }
   const ordered = JSON.parse(run(process.execPath, [entry, 'analyze', 'witnesses', 'src/text-order.ts',
@@ -176,18 +163,16 @@ registerHooks({ load(url, context, next) {
   const denied = spawnSync(npm, ['install', join(mismatch, filename), '--no-audit', '--no-fund'], { cwd, encoding: 'utf8', timeout: 240_000 });
   assert.notEqual(denied.status, 0);
   assert.match(denied.stderr, /EBADPLATFORM/);
-  // Without a platform package extraction falls back to TypeScript and analysis explains what is missing.
-  const hiddenPlatform = join(cwd, 'hidden-platform');
+  // Without a platform package both extraction and analysis fall back seamlessly to TypeScript.
   renameSync(platformPackage, hiddenPlatform);
   try {
     const portable = JSON.parse(run(process.execPath, [entry, 'extract', 'module.ts']));
     assert.equal(portable.path, 'fallback');
     assert.equal(portable.reason, 'native-unavailable');
     assert.deepEqual(portable.candidates.map(candidate => candidate.operator), ['<']);
-    const unassisted = spawnSync(process.execPath, [entry, 'analyze', ...profiles.Focused], { cwd, encoding: 'utf8', timeout: 240_000 });
-    assert.equal(unassisted.status, 1);
-    assert.equal(unassisted.stdout, '');
-    assert.match(unassisted.stderr, new RegExp(`^The native extractor is not available for ${process.platform} ${process.arch}\\. Prebuilt binaries cover`));
+    const portableAnalyze = JSON.parse(run(process.execPath, [entry, 'analyze', ...profiles.Targeted]));
+    assert.equal(portableAnalyze.evaluation, 'evaluated');
+    assert.equal(portableAnalyze.extraction[0].path, 'fallback');
   } finally {
     renameSync(hiddenPlatform, platformPackage);
   }
@@ -196,7 +181,7 @@ registerHooks({ load(url, context, next) {
   const older = JSON.parse(run(process.execPath, [entry, 'extract', 'broad.ts']));
   assert.equal(older.fallback, 'typescript');
   assert.deepEqual(older.candidates.map(candidate => candidate.operator), ['<']);
-  const olderAnalysis = JSON.parse(run(process.execPath, [entry, 'analyze', ...profiles.Focused]));
+  const olderAnalysis = JSON.parse(run(process.execPath, [entry, 'analyze', ...profiles.Targeted]));
   assert.equal(olderAnalysis.mutants[0].evidence, 'predicted');
   assert.equal(olderAnalysis.mutants[0].audit.status, 'agreed');
   console.log('Installed runtime used the native extractor, compiled Lean decision and Vitest audit');

@@ -55,21 +55,40 @@ test('the text report shows targeted edits clearly', () => {
   assert.match(run.stdout, /^src\/price\.ts:7:10 {2}unreached {2}arithmetic-swap\/v1: a \+ b -> \(a - b\)$/m);
 });
 
-test('removed profiles are rejected and --witnesses rejects --mutators', () => {
+test('removed profiles and empty flags are rejected and PICT profile-dispatch matrix routes cleanly', () => {
   const rows = readFileSync(new URL('../verification/pict/profile-dispatch.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1);
   const seeds = readFileSync(new URL('../verification/pict/profile-dispatch.seed.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1);
   const table = new Set(rows);
   for (const seed of seeds) assert.ok(table.has(seed), seed);
 
-  for (const removed of ['focused', 'operators', 'standard', 'all', 'everything']) {
-    const unknown = analyze('--mutators', removed);
+  for (const removed of ['', 'focused', 'operators', 'standard', 'all', 'everything']) {
+    const unknown = analyze(`--mutators=${removed}`);
     assert.equal(unknown.status, 1, removed);
     assert.equal(unknown.stderr, 'Expected --mutators targeted|full\n');
   }
+  assert.equal(analyze('--runner=').stderr, 'Expected --runner vitest|playwright\n');
   for (const profile of ['targeted', 'full']) {
     const witnesses = analyze('--mutators', profile, '--witnesses');
     assert.equal(witnesses.status, 1);
     assert.equal(witnesses.stderr, '--witnesses runs its own Vitest source trials\n');
+  }
+  // Drive representative PICT rows for invalid combinations and flag rejection before test execution.
+  for (const line of rows) {
+    const [mutators, runner, , mode] = line.split('\t');
+    const cliArgs = [];
+    if (mutators === 'Targeted') cliArgs.push('--mutators', 'targeted');
+    else if (mutators === 'Full') cliArgs.push('--mutators', 'full');
+    else if (mutators === 'RemovedProfile') cliArgs.push('--mutators', 'standard');
+    if (runner === 'Playwright') cliArgs.push('--runner', 'playwright');
+    if (mode === 'Audit') cliArgs.push('--audit');
+    else if (mode === 'Witnesses') cliArgs.push('--witnesses');
+    else if (mode === 'UndoChanges') cliArgs.push('--undo-changes');
+    else if (mode === 'SuggestAssertions') cliArgs.push('--suggest-assertions');
+    const expectsReject = mutators === 'RemovedProfile' || mode === 'UndoChanges';
+    if (!expectsReject) continue;
+    const run = analyze(...cliArgs);
+    assert.equal(run.status, 1, line);
+    assert.match(run.stderr, mutators === 'RemovedProfile' ? /Expected --mutators targeted\|full/ : /--undo-changes requires --since REV/);
   }
 });
 

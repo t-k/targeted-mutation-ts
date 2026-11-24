@@ -30,7 +30,9 @@ test('isolated Playwright rewrites reveal an age boundary and a pending submissi
 
     const full = analyze(root);
     assert.equal(full.runner, 'playwright');
-    assert.deepEqual(full.mutants.map(trial => [trial.operator, trial.status, trial.audit.status]), [
+    const boundary = full.mutants.find(trial => trial.rule === 'comparison-boundary/v1');
+    const dropped = full.mutants.find(trial => trial.rule === 'jsx-disabled-drop-left/v1');
+    assert.deepEqual([[boundary.operator, boundary.status, boundary.audit.status], [dropped.operator, dropped.status, dropped.audit.status]], [
       ['<', 'survived', 'agreed'], ['||', 'survived', 'agreed'],
     ]);
     assert.deepEqual(full.diagnostics.map(gap => gap.verification), [
@@ -38,12 +40,12 @@ test('isolated Playwright rewrites reveal an age boundary and a pending submissi
       { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' },
     ]);
     assert.ok(full.mutants.every(trial => trial.run.tests[0].browser === 'chromium'));
-    assert.notEqual(full.mutants[0].run.attempt, full.mutants[1].run.attempt);
+    assert.notEqual(boundary.run.attempt, dropped.run.attempt);
 
     const scoped = analyze(root, '--since', 'HEAD');
     assert.equal(scoped.mutants.length, 1);
-    assert.equal(scoped.mutants[0].site, full.mutants[0].site);
-    assert.equal(scoped.mutants[0].status, full.mutants[0].status);
+    assert.equal(scoped.mutants[0].site, boundary.site);
+    assert.equal(scoped.mutants[0].status, boundary.status);
     assert.equal(readFileSync(file, 'utf8'), changed);
   } finally {
     rmSync(root, { recursive: true, force: true });

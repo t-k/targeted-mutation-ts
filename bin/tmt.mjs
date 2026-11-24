@@ -47,9 +47,9 @@ try {
     if (result.path === 'diagnostic') process.exitCode = 1;
   } else if (command === 'analyze') {
     const [project = '.', ...files] = positionals;
-    if (values.runner && !['vitest', 'playwright'].includes(values.runner)) throw new Error('Expected --runner vitest|playwright');
+    if (values.runner !== undefined && !['vitest', 'playwright'].includes(values.runner)) throw new Error('Expected --runner vitest|playwright');
     if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
-    if (values.mutators && !['targeted', 'full'].includes(values.mutators)) throw new Error('Expected --mutators targeted|full');
+    if (values.mutators !== undefined && !['targeted', 'full'].includes(values.mutators)) throw new Error('Expected --mutators targeted|full');
     const session = values.runner !== 'playwright' && !values.witnesses && !values.audit;
     if ((values['isolated-trials'] || values['verify-trials'] !== undefined) && !session) {
       throw new Error('--isolated-trials and --verify-trials apply to Vitest sessions, which --witnesses, --audit and Playwright do not use');

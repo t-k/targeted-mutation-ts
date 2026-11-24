@@ -94,26 +94,37 @@ export async function analyzeConventional(project, files, options) {
     }));
     const limit = 75_000 + (options.timeout ? options.timeout * 1000 : 60_000) * runnable.length;
     // The focused analysis names its threshold edits once it has recorded the comparisons.
-    // Guarded by `finished` so a late resolution never writes after `withCopy` deletes `temp`.
+    // Guarded by `finished` so a late resolution never writes after `withCopy` deletes `temp`,
+    // while a write error during a live session aborts the child and propagates to the caller.
     const extras = resolve(temp, 'extras.json');
+    const sessionAbort = new AbortController();
+    const onAbort = () => sessionAbort.abort();
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    if (options.signal?.aborted) sessionAbort.abort();
     let finished = false;
+    let extrasError = null;
     if (awaitsExtras) {
       Promise.resolve(options.extras).then(list => list ?? [], () => []).then(list => {
-        if (finished || options.signal?.aborted) return;
+        if (finished || sessionAbort.signal.aborted) return;
         try {
           writeFileSync(extras + '.part', JSON.stringify(list));
           renameSync(extras + '.part', extras);
-        } catch {
-          // Temporary workspace was already cleaned up.
+        } catch (writeError) {
+          if (!finished && !sessionAbort.signal.aborted) {
+            extrasError = writeError;
+            sessionAbort.abort();
+          }
         }
       });
     }
     let run;
     try {
-      run = await superviseSession(workspace, temp, manifest, limit, options.signal);
+      run = await superviseSession(workspace, temp, manifest, limit, sessionAbort.signal);
     } finally {
       finished = true;
+      options.signal?.removeEventListener('abort', onAbort);
     }
+    if (extrasError) throw extrasError;
     const events = readEvents(output);
     const error = events.findLast(event => event.error)?.error ?? run.error?.message ??
       (run.stderr?.trim() || `Vitest session stopped (exit ${run.status ?? run.signal})`);

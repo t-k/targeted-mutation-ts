@@ -1,9 +1,31 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 import test from 'node:test';
+import { Instrumenter } from '@stryker-mutator/instrumenter';
 import { collectMutations } from '../src/builtin-mutations.mjs';
 import { renderBuiltinSwitches } from '../src/builtin-switches.mjs';
-import { prepareConventional } from '../src/conventional.mjs';
+import { byteOffsets } from '../src/source-text.mjs';
+
+const quietLogger = { debug() {}, info() {}, warn() {}, isDebugEnabled: () => false };
+async function referenceMutants(file, input) {
+  const content = input.toString();
+  const starts = [0];
+  for (const newline of content.matchAll(/\r\n|[\n\r\u2028\u2029]/g)) starts.push(newline.index + newline[0].length);
+  const bytes = byteOffsets(content);
+  const instrumented = await new Instrumenter(quietLogger).instrument([{ name: file, content, mutate: true }], {
+    excludedMutations: [], ignorers: [], plugins: null,
+  });
+  return instrumented.mutants.map(mutant => {
+    const { start, end } = mutant.location;
+    const edit = [bytes[starts[start.line] + start.column], bytes[starts[end.line] + end.column]];
+    return {
+      mutatorName: mutant.mutatorName,
+      location: { file: mutant.fileName, start: edit[0], end: edit[1] },
+      replacement: mutant.replacement,
+      ...(mutant.status === 'Ignored' ? { status: 'ignored', statusReason: mutant.statusReason } : {}),
+    };
+  });
+}
 
 // The StrykerJS instrumenter (a development dependency) is the reference for the mutation set.
 const normalize = text => text.replace(/\s+/g, '').replace(/[()]/g, '').replace(/['`]/g, '"').replace(/[;,]+(?=[\]}]|$)/g, '');
@@ -16,7 +38,7 @@ function tally(mutants) {
 }
 async function compare(file) {
   const input = readFileSync(file);
-  const all = (await prepareConventional([{ file, input, selected: () => true }])).mutants;
+  const all = await referenceMutants(file, input);
   // A file that uses `// Stryker disable` comments is compared with its ignored mutations and their reasons.
   const directives = input.includes('Stryker disable');
   const state = mutant => directives ? { ...mutant, mutatorName: `${mutant.mutatorName}/${mutant.status ?? 'live'}/${mutant.statusReason ?? ''}` } : mutant;
