@@ -51,9 +51,11 @@ test('the targeted profile names the missing input of each survivor and keeps th
   // `??` for `||`: a number was seen and never 0, so the input is missing. For an object no input can tell them apart.
   assert.equal(verdict('count ?? 10', '(count || 10)'), 'survived');
   assert.equal(gap('(count || 10)').kind, 'INPUT GAP');
-  assert.match(gap('(count || 10)').missing, /`count` is 0, '', false or NaN/);
+  assert.match(gap('(count || 10)').missing, /`count` is 0, 0n, '', false or NaN and not the right side's value/);
   assert.equal(gap('(count || 10)').reachedBy, 1);
   assert.equal(verdict("user ?? { name: 'anon' }", "(user || { name: 'anon' })"), 'ignored');
+  // An edit that was not tried has no evidence of a run.
+  assert.equal(report.mutants.find(mutant => mutant.status === 'ignored').evidence, undefined);
   assert.equal(verdict('count ?? 10', '(count, 10)'), 'killed');
 
   // A test passed `saving` as true and asserted nothing: the input is there and the assertion is missing.
@@ -79,7 +81,7 @@ test('the targeted profile names the missing input of each survivor and keeps th
   assert.ok(report.mutants.every(mutant => mutant.targeted === undefined && mutant.source === undefined));
 
   const text = renderText(report);
-  assert.match(text, /INPUT GAP subject\.ts:1:\d+ {2}nullish-fallback\/v1\n {2}`count \?\? 10` passes every test as `\(count \|\| 10\)` \(1 test reaches it\)\n {2}add a test in which `count` is 0/);
+  assert.match(text, /INPUT GAP subject\.ts:1:\d+ {2}nullish-fallback\/v1\n {2}`count \?\? 10` passes every test as `\(count \|\| 10\)` \(1 test reaches it\)\n {2}add a test in which `count` is 0, 0n/);
   assert.match(text, /ASSERTION GAP subject\.ts:3:\d+ {2}ignored-operand\/v1\n.*\n {2}the edit gives another value in: subject\.test\.ts > ready \(operands false\)\n {2}add an assertion/);
 });
 
@@ -132,7 +134,8 @@ test('a gap is described only for a surviving targeted edit that was observed', 
   assert.equal(missing({ operator: '??', form: 'right', boolean: false, left: 'a' }), 'a test in which `a` is null or undefined and the right side is not undefined');
   assert.equal(missing({ operator: '===', form: 'true', left: 'a' }, 'a === b'), 'a test in which `a === b` is false');
   assert.equal(missing({ operator: '!=', form: 'other', left: 'a', subject: 'a', differsFor: 'null' }), 'a test in which `a` is null');
-  assert.equal(missing({ operator: '||', form: 'nullish', left: 'a\n  .b' + 'c'.repeat(80) }).length, 'a test in which `` is 0, \'\', false or NaN'.length + 60);
+  assert.equal(missing({ operator: '||', form: 'nullish', left: 'a\n  .b' + 'c'.repeat(80) }).length, 'a test in which `` is 0, 0n, \'\', false or NaN'.length + 60);
+  assert.match(missing({ operator: '??', form: 'or', left: 'a', pureRight: true }), /NaN and not the right side's value$/);
 });
 
 test('without a session the targeted edits are plain source edits beside the comparison boundaries', async () => {

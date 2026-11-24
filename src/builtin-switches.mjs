@@ -47,8 +47,8 @@ function ${see}(i, l, r) {
   }
   function show(v) {
     var t = typeof v;
-    return v === null ? 'null' : t === 'string' ? JSON.stringify(v.length > 40 ? v.slice(0, 40) + '...' : v)
-      : t === 'number' ? (v === 0 && 1 / v < 0 ? '-0' : String(v)) : t === 'boolean' || t === 'undefined' ? String(v) : t === 'bigint' ? v + 'n' : t;
+    return v === null ? 'null' : t === 'string' ? '"' + (v.length > 40 ? v.slice(0, 40) + '...' : v) + '"'
+      : t === 'number' ? (v === 0 && 1 / v < 0 ? '-0' : '' + v) : t === 'boolean' || t === 'undefined' ? '' + v : t === 'bigint' ? v + 'n' : t;
   }
   if (ns.activeMutant !== void 0) for (k = 0; k < edits.length; k++) if (edits[k][0] === ns.activeMutant) form = edits[k][1];
   if (form !== void 0) {
@@ -59,20 +59,39 @@ function ${see}(i, l, r) {
     return (form === 'or' ? !l : missing) ? r() : l;
   }
   ${cover}.apply(null, site[4]);
-  var value = logical ? (taken ? r() : l) : equal(op, l, r);
-  var state = scope[Symbol.for('targeted-mutation-ts/session')];
-  if (!state || state.phase !== 'baseline') return value;
-  var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '';
-  for (k = 0; k < edits.length; k++) {
-    var f = edits[k][1], same = !logical ? value === edited(f) : f === 'left' ? taken
-      : f === 'right' ? !taken || (site[1] ? !value === !constant : value === constant) : missing || !!l;
-    var entry = seen[edits[k][0]] || (seen[edits[k][0]] = { tests: {} }), counts = entry.tests[test] || (entry.tests[test] = [0, 0]);
-    counts[same ? 0 : 1]++;
-    if (!entry[same ? 'agree' : 'differ']) entry[same ? 'agree' : 'differ'] = logical && !taken ? [show(l)] : [show(l), show(logical ? value : r)];
-    var type = typeof l;
-    if (type === 'number' || type === 'string' || type === 'bigint' || (type === 'boolean' && f === 'or')) entry.typed = true;
+  var state = scope[scope.Symbol.for('targeted-mutation-ts/session')];
+  if (!state || state.phase !== 'baseline') return logical ? (taken ? r() : l) : equal(op, l, r);
+  // A right side that throws is observed too: an edit that evaluates it throws as well, and any other differs.
+  var value, threw = true;
+  try {
+    value = logical ? (taken ? r() : l) : equal(op, l, r);
+    threw = false;
+  } finally {
+    if (threw) note();
   }
+  note();
   return value;
+  function note() {
+    var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '';
+    for (k = 0; k < edits.length; k++) {
+      var f = edits[k][1], same, other;
+      if (threw) same = logical && (f !== 'nullish' || missing);
+      else if (!logical) same = value === edited(f);
+      else if (site[5] || f === 'right') {
+        // A written right side can be evaluated to compare; the constant of an ignored right side needs no evaluation.
+        if (f === 'right' && !taken) same = true;
+        else {
+          other = f === 'right' ? constant : f === 'left' ? r() : (f === 'or' ? !l : missing) ? r() : l;
+          same = site[1] ? !value === !other : value === other || (value !== value && other !== other);
+        }
+      } else same = f === 'left' ? taken : missing || !!l;
+      var entry = seen[edits[k][0]] || (seen[edits[k][0]] = { tests: {} }), counts = entry.tests[test] || (entry.tests[test] = [0, 0]);
+      counts[same ? 0 : 1]++;
+      if (!entry[same ? 'agree' : 'differ']) entry[same ? 'agree' : 'differ'] = logical && (!taken || threw) ? [show(l)] : [show(l), show(logical ? value : r)];
+      var type = typeof l;
+      if (type === 'number' || type === 'string' || type === 'bigint' || type === 'boolean') entry.typed = true;
+    }
+  }
 }
 `;
 const outerFirst = { statement: 0, block: 0, case: 0, expression: 1, observed: 2 };
@@ -151,7 +170,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         // Only the edits beside a written null or undefined say on which side it stands.
         const literalSide = group.mutants.find(mutant => mutant.targeted.literalSide !== undefined)?.targeted.literalSide ?? 0;
         probed.push([operator, boolean ? 1 : 0, group.mutants.map(mutant => [mutant.id, mutant.targeted.form]), literalSide,
-          group.mutants.map(mutant => mutant.id)]);
+          group.mutants.map(mutant => mutant.id), group.targeted.pureRight ? 1 : 0]);
         const call = `${see}(${probed.length - 1}, ${left}, ${thunk ? `() => (${right})` : right})`;
         out += group.statement ? ` ${call}` : group.leading ? ` void 0, (${call})` : `(${call})`;
       } else if (group.kind === 'block') {

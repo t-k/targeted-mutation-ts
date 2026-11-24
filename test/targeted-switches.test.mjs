@@ -154,6 +154,11 @@ test('the targeted edits of each operator, and where none is offered', () => {
   assert.deepEqual(list('async function f(a: unknown, g: () => Promise<number>) { return a && await g(); }'), []);
   assert.deepEqual(list('function* f(a: unknown) { return a || (yield 1); }'), []);
   assert.equal(list('async function f(a: unknown, g: () => Promise<number>) { return a && (async () => await g()); }').length, 2);
+  // A direct eval on the right declares its variables where it stands.
+  assert.deepEqual(list('function f(flag) { flag && eval("var x = 42"); return typeof x; }'), []);
+  // The computed name of a method on the right is evaluated where the expression stands.
+  assert.deepEqual(list('async function f(cached: unknown, name: () => Promise<string>) { return cached ?? { [await name()]() {} }; }'), []);
+  assert.equal(list('function f(cached: unknown, name: () => string) { return cached ?? { [name()]() {} }; }').length, 3);
   // Without the option the built-in set is as before.
   assert.ok(collectMutations('const f = (a, b) => a === b && a;', 'f.js').every(mutation => !mutation.targeted));
 });
@@ -174,6 +179,8 @@ const placements = {
   'in a class field and a default parameter': 'class C { on = a && b; get(x = a ?? 3) { return x || this.on } }\n  note(new C().get())',
   'around a comment and a line end': 'note(a && // why\n    b)',
   'with a parenthesized object on the right': 'note((a || { b }).b)',
+  // The syntax around the parentheses still applies to what the probe gives.
+  'as a template tag, under delete and typeof': 'note(((a && null) || String.raw)`x${b}`, delete (a === b), typeof (a ?? b))',
 };
 for (const [name, body] of Object.entries(placements)) {
   test(`probe placement: ${name}`, () => {
@@ -230,4 +237,75 @@ test('a probe keeps this, arguments and typed operands, counts hits like a switc
   const active = { activeMutant: fallback.id, hitCount: 0, hitLimit: 1 };
   assert.match((() => { try { return call(output, active); } catch (error) { return error.message; } })(), /hit limit/);
   for (const mutant of mutants) assert.equal(call(output, { activeMutant: mutant.id }), call(edited(source, mutant), {}), mutant.replacement);
+});
+
+// A written literal on the right has no effect of its own, so an edit that evaluates it where the original does
+// not (or the other way round) agrees whenever the values are the same: `retries ?? 0` with 0 is `retries || 0`.
+test('beside a literal right side, agreement is whether the source edit gives the same value', () => {
+  const lefts = ['undefined', 'null', '0', "''", 'false', 'true', '1', "'x'", 'NaN', '({})'];
+  const rights = ['0', "''", 'false', 'true', 'null', 'undefined', '7', "'x'", '-1', '`t`'];
+  let cases = 0;
+  let agreeing = 0;
+  for (const operator of ['&&', '||', '??']) {
+    for (const right of rights) {
+      for (const condition of [false, true]) {
+        const source = prelude + (condition ? `function f(l) { if (l ${operator} ${right}) return 'yes'; return 'no'; }\n` : `function f(l) { return l ${operator} ${right}; }\n`);
+        const { output, mutants } = render(source);
+        assert.ok(mutants.length >= 2, source);
+        const context = vm.createContext({});
+        const inputs = lefts.map(left => [vm.runInContext(`(${left})`, context)]);
+        const original = run(source, inputs);
+        const state = {};
+        assert.deepEqual(run(output, inputs, state, true), original);
+        for (const mutant of mutants) {
+          assert.equal(mutant.targeted.pureRight, true);
+          const rewritten = run(edited(source, mutant), inputs);
+          assert.deepEqual(run(output, inputs, { activeMutant: mutant.id }), rewritten, `${mutant.original} -> ${mutant.replacement}`);
+          for (const [index, left] of lefts.entries()) {
+            const [agreed] = state.observed[mutant.id].tests['t' + index];
+            assert.equal(agreed === 1, rewritten[index] === original[index], `${left}: ${mutant.original} -> ${mutant.replacement}`);
+            cases++;
+            agreeing += agreed;
+          }
+        }
+      }
+    }
+  }
+  assert.ok(cases >= 1500 && agreeing > 300 && agreeing < cases - 300, `${agreeing} of ${cases}`);
+  // Anything else on the right may have an effect, and is not evaluated to compare.
+  assert.ok(render('function f(a, b) { return a ?? b.c; }').mutants.every(mutant => !mutant.targeted.pureRight));
+});
+
+test('a boolean on the left counts as a value that has a falsy one for both fallback edits', () => {
+  const source = prelude + 'function f(l) { return l || 7; }\n';
+  const { output, mutants } = render(source);
+  const state = {};
+  run(output, [[true]], state, true);
+  assert.equal(state.observed[mutants.find(mutant => mutant.targeted.form === 'nullish').id].typed, true);
+});
+
+test('a probe uses nothing a module or a test can replace: a local Symbol, a spied JSON.stringify or String', () => {
+  const source = `const Symbol = { Plus: '+' }; const String = () => { throw new Error('String called'); };
+function f(token) { return token === Symbol.Plus || token; }\n`;
+  const { output, mutants } = render(source);
+  const context = vm.createContext({ __stryker__: { currentTestId: 't' } });
+  context[session] = { phase: 'baseline' };
+  vm.runInContext(`let stringified = 0; JSON.stringify = () => { stringified++; return ''; };\n${output}\nvar out = [f('+'), f('a"b'), f(3), f(undefined), stringified];`, context);
+  assert.deepEqual(JSON.parse(JSON.stringify(context.out)), [true, 'a"b', 3, null, 0]);
+  const strict = mutants.find(mutant => mutant.targeted.form === 'false' && mutant.original.includes('==='));
+  assert.deepEqual(JSON.parse(JSON.stringify(context.__stryker__.observed[strict.id].agree)), ['"a"b"', '"+"']);
+});
+
+test('a right side that throws is still an observation: an edit that would not have evaluated it differs', () => {
+  const source = prelude + "function f(l, r) { try { return l || r(); } catch (error) { return 'caught'; } }\n";
+  const { output, mutants } = render(source);
+  const fail = () => { throw new Error('required'); };
+  const state = {};
+  assert.deepEqual(run(output, [['/etc/app.json', fail], ['', fail]], state, true), run(source, [['/etc/app.json', fail], ['', fail]]));
+  const seen = form => JSON.parse(JSON.stringify(state.observed[mutants.find(mutant => mutant.targeted.form === form).id].tests));
+  // `??` returns '' without calling; with the left side ignored the call is made in both tests; with the right
+  // side's value ignored the call is still made and throws as before.
+  assert.deepEqual(seen('nullish'), { t0: [1, 0], t1: [0, 1] });
+  assert.deepEqual(seen('left'), { t0: [0, 1], t1: [1, 0] });
+  assert.deepEqual(seen('right'), { t0: [1, 0], t1: [1, 0] });
 });

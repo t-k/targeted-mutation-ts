@@ -198,6 +198,8 @@ export async function analyzeConventional(project, files, options) {
     const observed = events.find(event => event.observed)?.observed ?? {};
     const judged = mutants.map(mutant => {
       const result = results.get(mutant.id);
+      // An edit the session left out was not run.
+      if (result?.status === 'ignored') return { ...mutant, ...result };
       if (result) return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
       return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Mutation session ended early' };
     });

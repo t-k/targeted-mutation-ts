@@ -7,11 +7,11 @@ const clip = text => {
   return line.length > 60 ? line.slice(0, 57) + '...' : line;
 };
 
-function missingInput({ operator, form, boolean, left, differsFor, subject }, expression) {
+function missingInput({ operator, form, boolean, left, differsFor, subject, pureRight }, expression) {
   const side = '`' + clip(left) + '`';
   if (form === 'true' || form === 'false') return `a test in which \`${clip(expression)}\` is ${form === 'true' ? 'false' : 'true'}`;
   if (form === 'loose' || form === 'strict' || form === 'other') return `a test in which \`${clip(subject)}\` is ${differsFor}`;
-  if (form === 'or' || form === 'nullish') return `a test in which ${side} is 0, '', false or NaN`;
+  if (form === 'or' || form === 'nullish') return `a test in which ${side} is 0, 0n, '', false or NaN${pureRight ? ' and not the right side\'s value' : ''}`;
   const takesRight = { '&&': 'truthy', '||': 'falsy', '??': 'null or undefined' }[operator];
   if (form === 'left') return `a test in which ${side} is ${{ '&&': 'falsy', '||': 'truthy', '??': 'neither null nor undefined' }[operator]}`;
   const kept = { '&&': 'true', '||': 'false', '??': 'undefined' }[operator];

@@ -201,15 +201,27 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     }
   }
 
-  // A right operand that awaits or yields cannot be evaluated inside the function a probe wraps it in.
-  function suspends(node) {
+  // A right operand that awaits or yields cannot be evaluated inside the function a probe wraps it in, and a
+  // direct eval there would declare its variables in that function.
+  function staysInPlace(node) {
     let found = false;
     (function look(inner) {
       if (found) return;
-      if (ts.isAwaitExpression(inner) || ts.isYieldExpression(inner)) found = true;
+      if (ts.isAwaitExpression(inner) || ts.isYieldExpression(inner) ||
+          (ts.isCallExpression(inner) && ts.isIdentifier(inner.expression) && inner.expression.text === 'eval')) found = true;
       else if (!ts.isFunctionLike(inner)) ts.forEachChild(inner, look);
+      // A computed name belongs to the code around its method.
+      else if (inner.name && ts.isComputedPropertyName(inner.name)) look(inner.name);
     })(node);
     return found;
+  }
+
+  // A written value: evaluating it has no effect and always gives the same.
+  function written(node) {
+    const inner = strip(node);
+    return ts.isNumericLiteral(inner) || ts.isBigIntLiteral(inner) || ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner) ||
+      [K.TrueKeyword, K.FalseKeyword, K.NullKeyword].includes(inner.kind) || (ts.isIdentifier(inner) && inner.text === 'undefined') ||
+      (ts.isPrefixUnaryExpression(inner) && inner.operator === K.MinusToken && ts.isNumericLiteral(inner.operand));
   }
 
   const nullishLiteral = node => {
@@ -224,7 +236,12 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const right = source(node.right);
     const boolean = onlyTruthUsed(node);
     const operands = [begin(node.left), node.left.end, begin(node.right), node.right.end];
-    const edit = (rule, form, replacement, more) => add(rule, node, replacement, { ...expressionPlacement(node, replacement), kind: 'observed' },
+    // The probe stands where the expression stands, inside its own parentheses: what encloses them (a template
+    // tag, `delete`) still applies to what the probe gives.
+    const statement = ts.isExpressionStatement(node.parent);
+    const place = replacement => ({ kind: 'observed', placement: [begin(node), node.end], statement,
+      leading: !statement && begin(node) === statementStart, mutated: ` ${replacement} ` });
+    const edit = (rule, form, replacement, more) => add(rule, node, replacement, place(replacement),
       { targeted: { operator, form, boolean, left, ...more }, operands });
     if (isBinary(node) && ['===', '!==', '==', '!='].includes(operator)) {
       edit(targetedRules.constant, 'true', `(${left}, ${right}, true)`);
@@ -243,10 +260,10 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
         edit(targetedRules.nullish, 'other', literalSide ? `${left} ${strict} ${other}` : `${other} ${strict} ${right}`,
           { literalSide, differsFor: written[literalSide], subject });
       }
-    } else if (isLogical(node) && !suspends(node.right)) {
+    } else if (isLogical(node) && !staysInPlace(node.right)) {
       // A different precedence would regroup an unparenthesized operand, so operands keep their own group.
       const operand = side => ts.isBinaryExpression(side) ? `(${source(side)})` : source(side);
-      const more = { thunk: true };
+      const more = { thunk: true, ...(written(node.right) ? { pureRight: true } : {}) };
       edit(targetedRules.ignored, 'left', `(${left}, ${right})`, more);
       edit(targetedRules.ignored, 'right', `(${left} ${operator} (${right}, ${ignoredValue[operator]}))`, more);
       if (operator === '??') edit(targetedRules.fallback, 'or', `(${operand(node.left)} || ${operand(node.right)})`, { ...more, evidence: true });
