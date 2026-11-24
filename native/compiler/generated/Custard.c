@@ -22011,20 +22011,30 @@ TmtPulseParser_module_sequence(
           else if (value5.export_kind == 4U)
           {
             TmtPulseParser_parser_state value61;
-            if (input.capture_types || exports != 0U || pending != 0U)
+            if (exports != 0U || pending != 0U)
               value61 = TmtPulseParser_failed(value1, 1U);
             else
             {
               TmtPulseParser_parser_state
               value6 = TmtPulseParser_consume(input, value5.after_export, 61U);
-              TmtPulseParser_parsed value7 = TmtPulseParser_comparison(input, value6, 64U);
-              TmtPulseParser_parser_state
-              value8 = TmtPulseParser_statement_end(input, value7.parser, value7.range.last, false);
-              TmtPulseParser_parser_state value9 = TmtPulseParser_skip(input, value8);
-              if (value9.offset == input.size)
-                value61 = value9;
+              TmtPulseParser_parser_state value7;
+              if (input.capture_types)
+                value7 =
+                  TmtPulseParser_record_jsx_span(input,
+                    value6,
+                    33U,
+                    value1.offset,
+                    value6.offset);
               else
-                value61 = TmtPulseParser_failed(value9, 1U);
+                value7 = value6;
+              TmtPulseParser_parsed value8 = TmtPulseParser_comparison(input, value7, 64U);
+              TmtPulseParser_parser_state
+              value9 = TmtPulseParser_statement_end(input, value8.parser, value8.range.last, false);
+              TmtPulseParser_parser_state value10 = TmtPulseParser_skip(input, value9);
+              if (value10.offset == input.size)
+                value61 = value10;
+              else
+                value61 = TmtPulseParser_failed(value10, 1U);
             }
             value60 =
               (

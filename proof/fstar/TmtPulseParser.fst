@@ -5262,9 +5262,12 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
           let! recorded = (fun () -> record_jsx_span input reexported.state (if exported.type_only then 8ul else 9ul) st.offset reexported.state.offset) in
           ret input ({ state = recorded; used }, reexported.used, pending)
         else if exported.export_kind = 4ul then
-          let! closed = (fun () -> if input.capture_types || exports <> 0ul || pending <> 0ul then ret input (failed st 1ul)
+          let! closed = (fun () -> if exports <> 0ul || pending <> 0ul then ret input (failed st 1ul)
             else
-              let! start = (fun () -> consume input exported.after_export 61uy) in
+              let! equals = (fun () -> consume input exported.after_export 61uy) in
+              // Kind 33 covers `export =`, which the emitter writes as `module.exports =`.
+              let! start = (fun () -> if input.capture_types then record_jsx_span input equals 33ul st.offset equals.offset
+                else ret input equals) in
               let! value = (fun () -> comparison input start 64ul) in
               let! end_ = (fun () -> statement_end input value.parser value.range.G.last false) in
               let! tail = (fun () -> skip input end_) in

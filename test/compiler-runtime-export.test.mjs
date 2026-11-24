@@ -48,7 +48,9 @@ test('a value sharing a type name satisfies an export and a re-export uses the e
 
 test('export assignment requires the CommonJS transpilation route', () => {
   const source = 'const value: number = 42;\nexport = value;';
-  assert.equal(emitAnnotatedModule(Buffer.from(source), false, false), null);
+  // The native emitter writes it only where the output may be CommonJS, never for an ECMAScript module.
+  assert.equal(emitAnnotatedModule(Buffer.from(source), undefined, true)?.code, undefined);
+  assert.match(emitAnnotatedModule(Buffer.from(source), undefined, false), /module\.exports = value/);
   const commonjs = compile(source, { module: 'cjs' });
   assert.match(commonjs.code, /module\.exports = value/);
   const esm = compile(source, { module: 'esm' });

@@ -924,3 +924,29 @@ test('setters in object types are read and index signatures in classes are erase
     assert.notEqual(compile(Buffer.from(source), { file: 'members.ts' }).backend, 'pulse', source);
   }
 });
+
+test('an export assignment at the end of a file becomes module.exports', () => {
+  for (const source of [
+    'export = { a: 1 };',
+    'import x from "x";\nconst rules = { a: x };\nexport = { rules, meta: { name: "n" } } satisfies L.Plugin;',
+    'function f(a: number) { return a; }\nexport = f;',
+    'export = <T>{ a: 1 };',
+    'enum E { A }\nexport = E;',
+    'export =\n  { a: 1 };',
+    'export = class { x: number = 1 };',
+  ]) {
+    const result = sameAsTypeScript(source, 'assign.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.match(result.code, /module\.exports =/, source);
+  }
+  for (const source of [
+    'export = f\nfunction f() {}',
+    'export = { a: 1 };\nconst b = 2;',
+    'export const a = 1;\nexport = a;',
+    'import fs = require("fs");\nexport = fs;',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'assign.ts' }).backend, 'pulse', source);
+  }
+  const mapped = compile(Buffer.from('const value: number = 1;\nexport = value;\n'), { file: 'assign.ts', sourceMap: true });
+  assert.equal(mapped.code.includes('module.exports = value;'), true);
+});

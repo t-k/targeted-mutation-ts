@@ -1388,6 +1388,8 @@ enum {
   decorated_modifiers = 30,
   prefix_assertion = 31,
   local_enum = 32,
+  /* `export =` up to its equals sign, written as `module.exports =`. */
+  export_assignment = 33,
 };
 
 typedef struct {
@@ -1397,6 +1399,8 @@ typedef struct {
   bool runtime_enums;
   /* An enum inside a block. Beside parameter properties TypeScript declares it with var, so that pair is declined. */
   bool local_enums;
+  /* `export =`, which only a CommonJS consumer can load. An ECMAScript output reports it as an error. */
+  bool export_assigned;
   uint32_t properties;
 } projection_facts;
 
@@ -1778,7 +1782,8 @@ static bool assertion_exposes_statement(TmtPulseMemory_tape input, TmtGrammar_sp
 }
 
 /* An enum at module level or inside a block. */
-static bool enum_record(uint32_t kind) { return kind == runtime_enum || kind == local_enum; }
+/* A record whose text is replaced: an enum at module level or inside a block, or the head of an export assignment. */
+static bool enum_record(uint32_t kind) { return kind == runtime_enum || kind == local_enum || kind == export_assignment; }
 
 static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool allow_properties,
   projection_facts *facts)
@@ -1794,6 +1799,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     if (event.original == uncertified_syntax) facts->uncertified = true;
     if (enum_record(event.original)) facts->runtime_enums = true;
     if (event.original == local_enum) facts->local_enums = true;
+    if (event.original == export_assignment) facts->export_assigned = true;
     if (event.original == parameter_property) {
       if (!allow_properties || facts->properties == 512) goto decline;
       facts->properties++;
@@ -1966,7 +1972,7 @@ static int compare_insertions(const void *lhs, const void *rhs) {
   return a->name.first < b->name.first ? -1 : a->name.first > b->name.first;
 }
 
-static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, bool local);
+static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, uint32_t kind);
 
 /* Copies a range of the projection and lowers the enum declarations recorded inside it. */
 static bool copy_lowering_enums(lowering *lower, uint32_t records, uint32_t *enum_index, uint32_t first, uint32_t last, bool enums) {
@@ -1980,7 +1986,7 @@ static bool copy_lowering_enums(lowering *lower, uint32_t records, uint32_t *enu
     if (span.first >= last) break;
     if (span.first < first || span.last > last) return false;
     source_bytes(lower, first, span.first);
-    if (!emit_recorded_enum(lower, span, event.original == local_enum)) return false;
+    if (!emit_recorded_enum(lower, span, event.original)) return false;
     first = span.last;
     (*enum_index)++;
   }
@@ -2050,9 +2056,15 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
   return lower.output.code;
 }
 
-static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, bool local) {
+static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, uint32_t kind) {
   const uint32_t size = lower->input.size;
+  const bool local = kind == local_enum;
   if (span.first >= span.last || span.last > size) return false;
+  if (kind == export_assignment) {
+    put(&lower->output, "module.exports =");
+    lower->at = span.last;
+    return !lower->output.failed;
+  }
   lower->input.size = span.last;
   const TmtPulseCompiler_runtime_head head = TmtPulseCompiler_read_runtime_head(lower->input, span.first, false, true, true);
   lower->at = head.body;
@@ -2062,15 +2074,17 @@ static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, bool local
   return emitted;
 }
 
-static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, size_t *length, tmt_run_log *runs) {
+/* An export assignment is written only where the output may be CommonJS. */
+static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, bool commonjs, size_t *length, tmt_run_log *runs) {
   lowering lower = { .input = input, .output.limit = (size_t)input.size * 32 + 1024, .output.runs = runs };
   uint32_t copied = 0;
   for (uint32_t index = 0; index < records; index++) {
     if (!enum_record(input.output[index].original)) continue;
     const TmtGrammar_span span = input.output[index].left;
     if (span.first < copied || span.first >= span.last || span.last > input.size) goto decline;
+    if (input.output[index].original == export_assignment && !commonjs) goto decline;
     source_bytes(&lower, copied, span.first);
-    if (!emit_recorded_enum(&lower, span, input.output[index].original == local_enum)) goto decline;
+    if (!emit_recorded_enum(&lower, span, input.output[index].original)) goto decline;
     copied = span.last;
   }
   if (!copied) return NULL;
@@ -2129,6 +2143,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   *length = input.size;
   const bool needs_module_marker = code && esm && facts.remove_statement && !retained_module_marker(projected, marker, records);
   bool unlowered_enum = facts.runtime_enums;
+  if (facts.export_assigned && (esm || !module)) goto enum_only;
   if (facts.properties) {
     if (!module || facts.local_enums) goto enum_only;
     /* One pass inserts the property statements and lowers the enums between them. */
@@ -2139,7 +2154,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
     unlowered_enum = false;
   } else if (enums != TMT_ENUMS_ABSENT) {
     /* A committed enum record implies the word, so an unknown hint needs no scan here. */
-    char *lowered = lower_recorded_enums(projected, records, length, runs);
+    char *lowered = lower_recorded_enums(projected, records, module && !esm, length, runs);
     if (lowered) {
       free(code);
       code = lowered;
@@ -2170,7 +2185,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
 enum_only:
   free(code);
   if (runs) runs->failed = true;
-  return enums != TMT_ENUMS_ABSENT ? lower_recorded_enums(input, records, length, NULL) : NULL;
+  return enums != TMT_ENUMS_ABSENT ? lower_recorded_enums(input, records, module && !esm, length, NULL) : NULL;
 }
 #endif
 
@@ -2448,7 +2463,7 @@ static bool source_jsx_with_enums(lowering *lower, uint32_t first, uint32_t last
     const TmtGrammar_span span = event.left;
     if (span.first >= last) break;
     if (span.first < first || span.last > last || !source_jsx(lower, first, span.first, 32) ||
-        !emit_recorded_enum(lower, span, event.original == local_enum)) return false;
+        !emit_recorded_enum(lower, span, event.original)) return false;
     first = span.last;
     (*index)++;
   }
