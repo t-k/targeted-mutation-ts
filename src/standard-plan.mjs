@@ -138,7 +138,10 @@ export function assessTrial(trial, expectedTests, hitLimit) {
   }
   if (errors.length) {
     if (hitCount > 0) {
-      return { status: 'killed', killedBy: 'unhandled-error', statusReason: errors.join('\n') };
+      const killerTests = failed.length
+        ? failed.map(({ id, name, file, project }) => ({ id, name, file, project }))
+        : [...expectedTests.values()].map(({ id, name, file, project }) => ({ id, name, file, project }));
+      return { status: 'killed', killedBy: 'unhandled-error', tests: killerTests, statusReason: errors.join('\n') };
     }
     return { status: 'error', statusReason: errors.join('\n') };
   }

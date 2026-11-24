@@ -58,7 +58,8 @@ test('captures mutation coverage in user teardown hooks', () => temporaryProject
   const { status, stderr, report } = analyze(root);
   assert.equal(status, 0, stderr);
   const mutant = report.mutants.find(mutant => mutant.replacement === 'n <= 0');
-  assert.equal(mutant.status, 'error');
+  assert.equal(mutant.status, 'killed');
+  assert.equal(mutant.killedBy, 'unhandled-error');
   assert.match(mutant.statusReason, /expected false to be true/);
 }));
 

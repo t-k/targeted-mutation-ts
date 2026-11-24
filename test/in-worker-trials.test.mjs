@@ -109,7 +109,8 @@ test('mutations decided inside a worker get the verdict of a fresh Vitest run ea
   assert.equal(boundary('subject.ts', '>=', '>'), 'killed');
   assert.equal(status('subject.ts', 'n * 2', 'n / 2'), 'killed');
   assert.equal(boundary('subject.ts', '>', '>='), 'survived');
-  assert.equal(status('subject.ts', 'n > 5', 'n <= 5'), 'error');
+  assert.equal(status('subject.ts', 'n > 5', 'n <= 5'), 'killed');
+  assert.equal(find(shared, 'subject.ts', 'n > 5', 'n <= 5').killedBy, 'unhandled-error');
   // An endless loop that keeps passing the mutation stops at the hit limit. A promise that never settles stops at the test timeout.
   assert.equal(status('subject.ts', 'i++', 'i--'), 'timeout');
   assert.equal(status('subject.ts', 'n > 7', 'false'), 'timeout');

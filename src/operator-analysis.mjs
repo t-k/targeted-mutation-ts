@@ -73,7 +73,9 @@ async function besideSession(project, files, options, run, profile, stopsSession
     mutators: profile, lines: options.lines, since: options.since, config: options.config, test: options.test,
     'copy-exclude': options['copy-exclude'], dialect: options.dialect, 'isolated-trials': options['isolated-trials'],
     concurrency: options.concurrency, 'verify-trials': options['verify-trials'], timeout: options.timeout, signal: stop.signal, extras,
-    shardKeys: options.shardKeys, checkpointStore: options.checkpointStore, 'exclude-rule': options['exclude-rule'],
+    ...(options.shardKeys ? { shardKeys: options.shardKeys } : {}),
+    ...(options.checkpointStore ? { checkpointStore: options.checkpointStore } : {}),
+    ...(options['exclude-rule'] ? { 'exclude-rule': options['exclude-rule'] } : {}),
   }).then(report => ({ report }), error => ({ error }));
   let prepared;
   try {
