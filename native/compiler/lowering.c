@@ -2603,8 +2603,6 @@ static bool statement_string_possible(const uint8_t *source, uint32_t size, uint
 }
 
 static bool directives_depend_on_erasure(TmtPulseMemory_tape input, uint32_t first) {
-  /* The scan below parses every leading item again, so it runs only for a source that could hold such a string. */
-  if (!statement_string_possible(input.source, input.size, '"') && !statement_string_possible(input.source, input.size, '\'')) return false;
   static const char *const erasable[] = { "import", "export", "interface", "type", "declare", "abstract", "enum", "namespace", "module" };
   bool prologue = true;
   for (uint32_t at = first, items = 0; at < input.size && items < 4096; items++) {
@@ -2654,6 +2652,9 @@ static bool directives_depend_on_erasure(TmtPulseMemory_tape input, uint32_t fir
       /* Behind an item that stays, no later string can become a directive. */
       if (!may_vanish) return false;
     }
+    /* Going on parses the item again, so it is done only for a source that could hold such a string at all. */
+    if (!items && !statement_string_possible(input.source, input.size, '"') &&
+        !statement_string_possible(input.source, input.size, '\'')) return false;
     const uint32_t next = TmtPulseCompiler_next_module_item(input, true, item.at);
     if (next <= item.at) return false;
     at = next;
