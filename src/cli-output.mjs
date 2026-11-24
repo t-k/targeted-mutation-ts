@@ -25,6 +25,10 @@ Profiles (analyze):
                                 without requiring any external instrumenter package.
   --witnesses                   Search for edits that survive and confirm a distinguishing test.
   --spec FILE                   Specification with expected thresholds or witness plans.
+  --list                        Preview scoped mutation candidates without running tests.
+  --shard K/N                   Run zero-based shard K of N total shards.
+  --sharding slice|round-robin  Candidate distribution across shards (default: slice).
+  --checkpoint [FILE]           Record and resume completed mutant outcomes via a JSONL checkpoint file.
   --deterministic               Declare a deterministic suite so recorded comparisons can decide a trial.
   --audit                       Re-run predicted trials against the rewritten source.
   --displace-thresholds         Also try displaced thresholds (Vitest only).
@@ -42,8 +46,11 @@ Runner (analyze):
   --timeout SECONDS             Time limit for one run of the suite (default: 60).
   --project NAME                Playwright project. Repeatable.
 
-Output:
-  --format text|json            analyze prints text on a terminal and JSON otherwise.
+Output & Baselines:
+  --format text|json|jsonl|sarif
+                                Output format (analyze defaults to text on a terminal and json otherwise).
+  --baseline FILE               Suppress findings already recorded in FILE.
+  --write-baseline FILE         Write this run's findings to FILE for future --baseline runs.
   --mode script|module          extract: parse goal.
   --dialect ts|tsx              extract: source dialect.
   -h, --help                    Show this help.
@@ -51,7 +58,9 @@ Output:
 
 export function chooseFormat(requested, terminal) {
   if (requested === undefined) return terminal ? 'text' : 'json';
-  if (requested !== 'text' && requested !== 'json') throw new Error('Expected --format text|json');
+  if (!['text', 'json', 'jsonl', 'sarif'].includes(requested)) {
+    throw new Error('Expected --format text|json|jsonl|sarif');
+  }
   return requested;
 }
 
@@ -121,6 +130,9 @@ function describeGap(gap) {
       `it gives ${printable(gap.strengthens.original)}, and ${printable(gap.strengthens.edited)} with the edit`);
   }
   if (gap.suggestedTest) lines.push(`  suggested test: ${printable(gap.suggestedTest)}`);
+  if (gap.weakened) {
+    lines.push(`  the tests as they were at ${printable(String(gap.weakened.since).slice(0, 12))} caught this: a change to the tests lets it through`);
+  }
   if (gap.seed) lines.push(`  based on: ${printable(gap.seed.file)} > ${printable(gap.seed.test)}`);
   if (gap.requirement) lines.push(`  requirement: ${firstLine(gap.requirement)}`);
   if (gap.suggestedTestFile) lines.push(`  suggested test file: ${printable(gap.suggestedTestFile)}`);
@@ -161,6 +173,8 @@ export function renderText(report) {
   const size = Array.isArray(tests) ? tests.length : tests;
   lines.push(`${report.runner}${size === undefined ? '' : `, ${size} baseline tests`}: ` +
     `${mutants.length} edits (${tally}), ${gaps.length} test gaps` +
+    (report.suppressed?.baseline ? `, ${report.suppressed.baseline} suppressed by baseline` : '') +
+    (report.shard ? `, shard ${report.shard.index}/${report.shard.total}` : '') +
     (report.evaluation === 'evaluated' ? '' : `, evaluation ${report.evaluation}`));
   return lines.join('\n');
 }

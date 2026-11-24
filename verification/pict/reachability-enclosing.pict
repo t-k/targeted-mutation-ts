@@ -1,0 +1,5 @@
+Constraint: None, Multiple, Shift, Bitmask, Remainder, NonNegative
+Operator: Lt, Le, Gt, Ge
+GapReachability: Reachable, Unreachable, Covered
+EnclosingCase: None, StrictLogicalInput, SameSpan, OuterAssertion
+WeakenedCase: NoTestChange, OldTestsKill, OldTestsPass, OldTestsFailCurrent

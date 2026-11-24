@@ -1,5 +1,7 @@
 import { analyze, baselineRunSymbol, completeAnalysis, prepareAnalysis } from './analysis.mjs';
 import { analyzeConventional } from './conventional.mjs';
+import { suppressEnclosingDiagnostics } from './enclosing-suppression.mjs';
+import { computeShardSelection } from './shard.mjs';
 
 const order = (a, b) => a.location.file.localeCompare(b.location.file) || a.location.start - b.location.start ||
   b.location.end - a.location.end;
@@ -67,6 +69,7 @@ async function besideSession(project, files, options, run, profile, stopsSession
     mutators: profile, lines: options.lines, since: options.since, config: options.config, test: options.test,
     'copy-exclude': options['copy-exclude'], dialect: options.dialect, 'isolated-trials': options['isolated-trials'],
     concurrency: options.concurrency, 'verify-trials': options['verify-trials'], timeout: options.timeout, signal: stop.signal, extras,
+    shardKeys: options.shardKeys,
   }).then(report => ({ report }), error => ({ error }));
   let prepared;
   try {
@@ -94,30 +97,33 @@ async function besideSession(project, files, options, run, profile, stopsSession
 // Playwright, --audit, and Vitest setups the session cannot drive rewrite the source for each mutation instead.
 export async function analyzeOperators(project, files, options, run = { analyze, prepareAnalysis, completeAnalysis, analyzeConventional }) {
   const profile = options.mutators ?? 'targeted';
+  const shardSelection = options.shard ? computeShardSelection(project, files, { ...options, mutators: profile }) : null;
+  const runOptions = shardSelection ? { ...options, shardKeys: shardSelection.keys } : options;
+  const withShard = report => shardSelection?.meta ? { ...report, shard: shardSelection.meta } : report;
   const rewriting = () => {
-    const out = run.analyze(project, files, { ...options, mutators: profile });
-    return carryBaseline({ ...out, mutators: profile, operatorExecution: 'source-rewrite' }, out);
+    const out = run.analyze(project, files, { ...runOptions, mutators: profile });
+    return carryBaseline(withShard({ ...out, mutators: profile, operatorExecution: 'source-rewrite' }), out);
   };
-  if (options.runner === 'playwright' || options.audit) return rewriting();
-  const { prepared, ended, stopped, extras, report: session, error } = await besideSession(project, files, options, run, profile,
+  if (runOptions.runner === 'playwright' || runOptions.audit) return rewriting();
+  const { prepared, ended, stopped, extras, report: session, error } = await besideSession(project, files, runOptions, run, profile,
     report => report.evaluation === 'baseline_error' || report.extraction.some(file => file.path === 'diagnostic'));
-  if (stopped) return carryBaseline({ ...ended, mutators: profile }, ended);
+  if (stopped) return carryBaseline(withShard({ ...ended, mutators: profile }), ended);
   if (error) throw error;
   if (session.evaluation === 'baseline_error') return rewriting();
   const completed = ended ?? run.completeAnalysis(prepared, sessionVerdicts(session, extras));
   const focused = carryBaseline({ ...completed, mutators: profile }, completed);
-  if (session.evaluation === 'no_sites') return carryBaseline({ ...focused, operatorExecution: 'session' }, focused);
+  if (session.evaluation === 'no_sites') return carryBaseline(withShard({ ...focused, operatorExecution: 'session' }), focused);
   // A comparison boundary appears in both parts. The focused result carries the missing input, so it is the one kept.
   const boundaries = new Set(focused.mutants.map(mutant => `${mutant.location.file}:${mutant.edit[0]}:${mutant.replacement}`));
   const added = session.mutants.filter(mutant => !(mutant.operatorSwap &&
     boundaries.has(`${mutant.location.file}:${mutant.operatorSwap.join(':')}`)));
-  return carryBaseline({
+  return carryBaseline(withShard({
     ...focused,
     operatorExecution: 'session',
     trials: session.trials,
     baseline: focused.baseline ?? session.baseline,
     evaluation: session.evaluation === 'incomplete' || focused.evaluation === 'incomplete' ? 'incomplete' : 'evaluated',
     mutants: [...focused.mutants, ...added.map(mutant => fromSession(mutant, profile))].sort(order),
-    diagnostics: [...focused.diagnostics, ...(session.diagnostics ?? [])],
-  }, focused);
+    diagnostics: suppressEnclosingDiagnostics([...focused.diagnostics, ...(session.diagnostics ?? [])]),
+  }), focused);
 }

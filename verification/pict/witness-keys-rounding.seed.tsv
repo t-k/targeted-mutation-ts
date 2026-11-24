@@ -1,0 +1,7 @@
+Rule	SeedKind	ParamCount	DivisorOrSep
+TemplateKey	RoundOrSingle	Two	Small
+JoinKey	RoundOrSingle	Three	Large
+FloorMulDiv	RoundOrSingle	Two	Large
+TruncMulDiv	AlreadyDistinguished	Two	Small
+BigIntMulDiv	RoundOrSingle	Two	Large
+FloorMulDiv	UnsafeInput	Two	Small

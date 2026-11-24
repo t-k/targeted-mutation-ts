@@ -1,0 +1,7 @@
+Constraint	Operator	GapReachability	EnclosingCase	WeakenedCase
+None	Ge	Reachable	None	NoTestChange
+Multiple	Ge	Unreachable	StrictLogicalInput	OldTestsKill
+Bitmask	Ge	Unreachable	SameSpan	OldTestsPass
+Remainder	Lt	Unreachable	OuterAssertion	OldTestsFailCurrent
+NonNegative	Ge	Unreachable	None	NoTestChange
+Shift	Ge	Reachable	StrictLogicalInput	OldTestsKill

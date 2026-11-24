@@ -4,6 +4,7 @@ import { dirname, relative, resolve, sep } from 'node:path';
 import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mjs';
 import { comparisonThresholdSites } from './prototype.mjs';
 import { marginGaps, thresholdGaps } from './threshold.mjs';
+import { extractReachability, filterReachableThresholdGap, isBoundaryReachable } from './reachability.mjs';
 import { shiftedReplacement, tightenComparison } from './displacement.mjs';
 import { failedTests } from './vitest-reporter.mjs';
 import { inside, runVitest, runVitestAsync, withCopy } from './vitest.mjs';
@@ -289,24 +290,32 @@ export function planFocusedTrials(subjects, trace, baseline, specification, disp
       const callable = callableThreshold(subject, site, observation, specification, lookupThreshold);
       const constant = constantThreshold(site, observation, callable);
       const margin = variableMargin(site, observation, constant);
-      if (constant) thresholdRequests.push(constant);
+      const lhsText = site.left ? subject.input.subarray(...site.left).toString('utf8') : '';
+      const reachability = extractReachability(lhsText);
+      if (constant) {
+        constant.reachability = reachability;
+        thresholdRequests.push(constant);
+      }
       if (margin) marginRequests.push(margin);
-      sites.push({ subject, site, observation, tightened, callable, constant, margin });
+      sites.push({ subject, site, observation, tightened, callable, constant, margin, reachability });
     }
   }
   const gaps = thresholdGaps(thresholdRequests.map(({ operator, value, inputs, min, max }) => ({
     operator, threshold: value, observations: inputs, min, max,
   })));
-  thresholdRequests.forEach((entry, index) => { entry.gap = gaps[index]; });
+  thresholdRequests.forEach((entry, index) => {
+    entry.gap = filterReachableThresholdGap(gaps[index], entry.reachability, entry.value, entry.operator, entry.inputs);
+  });
   const mGaps = marginGaps(marginRequests.map(({ operator, pairs }) => ({ operator, pairs })));
   marginRequests.forEach((entry, index) => { entry.gap = mGaps[index]; });
 
   const trials = [];
-  for (const { subject, site, observation, tightened, callable, constant, margin } of sites) {
+  for (const { subject, site, observation, tightened, callable, constant, margin, reachability } of sites) {
     if (callable && constant) callable.gap = constant.gap;
     const boundary = {
       site, edit: site.edit, replacement: site.replacement, source: site.source, rule: site.rule,
       observation, threshold: callable, thresholdGap: constant?.gap ?? null, marginGap: margin?.gap ?? null,
+      reachability,
     };
     trials.push(boundary);
     let thresholdAdjustment;
@@ -424,6 +433,10 @@ function diagnose(trial, result) {
   }
   const binary = observation.rows[0]?.operands;
   if (!binary) return null;
+  if (trial.rule === site.rule && trial.reachability &&
+      !isBoundaryReachable(trial.reachability, binary[1], observation.rows.map(row => row.operands[0]))) {
+    return null;
+  }
   const gap = trial.rule === 'comparison-threshold/v1' ? trial.thresholdGap : null;
   const mGap = trial.rule === 'comparison-margin/v1' ? trial.marginGap : null;
   const input = gap?.witness ?? (mGap ? binary[1] + mGap.witness : binary[1] + (trial.adjustment ?? 0));
@@ -618,7 +631,12 @@ export function prepareAnalysis(project, files, options) {
     else if (coverageSites.size) coverage = indexFocusedCoverage(replay.trace, coverageSites);
   }
 
-  const trials = planFocusedTrials(subjects, trace, baseline, specification, options['displace-thresholds']);
+  const rawTrials = planFocusedTrials(subjects, trace, baseline, specification, options['displace-thresholds']);
+  const trials = options.shardKeys
+    ? rawTrials.filter(trial => options.shardKeys.has(
+      `${trial.site.location.file}:${trial.site.location.start}:${trial.site.location.end}:${trial.site.rule}:${trial.site.replacement}`,
+    ))
+    : rawTrials;
   const skips = leanSkips(trials, baseline, !!options.deterministic, coverage);
   return { root, report, options, attempt, baseline, traced, trace, trials, skips };
 }

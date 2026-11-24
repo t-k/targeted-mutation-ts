@@ -1,0 +1,6 @@
+InlineComment	BaselineMode	Format	ShardMode	ListMode
+None	None	Text	None	Off
+SameLine	ApplyMatch	Sarif	None	Off
+PrevLine	ApplyMovedLine	Jsonl	Slice	Off
+None	Write	Json	RoundRobin	On
+StrykerDisable	ApplyMismatch	Sarif	Slice	Off

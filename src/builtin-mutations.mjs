@@ -1,4 +1,5 @@
 import { mutatePattern } from './regex-mutations.mjs';
+import { tmtIgnoreLines } from './baseline.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
 
 // The built-in mutation set follows the StrykerJS mutators, found here in the TypeScript syntax tree.
@@ -114,6 +115,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
   // that node's line. The newest matching rule decides.
   const directive = /^\s?Stryker (disable|restore)(?: (next-line))? ([a-zA-Z, ]+)(?::(.+)?)?/;
   const hasDirectives = text.includes('Stryker ');
+  const tmtIgnored = tmtIgnoreLines(text, ts);
   let rule = null;
   let directivesReadTo = 0;
   function readDirectives(node) {
@@ -130,6 +132,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     }
   }
   function ignoreReason(name, line, from = rule) {
+    if (tmtIgnored.has(line)) return tmtIgnored.get(line);
     for (let current = from; current; current = current.previous) {
       if ((current.line === undefined || current.line === line) && (current.names.includes(name.toLowerCase()) || current.names.includes('all'))) {
         return current.reason;

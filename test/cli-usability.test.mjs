@@ -48,7 +48,7 @@ test('a known command with the wrong arguments says so', () => {
 test('an unknown report format fails before any test run', () => {
   const run = cli('analyze', 'fixtures/eligibility', 'src/eligibility.ts', '--format', 'yaml');
   assert.equal(run.status, 1);
-  assert.equal(run.stderr, 'Expected --format text|json\n');
+  assert.equal(run.stderr, 'Expected --format text|json|jsonl|sarif\n');
 });
 
 test('a single line selects the same site as a one-line range', () => {

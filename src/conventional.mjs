@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prepareBuiltinSwitches, targetedOrBoundary } from './builtin-switches.mjs';
 import { targetedGap } from './targeted-gaps.mjs';
+import { candidateKey } from './shard.mjs';
 import { selectScope } from './scope.mjs';
 import { inside, runnerPackage, withCopy } from './vitest.mjs';
 
@@ -59,8 +60,14 @@ export async function analyzeConventional(project, files, options) {
     selection: { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] },
   };
   // Shift switches belong to the session and not to the report.
-  const mutants = prepared.filter(mutant => !mutant.parametric);
-  const runnable = prepared.filter(mutant => mutant.status === undefined);
+  const shardKeys = options.shardKeys;
+  const inShard = mutant => !shardKeys || mutant.parametric || shardKeys.has(candidateKey({
+    location: mutant.location,
+    rule: profile === 'full' ? mutant.mutatorName : mutant.mutatorName,
+    replacement: mutant.replacement,
+  }));
+  const mutants = prepared.filter(mutant => !mutant.parametric && inShard(mutant));
+  const runnable = prepared.filter(mutant => mutant.status === undefined && inShard(mutant));
   if (!mutants.length) return report;
   if (!runnable.length) return { ...report, evaluation: 'evaluated', mutants: mutants.map(({ targeted: _rule, ...mutant }) => mutant) };
 

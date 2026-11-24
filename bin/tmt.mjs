@@ -30,6 +30,12 @@ try {
       test: { type: 'string', multiple: true },
       'copy-exclude': { type: 'string', multiple: true },
       format: { type: 'string' },
+      baseline: { type: 'string' },
+      'write-baseline': { type: 'string' },
+      list: { type: 'boolean' },
+      shard: { type: 'string' },
+      sharding: { type: 'string' },
+      checkpoint: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
     },
@@ -76,31 +82,54 @@ try {
       values.concurrency = Number(values.concurrency);
     }
     const format = chooseFormat(values.format, process.stdout.isTTY === true);
+    const { parseShard, parseShardingStrategy, listCandidates } = await import('../src/shard.mjs');
+    const shard = parseShard(values.shard);
+    const sharding = parseShardingStrategy(values.sharding);
+    const { loadBaseline, writeBaseline, applyBaseline } = await import('../src/baseline.mjs');
+    const baselineIds = values.baseline ? loadBaseline(values.baseline) : null;
     enablePreparedTypeScript();
     let result;
-    if (values.witnesses) {
+    if (values.list) {
+      result = listCandidates(project, files, { ...values, mutators: values.mutators ?? 'targeted', shard: values.shard, sharding });
+    } else if (values.witnesses) {
       if (values.runner === 'playwright' || values.mutators !== undefined ||
           values.deterministic || values.project || values.audit || values['displace-thresholds']) throw new Error('--witnesses runs its own Vitest source trials');
       const { analyzeWitnesses } = await import('../src/witness-analysis.mjs');
       result = await analyzeWitnesses(project, files, values);
     } else {
       const { analyzeOperators } = await import('../src/operator-analysis.mjs');
-      result = await analyzeOperators(project, files, { ...values, mutators: values.mutators ?? 'targeted' });
+      result = await analyzeOperators(project, files, { ...values, mutators: values.mutators ?? 'targeted', shard, sharding });
     }
-    if (!values.witnesses) {
+    if (!values.witnesses && !values.list) {
       const { strengthenAssertions, withoutSourceEdits } = await import('../src/assertion-strength.mjs');
       if (values['suggest-assertions'] && result.evaluation === 'evaluated') result = await strengthenAssertions(realpathSync(project), result, values);
       withoutSourceEdits(result);
     }
-    if (values['undo-changes']) {
+    if (values['undo-changes'] && !values.list) {
       const { analyzeUndoneChangesAsync, withUndoneChanges } = await import('../src/change-undone.mjs');
       const { baselineRunSymbol } = await import('../src/analysis.mjs');
       if (result.evaluation !== 'baseline_error') {
         result = withUndoneChanges(result, await analyzeUndoneChangesAsync(project, files, { ...values, existingBaseline: result[baselineRunSymbol] }));
       }
     }
-    if (format === 'json') console.log(JSON.stringify(result, null, 2));
-    else console.log(renderText(result));
+    if (!values.list && values['write-baseline'] && result.evaluation !== 'baseline_error') {
+      writeBaseline(values['write-baseline'], result.diagnostics ?? []);
+    }
+    if (!values.list && baselineIds) {
+      result = applyBaseline(result, baselineIds);
+    }
+    if (format === 'json') {
+      console.log(JSON.stringify(result, null, 2));
+    } else if (format === 'jsonl') {
+      const { renderJsonl } = await import('../src/sarif.mjs');
+      console.log(renderJsonl(result));
+    } else if (format === 'sarif') {
+      const { renderSarif } = await import('../src/sarif.mjs');
+      const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+      console.log(JSON.stringify(renderSarif(result, { version }), null, 2));
+    } else {
+      console.log(renderText(result));
+    }
     if (['baseline_error', 'incomplete'].includes(result.evaluation) || result.extraction.some(file => file.path === 'diagnostic')) process.exitCode = 1;
   } else if (command === 'prototype' && positionals.length === 2) {
     enablePreparedTypeScript();

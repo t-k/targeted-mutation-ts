@@ -619,9 +619,10 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
 export const boundarySwap = (mutation, text) => mutation.shift !== undefined || (mutation.operator !== undefined &&
   ['>', '>=', '<', '<='].includes(mutation.operator[1]) && text[mutation.operator[0]] === mutation.operator[1][0]);
 
-// The boundary swaps that a `// Stryker disable` comment covers, as `offset:replacement` keys in UTF-8 bytes.
+// The boundary swaps that a `// Stryker disable` or `// tmt:ignore` comment covers, as `offset:replacement` keys in UTF-8 bytes.
 export function ignoredSwaps(input, file, options = {}) {
-  if (!input.includes('Stryker ')) return new Set();
+  const text = Buffer.isBuffer(input) ? input.toString('utf8') : String(input);
+  if (!text.includes('Stryker ') && !/tmt:ignore/i.test(text)) return new Set();
   return new Set(renderBuiltinSwitches(input, file, () => true, { ...options, keep: boundarySwap }).mutants
     .filter(mutant => mutant.status === 'ignored' && mutant.operatorSwap).map(mutant => mutant.operatorSwap.join(':')));
 }
