@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.1
+
+- Populate `tests` on mutants classified as `killed` via `killedBy: "unhandled-error"` in `assessTrial`, ensuring downstream consumers always receive a non-empty `tests` array for killed mutants.
+- Omit unset optional keys (`shardKeys`, `checkpointStore`, `exclude-rule`) when forwarding options from `analyzeOperators` to `analyzeConventional`.
+
 ## 0.2.0
 
 - Add baseline management (`--baseline`, `--write-baseline`) with line-number-independent stable finding IDs (v2) and AST-aware inline suppression comments (`// tmt:ignore <reason>` on the same line or standalone line above).
