@@ -1790,7 +1790,10 @@ static bool begins_runtime_declaration(TmtPulseMemory_tape input, uint32_t at) {
     /* A namespace or an enum that reaches this point is lowered, not erased, and is as much a declaration. */
     TmtPulseParser_keyword(input, at, 4, UINT64_C(0x656e756d)) ||
     (TmtPulseParser_keyword(input, at, 8, UINT64_C(0x6e616d6573706163)) == false && input.size - at > 9 &&
-      !memcmp(input.source + at, "namespace", 9) && !TmtGrammar_identifier_continue(input.source[at + 9]));
+      !memcmp(input.source + at, "namespace", 9) && !TmtGrammar_identifier_continue(input.source[at + 9])) ||
+    /* The older spelling of a namespace: `module` in front of a name. */
+    (input.size - at > 7 && !memcmp(input.source + at, "module", 6) && (input.source[at + 6] == ' ' || input.source[at + 6] == '\t') &&
+      TmtGrammar_identifier_start(input.source[at + 7]));
 }
 
 /*

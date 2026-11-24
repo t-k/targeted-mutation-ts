@@ -1359,3 +1359,34 @@ test('a declared module may hold type aliases beside interfaces', () => {
     assert.notEqual(compile(Buffer.from(source), { file: 'ambient.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a TypeScript script is read as strict code, module names a namespace, and a byte order mark is dropped', () => {
+  for (const source of [
+    'function f() { var a = 1; return a; }',
+    'var x: number = 1;\nfunction g(a: string) { var b = a; { var c = b; } return c; }',
+    'function f() { return arguments.callee; }',
+    'var a = <any>1;\nfunction h(this: any) { return this; }',
+  ]) {
+    const result = sameAsTypeScript(source, 'script.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.match(result.code, /^"use strict";\n/, source);
+  }
+  // Strict code has no with statement, no duplicate parameters and no variable named eval.
+  for (const source of ['var o = { a: 1 };\nwith (o) { a; }', 'function f(a: number, a: string) { }', 'var eval = 1;', 'delete x;']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'script.ts' }).backend, 'pulse', source);
+  }
+  for (const source of ['module M { export var x = 1; }\nexport {};', 'export module M { export function f() {} }',
+    'module.exports = 1;\nexport {};', 'var module = 1; module\n{ }\nexport {};']) {
+    assert.equal(sameAsTypeScript(source, 'space.ts').backend, 'pulse', source);
+  }
+  for (const [source, file] of [['var x: number = 1;', 'a.ts'], ['export const x: number = 1;', 'a.ts'], ['export const x = <a/>;', 'a.tsx']]) {
+    const plain = compile(Buffer.from(source), { file });
+    assert.equal(plain.backend, 'pulse');
+    assert.deepEqual(compile(Buffer.from('﻿' + source), { file }), plain);
+    assert.deepEqual(compile('﻿' + source, { file }), plain);
+  }
+  // With an error the positions refer to the input as it was given.
+  const broken = compile(Buffer.from('﻿export const x: = 1;'), { file: 'a.ts' });
+  assert.equal(broken.code, null);
+  assert.equal(broken.diagnostics[0].start, 17);
+});

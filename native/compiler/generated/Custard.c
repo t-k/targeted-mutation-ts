@@ -19376,14 +19376,36 @@ bool TmtPulseParser_namespace_keyword(TmtPulseMemory_tape input, uint32_t at)
   }
 }
 
+uint32_t TmtPulseParser_namespace_width(TmtPulseMemory_tape input, uint32_t at)
+{
+  bool value = TmtPulseParser_namespace_keyword(input, at);
+  if (value)
+    return 9U;
+  else
+  {
+    bool value1 = TmtPulseParser_keyword(input, at, 6U, 0x6d6f64756c65ULL);
+    if (!value1)
+      return 0U;
+    else
+    {
+      TmtPulseParser_cursor value2 = TmtPulseParser_trivia(input, TmtPulseParser_plus(at, 6U));
+      uint8_t value3 = TmtPulseMemory_peek(input, value2.at);
+      if (value2.ok && !value2.newline && TmtGrammar_identifier_start(value3))
+        return 6U;
+      else
+        return 0U;
+    }
+  }
+}
+
 TmtPulseParser_namespace_head
 TmtPulseParser_named_namespace_start(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state
 )
 {
-  bool value = TmtPulseParser_namespace_keyword(input, state.offset);
-  if (!value)
+  uint32_t value = TmtPulseParser_namespace_width(input, state.offset);
+  if (value == 0U)
     return
       (
         (TmtPulseParser_namespace_head){
@@ -19394,7 +19416,7 @@ TmtPulseParser_named_namespace_start(
   else
   {
     TmtPulseParser_cursor
-    value1 = TmtPulseParser_trivia(input, TmtPulseParser_plus(state.offset, 9U));
+    value1 = TmtPulseParser_trivia(input, TmtPulseParser_plus(state.offset, value));
     TmtPulseParser_parser_state st = TmtPulseParser_from_cursor(state, value1);
     TmtPulseParser_cursor value2 = TmtPulseParser_name(input, st.offset, false, true);
     TmtPulseParser_parser_state
@@ -21057,6 +21079,11 @@ TmtPulseParser_ambient_modifier(TmtPulseMemory_tape input, uint32_t start)
         value40 = TmtPulseParser_keyword(input, value1.at, 4U, 0x656e756dULL);
       else if (value4 == 110U)
         value40 = TmtPulseParser_namespace_keyword(input, value1.at);
+      else if (value4 == 109U)
+      {
+        uint32_t value5 = TmtPulseParser_namespace_width(input, value1.at);
+        value40 = value5 == 6U;
+      }
       else if (value4 == 102U)
         value40 = TmtPulseParser_keyword(input, value1.at, 8U, 0x66756e6374696f6eULL);
       else
@@ -22840,7 +22867,7 @@ module_plain_declaration(
   }
   else if (value == 118U)
     value30 = TmtPulseParser_keyword(input, st.offset, 3U, 0x766172ULL);
-  else if (value == 110U && st.module_mode)
+  else if ((value == 110U || value == 109U) && st.module_mode)
   {
     TmtPulseParser_namespace_head value3 = TmtPulseParser_named_namespace_start(input, st);
     value30 = value3.body_start.status == 0U;
@@ -23626,6 +23653,8 @@ TmtPulseParser_parse_attempt(
   bool value3;
   if (module_mode)
     value3 = false;
+  else if (input.capture_types)
+    value3 = true;
   else
     value3 = TmtPulseParser_strict_directive(input, value2.offset);
   TmtPulseParser_parser_state

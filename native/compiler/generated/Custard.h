@@ -2392,6 +2392,8 @@ TmtPulseParser_namespace_head;
 
 bool TmtPulseParser_namespace_keyword(TmtPulseMemory_tape input, uint32_t at);
 
+uint32_t TmtPulseParser_namespace_width(TmtPulseMemory_tape input, uint32_t at);
+
 TmtPulseParser_namespace_head
 TmtPulseParser_named_namespace_start(
   TmtPulseMemory_tape input,

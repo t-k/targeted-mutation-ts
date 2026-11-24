@@ -4722,6 +4722,19 @@ let namespace_keyword (input:tape) (#frame:slprop) (at:U32.t)
     if prefix = 0x6e616d6573706163uL then keyword input #frame (plus at 8ul) 1ul 0x65uL
     else read_ret input #frame false
 
+// The width of the keyword that opens a namespace: `namespace`, or the older `module` in front of a name.
+let namespace_width (input:tape) (#frame:slprop) (at:U32.t)
+  : Tot (stt U32.t (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! modern = (fun () -> namespace_keyword input #frame at) in
+  if modern then read_ret input #frame 9ul
+  else
+    let! older = (fun () -> keyword input #frame at 6ul 0x6d6f64756c65uL) in
+    if not older then read_ret input #frame 0ul
+    else
+      let! gap = (fun () -> trivia input #frame (plus at 6ul)) in
+      let! first = (fun () -> peek input #frame gap.at) in
+      read_ret input #frame (if gap.ok && not gap.newline && G.identifier_start first then 6ul else 0ul)
+
 let ambient_modifier (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   (let! anf_value_1 = (fun () -> keyword input #frame start 7ul 0x6465636c617265uL) in if anf_value_1 then
     let! after = (fun () -> trivia input #frame (plus start 7ul)) in
@@ -4732,6 +4745,7 @@ let ambient_modifier (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt curso
       if byte = 99uy then class_keyword input #frame after.at
       else if byte = 101uy then keyword input #frame after.at 4ul 0x656e756duL
       else if byte = 110uy then namespace_keyword input #frame after.at
+      else if byte = 109uy then (let! width = (fun () -> namespace_width input #frame after.at) in read_ret input #frame (width = 6ul))
       else if byte = 102uy then keyword input #frame after.at 8ul 0x66756e6374696f6euL
       else
         let! abstract_ = (fun () -> abstract_class_start input #frame after.at) in
@@ -4886,10 +4900,10 @@ type namespace_head = { body_start:parser_state; name_start:U32.t }
 
 let named_namespace_start (input:tape) (#frame:slprop) (state:parser_state)
   : Tot (stt namespace_head (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  let! present = (fun () -> namespace_keyword input #frame state.offset) in
-  if not present then read_ret input #frame { body_start = failed state 1ul; name_start = state.offset }
+  let! width = (fun () -> namespace_width input #frame state.offset) in
+  if width = 0ul then read_ret input #frame { body_start = failed state 1ul; name_start = state.offset }
   else
-    let! gap = (fun () -> trivia input #frame (plus state.offset 9ul)) in
+    let! gap = (fun () -> trivia input #frame (plus state.offset width)) in
     let st = from_cursor state gap in
     let! named = (fun () -> name input #frame st.offset false true) in
     let! tail = (fun () -> skip input #frame (from_cursor st named)) in
@@ -5471,7 +5485,7 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
     else if first = 105uy || first = 116uy then
       let! width = (fun () -> type_declaration_width input st.offset) in ret input (width <> 0ul)
     else if first = 118uy then keyword input st.offset 3ul 0x766172uL
-    else if first = 110uy && st.module_mode then
+    else if (first = 110uy || first = 109uy) && st.module_mode then
       let! namespace_ = (fun () -> named_namespace_start input st) in
       ret input (namespace_.body_start.status = 0ul)
     else
@@ -5601,7 +5615,11 @@ type parse_result (input:tape) = r:parser_state{
 let parse_attempt (input:tape) (jsx module_mode:bool) (local_log_floor:U16.t)
   : Tot (stt (parse_result input) (heap input) (fun _ -> heap input)) =
   let! initial = (fun () -> (let! anf_value_1 = (fun () -> (let! anf_value_2 = (fun () -> source_start input) in ret input ({ (initial_state jsx module_mode local_log_floor) with offset = anf_value_2 }))) in skip input anf_value_1)) in
-  let! strict_script = (fun () -> if module_mode then ret input false else strict_directive input initial.offset) in
+  // The compiler publishes a TypeScript script with the strict directive in front, as TypeScript does, so it
+  // reads the script as strict code. The extractor keeps the script's own mode.
+  let! strict_script = (fun () -> if module_mode then ret input false
+    else if input.capture_types then ret input true
+    else strict_directive input initial.offset) in
   let initial = { initial with strict_script } in
   let! script_var = (fun () -> if module_mode || initial.status <> 0ul then ret input false
     else keyword input initial.offset 3ul 0x766172uL) in

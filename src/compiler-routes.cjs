@@ -288,6 +288,16 @@ function compile(input, options = {}) {
   const format = outputFormat(file, module);
   const typed = /\.(?:m?ts|tsx)$/i.test(file);
   const jsxFile = /\.[jt]sx$/i.test(file);
+  // TypeScript drops a byte order mark, and the rest compiles as the same source without one. A result with
+  // diagnostics or from TypeScript itself is produced again from the unchanged input, so that positions hold.
+  if (!sourceMap && mode === 'transform' && typed) {
+    const marked = Buffer.isBuffer(input) ? input.length >= 3 && input[0] === 0xef && input[1] === 0xbb && input[2] === 0xbf :
+      typeof input === 'string' && input.charCodeAt(0) === 0xfeff;
+    if (marked) {
+      const result = compile(Buffer.isBuffer(input) ? input.subarray(3) : input.slice(1), options);
+      if (result.code !== null && result.backend !== 'typescript') return result;
+    }
+  }
   if (sourceMap && typed && jsx !== 'preserve' && target === 'esnext' && format !== 'cjs') {
     // The entry calls the same function, so both callers publish the same result.
     const mapper = loadModuleAddon();
