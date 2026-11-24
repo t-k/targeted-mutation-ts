@@ -2320,24 +2320,6 @@ static bool retained_module_marker(TmtPulseMemory_tape input, uint32_t at, uint3
   return false;
 }
 
-static bool word_byte(uint8_t byte) {
-  return (byte >= '0' && byte <= '9') || (byte >= 'A' && byte <= 'Z') || (byte >= 'a' && byte <= 'z') || byte == '_';
-}
-
-/* The caller's hint is the regular expression \benum\b over the whole source. */
-static bool mentions_enum(const uint8_t *source, uint32_t size, tmt_enum_hint hint) {
-  if (hint != TMT_ENUMS_UNKNOWN) return hint == TMT_ENUMS_PRESENT;
-  for (uint32_t at = 0; size - at >= 4;) {
-    const uint8_t *found = memchr(source + at, 'e', size - at - 3);
-    if (!found) return false;
-    at = (uint32_t)(found - source);
-    if (!memcmp(found, "enum", 4) && (!at || !word_byte(source[at - 1])) &&
-        (size - at == 4 || !word_byte(source[at + 4]))) return true;
-    at++;
-  }
-  return false;
-}
-
 static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, uint32_t marker, tmt_enum_hint enums, bool esm, bool module,
   size_t *length, bool *complete, tmt_run_log *runs)
 {
@@ -2352,7 +2334,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   bool unlowered_enum = facts.runtime_enums;
   if (facts.export_assigned && (esm || !module)) goto enum_only;
   if (facts.properties) {
-    if (!module || facts.local_enums) goto enum_only;
+    if (facts.local_enums) goto enum_only;
     /* One pass inserts the property statements and lowers the enums between them. */
     char *lowered = emit_parameter_properties(input, code, records, facts.properties, facts.runtime_enums, length, runs);
     if (!lowered) goto enum_only;
@@ -2414,8 +2396,8 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   if (!first.ok) return NULL;
   const uint32_t marker = find_marker(input, first.at, false);
   const bool module = marker < size;
-  if (!module && (!allow_script || first.at == size || source[first.at] == '"' || source[first.at] == '\'' ||
-      mentions_enum(source, size, enums))) return NULL;
+  /* A script is read as strict code and published with the directive, so its enums are lowered like a module's. */
+  if (!module && (!allow_script || first.at == size || source[first.at] == '"' || source[first.at] == '\'')) return NULL;
   TmtGrammar_candidate *records = NULL;
   uint8_t *marks = NULL;
   if (size >= 4096) {

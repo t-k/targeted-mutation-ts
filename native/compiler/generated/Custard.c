@@ -22474,7 +22474,7 @@ TmtPulseParser_module_declaration(
   else if (width == 0U)
   {
     TmtPulseParser_namespace_head value3;
-    if (value10.module_mode)
+    if (TmtPulseParser_strict_locals(value10))
       value3 = TmtPulseParser_named_namespace_start(input, value10);
     else
       value3 =
@@ -22875,7 +22875,7 @@ module_plain_declaration(
   }
   else if (value == 118U)
     value30 = TmtPulseParser_keyword(input, st.offset, 3U, 0x766172ULL);
-  else if ((value == 110U || value == 109U) && st.module_mode)
+  else if ((value == 110U || value == 109U) && TmtPulseParser_strict_locals(st))
   {
     TmtPulseParser_namespace_head value3 = TmtPulseParser_named_namespace_start(input, st);
     value30 = value3.body_start.status == 0U;

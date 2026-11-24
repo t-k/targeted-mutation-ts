@@ -1412,3 +1412,24 @@ test('signatures without a result type and properties without a type are erased'
     assert.notEqual(compile(Buffer.from(source), { file: 'bare.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a script lowers enums, namespaces and parameter properties as a module does', () => {
+  for (const source of [
+    'enum E { A, B = 2 }\nvar e = E.A;',
+    'const enum F { X = "x" }\nvar f = F.X;',
+    'class C { constructor(public x: number, private y?: string) {} }\nvar c = new C(1);',
+    'class B {}\nclass D extends B { constructor(readonly z: number) { super(); } }',
+    'namespace N { export const a = 1; export function f() {} }\nvar n = N.a;',
+    'module M { export var x = 1; }',
+    'function f() { enum L { A } return L.A; }',
+  ]) {
+    const result = sameAsTypeScript(source, 'script.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.match(result.code, /^"use strict";\n/, source);
+    assert.doesNotThrow(() => new Function(result.code), source);
+  }
+  for (const source of ['enum E { A }\nenum E { B = 1 }', 'var E = 1;\nenum E { A }',
+    'namespace N { export var x = 1; }\nnamespace N { export var y = 2; }']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'script.ts' }).backend, 'pulse', source);
+  }
+});

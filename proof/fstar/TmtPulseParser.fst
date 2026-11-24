@@ -5157,7 +5157,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
       state.offset declared.state.offset) in
     ret input { declared with state = recorded }
   else if width = 0ul then
-    let! namespace_ = (fun () -> if st.module_mode then named_namespace_start input st
+    let! namespace_ = (fun () -> if strict_locals st then named_namespace_start input st
       else ret input { body_start = failed st 1ul; name_start = st.offset }) in
     if namespace_.body_start.status <> 0ul then ret input { state = failed st 1ul; used }
     else
@@ -5490,7 +5490,7 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
     else if first = 105uy || first = 116uy then
       let! width = (fun () -> type_declaration_width input st.offset) in ret input (width <> 0ul)
     else if first = 118uy then keyword input st.offset 3ul 0x766172uL
-    else if (first = 110uy || first = 109uy) && st.module_mode then
+    else if (first = 110uy || first = 109uy) && strict_locals st then
       let! namespace_ = (fun () -> named_namespace_start input st) in
       ret input (namespace_.body_start.status = 0ul)
     else
