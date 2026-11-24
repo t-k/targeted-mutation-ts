@@ -1252,3 +1252,20 @@ test('abstract members may be marked override, and a type declaration may follow
     assert.notEqual(compile(Buffer.from(source), { file: 'members.ts' }).backend, 'pulse', source);
   }
 });
+
+test('the rest parameter of an arrow function may be a binding pattern', () => {
+  for (const source of [
+    'export const f = (...[a, b]: [number, string]) => a;',
+    'export const f = (...[a, b]) => a;',
+    'export const T = <P extends N<Q>>(...[head, ...tail]: P): T<J<P>> => { return head; };',
+    'export const f = (x: number, ...{ length }: any[]) => length;',
+    'export const f = (...[a = 1, { b }]: X) => a + b;',
+    'export const f = async (...[a]: X) => await a;',
+    'm((...[c, o, h]: Parameters<typeof g>) => { throw e; });\nexport {};',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'rest.ts').backend, 'pulse', source);
+  }
+  for (const source of ['export const f = (...[a], b) => a;', 'export const f = (...[a, a]) => a;']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'rest.ts' }).backend, 'pulse', source);
+  }
+});

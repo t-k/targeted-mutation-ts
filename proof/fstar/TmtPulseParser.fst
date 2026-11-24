@@ -2976,7 +2976,18 @@ and arrow_parameter_list (input:tape) (state:parser_state) (floor used:names_use
   if st.status <> 0ul then ret input ({ names = { state = st; used }; non_simple })
   else (let! anf_value_1 = (fun () -> same input st.offset 41uy) in if anf_value_1 then (let! anf_value_2 = (fun () -> (let! anf_value_3 = (fun () -> consume input st 41uy) in ret input ({ state = anf_value_3; used }))) in ret input ({ names = anf_value_2; non_simple }))
   else if remaining = 0ul then ret input ({ names = { state = failed st 1ul; used }; non_simple })
-  else (let! anf_value_4 = (fun () -> spread_at input st.offset) in if anf_value_4 then rest_parameter input st floor used
+  else (let! anf_value_4 = (fun () -> spread_at input st.offset) in if anf_value_4 then
+    // A rest parameter may be a pattern, as in (...[head, ...tail]: Params) => head.
+    let! target = (fun () -> skip input { st with offset = plus st.offset 3ul }) in
+    let! opener = (fun () -> peek input target.offset) in
+    if opener <> 91uy && opener <> 123uy then rest_parameter input st floor used
+    else if fuel = 0ul then ret input ({ names = { state = failed st 3ul; used }; non_simple })
+    else
+      let! bound = (fun () -> pattern_binding input { target with await_allowed = false; yield_allowed = false }
+        binding_region_width floor used (minus fuel 1ul)) in
+      let typed = { bound.state with await_allowed = st.await_allowed; yield_allowed = st.yield_allowed } in
+      let! end_ = (fun () -> (let! annotated = (fun () -> ((let! captured = (fun () -> (capture_annotation input typed false)) in skip input captured))) in consume input annotated 41uy)) in
+      ret input ({ names = { bound with state = end_ }; non_simple = true })
   else
     let! prefix = (fun () -> parameter_prefix input st floor used fuel) in
     let equal = prefix.names.state in
