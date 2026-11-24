@@ -376,11 +376,13 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       }
       return;
     }
-    // `[...list]` and `{ ...record }` as the whole literal are copies: the edit gives the original itself.
-    const only = ts.isArrayLiteralExpression(node) ? node.elements : ts.isObjectLiteralExpression(node) ? node.properties : undefined;
+    // `[...list]` and `{ ...record }` as the whole literal are copies (or iterable/spread conversions):
+    // probing records whether the operand is actually an array or a plain object.
+    const isArray = ts.isArrayLiteralExpression(node);
+    const only = isArray ? node.elements : ts.isObjectLiteralExpression(node) ? node.properties : undefined;
     if (only?.length !== 1 || !(ts.isSpreadElement(only[0]) || ts.isSpreadAssignment(only[0])) || isAssignmentTarget(node)) return;
     const original = source(only[0].expression);
-    add(targetedRules.copy, node, `(${original})`, undefined, { targeted: { operator: 'copy', form: 'dropped', left: original } });
+    probed(node, isArray ? 'copyArray' : 'copyObject', [only[0].expression])(targetedRules.copy, 'dropped', `(${original})`);
   }
 
   // A name or a chain of property names: reading it twice gives the same and does nothing else.

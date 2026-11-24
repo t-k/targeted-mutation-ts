@@ -227,7 +227,7 @@ try {
       const named = ids => [...ids].map(id => tests.get(id)).map(({ id, project, file, name }) => ({ id, project, file, name }));
       record({ observed: Object.fromEntries([...agreement].map(([id, seen]) => [id, { agreeing: seen.agreeing.size,
         differing: named(seen.differing), unsure: named(seen.unsure), outside: seen.outside, outsideUnsure: seen.outsideUnsure, differ: seen.differ, agree: seen.agree,
-        unknown: seen.unknown }])) });
+        unknown: seen.unknown, ...(seen.realCopy ? { realCopy: true } : {}), ...(seen.nonArray ? { nonArray: true } : {}), ...(seen.nonPlain ? { nonPlain: true } : {}) }])) });
     }
     const focusedTrace = numericTraces(baseline.records, focused, tests);
     for (const { id } of focused) {

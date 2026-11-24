@@ -410,11 +410,12 @@ for (const [operation, which, left, right, placement] of valueRows) {
     const [agreed, differed, unsure] = state.observed[mutant.id].tests.t0;
     assert.equal(agreed + differed + unsure, 1);
     // An agreement is never wrong. Where the probe can work the edit out it always says which, and a difference
-    // is never wrong either. (An operation that throws is recorded as a difference whatever the edit does.)
+    // is never wrong either. A non-logical operation that throws cannot prove the edit differs and is recorded as unsure.
     if (agreed) assert.equal(rewritten[0], original[0]);
-    if (exact(operation, left, right)) assert.equal(unsure, 0);
+    if (exact(operation, left, right) && !original[0].includes('threw')) assert.equal(unsure, 0);
+    else if (original[0].includes('threw') && placement !== 'Member') assert.equal(unsure, 1);
     else if (operation.startsWith('Find') && operands[left].length > 1 && Array.isArray(operands[left])) assert.equal(unsure, 1);
-    if (differed && placement !== 'Condition' && placement !== 'Member' && !original[0].includes('threw')) assert.notEqual(rewritten[0], original[0]);
+    if (differed && placement !== 'Condition' && placement !== 'Member') assert.notEqual(rewritten[0], original[0]);
   });
 }
 
@@ -583,4 +584,51 @@ async function f(a) { await slow('one'); log.push('after'); const copy = [...a];
   // Not waited for, the call ends after what follows it; without the copy the push reaches the caller's array.
   assert.deepEqual(results, { "void slow('one');": '[["after"],[1],[1,9],{"n":1}]', '(a)': '[["one","after"],[1,9],[1,9],{"n":2}]',
     '({ n: a.length })': original });
+});
+
+test('non-logical throws are recorded as unsure, string indexOf does not coerce objects twice, and copy probes distinguish iterables and non-plain objects', () => {
+  const safetyRows = readFileSync(new URL('../verification/pict/probe-safety.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1).map(l => l.split('\t'));
+  const safetySeeds = readFileSync(new URL('../verification/pict/probe-safety.seed.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1);
+  const table = new Set(safetyRows.map(r => r.join('\t')));
+  for (const seed of safetySeeds) assert.ok(table.has(seed), seed);
+  assert.ok(safetyRows.length >= safetySeeds.length);
+
+  // Non-logical throws (e.g. null[0], 1n + 1) are unsure rather than differing.
+  const throwing = render(prelude + 'function f(a, b) { return a[0]; }\n');
+  const throwState = {};
+  assert.deepEqual(run(throwing.output, [[null]], throwState, true), run(prelude + 'function f(a, b) { return a[0]; }\n', [[null]]));
+  assert.deepEqual([...throwState.observed[throwing.mutants[0].id].tests.t0], [0, 0, 1]);
+
+  const arithThrow = render(prelude + 'function f(a, b) { return a + b; }\n');
+  const arithState = {};
+  assert.deepEqual(run(arithThrow.output, [[1n, 1]], arithState, true), run(prelude + 'function f(a, b) { return a + b; }\n', [[1n, 1]]));
+  assert.deepEqual([...arithState.observed[arithThrow.mutants[0].id].tests.t0], [0, 0, 1]);
+
+  // String indexOf with an object argument does not invoke toString() a second time during baseline recording.
+  const strSource = 'var calls = 0;\nfunction f(s, q) { return s.indexOf(q); }\n';
+  const strRendered = render(strSource);
+  const strContext = vm.createContext({ __stryker__: { currentTestId: 't0' } });
+  strContext[session] = { phase: 'baseline' };
+  vm.runInContext(`${strRendered.output}\nvar r = f('aba', { toString() { calls++; return 'a'; } });`, strContext);
+  assert.equal(strContext.r, 0);
+  assert.equal(strContext.calls, 1);
+  assert.deepEqual([...strContext.__stryker__.observed[strRendered.mutants[0].id].tests.t0], [0, 0, 1]);
+
+  // Copy probe records whether the operand is an array / plain object vs iterable / nullish / class instance.
+  const copyRendered = render('function f(x, y) { return [[...x], { ...y }]; }\n');
+  const copyArr = copyRendered.mutants.find(m => m.targeted.operator === 'copyArray');
+  const copyObj = copyRendered.mutants.find(m => m.targeted.operator === 'copyObject');
+  const iterCtx = vm.createContext({ __stryker__: { currentTestId: 't0' } });
+  iterCtx[session] = { phase: 'baseline' };
+  vm.runInContext(`${copyRendered.output}\nclass Box { constructor(v) { this.v = v; } }\nf(new Set([1, 2]), new Box(3));`, iterCtx);
+  assert.equal(iterCtx.__stryker__.observed[copyArr.id].nonArray, true);
+  assert.equal(iterCtx.__stryker__.observed[copyArr.id].realCopy, undefined);
+  assert.equal(iterCtx.__stryker__.observed[copyObj.id].nonPlain, true);
+  assert.equal(iterCtx.__stryker__.observed[copyObj.id].realCopy, undefined);
+
+  const realCtx = vm.createContext({ __stryker__: { currentTestId: 't0' } });
+  realCtx[session] = { phase: 'baseline' };
+  vm.runInContext(`${copyRendered.output}\nf([1, 2], { a: 1 });`, realCtx);
+  assert.equal(realCtx.__stryker__.observed[copyArr.id].realCopy, true);
+  assert.equal(realCtx.__stryker__.observed[copyObj.id].realCopy, true);
 });

@@ -213,7 +213,7 @@ export async function analyzeConventional(project, files, options) {
     };
     const withEffects = (gap, mutant) => {
       if (!gap || !mutant.effects) return gap;
-      const plain = ['await', 'copy'].includes(mutant.targeted?.operator);
+      const plain = mutant.targeted?.operator === 'await';
       const nowRuns = expressionsOf(mutant.effects.now, mutant.location, plain);
       const noLongerRuns = expressionsOf(mutant.effects.gone, mutant.location, plain);
       return nowRuns.length || noLongerRuns.length ? { ...gap, effects: { nowRuns, noLongerRuns } } : gap;

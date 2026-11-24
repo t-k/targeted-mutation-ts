@@ -323,3 +323,28 @@ it('options', () => { expect(options({ size: 2 })).toEqual({ size: 2 }); });
   const verdict = replacement => closed.report.mutants.find(mutant => mutant.replacement === replacement).status;
   assert.deepEqual([verdict('[...list].sort()'), verdict('(list)')], ['killed', 'killed']);
 });
+
+test('non-logical throws are uncertain input gaps and non-array iterable spreads get iterable-conversion advice', () => {
+  const code = `export const first = (list: number[] | null) => (list as any)[0];
+export const unique = (items: number[]) => [...new Set(items)];
+export class Box { constructor(public a: number) {} }
+export const safeCopy = (input: Box) => ({ ...input });
+`;
+  const suite = `import { expect, it } from 'vitest';
+import { Box, first, safeCopy, unique } from './subject';
+it('throws on null', () => { expect(() => first(null)).toThrow(); });
+it('iterates unique', () => { const out = []; for (const n of unique([1, 1, 2])) out.push(n); expect(out).toEqual([1, 2]); });
+it('reads property', () => { expect(safeCopy(new Box(7)).a).toBe(7); });
+`;
+  const { status, stderr, report } = analyzeProject({ 'subject.ts': code, 'subject.test.ts': suite });
+  assert.equal(status, 0, stderr);
+  const firstGap = report.diagnostics.find(entry => entry.rule === 'sequence-end/v1');
+  assert.equal(firstGap.kind, 'INPUT GAP');
+  assert.equal(firstGap.uncertain, true);
+  const iterGap = report.diagnostics.find(entry => entry.mutations[0].replacement === '(new Set(items))');
+  assert.equal(iterGap.kind, 'ASSERTION GAP');
+  assert.match(iterGap.advice, /iterable is not converted to an array/);
+  const spreadGap = report.diagnostics.find(entry => entry.mutations[0].replacement === '(input)');
+  assert.equal(spreadGap.kind, 'ASSERTION GAP');
+  assert.match(spreadGap.advice, /object spread is replaced by its source directly/);
+});

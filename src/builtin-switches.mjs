@@ -46,10 +46,12 @@ function ${see}(i, l, r) {
       case 'idx0': return a[0]; case 'idxLast': return a[a.length - 1]; case 'at0': return a.at(0); case 'at-1': return a.at(-1);
       case 'find': return a.find(b); case 'findLast': return a.findLast(b); case 'findIndex': return a.findIndex(b);
       case 'findLastIndex': return a.findLastIndex(b); case 'indexOf': return a.indexOf(b); case 'lastIndexOf': return a.lastIndexOf(b);
+      case 'copyArray': return [...a]; case 'copyObject': return { ...a };
       case 'sort': return a.sort(b); case 'toSorted': return a.toSorted(b); default: return op === 'sort' ? a.sort() : a.toSorted();
     }
   }
   function edited(f) {
+    if (kind === 'c') return l;
     if (kind !== 'e') return apply(f, l, r);
     if (f === 'true') return true;
     if (f === 'false') return false;
@@ -84,7 +86,7 @@ function ${see}(i, l, r) {
       return true;
     }
     if (kind === 'a' ? !plain(l) || !plain(r) : kind === 'm' ? typeof l !== 'number' || (site[7] === 2 && typeof r !== 'number')
-      : !sequence && typeof l !== 'string') return null;
+      : (!sequence && typeof l !== 'string') || ((op === 'indexOf' || op === 'lastIndexOf') && typeof l === 'string' && !plain(r))) return null;
     // The callback of a search would run again: with at most one element both ends are the same search.
     if (op.slice(0, 4) === 'find') return sequence && l.length <= 1 ? true : null;
     try {
@@ -125,7 +127,8 @@ function ${see}(i, l, r) {
     var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '';
     for (k = 0; k < edits.length; k++) {
       var f = edits[k][1], same, other;
-      if (threw) same = logical && (f !== 'nullish' || missing);
+      if (threw) same = logical ? (f !== 'nullish' || missing) : null;
+      else if (kind === 'c') same = null;
       else if (kind === 'e') same = value === edited(f);
       else if (!logical) same = alike(f, value);
       else if (site[5] || f === 'right') {
@@ -137,6 +140,13 @@ function ${see}(i, l, r) {
         }
       } else same = f === 'left' ? taken : missing || !!l;
       var entry = seen[edits[k][0]] || (seen[edits[k][0]] = { tests: {} }), counts = entry.tests[test] || (entry.tests[test] = [0, 0, 0]);
+      if (kind === 'c' && !threw) {
+        if (op === 'copyArray') { if (scope.Array.isArray(l)) entry.realCopy = true; else entry.nonArray = true; }
+        else {
+          var proto = l !== null && typeof l === 'object' ? scope.Object.getPrototypeOf(l) : false;
+          if (proto === scope.Object.prototype || proto === null) entry.realCopy = true; else entry.nonPlain = true;
+        }
+      }
       var slot = same === null ? 'unsure' : same ? 'agree' : 'differ';
       counts[same === null ? 2 : same ? 0 : 1]++;
       if (!entry[slot]) entry[slot] = (logical ? !taken || threw : site[7] === 1) ? [show(l)] : [show(l), show(logical ? value : r)];
@@ -222,7 +232,8 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         // Only the edits beside a written null or undefined say on which side it stands.
         const literalSide = group.mutants.find(mutant => mutant.targeted.literalSide !== undefined)?.targeted.literalSide ?? 0;
         const kind = thunk ? 'l' : ['===', '!==', '==', '!='].includes(operator) ? 'e' : operator.length === 1 ? 'a'
-          : ['max', 'min', 'floor', 'ceil', 'round', 'trunc'].includes(operator) ? 'm' : 's';
+          : ['max', 'min', 'floor', 'ceil', 'round', 'trunc'].includes(operator) ? 'm'
+            : operator === 'copyArray' || operator === 'copyObject' ? 'c' : 's';
         probed.push([operator, boolean ? 1 : 0, group.mutants.map(mutant => [mutant.id, mutant.targeted.form]), literalSide,
           group.mutants.map(mutant => mutant.id), group.targeted.pureRight ? 1 : 0, kind, operands.length]);
         if (thunk) operands[1] = `() => ${operands[1]}`;

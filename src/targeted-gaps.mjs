@@ -13,6 +13,8 @@ const rules = { arithmetic: 'arithmetic-swap/v1', extreme: 'extreme-swap/v1', ro
 const advice = {
   [rules.awaited]: 'the tests pass when this call is not waited for: assert on what it has done before what follows it goes on',
   [rules.copy]: 'the tests pass when this copy is the original itself: assert that the original is unchanged after the copy is changed, or that the two are not the same object',
+  iterableCopy: 'the tests pass when this iterable is not converted to an array: assert that the result is an array (Array.isArray(...)) or use array operations on it',
+  spreadCoercion: 'the tests pass when this object spread is replaced by its source directly: assert on the resulting plain object properties, prototype, or nullish handling',
 };
 // For which numbers two ways of rounding differ.
 const roundingDiffers = { 'floor trunc': 'negative and not a whole number (-0.5)', 'ceil trunc': 'positive and not a whole number (0.5)',
@@ -47,6 +49,12 @@ export function targetedGap(mutant, seen) {
     mutations: [{ rule: mutant.mutatorName, edit: mutant.edit, replacement: mutant.replacement, evidence: mutant.evidence,
       ...(mutant.source ? { source: mutant.source } : {}) }],
   };
+  if (mutant.mutatorName === rules.copy) {
+    const note = seen && !seen.realCopy && seen.nonArray ? advice.iterableCopy
+      : seen && !seen.realCopy && seen.nonPlain ? advice.spreadCoercion
+        : advice[rules.copy];
+    return { kind: 'ASSERTION GAP', ...common, advice: note };
+  }
   if (!seen) return { kind: 'ASSERTION GAP', ...common, advice: advice[mutant.mutatorName] };
   if (seen.differing.length || seen.outside) {
     return { kind: 'ASSERTION GAP', ...common, tests: seen.differing, ...(seen.outside ? { outsideTests: true } : {}),
