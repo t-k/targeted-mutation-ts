@@ -356,13 +356,17 @@ let hex_value (ch:U8.t) : U32.t =
   else if U8.(ch >=^ 65uy && ch <=^ 70uy) then U32.sub n 55ul
   else 16ul
 
-let simple_escape (input:tape) (#frame:slprop) (at:U32.t) (template:bool) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+let simple_escape (input:tape) (#frame:slprop) (at:U32.t) (template extended:bool) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! escape = (fun () -> peek input #frame (next at)) in
   let! following = (fun () -> peek input #frame (plus at 2ul)) in
-  // A backslash before any other printable ASCII character stands for that character. The exceptions have
-  // their own forms: x and u take hex digits, and a digit other than a lone zero is an octal or an invalid escape.
+  // In an ordinary string or template a backslash before any other printable ASCII character stands for that
+  // character. The exceptions have their own forms: x and u take hex digits, and a digit other than a lone zero is
+  // an octal or an invalid escape. A property key, a module specifier and a directive are compared as written,
+  // so they keep the short list.
   read_ret input #frame ((escape = 48uy && not (G.decimal_digit following)) ||
-    (U8.(escape >=^ 32uy && escape <^ 127uy) && escape <> 120uy && escape <> 117uy && not (G.decimal_digit escape)))
+    (if extended then U8.(escape >=^ 32uy && escape <^ 127uy) && escape <> 120uy && escape <> 117uy && not (G.decimal_digit escape)
+    else escape = 92uy || escape = 34uy || escape = 39uy || escape = 110uy || escape = 114uy || escape = 116uy || escape = 98uy ||
+      escape = 102uy || escape = 118uy || escape = 96uy || (template && escape = 36uy)))
 
 let rec fixed_hex (input:tape) (#frame:slprop) (at digits:U32.t) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v digits) =
   if digits = 0ul then read_ret input #frame ({ at; ok = true; newline = false })
@@ -382,7 +386,7 @@ let rec unicode_escape (input:tape) (#frame:slprop) (at value fuel:U32.t) (seen:
     else unicode_escape input #frame (next at) (U32.add (U32.mul value 16ul) digit) (minus fuel 1ul) true)
 
 let escape_end (input:tape) (#frame:slprop) (at:U32.t) (template extended:bool) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  (let! anf_value_1 = (fun () -> simple_escape input #frame at template) in if anf_value_1 then read_ret input #frame ({ at = plus at 2ul; ok = true; newline = false })
+  (let! anf_value_1 = (fun () -> simple_escape input #frame at template extended) in if anf_value_1 then read_ret input #frame ({ at = plus at 2ul; ok = true; newline = false })
   else if not extended then read_ret input #frame ({ at; ok = false; newline = false })
   else
     let start = next at in

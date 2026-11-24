@@ -102,3 +102,16 @@ test('identity escapes in strings and legacy regular expressions are native', ()
     assert.ok(!nativeAccepts(literal, 'literal.mjs'), literal);
   }
 });
+
+test('a key that is compared as written keeps the short list of escapes', () => {
+  // With an identity escape these would pass the duplicate and reserved-name checks that read the raw text.
+  for (const source of [
+    'export const options = { __proto__: null, "\\__proto__": null };',
+    'export class User { "\\constructor"() {} constructor() {} }',
+    'export class User { static "\\prototype" = {}; }',
+    'import { a } from "./\\m.js";\nexport { a };',
+  ]) {
+    const result = compile(Buffer.from(source), { file: 'keys.ts' });
+    assert.notEqual(result.backend, 'pulse', source);
+  }
+});

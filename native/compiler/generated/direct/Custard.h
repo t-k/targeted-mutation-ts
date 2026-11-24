@@ -140,7 +140,13 @@ bool TmtPulseMemory_separator(TmtPulseMemory_tape input, uint32_t at);
 
 bool TmtPulseParser_line_break(TmtPulseMemory_tape input, uint32_t at);
 
-bool TmtPulseParser_simple_escape(TmtPulseMemory_tape input, uint32_t at, bool template0);
+bool
+TmtPulseParser_simple_escape(
+  TmtPulseMemory_tape input,
+  uint32_t at,
+  bool template0,
+  bool extended
+);
 
 uint32_t TmtPulseParser_hex_value(uint8_t ch);
 

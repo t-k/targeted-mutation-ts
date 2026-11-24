@@ -1033,6 +1033,42 @@ static bool pragma_text(const uint8_t *text, uint32_t available, const char *wor
  * accepts the plain case only and reports every other @jsx text as unsupported, so that the
  * TypeScript emitter decides it.
  */
+static bool pragma_space(uint8_t byte) {
+  return byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r' || byte == '\v' || byte == '\f';
+}
+
+/*
+ * TypeScript finds tags in a comment with the pattern @(\S+)(\s+(?:\S.*)?)?$ and continues after each
+ * match. A match takes the tag, the white space after it across line breaks, and the rest of the line
+ * that follows. A pragma inside the text of an earlier match is therefore not seen. Non-ASCII text
+ * before the pragma is not followed here and counts as hiding it.
+ */
+static bool pragma_hidden(const uint8_t *source, uint32_t comment, uint32_t pragma, uint32_t limit) {
+  for (uint32_t index = comment; index < pragma; index++) {
+    if (source[index] >= 0x80) return true;
+  }
+  uint32_t at = comment;
+  while (at < pragma) {
+    const uint8_t *tag = memchr(source + at, '@', pragma - at);
+    if (!tag) return false;
+    uint32_t end = (uint32_t)(tag - source) + 1;
+    if (end >= limit || pragma_space(source[end])) {
+      at = end;
+      continue;
+    }
+    while (end < limit && !pragma_space(source[end])) end++;
+    uint32_t text = end;
+    while (text < limit && pragma_space(source[text])) text++;
+    if (text > end && text < limit) {
+      while (text < limit && source[text] != '\n' && source[text] != '\r') text++;
+      end = text;
+    }
+    if (pragma < end) return true;
+    at = end;
+  }
+  return false;
+}
+
 tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_t *first, uint32_t *last) {
   uint32_t found = size, count = 0;
   for (const uint8_t *at = memchr(source, '@', size); at; ) {
@@ -1060,8 +1096,7 @@ tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_
       while (end + 1 < size && !(source[end] == '*' && source[end + 1] == '/')) end++;
       if (end + 1 >= size) return TMT_JSX_PRAGMA_OTHER;
       inside = found > at && found < end;
-      /* TypeScript matches a tag together with the rest of its text, so an earlier tag in the comment hides the pragma. */
-      if (inside && memchr(source + at, '@', found - at)) return TMT_JSX_PRAGMA_OTHER;
+      if (inside && pragma_hidden(source, at, found, end + 2)) return TMT_JSX_PRAGMA_OTHER;
       at = end + 2;
     } else break;
   }
@@ -2096,6 +2131,75 @@ bool tmt_plain_script(uint8_t *source, uint32_t size) {
 }
 
 #endif
+
+/* One line after its three slashes: a note without markup, or a reference with one known attribute and a quoted value. */
+static bool plain_triple_slash_line(const uint8_t *line, uint32_t width) {
+  uint32_t at = 0;
+  if (!memchr(line, '<', width)) return true;
+  while (at < width && line[at] == ' ') at++;
+  if (width - at < 11 || memcmp(line + at, "<reference ", 11)) return false;
+  at += 11;
+  while (at < width && line[at] == ' ') at++;
+  static const char *const names[] = { "types=", "path=", "lib=" };
+  uint32_t name = 0;
+  for (; name < 3; name++) {
+    const uint32_t length = (uint32_t)strlen(names[name]);
+    if (width - at >= length && !memcmp(line + at, names[name], length)) { at += length; break; }
+  }
+  if (name == 3 || at >= width || (line[at] != '"' && line[at] != '\'')) return false;
+  const uint8_t quote = line[at++];
+  const uint32_t value = at;
+  while (at < width && line[at] != quote && line[at] != '<' && line[at] != '>' && line[at] >= 32 && line[at] < 127) at++;
+  if (at == value || at >= width || line[at] != quote) return false;
+  at++;
+  while (at < width && line[at] == ' ') at++;
+  if (width - at < 2 || line[at] != '/' || line[at + 1] != '>') return false;
+  at += 2;
+  while (at < width && (line[at] == ' ' || line[at] == '\t')) at++;
+  return at == width;
+}
+
+/*
+ * The triple-slash comments before the first token. TypeScript reports a malformed reference directive,
+ * so only notes and well-formed references count as plain. Anything else, also a triple slash inside
+ * another comment, leaves the decision to TypeScript.
+ */
+tmt_triple_slash_kind tmt_triple_slash(uint8_t *source, uint32_t size) {
+  const TmtPulseMemory_tape input = { .source = source, .size = size };
+  const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
+  const uint32_t limit = first.ok ? first.at : size;
+  tmt_triple_slash_kind kind = TMT_TRIPLE_SLASH_ABSENT;
+  uint32_t at = size >= 3 && source[0] == 0xEF && source[1] == 0xBB && source[2] == 0xBF ? 3 : 0;
+  if (limit - at >= 2 && at < limit && source[at] == '#' && source[at + 1] == '!') {
+    while (at < limit && source[at] != '\n' && source[at] != '\r') at++;
+  }
+  while (at < limit) {
+    const uint8_t byte = source[at];
+    if (byte == '/' && at + 1 < limit && source[at + 1] == '/') {
+      uint32_t end = at;
+      while (end < limit && source[end] != '\n' && source[end] != '\r') end++;
+      if (end - at >= 3 && source[at + 2] == '/') {
+        if (end - at >= 4 && source[at + 3] == '/') return TMT_TRIPLE_SLASH_OTHER;
+        if (!plain_triple_slash_line(source + at + 3, end - at - 3)) return TMT_TRIPLE_SLASH_OTHER;
+        kind = TMT_TRIPLE_SLASH_PLAIN;
+      } else {
+        for (uint32_t index = at + 2; index + 2 < end; index++) {
+          if (source[index] == '/' && source[index + 1] == '/' && source[index + 2] == '/') return TMT_TRIPLE_SLASH_OTHER;
+        }
+      }
+      at = end;
+    } else if (byte == '/' && at + 1 < limit && source[at + 1] == '*') {
+      uint32_t end = at + 2;
+      while (end + 1 < limit && !(source[end] == '*' && source[end + 1] == '/')) end++;
+      for (uint32_t index = at; index + 2 < end + 2 && index + 2 < limit; index++) {
+        if (source[index] == '/' && source[index + 1] == '/' && source[index + 2] == '/') return TMT_TRIPLE_SLASH_OTHER;
+      }
+      at = end + 2;
+    } else if (byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r' || byte == '\v' || byte == '\f') at++;
+    else return tmt_leading_triple_slash(source, size) ? TMT_TRIPLE_SLASH_OTHER : kind;
+  }
+  return kind;
+}
 
 /* Equals a triple slash anywhere in the source and a leading directive, without scanning ordinary files. */
 bool tmt_leading_triple_slash(uint8_t *source, uint32_t size) {

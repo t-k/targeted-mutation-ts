@@ -349,15 +349,31 @@ bool TmtPulseParser_line_break(TmtPulseMemory_tape input, uint32_t at)
     return false;
 }
 
-bool TmtPulseParser_simple_escape(TmtPulseMemory_tape input, uint32_t at, bool template0)
+bool
+TmtPulseParser_simple_escape(
+  TmtPulseMemory_tape input,
+  uint32_t at,
+  bool template0,
+  bool extended
+)
 {
-  KRML_MAYBE_UNUSED_VAR(template0);
   uint8_t value = TmtPulseMemory_peek(input, TmtPulseParser_next(at));
   uint8_t value1 = TmtPulseMemory_peek(input, TmtPulseParser_plus(at, 2U));
-  return
-    value == 48U && !TmtGrammar_decimal_digit(value1) ||
+  if (value == 48U && !TmtGrammar_decimal_digit(value1))
+    return true;
+  else if (extended)
+    return
       value >= 32U && value < 127U && value != 120U && value != 117U &&
         !TmtGrammar_decimal_digit(value);
+  else
+    return
+      value == 92U || value == 34U || value == 39U || value == 110U || value == 114U ||
+        value == 116U
+      || value == 98U
+      || value == 102U
+      || value == 118U
+      || value == 96U
+      || template0 && value == 36U;
 }
 
 uint32_t TmtPulseParser_hex_value(uint8_t ch)
@@ -456,7 +472,7 @@ TmtPulseParser_escape_end(
   bool extended
 )
 {
-  bool value = TmtPulseParser_simple_escape(input, at, template0);
+  bool value = TmtPulseParser_simple_escape(input, at, template0, extended);
   if (value)
     return
       ((TmtPulseParser_cursor){ .at = TmtPulseParser_plus(at, 2U), .ok = true, .newline = false });

@@ -310,9 +310,14 @@ function compile(input, options = {}) {
     // The direct grammar starts at an export after trivia. Imports and interfaces cannot use it.
     const skipsDirectAddon = typed && mode === 'transform' && source?.[0] === 105;
     const native = source && !skipsDirectAddon ? loadDirectAddon() : null;
-    if (source && (skipsDirectAddon || native) && (validUtf8 ??= require('node:buffer').isUtf8)(source) &&
-        (skipsDirectAddon || mode === 'strip' || !native.leadingTripleSlash(source))) {
-      const simple = native && typed && !jsxFile && direct !== null ? native.compile(source) : null;
+    const wellFormed = source && (skipsDirectAddon || native) && (validUtf8 ??= require('node:buffer').isUtf8)(source);
+    // 0 without a leading triple-slash comment, 1 for notes and well-formed references, 2 for anything else.
+    const slashes = wellFormed && !skipsDirectAddon && mode !== 'strip' ? native.leadingTripleSlash(source) : 0;
+    if (wellFormed && slashes !== 2) {
+      // Behind a well-formed directive only the module emitters run. They keep it as a comment.
+      // TypeScript reports a malformed one, so that case skips the native routes.
+      const directive = slashes === 1;
+      const simple = native && !directive && typed && !jsxFile && direct !== null ? native.compile(source) : null;
       if (simple !== null) return { backend: 'pulse', code: simple, sourceMap: null, diagnostics: [] };
       // Whole-source scans are deferred. The native emitters find enum declarations themselves.
       let scanned;
@@ -322,7 +327,7 @@ function compile(input, options = {}) {
           loadModuleAddon()?.jsxPragmaSupported?.(source, jsx === 'classic') === true) && !source.includes('_tmt') :
         typed && source.includes('enum') && /\benum\b/.test(typeof stableInput === 'string' ? stableInput : source.toString()));
       // The single-declaration emitter accepts a TypeScript file only when it starts with an enum.
-      if (mode === 'transform' && native && (jsxFile ? runtime() : typed)) {
+      if (mode === 'transform' && native && !directive && (jsxFile ? runtime() : typed)) {
         const code = native.lower(source, jsxFile, typed, jsx === 'classic', false);
         if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
       }
@@ -337,15 +342,15 @@ function compile(input, options = {}) {
           if (typeof annotated === 'string') {
             return { backend: 'pulse', code: annotated, sourceMap: null, diagnostics: [] };
           }
-          if (typeof annotated?.script === 'string') {
+          if (!directive && typeof annotated?.script === 'string') {
             const code = strictScript(annotated.script, file);
             if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
           }
-          if (annotated?.reference === true) {
+          if (!directive && annotated?.reference === true) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
             return transformCompatibility(text, { file, target, outputModule: format, jsx, sourceMap });
           }
-          if (annotated?.code !== undefined) {
+          if (!directive && annotated?.code !== undefined) {
             const result = eraseLoweredModule(addon, annotated.code, file, format);
             if (result) return result;
           }
@@ -356,13 +361,13 @@ function compile(input, options = {}) {
                 const backend = !typed && !source.includes('<') ? 'javascript' : 'pulse';
                 return { backend, code: mixed.code, sourceMap: null, diagnostics: [] };
               }
-              if (typed) {
+              if (typed && !directive) {
                 const result = eraseLoweredModule(addon, mixed, file, format);
                 if (result) return result;
               }
             }
           }
-          if (typed && !jsxFile) {
+          if (typed && !jsxFile && !directive) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
             const property = annotated?.parameterProperty === true;
             const result = (property || annotated === true || addon.moduleMarker(source, true)) ? eraseModule(addon, text, file, format, property) :

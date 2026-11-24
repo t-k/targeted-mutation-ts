@@ -469,7 +469,7 @@ test('unusual import-source pragmas are left to TypeScript', () => {
   for (const comment of [
     '/** @jsxImportSource */', '/** @jsxImportSource\n * preact */', '/** @jsxImportSource "preact" */', '/** @jsxImportSourceX preact */',
     '/** @jsximportsource preact */\n/** @jsxFrag F */',
-    // TypeScript matches a tag with the text after it, so an earlier tag in the same comment hides the pragma.
+    // TypeScript matches a tag with the text after it, so an earlier tag can hide the pragma.
     '/* @license MIT @jsxImportSource preact */', '/*!\n * @preserve\n * @jsxImportSource preact\n */',
   ]) {
     const source = `${comment}\nexport const view = <i/>;\n`;
@@ -525,6 +525,19 @@ test('a helper import goes before a decorated class that uses JSX in its decorat
   const result = sameAsTypeScript(source, 'widget.tsx');
   assert.equal(result.backend, 'pulse');
   assert.ok(result.code.indexOf('import{') < result.code.indexOf('@placeholder'), result.code);
+  // An earlier tag hides the pragma only when its own text reaches it: a tag with text on its line does not.
+  for (const comment of ['/** Contact dev@example.org for help.\n * @jsxImportSource preact\n */', '/**\n * @license MIT\n * @jsxImportSource preact\n */',
+    '/* a@b c\n@jsxImportSource preact */']) {
+    const result = sameAsTypeScript(`${comment}\nexport const view = <i/>;\n`, 'view.tsx');
+    assert.equal(result.backend, 'pulse', comment);
+    assert.match(result.code, /from"preact\/jsx-runtime"/, comment);
+  }
+  for (const comment of ['/**\n * @preserve\n * @jsxImportSource preact\n */', '/* @license MIT @jsxImportSource preact */', '/* x@y\n * @jsxImportSource preact */',
+    '/* caf\u00e9 @jsxImportSource preact */']) {
+    const source = `${comment}\nexport const view = <i/>;\n`;
+    assert.notEqual(compile(Buffer.from(source), { file: 'view.tsx' }).backend, 'pulse', comment);
+    assert.match(compile(Buffer.from(source), { file: 'view.tsx' }).code, /react\/jsx-runtime/, comment);
+  }
   // An earlier comment with its own tag does not hide a pragma in a later comment.
   const pragma = sameAsTypeScript('/* @license MIT */\n/** @jsxImportSource preact */\nexport const view = <i/>;\n', 'view.tsx');
   assert.equal(pragma.backend, 'pulse');
@@ -565,4 +578,31 @@ test('a decorated JavaScript module gives the same result on the entry and the r
       assert.match(result.code, /@d\s+export class C/, file);
     }
   }
+});
+
+test('well-formed leading triple-slash comments stay on the module routes and malformed ones keep the diagnostic', async () => {
+  const { createRequire: requireFrom } = await import('node:module');
+  const router = requireFrom(import.meta.url)('../src/compiler-routes.cjs').compile;
+  const body = '\nimport { value } from "./v.js";\nexport const f: number = value;\n';
+  for (const [comment, native] of [
+    ['/// <reference types="vitest" />', true], ['///<reference path="./a.d.ts"/>', true], ['/// <reference lib="es2015" />', true],
+    ["/// <reference types='a' />", true], ['/// plain note', true], ['#!/usr/bin/env node\n// one\n/// <reference types="a" />\n/* two */', true],
+    ['/// <reference />', false], ['/// <reference foo="a" />', false], ['/// <reference types="a" >', false],
+    ['/// <amd-module name="x" />', false], ['/// <reference types="a" resolution-mode="import" />', false],
+    ['/// <reference types="a" /> trailing', false], ['//// <reference types="a" />', false], ['/* a ///b */', false], ['// x ///y', false],
+  ]) {
+    for (const [file, text] of [['a.ts', comment + body], ['a.tsx', comment + body + 'export const view = <i>{f}</i>;\n'],
+      ['types.ts', comment + '\nexport type T = number;\n']]) {
+      const result = compile(Buffer.from(text), { file });
+      assert.deepEqual(router(Buffer.from(text), { file }), result, text);
+      assert.equal(result.backend === 'pulse', native, text);
+      if (native) {
+        assert.ok(result.code.includes(comment.split('\n').at(-1)), text);
+        if (file !== 'types.ts') sameAsTypeScript(text, file);
+      }
+    }
+  }
+  const malformed = compile('/* header */\n/// <reference />\nexport const f: number = 42;');
+  assert.equal(malformed.code, null);
+  assert.equal(malformed.diagnostics[0].code, 1084);
 });

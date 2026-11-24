@@ -422,7 +422,13 @@ typedef struct TmtPulseParser_type_query_target_s
 }
 TmtPulseParser_type_query_target;
 
-bool TmtPulseParser_simple_escape(TmtPulseMemory_tape input, uint32_t at, bool template0);
+bool
+TmtPulseParser_simple_escape(
+  TmtPulseMemory_tape input,
+  uint32_t at,
+  bool template0,
+  bool extended
+);
 
 uint32_t TmtPulseParser_hex_value(uint8_t ch);
 

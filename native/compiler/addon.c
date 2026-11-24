@@ -568,9 +568,14 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
   const bool jsx = flags & emit_tsx, esm = flags & emit_esm, classic = flags & emit_classic;
   if (!size || size > source_limit || !unshared_buffer(env, args[0]) || !valid_utf8(source, size)) goto decline;
   const uint32_t width = (uint32_t)size;
-  /* The restricted grammars start at an export after trivia. An import cannot use them. */
-  const bool restricted = source[0] != 'i';
-  if (restricted && tmt_leading_triple_slash(source, width)) goto decline;
+  /*
+   * The restricted grammars start at an export after trivia. An import cannot use them, and a leading
+   * triple-slash directive keeps them out as well. The module routes keep the directive as the comment it is.
+   */
+  const tmt_triple_slash_kind directive = source[0] != 'i' && tmt_leading_triple_slash(source, width) ?
+    tmt_triple_slash(source, width) : TMT_TRIPLE_SLASH_ABSENT;
+  if (directive == TMT_TRIPLE_SLASH_OTHER) goto decline;
+  const bool restricted = source[0] != 'i' && directive == TMT_TRIPLE_SLASH_ABSENT;
   if (restricted && !jsx) {
     uint8_t *planned;
     bool failed;
@@ -764,7 +769,8 @@ static napi_value leading_triple_slash(napi_env env, napi_callback_info info) {
       directive = !memcmp((const char *)source + index, "///", 3);
     }
   } else directive = tmt_leading_triple_slash(source, (uint32_t)size);
-  NAPI(napi_get_boolean(env, directive, &result));
+  /* 0 for no directive, 1 for notes and well-formed references only, 2 for anything else. */
+  NAPI(napi_create_uint32(env, !directive ? 0 : size <= source_limit && tmt_triple_slash(source, (uint32_t)size) == TMT_TRIPLE_SLASH_PLAIN ? 1 : 2, &result));
   return result;
 error:
   napi_throw_type_error(env, NULL, "Expected a source buffer");

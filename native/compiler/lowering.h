@@ -36,5 +36,8 @@ typedef enum { TMT_JSX_PRAGMA_ABSENT, TMT_JSX_PRAGMA_SOURCE, TMT_JSX_PRAGMA_OTHE
 tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_t *first, uint32_t *last);
 bool tmt_leading_directive(uint8_t *source, uint32_t size);
 bool tmt_leading_triple_slash(uint8_t *source, uint32_t size);
+/* Leading triple-slash comments: none, only notes and well-formed references, or something TypeScript has to judge. */
+typedef enum { TMT_TRIPLE_SLASH_ABSENT, TMT_TRIPLE_SLASH_PLAIN, TMT_TRIPLE_SLASH_OTHER } tmt_triple_slash_kind;
+tmt_triple_slash_kind tmt_triple_slash(uint8_t *source, uint32_t size);
 
 #endif
