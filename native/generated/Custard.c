@@ -22093,7 +22093,8 @@ TmtPulseParser_runtime_namespace_members(
   TmtPulseParser_parser_state state0,
   uint32_t floor0,
   uint32_t used0,
-  uint32_t remaining0
+  uint32_t remaining0,
+  bool instantiated0
 )
 {
   TmtPulseMemory_tape input = input0;
@@ -22101,6 +22102,7 @@ TmtPulseParser_runtime_namespace_members(
   uint32_t floor = floor0;
   uint32_t used = used0;
   uint32_t remaining = remaining0;
+  bool instantiated = instantiated0;
   while (true)
   {
     TmtPulseParser_parser_state
@@ -22130,8 +22132,15 @@ TmtPulseParser_runtime_namespace_members(
           }
         ));
     bool value1 = TmtPulseParser_same(input, value.offset, 125U);
-    if (value.status != 0U || value1)
+    if (value.status != 0U)
       return value;
+    else if (value1)
+    {
+      if (instantiated)
+        return value;
+      else
+        return TmtPulseParser_failed(value, 1U);
+    }
     else if (remaining == 0U || value.offset == input.size)
       return TmtPulseParser_failed(value, 1U);
     else
@@ -22144,8 +22153,9 @@ TmtPulseParser_runtime_namespace_members(
         value3 = false;
       if (!value3)
       {
+        uint32_t value4 = TmtPulseParser_type_declaration_width(input, value.offset);
         TmtPulseParser_named_state
-        value4 =
+        value5 =
           TmtPulseParser_scope_statement(input,
             value,
             64U,
@@ -22155,12 +22165,14 @@ TmtPulseParser_runtime_namespace_members(
             used,
             false,
             true);
-        TmtPulseParser_parser_state tmp0 = value4.state;
-        uint32_t tmp1 = value4.used;
-        uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
+        TmtPulseParser_parser_state tmp0 = value5.state;
+        uint32_t tmp1 = value5.used;
+        uint32_t tmp2 = TmtPulseParser_minus(remaining, 1U);
+        bool tmp = instantiated || value4 == 0U;
         state = tmp0;
         used = tmp1;
-        remaining = tmp;
+        remaining = tmp2;
+        instantiated = tmp;
       }
       else
       {
@@ -22241,10 +22253,12 @@ TmtPulseParser_runtime_namespace_members(
               .local_log_floor = value18.local_log_floor, .local_log_used = value18.local_log_used
             };
           uint32_t tmp1 = value13.used;
-          uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
+          uint32_t tmp2 = TmtPulseParser_minus(remaining, 1U);
+          bool tmp = true;
           state = tmp0;
           used = tmp1;
-          remaining = tmp;
+          remaining = tmp2;
+          instantiated = tmp;
         }
         else if (value5 != 0U || value6)
         {
@@ -22307,10 +22321,12 @@ TmtPulseParser_runtime_namespace_members(
               );
           TmtPulseParser_parser_state tmp0 = value15.state;
           uint32_t tmp1 = value15.used;
-          uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
+          uint32_t tmp2 = TmtPulseParser_minus(remaining, 1U);
+          bool tmp = true;
           state = tmp0;
           used = tmp1;
-          remaining = tmp;
+          remaining = tmp2;
+          instantiated = tmp;
         }
         else if (value7.ok || value8 || value9.ok)
         {
@@ -22367,10 +22383,12 @@ TmtPulseParser_runtime_namespace_members(
             value14 = TmtPulseParser_failed(ended, 1U);
           TmtPulseParser_parser_state tmp0 = value14;
           uint32_t tmp1 = value13.used;
-          uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
+          uint32_t tmp2 = TmtPulseParser_minus(remaining, 1U);
+          bool tmp = true;
           state = tmp0;
           used = tmp1;
-          remaining = tmp;
+          remaining = tmp2;
+          instantiated = tmp;
         }
         else if (value10 == 4U || value10 == 9U)
         {
@@ -22474,7 +22492,13 @@ TmtPulseParser_runtime_namespace(
         }
       ));
   TmtPulseParser_parser_state
-  value2 = TmtPulseParser_runtime_namespace_members(input, inner, floor, floor, input.size);
+  value2 =
+    TmtPulseParser_runtime_namespace_members(input,
+      inner,
+      floor,
+      floor,
+      input.size,
+      false);
   TmtPulseParser_parser_state
   value3 =
     TmtPulseParser_consume(input,

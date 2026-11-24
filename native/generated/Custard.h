@@ -2655,7 +2655,8 @@ TmtPulseParser_runtime_namespace_members(
   TmtPulseParser_parser_state state0,
   uint32_t floor0,
   uint32_t used0,
-  uint32_t remaining0
+  uint32_t remaining0,
+  bool instantiated0
 );
 
 TmtPulseParser_parser_state

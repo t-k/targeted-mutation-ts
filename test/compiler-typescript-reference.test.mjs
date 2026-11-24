@@ -1433,3 +1433,19 @@ test('a script lowers enums, namespaces and parameter properties as a module doe
     assert.notEqual(compile(Buffer.from(source), { file: 'script.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a namespace that holds types alone stays erased, whatever its interfaces repeat', () => {
+  for (const source of [
+    'module M { interface A { x: string } interface A { y: number } }',
+    'namespace N { interface A<T> { x: T } interface A<U> { y: U } }\nexport {};',
+    'namespace N { export interface A { x: 1 } type T = 1; }\nexport {};',
+  ]) {
+    const result = sameAsTypeScript(source, 'types.ts');
+    assert.doesNotMatch(result.code, /function/, source);
+  }
+  for (const source of ['namespace N { export interface A { x: 1 } const a = 1; }\nexport {};', 'namespace N { ; }\nexport {};']) {
+    const result = sameAsTypeScript(source, 'types.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.match(result.code, /\(function \(N\)/, source);
+  }
+});
