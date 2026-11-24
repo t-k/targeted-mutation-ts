@@ -140,3 +140,16 @@ test('an .mts file without imports or exports is compiled as a module, and a Typ
   assert.equal(failed.diagnostics.length > 0, true);
   assert.equal(failed.diagnostics[0].severity, 'error');
 });
+
+test('a TypeScript file of comments and white space alone is a strict script', () => {
+  for (const [source, file] of [['// mock', 'a.ts'], ['/* c */\n', 'a.ts'], ['', 'a.ts'], ['  \n', 'a.tsx']]) {
+    const result = compile(source, { file });
+    assert.equal(result.backend, 'pulse', JSON.stringify(source));
+    assert.equal(result.code, '"use strict";\n' + source);
+    assert.deepEqual(compile(Buffer.from(source), { file }), result);
+  }
+  // A hashbang, a reference directive, an unterminated comment and a module extension take other routes.
+  for (const [source, file] of [['#!/usr/bin/env node\n// a', 'a.ts'], ['/// <reference path="a" />\n', 'a.ts'], ['/* open', 'a.ts'], ['// a', 'a.mts']]) {
+    assert.notEqual(compile(source, { file }).backend, 'pulse', JSON.stringify(source));
+  }
+});

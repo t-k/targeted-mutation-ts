@@ -549,6 +549,21 @@ let regex_bmp_unit (input:tape) (#frame:slprop) (at:U32.t) (first:U8.t)
         read_ret input #frame { unit_end = plus at 3ul; unit_ok = true; character = value; repeatable = true; unicode_only = false }
       else read_ret input #frame invalid
 
+// A character outside the Basic Multilingual Plane as a pattern character of its own. With the u flag it is one
+// character, without it two code units; both read it where it stands. Inside a class the two readings order
+// ranges differently, so a class with such a character is left to TypeScript.
+let regex_astral_unit (input:tape) (#frame:slprop) (at:U32.t) (first:U8.t)
+  : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! second = (fun () -> peek input #frame (next at)) in
+  let! third = (fun () -> peek input #frame (plus at 2ul)) in
+  let! fourth = (fun () -> peek input #frame (plus at 3ul)) in
+  let value = U32.logor (U32.shift_left (utf8_bits first 7ul) 18ul)
+    (U32.logor (U32.shift_left (utf8_bits second 63ul) 12ul)
+      (U32.logor (U32.shift_left (utf8_bits third 63ul) 6ul) (utf8_bits fourth 63ul))) in
+  read_ret input #frame { at = plus at 4ul; newline = false;
+    ok = U8.(first >=^ 240uy && first <=^ 244uy) && utf8_tail second && utf8_tail third && utf8_tail fourth &&
+      U32.(value >=^ 65536ul && value <=^ 1114111ul) }
+
 // Without the u or v flag a backslash before one of these characters stands for the character itself.
 // The pattern is then valid only without those flags.
 let legacy_identity_escape (byte:U8.t) : bool =
@@ -712,7 +727,11 @@ let rec regex_pattern (input:tape) (#frame:slprop) (at depth fuel:U32.t) (nested
     else if not (U8.lt byte 128uy) then
       let! atom = (fun () -> regex_bmp_unit input #frame at byte) in
       if atom.unit_ok then regex_pattern input #frame atom.unit_end depth rest nested true captures
-      else read_ret input #frame (regex_result_at at false captures)
+      else
+        let! astral = (fun () -> if not (U8.lt byte 240uy) then regex_astral_unit input #frame at byte
+          else read_ret input #frame { at; ok = false; newline = false }) in
+        if astral.ok then regex_pattern input #frame astral.at depth rest nested true captures
+        else read_ret input #frame (regex_result_at at false captures)
     else read_ret input #frame (regex_result_at at false captures)
 and regex_group (input:tape) (#frame:slprop) (at depth fuel:U32.t) (captures:regex_captures)
   : Tot (stt regex_group_result (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v depth; 0; U32.v fuel]) =

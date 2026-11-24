@@ -1454,6 +1454,9 @@ TmtPulseParser_regex_decimal(
 
 TmtPulseParser_cursor TmtPulseParser_regex_counted(TmtPulseMemory_tape input, uint32_t at);
 
+TmtPulseParser_cursor
+TmtPulseParser_regex_astral_unit(TmtPulseMemory_tape input, uint32_t at, uint8_t first);
+
 typedef struct FStar_Pervasives_Native_tuple3__uint32_t_uint64_t_bool_s
 {
   uint32_t _1;

@@ -313,6 +313,12 @@ function compile(input, options = {}) {
     const wellFormed = source && (skipsDirectAddon || native) && (validUtf8 ??= require('node:buffer').isUtf8)(source);
     // 0 without a leading triple-slash comment, 1 for notes and well-formed references, 2 for anything else.
     const slashes = wellFormed && !skipsDirectAddon && mode !== 'strip' ? native.leadingTripleSlash(source) : 0;
+    // A file of comments and white space alone is a script with nothing in it. TypeScript writes the strict
+    // directive in front of its text.
+    if (wellFormed && slashes === 0 && typed && mode === 'transform' && format === 'preserve' &&
+        source[0] !== 0x23 && source[0] !== 0xef && source.length <= 1048576 && loadModuleAddon()?.triviaOnly?.(source) === true) {
+      return { backend: 'pulse', code: '"use strict";\n' + source.toString(), sourceMap: null, diagnostics: [] };
+    }
     if (wellFormed && slashes !== 2) {
       // Behind a well-formed directive only the module emitters run. They keep it as a comment.
       // TypeScript reports a malformed one, so that case skips the native routes.

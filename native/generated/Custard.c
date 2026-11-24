@@ -8427,6 +8427,30 @@ TmtPulseParser_cursor TmtPulseParser_regex_counted(TmtPulseMemory_tape input, ui
     );
 }
 
+TmtPulseParser_cursor
+TmtPulseParser_regex_astral_unit(TmtPulseMemory_tape input, uint32_t at, uint8_t first)
+{
+  uint8_t value = TmtPulseMemory_peek(input, TmtPulseParser_next(at));
+  uint8_t value1 = TmtPulseMemory_peek(input, TmtPulseParser_plus(at, 2U));
+  uint8_t value2 = TmtPulseMemory_peek(input, TmtPulseParser_plus(at, 3U));
+  uint32_t
+  value3 =
+    TmtPulseParser_utf8_bits(first, 7U) << 18U |
+      TmtPulseParser_utf8_bits(value, 63U) << 12U |
+        TmtPulseParser_utf8_bits(value1, 63U) << 6U | TmtPulseParser_utf8_bits(value2, 63U);
+  return
+    (
+      (TmtPulseParser_cursor){
+        .at = TmtPulseParser_plus(at, 4U),
+        .ok = first >= 240U && first <= 244U && TmtPulseParser_utf8_tail(value) &&
+          TmtPulseParser_utf8_tail(value1)
+        && TmtPulseParser_utf8_tail(value2)
+        && value3 >= 65536U && value3 <= 1114111U,
+        .newline = false
+      }
+    );
+}
+
 TmtPulseParser_regex_group_result
 TmtPulseParser_regex_group(
   TmtPulseMemory_tape input,
@@ -8822,7 +8846,24 @@ TmtPulseParser_regex_pattern(
           can_repeat = tmp;
         }
         else
-          return TmtPulseParser_regex_result_at(at, false, captures);
+        {
+          TmtPulseParser_cursor value2;
+          if (!(value < 240U))
+            value2 = TmtPulseParser_regex_astral_unit(input, at, value);
+          else
+            value2 = ((TmtPulseParser_cursor){ .at = at, .ok = false, .newline = false });
+          if (value2.ok)
+          {
+            uint32_t tmp0 = value2.at;
+            uint32_t tmp1 = rest;
+            bool tmp = true;
+            at = tmp0;
+            fuel = tmp1;
+            can_repeat = tmp;
+          }
+          else
+            return TmtPulseParser_regex_result_at(at, false, captures);
+        }
       }
       else
         return TmtPulseParser_regex_result_at(at, false, captures);

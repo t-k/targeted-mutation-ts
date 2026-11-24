@@ -115,3 +115,18 @@ test('a key that is compared as written keeps the short list of escapes', () => 
     assert.notEqual(result.backend, 'pulse', source);
   }
 });
+
+test('a character outside the Basic Multilingual Plane is read as a pattern character, not inside a class', async () => {
+  const { createRequire } = await import('node:module');
+  const { compile } = createRequire(import.meta.url)('../src/compiler.cjs');
+  for (const pattern of ['/🐷/g', '/a🐷+b/', '/🐷{2}/u', '/\\/\\.🐷\\//']) {
+    const source = `export const a = ${pattern};`;
+    const result = compile(Buffer.from(source), { file: 'astral.ts' });
+    assert.equal(result.backend, 'pulse', pattern);
+    assert.equal(result.code, source);
+    assert.doesNotThrow(() => new Function(`return ${pattern}`), pattern);
+  }
+  for (const pattern of ['/[🐷]/u', '/[a-🐷]/', '/🐷/v', '/🐷(/']) {
+    assert.notEqual(compile(Buffer.from(`export const a = ${pattern};`), { file: 'astral.ts' }).backend, 'pulse', pattern);
+  }
+});

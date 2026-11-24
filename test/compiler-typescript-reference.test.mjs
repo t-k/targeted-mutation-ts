@@ -1282,8 +1282,20 @@ test('review findings: a mark behind JSX, a string behind an erased declaration,
   ]) {
     assert.equal(sameAsTypeScript(source, 'a.tsx').backend.includes('pulse'), false, source);
   }
+  // TypeScript erases a type-only import before it places the helper, so the string behind it is a directive
+  // there; and a leading string with a type assertion is a directive only once the assertion is gone.
+  for (const source of [
+    'import type { Props } from "./props";\n"use client";\nexport const View = () => <div />;',
+    '"use client" as string;\nexport const x = <div />;',
+    'export type A = 1;\n"x";\nexport const v = <a/>;',
+    'import { type A, b } from "m";  "x";\nexport const v = <a/>;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'a.tsx').backend.includes('pulse'), false, source);
+  }
   for (const source of [
     '"use client";\ninterface O {}\nexport const view = <View />;',
+    '"use client"\n"use strict";\nimport a from "a";\nexport const view = <View />;',
+    'const a = 1;\n"x";\nexport const v = <a/>;',
     '"use client";\n"use strict";\nimport a from "a";\nexport const view = <View />;',
   ]) {
     assert.equal(sameAsTypeScript(source, 'a.tsx').backend.includes('pulse'), true, source);

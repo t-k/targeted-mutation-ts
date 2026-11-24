@@ -2582,19 +2582,54 @@ bool tmt_leading_directive(uint8_t *source, uint32_t size) {
 
 #ifndef TMT_DIRECT
 /*
- * Whether a string statement stands behind another kind of item and before the first import or export. If the
- * items in front of it are erased later, the string would stand first and become a directive, with the helper import
- * behind it. TypeScript writes the import in front, so such a file is declined.
+ * Whether erasing types could change which strings are directives. TypeScript erases declarations and type-only
+ * imports and exports first and then writes the helper import behind the directives that remain. A string
+ * statement behind such an item would become a directive there and not here, and a leading string that is more
+ * than a literal, as in "use client" as string, would become one here and not there. Both are declined.
+ * The scan follows the items at the start of the file for as long as they could be erased.
  */
-static bool string_behind_first_item(TmtPulseMemory_tape input, uint32_t first, uint32_t marker) {
-  /* Strings at the very start are the directives of the source and stay where they are. */
+/* Whether a quote stands where a statement can start: at the start of the text, of a line, or behind `;` or `}`. */
+static bool statement_string_possible(const uint8_t *source, uint32_t size, uint8_t quote) {
+  for (const uint8_t *found = memchr(source, quote, size); found; ) {
+    uint32_t at = (uint32_t)(found - source);
+    uint32_t before = at;
+    while (before && (source[before - 1] == ' ' || source[before - 1] == '\t')) before--;
+    if (!before || source[before - 1] == '\n' || source[before - 1] == '\r' || source[before - 1] == ';' ||
+        source[before - 1] == '}' || source[before - 1] == '/' || source[before - 1] >= 128) return true;
+    found = at + 1 < size ? memchr(source + at + 1, quote, size - at - 1) : NULL;
+  }
+  return false;
+}
+
+static bool directives_depend_on_erasure(TmtPulseMemory_tape input, uint32_t first) {
+  /* The scan below parses every leading item again, so it runs only for a source that could hold such a string. */
+  if (!statement_string_possible(input.source, input.size, '"') && !statement_string_possible(input.source, input.size, '\'')) return false;
+  static const char *const erasable[] = { "import", "export", "interface", "type", "declare", "abstract", "enum", "namespace", "module" };
   bool prologue = true;
-  for (uint32_t at = first; at < marker; ) {
+  for (uint32_t at = first, items = 0; at < input.size && items < 4096; items++) {
     const TmtPulseParser_cursor item = TmtPulseParser_trivia(input, at);
-    if (!item.ok || item.at >= marker) return false;
-    const bool string = input.source[item.at] == '"' || input.source[item.at] == '\'';
-    if (string && !prologue) return true;
-    if (!string) prologue = false;
+    if (!item.ok || item.at >= input.size) return false;
+    const uint8_t byte = input.source[item.at];
+    if (byte == '"' || byte == '\'') {
+      if (!prologue) return true;
+      /* A directive is a string literal that is the whole statement. */
+      const TmtPulseParser_cursor literal = TmtPulseParser_string_end(input, item.at + 1, byte, input.size, false);
+      if (!literal.ok) return true;
+      const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, literal.at);
+      if (!tail.ok) return true;
+      const bool ends = tail.at >= input.size || input.source[tail.at] == ';' || tail.newline;
+      if (!ends) return true;
+    } else {
+      prologue = false;
+      bool may_vanish = false;
+      for (size_t word = 0; word < sizeof(erasable) / sizeof(*erasable) && !may_vanish; word++) {
+        const uint32_t width = (uint32_t)strlen(erasable[word]);
+        may_vanish = input.size - item.at > width && !memcmp(input.source + item.at, erasable[word], width) &&
+          !TmtGrammar_identifier_continue(input.source[item.at + width]);
+      }
+      /* Behind an item that stays, no later string can become a directive. */
+      if (!may_vanish) return false;
+    }
     const uint32_t next = TmtPulseCompiler_next_module_item(input, true, item.at);
     if (next <= item.at) return false;
     at = next;
@@ -2609,7 +2644,7 @@ static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic,
   if (!first.ok || !TmtPulseCompiler_supported_module(input, jsx)) return NULL;
   const uint32_t marker = find_marker(input, first.at, jsx);
   if (marker == size) return NULL;
-  if (jsx && string_behind_first_item(input, first.at, marker)) return NULL;
+  if (jsx && directives_depend_on_erasure(input, first.at)) return NULL;
   if (runs) runs->count = 0;
   lowering lower = { .input = input, .classic = classic, .mixed = true, .output.limit = (size_t)size * 32 + 1024,
     .output.runs = runs };
@@ -2858,7 +2893,7 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, b
   const bool module = marker < size;
   if (!typescript && !module) return NULL;
 #ifndef TMT_DIRECT
-  if (typescript && module && string_behind_first_item(input, first.at, marker)) return NULL;
+  if (typescript && module && directives_depend_on_erasure(input, first.at)) return NULL;
 #endif
   const uint32_t insertion = module ? marker : jsx_script_prelude(input, first.at);
 #ifdef TMT_V8_VALIDATOR
