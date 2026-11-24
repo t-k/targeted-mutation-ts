@@ -37,8 +37,15 @@ test('ordinary object literals and equality use the ordinary expression path', (
 
 test('restricted assignment targets and operators stay on the compatibility path', () => {
   for (const source of [
-    '({ name: record[key] } = data);', '({ name = fallback } = data);',
-    '({ ...rest } = data);', '({ name } += data);', '({ name } = data) = x;',
+    '({ name: record[key] } = data);', '({ name = eval } += data);', '({ eval = fallback } = data);',
+    '({ name: arguments = fallback } = data);', '({ ...eval } = data);',
+    '({ name } += data);', '({ name } = data) = x;',
     '({ name } = a < b, c > (d));', '({ name } = );',
   ]) compare(source, false);
+});
+
+test('assignment patterns with defaults or a rest name are read natively', () => {
+  for (const source of ['({ name = fallback } = data);', '({ ...rest } = data);', '({ name = a < b ? 1 : 2, other: last = 3, ...rest } = data);']) {
+    compare(source, true);
+  }
 });

@@ -1169,16 +1169,24 @@ static bool pragma_hidden(const uint8_t *source, uint32_t comment, uint32_t prag
 }
 
 tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_t *first, uint32_t *last) {
-  uint32_t found = size, count = 0;
+  uint32_t found = size, count = 0, factories = 0;
   for (const uint8_t *at = memchr(source, '@', size); at; ) {
     const uint32_t offset = (uint32_t)(at - source);
-    if (pragma_text(at + 1, size - offset - 1, "jsx")) {
-      found = offset;
-      if (++count > 1) return TMT_JSX_PRAGMA_OTHER;
+    const uint32_t available = size - offset - 1;
+    if (pragma_text(at + 1, available, "jsx")) {
+      /* @jsx and @jsxFrag name the classic factory. Under the automatic runtime TypeScript ignores them. */
+      const bool factory = (available > 3 && pragma_space(at[4])) ||
+        (pragma_text(at + 1, available, "jsxfrag") && available > 7 && pragma_space(at[8]));
+      if (factory) factories++;
+      else {
+        found = offset;
+        if (++count > 1) return TMT_JSX_PRAGMA_OTHER;
+      }
     }
     at = offset + 1 < size ? memchr(at + 1, '@', size - offset - 1) : NULL;
   }
-  if (!count) return TMT_JSX_PRAGMA_ABSENT;
+  if (!count) return factories ? TMT_JSX_PRAGMA_FACTORY : TMT_JSX_PRAGMA_ABSENT;
+  if (factories) return TMT_JSX_PRAGMA_OTHER;
   /* Walk the trivia before the first token and require the pragma inside one of its block comments. */
   uint32_t at = size >= 3 && source[0] == 0xEF && source[1] == 0xBB && source[2] == 0xBF ? 3 : 0;
   if (size - at >= 2 && source[at] == '#' && source[at + 1] == '!') {
@@ -1230,7 +1238,7 @@ static bool inject_jsx_runtime(lowering *lower, size_t at) {
   int package_width = 5;
   if (memchr(lower->input.source, '@', lower->input.size)) {
     const tmt_jsx_pragma_kind pragma = tmt_jsx_pragma(lower->input.source, lower->input.size, &name_first, &name_last);
-    if (pragma == TMT_JSX_PRAGMA_OTHER) return false;
+    if (pragma == TMT_JSX_PRAGMA_OTHER || (pragma == TMT_JSX_PRAGMA_FACTORY && lower->classic)) return false;
     if (pragma == TMT_JSX_PRAGMA_SOURCE) {
       package = (const char *)lower->input.source + name_first;
       package_width = (int)(name_last - name_first);
@@ -1778,7 +1786,11 @@ static bool begins_runtime_declaration(TmtPulseMemory_tape input, uint32_t at) {
   return TmtPulseParser_keyword(input, at, 3, UINT64_C(0x6c6574)) ||
     TmtPulseParser_keyword(input, at, 3, UINT64_C(0x766172)) ||
     TmtPulseParser_keyword(input, at, 8, UINT64_C(0x66756e6374696f6e)) ||
-    TmtPulseParser_keyword(input, at, 5, UINT64_C(0x636c617373));
+    TmtPulseParser_keyword(input, at, 5, UINT64_C(0x636c617373)) ||
+    /* A namespace or an enum that reaches this point is lowered, not erased, and is as much a declaration. */
+    TmtPulseParser_keyword(input, at, 4, UINT64_C(0x656e756d)) ||
+    (TmtPulseParser_keyword(input, at, 8, UINT64_C(0x6e616d6573706163)) == false && input.size - at > 9 &&
+      !memcmp(input.source + at, "namespace", 9) && !TmtGrammar_identifier_continue(input.source[at + 9]));
 }
 
 /*

@@ -528,7 +528,7 @@ static bool jsx_pragma_supported(const uint8_t *source, uint32_t size, bool clas
   if (!memchr(source, '@', size)) return true;
   uint32_t first, last;
   const tmt_jsx_pragma_kind pragma = tmt_jsx_pragma(source, size, &first, &last);
-  return pragma == TMT_JSX_PRAGMA_ABSENT || (pragma == TMT_JSX_PRAGMA_SOURCE && !classic);
+  return pragma == TMT_JSX_PRAGMA_ABSENT || ((pragma == TMT_JSX_PRAGMA_SOURCE || pragma == TMT_JSX_PRAGMA_FACTORY) && !classic);
 }
 
 /*

@@ -39,10 +39,11 @@ test('signature members remain separate from ordinary properties and executable 
     'interface I { new: string; new?(): string; new <T>(value: T): T; } const ok = a < b;',
     'type T = { <F extends { <K>(x: K): K }>(f: F): F }; const ok = a >= b;',
     'type T = { readonly: string; readonly [key: number]: string; "make"<T>(x: T): T }; const ok = a >= b;',
+    // A parameter of a signature may stand without a type.
+    'interface I { <T>(x) : T; } const ok = a < b;',
   ]) compare(source, 'fast');
 
   for (const source of [
-    'interface I { <T>(x) : T; } const ok = a < b;',
     'interface I { <T>(x: T); } const ok = a < b;',
     'interface I { [x: string, y: string]: number; } const ok = a < b;',
     'interface I { [a < b ? "on" : "off"]: string; } const ok = a < b;',

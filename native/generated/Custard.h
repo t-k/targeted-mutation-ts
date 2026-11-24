@@ -362,6 +362,22 @@ typedef struct TmtPulseParser_expression_items_s
 }
 TmtPulseParser_expression_items;
 
+bool
+TmtPulseParser_bare_greater_between(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t stop0,
+  uint32_t fuel0
+);
+
+TmtPulseParser_expression_items
+TmtPulseParser_expression_end(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state closed,
+  bool valid_array_target,
+  uint32_t angled
+);
+
 bool TmtPulseParser_spread_at(TmtPulseMemory_tape input, uint32_t at);
 
 #define TmtPulseParser_NotAssignable 0
@@ -1256,14 +1272,6 @@ TmtPulseParser_type_arguments_end_at_call_close(
   uint32_t remaining0
 );
 
-bool
-TmtPulseParser_bare_greater_between(
-  TmtPulseMemory_tape input0,
-  uint32_t at0,
-  uint32_t stop0,
-  uint32_t fuel0
-);
-
 TmtPulseParser_cursor
 TmtPulseParser_private_identifier(TmtPulseMemory_tape input, uint32_t start);
 
@@ -1946,6 +1954,14 @@ TmtPulseParser_object_members(
 );
 
 TmtPulseParser_parser_state
+TmtPulseParser_cover_assignment_members(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
 TmtPulseParser_grouped_tail(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state state0,
@@ -2259,6 +2275,17 @@ TmtPulseParser_comparison(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state current,
   uint32_t fuel
+);
+
+TmtPulseParser_expression_items
+TmtPulseParser_expression_run(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0,
+  uint32_t remaining0,
+  uint8_t close0,
+  bool valid_array_target0,
+  uint32_t angled0
 );
 
 TmtPulseParser_expression_items

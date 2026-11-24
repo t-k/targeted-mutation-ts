@@ -1610,7 +1610,11 @@ and signature_parameters (input:tape) (#frame:slprop) (state:parser_state) (fuel
       let! tail = (fun () -> skip input #frame named) in
       let! optional = (fun () -> same input #frame tail.offset 63uy) in
       let! tail = (fun () -> if optional && not receiver && not spread then (let! anf_value_3 = (fun () -> (consume input #frame tail 63uy)) in skip input #frame anf_value_3) else read_ret input #frame (tail)) in
-      let! annotated = (fun () -> (let! anf_value_4 = (fun () -> (consume input #frame tail 58uy)) in annotation_type input #frame anf_value_4 fuel 64ul)) in
+      // A parameter of a signature may stand without a type, as in (string) => string[].
+      let! colon = (fun () -> same input #frame tail.offset 58uy) in
+      let! annotated = (fun () -> if colon || receiver then
+          (let! anf_value_4 = (fun () -> (consume input #frame tail 58uy)) in annotation_type input #frame anf_value_4 fuel 64ul)
+        else read_ret input #frame tail) in
       let! end_ = (fun () -> skip input #frame annotated) in
       let! comma = (fun () -> same input #frame end_.offset 44uy) in
       if comma && not spread then
@@ -2694,6 +2698,14 @@ let class_index_signature (input:tape) (st:parser_state) : Tot (stt parser_state
     let! typed = (fun () -> annotation_type input value 16ul 64ul) in
     statement_end input typed typed.offset true
 
+let expression_end (input:tape) (closed:parser_state) (valid_array_target:bool) (angled:U32.t)
+  : Tot (stt expression_items (heap input) (fun _ -> heap input)) =
+  if angled = 0ul || closed.status <> 0ul then ret input ({ list_end = closed; valid_array_target })
+  else
+    let from = minus angled 1ul in
+    let! closer = (fun () -> bare_greater_between input from closed.offset (minus closed.offset from)) in
+    ret input (if closer then { list_end = failed closed 1ul; valid_array_target = false } else { list_end = closed; valid_array_target })
+
 let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 2; 0]) =
   let! st = (fun () -> skip input current) in
@@ -2757,7 +2769,11 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         // TypeScript ends the expression at a JSX element: a parenthesis, bracket, template or member access
         // behind it, even on the next line, starts something new or is an error. Lowered to a call it would
         // be applied to the element, so these are left to TypeScript.
-        let! behind = (fun () -> skip input element) in
+        // Most elements are followed at once by a bracket, a comma or a semicolon, so trivia is skipped only
+        // when the next byte can start it.
+        let! direct = (fun () -> peek input element.offset) in
+        let! behind = (fun () -> if direct = 32uy || direct = 10uy || direct = 13uy || direct = 9uy || direct = 47uy || U8.(direct >=^ 128uy) then
+          skip input element else ret input element) in
         let! follower = (fun () -> peek input behind.offset) in
         let! dotted = (fun () -> if follower = 63uy then same input (next behind.offset) 46uy else ret input false) in
         let closed = if element.status = 0ul && behind.status = 0ul &&
@@ -2856,7 +2872,19 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         let depth = minus 65ul fuel in
         let depth = if U32.(depth >^ st.depth) then depth else st.depth in
         let inside = { st with offset = next start_pos; depth; in_allowed = true } in
-        let! assignment = (fun () -> flat_assignment_head input inside) in
+        let! flat = (fun () -> flat_assignment_head input inside) in
+        // ({ a = 1, b: c = 2, ...rest } = value): a pattern with defaults is not an object literal.
+        let! assignment = (fun () -> if flat.status = 0ul then ret input flat
+          else
+            let! opening = (fun () -> skip input inside) in
+            let! brace = (fun () -> same input opening.offset 123uy) in
+            if not brace then ret input flat
+            else
+              let! members = (fun () -> cover_assignment_members input { opening with offset = next opening.offset } (minus fuel 1ul) 64ul) in
+              let! tail = (fun () -> skip input members) in
+              let! equal = (fun () -> consume input tail 61uy) in
+              let! follower = (fun () -> peek input equal.offset) in
+              ret input (if follower = 61uy || follower = 62uy then failed equal 1ul else equal)) in
         let! inner = (fun () -> comparison input (if assignment.status = 0ul then assignment else inside) (minus fuel 1ul)) in
         let! consumed = (fun () -> skip input inner.parser) in
         let! comma = (fun () -> same input consumed.offset 44uy) in
@@ -3273,14 +3301,25 @@ and deep_array_literal (input:tape) (inside:parser_state) (fuel:U32.t)
     if closed.status <> 0ul then failed inside 3ul else { closed with depth })
 
 and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (close:U8.t) (valid_array_target:bool)
-  : Tot (stt expression_items (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 26; U32.v remaining]) =
+  : Tot (stt expression_items (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 26; 2 * U32.v remaining + 1]) =
+  expression_run input state fuel remaining close valid_array_target 0ul
+// The items of a call or of an array literal. The function calls itself only in tail position and is
+// extracted as a loop: a list of tens of thousands of items must not use the C stack.
+//
+// TypeScript tries a type argument list at a less-than sign and takes it only if the list ends in a
+// greater-than sign before the bracket that closes these items. `angled` is one more than the offset of the
+// first item whose comparison could start such a list, or zero. When the bracket is reached, the text from that
+// item to the bracket is searched for a greater-than sign that is not the head of an arrow.
+and expression_run (input:tape) (state:parser_state) (fuel remaining:U32.t) (close:U8.t) (valid_array_target:bool) (angled:U32.t)
+  : Tot (stt expression_items (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 26; 2 * U32.v remaining]) =
   let! st = (fun () -> skip input state) in
   if st.status <> 0ul then ret input ({ list_end = st; valid_array_target = false })
-  else (let! anf_value_1 = (fun () -> same input st.offset close) in if anf_value_1 then (let! anf_value_2 = (fun () -> consume input st close) in ret input ({ list_end = anf_value_2; valid_array_target }))
+  else (let! anf_value_1 = (fun () -> same input st.offset close) in if anf_value_1 then
+    (let! anf_value_2 = (fun () -> consume input st close) in expression_end input anf_value_2 valid_array_target angled)
   else if remaining = 0ul then ret input ({ list_end = failed st 3ul; valid_array_target = false })
   else
     let! hole = (fun () -> if close = 93uy then same input st.offset 44uy else ret input (false)) in
-    if hole then (let! anf_value_3 = (fun () -> (consume input st 44uy)) in expression_list input anf_value_3 fuel (minus remaining 1ul) close valid_array_target)
+    if hole then (let! anf_value_3 = (fun () -> (consume input st 44uy)) in expression_run input anf_value_3 fuel (minus remaining 1ul) close valid_array_target angled)
     else
       let! spread = (fun () -> spread_at input st.offset) in
       let start = if spread then { st with offset = plus st.offset 3ul } else st in
@@ -3298,18 +3337,9 @@ and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (cl
             let! simple = (fun () -> simple_less_argument input start st) in
             if simple then type_arguments_end_at_call_close input following 32ul else ret input false
           else ret input (false)) in
-        // A type argument list cannot continue across an elision or an unmatched closing parenthesis.
-        if arg.open_angle && not disambiguated then
-          // TypeScript tries a type argument list at the less-than sign and takes it only if the list ends in
-          // a greater-than sign before the bracket that closes these items. Without such a sign between this
-          // item and that bracket the attempt fails, whatever the following items are. An arrow is not one.
-          let! rest = (fun () -> expression_list input next_item fuel (minus remaining 1ul) close valid_array_target) in
-          let! closer = (fun () -> if rest.list_end.status = 0ul then
-              bare_greater_between input start.offset rest.list_end.offset (minus rest.list_end.offset start.offset)
-            else ret input true) in
-          ret input (if closer then { list_end = failed st 1ul; valid_array_target = false } else rest)
-        else expression_list input next_item fuel (minus remaining 1ul) close valid_array_target
-      else (let! anf_value_5 = (fun () -> consume input st close) in ret input ({ list_end = anf_value_5; valid_array_target }))))
+        let angled = if arg.open_angle && not disambiguated && angled = 0ul then next start.offset else angled in
+        expression_run input next_item fuel (minus remaining 1ul) close valid_array_target angled
+      else (let! anf_value_5 = (fun () -> consume input st close) in expression_end input anf_value_5 valid_array_target angled)))
 and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required seen_prototype:bool)
   : Tot (stt object_item (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 26; 0]) =
   let! spread = (fun () -> spread_at input st.offset) in
@@ -3366,6 +3396,43 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required se
           let! forbidden = (fun () -> forbidden_field_arguments input st) in
           ret input (if shorthand.ok && not forbidden then empty_range after_key else empty_range (failed st 1ul))) in
     ret input { value; prototype_setter }
+// The members of an assignment pattern with defaults: names, renamed names, a default behind either, and a
+// rest name at the end. Nested patterns are left to TypeScript.
+and cover_assignment_members (input:tape) (state:parser_state) (fuel remaining:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 60; U32.v remaining]) =
+  let! st = (fun () -> skip input state) in
+  let! closing = (fun () -> same input st.offset 125uy) in
+  if st.status <> 0ul || closing then consume input st 125uy
+  else if remaining = 0ul then ret input (failed st 1ul)
+  else
+    let! spread = (fun () -> spread_at input st.offset) in
+    if spread then
+      let! rest = (fun () -> skip input { st with offset = plus st.offset 3ul }) in
+      // A target is a name that may be assigned in strict code: not eval, arguments or a reserved word.
+      let! named = (fun () -> name input rest.offset false true) in
+      let! tail = (fun () -> skip input (from_cursor rest named)) in
+      consume input tail 125uy
+    else
+      let! key = (fun () -> name input st.offset false false) in
+      let! tail = (fun () -> skip input (from_cursor st key)) in
+      let! renamed = (fun () -> same input tail.offset 58uy) in
+      let! target = (fun () -> if renamed then
+          let! colon = (fun () -> (let! after = (fun () -> consume input tail 58uy) in skip input after)) in
+          let! named = (fun () -> name input colon.offset false true) in
+          skip input (from_cursor colon named)
+        else
+          // Without a rename the key is the target.
+          let! assignable = (fun () -> name input st.offset false true) in
+          ret input (if assignable.ok && assignable.at = key.at then tail else failed tail 1ul)) in
+      let! defaulted = (fun () -> same input target.offset 61uy) in
+      let! follower = (fun () -> if defaulted then peek input (next target.offset) else ret input 0uy) in
+      let! valued = (fun () -> if defaulted && follower <> 61uy && follower <> 62uy then
+          (let! value = (fun () -> comparison input { target with offset = next target.offset } fuel) in skip input value.parser)
+        else ret input target) in
+      let! comma = (fun () -> same input valued.offset 44uy) in
+      if valued.status <> 0ul then ret input valued
+      else if comma then cover_assignment_members input { valued with offset = next valued.offset } fuel (minus remaining 1ul)
+      else consume input valued 125uy
 and object_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (colon_required seen_prototype:bool)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 27; U32.v remaining]) =
   let! st = (fun () -> skip input state) in
@@ -4227,7 +4294,8 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
           (fun () -> if awaiting_body || (constructor_name && not ambient_constructor) || accessor || key.private_ || key.quoted_ || key.computed ||
             key.async_ || key.generator_ || prototype ||
             // A declared class is erased whole, so its members may be static or carry an access modifier.
-            (kind <> AmbientClass && U32.logand key.modifier_flags (U32.logor class_access_flags 9ul) <> 0ul) then ret input (failed tail 1ul)
+            // An abstract member is erased whole, so it may also be marked override.
+            (kind <> AmbientClass && U32.logand key.modifier_flags (U32.logor class_access_flags 1ul) <> 0ul) then ret input (failed tail 1ul)
           else if method then
             if fuel = 0ul || key.readonly_ then ret input (failed tail 1ul)
             else

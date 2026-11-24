@@ -449,7 +449,9 @@ test('conflicting local names and enum member names that need care stay off the 
       const result = compile(Buffer.from(source), options);
       assert.deepEqual(router(Buffer.from(source), options), result, source);
       assert.deepEqual(compile(source, options), result, source);
-      const native = pragma === 'Absent' ||
+      // A factory pragma names the classic factory. Under the automatic runtime TypeScript ignores it wherever
+      // it stands.
+      const native = pragma === 'Absent' || (pragma === 'Factory' && mode === 'Automatic') ||
         (pragma === 'ImportSource' && place === 'LeadingBlock' && mode === 'Automatic' && tail !== 'DirectClose');
       assert.equal(result.backend === 'pulse', native, source);
       if (!native) return;
@@ -1152,5 +1154,101 @@ test('import attributes with any single key and a non-null mark on a constructor
     'export const s = new W!!(u);',
   ]) {
     assert.notEqual(compile(Buffer.from(source), { file: 'attributes.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('a parameter of a signature may stand without a type', () => {
+  for (const source of [
+    'function n(): (string) => string[] { return x }\nexport {};',
+    'export type F = (a, b) => void;',
+    'export type F = (a?, ...b) => void;',
+    'export type G = (A) | B;',
+    'export type G = (A);',
+    'export type G = (a: A, b) => (c) => void;',
+    'export type H = new (a) => X;',
+    'export const x = (a) as any;',
+    'export const y = <T>(a) => a;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'untyped.ts').backend, 'pulse', source);
+  }
+  // TypeScript rejects this one, and so does the compiler.
+  assert.equal(compile(Buffer.from('export type G = (A, B);'), { file: 'untyped.ts' }).code, null);
+});
+
+test('lists of tens of thousands of items compile without using the stack', () => {
+  const many = (count, item) => Array.from({ length: count }, () => item).join(', ');
+  for (const source of [
+    'export const a = [' + many(40000, 'x') + '];',
+    'export const a = f(' + many(40000, 'x') + ');',
+    'export const a = [' + many(40000, 'a < b') + '];',
+    'export const a = f(' + many(40000, 'p.q < 3') + ');',
+  ]) {
+    const result = compile(Buffer.from(source), { file: 'long.ts' });
+    assert.equal(result.backend, 'pulse');
+    assert.equal(result.code, source);
+  }
+});
+
+test('an assignment pattern with defaults in parentheses is an expression statement', () => {
+  for (const source of [
+    'export function r() { ({ a = 1 } = c); }',
+    'export function r() { ({ count = Infinity, delay } = config); }',
+    'export function r() { ({ a = 1, b: d = 2, ...rest } = c); }',
+    'export function r() { ({ a = x < y ? 1 : 2, b } = c); return a; }',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'cover.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'export function r() { ({ a = 1 }); }',
+    'export function r() { ({ a = 1 } == c); }',
+    'export function r() { ({ a = 1 } => c); }',
+    'export function r() { ({ a = 1, b: { d = 2 } = {} } = c); }',
+    'export function r() { ({ a = 1, ...rest, b } = c); }',
+    // A target has to be assignable in strict code.
+    'export function r() { ({ eval = 1 } = c); }',
+    'export function r() { ({ a: arguments = 1 } = c); }',
+    'export function r() { ({ a = 1, ...eval } = c); }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'cover.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('factory pragmas mean nothing under the automatic runtime and still select the classic factory', () => {
+  for (const source of [
+    '/** @jsx h */\nexport const a = <a/>;',
+    '/** @jsx jsx */\n/** @jsxFrag Fragment */\nexport const b = () => <><a/></>;',
+    '/** @JSX h */\nexport const a = <a/>;',
+    '/** @jsxfrag F */\nexport const a = <a/>;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'pragma.tsx').backend, 'pulse', source);
+    const classic = compile(Buffer.from(source), { file: 'pragma.tsx', jsx: 'classic' });
+    assert.notEqual(classic.backend, 'pulse', source);
+  }
+  for (const source of [
+    '/** @jsxRuntime classic */\n/** @jsx h */\nexport const a = <a/>;',
+    '/** @jsxImportSource preact */\n/** @jsx h */\nexport const a = <a/>;',
+    '/** @jsx h @jsxImportSource x */\nexport const a = <a/>;',
+    '/** @jsxs h */\nexport const a = <a/>;',
+  ]) {
+    assert.notEqual(sameAsTypeScript(source, 'pragma.tsx').backend, 'pulse', source);
+  }
+});
+
+test('abstract members may be marked override, and a type declaration may follow a lowered namespace or enum', () => {
+  for (const source of [
+    'export abstract class A extends B { abstract override m(): void; }',
+    'export abstract class A extends B { protected abstract override m(): void; abstract override x: number; }',
+    'export abstract class A extends B { public abstract override transaction<T>(a: (tx: P<Q>) => Promise<T>): Promise<T>; }',
+    'export namespace N { export const a: any = 1; }\ntype Z = 1;',
+    'export namespace N { export interface X {} export enum E { A } }\ntype Z = 1;',
+    'enum E { A }\ntype Z = 1;\nexport { E };',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'members.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'export abstract class A extends B { abstract static m(): void; }',
+    'export abstract class A extends B { abstract override m() {} }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'members.ts' }).backend, 'pulse', source);
   }
 });

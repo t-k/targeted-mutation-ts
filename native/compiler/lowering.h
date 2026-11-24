@@ -32,7 +32,8 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
  * The JSX pragma of a source. A supported pragma is one @jsxImportSource in a block comment before
  * the first token, with a plain package name, and no other @jsx text anywhere in the source.
  */
-typedef enum { TMT_JSX_PRAGMA_ABSENT, TMT_JSX_PRAGMA_SOURCE, TMT_JSX_PRAGMA_OTHER } tmt_jsx_pragma_kind;
+/* FACTORY: only @jsx or @jsxFrag, which name the classic factory and mean nothing under the automatic runtime. */
+typedef enum { TMT_JSX_PRAGMA_ABSENT, TMT_JSX_PRAGMA_SOURCE, TMT_JSX_PRAGMA_OTHER, TMT_JSX_PRAGMA_FACTORY } tmt_jsx_pragma_kind;
 tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_t *first, uint32_t *last);
 bool tmt_leading_directive(uint8_t *source, uint32_t size);
 bool tmt_leading_triple_slash(uint8_t *source, uint32_t size);

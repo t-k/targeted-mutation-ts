@@ -57,5 +57,6 @@ test('override retains early diagnostics for invalid modifier combinations', () 
     'abstract override read() { return a < b; }',
     'override abstract item = a < b;',
   ]) verify(`class C extends Base { ${member} } const keep = a < b;`, 'diagnostic');
-  verify('abstract class C extends Base { abstract override read(): boolean; } const keep = a < b;', 'fallback');
+  // An abstract member is erased whole, so override on it is read.
+  verify('abstract class C extends Base { abstract override read(): boolean; } const keep = a < b;', 'fast');
 });
