@@ -386,6 +386,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
           const [ia, ib] = inner.arguments;
           const ordered = innerPos === 0 ? [ia, ib, outerOther] : [outerOther, ia, ib];
           const pures = ordered.map(arg => written(arg) ? 1 : 0);
+          const beforeClamp = mutations.length;
           const edit = probed(node, 'clamp', ordered, { clampMeta: { outer: name, inner: innerName, innerPos, pures } });
           edit(targetedRules.clampBound, 'dropOuter', source(inner), { boundKind: name === 'min' ? 'upper' : 'lower' });
           const aLit = written(ia);
@@ -398,7 +399,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
             edit(targetedRules.clampBound, keepIdx === 0 ? 'dropInnerB' : 'dropInnerA', innerReplacement,
               { boundKind: innerName === 'min' ? 'upper' : 'lower' });
           }
-          skippedMathCalls.add(inner);
+          if (mutations.length > beforeClamp) skippedMathCalls.add(inner);
           return;
         }
         probed(node, name, [args[0], args[1]])(targetedRules.extreme, name === 'max' ? 'min' : 'max', rename(node, callee.name, name === 'max' ? 'min' : 'max'));
@@ -522,7 +523,8 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
         !staysInPlace(only[0].expression) && !staysInPlace(only[1].expression)) {
       const a = source(only[0].expression);
       const b = source(only[1].expression);
-      probed(node, 'mergeSpread', [only[0].expression, only[1].expression], { right: b })(
+      const pureMerge = ts.isIdentifier(strip(only[0].expression)) && ts.isIdentifier(strip(only[1].expression)) ? 1 : 0;
+      probed(node, 'mergeSpread', [only[0].expression, only[1].expression], { right: b, pureMerge })(
         targetedRules.mergePrecedence, 'swap', `{ ...${b}, ...${a} }`,
       );
       return;

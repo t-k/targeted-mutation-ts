@@ -42,8 +42,23 @@ function ${see}(i, l, r, r2) {
   }
   var strMethods = ${table}.s || (${table}.s = { indexOf: safeProtoMethod(scope.String.prototype, 'indexOf'), lastIndexOf: safeProtoMethod(scope.String.prototype, 'lastIndexOf'), includes: safeProtoMethod(scope.String.prototype, 'includes'), replace: safeProtoMethod(scope.String.prototype, 'replace'), replaceAll: safeProtoMethod(scope.String.prototype, 'replaceAll') });
   var arrMethods = ${table}.a || (${table}.a = { includes: safeProtoMethod(scope.Array.prototype, 'includes'), every: safeProtoMethod(scope.Array.prototype, 'every'), some: safeProtoMethod(scope.Array.prototype, 'some') });
-  var mathMethods = ${table}.m || (${table}.m = { min: safeProtoMethod(scope.Math, 'min'), max: safeProtoMethod(scope.Math, 'max') });
-  var reTest = ${table}.x !== void 0 ? ${table}.x : (${table}.x = safeProtoMethod(scope.RegExp.prototype, 'test'));
+  function isNativeFn(fn) {
+    try { return typeof fn === 'function' && scope.Function.prototype.toString.call(fn).indexOf('[native code]') >= 0; } catch (e) { return false; }
+  }
+  function numMin(a, b) { return a !== a || b !== b ? NaN : (a === 0 && b === 0 ? (1 / a < 0 || 1 / b < 0 ? -0 : 0) : a < b ? a : b); }
+  function numMax(a, b) { return a !== a || b !== b ? NaN : (a === 0 && b === 0 ? (1 / a > 0 || 1 / b > 0 ? 0 : -0) : a > b ? a : b); }
+  function isPlainDataObj(v) {
+    if (v === null || v === void 0) return true;
+    if (typeof v !== 'object' || (isProxy && isProxy(v))) return false;
+    try {
+      var ks = scope.Reflect.ownKeys(v), ki;
+      for (ki = 0; ki < ks.length; ki++) {
+        var desc = scope.Object.getOwnPropertyDescriptor(v, ks[ki]);
+        if (desc && desc.enumerable && !('value' in desc)) return false;
+      }
+      return true;
+    } catch (e) { return false; }
+  }
   function isolatedRegexTest(pat, flags, text) {
     if (${table}.v === void 0) {
       try {
@@ -82,37 +97,45 @@ function ${see}(i, l, r, r2) {
     return scope.Reflect.apply(fn, l, [a1]);
   }
   function callClamp(mode) {
-    var cm = site[8], oFn, iFn, v0, v1, v2, iv;
+    var cm = site[8], oMath, oFn, iMath, iFn, v0, v1, v2, iv;
     if (mode === 'orig') {
-      oFn = scope.Math[cm.outer];
+      oMath = scope.Math;
+      oFn = oMath[cm.outer];
       if (cm.innerPos === 0) {
-        iFn = scope.Math[cm.inner];
+        iMath = scope.Math;
+        iFn = iMath[cm.inner];
         v0 = l[0](); v1 = l[1]();
-        iv = scope.Reflect.apply(iFn, scope.Math, [v0, v1]);
+        iv = scope.Reflect.apply(iFn, iMath, [v0, v1]);
         v2 = l[2]();
-        return scope.Reflect.apply(oFn, scope.Math, [iv, v2]);
+        return scope.Reflect.apply(oFn, oMath, [iv, v2]);
       }
       v0 = l[0]();
-      iFn = scope.Math[cm.inner];
+      iMath = scope.Math;
+      iFn = iMath[cm.inner];
       v1 = l[1](); v2 = l[2]();
-      iv = scope.Reflect.apply(iFn, scope.Math, [v1, v2]);
-      return scope.Reflect.apply(oFn, scope.Math, [v0, iv]);
+      iv = scope.Reflect.apply(iFn, iMath, [v1, v2]);
+      return scope.Reflect.apply(oFn, oMath, [v0, iv]);
     }
     if (mode === 'dropOuter') {
-      iFn = scope.Math[cm.inner];
+      iMath = scope.Math;
+      iFn = iMath[cm.inner];
       return cm.innerPos === 0
-        ? scope.Reflect.apply(iFn, scope.Math, [l[0](), l[1]()])
-        : scope.Reflect.apply(iFn, scope.Math, [l[1](), l[2]()]);
+        ? scope.Reflect.apply(iFn, iMath, [l[0](), l[1]()])
+        : scope.Reflect.apply(iFn, iMath, [l[1](), l[2]()]);
     }
-    oFn = scope.Math[cm.outer];
+    oMath = scope.Math;
+    oFn = oMath[cm.outer];
     var keepA = mode === 'dropInnerB';
     return cm.innerPos === 0
-      ? scope.Reflect.apply(oFn, scope.Math, [keepA ? l[0]() : l[1](), l[2]()])
-      : scope.Reflect.apply(oFn, scope.Math, [l[0](), keepA ? l[1]() : l[2]()]);
+      ? scope.Reflect.apply(oFn, oMath, [keepA ? l[0]() : l[1](), l[2]()])
+      : scope.Reflect.apply(oFn, oMath, [l[0](), keepA ? l[1]() : l[2]()]);
   }
   function makeArrayWithout(src, skipIdx) {
+    if (skipIdx < 0) return src;
     var out = [], idx;
-    for (idx = 0; idx < src.length; idx++) if (idx !== skipIdx) out[out.length] = src[idx];
+    for (idx = 0; idx < src.length; idx++) {
+      if (idx !== skipIdx) scope.Object.defineProperty(out, out.length, { value: src[idx], enumerable: true, writable: true, configurable: true });
+    }
     return out;
   }
   function callLiteralIncludes(skipIdx) {
@@ -231,7 +254,7 @@ function ${see}(i, l, r, r2) {
   if (!state || state.phase !== 'baseline') return original();
   // An operation that throws is observed too: an edit that evaluates the same right side throws as well, and any other differs.
   // A sort in place loses the order it started from.
-  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? copy(l) : void 0, spreadBase, spreadVals, arg1, arg2, clampVals, clampBuiltins, mergeA, mergeB, litFn, regexFn, qPreOk = false, qPreLen = -1, qPreDense0 = false;
+  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? copy(l) : void 0, spreadBase, spreadVals, arg1, arg2, clampVals, clampBuiltins, mergeA, mergeB, mergePure = false, litFn, regexFn, regexProto, qPreOk = false, qPreLen = -1, qPreDense0 = false;
   try {
     if (kind === 'p') {
       spreadBase = { ...l };
@@ -244,13 +267,15 @@ function ${see}(i, l, r, r2) {
         scope.Object.defineProperty(value, spreadKeys[sm], { value: sv, enumerable: true, writable: true, configurable: true });
       }
     } else if (kind === 'r') {
+      var origFn = l[op];
+      arg1 = r();
       if ((op === 'every' || op === 'some') && l != null && (!isProxy || !isProxy(l)) && scope.Array.isArray(l)) {
         try {
           var qAlt = op === 'every' ? 'some' : 'every';
           var qProto = scope.Object.getPrototypeOf(l);
           var qOrigCur = safeProtoMethod(scope.Array.prototype, op);
           var qAltCur = safeProtoMethod(scope.Array.prototype, qAlt);
-          if (qProto === scope.Array.prototype && qOrigCur && qAltCur && qOrigCur === arrMethods[op] && qAltCur === arrMethods[qAlt] &&
+          if (qProto === scope.Array.prototype && qOrigCur && qAltCur && origFn === qOrigCur && qOrigCur === arrMethods[op] && qAltCur === arrMethods[qAlt] &&
               !scope.Object.getOwnPropertyDescriptor(l, op) && !scope.Object.getOwnPropertyDescriptor(l, qAlt)) {
             qPreOk = true;
             qPreLen = l.length;
@@ -258,8 +283,6 @@ function ${see}(i, l, r, r2) {
           }
         } catch (error) { qPreOk = false; }
       }
-      var origFn = l[op];
-      arg1 = r();
       if (site[7] === 3) {
         arg2 = r2();
         value = scope.Reflect.apply(origFn, l, [arg1, arg2]);
@@ -267,31 +290,39 @@ function ${see}(i, l, r, r2) {
         value = scope.Reflect.apply(origFn, l, [arg1]);
       }
     } else if (kind === 'k') {
-      var cm = site[8], oFn = scope.Math[cm.outer], iFn;
+      var cm = site[8], oMath = scope.Math, oFn = oMath[cm.outer], iMath, iFn;
       if (cm.innerPos === 0) {
-        iFn = scope.Math[cm.inner];
-        var cv0 = l[0](), cv1 = l[1](), civ = scope.Reflect.apply(iFn, scope.Math, [cv0, cv1]), cv2 = l[2]();
+        iMath = scope.Math;
+        iFn = iMath[cm.inner];
+        var cv0 = l[0](), cv1 = l[1](), civ = scope.Reflect.apply(iFn, iMath, [cv0, cv1]), cv2 = l[2]();
         clampVals = [cv0, cv1, cv2];
-        value = scope.Reflect.apply(oFn, scope.Math, [civ, cv2]);
+        value = scope.Reflect.apply(oFn, oMath, [civ, cv2]);
       } else {
         var cu0 = l[0]();
-        iFn = scope.Math[cm.inner];
-        var cu1 = l[1](), cu2 = l[2](), ciu = scope.Reflect.apply(iFn, scope.Math, [cu1, cu2]);
+        iMath = scope.Math;
+        iFn = iMath[cm.inner];
+        var cu1 = l[1](), cu2 = l[2](), ciu = scope.Reflect.apply(iFn, iMath, [cu1, cu2]);
         clampVals = [cu0, cu1, cu2];
-        value = scope.Reflect.apply(oFn, scope.Math, [cu0, ciu]);
+        value = scope.Reflect.apply(oFn, oMath, [cu0, ciu]);
       }
-      clampBuiltins = oFn === mathMethods[cm.outer] && iFn === mathMethods[cm.inner];
+      clampBuiltins = isNativeFn(oFn) && isNativeFn(iFn);
     } else if (kind === 'u') {
       var litArr = makeArrayWithout(l, -1);
       litFn = litArr.includes;
       arg1 = r();
       value = scope.Reflect.apply(litFn, litArr, [arg1]);
     } else if (kind === 'g') {
-      mergeA = { ...l() };
-      mergeB = { ...r() };
+      var rawA = l();
+      var pureA = isPlainDataObj(rawA);
+      mergeA = { ...rawA };
+      var rawB = r();
+      var pureB = isPlainDataObj(rawB);
+      mergeB = { ...rawB };
+      mergePure = Boolean(site[8]) && pureA && pureB;
       value = { ...mergeA, ...mergeB };
     } else if (kind === 'x') {
       var origRe = l.orig();
+      regexProto = scope.Object.getPrototypeOf(origRe);
       regexFn = origRe.test;
       arg1 = r();
       value = scope.Reflect.apply(regexFn, origRe, [arg1]);
@@ -321,7 +352,7 @@ function ${see}(i, l, r, r2) {
         var cmeta = site[8];
         if (!clampBuiltins || typeof clampVals[0] !== 'number' || typeof clampVals[1] !== 'number' || typeof clampVals[2] !== 'number') same = null;
         else {
-          var oF = mathMethods[cmeta.outer], iF = mathMethods[cmeta.inner], altV, droppedIdx;
+          var oF = cmeta.outer === 'min' ? numMin : numMax, iF = cmeta.inner === 'min' ? numMin : numMax, altV, droppedIdx;
           if (f === 'dropOuter') {
             altV = cmeta.innerPos === 0 ? iF(clampVals[0], clampVals[1]) : iF(clampVals[1], clampVals[2]);
             droppedIdx = cmeta.innerPos === 0 ? 2 : 0;
@@ -349,10 +380,12 @@ function ${see}(i, l, r, r2) {
           if (!is(value[keyName], swappedObj[keyName])) { valDiff = true; break; }
           if (!orderDiff && swapKeys[ki] !== keyName) orderDiff = true;
         }
-        same = valDiff ? false : orderDiff ? null : true;
+        same = valDiff ? false : (orderDiff || !mergePure) ? null : true;
       } else if (kind === 'x') {
-        var curTest = safeProtoMethod(scope.RegExp.prototype, 'test');
-        if (typeof arg1 !== 'string' || !curTest || regexFn !== curTest || curTest !== reTest) same = null;
+        var curTest = regexProto ? safeProtoMethod(regexProto, 'test') : null;
+        var curExec = regexProto ? safeProtoMethod(regexProto, 'exec') : null;
+        if (typeof arg1 !== 'string' || !curTest || regexFn !== curTest || !isNativeFn(curTest) || !isNativeFn(curExec)) same = null;
+        else if (value === true && site[8].pattern.indexOf('|') >= 0) same = null;
         else {
           var iso = isolatedRegexTest(site[8].alts[f], site[8].flags, arg1);
           same = iso === null ? null : is(value, iso);
@@ -490,7 +523,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         // The operands are rendered in source order; what stands between them is the operation the probe performs.
         // Each in parentheses of its own: a probe inside may begin with `void 0,`, which must stay one argument.
         const operands = group.operands.map(([start, end]) => `(${render(start, end)})`);
-        const { operator, boolean, thunk, spreadKeys, pureProps, clampMeta, setElems, regexMeta } = group.targeted;
+        const { operator, boolean, thunk, spreadKeys, pureProps, clampMeta, setElems, regexMeta, pureMerge } = group.targeted;
         // Only the edits beside a written null or undefined say on which side it stands.
         const literalSide = group.mutants.find(mutant => mutant.targeted.literalSide !== undefined)?.targeted.literalSide ?? 0;
         const kind = thunk ? 'l' : ['===', '!==', '==', '!='].includes(operator) ? 'e' : operator.length === 1 ? 'a'
@@ -507,6 +540,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         if (spreadKeys) row.push(spreadKeys, pureProps);
         else if (clampMeta) row.push(clampMeta);
         else if (regexMeta) row.push(regexMeta);
+        else if (pureMerge !== undefined) row.push(pureMerge);
         probed.push(row);
         let callArgs;
         if (thunk) {

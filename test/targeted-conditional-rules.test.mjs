@@ -73,8 +73,8 @@ for (const [rule, form, inputCase] of rows) {
         DiffVal: [{ x: 1 }, { x: 2 }],
       }[inputCase]];
       pickMutant = mutants => mutants.find(m => m.mutatorName === targetedRules.mergePrecedence);
-      // Disjoint keys change `Object.keys` order without value collision, so agreement is conservatively `unsure`.
-      expectUnsure = inputCase === 'Disjoint';
+      // `see('a', a)` / `see('b', b)` are call expressions whose evaluation order may have side effects, so non-differing cases record `unsure`.
+      expectUnsure = inputCase !== 'DiffVal';
       compareValueOnly = true;
     } else if (rule === 'QuantifierSwap') {
       const method = form === 'Every' ? 'every' : 'some';
@@ -272,4 +272,26 @@ function f() { return { ...getA(), ...getB() }; }
 
   // 6. Parenthesized direct `(eval)` is detected by staysInPlace and skipped.
   assert.equal(render("const f = () => ({ ...(eval)('({x:1})'), ...{y:2} });").mutants.filter(m => m.mutatorName === targetedRules.mergePrecedence).length, 0);
+
+  // 7. Quantifier snapshots length AFTER evaluating callback arg (`a.push(-1)` inside arg -> length 2 -> unsure).
+  const qPushSrc = 'function f(a) { return a.every((a.push(-1), x => x > 0)); }';
+  const rQPush = render(qPushSrc);
+  const mQPush = rQPush.mutants.find(m => m.mutatorName === targetedRules.quantifierSwap);
+  const stQPush = {};
+  vm.runInContext(rQPush.output + '\n__stryker__.currentTestId = "t0"; f([1]);',
+    vm.createContext({ __stryker__: stQPush, [session]: { phase: 'baseline' } }));
+  assert.deepEqual([...stQPush.observed[mQPush.id].tests.t0], [0, 0, 1]);
+
+  // 8. `globalThis.RegExp = undefined` does not break arithmetic or regex probes, and Array.prototype[0] readonly does not break literal-set-prune.
+  const arithSrc = 'function f(a, b) { return a + b; }';
+  const rArith = render(arithSrc);
+  assert.equal(vm.runInContext('globalThis.RegExp = undefined;\n' + rArith.output + '\nf(2, 3);', vm.createContext({ __stryker__: {} })), 5);
+  const ctxProto0 = vm.createContext({ __stryker__: { activeMutant: mLit.id } });
+  const proto0Res = vm.runInContext('Object.defineProperty(Array.prototype, 0, { value: 99, writable: false, configurable: true });\n' + rLit.output + '\nf(2);', ctxProto0);
+  assert.equal(proto0Res, true);
+
+  // 9. Multiline clamp with `--lines` selecting only the inner Math.max line still emits `extreme-swap/v1`.
+  const multiClamp = 'const f = (x) => Math.min(\n  Math.max(x, 0),\n  10\n);\n';
+  const scopedClamp = renderBuiltinSwitches(Buffer.from(multiClamp), 'p.js', line => line === 2, { targeted: true, keep: targetedOrBoundary });
+  assert.ok(scopedClamp.mutants.some(m => m.mutatorName === targetedRules.extreme));
 });
