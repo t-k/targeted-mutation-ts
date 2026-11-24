@@ -3,7 +3,7 @@ import { createRequire, enableCompileCache } from 'node:module';
 import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { failedTests, snapshotVitestRun, timeVitestRun } from './vitest-reporter.mjs';
-import { indexAgreement, indexCoverage, agreesWithCoverage, assessTrial, cheapestFirst, openReasons, planInThread, sampleSettled, settleInThread, sharePlans, unanswered, withoutMutations } from './standard-plan.mjs';
+import { changedReach, indexAgreement, indexCoverage, indexReach, agreesWithCoverage, assessTrial, cheapestFirst, openReasons, planInThread, sampleSettled, settleInThread, sharePlans, unanswered, withoutMutations } from './standard-plan.mjs';
 import { checkReplay } from './lean-replay.mjs';
 import { inside } from './vitest.mjs';
 
@@ -222,10 +222,11 @@ try {
     record({ baseline: { status: 'passed', tests: baseline.snapshot.tests.length } });
     const baselineCoverage = indexCoverage(baseline.records, tests);
     const agreement = indexAgreement(baseline.records, tests);
+    const reach = indexReach(baseline.records);
     if (agreement.size) {
       const named = ids => [...ids].map(id => tests.get(id)).map(({ id, project, file, name }) => ({ id, project, file, name }));
       record({ observed: Object.fromEntries([...agreement].map(([id, seen]) => [id, { agreeing: seen.agreeing.size,
-        differing: named(seen.differing), unsure: named(seen.unsure), outside: seen.outside, differ: seen.differ, agree: seen.agree,
+        differing: named(seen.differing), unsure: named(seen.unsure), outside: seen.outside, outsideUnsure: seen.outsideUnsure, differ: seen.differ, agree: seen.agree,
         unknown: seen.unknown }])) });
     }
     const focusedTrace = numericTraces(baseline.records, focused, tests);
@@ -262,6 +263,7 @@ try {
     const pending = [];
     for (const mutant of [...mutants.filter(candidate => !candidate.parametric), ...qualified]) {
       const { id } = mutant;
+      if (agreement.has(id)) mutant.effects = true;
       if (predicted.has(id)) {
         record({ id, status: 'survived', evidence: 'predicted' });
         continue;
@@ -274,7 +276,7 @@ try {
       // `??` and `||` give the same for null, undefined and every object. Where no test gave the left side a value
       // of a type that has a falsy one, the two are taken for the same code and the edit is not tried.
       const seen = agreement.get(id);
-      if (mutant.evidence && seen && !seen.differing.size && !seen.unsure.size && !seen.outside && !seen.typed) {
+      if (mutant.evidence && seen && !seen.differing.size && !seen.unsure.size && !seen.outside && !seen.outsideUnsure && !seen.typed) {
         record({ id, status: 'ignored', statusReason: 'No test gives the left side a number, a string or a boolean, so both operators are taken to behave alike here' });
         continue;
       }
@@ -287,6 +289,7 @@ try {
       const plans = isolatedTrials ? null : planInThread(baseline.records, tests, pending, workspace, baselineTiming);
       let settled = new Map();
       let reasons = new Map();
+      const effects = new Map();
       // A sample of the workers' verdicts is run again in fresh runs when asked for. A difference is reported and
       // the fresh run's verdict is the one kept.
       const sampled = new Set();
@@ -330,6 +333,18 @@ try {
           [module, list.filter(plan => !killed.has(plan.id) || first[module]?.includes(plan))]).filter(([, list]) => list.length));
         settled = settleInThread(decisive, [...firstEvents, ...restEvents], tests);
         reasons = openReasons(decisive, [...firstEvents, ...restEvents]);
+        // What each surviving edit of the targeted rules changed in the code its tests run.
+        const runs = new Map();
+        for (const event of [...firstEvents, ...restEvents]) {
+          if (!event.reached || settled.get(event.id)?.status !== 'survived') continue;
+          if (!runs.has(event.id)) runs.set(event.id, []);
+          runs.get(event.id).push({ module: event.module, reached: event.reached });
+        }
+        const named = list => list.map(({ test, id }) => ({ id, ...(tests.has(test) ? { test: tests.get(test).name } : {}) }));
+        for (const [id, list] of runs) {
+          const { now, gone } = changedReach(reach, list);
+          effects.set(id, { now: named(now), gone: named(gone) });
+        }
       }
       for (const id of sampleSettled(pending.map(({ mutant }) => mutant.id).filter(id => settled.has(id)), verifyTrials)) sampled.add(id);
       for (const { mutant, plan } of pending) {
@@ -338,7 +353,7 @@ try {
         const covering = mutant.focused
           ? { coveringTests: [...expected.values()].map(({ id, project, file, name }) => ({ id, project, file, name })) } : {};
         if (settled.has(id) && !sampled.has(id)) {
-          report(mutant, { ...settled.get(id), ...covering });
+          report(mutant, { ...settled.get(id), ...covering, ...(effects.has(id) ? { effects: effects.get(id) } : {}) });
           continue;
         }
         if (!sampled.has(id)) totals.isolated++;

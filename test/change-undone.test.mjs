@@ -207,6 +207,9 @@ test('a change of spacing that changes the program is tried, and one that does n
   // Text between tags is code; the indentation of its lines is not.
   assert.equal(tried('f.jsx', 'const a = <b>Hello world</b>\n', 'const a = <b>Hello  world</b>\n'), 1);
   assert.equal(tried('f.jsx', 'const a = <b>\n  Hello\n</b>\n', 'const a = <b>\n      Hello\n</b>\n'), 0);
+  // Tags put on lines of their own have the same children.
+  assert.equal(tried('f.jsx', 'const a = <div><span>Hello</span></div>\n', 'const a = <div>\n  <span>Hello</span>\n</div>\n'), 0);
+  assert.equal(tried('f.jsx', 'const a = <div><span>Hello</span> <i/></div>\n', 'const a = <div><span>Hello</span><i/></div>\n'), 1);
   assert.equal(tried('f.ts', 'let n = 1\n', 'const n = 1\n'), 1);
   // A space in a regular expression or a template is code; a comment after a template is not.
   assert.equal(tried('f.js', 'const r = /a +b/\n', 'const r = /a+b/\n'), 1);
@@ -240,4 +243,8 @@ test('the old lines come back with the line ends of the checkout, a test file is
   const broken = analyzeUndoneChanges(root, ['subject.js'], { since: 'HEAD' },
     { sourceTrials: () => settings => (settings ? { status: 'error', output: 'spawn failed' } : { status: 'passed', tests: loaded }) });
   assert.deepEqual([broken.mutants[0].status, broken.evaluation], ['error', 'incomplete']);
+  // Playwright reports a server that could not start the same way, and then the old code never ran.
+  const browser = analyzeUndoneChanges(root, ['subject.js'], { since: 'HEAD', runner: 'playwright' },
+    { sourceTrials: () => settings => (settings ? { status: 'error', tests: [], errors: ['port is already used'] } : { status: 'passed', tests: loaded }) });
+  assert.deepEqual([browser.mutants[0].status, browser.evaluation], ['error', 'incomplete']);
 }));

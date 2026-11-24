@@ -168,6 +168,8 @@ test('the targeted edits of each operator, and where none is offered', () => {
   // Where only the truth is used and the written fallback is falsy, `??` and `||` are the same for every value.
   assert.deepEqual(list('function f(n?: number) { if (n ?? 0) return 1; return !(n || false); }').map(entry => entry[1]), ['left', 'right', 'left', 'right']);
   assert.equal(list('function f(n?: number) { if (n ?? 1) return 1; }').at(-1)[1], 'or');
+  assert.equal(list('function f(limit?: number) { if (limit ?? -1) return 1; }').at(-1)[1], 'or');
+  assert.deepEqual(list("function f(n?: string) { if (n ?? '') return 1; if (n || ``) return 2; }").map(entry => entry[1]), ['left', 'right', 'left', 'right']);
   // Without the option the built-in set is as before.
   assert.ok(collectMutations('const f = (a, b) => a === b && a;', 'f.js').every(mutation => !mutation.targeted));
 });
@@ -192,6 +194,8 @@ const placements = {
   'in a class field and a default parameter': 'class C { on = a && b; get(x = a ?? 3) { return x || this.on } }\n  note(new C().get())',
   'around a comment and a line end': 'note(a && // why\n    b)',
   'with a parenthesized object on the right': 'note((a || { b }).b)',
+  // A probe inside a probe at the start of a statement is one operand, not two.
+  'with a probe inside a probe at the start of a statement': '[a].at(0) && note(3)\n  a === b || note(4)\n  ;[b][0] ?? note(5)',
   // The syntax around the parentheses still applies to what the probe gives.
   'as a template tag, under delete and typeof': 'note(((a && null) || String.raw)`x${b}`, delete (a === b), typeof (a ?? b))',
 };
@@ -425,6 +429,8 @@ test('the edits of arithmetic, of Math and of the ends of a sequence, and where 
     [targetedRules.extreme, 'max', 'min', 'Math.min(a, b)'], [targetedRules.extreme, 'min', 'max', 'Math.max(a, 0)']]);
   assert.deepEqual(texts('const f = (a: number) => [Math.floor(a), Math.ceil(a), Math.round(a), Math.trunc(a)];'), [
     'Math.ceil(a)', 'Math.round(a)', 'Math.trunc(a)', 'Math.floor(a)', 'Math.round(a)', 'Math.floor(a)', 'Math.ceil(a)', 'Math.floor(a)', 'Math.round(a)']);
+  // A name Math of the file's own is not the built-in one.
+  assert.deepEqual(texts('function f(Math: { max(a: number, b: number): number }) { return Math.max(1, 2); }'), []);
   // Only the two-argument forms of max and min, without a spread, on Math itself.
   assert.deepEqual(texts('const f = (a: number[], m: typeof Math) => [Math.max(...a), Math.max(1, 2, 3), Math.min(1), m.max(1, 2), Math.floor(1, 2), Math?.round(1)];'), []);
   assert.deepEqual(list('const f = (a: number[], g: (n: number) => boolean) => [a[0], a.at(0), a.at(-1), a[a.length - 1], a.find(g), a.findLastIndex(g), a.lastIndexOf(1)];')
@@ -439,6 +445,11 @@ test('the edits of arithmetic, of Math and of the ends of a sequence, and where 
   assert.deepEqual(texts('function f(a: any[], o: any) { a[0] = 1; a[0]++; delete a[0]; a[0](); a[0]`x`; [a[0]] = [1]; for (a[0] of a) {} return [o?.[0], o?.a[0], a.at(1), a.at(), a.find(), a.indexOf(1, 2), a.find(...a)]; }'), []);
   assert.deepEqual(texts('class B extends Array<number> { first() { return super.find(n => n > 0); } }').filter(text => text.includes('find')), []);
   assert.deepEqual(texts('const f = (a: number[][]) => a[0][0].toFixed();'), ['a[0].at(-1)', 'a.at(-1)']);
+  // A method that only shares its name with a property every object has is no end of a sequence.
+  assert.deepEqual(texts('const f = (n: number, o: object) => [n.toString(16), o.valueOf(), o.hasOwnProperty("a"), o.constructor(1)];'), []);
+  // A non-null assertion does not hide that the element is called or written, and a constructor is not read by `at`.
+  assert.deepEqual(texts('function f(handlers: any[], parsers: any[]) { handlers[0]!(); handlers[0]! = 1; handlers[0]!++; return new parsers[0](); }'), []);
+  assert.deepEqual(texts('const f = (a: number[]) => a[0]! + 1;').at(-1), 'a.at(-1)');
 });
 
 const valueHazards = {

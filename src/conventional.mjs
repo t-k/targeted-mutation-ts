@@ -196,6 +196,24 @@ export async function analyzeConventional(project, files, options) {
     const trace = events.find(event => event.focusedTrace)?.focusedTrace;
     const targeted = focused.map(entry => focus.focusedResult(entry, trace, results, originals)).filter(Boolean);
     const observed = events.find(event => event.observed)?.observed ?? {};
+    // The expressions behind the switches an edit's tests newly reach or no longer reach, without the edit's own.
+    const places = new Map(prepared.map(mutant => [mutant.id, mutant]));
+    const expressionsOf = (entries, own) => {
+      const seen = new Map();
+      for (const { id, test } of entries) {
+        const { location, original } = places.get(id) ?? {};
+        if (!location || (location.file === own.file && location.start === own.start && location.end === own.end)) continue;
+        seen.set(`${test}:${location.file}:${location.start}:${location.end}`, { ...(test === undefined ? {} : { test }),
+          location: { file: location.file, line: location.line, column: location.column }, expression: original });
+      }
+      return [...seen.values()].slice(0, 3);
+    };
+    const withEffects = (gap, mutant) => {
+      if (!gap || !mutant.effects) return gap;
+      const nowRuns = expressionsOf(mutant.effects.now, mutant.location);
+      const noLongerRuns = expressionsOf(mutant.effects.gone, mutant.location);
+      return nowRuns.length || noLongerRuns.length ? { ...gap, effects: { nowRuns, noLongerRuns } } : gap;
+    };
     const judged = mutants.map(mutant => {
       const result = results.get(mutant.id);
       // An edit the session left out was not run.
@@ -206,8 +224,8 @@ export async function analyzeConventional(project, files, options) {
     return {
       ...report, baseline, evaluation: completed ? 'evaluated' : 'incomplete', trials: events.find(event => event.trials)?.trials,
       ...(awaitsExtras ? { extras: events.filter(event => event.extra !== undefined) } : {}),
-      mutants: [...judged.map(({ targeted: _rule, ...mutant }) => mutant), ...targeted.map(entry => entry.mutant)],
-      diagnostics: [...judged.flatMap(mutant => targetedGap(mutant, observed[mutant.id]) ?? []),
+      mutants: [...judged.map(({ targeted: _rule, effects: _effects, ...mutant }) => mutant), ...targeted.map(entry => entry.mutant)],
+      diagnostics: [...judged.flatMap(mutant => withEffects(targetedGap(mutant, observed[mutant.id]), mutant) ?? []),
         ...targeted.flatMap(entry => entry.diagnosis ? [entry.diagnosis] : [])],
     };
   }, { exclude: options['copy-exclude'] });

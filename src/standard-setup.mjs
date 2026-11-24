@@ -11,9 +11,10 @@ namespace.hitCount = 0;
 namespace.hitLimit = hitLimit;
 namespace.shift = shift ?? 0;
 
-if (phase === 'baseline') {
+// The baseline needs to know which test reaches which switch. A trial notes the same, so that what a surviving
+// edit changes in the code a test runs can be told per test. A control run counts all its hits together.
+if (phase === 'baseline' || phase === 'trial') {
   beforeEach(({ task }) => { namespace.currentTestId = task.id; });
   afterEach(() => { namespace.currentTestId = undefined; });
-} else if (phase === 'trial' && !staticActivation) {
-  beforeAll(() => { namespace.activeMutant = active; });
 }
+if (phase === 'trial' && !staticActivation) beforeAll(() => { namespace.activeMutant = active; });

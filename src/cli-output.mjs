@@ -8,6 +8,8 @@ Commands:
 Scope (analyze):
   --lines FILE:FROM-TO          Limit to a line range. FILE:N selects one line. Repeatable.
   --since REV                   Limit to lines added or changed since a Git revision.
+  --suggest-assertions          For a survivor whose tests had the input: run the calls those tests make
+                                without pinning the result, and give the value to compare with (Vitest).
   --undo-changes                With --since: also put each change back as it was at REV and run the suite.
                                 A change the tests pass without is reported as UNTESTED CHANGE.
   --copy-exclude PATH           Leave a project path out of the temporary copies. Repeatable.
@@ -107,6 +109,16 @@ function describeGap(gap) {
   if (gap.kind === 'UNTESTED CHANGE') {
     lines.push(`  the tests pass with ${gap.together ? 'these changes of the file put back together as they were' : 'this change put back as it was'} at ${printable(String(gap.since).slice(0, 12))}`,
       '  add a test that fails without the change');
+  }
+  for (const [label, list] of [['also evaluates', gap.effects?.nowRuns], ['no longer evaluates', gap.effects?.noLongerRuns]]) {
+    for (const entry of list ?? []) {
+      lines.push(`  with the edit, ${entry.test === undefined ? 'loading the file' : `\`${printable(entry.test)}\``} ${label} ` +
+        `\`${firstLine(entry.expression)}\` (${printable(entry.location.file)}:${entry.location.line})`);
+    }
+  }
+  if (gap.strengthens) {
+    lines.push(`  ${printable(gap.strengthens.file)} > ${printable(gap.strengthens.test)} calls \`${printable(gap.strengthens.call)}\` without pinning its result: ` +
+      `it gives ${printable(gap.strengthens.original)}, and ${printable(gap.strengthens.edited)} with the edit`);
   }
   if (gap.suggestedTest) lines.push(`  suggested test: ${printable(gap.suggestedTest)}`);
   if (gap.seed) lines.push(`  based on: ${printable(gap.seed.file)} > ${printable(gap.seed.test)}`);

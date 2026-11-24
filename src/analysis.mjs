@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mjs';
 import { comparisonThresholdSites } from './prototype.mjs';
@@ -102,7 +102,7 @@ export function verdict(run, baseline) {
 }
 
 function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings = {}) {
-  const { tracing = false, activate, trial, witness, coverageSites, synchronousTrace } = settings;
+  const { tracing = false, activate, trial, witness, coverageSites, synchronousTrace, collect } = settings;
   const attempt = withCopy(root, (workspace, temp) => {
     const trace = tracing ? resolve(temp, 'trace.jsonl') : undefined;
     if (trace) mkdirSync(pendingTraceDirectory(trace));
@@ -119,7 +119,10 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
       else if (!tracing && trial?.site.location.file === subject.file) writeFileSync(file, rewrite(subject.input, trial.source?.edit ?? trial.edit, trial.source?.replacement ?? trial.replacement));
     }
     let witnessFile;
-    if (witness?.appendTo) {
+    if (witness?.rewrite) {
+      // A test file with one of its calls wrapped, to record what the call gives where the test makes it.
+      writeFileSync(inside(workspace, witness.rewrite.file), witness.rewrite.content);
+    } else if (witness?.appendTo) {
       const path = inside(workspace, witness.appendTo);
       appendFileSync(path, witness.source);
       witnessFile = relative(workspace, path);
@@ -130,6 +133,10 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
       witnessFile = relative(workspace, path);
     }
     const result = runner(workspace, temp, { trace, active: activate, product: true, probePreload, synchronousTrace });
+    if (!tracing && collect) {
+      const path = resolve(workspace, collect);
+      return { ...result, collected: existsSync(path) ? readFileSync(path, 'utf8') : '' };
+    }
     if (!tracing) return { ...result, witnessFile, witnessName: witness?.testName };
     const { rows, overlap } = inspectTrace(trace);
     return { ...result, trace: rows, overlap, synchronousTrace };

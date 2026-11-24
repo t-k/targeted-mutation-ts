@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { chooseFormat, renderText, usage } from '../src/cli-output.mjs';
 import { enablePreparedTypeScript } from '../src/typescript-compiler.mjs';
@@ -17,6 +17,7 @@ try {
       audit: { type: 'boolean' },
       'displace-thresholds': { type: 'boolean' },
       'undo-changes': { type: 'boolean' },
+      'suggest-assertions': { type: 'boolean' },
       witnesses: { type: 'boolean' },
       mutators: { type: 'string' },
       concurrency: { type: 'string' },
@@ -59,6 +60,9 @@ try {
     if (values['undo-changes'] && (values.since === undefined || values.witnesses)) {
       throw new Error('--undo-changes requires --since REV and does not apply to --witnesses');
     }
+    if (values['suggest-assertions'] && (values.runner === 'playwright' || values.witnesses || ['standard', 'all'].includes(values.mutators))) {
+      throw new Error('--suggest-assertions applies to the focused, targeted, operators and full profiles on Vitest');
+    }
     if (values.timeout !== undefined) {
       if (!/^[1-9]\d{0,4}$/.test(values.timeout)) throw new Error('Expected --timeout to be a number of seconds');
       values.timeout = Number(values.timeout);
@@ -92,6 +96,11 @@ try {
     } else {
       const { analyzeFocused } = await import('../src/operator-analysis.mjs');
       result = await analyzeFocused(project, files, values);
+    }
+    if (!values.witnesses && !['standard', 'all'].includes(values.mutators)) {
+      const { strengthenAssertions, withoutSourceEdits } = await import('../src/assertion-strength.mjs');
+      if (values['suggest-assertions'] && result.evaluation === 'evaluated') result = strengthenAssertions(realpathSync(project), result, values);
+      withoutSourceEdits(result);
     }
     if (values['undo-changes']) {
       const { analyzeUndoneChanges, withUndoneChanges } = await import('../src/change-undone.mjs');

@@ -107,7 +107,12 @@ test('observations are merged per edit over test files, and a test that differed
   // A test in which the recording could not tell is neither, unless another file saw it differ.
   const unsure = indexAgreement([{ observed: { m: { tests: { a: [1, 0, 1], b: [0, 0, 2], c: [3, 0, 0], '': [0, 0, 1] }, unsure: ['array of 2'] } } },
     { observed: { m: { tests: { b: [0, 1, 0], c: [0, 0, 1] } } } }], known).get('m');
-  assert.deepEqual([[...unsure.agreeing], [...unsure.unsure].sort(), [...unsure.differing], unsure.outside, unsure.unknown], [[], ['a', 'c'], ['b'], true, ['array of 2']]);
+  // Outside the tests, not knowing is not a difference.
+  assert.deepEqual([[...unsure.agreeing], [...unsure.unsure].sort(), [...unsure.differing], unsure.outside, unsure.outsideUnsure, unsure.unknown],
+    [[], ['a', 'c'], ['b'], false, true, ['array of 2']]);
+  const loaded = targetedGap({ id: 'm', mutatorName: 'sequence-end/v1', location: {}, original: 'a.find(f)', replacement: 'a.findLast(f)', edit: [0, 1], status: 'survived',
+    targeted: { operator: 'find', form: 'findLast', left: 'a' } }, { agreeing: 0, differing: [], unsure: [], outside: false, outsideUnsure: true, unknown: ['array of 2', 'function'] });
+  assert.deepEqual([loaded.kind, loaded.uncertain, loaded.outsideTests, loaded.tests], ['INPUT GAP', true, true, []]);
   assert.deepEqual([...merged.get('m').differing].sort(), ['a', 'b']);
   assert.deepEqual([merged.get('m').outside, merged.get('m').typed, merged.get('m').agree, merged.get('m').differ], [false, true, ['1'], ['0']]);
   // Outside the passing tests only a difference counts.
@@ -190,9 +195,9 @@ it('where', () => { expect(where(['a', 'b'], 'b')).toBe(1); });
   assert.equal(verdict('((price + fee) / factor)'), 'survived');
   assert.equal(gap('Math.min(n, low)').missing, 'a test in which the two arguments of `Math.max(n, low)` differ');
   // Every quotient in the tests is whole, so no rounding is told from another; each edit says which number would.
-  assert.equal(gap('Math.ceil(items / size)').missing, 'a test in which `items / size` is not a whole number');
-  assert.equal(gap('Math.round(items / size)').missing, 'a test in which `items / size` is a number with a fractional part of .5 or more');
-  assert.equal(gap('Math.trunc(items / size)').missing, 'a test in which `items / size` is negative and not a whole number');
+  assert.equal(gap('Math.ceil(items / size)').missing, 'a test in which `items / size` is not a whole number (0.5)');
+  assert.equal(gap('Math.round(items / size)').missing, 'a test in which `items / size` is a number that rounds up (1.5, -1.5)');
+  assert.equal(gap('Math.trunc(items / size)').missing, 'a test in which `items / size` is negative and not a whole number (-0.5)');
   assert.equal(gap('list[0]').missing, 'a test in which `list` has two or more elements and the first is not the last');
   assert.equal(gap('list.lastIndexOf(name)').missing, 'a test in which `list` holds the searched value more than once');
   // The callback of a search is not run again, so the recording cannot tell whether a list with two matches was given.
@@ -206,12 +211,60 @@ test('the missing input of the value rules', () => {
   const mutant = { id: 'm', location: { file: 'a.ts', line: 1, column: 1, start: 0, end: 9 }, edit: [0, 9], status: 'survived', evidence: 'reexecuted' };
   const seen = { agreeing: 1, differing: [], unsure: [], outside: false };
   const missing = (mutatorName, targeted, original = 'x', replacement = 'y') => targetedGap({ ...mutant, mutatorName, original, replacement, targeted }, seen).missing;
-  assert.equal(missing('rounding-swap/v1', { operator: 'floor', form: 'trunc', left: 'n' }), 'a test in which `n` is negative and not a whole number');
-  assert.equal(missing('rounding-swap/v1', { operator: 'trunc', form: 'floor', left: 'n' }), 'a test in which `n` is negative and not a whole number');
-  assert.equal(missing('rounding-swap/v1', { operator: 'ceil', form: 'round', left: 'n' }), 'a test in which `n` is a number with a fractional part below .5 that is not whole');
-  assert.equal(missing('rounding-swap/v1', { operator: 'round', form: 'floor', left: 'n' }), 'a test in which `n` is a number with a fractional part of .5 or more');
-  assert.equal(missing('rounding-swap/v1', { operator: 'trunc', form: 'round', left: 'n' }), 'a test in which `n` is not a whole number');
+  // Each pair of roundings is told apart by its own numbers; the examples are checked against Math itself.
+  const pairs = { 'floor trunc': 'negative and not a whole number (-0.5)', 'ceil trunc': 'positive and not a whole number (0.5)',
+    'floor round': 'a number that rounds up (1.5, -1.5)', 'ceil round': 'a number that rounds down (1.4, -1.6)',
+    'round trunc': 'a number that rounds away from zero (1.5, -1.6)', 'ceil floor': 'not a whole number (0.5)' };
+  for (const [pair, sentence] of Object.entries(pairs)) {
+    const [one, other] = pair.split(' ');
+    assert.equal(missing('rounding-swap/v1', { operator: one, form: other, left: 'n' }), `a test in which \`n\` is ${sentence}`);
+    assert.equal(missing('rounding-swap/v1', { operator: other, form: one, left: 'n' }), `a test in which \`n\` is ${sentence}`);
+    for (const example of sentence.match(/-?\d+\.\d+/g).map(Number)) assert.notEqual(Math[one](example), Math[other](example), `${pair} for ${example}`);
+    assert.equal(Math[one](2), Math[other](2));
+  }
   assert.equal(missing('sequence-end/v1', { operator: 'findIndex', form: 'findLastIndex', left: 'rows' }), 'a test in which `rows` has two or more elements');
   assert.equal(missing('sequence-end/v1', { operator: 'lastIndexOf', form: 'indexOf', left: 'rows' }), 'a test in which `rows` holds the searched value more than once');
   assert.equal(missing('sequence-end/v1', { operator: 'at0', form: 'at-1', left: 'rows' }), 'a test in which `rows` has two or more elements and the first is not the last');
+});
+
+test('what a surviving edit changes in the code a test runs is told per test', async () => {
+  const { changedReach, indexReach } = await import('../src/standard-plan.mjs');
+  const reach = indexReach([
+    { modules: [['', '/w/a.test.ts']], coverage: { static: { load: 1, never: 0 }, perTest: { t1: { x: 2, y: 1 }, t2: { x: 1, zero: 0 } } } },
+    { modules: [['', '/w/b.test.ts']], coverage: { static: {}, perTest: { t3: { y: 1 } } } }, {},
+  ]);
+  assert.deepEqual([[...reach.byTest.get('t1')], [...reach.byTest.get('t2')], [...reach.whileLoading.get('["","/w/a.test.ts"]')]], [['x', 'y'], ['x'], ['load']]);
+  assert.deepEqual(changedReach(reach, [{ module: '["","/w/a.test.ts"]', reached: { t1: ['x', 'y'], t2: ['x', 'y', 'z'], '': [] } },
+    { module: '["","/w/b.test.ts"]', reached: { t3: [], new: ['q'] } }]),
+  { now: [{ test: 't2', id: 'y' }, { test: 't2', id: 'z' }, { test: 'new', id: 'q' }], gone: [{ test: '', id: 'load' }, { test: 't3', id: 'y' }] });
+  assert.equal(changedReach(reach, [{ module: 'm', reached: { t: ['a', 'b', 'c'] } }], 2).now.length, 2);
+});
+
+test('a test that has the input and asserts nothing: the report says what the edit lets it run', () => {
+  const store = `const store = new Map<string, number>();
+export function commit(batch: [string, number][]) {
+  const invalid = batch.some(([, value]) => value < 0);
+  if (invalid === true) return false;
+  for (const [key, value] of batch) store.set(key, value + 0);
+  return true;
+}
+export const read = (key: string) => store.get(key) ?? -1;
+`;
+  const suite = `import { expect, it } from 'vitest';
+import { commit, read } from './subject';
+it('writes', () => { expect(commit([['a', 1]])).toBe(true); expect(read('a')).toBe(1); });
+it('rejects', () => { commit([['b', -5]]); });
+`;
+  const { status, stderr, report } = analyzeProject({ 'subject.ts': store, 'subject.test.ts': suite }, '--suggest-assertions');
+  assert.equal(status, 0, stderr);
+  const gap = report.diagnostics.find(entry => entry.mutations[0].replacement === '(invalid, true, false)');
+  assert.deepEqual([gap.kind, gap.tests.map(entry => entry.name)], ['ASSERTION GAP', ['rejects']]);
+  // With the check gone the rejected batch is written: the test that passes it now reaches the write.
+  assert.deepEqual(gap.effects, { nowRuns: [{ test: 'rejects', location: { file: 'subject.ts', line: 5, column: 52 }, expression: 'value + 0' }], noLongerRuns: [] });
+  assert.equal(gap.suggestedTest, "expect(commit([['b', -5]])).toBe(false)");
+  assert.ok(report.mutants.every(mutant => mutant.effects === undefined));
+  const text = renderText(report);
+  assert.match(text, /with the edit, `rejects` also evaluates `value \+ 0` \(subject\.ts:5\)\n {2}subject\.test\.ts > rejects calls `commit\(\[\['b', -5\]\]\)` without pinning its result: it gives false, and true with the edit/);
+  assert.match(renderText({ runner: 'vitest', evaluation: 'evaluated', mutants: [], diagnostics: [{ kind: 'ASSERTION GAP', location: gap.location,
+    effects: { nowRuns: [], noLongerRuns: [{ location: { file: 'a.ts', line: 2, column: 1 }, expression: 'x\n+ y' }] } }] }), /with the edit, loading the file no longer evaluates `x` \(a\.ts:2\)/);
 });

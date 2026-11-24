@@ -35,15 +35,16 @@ export function indexCoverage(records, tests) {
 
 // What the probes of the targeted rules recorded, per edit: the passing tests in which the edit would have given
 // the same as the original every time, those in which it would not, those in which that is not known, and
-// whether it would not outside any of them (while a file loads, in a hook, in a test that did not pass).
+// whether it would not, or that is not known, outside any of them (while a file loads, in a hook, in a test
+// that did not pass).
 export function indexAgreement(records, tests) {
   const merged = new Map();
   for (const { observed } of records) {
     for (const [id, entry] of Object.entries(observed ?? {})) {
-      if (!merged.has(id)) merged.set(id, { agreeing: new Set(), differing: new Set(), unsure: new Set(), outside: false, typed: false });
+      if (!merged.has(id)) merged.set(id, { agreeing: new Set(), differing: new Set(), unsure: new Set(), outside: false, outsideUnsure: false, typed: false });
       const into = merged.get(id);
       for (const [test, [, differed, unknown = 0]] of Object.entries(entry.tests ?? {})) {
-        if (!tests.has(test)) into.outside ||= differed + unknown > 0;
+        if (!tests.has(test)) (into.outside ||= differed > 0, into.outsideUnsure ||= unknown > 0);
         else if (differed > 0) into.differing.add(test);
         else if (unknown > 0) into.unsure.add(test);
         else into.agreeing.add(test);
@@ -60,6 +61,38 @@ export function indexAgreement(records, tests) {
     for (const test of into.unsure) into.agreeing.delete(test);
   }
   return merged;
+}
+
+// Which switches each passing test reached in the baseline, and which each test file reached while it loaded.
+export function indexReach(records) {
+  const byTest = new Map();
+  const whileLoading = new Map();
+  for (const { modules = [], coverage } of records) {
+    const loaded = Object.entries(coverage?.static ?? {}).filter(([, hits]) => hits).map(([id]) => id);
+    for (const module of modules) whileLoading.set(JSON.stringify(module), new Set(loaded));
+    for (const [test, counts] of Object.entries(coverage?.perTest ?? {})) {
+      if (!byTest.has(test)) byTest.set(test, new Set());
+      for (const [id, hits] of Object.entries(counts)) if (hits) byTest.get(test).add(id);
+    }
+  }
+  return { byTest, whileLoading };
+}
+
+// What a surviving edit changed in the code its tests run: per test, the switches it reaches only with the edit
+// and those it reached only without it. `runs` holds, per test file, what each test reached with the edit
+// (under an empty name: while the file loaded).
+export function changedReach({ byTest, whileLoading }, runs, limit = 8) {
+  const now = [];
+  const gone = [];
+  for (const { module, reached } of runs) {
+    for (const [test, ids] of Object.entries(reached)) {
+      const before = (test === '' ? whileLoading.get(module) : byTest.get(test)) ?? new Set();
+      const after = new Set(ids);
+      for (const id of after) if (!before.has(id)) now.push({ test, id });
+      for (const id of before) if (!after.has(id)) gone.push({ test, id });
+    }
+  }
+  return { now: now.slice(0, limit), gone: gone.slice(0, limit) };
 }
 
 export function coveredTests(id, records, tests) {
@@ -121,7 +154,7 @@ export function planInThread(records, tests, pending, workspace, timing = { test
       // A mutation that is active while the file loads runs every test of the file.
       (plans[key] ??= []).push({ id: mutant.id, hits: local.hits, hitLimit: plan.hits * 100, static: local.staticActivation, cost,
         tests: local.staticActivation ? own : [...local.covered],
-        ...(mutant.active === undefined ? {} : { active: mutant.active, shift: mutant.shift }) });
+        ...(mutant.active === undefined ? {} : { active: mutant.active, shift: mutant.shift }), ...(mutant.effects ? { effects: true } : {}) });
     }
   }
   return plans;

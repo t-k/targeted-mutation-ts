@@ -46,6 +46,24 @@ With `--deterministic` and complete, stable observations, the compiled replay de
 
 Pass `--displace-thresholds` to try tightening strict comparisons by one integer step. For example, `measured.size > 0` becomes `measured.size > 1`, and `offset < source.length` becomes `offset < source.length - 1`. The rule requires complete safe-integer observations with a representable shifted bound and always runs the source rewrite. A surviving mutation can identify an observed result that changed or propose an operand pair to exercise. When the comparison is a directly callable exported unary arrow with an integer literal, an input gap includes a suggested assertion and `--audit` verifies it. Use an application-level test to confirm reachability and expected behavior for other comparisons.
 
+### The value an assertion should compare with
+
+A test can make the very call that tells an edit from your code and still pass, because its assertion does not pin the result down: `expect(fee(200, 3)).toBeGreaterThan(0)`, `expect(bucket(3)).not.toBe('none')`, a call whose result is not looked at. With `--suggest-assertions`, each finding that names such tests gets up to four of their calls run where the test makes them, once as they are and once with the edit:
+
+```text
+ASSERTION GAP src/fees.ts:1:53  arithmetic-swap/v1
+  `cents * rate` passes every test as `(cents + rate)`
+  the edit gives another value in: test/fees.test.ts > charges (operands 200, 3)
+  add an assertion on what this value decides
+  test/fees.test.ts > charges calls `fee(200, 3)` without pinning its result: it gives 600, and 203 with the edit
+  suggested test: expect(fee(200, 3)).toBe(600)
+```
+
+- A call is taken when it calls a function the test file imports by name from the edited file, all its arguments are written values (numbers, text, `true`, `null`, arrays and objects of those), it stands on one line in a statement of the test itself (not in a loop, a branch or a callback), and its result is unused, bound to a variable, or checked by a matcher other than `toBe`, `toEqual`, `toStrictEqual`, `toBeNull`, `toBeUndefined`, `toBeNaN`, `toBeCloseTo`, `toMatchObject` and the snapshot matchers. A negated matcher pins nothing.
+- The call is wrapped in the test file of a project copy, so it is evaluated where the test makes it, after everything the test did before. Only that test file runs. A value that is a number, text, a boolean, `null`, `undefined` or a bigint can be suggested; for any other value nothing is.
+- The value of a call as it is is taken once and shared by the findings that name it. Each finding then costs one run per call tried, up to four, and at most 24 such runs are made in all.
+- The option applies to the focused, targeted, operators and full profiles on Vitest. In JSON the finding has `suggestedTest` and `strengthens` (`file`, `test`, `line`, `column`, `call`, `original`, `edited`).
+
 ### A change put back
 
 With `--since REV`, `--undo-changes` also treats the code as it was as an edit. Each change in the selected source files is put back alone as it was at `REV`, and the suite runs against it in a fresh copy of the project. When every test passes, the tests do not tell the change from what was there before:
@@ -117,6 +135,8 @@ ASSERTION GAP src/form.ts:31:20  ignored-operand/v1
 ```
 
 An `INPUT GAP` means the edit agreed with the original at every evaluation in every passing test: no test has the input that tells them apart, and `missing` names it. An `ASSERTION GAP` lists the tests in which the edit went another way and that passed all the same, with the operands of the first such evaluation. In JSON the entries are in `diagnostics`, with `expression`, `missing`, `reachedBy`, `tests` and `example`.
+
+For an edit that survived, the session also compares what each of its tests reached with the edit and without it. Where a test now evaluates an expression it did not reach before, or no longer evaluates one, the finding says so, for up to three expressions each way: `with the edit, \`rejects\` also evaluates \`value + 0\` (src/store.ts:5)`. Only expressions that carry a switch of the profile are seen. In JSON this is `effects`, with `nowRuns` and `noLongerRuns`.
 
 - Where only the truth of the value is used (a condition, under `!`, or an operand of `&&` or `||` used that way), an ignored right operand counts as agreeing when the truth is the same. Elsewhere the values must be the same, and `0` is not `-0`.
 - Beside a written literal on the right (`retries ?? 0`), an edit that evaluates the literal where the original does not agrees whenever the values are the same. Any other right side is not evaluated to compare.

@@ -28,9 +28,11 @@ export const targetedRules = {
   arithmetic: 'arithmetic-swap/v1', extreme: 'extreme-swap/v1', rounding: 'rounding-swap/v1', ends: 'sequence-end/v1',
 };
 // Two other operators for each arithmetic one: its inverse, and the one the same operands most often agree on.
-const arithmeticSwaps = { '+': ['-', '*'], '-': ['+', '/'], '*': ['/', '+'], '/': ['*', '%'], '%': ['/', '+'] };
-const roundingSwaps = { floor: ['ceil', 'round', 'trunc'], ceil: ['floor', 'round'], round: ['floor', 'ceil'], trunc: ['floor', 'round'] };
-const endSwaps = { find: 'findLast', findLast: 'find', findIndex: 'findLastIndex', findLastIndex: 'findIndex', indexOf: 'lastIndexOf', lastIndexOf: 'indexOf' };
+// (Maps: a method may be named like a property every object has.)
+const arithmeticSwaps = new Map([['+', ['-', '*']], ['-', ['+', '/']], ['*', ['/', '+']], ['/', ['*', '%']], ['%', ['/', '+']]]);
+const roundingSwaps = new Map([['floor', ['ceil', 'round', 'trunc']], ['ceil', ['floor', 'round']], ['round', ['floor', 'ceil']], ['trunc', ['floor', 'round']]]);
+const endSwaps = new Map([['find', 'findLast'], ['findLast', 'find'], ['findIndex', 'findLastIndex'], ['findLastIndex', 'findIndex'],
+  ['indexOf', 'lastIndexOf'], ['lastIndexOf', 'indexOf']]);
 const ignoredValue = { '&&': 'true', '||': 'false', '??': 'undefined' };
 
 export function collectMutations(text, file, { dialect, selected = () => true, shifts = false, targeted = false, ts = loadTypeScript() } = {}) {
@@ -233,7 +235,8 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
   }
   const writtenFalsy = node => {
     const inner = strip(node);
-    return written(node) && (['0', '0n', 'false', 'null', 'undefined'].includes(source(inner)) || source(inner).length === 2 && !ts.isNumericLiteral(inner));
+    return written(node) && (['0', '0n', 'false', 'null', 'undefined'].includes(source(inner)) ||
+      ((ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) && inner.text === ''));
   };
 
   const nullishLiteral = node => {
@@ -263,11 +266,11 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const right = source(node.right);
     const boolean = onlyTruthUsed(node);
     const edit = probed(node, operator, [node.left, node.right]);
-    if (isBinary(node) && arithmeticSwaps[operator]) {
+    if (isBinary(node) && arithmeticSwaps.has(operator)) {
       const leftKind = isBinary(strip(node.left)) ? strip(strip(node.left).right) : strip(node.left);
       // Text is joined with `+`; another operator there is a type error and not a wrong program.
       if (isString(strip(node.right)) || isString(leftKind)) return;
-      for (const swap of arithmeticSwaps[operator]) edit(targetedRules.arithmetic, swap, `(${grouped(node.left)} ${swap} ${grouped(node.right)})`);
+      for (const swap of arithmeticSwaps.get(operator)) edit(targetedRules.arithmetic, swap, `(${grouped(node.left)} ${swap} ${grouped(node.right)})`);
       return;
     }
     if (isBinary(node) && ['===', '!==', '==', '!='].includes(operator)) {
@@ -302,6 +305,9 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
 
   const rename = (node, name, to) => text.slice(begin(node), begin(name)) + to + text.slice(name.end, node.end);
 
+  // A file that binds the name Math itself (a parameter, a variable, an import) is not calling the built-in one.
+  const ownMath = /\bMath\b(?!\s*(?:\.|\?\.|\[))/.test(text);
+
   function targetedCall(node) {
     const callee = node.expression;
     if (!ts.isPropertyAccessExpression(callee) || !ts.isIdentifier(callee.name) || ts.isOptionalChain(node) ||
@@ -309,14 +315,15 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const name = callee.name.text;
     const args = node.arguments;
     if (ts.isIdentifier(callee.expression) && callee.expression.text === 'Math') {
+      if (ownMath) return;
       if ((name === 'max' || name === 'min') && args.length === 2) {
         probed(node, name, [args[0], args[1]])(targetedRules.extreme, name === 'max' ? 'min' : 'max', rename(node, callee.name, name === 'max' ? 'min' : 'max'));
-      } else if (roundingSwaps[name] && args.length === 1) {
+      } else if (roundingSwaps.has(name) && args.length === 1) {
         const edit = probed(node, name, [args[0]]);
-        for (const swap of roundingSwaps[name]) edit(targetedRules.rounding, swap, rename(node, callee.name, swap));
+        for (const swap of roundingSwaps.get(name)) edit(targetedRules.rounding, swap, rename(node, callee.name, swap));
       }
-    } else if (endSwaps[name] && args.length === 1) {
-      probed(node, name, [callee.expression, args[0]])(targetedRules.ends, endSwaps[name], rename(node, callee.name, endSwaps[name]));
+    } else if (endSwaps.has(name) && args.length === 1) {
+      probed(node, name, [callee.expression, args[0]])(targetedRules.ends, endSwaps.get(name), rename(node, callee.name, endSwaps.get(name)));
     } else if (name === 'at' && args.length === 1 && ['0', '-1'].includes(source(args[0]).replace(/\s/g, ''))) {
       const first = source(args[0]) === '0';
       probed(node, first ? 'at0' : 'at-1', [callee.expression])(targetedRules.ends, first ? 'at-1' : 'at0',
@@ -329,8 +336,11 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     (ts.isPropertyAccessExpression(node) && !node.questionDotToken && ts.isIdentifier(node.name) && plainReference(node.expression));
 
   function targetedElement(node) {
-    const [parent, child] = up(node);
-    const written = isAssignmentTarget(node) || ts.isDeleteExpression(parent) ||
+    // What the element is used for shows above its parentheses and its non-null assertions.
+    let [parent, child] = up(node);
+    while (ts.isNonNullExpression(parent)) [parent, child] = up(parent);
+    if (ts.isNewExpression(parent) && parent.expression === child) return;
+    const written = isAssignmentTarget(child) || ts.isDeleteExpression(parent) ||
       ((ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) && [K.PlusPlusToken, K.MinusMinusToken].includes(parent.operator)) ||
       (isAssignment(parent) && parent.left === child);
     // As a callee the element is called with its sequence as `this`.

@@ -58,12 +58,16 @@ function code(ts, file, text) {
   (function walk(node) {
     if (node.kind >= ts.SyntaxKind.FirstJSDocNode && node.kind <= ts.SyntaxKind.LastJSDocNode) return;
     const children = node.getChildren(tree);
-    parts.push(node.kind);
     if (node.kind === ts.SyntaxKind.JsxText) {
       const lines = node.text.split(/\r\n|[\n\r]/);
-      parts.push(JSON.stringify(lines.map((line, index) => (index ? line.trimStart() : line)).map((line, index) =>
-        (index < lines.length - 1 ? line.trimEnd() : line)).filter((line, index) => line || lines.length === 1 && !index).join(' ')));
-    } else if (!children.length) parts.push(JSON.stringify(text.slice(node.getStart(tree), node.end)));
+      const read = lines.map((line, index) => (index ? line.trimStart() : line)).map((line, index) =>
+        (index < lines.length - 1 ? line.trimEnd() : line)).filter((line, index) => line || lines.length === 1 && !index).join(' ');
+      // Only spacing with a line end in it: JSX leaves such text out, so tags on lines of their own are no change.
+      if (read || lines.length === 1) parts.push(node.kind, JSON.stringify(read));
+      return;
+    }
+    parts.push(node.kind);
+    if (!children.length) parts.push(JSON.stringify(text.slice(node.getStart(tree), node.end)));
     else {
       parts.push('(');
       for (const child of children) walk(child);
@@ -161,8 +165,9 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
     }
     const result = attempt({ trial });
     // A suite that ran to its end with errors outside the tests could not load the code as it was: the change
-    // is noticed. A runner that broke down reports no such errors and stays an error.
-    const unloadable = result.status === 'error' && result.errors?.length > 0 && Array.isArray(result.tests);
+    // is noticed. A runner that broke down reports no such errors and stays an error, and so does Playwright, whose
+    // errors outside the tests include a server that could not start.
+    const unloadable = options.runner !== 'playwright' && result.status === 'error' && result.errors?.length > 0 && Array.isArray(result.tests);
     const status = unloadable ? 'killed' : verdict(result, baseline);
     report.mutants.push({ ...mutant, status, evidence: 'reexecuted',
       ...(unloadable ? { statusReason: 'The suite did not load: ' + String(result.errors[0]).split('\n')[0] } : {}),

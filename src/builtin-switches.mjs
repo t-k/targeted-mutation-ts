@@ -196,7 +196,8 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         out += group.statement ? ` ${choice}` : group.leading ? ` void 0, (${choice})` : `(${choice})`;
       } else if (group.kind === 'observed') {
         // The operands are rendered in source order; what stands between them is the operation the probe performs.
-        const operands = group.operands.map(([start, end]) => render(start, end));
+        // Each in parentheses of its own: a probe inside may begin with `void 0,`, which must stay one argument.
+        const operands = group.operands.map(([start, end]) => `(${render(start, end)})`);
         const { operator, boolean, thunk } = group.targeted;
         // Only the edits beside a written null or undefined say on which side it stands.
         const literalSide = group.mutants.find(mutant => mutant.targeted.literalSide !== undefined)?.targeted.literalSide ?? 0;
@@ -204,7 +205,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
           : ['max', 'min', 'floor', 'ceil', 'round', 'trunc'].includes(operator) ? 'm' : 's';
         probed.push([operator, boolean ? 1 : 0, group.mutants.map(mutant => [mutant.id, mutant.targeted.form]), literalSide,
           group.mutants.map(mutant => mutant.id), group.targeted.pureRight ? 1 : 0, kind, operands.length]);
-        if (thunk) operands[1] = `() => (${operands[1]})`;
+        if (thunk) operands[1] = `() => ${operands[1]}`;
         const call = `${see}(${probed.length - 1}, ${operands.join(', ')})`;
         // Nothing inside the expression is left to render: an index the probe works out itself has no switch.
         while (index < ordered.length && ordered[index].placement[0] < last) index++;
