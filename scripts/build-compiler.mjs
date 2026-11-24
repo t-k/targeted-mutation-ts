@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { simdSource } from './native-simd-source.mjs';
+import { coldSource, simdSource } from './native-simd-source.mjs';
 
 const { values } = parseArgs({ options: {
   'scalar-scans': { type: 'boolean' },
@@ -58,7 +58,7 @@ try {
     ['compiler.node', ['-DTMT_DIRECT'], 'native/compiler/generated/direct'],
     ['compiler-module.node', moduleFlags, 'native/compiler/generated'],
   ]) {
-    const input = simdSource(root, source + '/Custard.c', scratch, values['scalar-scans']);
+    const input = simdSource(root, coldSource(root, source + '/Custard.c', scratch), scratch, values['scalar-scans']);
     const args = [...common, ...flags, '-I', source, input, '-o', resolve(scratch, name)];
     const built = spawnSync(compiler, ['-flto', ...args], { cwd: root, encoding: 'utf8' });
     if (built.error) throw built.error;

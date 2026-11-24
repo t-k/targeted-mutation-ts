@@ -975,6 +975,15 @@ TmtPulseParser_enum_body_tokens(
   uint32_t fuel0
 );
 
+TmtPulseParser_named_state
+TmtPulseParser_local_enum_declaration(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t keyword_at,
+  uint32_t floor,
+  uint32_t used
+);
+
 TmtPulseParser_parser_state
 TmtPulseParser_statement_end(
   TmtPulseMemory_tape input,
@@ -1185,6 +1194,9 @@ TmtPulseParser_record_private(
   TmtGrammar_span span,
   TmtPulseMemory_binding_namespace namespace0
 );
+
+TmtPulseParser_parser_state
+TmtPulseParser_angle_assertion_head(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
 
 TmtPulseParser_parser_state
 TmtPulseParser_tag_space(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);

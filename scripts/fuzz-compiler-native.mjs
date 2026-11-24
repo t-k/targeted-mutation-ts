@@ -10,7 +10,7 @@ import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { fragments, statements } from './fuzz-compiler-certification.mjs';
-import { simdSource } from './native-simd-source.mjs';
+import { coldSource, simdSource } from './native-simd-source.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
@@ -26,7 +26,7 @@ mkdirSync(artifacts, { recursive: true });
 const scratch = mkdtempSync(join(artifacts, '.run-'));
 try {
   const sdk = process.platform === 'darwin' ? spawnSync('xcrun', ['--show-sdk-path'], { encoding: 'utf8' }).stdout.trim() : '';
-  const parser = simdSource(root, 'native/compiler/generated/Custard.c', scratch, values['scalar-scans']);
+  const parser = simdSource(root, coldSource(root, 'native/compiler/generated/Custard.c', scratch), scratch, values['scalar-scans']);
   const target = join(scratch, 'fuzz-compiler');
   const built = spawnSync(clang, [...(sdk ? ['-isysroot', sdk] : []), '-std=c11', '-O1', '-g', '-fno-omit-frame-pointer',
     '-fsanitize=fuzzer,address,undefined', '-fno-sanitize-recover=undefined', '-DTMT_V8_VALIDATOR',

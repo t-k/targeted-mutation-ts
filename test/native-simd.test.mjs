@@ -72,7 +72,7 @@ test('SIMD specialization declines an unfamiliar scalar function body', { skip: 
     writeFileSync(compiler, `#!/usr/bin/env node
 const { writeFileSync } = require('node:fs');
 const args = process.argv.slice(2);
-const source = args.find(arg => arg.endsWith('/Custard.c') || arg.endsWith('/Custard.simd.c'));
+const source = args.find(arg => arg.endsWith('/Custard.c') || arg.endsWith('/Custard.cold.c') || arg.endsWith('/Custard.simd.c'));
 writeFileSync(args[args.lastIndexOf('-o') + 1], source ?? 'probe');
 `);
     chmodSync(compiler, 0o700);
@@ -81,7 +81,7 @@ writeFileSync(args[args.lastIndexOf('-o') + 1], source ?? 'probe');
     const anchor = '      bool value = TmtPulseParser_line_break(input, at);';
     const changed = original.replace(anchor, anchor + '\n      value = value || fuel == 3U;');
     assert.notEqual(changed, original);
-    for (const [source, expected] of [[original, /Custard\.simd\.c$/], [changed, /\/Custard\.c$/]]) {
+    for (const [source, expected] of [[original, /Custard\.simd\.c$/], [changed, /\/Custard(\.cold)?\.c$/]]) {
       writeFileSync(file, source);
       const build = spawnSync(process.execPath, [script], { cwd: scratch, encoding: 'utf8', timeout: 10_000,
         env: { ...process.env, CC: compiler } });

@@ -44,3 +44,24 @@ export function simdSource(root, original, scratch, scalar) {
   writeFileSync(output, source.replace(include, include + header));
   return output;
 }
+
+// Parser functions for rare syntax. The build inlines aggressively, and their bodies inside the expression and
+// statement parsers slowed every file by 2 to 3 percent on x64. Marked cold and not inlined they cost a call
+// only where the syntax occurs.
+const rare = ['angle_assertion_head', 'local_enum_declaration', 'local_enum_start', 'enum_body_tokens'];
+
+export function coldSource(root, original, scratch) {
+  if (!existsSync(resolve(root, original))) return original;
+  let source = readFileSync(resolve(root, original), 'utf8');
+  let marked = 0;
+  for (const name of rare) {
+    const definition = new RegExp(`\\n((?:static )?TmtPulseParser_\\w+\\nTmtPulseParser_${name}\\()`);
+    if (!definition.test(source)) continue;
+    source = source.replace(definition, '\n__attribute__((noinline, cold)) $1');
+    marked++;
+  }
+  if (marked === 0) return original;
+  const output = resolve(scratch, 'Custard.cold.c');
+  writeFileSync(output, source);
+  return output;
+}

@@ -2205,6 +2205,18 @@ let local_enum_start (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt curso
   // `enum` is an ordinary name in a script, so a declaration needs its name on the same line.
   read_ret input #frame { at = gap.at; ok = enumeration && name_gap.ok && not name_gap.newline && not gap.newline && G.identifier_start name_start; newline = false }
 
+// A block-scoped enum, kept out of line for the same reason. Kind 32 tells the emitter to declare it with let.
+let local_enum_declaration (input:tape) (st:parser_state) (keyword_at:U32.t) (floor used:names_used)
+  : Tot (stt named_state (heap input) (fun _ -> heap input)) =
+  let declared = record_binding_mode st LexicalLocals in
+  let! named = (fun () -> skip input { declared with offset = plus keyword_at 4ul }) in
+  let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
+  let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
+  let! opening = (fun () -> (let! body = (fun () -> skip input tracked) in consume input body 123uy)) in
+  let! closed = (fun () -> enum_body_tokens input opening input.size) in
+  let! recorded = (fun () -> record_jsx_span input closed 32ul st.offset closed.offset) in
+  ret input ({ decl with state = { recorded with local_names = decl.used } })
+
 let local_type_declaration (input:tape) (state:parser_state) (width:U32.t) (floor used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! start = (fun () -> skip input { state with offset = plus state.offset width }) in
   // A local type shares its name with a value, as a module-level type does.
@@ -2610,6 +2622,20 @@ let simple_less_argument (input:tape) (#frame:slprop) (start comma:parser_state)
   read_ret input #frame (tail.status = 0ul && tail.offset = comma.offset)
 
 #push-options "--z3rlimit 30"
+// The type of an angle-bracket assertion. It is a function of its own, and the build marks it as not to be
+// inlined, so that the expression parser's common path stays small. The operand has to follow on the same line,
+// because erasing the assertion must not leave a line break in front of it. Two opening angles in a row are a
+// shift operator to the scanner, as in <<T>(x: T) => T>f. Kind 31 is erased only when it lies on one line.
+let angle_assertion_head (input:tape) (st:parser_state) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  let start_pos = st.offset in
+  let! typed = (fun () -> annotation_type input { st with offset = next start_pos } 16ul 64ul) in
+  let! closing = (fun () -> skip input typed) in
+  let! closed = (fun () -> consume input closing 62uy) in
+  let! gap = (fun () -> trivia input closed.offset) in
+  let! doubled = (fun () -> same input (next start_pos) 60uy) in
+  if doubled || closed.status <> 0ul || not gap.ok || gap.newline then ret input (failed st 1ul)
+  else record_jsx_span input closed 31ul start_pos closed.offset
+
 let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 2; 0]) =
   let! st = (fun () -> skip input current) in
@@ -2661,20 +2687,12 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
       postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
         open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
     else if ch = 60uy && not st.jsx_allowed && input.capture_types then
-      // A type assertion in angle brackets applies to the unary expression after it. The operand has to follow
-      // on the same line, because erasing the assertion must not leave a line break in front of it.
+      // A type assertion in angle brackets applies to the unary expression after it.
       if fuel = 0ul then ret input (empty_range (failed st 3ul))
       else
-        let! typed = (fun () -> annotation_type input { st with offset = next start_pos } 16ul 64ul) in
-        let! closing = (fun () -> skip input typed) in
-        let! closed = (fun () -> consume input closing 62uy) in
-        let! gap = (fun () -> trivia input closed.offset) in
-        // Two opening angles in a row are a shift operator to the scanner, as in <<T>(x: T) => T>f.
-        let! doubled = (fun () -> same input (next start_pos) 60uy) in
-        if doubled || closed.status <> 0ul || not gap.ok || gap.newline then ret input (empty_range (failed st 1ul))
+        let! recorded = (fun () -> angle_assertion_head input st) in
+        if recorded.status <> 0ul then ret input (empty_range recorded)
         else
-          // Kind 31 is erased only when it lies on one line.
-          let! recorded = (fun () -> record_jsx_span input closed 31ul start_pos closed.offset) in
           let! child = (fun () -> atom input recorded (minus fuel 1ul)) in
           ret input ({ child with range = { child.range with G.first = start_pos }; target = NotAssignable })
     else if ch = 60uy && st.jsx_allowed then
@@ -3679,16 +3697,7 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
   let! enumeration = (fun () -> if input.capture_types && not root_control && strict_locals st &&
       ((first = 101uy && width = 0ul) || after_const = 101uy) then
     local_enum_start input st.offset else ret input { at = st.offset; ok = false; newline = false }) in
-  if enumeration.ok then
-    // A block-scoped enum. Kind 32 tells the emitter to declare it with let.
-    let declared = record_binding_mode st LexicalLocals in
-    let! named = (fun () -> skip input { declared with offset = plus enumeration.at 4ul }) in
-    let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
-    let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
-    let! opening = (fun () -> (let! body = (fun () -> skip input tracked) in consume input body 123uy)) in
-    let! closed = (fun () -> enum_body_tokens input opening input.size) in
-    let! recorded = (fun () -> record_jsx_span input closed 32ul st.offset closed.offset) in
-    ret input ({ decl with state = { recorded with local_names = decl.used } })
+  if enumeration.ok then local_enum_declaration input st enumeration.at floor used
   else if width <> 0ul then local_declaration input st width floor used fuel
   else if resource.status = 0ul then
     local_declarators input (record_binding_mode resource LexicalLocals) true true floor used fuel input.size
