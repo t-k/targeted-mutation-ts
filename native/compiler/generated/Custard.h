@@ -2470,7 +2470,11 @@ TmtPulseParser_static_import_attributes(
 );
 
 TmtPulseParser_parser_state
-TmtPulseParser_import_source(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
+TmtPulseParser_import_source(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  bool attributes_on_next_line
+);
 
 TmtPulseParser_named_state
 TmtPulseParser_star_reexport(

@@ -1288,7 +1288,10 @@ test('review findings: a mark behind JSX, a string behind an erased declaration,
   ]) {
     assert.equal(sameAsTypeScript(source, 'a.tsx').backend.includes('pulse'), true, source);
   }
-  assert.equal(sameAsTypeScript('declare module "pkg" { interface O {} }\n"use client";\nexport const v = 1;', 'a.ts').backend.includes('pulse'), false);
+  // Without JSX no import is written, and TypeScript's output starts with the string as well.
+  assert.equal(sameAsTypeScript('declare module "pkg" { interface O {} }\n"use client";\nexport const v = 1;', 'a.ts').backend.includes('pulse'), true);
+  // An import may carry its with clause on the next line.
+  assert.equal(sameAsTypeScript('import c from "./config.json"\nwith { type: "json" };\nexport { c };', 'a.ts').backend, 'pulse');
   // TypeScript reads `with` on the next line as a statement of its own.
   assert.notEqual(compile(Buffer.from('export { default as config } from "./config.json"\nwith { "type": "json" };'), { file: 'a.ts' }).backend, 'pulse');
   // A comparison in a declarator may be followed by further declarators when no closing angle follows it.

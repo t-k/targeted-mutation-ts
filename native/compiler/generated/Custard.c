@@ -20187,7 +20187,11 @@ TmtPulseParser_static_import_attributes(
 }
 
 TmtPulseParser_parser_state
-TmtPulseParser_import_source(TmtPulseMemory_tape input, TmtPulseParser_parser_state state)
+TmtPulseParser_import_source(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  bool attributes_on_next_line
+)
 {
   TmtPulseParser_parser_state value = TmtPulseParser_skip(input, state);
   uint8_t value1 = TmtPulseMemory_peek(input, value.offset);
@@ -20206,7 +20210,7 @@ TmtPulseParser_import_source(TmtPulseMemory_tape input, TmtPulseParser_parser_st
     TmtPulseParser_cursor value4 = TmtPulseParser_trivia(input, value3.offset);
     TmtPulseParser_parser_state tail = TmtPulseParser_from_cursor(value3, value4);
     bool value5;
-    if (tail.status == 0U && !value4.newline)
+    if (tail.status == 0U && (attributes_on_next_line || !value4.newline))
       value5 = TmtPulseParser_keyword(input, tail.offset, 4U, 0x77697468ULL);
     else
       value5 = false;
@@ -20289,7 +20293,8 @@ TmtPulseParser_star_reexport(
             .local_log_floor = value2.local_log_floor,
             .local_log_used = value2.local_log_used
           }
-        ));
+        ),
+        false);
   else
     value4 = TmtPulseParser_failed(value2, 1U);
   return ((TmtPulseParser_named_state){ .state = value4, .used = value10.used });
@@ -20348,7 +20353,8 @@ TmtPulseParser_named_reexport(
             .local_log_floor = value2.local_log_floor,
             .local_log_used = value2.local_log_used
           }
-        ));
+        ),
+        false);
     return
       (
         (FStar_Pervasives_Native_tuple2__TmtPulseParser_named_state_uint32_t){
@@ -20743,7 +20749,7 @@ TmtPulseParser_import_declaration(
   uint8_t value1 = TmtPulseMemory_peek(input, value.offset);
   if (value1 == 34U || value1 == 39U)
   {
-    TmtPulseParser_parser_state value2 = TmtPulseParser_import_source(input, value);
+    TmtPulseParser_parser_state value2 = TmtPulseParser_import_source(input, value, true);
     TmtPulseParser_parser_state
     value3 = TmtPulseParser_record_jsx_span(input, value2, 9U, state.offset, value2.offset);
     return ((TmtPulseParser_named_state){ .state = value3, .used = used });
@@ -20890,7 +20896,8 @@ TmtPulseParser_import_declaration(
               .local_log_floor = value6.local_log_floor,
               .local_log_used = value6.local_log_used
             }
-          ));
+          ),
+          true);
     else
       value8 = TmtPulseParser_failed(value6, 1U);
     TmtPulseParser_parser_state

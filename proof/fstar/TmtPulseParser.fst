@@ -4577,7 +4577,9 @@ let static_import_attributes (input:tape) (#frame:slprop) (state:parser_state) :
       let! ending = (fun () -> (let! anf_value_6 = (fun () -> same input #frame ending.offset 44uy) in if anf_value_6 then (let! anf_value_7 = (fun () -> (consume input #frame ending 44uy)) in skip input #frame anf_value_7) else read_ret input #frame (ending))) in
       consume input #frame ending 125uy)
 
-let import_source (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+// `attributes_on_next_line`: an import may carry its with clause on the following line; behind a re-export
+// TypeScript reads that line as a statement of its own.
+let import_source (input:tape) (#frame:slprop) (state:parser_state) (attributes_on_next_line:bool) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! st = (fun () -> skip input #frame state) in
   let! delimiter = (fun () -> peek input #frame st.offset) in
   if st.status <> 0ul || (delimiter <> 34uy && delimiter <> 39uy) then read_ret input #frame (failed st 1ul)
@@ -4585,8 +4587,7 @@ let import_source (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt p
     let! literal = (fun () -> (let! anf_value_1 = (fun () -> (string_end input #frame (next st.offset) delimiter input.size false)) in read_ret input #frame (from_cursor st anf_value_1))) in
     let! gap = (fun () -> trivia input #frame literal.offset) in
     let tail = from_cursor literal gap in
-    // TypeScript takes `with` on the next line as a statement of its own behind a re-export.
-    let! has_attributes = (fun () -> if tail.status = 0ul && not gap.newline then keyword input #frame tail.offset 4ul 0x77697468uL else read_ret input #frame (false)) in
+    let! has_attributes = (fun () -> if tail.status = 0ul && (attributes_on_next_line || not gap.newline) then keyword input #frame tail.offset 4ul 0x77697468uL else read_ret input #frame (false)) in
     let! ending = (fun () -> if has_attributes then static_import_attributes input #frame tail else read_ret input #frame (literal)) in
     statement_end input #frame ending ending.offset false
 
@@ -4644,7 +4645,7 @@ let import_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
   let! st = (fun () -> skip input { state with offset = plus state.offset 6ul }) in
   let! byte = (fun () -> peek input st.offset) in
   if byte = 34uy || byte = 39uy then
-    let! after = (fun () -> import_source input st) in
+    let! after = (fun () -> import_source input st true) in
     let! after = (fun () -> record_jsx_span input after 9ul state.offset after.offset) in
     ret input ({ state = after; used })
   else
@@ -4675,7 +4676,7 @@ let import_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
         else ret input ({ default_ with state = after }))) in
     let! st = (fun () -> skip input members.state) in
     let! result =
-      (fun () -> (let! anf_value_7 = (fun () -> keyword input st.offset 4ul 0x66726f6duL) in if anf_value_7 then import_source input { st with offset = plus st.offset 4ul }
+      (fun () -> (let! anf_value_7 = (fun () -> keyword input st.offset 4ul 0x66726f6duL) in if anf_value_7 then import_source input { st with offset = plus st.offset 4ul } true
       else ret input (failed st 1ul))) in
     let! recorded = (fun () -> record_jsx_span input result (if type_only then 8ul else 9ul) state.offset result.offset) in
     ret input ({ members with state = recorded })
@@ -5222,7 +5223,7 @@ let star_reexport (input:tape) (state:parser_state) (used:names_used)
     else ret input { state; used }) in
   let! tail = (fun () -> skip input named.state) in
   let! from_ = (fun () -> keyword input tail.offset 4ul 0x66726f6duL) in
-  let! source = (fun () -> if from_ then import_source input { tail with offset = plus tail.offset 4ul }
+  let! source = (fun () -> if from_ then import_source input { tail with offset = plus tail.offset 4ul } false
     else ret input (failed tail 1ul)) in
   ret input { named with state = source }
 
@@ -5297,7 +5298,7 @@ let named_reexport (input:tape) (state:parser_state) (used locals:names_used) (p
   let! tail = (fun () -> skip input named.state) in
   let! from = (fun () -> keyword input tail.offset 4ul 0x66726f6duL) in
   if from then
-    let! source = (fun () -> import_source input { tail with offset = plus tail.offset 4ul }) in
+    let! source = (fun () -> import_source input { tail with offset = plus tail.offset 4ul } false) in
     ret input ({ named with state = source }, pending)
   else
     let! complete = (fun () -> statement_end input named.state named.state.offset false) in

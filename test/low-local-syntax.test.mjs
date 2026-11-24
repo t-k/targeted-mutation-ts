@@ -30,7 +30,8 @@ test('local declaration lists share name checks and preserve comparison boundari
   check('function f() { let first, second, last; return a < b; }', 'fast');
   check('function f() { const a = x >= y, a = x <= z; }', 'diagnostic');
   check('function f() { let a = x >= y, b; const b = 123; }', 'diagnostic');
-  check('function f() { const a = x < y, b = value; }', 'fallback');
+  check('function f() { const a = x < y, b = value; }', 'fast');
+  check('function f() { const a = x < y, b = value > 1; }', 'fallback');
   check('function f() { const a = x >= y, b; }', 'diagnostic');
   check('function f() { const a = x >= y,; }', 'diagnostic');
 });

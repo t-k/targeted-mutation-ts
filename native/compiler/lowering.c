@@ -1870,15 +1870,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     bool separate = field;
     if (statement) {
       const TmtPulseParser_cursor first = TmtPulseParser_trivia(input, prelude);
-      if (first.ok && first.at == span.first) {
-        prelude = span.last;
-        /*
-         * With the statement gone, a string behind it would stand first and become a directive. TypeScript
-         * writes helper imports in front of it in a JSX file, so the two outputs would differ in "use client".
-         */
-        const TmtPulseParser_cursor behind = TmtPulseParser_trivia(input, span.last);
-        if (behind.ok && behind.at < input.size && (input.source[behind.at] == '"' || input.source[behind.at] == '\'')) goto decline;
-      }
+      if (first.ok && first.at == span.first) prelude = span.last;
       else if (event.original == erased_type_statement) {
         if (!retained_module_statement && (!first.ok || !begins_runtime_declaration(input, first.at))) goto decline;
         retained_module_statement = true;

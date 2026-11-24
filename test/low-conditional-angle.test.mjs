@@ -29,7 +29,9 @@ for (const row of rows) {
     const value = `${condition} ? ${yes} : ${no}`;
     const wrapped = forms[placement](suffix === 'Nested' ? `confirm ? ${value} : final` : value);
     const source = `/* 海 */${wrapped}\nconst probe = low > high;` + (suffix === 'Invalid' ? '\nconst =' : '');
-    const fast = suffix !== 'Invalid' && (angle !== 'Alternate' || suffix === 'Nested');
+    // A comparison at the end of a declarator may be followed by further declarators: no closing angle follows
+    // it before the end of the statement.
+    const fast = suffix !== 'Invalid' && (angle !== 'Alternate' || suffix === 'Nested' || placement === 'Declaration');
     compare(source, fast);
   });
 }
