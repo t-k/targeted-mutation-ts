@@ -55,17 +55,18 @@ export function importMatches(file, specifier, subject, project) {
   const root = project ?? '.';
   const path = resolve(root, dirname(file), specifier);
   const source = resolve(root, subject);
-  if (project && statSync(path, { throwIfNoEntry: false })?.isFile()) return realpathSync(path) === source;
+  const canonicalSource = project && statSync(source, { throwIfNoEntry: false })?.isFile() ? realpathSync(source) : source;
+  if (project && statSync(path, { throwIfNoEntry: false })?.isFile()) return realpathSync(path) === canonicalSource;
   const extension = extname(path);
   const substitutes = { '.js': ['.ts', '.tsx'], '.jsx': ['.tsx'], '.mjs': ['.mts'], '.cjs': ['.cts'] };
   const candidates = Object.hasOwn(substitutes, extension)
     ? substitutes[extension].map(ext => path.slice(0, -extension.length) + ext)
     : moduleExtensions.includes(extension) ? []
       : [...moduleExtensions.map(ext => path + ext), ...moduleExtensions.map(ext => resolve(path, 'index' + ext))];
-  if (!project) return source === path || candidates.includes(source);
+  if (!project) return canonicalSource === path || candidates.includes(canonicalSource);
   const existing = new Set(candidates.filter(candidate => statSync(candidate, { throwIfNoEntry: false })?.isFile())
     .map(candidate => realpathSync(candidate)));
-  return existing.size === 1 && existing.has(source);
+  return existing.size === 1 && existing.has(canonicalSource);
 }
 
 function callbackImports(callback, imports) {

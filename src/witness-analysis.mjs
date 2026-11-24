@@ -136,7 +136,7 @@ export async function analyzeWitnesses(project, files, options) {
     snapshots.set(file, source);
     const rules = discoverWitnessRules(tree, constraints.filter(entry => entry.file === file));
     for (const rule of rules) for (const entry of rule.constraints ?? []) boundConstraints.add(entry);
-    sources.push(discoverySources(tree, selected));
+    sources.push(discoverySources(tree, selected, file));
     extraction.push({ file, path: tree.parseDiagnostics.length ? 'diagnostic' : 'typescript' });
     for (const rule of rules) {
       const start = rule.node.getStart(tree);

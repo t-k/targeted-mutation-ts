@@ -23,14 +23,14 @@ function construct(node, name, count) {
   return !!node && ts.isNewExpression(node) && named(node.expression, name) && (node.arguments?.length ?? 0) === count;
 }
 
-function sourceEdit(tree, node, replacement, start = node.getStart(tree)) {
+function sourceEdit(tree, file, node, replacement, start = node.getStart(tree)) {
   const original = tree.text.slice(start, node.getEnd());
   if (/[\r\n\u2028\u2029]/.test(original)) return null;
   const { line } = tree.getLineAndCharacterOfPosition(start);
-  return { file: tree.fileName, line: line + 1, start, original, replacement };
+  return { file, line: line + 1, start, original, replacement };
 }
 
-function endianEndpoint(tree, name, fn) {
+function endianEndpoint(tree, file, name, fn) {
   if (!fn.body || !ts.isBlock(fn.body) || fn.parameters.length !== 1 ||
       !named(fn.parameters[0].name) || fn.parameters[0].initializer || fn.parameters[0].dotDotDotToken ||
       fn.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.AsyncKeyword) || fn.asteriskToken) return null;
@@ -51,7 +51,7 @@ function endianEndpoint(tree, name, fn) {
   if (![ts.SyntaxKind.TrueKeyword, ts.SyntaxKind.FalseKeyword].includes(flag.kind)) return null;
   const little = flag.kind === ts.SyntaxKind.TrueKeyword;
   const start = method.getStart(tree);
-  const edit = sourceEdit(tree, call, tree.text.slice(start, flag.getStart(tree)) +
+  const edit = sourceEdit(tree, file, call, tree.text.slice(start, flag.getStart(tree)) +
     String(!little) + tree.text.slice(flag.getEnd(), call.getEnd()), start);
   return edit && { name, kind: producer ? 'encoder' : 'decoder', bits: Number(bits), little, edit };
 }
@@ -62,7 +62,7 @@ function methodName(node) {
       ts.SyntaxKind.AsyncKeyword, ts.SyntaxKind.AbstractKeyword].includes(modifier.kind)) ? node.name.text : null;
 }
 
-function storeEndpoint(tree, node) {
+function storeEndpoint(tree, file, node) {
   if (!ts.isClassDeclaration(node) || !node.name || !modifiers(node, ts.SyntaxKind.ExportKeyword) ||
       modifiers(node, ts.SyntaxKind.DefaultKeyword) || node.heritageClauses?.length ||
       node.members.some(member => ts.isConstructorDeclaration(member))) return null;
@@ -82,21 +82,21 @@ function storeEndpoint(tree, node) {
     const check = bare(first.expression);
     if (!invoked(check) || !property(check.expression) || check.expression.name.text !== 'some' ||
         !named(check.expression.expression, parameter) || check.arguments.length !== 1) continue;
-    const edit = sourceEdit(tree, first, '');
+    const edit = sourceEdit(tree, file, first, '');
     if (edit) writes.set(name, edit);
   }
-  return writes.size && reads.size ? { file: tree.fileName, name: node.name.text, writes, reads } : null;
+  return writes.size && reads.size ? { file, name: node.name.text, writes, reads } : null;
 }
 
-export function discoverySources(tree, selected) {
+export function discoverySources(tree, selected, file = tree.fileName) {
   if (tree.parseDiagnostics.length) return { endpoints: [], stores: [] };
   const endpoints = [], stores = [];
   for (const statement of tree.statements) {
     for (const [name, fn] of functionParts(statement)) {
-      const endpoint = endianEndpoint(tree, name.text, fn);
+      const endpoint = endianEndpoint(tree, file, name.text, fn);
       if (endpoint && selected(endpoint.edit.line)) endpoints.push(endpoint);
     }
-    const store = storeEndpoint(tree, statement);
+    const store = storeEndpoint(tree, file, statement);
     if (store) {
       for (const [name, edit] of store.writes) if (!selected(edit.line)) store.writes.delete(name);
       if (store.writes.size) stores.push(store);
