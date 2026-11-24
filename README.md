@@ -59,10 +59,15 @@ The tool copies the project to a temporary directory and runs the project's own 
 npx targeted-mutation analyze                      # every source file in the current project (default: targeted)
 npx targeted-mutation analyze . src/cart.ts        # selected files
 npx targeted-mutation analyze --lines src/cart.ts:10-40
-npx targeted-mutation analyze --since origin/main  # edits on lines changed since a revision
+npx targeted-mutation analyze --since origin/main  # edits on lines changed since a revision (also flags weakened tests)
 npx targeted-mutation analyze --since origin/main --undo-changes  # also: which changes do the tests pass without?
 npx targeted-mutation analyze --suggest-assertions # also: the exact value a weak assertion should compare with
 npx targeted-mutation analyze --mutators full      # full built-in StrykerJS-compatible mutation set (no StrykerJS required)
+npx targeted-mutation analyze --list --shard 0/4   # preview candidates for CI shard 0 of 4 without running tests
+npx targeted-mutation analyze --format sarif       # emit SARIF 2.1.0 for GitHub Code Scanning (or --format jsonl)
+npx targeted-mutation analyze --write-baseline tmt-baseline.json  # save stable finding IDs
+npx targeted-mutation analyze --baseline tmt-baseline.json        # suppress already-recorded findings
+npx targeted-mutation analyze --checkpoint .tmt-checkpoint.jsonl  # resume interrupted runs safely
 ```
 
 `tmts` is a short alias for the same command. `targeted-mutation --help` lists every option.
@@ -91,7 +96,7 @@ On a terminal the report is text. When the output is piped or redirected it is J
 | `--mutators full` | Comparison boundaries (and constant-RHS integer thresholds on Vitest), plus the complete built-in mutation set: every StrykerJS mutator (arithmetic, equality, logical, conditional, boolean, string, array, object, block, arrow function, assignment, unary, update, method, optional chaining, regular expression and call removal). Needs no extra package. Runs in one switched session on Vitest 4, or one source rewrite per mutation with Playwright. |
 | `--witnesses` | Value substitutions such as a neighbouring field, the first or last index, or a sort key, each confirmed by a test that tells them apart. Reports `No edit sites` when a file has no such pattern. |
 
-`// Stryker disable` and `// Stryker restore` comments exclude mutations in both the `targeted` and `full` profiles, with the reason you give after the colon.
+`// Stryker disable`, `// Stryker restore`, and `// tmt:ignore <reason>` (same-line or standalone line above) comments exclude mutations in both the `targeted` and `full` profiles, with the reason recorded on each ignored mutation.
 
 On Vitest 4 the mutations are decided inside running Vitest workers, several at a time, with a control run after each one. `--concurrency N` sets the number of workers, `--verify-trials N` re-runs a sample of those decisions in fresh Vitest runs, and `--isolated-trials` starts a fresh Vitest run for every mutation instead; see [How mutations run on Vitest](docs/analysis.md#how-mutations-run-on-vitest).
 

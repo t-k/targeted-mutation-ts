@@ -1,7 +1,11 @@
+import { readFileSync, realpathSync } from 'node:fs';
 import { analyze, baselineRunSymbol, completeAnalysis, prepareAnalysis } from './analysis.mjs';
+import { checkpointKeyForTrial, computeCampaignContext, openCheckpoint } from './checkpoint.mjs';
 import { analyzeConventional } from './conventional.mjs';
 import { suppressEnclosingDiagnostics } from './enclosing-suppression.mjs';
+import { selectScope } from './scope.mjs';
 import { computeShardSelection } from './shard.mjs';
+import { inside } from './vitest.mjs';
 
 const order = (a, b) => a.location.file.localeCompare(b.location.file) || a.location.start - b.location.start ||
   b.location.end - a.location.end;
@@ -69,7 +73,7 @@ async function besideSession(project, files, options, run, profile, stopsSession
     mutators: profile, lines: options.lines, since: options.since, config: options.config, test: options.test,
     'copy-exclude': options['copy-exclude'], dialect: options.dialect, 'isolated-trials': options['isolated-trials'],
     concurrency: options.concurrency, 'verify-trials': options['verify-trials'], timeout: options.timeout, signal: stop.signal, extras,
-    shardKeys: options.shardKeys,
+    shardKeys: options.shardKeys, checkpointStore: options.checkpointStore,
   }).then(report => ({ report }), error => ({ error }));
   let prepared;
   try {
@@ -98,26 +102,55 @@ async function besideSession(project, files, options, run, profile, stopsSession
 export async function analyzeOperators(project, files, options, run = { analyze, prepareAnalysis, completeAnalysis, analyzeConventional }) {
   const profile = options.mutators ?? 'targeted';
   const shardSelection = options.shard ? computeShardSelection(project, files, { ...options, mutators: profile }) : null;
-  const runOptions = shardSelection ? { ...options, shardKeys: shardSelection.keys } : options;
-  const withShard = report => shardSelection?.meta ? { ...report, shard: shardSelection.meta } : report;
+  let checkpointStore = null;
+  if (options.checkpoint) {
+    const root = realpathSync(project);
+    const targets = selectScope(root, files, options).map(subject => ({
+      ...subject, input: readFileSync(inside(root, subject.file)),
+    }));
+    const context = computeCampaignContext(targets, { ...options, mutators: profile });
+    checkpointStore = openCheckpoint(options.checkpoint, context, { mutators: profile });
+  }
+  const runOptions = {
+    ...options,
+    ...(shardSelection ? { shardKeys: shardSelection.keys } : {}),
+    ...(checkpointStore ? { checkpointStore } : {}),
+  };
+  const finalize = report => {
+    let out = shardSelection?.meta ? { ...report, shard: shardSelection.meta } : report;
+    if (checkpointStore) {
+      if (out.evaluation === 'evaluated') checkpointStore.complete();
+      out = { ...out, checkpoint: checkpointStore.summary() };
+    }
+    return out;
+  };
   const rewriting = () => {
     const out = run.analyze(project, files, { ...runOptions, mutators: profile });
-    return carryBaseline(withShard({ ...out, mutators: profile, operatorExecution: 'source-rewrite' }), out);
+    return carryBaseline(finalize({ ...out, mutators: profile, operatorExecution: 'source-rewrite' }), out);
   };
   if (runOptions.runner === 'playwright' || runOptions.audit) return rewriting();
   const { prepared, ended, stopped, extras, report: session, error } = await besideSession(project, files, runOptions, run, profile,
     report => report.evaluation === 'baseline_error' || report.extraction.some(file => file.path === 'diagnostic'));
-  if (stopped) return carryBaseline(withShard({ ...ended, mutators: profile }), ended);
+  if (stopped) return carryBaseline(finalize({ ...ended, mutators: profile }), ended);
   if (error) throw error;
   if (session.evaluation === 'baseline_error') return rewriting();
-  const completed = ended ?? run.completeAnalysis(prepared, sessionVerdicts(session, extras));
+  const baseSettled = sessionVerdicts(session, extras);
+  const settled = checkpointStore
+    ? trial => checkpointStore.get(checkpointKeyForTrial(trial)) ?? baseSettled(trial)
+    : baseSettled;
+  const completed = ended ?? run.completeAnalysis(prepared, settled);
+  if (checkpointStore) {
+    for (const mutant of completed.mutants ?? []) {
+      checkpointStore.record(checkpointKeyForTrial(mutant), mutant);
+    }
+  }
   const focused = carryBaseline({ ...completed, mutators: profile }, completed);
-  if (session.evaluation === 'no_sites') return carryBaseline(withShard({ ...focused, operatorExecution: 'session' }), focused);
+  if (session.evaluation === 'no_sites') return carryBaseline(finalize({ ...focused, operatorExecution: 'session' }), focused);
   // A comparison boundary appears in both parts. The focused result carries the missing input, so it is the one kept.
   const boundaries = new Set(focused.mutants.map(mutant => `${mutant.location.file}:${mutant.edit[0]}:${mutant.replacement}`));
   const added = session.mutants.filter(mutant => !(mutant.operatorSwap &&
     boundaries.has(`${mutant.location.file}:${mutant.operatorSwap.join(':')}`)));
-  return carryBaseline(withShard({
+  return carryBaseline(finalize({
     ...focused,
     operatorExecution: 'session',
     trials: session.trials,

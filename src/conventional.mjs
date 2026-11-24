@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prepareBuiltinSwitches, targetedOrBoundary } from './builtin-switches.mjs';
 import { targetedGap } from './targeted-gaps.mjs';
+import { checkpointKeyForTrial } from './checkpoint.mjs';
 import { candidateKey } from './shard.mjs';
 import { selectScope } from './scope.mjs';
 import { inside, runnerPackage, withCopy } from './vitest.mjs';
@@ -67,9 +68,27 @@ export async function analyzeConventional(project, files, options) {
     replacement: mutant.replacement,
   }));
   const mutants = prepared.filter(mutant => !mutant.parametric && inShard(mutant));
-  const runnable = prepared.filter(mutant => mutant.status === undefined && inShard(mutant));
+  const ckpt = options.checkpointStore;
+  const cachedById = new Map();
+  if (ckpt) {
+    for (const mutant of mutants) {
+      if (mutant.status !== undefined) continue;
+      const hit = ckpt.get(checkpointKeyForTrial(mutant));
+      if (hit) cachedById.set(mutant.id, hit);
+    }
+  }
+  const runnable = prepared.filter(mutant => mutant.status === undefined && inShard(mutant) && !cachedById.has(mutant.id));
   if (!mutants.length) return report;
-  if (!runnable.length) return { ...report, evaluation: 'evaluated', mutants: mutants.map(({ targeted: _rule, ...mutant }) => mutant) };
+  if (!runnable.length) {
+    return {
+      ...report,
+      evaluation: 'evaluated',
+      mutants: mutants.map(({ targeted: _rule, ...mutant }) => {
+        const cached = cachedById.get(mutant.id);
+        return cached ? { ...mutant, ...cached, evidence: cached.evidence ?? 'checkpoint' } : mutant;
+      }),
+    };
+  }
 
   return withCopy(root, async (workspace, temp) => {
     runnerPackage(workspace, 'vitest');
@@ -163,10 +182,16 @@ export async function analyzeConventional(project, files, options) {
       return nowRuns.length || noLongerRuns.length ? { ...gap, effects: { nowRuns, noLongerRuns } } : gap;
     };
     const judged = mutants.map(mutant => {
+      const cached = cachedById.get(mutant.id);
+      if (cached) return { ...mutant, ...cached, evidence: cached.evidence ?? 'checkpoint' };
       const result = results.get(mutant.id);
       // An edit the session left out was not run.
       if (result?.status === 'ignored') return { ...mutant, ...result };
-      if (result) return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
+      if (result) {
+        const entry = { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
+        if (ckpt) ckpt.record(checkpointKeyForTrial(mutant), entry);
+        return entry;
+      }
       return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Mutation session ended early' };
     });
     return {
