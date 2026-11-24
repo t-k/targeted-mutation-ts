@@ -140,6 +140,17 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
   return attempt;
 }
 
+// Runs of the suite against plain source edits, for analyses that record nothing: `attempt()` is the baseline
+// and `attempt({ trial })` one edit, each in a fresh copy of the project.
+export function sourceTrials(root, subjects, options) {
+  const runner = options.runner === 'playwright'
+    ? (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root,
+      tests: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) })
+    : (workspace, temp, settings) => runVitest(workspace, temp, {
+      ...settings, config: options.config, testFiles: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
+  return settings => makeAttempt(root, subjects, runner, options['copy-exclude'], new Map(), settings);
+}
+
 function indexObservations(trace, baseline) {
   const tests = new Map(baseline.tests.filter(test => test.status === 'passed').map(test => [identity(test), test]));
   const bySite = new Map();

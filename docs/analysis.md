@@ -46,6 +46,27 @@ With `--deterministic` and complete, stable observations, the compiled replay de
 
 Pass `--displace-thresholds` to try tightening strict comparisons by one integer step. For example, `measured.size > 0` becomes `measured.size > 1`, and `offset < source.length` becomes `offset < source.length - 1`. The rule requires complete safe-integer observations with a representable shifted bound and always runs the source rewrite. A surviving mutation can identify an observed result that changed or propose an operand pair to exercise. When the comparison is a directly callable exported unary arrow with an integer literal, an input gap includes a suggested assertion and `--audit` verifies it. Use an application-level test to confirm reachability and expected behavior for other comparisons.
 
+### A change put back
+
+With `--since REV`, `--undo-changes` also treats the code as it was as an edit. Each change in the selected source files is put back alone as it was at `REV`, and the suite runs against it in a fresh copy of the project. When every test passes, the tests do not tell the change from what was there before:
+
+```text
+src/session.ts:9:1  survived  change-undone/v1: return now - used < 30 && created <= used; as it was at 91e1dc927360
+
+Test gaps:
+UNTESTED CHANGE src/session.ts:9:1  change-undone/v1
+  the tests pass with this change put back as it was at 91e1dc927360
+  add a test that fails without the change
+```
+
+- A change is what Git reports as one hunk without context: changed lines next to each other are one change, and lines that were only removed are a change at the place they stood.
+- A change that leaves the tokens of the file as they are (comments, spacing, blank lines) is not tried. A file that is new since `REV` has nothing to put back.
+- A change that does not parse when it is put back alone (one of two braces) is listed as `unsupported` and not run. When a file has such a change and others, all of the file's changes are also put back together, as one more edit.
+- A change that parses and fails at run time when put back alone (it calls a function that only another change adds) fails the tests and counts as `killed`. Nothing here checks types.
+- The tests stay as they are. `--lines` limits the changes to those that touch the given lines; a removal belongs to the lines around it.
+- Each change costs one run of the suite, after one baseline run of its own. A refactoring passes with the old code by design; such a finding is expected.
+- The option works with every profile except `--witnesses`, and with Playwright. In JSON the edits have the rule `change-undone/v1` and `since`, the report has `changesSince`, and a finding is a `diagnostics` entry of kind `UNTESTED CHANGE`.
+
 ### How mutations run on Vitest
 
 Every profile on Vitest 4 with its default runner uses a test session. The session copies the project, rewrites each mutation into a runtime switch, and runs the suite once with every switch off to record which tests reach which switch. It then decides the mutations inside Vitest workers instead of starting one Vitest run per mutation.

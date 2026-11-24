@@ -3,6 +3,7 @@
 ## Unreleased
 
 - `--mutators targeted`: edits that the values of the tests can tell apart (an equality that is always true or false, an operand of `&&`, `||` or `??` that never decides, `??` for `||`, `== null` for `=== null`). A recording run notes per test whether each edit would have behaved differently, and a survivor is reported as an input gap with the missing input or as an assertion gap with the tests that had it.
+- `--undo-changes` with `--since REV`: each change is put back as it was at `REV` and run against the suite. A change the tests pass without is reported as `UNTESTED CHANGE`.
 
 ## 0.1.0
 

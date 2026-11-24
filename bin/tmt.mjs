@@ -16,6 +16,7 @@ try {
       deterministic: { type: 'boolean' },
       audit: { type: 'boolean' },
       'displace-thresholds': { type: 'boolean' },
+      'undo-changes': { type: 'boolean' },
       witnesses: { type: 'boolean' },
       mutators: { type: 'string' },
       concurrency: { type: 'string' },
@@ -55,6 +56,9 @@ try {
     if (values.concurrency !== undefined && !session && !values.witnesses) {
       throw new Error('--concurrency applies to Vitest sessions and to --witnesses, not to --audit or Playwright');
     }
+    if (values['undo-changes'] && (values.since === undefined || values.witnesses)) {
+      throw new Error('--undo-changes requires --since REV and does not apply to --witnesses');
+    }
     if (values.timeout !== undefined) {
       if (!/^[1-9]\d{0,4}$/.test(values.timeout)) throw new Error('Expected --timeout to be a number of seconds');
       values.timeout = Number(values.timeout);
@@ -88,6 +92,10 @@ try {
     } else {
       const { analyzeFocused } = await import('../src/operator-analysis.mjs');
       result = await analyzeFocused(project, files, values);
+    }
+    if (values['undo-changes']) {
+      const { analyzeUndoneChanges, withUndoneChanges } = await import('../src/change-undone.mjs');
+      if (result.evaluation !== 'baseline_error') result = withUndoneChanges(result, analyzeUndoneChanges(project, files, values));
     }
     if (format === 'json') console.log(JSON.stringify(result, null, 2));
     else console.log(renderText(result));

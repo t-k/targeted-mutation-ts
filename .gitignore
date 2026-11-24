@@ -6,3 +6,4 @@ docs.local/
 node_modules/
 build/
 .lake/
+.stryker-tmp/

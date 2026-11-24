@@ -8,6 +8,8 @@ Commands:
 Scope (analyze):
   --lines FILE:FROM-TO          Limit to a line range. FILE:N selects one line. Repeatable.
   --since REV                   Limit to lines added or changed since a Git revision.
+  --undo-changes                With --since: also put each change back as it was at REV and run the suite.
+                                A change the tests pass without is reported as UNTESTED CHANGE.
   --copy-exclude PATH           Leave a project path out of the temporary copies. Repeatable.
 
 Profiles (analyze):
@@ -58,6 +60,7 @@ const at = location => location ? `${location.file}:${location.line}:${location.
 
 function describeEdit(mutant) {
   const name = mutant.mutatorName ?? mutant.rule ?? 'edit';
+  if (mutant.since !== undefined) return `${name}: ${mutant.wholeFile ? 'all changes of the file' : firstLine(mutant.original) || '(removed lines)'} as it was at ${printable(mutant.since.slice(0, 12))}`;
   if (mutant.original !== undefined) return `${name}: ${firstLine(mutant.original)} -> ${firstLine(mutant.replacement)}`;
   const operator = String(mutant.replacement).trim();
   if (mutant.operator !== undefined && /^[<>=!&|?+*\/%-]+$/.test(operator)) return `${name}: ${mutant.operator} -> ${operator}`;
@@ -97,6 +100,10 @@ function describeGap(gap) {
       const operands = gap.example?.operands ? ` (operands ${gap.example.operands.map(printable).join(', ')})` : '';
       lines.push(`  the edit gives another value in: ${where}${operands}`, '  add an assertion on what this value decides');
     }
+  }
+  if (gap.kind === 'UNTESTED CHANGE') {
+    lines.push(`  the tests pass with ${gap.wholeFile ? "all of this file's changes" : 'this change'} put back as it was at ${printable(String(gap.since).slice(0, 12))}`,
+      '  add a test that fails without the change');
   }
   if (gap.suggestedTest) lines.push(`  suggested test: ${printable(gap.suggestedTest)}`);
   if (gap.seed) lines.push(`  based on: ${printable(gap.seed.file)} > ${printable(gap.seed.test)}`);
