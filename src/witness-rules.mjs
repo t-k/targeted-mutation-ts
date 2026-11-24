@@ -224,6 +224,132 @@ function lengthRule(parameters, expression) {
   };
 }
 
+function roundingRule(parameters, expression) {
+  if (!ts.isCallExpression(expression) || expression.questionDotToken || expression.arguments.length !== 1 ||
+      !ts.isPropertyAccessExpression(expression.expression) || expression.expression.questionDotToken ||
+      !ts.isIdentifier(expression.expression.expression) || expression.expression.expression.text !== 'Math') return null;
+  const method = expression.expression.name.text;
+  if (method !== 'floor' && method !== 'trunc') return null;
+  const div = bare(expression.arguments[0]);
+  if (!div || !ts.isBinaryExpression(div) || div.operatorToken.kind !== ts.SyntaxKind.SlashToken) return null;
+  const divisor = integer(div.right);
+  if (divisor === undefined || divisor < 2) return null;
+  const mul = bare(div.left);
+  if (!mul || !ts.isBinaryExpression(mul) || mul.operatorToken.kind !== ts.SyntaxKind.AsteriskToken) return null;
+  const first = reference(mul.left, parameters);
+  const second = reference(mul.right, parameters);
+  if (!first?.node || !second?.node || first.field !== undefined || second.field !== undefined || first.index === second.index) return null;
+  const roundFn = method === 'floor' ? Math.floor : Math.trunc;
+  return {
+    rule: 'divide-before-multiply/v1',
+    node: expression,
+    replacement: `Math.${method}(${first.text} / ${divisor}) * ${second.text}`,
+    propose(args) {
+      const a0 = read(args, first);
+      const b0 = read(args, second);
+      if (!Number.isSafeInteger(a0) || !Number.isSafeInteger(b0) || !Number.isSafeInteger(a0 * b0)) return [];
+      if (roundFn((a0 * b0) / divisor) !== roundFn(a0 / divisor) * b0) return [];
+      const candidates = new Set();
+      const limit = Math.min(divisor - 1, 64);
+      for (let delta = 1; delta <= limit; delta++) candidates.add(delta);
+      if (b0 !== 0) {
+        const step = Math.ceil(divisor / Math.abs(b0));
+        if (step >= 1 && step < divisor) candidates.add(step);
+        if (step + 1 >= 1 && step + 1 < divisor) candidates.add(step + 1);
+      }
+      for (const delta of [...candidates].sort((x, y) => x - y)) {
+        const a1 = a0 + delta;
+        if (!Number.isSafeInteger(a1) || !Number.isSafeInteger(a1 * b0)) continue;
+        const original = roundFn((a1 * b0) / divisor);
+        const mutant = roundFn(a1 / divisor) * b0;
+        if (Number.isSafeInteger(original) && Number.isSafeInteger(mutant) && original !== mutant) {
+          return [{ path: [first.index], next: a1, original, mutant, append: true }];
+        }
+      }
+      return [];
+    },
+  };
+}
+
+function templateKeyRules(parameters, expression) {
+  if (!ts.isTemplateExpression(expression) || expression.templateSpans.length < 2) return [];
+  const parts = [];
+  for (const span of expression.templateSpans) {
+    const expr = bare(span.expression);
+    if (!ts.isIdentifier(expr)) return [];
+    const index = parameters.findIndex(p => p.name === expr.text && (p.shape === 'string' || p.shape === 'number'));
+    if (index < 0) return [];
+    parts.push({ index, shape: parameters[index].shape, literalText: span.literal.text });
+  }
+  const headText = expression.head.text;
+  const render = (args, omitPos) => {
+    let out = headText;
+    for (let i = 0; i < parts.length; i++) {
+      if (i !== omitPos) out += String(args[parts[i].index]);
+      out += parts[i].literalText;
+    }
+    return out;
+  };
+  return parts.map((part, omitPos) => {
+    const span = expression.templateSpans[omitPos];
+    // Replace `${param}` with empty string inside the template literal by editing the whole template.
+    let replacement = '`' + expression.head.rawText;
+    for (let i = 0; i < expression.templateSpans.length; i++) {
+      const s = expression.templateSpans[i];
+      if (i !== omitPos) replacement += '${' + s.expression.getText() + '}';
+      replacement += s.literal.rawText;
+    }
+    replacement += '`';
+    return {
+      rule: 'composite-key-omit/v1',
+      node: expression,
+      replacement,
+      propose(args) {
+        const current = args[part.index];
+        const next = part.shape === 'string' ? `${current}_alt` : current + 1;
+        if (part.shape === 'number' && !Number.isSafeInteger(next)) return [];
+        const mutatedArgs = args.map((v, idx) => (idx === part.index ? next : v));
+        const original = render(mutatedArgs, -1);
+        const mutant = render(mutatedArgs, omitPos);
+        return original === mutant ? [] : [{ path: [part.index], next, original, mutant, append: true }];
+      },
+    };
+  });
+}
+
+function joinKeyRules(parameters, expression) {
+  if (!methodCall(expression, 'join', 1) || !ts.isStringLiteral(expression.arguments[0])) return [];
+  const arrayExpr = bare(expression.expression.expression);
+  if (!ts.isArrayLiteralExpression(arrayExpr) || arrayExpr.elements.length < 2) return [];
+  const sepText = expression.arguments[0].text;
+  const parts = [];
+  for (const el of arrayExpr.elements) {
+    const inner = bare(el);
+    if (!ts.isIdentifier(inner)) return [];
+    const index = parameters.findIndex(p => p.name === inner.text && (p.shape === 'string' || p.shape === 'number'));
+    if (index < 0) return [];
+    parts.push({ index, shape: parameters[index].shape, text: inner.text });
+  }
+  return parts.map((part, omitPos) => {
+    const remaining = parts.filter((_, i) => i !== omitPos).map(p => p.text).join(', ');
+    const replacement = `[${remaining}].join(${expression.arguments[0].getText()})`;
+    return {
+      rule: 'composite-key-omit/v1',
+      node: expression,
+      replacement,
+      propose(args) {
+        const current = args[part.index];
+        const next = part.shape === 'string' ? `${current}_alt` : current + 1;
+        if (part.shape === 'number' && !Number.isSafeInteger(next)) return [];
+        const mutatedArgs = args.map((v, idx) => (idx === part.index ? next : v));
+        const original = parts.map(p => String(mutatedArgs[p.index])).join(sepText);
+        const mutant = parts.filter((_, i) => i !== omitPos).map(p => String(mutatedArgs[p.index])).join(sepText);
+        return original === mutant ? [] : [{ path: [part.index], next, original, mutant, append: true }];
+      },
+    };
+  });
+}
+
 export function discoverWitnessRules(tree, sortConstraints = []) {
   if (tree.parseDiagnostics.length) return [];
   const javascript = tree.scriptKind === ts.ScriptKind.JS || tree.scriptKind === ts.ScriptKind.JSX;
@@ -245,8 +371,10 @@ export function discoverWitnessRules(tree, sortConstraints = []) {
       if (parameters.some(param => !param.shape)) continue;
       const rules = ts.isBinaryExpression(expression) ? [...comparisonRules(parameters, expression), maskRule(parameters, expression)].filter(Boolean)
         : ts.isCallExpression(expression) ? [indexRule(parameters, expression), sumRule(parameters, expression),
+          roundingRule(parameters, expression), ...joinKeyRules(parameters, expression),
           ...orderRules(parameters, expression, sortConstraints.filter(entry => entry.function === name.text))].filter(Boolean)
-          : [lengthRule(parameters, expression)].filter(Boolean);
+          : ts.isTemplateExpression(expression) ? templateKeyRules(parameters, expression)
+            : [lengthRule(parameters, expression)].filter(Boolean);
       for (const rule of rules) result.push({ ...rule, name: name.text, parameters });
     }
   }

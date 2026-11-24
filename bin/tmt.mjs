@@ -112,6 +112,10 @@ try {
         result = withUndoneChanges(result, await analyzeUndoneChangesAsync(project, files, { ...values, existingBaseline: result[baselineRunSymbol] }));
       }
     }
+    if (values.since && !values.list && !values.witnesses && result.evaluation === 'evaluated') {
+      const { detectWeakenedTests } = await import('../src/weakened-tests.mjs');
+      result = await detectWeakenedTests(project, result, values);
+    }
     if (!values.list && values['write-baseline'] && result.evaluation !== 'baseline_error') {
       writeBaseline(values['write-baseline'], result.diagnostics ?? []);
     }
