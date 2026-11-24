@@ -700,7 +700,30 @@ TmtPulseParser_statement_end(
     if (value1 == 59U)
       return TmtPulseParser_consume(input, st, 59U);
     else if (value.newline || st.offset == input.size || before_brace && value1 == 125U)
-      return st;
+      return
+        (
+          (TmtPulseParser_parser_state){
+            .offset = end_at,
+            .count = state.count,
+            .depth = state.depth,
+            .status = state.status,
+            .local_names = state.local_names,
+            .await_allowed = state.await_allowed,
+            .yield_allowed = state.yield_allowed,
+            .jsx_allowed = state.jsx_allowed,
+            .module_mode = state.module_mode,
+            .strict_script = state.strict_script,
+            .in_allowed = state.in_allowed,
+            .for_initializer = state.for_initializer,
+            .arrow_defaults_allowed = state.arrow_defaults_allowed,
+            .binding_mode = state.binding_mode,
+            .super_context = state.super_context,
+            .private_scope = state.private_scope,
+            .private_count = state.private_count,
+            .local_log_floor = state.local_log_floor,
+            .local_log_used = state.local_log_used
+          }
+        );
     else
       return TmtPulseParser_failed(st, 1U);
   }

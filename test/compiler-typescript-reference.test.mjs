@@ -721,8 +721,33 @@ test('a spread of an object literal in JSX writes its members among the other pr
     'export const a = <g {...{ a: 1 }[k]} />;',
     'export const a = <g {... { a: 1 }.b} />;',
     'export const a = <g {...{ a: 1 } as any} />;',
+    // A spread among the members makes a later key go to createElement in TypeScript.
+    'export const v = <W {...{ ...props }} key={id} />;',
+    'export const v = <W {...{ a: [...x] }} key={id} />;',
   ]) {
     assert.notEqual(sameAsTypeScript(source, 'spread.tsx').backend, 'pulse', source);
+  }
+  for (const source of ['export const v = <W {...{ a: [...x] }} b />;', 'export const v = <W key={id} {...{ ...props }} />;',
+    'export const v = <W {...o} {...{ ...props }} key={id} />;']) {
+    assert.equal(sameAsTypeScript(source, 'spread.tsx').backend, 'pulse', source);
+  }
+  // A classic factory receives {} for an empty literal, where a tag without attributes passes null.
+  assert.notEqual(compile(Buffer.from('export const v = <W {...{}} />;'), { file: 'a.tsx', jsx: 'classic' }).backend, 'pulse');
+  assert.equal(compile(Buffer.from('export const v = <W {...{ a: 1 }} />;'), { file: 'a.tsx', jsx: 'classic' }).backend, 'pulse');
+});
+
+test('an erased declaration without a semicolon leaves the comment on the next line', () => {
+  for (const source of [
+    'type C = string\n/*#__PURE__*/ prepare();\nexport {};',
+    'declare const a: T, b\n/*#__PURE__*/ prepare();\nexport {};',
+    'declare function s(): void\n/*#__PURE__*/ s();\nexport {};',
+    'export {}; if (e) { type C = string\n/*#__PURE__*/ prepare(); }',
+    'export function f() { type C = string\n/*#__PURE__*/ prepare(); }',
+    'function s(): void\n/*#__PURE__*/ s();\nfunction s() {}\nexport {};',
+  ]) {
+    const result = sameAsTypeScript(source, 'pure.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.match(result.code, /\/\*#__PURE__\*\/ (prepare|s)\(\);/, source);
   }
 });
 

@@ -727,7 +727,7 @@ static bool jsx_blank(char byte) { return byte == ' ' || byte == '\t' || byte ==
  * A literal that names __proto__ keeps its spread in TypeScript, and a comment could hide a trailing comma, so
  * both are declined.
  */
-static bool jsx_literal_spread(lowering *lower, uint32_t depth, jsx_props *properties) {
+static bool jsx_literal_spread(lowering *lower, uint32_t depth, jsx_props *properties, bool *inner_spread) {
   const uint32_t first = lower->at;
   tmt_run_log runs = { 0 };
   const writer outer = lower->output;
@@ -749,6 +749,7 @@ static bool jsx_literal_spread(lowering *lower, uint32_t depth, jsx_props *prope
   for (uint32_t at = first; accepted && at + 1 < last; at++) {
     const uint8_t *text = lower->input.source + at;
     if ((text[0] == '/' && (text[1] == '/' || text[1] == '*')) || (last - at >= 9 && !memcmp(text, "__proto__", 9))) accepted = false;
+    if (text[0] == '.' && text[1] == '.') *inner_spread = true;
   }
   size_t begin = 0, end = literal.length;
   if (accepted && end && literal.code[0] == '(' && literal.code[end - 1] == ')') { begin++; end--; }
@@ -759,6 +760,8 @@ static bool jsx_literal_spread(lowering *lower, uint32_t depth, jsx_props *prope
     while (begin < end && jsx_blank(literal.code[end - 1])) end--;
     if (begin < end && literal.code[end - 1] == ',') end--;
     while (begin < end && jsx_blank(literal.code[end - 1])) end--;
+    /* A classic factory receives {} for an empty literal, where a tag without attributes passes null. */
+    if (begin == end && lower->classic) accepted = false;
     if (begin < end) {
       if (properties->count++ != 0) put(&lower->output, ",");
       if (lower->output.runs && !lower->output.failed) {
@@ -786,6 +789,8 @@ static bool jsx_literal_spread(lowering *lower, uint32_t depth, jsx_props *prope
 
 static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *properties) {
   bool spread = false;
+  /* A literal with a spread among its members. TypeScript then treats a later key as it does after a spread. */
+  bool literal_spread = false;
   for (;;) {
     const uint32_t previous = lower->at;
     if (!tag_trivia(lower)) return false;
@@ -794,7 +799,7 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *propertie
     if (consume(lower, '{')) {
       if (!trivia(lower) || !consume(lower, '.') || !consume(lower, '.') || !consume(lower, '.') || !trivia(lower)) return false;
       if (peek(lower) == '{') {
-        if (!jsx_literal_spread(lower, depth, properties)) return false;
+        if (!jsx_literal_spread(lower, depth, properties, &literal_spread)) return false;
         continue;
       }
       if (properties->count++ != 0) put(&lower->output, ",");
@@ -810,7 +815,7 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *propertie
     const TmtGrammar_span key = { first, prop.at };
     if (same_bytes(lower, key, "__proto__")) return false;
     if (!lower->classic && same_bytes(lower, key, "key")) {
-      if (properties->has_key) return false;
+      if (properties->has_key || (literal_spread && !spread)) return false;
       properties->has_key = true;
       properties->create = spread;
       if (!spread) {
@@ -1219,8 +1224,11 @@ static bool inject_jsx_runtime(lowering *lower, size_t at) {
   const bool create_first = lower->first_source == source_runtime;
   char runtime[160] = "";
   if (one || many || fragment) snprintf(runtime, sizeof(runtime), "}from\"%.*s/jsx-runtime\";\n", package_width, package);
+  /* A directive without a semicolon ends at its closing quote, so the import needs a separator of its own. */
+  if (at > out->length) return false;
+  const bool separate = at != 0 && (out->code[at - 1] == '\'' || out->code[at - 1] == '"');
   char import[448];
-  const int size = snprintf(import, sizeof(import), "%s%s%s%s%s%s%s%s",
+  const int size = snprintf(import, sizeof(import), "%s%s%s%s%s%s%s%s%s", separate ? ";" : "",
     create_first ? create : "", one || many || fragment ? "import{" : "",
     one ? "jsx as _tmtJsx0" : "", one && many ? "," : "", many ? "jsxs as _tmtJsxs" : "",
     fragment ? (one || many ? ",Fragment as _tmtFragment" : "Fragment as _tmtFragment") : "",

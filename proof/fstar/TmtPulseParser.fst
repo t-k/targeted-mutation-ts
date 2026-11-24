@@ -2068,7 +2068,10 @@ let statement_end (input:tape) (#frame:slprop) (state:parser_state) (end_at:U32.
     let st = from_cursor state tail in
     let! byte = (fun () -> peek input #frame st.offset) in
     if byte = 59uy then consume input #frame st 59uy
-    else read_ret input #frame (if tail.newline || st.offset = input.size || (before_brace && byte = 125uy) then st
+    // Without a semicolon the statement ends at its last token. The trivia behind it belongs to what follows:
+    // an erased declaration must not take a /*#__PURE__*/ comment on the next line with it.
+    else read_ret input #frame (if tail.newline || st.offset = input.size || (before_brace && byte = 125uy) then
+      { state with offset = end_at }
     else failed st 1ul)
 
 let same_label_name (input:tape) (#frame:slprop) (start first last:U32.t)
