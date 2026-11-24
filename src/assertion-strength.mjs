@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import { posix, sep } from 'node:path';
-import { sourceTrials } from './analysis.mjs';
+import { sourceTrialsAsync } from './analysis.mjs';
+import { inParallel } from './in-parallel.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
 import { inside } from './vitest.mjs';
 
@@ -13,23 +15,29 @@ const pinning = new Set(['toBe', 'toEqual', 'toStrictEqual', 'toBeNull', 'toBeUn
   'toMatchSnapshot', 'toMatchInlineSnapshot', 'toMatchObject']);
 const extension = /\.(?:[cm]?[jt]s|[jt]sx)$/;
 
-// The calls of the subject's exported functions with written arguments that a test of the given names makes
-// directly in its body without pinning the result down.
+// The calls of the subject's exported functions (named, default, or namespace-imported, optionally awaited) with
+// written arguments that a test of the given names makes directly in its body without pinning the result down.
 export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeScript()) {
   const tree = ts.createSourceFile(testFile, text, ts.ScriptTarget.Latest, true);
   const K = ts.SyntaxKind;
   const subject = subjectFile.split(sep).join('/').replace(extension, '');
-  const imported = new Map();
+  const imported = new Set();
+  const namespaces = new Set();
   for (const statement of tree.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.importClause?.isTypeOnly) continue;
     const specifier = statement.moduleSpecifier.text;
     if (!specifier.startsWith('.')) continue;
     const target = posix.join(posix.dirname(testFile.split(sep).join('/')), specifier).replace(extension, '');
     if (target !== subject && target + '/index' !== subject) continue;
+    if (statement.importClause?.name) imported.add(statement.importClause.name.text);
     const bindings = statement.importClause?.namedBindings;
-    if (bindings && ts.isNamedImports(bindings)) for (const element of bindings.elements) if (!element.isTypeOnly) imported.set(element.name.text, true);
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) if (!element.isTypeOnly) imported.add(element.name.text);
+    } else if (bindings && ts.isNamespaceImport(bindings)) {
+      namespaces.add(bindings.name.text);
+    }
   }
-  if (!imported.size) return [];
+  if (!imported.size && !namespaces.size) return [];
   const strip = node => {
     while (ts.isParenthesizedExpression(node)) node = node.expression;
     return node;
@@ -47,6 +55,15 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
     if (ts.isArrayLiteralExpression(inner)) return inner.elements.every(written);
     if (ts.isObjectLiteralExpression(inner)) {
       return inner.properties.every(property => ts.isPropertyAssignment(property) && !ts.isComputedPropertyName(property.name) && written(property.initializer));
+    }
+    return false;
+  }
+  function isSubjectCall(node) {
+    if (!ts.isCallExpression(node) || node.questionDotToken) return false;
+    if (ts.isIdentifier(node.expression)) return imported.has(node.expression.text);
+    if (ts.isPropertyAccessExpression(node.expression) && !node.expression.questionDotToken &&
+        ts.isIdentifier(node.expression.expression) && ts.isIdentifier(node.expression.name)) {
+      return namespaces.has(node.expression.expression.text);
     }
     return false;
   }
@@ -103,28 +120,31 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
       const suites = suitesOf(node);
       if (suites) spelled.add([...suites, node.arguments[0].text].join(' > '));
     }
-    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && imported.has(node.expression.text) && !node.questionDotToken &&
-        node.arguments.every(written)) {
-      const [parent, child] = up(node);
+    if (isSubjectCall(node) && node.arguments.every(written)) {
+      let target = node;
+      let [parent, child] = up(node);
+      if (ts.isAwaitExpression(parent) && parent.expression === child) {
+        target = parent;
+        [parent, child] = up(target);
+      }
       let statement;
       let bound;
       if (ts.isExpressionStatement(parent)) statement = parent;
       else if (ts.isVariableDeclaration(parent) && parent.initializer === child && ts.isVariableStatement(parent.parent.parent)) {
         statement = parent.parent.parent;
         if (ts.isIdentifier(parent.name)) bound = parent.name.text;
-      }
-      else if (ts.isCallExpression(parent) && ts.isIdentifier(parent.expression) && parent.expression.text === 'expect' &&
+      } else if (ts.isCallExpression(parent) && ts.isIdentifier(parent.expression) && parent.expression.text === 'expect' &&
           parent.arguments.length === 1 && weakExpectation(parent)) {
         let outer = parent;
         while (!ts.isExpressionStatement(outer)) outer = outer.parent;
         statement = outer;
       }
       const { title, suites } = (statement && testOf(statement)) ?? {};
-      const start = node.getStart(tree);
-      const call = text.slice(start, node.end);
+      const start = target.getStart(tree);
+      const call = text.slice(start, target.end);
       if (title !== undefined && !/[\n\r]/.test(call)) {
         const { line, character } = tree.getLineAndCharacterOfPosition(start);
-        found.push({ start, end: node.end, text: call, test: title, full: suites && [...suites, title].join(' > '), line: line + 1, column: character + 1,
+        found.push({ start, end: target.end, text: call, test: title, full: suites && [...suites, title].join(' > '), line: line + 1, column: character + 1,
           ...(bound ? { bound } : {}) });
       }
     }
@@ -138,19 +158,61 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
 }
 
 // The test file with one call wrapped so that every value it gives is written beside the file.
+// Supports primitives (`toBe`) and plain, acyclic, bounded arrays and objects (`toEqual`) without invoking getters.
 export function recordingCall(text, call, key) {
   const name = `__tmtValue_${key}`;
   // The file system is taken from Node itself, when the file has loaded or else at the first call: a test may
   // replace the module with a mock, or `process` with something else for a while.
   const helper = `
 var __tmtFiles_${key};
+var __tmtUtil_${key};
 try { __tmtFiles_${key} = globalThis.process.getBuiltinModule('node:fs'); } catch (error) { /* taken at the first call */ }
+try { __tmtUtil_${key} = globalThis.process.getBuiltinModule('node:util'); } catch (error) { /* optional */ }
 function ${name}(value) {
-  var type = typeof value, shown = null;
-  if (value === null || type === 'boolean' || type === 'undefined') shown = String(value);
-  else if (type === 'number') shown = Object.is(value, -0) ? '-0' : String(value);
-  else if (type === 'string') shown = JSON.stringify(value);
-  else if (type === 'bigint') shown = value + 'n';
+  function fmt(v, depth, seen) {
+    var type = typeof v;
+    if (v === null || type === 'boolean' || type === 'undefined') return String(v);
+    if (type === 'number') return Object.is(v, -0) ? '-0' : String(v);
+    if (type === 'string') return JSON.stringify(v);
+    if (type === 'bigint') return v + 'n';
+    if (type !== 'object' || depth >= 4) return null;
+    if (__tmtUtil_${key} && __tmtUtil_${key}.types && __tmtUtil_${key}.types.isProxy(v)) return null;
+    if (seen.indexOf(v) >= 0) return null;
+    var nextSeen = seen.concat([v]);
+    if (Array.isArray(v)) {
+      if (v.length > 20 || Object.keys(v).length !== v.length || Object.getOwnPropertySymbols(v).length > 0) return null;
+      var items = [];
+      for (var i = 0; i < v.length; i++) {
+        var d = Object.getOwnPropertyDescriptor(v, i);
+        if (!d || !('value' in d)) return null;
+        var item = fmt(d.value, depth + 1, nextSeen);
+        if (item === null) return null;
+        items.push(item);
+      }
+      return '[' + items.join(', ') + ']';
+    }
+    if (Object.getOwnPropertySymbols(v).length > 0) return null;
+    var proto = Object.getPrototypeOf(v);
+    if (proto !== Object.prototype && proto !== null) {
+      var ctor = Object.getOwnPropertyDescriptor(proto, 'constructor');
+      var hasOwn = Object.getOwnPropertyDescriptor(proto, 'hasOwnProperty');
+      if (Object.getPrototypeOf(proto) !== null || !ctor || typeof ctor.value !== 'function' || ctor.value.name !== 'Object' || !hasOwn || typeof hasOwn.value !== 'function') return null;
+    }
+    var keys = Object.keys(v);
+    if (keys.length > 20) return null;
+    var pairs = [];
+    for (var j = 0; j < keys.length; j++) {
+      var k = keys[j], desc = Object.getOwnPropertyDescriptor(v, k);
+      if (k === '__proto__' || !desc || !('value' in desc)) return null;
+      var val = fmt(desc.value, depth + 1, nextSeen);
+      if (val === null) return null;
+      var label = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) ? k : JSON.stringify(k);
+      pairs.push(label + ': ' + val);
+    }
+    return pairs.length ? '{ ' + pairs.join(', ') + ' }' : '{}';
+  }
+  var shown = null;
+  try { shown = fmt(value, 0, []); } catch (error) { shown = null; }
   (__tmtFiles_${key} || (__tmtFiles_${key} = globalThis.process.getBuiltinModule('node:fs'))).appendFileSync(new URL('./.tmt-values-${key}.jsonl', import.meta.url), JSON.stringify(shown) + '\\n');
   return value;
 }
@@ -159,47 +221,67 @@ function ${name}(value) {
 }
 
 const valuesOf = run => (run.collected ?? '').split('\n').filter(Boolean).map(line => JSON.parse(line));
+const matcherFor = formatted => (formatted.startsWith('[') || formatted.startsWith('{')) ? 'toEqual' : 'toBe';
 
-export function strengthenAssertions(root, report, options, run = { sourceTrials }) {
-  const originals = new Map();
-  let tried = 0;
+export async function strengthenAssertions(root, report, options, run = { sourceTrialsAsync }) {
+  const runnerFactory = run.sourceTrialsAsync ?? run.sourceTrials;
+  const concurrency = options.concurrency ?? Math.max(1, Math.min(8, availableParallelism() - 1));
+  const candidates = [];
   for (const gap of report.diagnostics ?? []) {
     const mutation = gap.mutations?.[0];
     if (!gap.tests?.length || !mutation || gap.suggestedTest || !gap.location?.file) continue;
     const input = readFileSync(inside(root, gap.location.file));
     const subject = { file: gap.location.file, input, digest: createHash('sha256').update(input).digest('hex'), sites: [] };
     const trial = { site: { location: gap.location }, edit: mutation.source?.edit ?? mutation.edit, replacement: mutation.source?.replacement ?? mutation.replacement };
-    let calls = 0;
-    search: for (const testFile of [...new Set(gap.tests.map(test => test.file))].slice(0, 2)) {
+    const calls = [];
+    for (const testFile of [...new Set(gap.tests.map(test => test.file))].slice(0, 2)) {
       const text = readFileSync(inside(root, testFile), 'utf8');
       const names = gap.tests.filter(test => test.file === testFile).map(test => test.name);
-      const attempt = run.sourceTrials(root, [subject], { ...options, test: [testFile] });
+      const attempt = runnerFactory(root, [subject], { ...options, test: [testFile] });
       for (const call of weakCalls(text, testFile, gap.location.file, names)) {
-        // At most four calls for a finding and 24 runs with an edit in all.
-        if (calls >= 4 || tried >= 24) break search;
-        calls++;
-        const key = randomUUID().replaceAll('-', '');
-        const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
-        const witness = { rewrite: { file: testFile, content: recordingCall(text, call, key) } };
+        if (calls.length >= 4) break;
         const id = `${testFile}:${call.start}`;
-        // The values of the call as it is are the same for every finding that names this call.
-        if (!originals.has(id)) originals.set(id, valuesOf(attempt({ witness, collect })));
-        const original = originals.get(id);
-        if (!original.length || original.includes(null)) continue;
-        tried++;
-        const edited = valuesOf(attempt({ witness, collect, trial }));
-        // The first time the call gives another value with the edit. Where the edit keeps a test from making the
-        // call, an assertion at that place would not run either.
-        // The values are matched by their order, so the call has to be made as often with the edit as without.
-        const at = edited.length === original.length ? original.findIndex((value, index) => edited[index] !== value) : -1;
-        if (at === -1) continue;
-        // A result the test keeps is compared where it is kept: calling again may give another value.
-        gap.suggestedTest = `expect(${call.bound ?? call.text}).toBe(${original[at]})`;
-        gap.strengthens = { file: testFile, test: call.test, line: call.line, column: call.column, call: call.text, original: original[at], edited: edited[at] };
-        break search;
+        calls.push({ id, testFile, text, call, attempt });
       }
+      if (calls.length >= 4) break;
     }
+    if (calls.length) candidates.push({ gap, trial, calls });
   }
+  const originalPromises = new Map();
+  let tried = 0;
+  // Evaluate findings concurrently, sharing each call's original-value run and capping edits at 4 per finding and 24 in total.
+  await inParallel(candidates, concurrency, async ({ gap, trial, calls }) => {
+    for (const { id, testFile, text, call, attempt } of calls) {
+      if (tried >= 24) break;
+      let originalPromise = originalPromises.get(id);
+      if (!originalPromise) {
+        originalPromise = (async () => {
+          const key = randomUUID().replaceAll('-', '');
+          const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
+          const witness = { rewrite: { file: testFile, content: recordingCall(text, call, key) } };
+          return valuesOf(await attempt({ witness, collect }));
+        })();
+        originalPromises.set(id, originalPromise);
+      }
+      const original = await originalPromise;
+      if (!original?.length || original.includes(null)) continue;
+      if (tried >= 24) break;
+      tried++;
+      const key = randomUUID().replaceAll('-', '');
+      const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
+      const witness = { rewrite: { file: testFile, content: recordingCall(text, call, key) } };
+      const edited = valuesOf(await attempt({ witness, collect, trial }));
+      // The first time the call gives another value with the edit. Where the edit keeps a test from making the
+      // call, an assertion at that place would not run either.
+      // The values are matched by their order, so the call has to be made as often with the edit as without.
+      const at = edited.length === original.length ? original.findIndex((value, index) => edited[index] !== value) : -1;
+      if (at === -1) continue;
+      // A result the test keeps is compared where it is kept: calling again may give another value.
+      gap.suggestedTest = `expect(${call.bound ?? call.text}).${matcherFor(original[at])}(${original[at]})`;
+      gap.strengthens = { file: testFile, test: call.test, line: call.line, column: call.column, call: call.text, original: original[at], edited: edited[at] };
+      break;
+    }
+  });
   return report;
 }
 

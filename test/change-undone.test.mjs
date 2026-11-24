@@ -239,8 +239,17 @@ test('the old lines come back with the line ends of the checkout, a test file is
   const report = analyzeUndoneChanges(root, [], { since: 'HEAD' }, run);
   assert.deepEqual(edits, [['subject.js', 'export const a = 1;\r\n']]);
   assert.deepEqual(report.mutants.map(mutant => [mutant.location.file, mutant.status, mutant.statusReason]),
-    [['subject.js', 'killed', 'The suite did not load: ReferenceError: defaults is not defined']]);
+    [['subject.js', 'load_error', 'The suite did not load: ReferenceError: defaults is not defined']]);
   assert.equal(report.evaluation, 'evaluated');
+  // An existing passing baseline is reused without a redundant baseline run.
+  let baselineRuns = 0;
+  const reused = analyzeUndoneChanges(root, [], { since: 'HEAD', existingBaseline: { status: 'passed', tests: loaded } },
+    { sourceTrials: () => settings => {
+      if (!settings) { baselineRuns++; return { status: 'passed', tests: loaded }; }
+      return { status: 'passed', tests: loaded };
+    } });
+  assert.equal(baselineRuns, 0);
+  assert.equal(reused.mutants[0].status, 'survived');
   // A runner that broke down names no error of the suite.
   const broken = analyzeUndoneChanges(root, ['subject.js'], { since: 'HEAD' },
     { sourceTrials: () => settings => (settings ? { status: 'error', output: 'spawn failed' } : { status: 'passed', tests: loaded }) });
@@ -249,4 +258,29 @@ test('the old lines come back with the line ends of the checkout, a test file is
   const browser = analyzeUndoneChanges(root, ['subject.js'], { since: 'HEAD', runner: 'playwright' },
     { sourceTrials: () => settings => (settings ? { status: 'error', tests: [], errors: ['port is already used'] } : { status: 'passed', tests: loaded }) });
   assert.deepEqual([browser.mutants[0].status, browser.evaluation], ['error', 'incomplete']);
+}));
+
+test('a multi-hunk file where one hunk fails to load alone falls back to reverting all in-scope hunks together', () => repository((root, git) => {
+  const old = 'export const base = 1;\nexport const keep = 2;\nexport const other = 3;\nexport function run() { return base; }\n';
+  writeFileSync(join(root, 'subject.js'), old);
+  git('add', '.');
+  git('commit', '-qm', 'first');
+  const current = 'const helper = () => 1;\nexport const base = 1;\nexport const keep = 2;\nexport const other = 3;\nexport function run() { return helper(); }\n';
+  writeFileSync(join(root, 'subject.js'), current);
+  const loaded = [{ file: 'subject.test.js', name: 'runs', status: 'passed' }];
+  const seen = [];
+  const run = { sourceTrials: () => settings => {
+    if (!settings) return { status: 'passed', tests: loaded };
+    seen.push([settings.trial.together === true, settings.trial.replacement]);
+    if (!settings.trial.together && settings.trial.replacement === '') {
+      return { status: 'error', tests: [], errors: ['ReferenceError: helper is not defined'] };
+    }
+    return { status: 'passed', tests: loaded };
+  } };
+  const report = analyzeUndoneChanges(root, ['subject.js'], { since: 'HEAD' }, run);
+  assert.equal(report.evaluation, 'evaluated');
+  assert.deepEqual(report.mutants.map(m => [m.status, m.together === true]), [['load_error', false], ['survived', false], ['survived', true]]);
+  assert.equal(seen.at(-1)[0], true);
+  assert.equal(seen.at(-1)[1], old);
+  assert.ok(report.diagnostics.some(d => d.kind === 'UNTESTED CHANGE' && d.together === true));
 }));

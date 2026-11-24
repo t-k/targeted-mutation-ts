@@ -72,17 +72,24 @@ test('a wrapped call gives its value on and writes down what a comparison can be
   const shown = value => { context.value = value; vm.runInContext(helper + '; var given = __tmtValue_k1(value);', context); return [context.given === value || Number.isNaN(value), JSON.parse(written.pop()[1])]; };
   assert.deepEqual([3, -0, NaN, 'a"b', true, null, undefined, 5n].map(shown), [[true, '3'], [true, '-0'], [true, 'NaN'], [true, '"a\\"b"'], [true, 'true'],
     [true, 'null'], [true, 'undefined'], [true, '5n']]);
-  // Anything else has no literal to compare with.
-  assert.deepEqual([{ a: 1 }, [1], () => 1].map(shown), [[true, null], [true, null], [true, null]]);
+  // Plain bounded objects and arrays format for `toEqual`; functions, class instances, getters and cycles stay null.
+  assert.deepEqual([{ a: 1, 'k-2': [true] }, [1, 'x'], {}].map(shown), [
+    [true, '{ a: 1, "k-2": [true] }'], [true, '[1, "x"]'], [true, '{}'],
+  ]);
+  const cyclic = {}; cyclic.self = cyclic;
+  let getterRan = 0;
+  const withGetter = { get x() { getterRan++; return 1; } };
+  assert.deepEqual([() => 1, new Date(0), cyclic, withGetter].map(shown), [[true, null], [true, null], [true, null], [true, null]]);
+  assert.equal(getterRan, 0);
   shown(1);
   assert.equal(written.length, 0);
 });
 
-function project(files, action) {
+async function project(files, action) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'tmt-assert-test-')));
   try {
     for (const [name, content] of Object.entries(files)) writeFileSync(join(root, name), content);
-    return action(root);
+    return await action(root);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -118,7 +125,7 @@ test('a survivor whose test makes the telling call gets the value to compare wit
   assert.match(refused.stderr, /--suggest-assertions applies to/);
 }));
 
-test('the runs are shared and bounded: one for a call as it is, one per finding, and none where nothing can be compared', () => project({ 'subject.ts': subject, 'subject.test.ts': suite }, root => {
+test('the runs are shared and bounded: one for a call as it is, one per finding, and none where nothing can be compared', () => project({ 'subject.ts': subject, 'subject.test.ts': suite }, async root => {
   const seen = [];
   const values = { original: '"600"', edited: '"203"' };
   const run = { sourceTrials: (_root, subjects, options) => settings => {
@@ -129,32 +136,37 @@ test('the runs are shared and bounded: one for a call as it is, one per finding,
     mutations: [{ edit: [52, 64], replacement, source: { edit: [52, 64], replacement: ` ${replacement} ` } }] });
   const report = { diagnostics: [gap('(cents + rate)'), gap('(cents / rate)'), { kind: 'INPUT GAP', location: { file: 'subject.ts' }, mutations: [{}] },
     { ...gap('x'), tests: [{ file: 'subject.test.ts', name: 'sizes' }] }] };
-  strengthenAssertions(root, report, {}, run);
+  await strengthenAssertions(root, report, {}, run);
   assert.deepEqual(seen, [['subject.test.ts', 'as it is', true, true], ['subject.test.ts', ' (cents + rate) ', true, true], ['subject.test.ts', ' (cents / rate) ', true, true]]);
   assert.deepEqual(report.diagnostics.map(entry => entry.suggestedTest), ['expect(fee(200, 3)).toBe(600)', 'expect(fee(200, 3)).toBe(600)', undefined, undefined]);
+  // Plain object/array return values suggest `toEqual`.
+  Object.assign(values, { original: '"{ total: 600 }"', edited: '"{ total: 203 }"' });
+  const objReport = { diagnostics: [gap('(cents + rate)')] };
+  await strengthenAssertions(root, objReport, {}, run);
+  assert.equal(objReport.diagnostics[0].suggestedTest, 'expect(fee(200, 3)).toEqual({ total: 600 })');
   // The same values with the edit: the call does not tell them apart. A value without a literal: nothing to suggest.
   for (const [original, edited] of [['"600"', '"600"'], ['null', '"203"'], ['', '"203"']]) {
     Object.assign(values, { original, edited });
     const again = { diagnostics: [gap('(cents + rate)')] };
-    strengthenAssertions(root, again, {}, run);
+    await strengthenAssertions(root, again, {}, run);
     assert.equal(again.diagnostics[0].suggestedTest, undefined, `${original} against ${edited}`);
   }
   // An edit that keeps the test from reaching the call gives no value, and an assertion there would not run either.
   Object.assign(values, { original: '"600"', edited: '' });
   const crashed = { diagnostics: [gap('(cents + rate)')] };
-  strengthenAssertions(root, crashed, {}, run);
+  await strengthenAssertions(root, crashed, {}, run);
   assert.equal(crashed.diagnostics[0].suggestedTest, undefined);
   // Made once as it is and twice or never with the edit (a retry, a case that returns early): the values cannot be matched.
   for (const [original, edited] of [['"600"', '"600"\n"601"'], ['"1"\n"2"', '"2"']]) {
     Object.assign(values, { original, edited });
     const unmatched = { diagnostics: [gap('(cents + rate)')] };
-    strengthenAssertions(root, unmatched, {}, run);
+    await strengthenAssertions(root, unmatched, {}, run);
     assert.equal(unmatched.diagnostics[0].suggestedTest, undefined, `${original} against ${edited}`);
   }
   // A call made twice in a loop of tests: the first value that differs is the one compared.
   Object.assign(values, { original: '"600"\n"7"', edited: '"600"\n"8"' });
   const later = { diagnostics: [gap('(cents + rate)')] };
-  strengthenAssertions(root, later, {}, run);
+  await strengthenAssertions(root, later, {}, run);
   assert.deepEqual([later.diagnostics[0].suggestedTest, later.diagnostics[0].strengthens.edited], ['expect(fee(200, 3)).toBe(7)', '8']);
   assert.equal(withoutSourceEdits(crashed).diagnostics[0].mutations[0].source, undefined);
 }));
@@ -163,25 +175,25 @@ test('a result the test keeps is compared where it is kept, and the runs stop at
   'subject.ts': 'let n = 0;\nexport function nextId() { return ++n * 2; }\n',
   'a.test.ts': "import { expect, it } from 'vitest';\nimport { nextId } from './subject';\nit('ids', () => {\n  const id = nextId();\n  expect(id > 0).toBe(true);\n  nextId(); nextId(); nextId(); nextId(); nextId();\n});\n",
   'b.test.ts': "import { it } from 'vitest';\nimport { nextId } from './subject';\nit('more', () => {\n  nextId();\n});\n",
-}, root => {
+}, async root => {
   let edits = 0;
   const values = { edited: '"3"' };
   const run = { sourceTrials: () => settings => { if (settings.trial) edits++; return { status: 'passed', collected: (settings.trial ? values.edited : '"2"') + '\n' }; } };
   const gap = () => ({ kind: 'ASSERTION GAP', location: { file: 'subject.ts' }, tests: [{ file: 'a.test.ts', name: 'ids' }, { file: 'b.test.ts', name: 'more' }],
     mutations: [{ edit: [0, 1], replacement: 'x' }] });
   const kept = { diagnostics: [gap()] };
-  strengthenAssertions(root, kept, {}, run);
+  await strengthenAssertions(root, kept, {}, run);
   // Calling again would give the next id.
   assert.equal(kept.diagnostics[0].suggestedTest, 'expect(id).toBe(2)');
   // No call tells the edit apart: four calls are tried for each finding, over both test files, and 24 in all.
   values.edited = '"2"';
   edits = 0;
   const many = { diagnostics: Array.from({ length: 8 }, gap) };
-  strengthenAssertions(root, many, {}, run);
+  await strengthenAssertions(root, many, {}, run);
   assert.equal(edits, 24);
   assert.ok(many.diagnostics.every(entry => entry.suggestedTest === undefined));
   edits = 0;
-  strengthenAssertions(root, { diagnostics: [gap()] }, {}, run);
+  await strengthenAssertions(root, { diagnostics: [gap()] }, {}, run);
   assert.equal(edits, 4);
 }));
 
@@ -230,8 +242,27 @@ test('the conditions of a taken call, one at a time', () => {
   assert.deepEqual(weakCalls(pinned, 'test/subject.test.ts', 'src/subject.ts', ['other > same']).map(call => call.text), ['fee(2)']);
   // A wrapper that is no suite gives no part of the name.
   assert.deepEqual(outside("each('rows', () => { it('t', () => { fee(1); }); });\ndescribe.skip('s', () => { it('t', () => { fee(2); }); });"), ['fee(1)']);
-  // Only names imported by name from the edited file: no default, no namespace, no package of the same name.
+  // Named, default and namespace imports from the edited file are supported; package imports and non-matching files are not.
   const imported = line => weakCalls(`import { it } from 'vitest';\n${line}\nit('t', () => { fee(1); s.fee(2); });\n`, 'subject.test.ts', 'subject.ts', ['t']).length;
   assert.deepEqual(["import { fee } from './subject';", "import { fee } from './subject.js';", "import fee from './subject';", "import * as s from './subject';",
-    "import { fee } from 'subject';", "import './subject';", "import { fee } from './subject/index';"].map(imported), [1, 1, 0, 0, 0, 0, 0]);
+    "import { fee } from 'subject';", "import './subject';", "import { fee } from './subject/index';"].map(imported), [1, 1, 1, 1, 0, 0, 0]);
+  // Awaited calls are wrapped as a whole (`await fee(1)`).
+  assert.deepEqual(calls("await fee(1, 2);\nconst res = await fee(3, 4);\nexpect(await fee(5, 6)).toBeGreaterThan(0);"),
+    ['await fee(1, 2)', 'await fee(3, 4)', 'await fee(5, 6)']);
 });
+
+test('suggest-assertions works end-to-end for awaited calls, default/namespace imports, and object return values', () => project({
+  'subject.ts': `export default async function quote(cents: number, rate: number) { return { total: cents * rate }; }\n`,
+  'subject.test.ts': `import { expect, it } from 'vitest';
+import quote from './subject';
+it('quotes', async () => { expect((await quote(200, 3))).toBeDefined(); });
+`,
+}, root => {
+  const run = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', root, 'subject.ts', '--suggest-assertions', '--format', 'json'],
+    { encoding: 'utf8', timeout: 120_000 });
+  assert.equal(run.status, 0, run.stderr);
+  const report = JSON.parse(run.stdout);
+  const gap = report.diagnostics.find(entry => entry.mutations[0].replacement === '(cents + rate)');
+  assert.equal(gap.kind, 'ASSERTION GAP');
+  assert.equal(gap.suggestedTest, 'expect(await quote(200, 3)).toEqual({ total: 600 })');
+}));

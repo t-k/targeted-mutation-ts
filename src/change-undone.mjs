@@ -123,6 +123,7 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
   const changed = new Set(git(root, ['diff', '--name-only', '-z', '--relative', '--no-ext-diff', '--no-renames', revision, '--']).toString().split('\0').map(fromGit));
   const subjects = [];
   const trials = [];
+  const fileHunks = new Map();
   for (const { file, selected } of selectScope(root, files, { lines: options.lines, 'copy-exclude': options['copy-exclude'] })) {
     if (!changed.has(file)) continue;
     const pathspec = sep === '/' ? file : file.replaceAll(sep, '/');
@@ -139,6 +140,8 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
     const planned = planUndo(file, old, input, patch, selected);
     if (!planned.length) continue;
     subjects.push({ file, input, digest: sha(input), sites: [] });
+    const singleHunks = planned.filter(trial => !trial.together);
+    fileHunks.set(file, { input, hunks: singleHunks, hasTogether: planned.some(trial => trial.together) });
     for (const trial of planned) {
       const location = { file, ...locate(input, trial.edit[0]), start: trial.edit[0], end: trial.edit[1] };
       trials.push({ ...trial, site: { id: sha(JSON.stringify([file, undoneRule, trial.edit, sha(trial.replacement)])).slice(0, 16), location },
@@ -148,7 +151,8 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
   const report = { mutants: [], diagnostics: [], evaluation: 'no_sites', since: revision };
   if (!trials.length) return report;
   const attempt = run.sourceTrials(root, subjects, options);
-  const baseline = attempt();
+  const baseline = options.existingBaseline?.status === 'passed' && Array.isArray(options.existingBaseline.tests)
+    ? options.existingBaseline : attempt();
   if (baseline.status !== 'passed') {
     return { ...report, evaluation: 'baseline_error',
       baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } };
@@ -156,20 +160,21 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
   report.evaluation = 'evaluated';
   // A file the suite runs as a test is not the program: its assertions stay as they are in every trial.
   const testFiles = new Set(baseline.tests.map(entry => entry.file));
-  for (const trial of trials) {
-    if (testFiles.has(trial.site.location.file)) continue;
+  const needsTogether = new Set();
+  const runTrial = trial => {
     const mutant = { site: trial.site.id, location: trial.site.location, rule: undoneRule, original: trial.original, edit: trial.edit,
       replacement: trial.replacement, since: revision, ...(trial.together ? { together: true } : {}) };
     if (!trial.parses) {
       report.mutants.push({ ...mutant, status: 'unsupported', statusReason: 'Put back alone, this change does not parse' });
-      continue;
+      return;
     }
     const result = attempt({ trial });
-    // A suite that ran to its end with errors outside the tests could not load the code as it was: the change
-    // is noticed. A runner that broke down reports no such errors and stays an error, and so does Playwright, whose
-    // errors outside the tests include a server that could not start.
+    // A suite that ran to its end with errors outside the tests could not load the code as it was.
+    // Rather than falsely reporting the change as killed by tests, report `load_error` and fall back to
+    // reverting all in-scope hunks of the file together when multiple hunks exist.
     const unloadable = options.runner !== 'playwright' && result.status === 'error' && result.errors?.length > 0 && Array.isArray(result.tests);
-    const status = unloadable ? 'killed' : verdict(result, baseline);
+    const status = unloadable ? 'load_error' : verdict(result, baseline);
+    if (unloadable && !trial.together) needsTogether.add(trial.site.location.file);
     report.mutants.push({ ...mutant, status, evidence: 'reexecuted',
       ...(unloadable ? { statusReason: 'The suite did not load: ' + String(result.errors[0]).split('\n')[0] } : {}),
       ...(status === 'killed' ? { tests: result.tests.filter(test => test.status === 'failed').map(({ id, project, file, name }) => ({ id, project, file, name })) } : {}) });
@@ -178,6 +183,24 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
       report.diagnostics.push({ kind: 'UNTESTED CHANGE', site: trial.site.id, location: trial.site.location, rule: undoneRule, since: revision,
         ...(trial.together ? { together: true } : {}), mutations: [{ rule: undoneRule, edit: trial.edit, replacement: trial.replacement, evidence: 'reexecuted' }] });
     }
+  };
+  for (const trial of trials) {
+    if (testFiles.has(trial.site.location.file)) continue;
+    runTrial(trial);
+  }
+  // If any single hunk in a multi-hunk file failed to load alone, revert all in-scope hunks together once.
+  const ts = needsTogether.size ? loadTypeScript() : null;
+  for (const file of needsTogether) {
+    const info = fileHunks.get(file);
+    if (!info || info.hasTogether || info.hunks.length < 2) continue;
+    const all = [...info.hunks].sort((a, b) => b.edit[0] - a.edit[0]).reduce(apply, info.input);
+    const edit = [0, info.input.length];
+    const location = { file, ...locate(info.input, info.hunks[0].edit[0]), start: edit[0], end: edit[1] };
+    runTrial({
+      edit, replacement: all.toString(), original: info.input.toString(), together: true,
+      parses: !parses(ts, file, info.input.toString()) || parses(ts, file, all.toString()),
+      site: { id: sha(JSON.stringify([file, undoneRule, edit, sha(all)])).slice(0, 16), location },
+    });
   }
   return report;
 }
