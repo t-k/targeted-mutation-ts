@@ -1471,7 +1471,8 @@ and object_type_member (input:tape) (#frame:slprop) (st:parser_state) (fuel:U32.
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 6; 0]) =
   let! first = (fun () -> peek input #frame st.offset) in
   let! getter = (fun () -> if first = 103uy then keyword input #frame st.offset 3ul 0x676574uL else read_ret input #frame false) in
-  let! key = (fun () -> if getter then
+  let! setter = (fun () -> if first = 115uy then keyword input #frame st.offset 3ul 0x736574uL else read_ret input #frame false) in
+  let! key = (fun () -> if getter || setter then
     let! gap = (fun () -> trivia input #frame (plus st.offset 3ul)) in
     let! first = (fun () -> peek input #frame gap.at) in
     if gap.ok && not gap.newline && G.identifier_start first then
@@ -1479,7 +1480,20 @@ and object_type_member (input:tape) (#frame:slprop) (st:parser_state) (fuel:U32.
       read_ret input #frame { st with offset = end_ }
     else read_ret input #frame st
     else read_ret input #frame st) in
-  if key.offset <> st.offset then
+  if key.offset <> st.offset && setter then
+    // set name(value: T): one named parameter with an optional annotation, and no result type.
+    let! opening = (fun () -> skip input #frame key) in
+    let! parameters = (fun () -> consume input #frame opening 40uy) in
+    let! parameter = (fun () -> skip input #frame parameters) in
+    let! named = (fun () -> name input #frame parameter.offset false false) in
+    let! tail = (fun () -> skip input #frame (from_cursor parameter named)) in
+    let! colon = (fun () -> same input #frame tail.offset 58uy) in
+    let! typed = (fun () -> if colon then
+        (let! annotation = (fun () -> consume input #frame tail 58uy) in annotation_type input #frame annotation fuel 64ul)
+      else read_ret input #frame tail) in
+    let! closing = (fun () -> skip input #frame typed) in
+    consume input #frame closing 41uy
+  else if key.offset <> st.offset then
     let! opening = (fun () -> skip input #frame key) in
     let! parameters = (fun () -> consume input #frame opening 40uy) in
     let! closing = (fun () -> skip input #frame parameters) in
@@ -2658,6 +2672,16 @@ let angle_assertion_head (input:tape) (st:parser_state) : Tot (stt parser_state 
   let! doubled = (fun () -> same input (next start_pos) 60uy) in
   if doubled || closed.status <> 0ul || not gap.ok || gap.newline then ret input (failed st 1ul)
   else record_jsx_span input closed 31ul start_pos closed.offset
+
+let class_index_signature (input:tape) (st:parser_state) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  let! head = (fun () -> read_bracket_type_key input st) in
+  if not head.index_signature then ret input (failed st 1ul)
+  else
+    let! key_type = (fun () -> (let! colon = (fun () -> consume input head.key_end 58uy) in annotation_type input colon 16ul 64ul)) in
+    let! last = (fun () -> (let! closing = (fun () -> skip input key_type) in consume input closing 93uy)) in
+    let! value = (fun () -> (let! colon = (fun () -> skip input last) in consume input colon 58uy)) in
+    let! typed = (fun () -> annotation_type input value 16ul 64ul) in
+    statement_end input typed typed.offset true
 
 let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 2; 0]) =
@@ -4110,6 +4134,14 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
     if awaiting_body then ret input (failed st 1ul)
     else (let! anf_value_1 = (fun () -> consume input st 59uy) in class_members input anf_value_1 fuel (minus remaining 1ul) derived seen_constructor kind no_overload)
   else
+    // An index signature, [key: string]: T, declares nothing at run time.
+    let! indexed = (fun () -> if byte = 91uy && input.capture_types && not decorated && not awaiting_body then
+      class_index_signature input st else ret input (failed st 1ul)) in
+    if indexed.status = 0ul then
+      let! recorded = (fun () -> if kind <> AmbientClass then record_jsx_span input { indexed with count = st.count } 21ul st.offset indexed.offset
+        else ret input indexed) in
+      class_members input recorded fuel (minus remaining 1ul) derived seen_constructor kind no_overload
+    else
     let! member_head =
       (fun () -> if kind <> OrdinaryClass && (byte = 97uy || byte = 112uy) then
         let! modifier = (fun () -> abstract_member_modifier input st.offset byte) in

@@ -49,7 +49,7 @@ export function simdSource(root, original, scratch, scalar) {
 // statement parsers slowed every file by 2 to 3 percent on x64. Marked cold and not inlined they cost a call
 // only where the syntax occurs.
 const rare = ['angle_assertion_head', 'local_enum_declaration', 'local_enum_start', 'enum_body_tokens',
-  'simple_less_argument', 'single_less_byte', 'type_arguments_end_at_call_close', 'local_abstract_class'];
+  'simple_less_argument', 'single_less_byte', 'type_arguments_end_at_call_close', 'local_abstract_class', 'class_index_signature'];
 
 export function coldSource(root, original, scratch) {
   if (!existsSync(resolve(root, original))) return original;

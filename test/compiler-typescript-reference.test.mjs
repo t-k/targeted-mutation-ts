@@ -897,3 +897,30 @@ test('the helper import and a JSX element keep the statement boundaries of a sou
     assert.notEqual(sameAsTypeScript(source, 'asi.tsx').backend, 'pulse', source);
   }
 });
+
+test('setters in object types are read and index signatures in classes are erased', () => {
+  for (const source of [
+    'export interface R { set value(v: number) }',
+    'export interface R { get value(): number; set value(v: number); }',
+    'export interface R { set value(v) }',
+    'export type R = { set value(v: number), get value(): number };',
+    'export interface R { set(v: number): void; set: number }',
+    'export class U extends Error { [key: string]: unknown; }',
+    'export class U { [key]: string; }',
+    'export class U { x\n  [key: string]: unknown }',
+    'declare class U { [key: string]: unknown; }\nexport {};',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'members.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'export interface R { set value(): void }',
+    'export interface R { set value(a: number, b: number) }',
+    'export interface R { set value(v: number): void }',
+    'export class U { static [key: string]: unknown; }',
+    'export class U { readonly [key: string]: unknown; }',
+    'export class U { [key: string]: unknown = 1; }',
+    'export class U { [key: string] }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'members.ts' }).backend, 'pulse', source);
+  }
+});

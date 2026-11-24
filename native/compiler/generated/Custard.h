@@ -1472,6 +1472,9 @@ TmtPulseParser_pending_overload;
 
 extern TmtPulseParser_pending_overload TmtPulseParser_no_overload;
 
+TmtPulseParser_parser_state
+TmtPulseParser_class_index_signature(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
+
 TmtPulseParser_cursor
 TmtPulseParser_abstract_member_modifier(
   TmtPulseMemory_tape input,
