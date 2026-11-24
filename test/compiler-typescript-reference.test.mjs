@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import test from 'node:test';
 import { inspect } from '../scripts/audit-compiler-coverage.mjs';
+import { denseCases } from '../scripts/generate-compiler-validation-cases.mjs';
 import { compile } from '../src/compiler.mjs';
 
 const ts = createRequire(import.meta.url)('typescript');
@@ -149,4 +150,541 @@ test('only a literal dot starts a filename extension on the native entry', () =>
   }
   assert.equal(compile(Buffer.from('export const n = 1;\n'), { file: 'a.MJS' }).backend, 'javascript');
   assert.equal(compile(Buffer.from('export const n = 1;\n'), { file: 'a.d.tsx' }).backend, 'pulse');
+});
+
+test('erased syntax packed against its neighbours matches TypeScript', () => {
+  const fixtures = denseCases();
+  assert.deepEqual(fixtures, denseCases());
+  let native = 0;
+  for (const { file, source } of fixtures) {
+    const text = Buffer.from(source, 'base64').toString();
+    assert.doesNotMatch(text, /[^\S\n]{2}/, file);
+    assert.equal(sameAsTypeScript(text, file).backend, 'pulse', file);
+    native++;
+  }
+  assert.equal(native, fixtures.length);
+});
+
+// A class member whose first token would continue the initializer on the line before it.
+{
+  const { readFileSync } = await import('node:fs');
+  const rows = readFileSync(new URL('../verification/pict/compiler-member-separator.tsv', import.meta.url), 'utf8')
+    .trimEnd().split(/\r?\n/).slice(1);
+  const names = { Computed: '[k]', Generator: '*g', In: 'in', Instanceof: 'instanceof', Name: 'n', String: '"s"', Private: '#p' };
+  const before = { InitializedField: 'a = f', BareField: 'a', Method: 'a() { return f }', ClassStart: '' };
+  for (const row of rows) {
+    test('class member separator ' + row.replaceAll('\t', ' '), () => {
+      const [erased, next, prior, fixed] = row.split('\t');
+      const name = names[next];
+      const member = next === 'Generator' ? `${name}() {}` : `${name} = 2`;
+      const modifiers = { Modifier: 'readonly', TwoModifiers: 'protected readonly' }[erased];
+      // A generator method takes an accessibility modifier, a field takes readonly.
+      const erasable = next === 'Generator' ? (erased === 'TwoModifiers' ? 'public override' : 'public') : modifiers;
+      const head = erasable === undefined ? '' :
+        fixed === 'BeforeModifier' ? `static ${erasable} ` : fixed === 'AfterModifier' ? `${erasable} static ` : `${erasable} `;
+      const lines = {
+        AmbientField: ['declare b: number'], AbstractField: ['abstract b: number'], AbstractMethod: ['abstract m(): void'],
+        Overload: ['n(x: string): void'],
+      }[erased] ?? [];
+      const last = erased === 'Overload' ? 'n(x: any) {}' : head + member;
+      const base = /public override/.test(head) ? ' extends B' : '';
+      const body = [before[prior], ...lines, last].filter(Boolean).map(line => '  ' + line).join('\n');
+      const source = `${/Abstract/.test(erased) ? 'abstract ' : ''}class C${base} {\n${body}\n}\nexport const result = C;\n`;
+      assert.equal(sameAsTypeScript(source, 'member.ts').backend, 'pulse', source);
+    });
+  }
+}
+
+test('erased class-member starts keep neighbouring members apart in other arrangements', () => {
+  for (const source of [
+    'class C {\n  a = f\n  declare b: number\n  declare c: string\n  readonly [k] = 2\n}\nexport const r = C;',
+    'class C {\n  a = f\n  protected readonly\n  [k] = 2\n}\nexport const r = C;',
+    'class C {\n  a = f\n  private\n  static *g() {}\n}\nexport const r = C;',
+    'class C {\n  a = f\n  public async [k]() {}\n  private get [g]() { return 1 }\n}\nexport const r = C;',
+    'class C {\n  a = 1\n  m(x: string): void\n  m(x: any) {}\n  [k] = 2\n}\nexport const r = C;',
+    'class C {\n  a = 1\n  public in = 2\n  private instanceof = 3\n}\nexport const r = C;',
+    'export abstract class A {\n  a = f\n}\nexport default abstract class B {}',
+    'class C {\n  constructor(private a: number, readonly b: string) {}\n  x = f\n  readonly [k] = this.a\n}\nexport const r = C;',
+    'import { type A, b } from "./m.js";\nexport { type A, b };',
+    // A receiver parameter and a type-only list entry are erased like a member, but nothing may be written for them.
+    'export function sum(this: void, [a, b]: [number, number]) { return a + b; }',
+    'export function each(this: Window, ...rest: number[]) { return rest; }',
+    'import { type T, in as inside } from "./m.js";\nexport { inside };',
+    'const instanceofs = 1, inside = 2;\nexport { type T, inside as in, instanceofs as instanceof };\ntype T = number;',
+  ]) {
+    const result = sameAsTypeScript(source, 'member.ts');
+    assert.equal(result.backend, 'pulse', source);
+    if (!/class/.test(source)) assert.doesNotMatch(result.code.replace(/;\s*$|;\n|; \}/g, ''), /;\s*(?:\[|in\b|instanceof\b|\.\.\.)/, source);
+  }
+});
+
+test('a separator is written only where the member start would continue an initializer', () => {
+  const erased = source => compile(Buffer.from(source), { file: 'member.ts' }).code;
+  assert.equal(erased('class C {\n  a = f\n  readonly [k] = 2\n}\nexport const r = C;'),
+    'class C {\n  a = f\n  ;        [k] = 2\n}\nexport const r = C;');
+  assert.equal(erased('class C {\n  a = f\n  readonly index = 2\n  public instanceofs = 3\n}\nexport const r = C;'),
+    'class C {\n  a = f\n           index = 2\n         instanceofs = 3\n}\nexport const r = C;');
+  assert.equal(erased('class C {\n  a = f\n  static readonly [k] = 2\n}\nexport const r = C;'),
+    'class C {\n  a = f\n  static          [k] = 2\n}\nexport const r = C;');
+  assert.equal(erased('class C {\n  a = f\n  private static [k] = 2\n}\nexport const r = C;'),
+    'class C {\n  a = f\n  ;       static [k] = 2\n}\nexport const r = C;');
+  assert.equal(erased('abstract class C {\n  a = f\n  abstract m(): void\n  [k] = 2\n}\nexport const r = C;'),
+    '         class C {\n  a = f\n  ;                 \n  [k] = 2\n}\nexport const r = C;');
+});
+
+test('JSX helper imports follow the order in which TypeScript requests the two modules', () => {
+  const order = code => [...code.matchAll(/^import\s*\{[^}]*\}\s*from\s*"(react(?:\/jsx-runtime)?)";/gm)].map(match => match[1]);
+  for (const source of [
+    'export const x = <a {...p} key="k"/>;\nexport const y = <b/>;\n',
+    'export const y = <b/>;\nexport const x = <a {...p} key="k"/>;\n',
+    'export const y = <div><a {...p} key="k"/></div>;\n',
+    'export const y = <div><b/><a {...p} key="k"/></div>;\n',
+    'export const y = <a {...p} key="k"><b/></a>;\n',
+    'export const y = <A icon={<B {...p} key="k"/>}><C/></A>;\n',
+    'export const y = <A icon={<C/>}><B {...p} key="k"/></A>;\n',
+    'export const y = <A key={<B {...p} key="k"/>} icon={<C/>}/>;\n',
+    'export const y = <A key={<C/>} icon={<B {...p} key="k"/>}/>;\n',
+    'export const y = <A {...p} key="k" icon={<C/>}><D/></A>;\n',
+    'export const y = <><a {...p} key="k"/><b/></>;\n',
+    'export const y = <A {...p} key="k"><B/></A>;\nexport const z = <C/>;\n',
+    'export const y = <div>{[1].map(i => <a {...p} key={i}/>)}<b/></div>;\n',
+  ]) {
+    const result = sameAsTypeScript(source, 'view.tsx');
+    assert.equal(result.backend, 'pulse', source);
+    assert.deepEqual(order(result.code), order(reference(source, 'view.tsx')), source);
+    assert.equal(order(result.code).length, 2, source);
+  }
+});
+
+test('yield expressions, comma returns and debugger statements match TypeScript', () => {
+  for (const source of [
+    'export function* g() { const pool = yield* Pool; return pool; }',
+    'export function* g() { return yield* _(t); }',
+    'export function* g(): Generator<number> { const x: number = yield; f(yield, yield 1); return [yield, yield* h()]; }',
+    'export function* g(a: boolean) { const x = a ? yield : yield 2; yield a, x; yield\nf()\n}',
+    'export function* g() { yield; yield 1; yield* h(); const o = { k: yield 3 }; }',
+    'export const p = Effect.gen(function* () { const t = yield* Terminal; const columns = yield* t.columns; return columns as number; });',
+    'export async function* g() { for await (const x of yield* source()) yield x; }',
+    'export function* g() { const f = (yield 1) + 2; return (yield f), f; }',
+    'export function f() { return a(), b(); }',
+    'export function f(acc: Record<string, unknown>, ds: { name: string; url: string }) { return (acc[ds.name] = { url: ds.url }), acc; }',
+    'export function f(x: number) { if (x) return\nreturn x as number, x + 1 }',
+    'export function f() { debugger; }',
+    'export function f() { debugger\nreturn 1 }',
+    'debugger;\nexport {};',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'forms.ts').backend, 'pulse', source);
+  }
+});
+
+test('yield outside a generator and a delegation split across lines are left to TypeScript', () => {
+  for (const source of [
+    'export function* g() { const f = () => yield 1; }',
+    'export function* g() { yield\n* h() }',
+    'export function f() { return yield 1; }',
+    'export function* g() { const x = 1 + yield 2; }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'forms.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('an interface merges with a class and a namespace of types with other declarations', () => {
+  for (const source of [
+    'export interface X { a: number }\nexport class X { b = 1 }',
+    'export class X { b = 1 }\nexport interface X { a: number }',
+    'interface X { a: number }\nclass X { b = 1 }\nexport { X };',
+    'interface X { a: number }\nabstract class X { b = 1 }\nexport default X;',
+    'declare interface E { on(): this }\nclass E extends Base {}\nexport const e = new E();',
+    'export interface X<T> extends Q<T> {}\nexport class X<T> extends P<T> implements R<T> { static readonly [k]: string = "x"; }',
+    'export type B = A | C;\nexport declare namespace B { export type S = "a" | "b" }\nexport const x = 1;',
+    'export interface B {}\nexport namespace B { export type S = "a" }\nexport const y = 2;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'merge.ts').backend, 'pulse', source);
+  }
+});
+
+test('declarations that TypeScript does not merge stay off the native route', () => {
+  for (const source of [
+    'export interface X {}\nexport enum X { A }',
+    'import { X } from "./x.js";\nexport interface X {}\nexport class X {}',
+    'export type X = number;\nexport class X {}',
+    'class X {}\nclass X {}\nexport {};',
+    'import { B } from "./b.js";\ndeclare namespace B { type S = 1 }\nexport const y = B;',
+    'enum B { A }\ndeclare namespace B { type S = 1 }\nexport const y = B;',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'merge.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('parameter properties take override, need no type, and lower beside enums', () => {
+  for (const source of [
+    'export class C extends B { constructor(override readonly table: T, config: U) { super(config); } }',
+    'export class C extends B { constructor(public override readonly a: number, b: string) { super(b); this.a; } }',
+    'export class C { constructor(private doc, public readonly other = 1, protected last) {} }',
+    'export enum Mode { A, B = 1 << 2 }\nexport class C { constructor(public mode: Mode, private n = 1) {} }',
+    'export class C { constructor(public mode: Mode) {} }\nexport enum Mode { A, B }\n' +
+      'export class D extends C { constructor(readonly x: number) { super(Mode.A); } }\nconst enum K { Z = 9 }\nexport const k = K.Z;',
+    'export class C { constructor(public mode: number) {} }\nexport const enumerate = 1;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'property.ts').backend, 'pulse', source);
+  }
+  // A modifier word that is itself the parameter name is an ordinary parameter.
+  const plain = 'export class C { constructor(private, readonly: number) { this.x = [private, readonly]; } }';
+  const result = compile(Buffer.from(plain), { file: 'property.ts' });
+  assert.equal(typeof result.code, 'string');
+  assert.doesNotMatch(result.code, /this\.private|this\.readonly/);
+});
+
+test('heritage expressions and type arguments on call results and templates match TypeScript', () => {
+  for (const source of [
+    'export class A extends mixin(B) {}',
+    'export class A extends (cond ? B : C) {}',
+    'export class A extends B.c() {}',
+    'export class A extends B.C<T> {}',
+    'export class A extends B.c<T>() {}',
+    'export class A extends f()<T> {}',
+    'export class A extends S.Class<A>("A")({ a: S.String }) {}',
+    'export class ATag extends Context.Tag("ATag")<ATag, "A">() {}',
+    'export class Dog extends Data.TaggedClass("Dog")<{}> {}',
+    'export class Err extends Schema.TaggedError<Err>()("Err", {}) { x = 1 }',
+    'export class A extends B<T> implements I<T>, J { }',
+    'export class A<T> extends Base<T>(arg)<U> implements I { constructor(private a: T) { super(); } }',
+    'export const K = class extends mixin(B)<T> {};',
+    'export class A extends new B() {}',
+    'export class A extends class {} {}',
+    'export class A extends null {}',
+    'export class A extends B\n<T> {}',
+    'export const x = Context.Tag("T")<T, "A">();',
+    'export const x = f<T>()<U>(o);',
+    'export const x = f<T>(c)<U>(d)(e);',
+    'export const x = [f()<T>(g), h(i)<U>(j)];',
+    'export const x = sql<number>`rowid`;',
+    'export const x = a.b<T>`t${c as number}`;',
+    'export const x = f()<T>`a`;',
+    'export function f(obj: any) { obj.foo!++; obj.bar!--; return obj.baz!++ + 1; }',
+    'let n: number | undefined = 1;\nn!++;\nexport const r = n;',
+    'export function f(a: any) { a!.b!++; ++a.c; a.d!\n++a.e; }',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'heritage.ts').backend, 'pulse', source);
+  }
+});
+
+test('a unary heritage clause and a spaced comparison are not read as the new forms', () => {
+  for (const source of [
+    'export class A extends -B {}',
+    'export class A extends Base++ {}',
+    'export class A extends Base-- {}',
+    'export class A extends await b {}',
+    'export class A extends b ? c : d {}',
+    'export function f(a: any) { a()!++; }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'heritage.ts' }).backend, 'pulse', source);
+  }
+  // With white space before the angle TypeScript decides between a comparison and type arguments.
+  for (const source of ['export const x = f(a) < b > c;', 'export const x = f() < T > (g);']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'heritage.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('variance annotations, local types beside values and exported type namespaces match TypeScript', () => {
+  for (const source of [
+    'class Q<in out A> implements S<A> { x = 1 }\nexport { Q };',
+    'export class Take<out A, out E = never> implements T<A, E> { constructor(readonly value: A) {} }',
+    'export type Fn<in A, out B> = (a: A) => B;\nexport const y = 1;',
+    'export interface TSet<in out A> extends V<A> {}\nexport const x = 1;',
+    'export function f() { const t1 = z.any(); type t1 = z.infer<typeof t1>; return t1; }',
+    'export function f() { type t1 = number; const t1 = 1; return t1; }',
+    'export function f() { interface A { a: string } const A: S.Schema<A> = S.suspend(() => 1); return A; }',
+    'export function f() { const X = 1; { type X = string; const y: X = "a"; return [X, y]; } }',
+    'export function f(x: number) { type x = string; return x; }',
+    'export declare namespace M { type X = 1 }\nexport const M = Context.GenericTag<T, M>("x");',
+    'export const C = 1;\nexport declare namespace C { type X = 1 }',
+    'export function C() {}\nexport declare namespace C { type X = 1 }',
+    'export class C {}\nexport declare namespace C { type X = 1 }',
+    'enum M { const = 1 << 0, readonly = 1 << 1, "#private" = 1 << 6, \'a-b\' = 9, global }\nexport const m = M;',
+    'enum S { "x" = 2, y = x + 1 }\nexport const s = S;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'forms.ts').backend, 'pulse', source);
+  }
+});
+
+test('conflicting local names and enum member names that need care stay off the native route', () => {
+  for (const source of [
+    'export function g<in T>(x: T) { return x; }',
+    'export function f() { let a = 1; let a = 2; }',
+    'export function f() { type A = 1; type A = 2; }',
+    'export function f() { interface A {} class A {} return A; }',
+    'enum S { "1" = 2 }\nexport const s = S;',
+    'enum S { \'it\\\'s\' = 2 }\nexport const s = S;',
+    'enum S { "__proto__" = 2 }\nexport const s = S;',
+    'enum S { "a b" = 1, d = S["a b"] }\nexport const s = S;',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'forms.ts' }).backend, 'pulse', source);
+  }
+});
+
+// The JSX import-source pragma: the native route takes the plain case and leaves every other @jsx text to TypeScript.
+{
+  const { readFileSync } = await import('node:fs');
+  const { createRequire: requireFrom } = await import('node:module');
+  const router = requireFrom(import.meta.url)('../src/compiler-routes.cjs').compile;
+  const rows = readFileSync(new URL('../verification/pict/compiler-jsx-pragma.tsv', import.meta.url), 'utf8')
+    .trimEnd().split(/\r?\n/).slice(1);
+  const bodies = {
+    Runtime: 'export const view = <section><b>ready</b>{value}</section>;',
+    Create: 'export const view = <a {...props} key="k"/>;',
+    Both: 'export const view = <div><a {...props} key="k"/><b/></div>;',
+    Fragment: 'export const view = <><b/>{value}</>;',
+  };
+  for (const row of rows) {
+    test('JSX pragma ' + row.replaceAll('\t', ' '), () => {
+      const [pragma, place, mode, helpers, tail] = row.split('\t');
+      const text = { Absent: '', ImportSource: '@jsxImportSource preact', Runtime: '@jsxRuntime automatic', Factory: '@jsx h',
+        Twice: '@jsxImportSource preact\n * @jsxImportSource other' }[pragma];
+      const close = { SpaceClose: ' */', LineEnd: '\n */', DirectClose: '*/' }[tail];
+      const comment = pragma === 'Absent' ? '' : place === 'LeadingLine' ? `// ${text}\n` : `/** ${text}${close}\n`;
+      const source = place === 'AfterCode' ? `import { value } from "./v.js";\n${comment}${bodies[helpers]}\n` :
+        `${comment}import { value } from "./v.js";\n${bodies[helpers]}\n`;
+      const options = { file: 'view.tsx', jsx: mode === 'Classic' ? 'classic' : 'automatic' };
+      const result = compile(Buffer.from(source), options);
+      assert.deepEqual(router(Buffer.from(source), options), result, source);
+      assert.deepEqual(compile(source, options), result, source);
+      const native = pragma === 'Absent' ||
+        (pragma === 'ImportSource' && place === 'LeadingBlock' && mode === 'Automatic' && tail !== 'DirectClose');
+      assert.equal(result.backend === 'pulse', native, source);
+      if (!native) return;
+      const expected = ts.transpileModule(source, { fileName: 'view.tsx', compilerOptions: {
+        target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true,
+        jsx: mode === 'Classic' ? ts.JsxEmit.React : ts.JsxEmit.ReactJSX } }).outputText;
+      assert.deepEqual(inspect(ts, result.code, 'view.tsx'), inspect(ts, expected, 'view.tsx'), source);
+      // The helper imports name the same modules in the same order.
+      const modules = code => [...code.matchAll(/^import\s*\{[^}]*\b(?:jsxs?|Fragment|createElement) as _[^}]*\}\s*from\s*"([^"]+)";/gm)].map(match => match[1]);
+      assert.deepEqual(modules(result.code), modules(expected), source);
+      if (pragma === 'ImportSource' && mode === 'Automatic') assert.ok(modules(result.code).every(name => name.startsWith('preact')), source);
+    });
+  }
+}
+
+test('unusual import-source pragmas are left to TypeScript', () => {
+  for (const comment of [
+    '/** @jsxImportSource */', '/** @jsxImportSource\n * preact */', '/** @jsxImportSource "preact" */', '/** @jsxImportSourceX preact */',
+    '/** @jsximportsource preact */\n/** @jsxFrag F */',
+    // TypeScript matches a tag with the text after it, so an earlier tag can hide the pragma.
+    '/* @license MIT @jsxImportSource preact */', '/*!\n * @preserve\n * @jsxImportSource preact\n */',
+  ]) {
+    const source = `${comment}\nexport const view = <i/>;\n`;
+    assert.notEqual(compile(Buffer.from(source), { file: 'view.tsx' }).backend, 'pulse', source);
+  }
+  // The pragma name is matched without regard to case, as TypeScript matches it.
+  const source = '#!/usr/bin/env node\n// note\n/* @JSXIMPORTSOURCE @scope/pkg.name */\nexport const view = <i/>;\n';
+  const result = sameAsTypeScript(source, 'view.tsx');
+  assert.equal(result.backend, 'pulse');
+  assert.match(result.code, /from"@scope\/pkg\.name\/jsx-runtime"/);
+  // Only the first word after the pragma is the package, as in TypeScript.
+  assert.match(sameAsTypeScript('/* @jsxImportSource pre act*/\nexport const view = <i/>;\n', 'view.tsx').code, /from"pre\/jsx-runtime"/);
+});
+
+// Decorators are kept as written, as TypeScript keeps them at the ESNext target.
+{
+  const { readFileSync } = await import('node:fs');
+  const { createRequire: requireFrom } = await import('node:module');
+  const router = requireFrom(import.meta.url)('../src/compiler-routes.cjs').compile;
+  const rows = readFileSync(new URL('../verification/pict/compiler-decorators.tsv', import.meta.url), 'utf8')
+    .trimEnd().split(/\r?\n/).slice(1);
+  const forms = { Name: '@dec ', Chain: '@ns.dec ', Call: '@dec(1, value as number) ', Two: '@first @second({ a: 1 }) ', OwnLine: '@dec\n  ' };
+  for (const row of rows) {
+    test('decorators ' + row.replaceAll('\t', ' '), () => {
+      const [target, form, follows, before] = row.split('\t');
+      const decorator = forms[form];
+      let source;
+      if (/Class$/.test(target)) {
+        const head = { Class: 'class C', ExportedClass: 'export class C', DefaultClass: 'export default class', AbstractClass: 'abstract class C' }[target];
+        source = `import { dec, first, second, ns, value } from "./d.js";\n${decorator.trimEnd()}\n${head} { m(): number { return 1; } }\n` +
+          (target === 'Class' || target === 'AbstractClass' ? 'export { C };\n' : '');
+      } else {
+        const modifier = { Plain: '', ErasedModifier: target === 'Getter' || /Method/.test(target) ? 'public ' : 'readonly ',
+          // A field takes static readonly. A method takes an accessibility modifier, which stands before static.
+          StaticThenErased: target === 'Getter' || /Method/.test(target) ? 'public static ' : 'static readonly ' }[follows];
+        const member = { Method: 'm(x: number): number { return x; }', Field: 'f: number = 1', Getter: 'get g(): number { return 1; }',
+          StaticField: 's: number = 2', ComputedField: '[key] = 3', GeneratorMethod: '*gen() {}' }[target];
+        const prior = { InitializedField: 'a = start', Method: 'b() {}', Nothing: '' }[before];
+        source = `import { dec, first, second, ns, value, key, start } from "./d.js";\nexport class C {\n  ${prior}\n  ${decorator}${modifier}${member}\n}\n`;
+      }
+      const result = sameAsTypeScript(source, 'decorated.ts');
+      assert.equal(result.backend, 'pulse', source);
+      assert.deepEqual(router(Buffer.from(source), { file: 'decorated.ts' }), result, source);
+      // Every decorator of the source is in the output, and nothing was written between one and its member.
+      assert.equal(result.code.match(/@\w/g).length, source.match(/@\w/g).length, source);
+      assert.doesNotMatch(result.code, /@[\w.]+(?:\([^)]*\))?\s*;/, source);
+    });
+  }
+}
+
+test('a helper import goes before a decorated class that uses JSX in its decorator', () => {
+  const source = 'const placeholder = (node) => (value) => value;\n@placeholder(<span />)\nexport class Widget {}\nexport const title = "Widget";\n';
+  const result = sameAsTypeScript(source, 'widget.tsx');
+  assert.equal(result.backend, 'pulse');
+  assert.ok(result.code.indexOf('import{') < result.code.indexOf('@placeholder'), result.code);
+  // An earlier tag hides the pragma only when its own text reaches it: a tag with text on its line does not.
+  for (const comment of ['/** Contact dev@example.org for help.\n * @jsxImportSource preact\n */', '/**\n * @license MIT\n * @jsxImportSource preact\n */',
+    '/* a@b c\n@jsxImportSource preact */']) {
+    const result = sameAsTypeScript(`${comment}\nexport const view = <i/>;\n`, 'view.tsx');
+    assert.equal(result.backend, 'pulse', comment);
+    assert.match(result.code, /from"preact\/jsx-runtime"/, comment);
+  }
+  for (const comment of ['/**\n * @preserve\n * @jsxImportSource preact\n */', '/* @license MIT @jsxImportSource preact */', '/* x@y\n * @jsxImportSource preact */',
+    '/* caf\u00e9 @jsxImportSource preact */']) {
+    const source = `${comment}\nexport const view = <i/>;\n`;
+    assert.notEqual(compile(Buffer.from(source), { file: 'view.tsx' }).backend, 'pulse', comment);
+    assert.match(compile(Buffer.from(source), { file: 'view.tsx' }).code, /react\/jsx-runtime/, comment);
+  }
+  // An earlier comment with its own tag does not hide a pragma in a later comment.
+  const pragma = sameAsTypeScript('/* @license MIT */\n/** @jsxImportSource preact */\nexport const view = <i/>;\n', 'view.tsx');
+  assert.equal(pragma.backend, 'pulse');
+  assert.match(pragma.code, /from"preact\/jsx-runtime"/);
+});
+
+test('decorators that the native grammar does not take are left to TypeScript', () => {
+  for (const source of [
+    '@d\nclass C { @d declare x: number }\nexport { C };',
+    '@d\nclass C { @d constructor() {} }\nexport { C };',
+    'class C { constructor(@Inject(X) private doc: any) {} }\nexport { C };',
+    'class C { @d m(): void; m(x?: any) {} }\nexport { C };',
+    'abstract class C { @d abstract m(): void }\nexport { C };',
+    '@(a.b)\nclass C {}\nexport { C };',
+    '@d<T>()\nclass C {}\nexport { C };',
+    'export @d class C {}',
+    'const K = @d class {};\nexport { K };',
+    'export function f() { @d class L {} return L; }',
+    'class C { @d accessor x = 1 }\nexport { C };',
+    '@d\nfunction f() {}\nexport { f };',
+    '@d\nexport const x = 1;',
+    '@d\ndeclare class C {}\nexport {};',
+    'class C { @d }\nexport { C };',
+    'class C { @d; m() {} }\nexport { C };',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'decorated.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('a decorated JavaScript module gives the same result on the entry and the router', async () => {
+  const { createRequire: requireFrom } = await import('node:module');
+  const router = requireFrom(import.meta.url)('../src/compiler-routes.cjs').compile;
+  const source = 'import { d } from "./d.js";\n@d\nexport class C { @d m() {} }\n';
+  for (const file of ['a.js', 'a.mjs', 'a.jsx', 'a.ts', 'a.tsx']) {
+    for (const input of [Buffer.from(source), source]) {
+      const result = compile(input, { file });
+      assert.deepEqual(router(input, { file }), result, file);
+      assert.match(result.code, /@d\s+export class C/, file);
+    }
+  }
+});
+
+test('well-formed leading triple-slash comments stay on the module routes and malformed ones keep the diagnostic', async () => {
+  const { createRequire: requireFrom } = await import('node:module');
+  const router = requireFrom(import.meta.url)('../src/compiler-routes.cjs').compile;
+  const body = '\nimport { value } from "./v.js";\nexport const f: number = value;\n';
+  for (const [comment, native] of [
+    ['/// <reference types="vitest" />', true], ['///<reference path="./a.d.ts"/>', true], ['/// <reference lib="es2015" />', true],
+    ['/// <reference types = "vite/client" />', true], ['///  <reference   path  =  \'a\'   />', true],
+    ["/// <reference types='a' />", true], ['/// plain note', true], ['#!/usr/bin/env node\n// one\n/// <reference types="a" />\n/* two */', true],
+    ['/// <reference />', false], ['/// <reference foo="a" />', false], ['/// <reference types="a" >', false],
+    ['/// <amd-module name="x" />', false], ['/// <reference types="a" resolution-mode="import" />', false],
+    ['/// <reference types="a" /> trailing', false], ['//// <reference types="a" />', false], ['/* a ///b */', false], ['// x ///y', false],
+  ]) {
+    for (const [file, text] of [['a.ts', comment + body], ['a.tsx', comment + body + 'export const view = <i>{f}</i>;\n'],
+      ['types.ts', comment + '\nexport type T = number;\n']]) {
+      const result = compile(Buffer.from(text), { file });
+      assert.deepEqual(router(Buffer.from(text), { file }), result, text);
+      assert.equal(result.backend === 'pulse', native, text);
+      if (native) {
+        assert.ok(result.code.includes(comment.split('\n').at(-1)), text);
+        if (file !== 'types.ts') sameAsTypeScript(text, file);
+      }
+    }
+  }
+  const malformed = compile('/* header */\n/// <reference />\nexport const f: number = 42;');
+  assert.equal(malformed.code, null);
+  assert.equal(malformed.diagnostics[0].code, 1084);
+});
+
+test('angle-bracket assertions are erased in a .ts file', () => {
+  for (const source of [
+    'export function f(o: unknown) { return <any>o; }',
+    'export let dummy = <Record<string, number>>{};',
+    'export const s = (<Observable<T>>source).pipe(x);',
+    'observable.source = <Observable<T>>source;\nexport {};',
+    'x.y = <T>z;',
+    'export const a = <any>(<unknown>b), c = [<number>d, <string>e.f(g)], h = f(<T>x, <U>y);',
+    'export const n = -<number>x + +<number><unknown>y;',
+    'export const t = typeof (<any>source).getSubject === "function";',
+    'export const isBaz = (x: any): x is Baz => x && (<Baz>x).baz !== undefined;',
+    'export const r = <any>((x: number) => x);',
+    'export const k = <const>["a", "b"], l = <any>await p, v = <T>x!.y;',
+    'export const w = new (<any>Ctor)(1), z = <any>new Ctor();',
+    'export const q = <any>`t${1}`, u = <number><any>"s";',
+    'export const g = <T>(x: T) => x, h = <T,>(x: T): T => <T>x;',
+    'export const o = <any>{ a: 1 }, f = [<any>function () {}, <any>class {}], g2 = h(<T>{}), r2 = < <T>(x: T) => T>f;',
+    'export function k(x: any) { x = <any>{}; return <any>{ a: x }; }',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'assert.ts').backend, 'pulse', source);
+  }
+});
+
+test('an assertion that erasing would split from its operand, and one in other dialects, is left to the reference route', () => {
+  for (const source of [
+    'export function f(o: unknown) { return <any>\n o; }',
+    'export function f(o: unknown) { return <{\n a: 1 }>o; }',
+    'export const p = <number>value ** 2;',
+    // Erased, these would open a block, a declaration or an arrow body where the source has an expression.
+    'export const v = (a: number) => <any>{};',
+    '<Foo>{ a: undefined };\nexport {};',
+    'export function f(x: any) { if (x) <any>{ a: 1 }; else <any>function () {}; }',
+    'label: <any>{ a: 1 };\nexport {};',
+    '<any>class {};\nexport {};',
+    // Two opening angles are a shift operator to the scanner.
+    'var r3 = <<T>(x: T) => T>f;\nexport {};',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'assert.ts' }).backend, 'pulse', source);
+  }
+  assert.equal(compile(Buffer.from('x.y = <T>z;\nexport {};'), { file: 'assert.js' }).code, null);
+  assert.match(compile(Buffer.from('const a = <T>z</T>;\nexport {};'), { file: 'assert.tsx' }).code, /children/);
+});
+
+test('an enum inside a function or a block is lowered with a block-scoped binding', () => {
+  for (const source of [
+    'test("native enum", () => { enum Fruits { apple = "apple", orange = "orange", } const s = z.nativeEnum(Fruits); });\nexport {};',
+    'export function f() { enum E { A, B = 1 << 2, C } return E.C; }',
+    'export function f(x: number) { if (x) { const enum K { Z = 9 } return K.Z; } enum E { A } return E.A; }',
+    'export const g = () => { enum GridLineColor { Bold = "#cccccc", Regular = "#e5e5e5" } return GridLineColor.Bold; };',
+    'export enum Top { A }\nexport function f() { enum Inner { B = 2 } return [Top.A, Inner.B]; }',
+    'export function f() { let a = b\n enum E { A }\n return [a, E.A]; }',
+    '{ enum B { A } }\nexport {};',
+    'export function f() { enum E { A = 1, B = A + 1, "c d" = 3 } return <number>E.B; }',
+  ]) {
+    const result = sameAsTypeScript(source, 'local.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.match(result.code, /\blet \w+; \(function/, source);
+  }
+  // Beside parameter properties TypeScript declares a block enum with var, which is visible before its
+  // declaration. That pair is left to TypeScript.
+  for (const source of ['export class C { constructor(public a: number) { enum L { X = 4 } this.a = L.X; } }',
+    'export class Job { constructor(public state: string) { const read = () => typeof State; this.state = read(); enum State { Ready } } }',
+    'export class C { constructor(public a: number) {} }\nexport function f() { enum L { X } return L.X; }']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'local.ts' }).backend, 'pulse', source);
+  }
+  const view = sameAsTypeScript('export const v = () => { enum E { A } return <i>{E.A}</i>; };', 'local.tsx');
+  assert.equal(view.backend, 'pulse');
+});
+
+test('enums inside blocks that the emitter cannot evaluate, and enum as a plain name, stay off the native route', () => {
+  for (const source of [
+    'export function f() { enum E { A = g() } return E.A; }',
+    'export function f() { enum E { A } enum E { B } return E; }',
+    'export function f() { enum E { A = `x` } }',
+    'export function f() { enum E { [k] = 1 } }',
+    'export function f() { declare enum E { A } return 1; }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'local.ts' }).backend, 'pulse', source);
+  }
 });

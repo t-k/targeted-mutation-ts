@@ -20,7 +20,9 @@ for (const row of rows) {
   test('native erasure bridge ' + row.replaceAll('\t', ' '), async () => {
     const input = samples[source];
     const result = compile(input, { target: target === 'Modern' ? 'esnext' : 'es2018', sourceMap: map === 'On' });
-    const bridged = ['Module', 'Empty', 'Script'].includes(source) && target === 'Modern' && map === 'Off';
+    // A map comes from the native scan, also for a script behind its strict-mode directive.
+    const bridged = ['Module', 'Empty', 'Script'].includes(source) && target === 'Modern';
+    if (bridged && map === 'On') assert.equal(typeof result.sourceMap.mappings, 'string');
     assert.equal(result.backend, bridged ? 'pulse' : 'typescript');
     if (source === 'Invalid') assert.equal(result.code, null);
     if (bridged && source === 'Module') {
@@ -73,8 +75,9 @@ test('parameter properties can lower without TypeScript while preserving constru
   const result = compile(source);
   assert.equal(result.backend, 'pulse');
   const baseline = compile(source, { sourceMap: true });
-  for (const code of [result.code, baseline.code]) {
-    const m = await import('data:text/javascript;base64,' + Buffer.from(code + (code === result.code ? '\n// first' : '\n// second')).toString('base64'));
+  // Each import needs its own URL, or the second run would share the first module's log.
+  for (const [index, code] of [result.code, baseline.code].entries()) {
+    const m = await import('data:text/javascript;base64,' + Buffer.from(code + '\n// run ' + index).toString('base64'));
     const instance = new m.Widget(42);
     assert.equal(instance.value, 42);
     assert.equal(instance.observed, 2);

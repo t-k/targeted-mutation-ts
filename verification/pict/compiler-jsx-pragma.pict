@@ -1,0 +1,7 @@
+Pragma: Absent, ImportSource, Runtime, Factory, Twice
+Place: LeadingBlock, LeadingLine, AfterCode, None
+Mode: Automatic, Classic
+Helpers: Runtime, Create, Both, Fragment
+Tail: SpaceClose, LineEnd, DirectClose
+IF [Pragma] = "Absent" THEN [Place] = "None" AND [Tail] = "SpaceClose";
+IF [Pragma] <> "Absent" THEN [Place] <> "None";

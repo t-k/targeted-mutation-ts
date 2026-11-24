@@ -43,6 +43,8 @@ TmtGrammar_candidate;
 #define TmtPulseMemory_RuntimeExport 14
 #define TmtPulseMemory_AmbientValueName 15
 #define TmtPulseMemory_AmbientBothNames 16
+#define TmtPulseMemory_ClassName 17
+#define TmtPulseMemory_AmbientClassName 18
 
 typedef uint8_t TmtPulseMemory_binding_namespace;
 
@@ -138,7 +140,13 @@ bool TmtPulseMemory_separator(TmtPulseMemory_tape input, uint32_t at);
 
 bool TmtPulseParser_line_break(TmtPulseMemory_tape input, uint32_t at);
 
-bool TmtPulseParser_simple_escape(TmtPulseMemory_tape input, uint32_t at, bool template0);
+bool
+TmtPulseParser_simple_escape(
+  TmtPulseMemory_tape input,
+  uint32_t at,
+  bool template0,
+  bool extended
+);
 
 uint32_t TmtPulseParser_hex_value(uint8_t ch);
 

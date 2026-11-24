@@ -70,7 +70,8 @@ test('native enum and JSX lowering do not load TypeScript', () => {
 
 test('native runtime lowering defers ambiguous transforms and honors options', () => {
   for (const [file, source] of [
-    ['main.tsx', '/** @jsxImportSource alternate */ export const View = <span />;'],
+    ['main.tsx', '/** @jsxRuntime classic */ export const View = <span />;'],
+    ['main.tsx', '/** @jsxImportSource alternate*/ export const View = <span />;'],
     ['main.tsx', 'export const View = () => <span></em>;'],
     ['main.ts', 'export enum Ready { A = compute(), B }'],
     ['main.ts', 'export enum Ready { A = "s", B }'],
@@ -100,9 +101,13 @@ test('runtime lowering preserves JSX this and enum zero semantics', async () => 
 });
 
 test('JSX pragma matching is case-insensitive and Unicode separators defer to the layout-aware emitter', () => {
+  // The plain import-source pragma is native. Other pragmas keep the TypeScript emitter.
   const pragma = compile('/** @JSXImportSource preact */ export const X = <i/>;', { file: 'input.tsx' });
-  assert.equal(pragma.backend, 'typescript');
+  assert.equal(pragma.backend, 'pulse');
   assert.match(pragma.code, /preact\/jsx-runtime/);
+  const factory = compile('/** @JSXRuntime classic */ /** @JSX h */ export const X = <i/>;', { file: 'input.tsx' });
+  assert.equal(factory.backend, 'typescript');
+  assert.match(factory.code, /h\("i"/);
   for (const separator of ['\u2028', '\u2029']) {
     assert.equal(compile('export const X = <i>a' + separator + 'b</i>;', { file: 'input.tsx' }).backend, 'typescript');
   }

@@ -47,7 +47,10 @@ test('native code preserves runtime behavior and strip-mode output', async () =>
     assert.deepEqual([17, 18, 20].map(module.predicate), [false, true, true]);
   };
   await assertModule(fast.code);
-  const portable = compile(input, { sourceMap: true });
+  const mapped = compile(input, { sourceMap: true });
+  assert.equal(mapped.backend, 'pulse');
+  assert.equal(mapped.code, fast.code);
+  const portable = compile(input, { target: 'es2022' });
   assert.equal(portable.backend, 'typescript');
   await assertModule(portable.code);
 });

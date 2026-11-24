@@ -1,0 +1,9 @@
+Erased: Modifier, TwoModifiers, AmbientField, AbstractField, AbstractMethod, Overload, None
+Next: Computed, Generator, In, Instanceof, Name, String, Private
+Before: InitializedField, BareField, Method, ClassStart
+Static: Absent, BeforeModifier, AfterModifier
+IF [Erased] IN {"AmbientField", "AbstractField", "AbstractMethod", "Overload", "None"} THEN [Static] <> "AfterModifier";
+IF [Erased] IN {"AmbientField", "AbstractField", "AbstractMethod", "Overload", "None"} THEN [Static] <> "BeforeModifier";
+IF [Erased] = "Overload" THEN [Next] = "Name";
+IF [Erased] = "None" AND [Before] = "InitializedField" THEN [Next] IN {"Name", "String", "Private"};
+IF [Next] = "Private" THEN [Erased] <> "TwoModifiers";

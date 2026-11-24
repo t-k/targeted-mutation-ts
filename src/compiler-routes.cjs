@@ -152,6 +152,13 @@ function startsStaticModule(source, start) {
   return /^[A-Za-z_$'"{*]$/.test(specifier);
 }
 
+// V8 does not parse decorators yet. The certified parse does, and the entry asks it first, so a module
+// that V8 refuses is published when that parse accepts it unchanged.
+function certifiedModule(source, bytes) {
+  const emit = loadModuleAddon()?.emitJavaScriptModule;
+  return emit !== undefined && emit(bytes ?? Buffer.from(source), true) !== undefined ? source : null;
+}
+
 function modernJavaScript(source, file, format) {
   const moduleFile = format === 'esm' && /\.mjs$/i.test(file);
   const start = moduleFile ? undefined : javascriptModuleStart(source);
@@ -169,14 +176,15 @@ function modernJavaScript(source, file, format) {
     const validate = javascriptTextValidator();
     if (validate) {
       const valid = validate(source);
-      if (valid || moduleFile) return valid ? source : null;
+      if (valid) return source;
+      if (moduleFile) return certifiedModule(source, bytes);
     }
   }
   const addon = loadModuleAddon();
   if (!addon) return null;
   bytes ??= Buffer.from(source);
   if (moduleFile && addon.validModule) {
-    return addon.validModule(bytes) ? source : null;
+    return addon.validModule(bytes) ? source : certifiedModule(source, bytes);
   }
   if (!moduleFile && !staticHead) {
     const validate = javascriptTextValidator();
@@ -246,6 +254,22 @@ function compilerSource(input) {
   }
 }
 
+// A script is published as a strict-mode directive followed by a projection of the source.
+// Its map is the projection's map moved down by the directive's line.
+function mappedScript(input, options) {
+  const { file = 'input.ts' } = options;
+  if (!/\.ts$/.test(file) || file.includes('\\')) return undefined;
+  const source = Buffer.isBuffer(input) ? input : typeof input === 'string' && input.isWellFormed() ? Buffer.from(input) : null;
+  const addon = source === null || source[0] === 0xEF ? null : loadModuleAddon();
+  if (!addon?.projectionMappings || addon.moduleMarker(source, false)) return undefined;
+  const plain = compile(input, { ...options, sourceMap: false });
+  const directive = '"use strict";\n';
+  if (plain.backend !== 'pulse' || !plain.code.startsWith(directive)) return undefined;
+  const mappings = addon.projectionMappings(source, Buffer.from(plain.code.slice(directive.length)));
+  if (mappings === undefined) return undefined;
+  return { ...plain, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, ';' + mappings, source.toString()) };
+}
+
 function compile(input, options = {}) {
   const { file = 'input.ts', mode = 'transform', target = 'esnext', module = 'preserve', jsx = 'automatic',
     sourceMap = false } = options;
@@ -264,6 +288,15 @@ function compile(input, options = {}) {
   const format = outputFormat(file, module);
   const typed = /\.(?:m?ts|tsx)$/i.test(file);
   const jsxFile = /\.[jt]sx$/i.test(file);
+  if (sourceMap && typed && jsx !== 'preserve' && target === 'esnext' && format !== 'cjs') {
+    // The entry calls the same function, so both callers publish the same result.
+    const mapper = loadModuleAddon();
+    const result = mapper ? require('./compiler-maps.cjs').mappedTypeScript(input, file,
+      (format === 'esm' ? 2 : 0) | (jsxFile ? 1 : 0) | (jsxFile && jsx === 'classic' ? 4 : 0), mapper) : undefined;
+    if (result !== undefined) return result;
+    const script = mappedScript(input, options);
+    if (script !== undefined) return script;
+  }
   let direct;
   if (typed && !jsxFile && target === 'esnext' && format !== 'cjs' && !sourceMap &&
       Buffer.isBuffer(input) && input.length > 0 && input.length <= 512) {
@@ -277,17 +310,24 @@ function compile(input, options = {}) {
     // The direct grammar starts at an export after trivia. Imports and interfaces cannot use it.
     const skipsDirectAddon = typed && mode === 'transform' && source?.[0] === 105;
     const native = source && !skipsDirectAddon ? loadDirectAddon() : null;
-    if (source && (skipsDirectAddon || native) && (validUtf8 ??= require('node:buffer').isUtf8)(source) &&
-        (skipsDirectAddon || mode === 'strip' || !native.leadingTripleSlash(source))) {
-      const simple = native && typed && !jsxFile && direct !== null ? native.compile(source) : null;
+    const wellFormed = source && (skipsDirectAddon || native) && (validUtf8 ??= require('node:buffer').isUtf8)(source);
+    // 0 without a leading triple-slash comment, 1 for notes and well-formed references, 2 for anything else.
+    const slashes = wellFormed && !skipsDirectAddon && mode !== 'strip' ? native.leadingTripleSlash(source) : 0;
+    if (wellFormed && slashes !== 2) {
+      // Behind a well-formed directive only the module emitters run. They keep it as a comment.
+      // TypeScript reports a malformed one, so that case skips the native routes.
+      const directive = slashes === 1;
+      const simple = native && !directive && typed && !jsxFile && direct !== null ? native.compile(source) : null;
       if (simple !== null) return { backend: 'pulse', code: simple, sourceMap: null, diagnostics: [] };
       // Whole-source scans are deferred. The native emitters find enum declarations themselves.
       let scanned;
       const runtime = () => scanned ??= mode === 'transform' && (jsxFile ? jsx !== 'preserve' &&
-        (!source.includes('@') || !/@jsx/i.test(source.toString('latin1'))) && !source.includes('_tmt') :
+        // A source with @jsx text is native only for one import-source pragma, which the addon recognizes.
+        (!source.includes('@') || !/@jsx/i.test(source.toString('latin1')) ||
+          loadModuleAddon()?.jsxPragmaSupported?.(source, jsx === 'classic') === true) && !source.includes('_tmt') :
         typed && source.includes('enum') && /\benum\b/.test(typeof stableInput === 'string' ? stableInput : source.toString()));
       // The single-declaration emitter accepts a TypeScript file only when it starts with an enum.
-      if (mode === 'transform' && native && (jsxFile ? runtime() : typed)) {
+      if (mode === 'transform' && native && !directive && (jsxFile ? runtime() : typed)) {
         const code = native.lower(source, jsxFile, typed, jsx === 'classic', false);
         if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
       }
@@ -302,15 +342,15 @@ function compile(input, options = {}) {
           if (typeof annotated === 'string') {
             return { backend: 'pulse', code: annotated, sourceMap: null, diagnostics: [] };
           }
-          if (typeof annotated?.script === 'string') {
+          if (!directive && typeof annotated?.script === 'string') {
             const code = strictScript(annotated.script, file);
             if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
           }
-          if (annotated?.reference === true) {
+          if (!directive && annotated?.reference === true) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
             return transformCompatibility(text, { file, target, outputModule: format, jsx, sourceMap });
           }
-          if (annotated?.code !== undefined) {
+          if (!directive && annotated?.code !== undefined) {
             const result = eraseLoweredModule(addon, annotated.code, file, format);
             if (result) return result;
           }
@@ -321,13 +361,13 @@ function compile(input, options = {}) {
                 const backend = !typed && !source.includes('<') ? 'javascript' : 'pulse';
                 return { backend, code: mixed.code, sourceMap: null, diagnostics: [] };
               }
-              if (typed) {
+              if (typed && !directive) {
                 const result = eraseLoweredModule(addon, mixed, file, format);
                 if (result) return result;
               }
             }
           }
-          if (typed && !jsxFile) {
+          if (typed && !jsxFile && !directive) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
             const property = annotated?.parameterProperty === true;
             const result = (property || annotated === true || addon.moduleMarker(source, true)) ? eraseModule(addon, text, file, format, property) :

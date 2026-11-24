@@ -75,7 +75,12 @@ export function inspect(ts, code, file) {
   function implicitRuntime(node) {
     if (!ts.isImportDeclaration(node)) return false;
     const name = node.moduleSpecifier.text;
-    return name === 'react' || name === 'react/jsx-runtime';
+    if (name === 'react' || name === 'react/jsx-runtime') return true;
+    // A helper import of the automatic runtime, from react or from the package that a pragma names.
+    const named = node.importClause?.namedBindings;
+    return !node.importClause?.name && named !== undefined && ts.isNamedImports(named) && named.elements.length > 0 &&
+      named.elements.every(entry => entry.propertyName && entry.name.text.startsWith('_') &&
+        ['jsx', 'jsxs', 'Fragment', 'createElement'].includes(entry.propertyName.text));
   }
   for (const node of tree.statements) {
     if (!ts.isImportDeclaration(node) && !ts.isExportDeclaration(node)) continue;
@@ -106,7 +111,7 @@ export function inspect(ts, code, file) {
       }
     }
     const children = [];
-    ts.forEachChild(node, child => { if (!ts.isEmptyStatement(child)) children.push(shape(child, node)); });
+    ts.forEachChild(node, child => { if (!ts.isEmptyStatement(child) && !ts.isSemicolonClassElement(child)) children.push(shape(child, node)); });
     if (ts.isSourceFile(node)) {
       const runtime = children.filter(item => item[0] === 'runtime-import');
       const statements = children.filter(item => item[0] !== 'runtime-import');

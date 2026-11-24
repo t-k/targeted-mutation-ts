@@ -563,13 +563,32 @@ let module_item_end (input:tape) (state:P.parser_state)
 let next_module_boundary (input:tape) (jsx:bool) (at:U32.t)
   : Tot (stt U32.t (heap input) (fun _ -> heap input)) =
   let initial = P.initial_state jsx true P.primary_locals in
-  let! st = (fun () -> P.skip input { initial with offset = at }) in
+  let! undecorated = (fun () -> P.skip input { initial with offset = at }) in
+  // Decorators belong to the class declaration that follows them.
+  let! st = (fun () -> P.decorated_class_start input undecorated) in
   if st.status <> 0ul then ret input 0ul
   else if st.offset = input.size then ret input input.size
   else
     let! semicolon = (fun () -> P.same input st.offset 59uy) in
     let! end_ = (fun () -> if semicolon then P.consume input st 59uy else module_item_end input st) in
     ret input (if end_.status = 0ul && U32.gt end_.offset at && U32.lte end_.offset input.size then end_.offset else 0ul)
+
+// An exported class may stand behind decorators. The item then marks a module like a plain export.
+let decorated_export (input:tape) (jsx:bool) (at:U32.t)
+  : Tot (stt bool (heap input) (fun _ -> heap input)) =
+  let initial = P.initial_state jsx true P.primary_locals in
+  let! undecorated = (fun () -> P.skip input { initial with offset = at }) in
+  let! st = (fun () -> P.decorated_class_start input undecorated) in
+  if st.status <> 0ul || st.offset = undecorated.offset then ret input false
+  else P.keyword input st.offset 6ul 0x6578706f7274uL
+
+fn decorated_module_marker (input:tape) (jsx:bool) (at:U32.t)
+  requires heap input
+  returns marked:bool
+  ensures heap input
+{
+  decorated_export input jsx at
+}
 
 fn next_module_item (input:tape) (jsx:bool) (at:U32.t)
   requires heap input

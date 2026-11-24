@@ -36,7 +36,8 @@ for (const row of rows) {
 test('namespace scope does not leak members to outer exports or sibling scopes', () => {
   compare('namespace One { type Entry = number; } namespace Two { type Entry = string; } let age = a < b;', true);
   compare('namespace One { type Entry = number; } export { Entry };', false);
-  compare('const One = age < limit; export namespace One { interface Entry {} }', false);
+  // A namespace of types merges with a value of its name and emits nothing.
+  compare('const One = age < limit; export namespace One { interface Entry {} }', true);
   compare('namespace One { namespace Other { type Entry = 1; } }', false);
 });
 

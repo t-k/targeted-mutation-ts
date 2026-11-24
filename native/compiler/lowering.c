@@ -17,6 +17,8 @@ typedef struct {
   char *code;
   size_t length, capacity, limit;
   bool failed;
+  /* When set, every copy of source bytes is logged for a source map. */
+  tmt_run_log *runs;
 } writer;
 
 typedef struct {
@@ -25,24 +27,46 @@ typedef struct {
   writer output;
   bool classic, mixed;
   unsigned helpers;
+  /* The helper module that TypeScript's transform would request first: none, the JSX runtime or createElement. */
+  unsigned first_source;
 #ifndef TMT_DIRECT
   const TmtGrammar_span *jsx_spans, *expressions;
   size_t jsx_count, expression_count;
 #endif
 } lowering;
 
-enum { jsx_one = 1, jsx_many = 2, jsx_fragment = 4, jsx_create = 8, jsx_create_first = 16 };
+enum { jsx_one = 1, jsx_many = 2, jsx_fragment = 4, jsx_create = 8 };
+enum { source_none, source_runtime, source_create };
 
 typedef struct {
   writer key;
+  /* Copies inside the key expression, relative to the key's own buffer. */
+  tmt_run_log key_runs;
   unsigned key_helpers;
+  /* First helper module requested before this element, by its attributes and by its key expression. */
+  unsigned first_before, first_attributes, first_key;
   size_t count;
   bool has_key, create;
 } jsx_props;
 
 static void register_jsx_helper(lowering *lower, unsigned helper) {
-  if (!lower->helpers && helper == jsx_create) lower->helpers = jsx_create_first;
   lower->helpers |= helper;
+  if (!lower->first_source) lower->first_source = helper == jsx_create ? source_create : source_runtime;
+}
+
+/*
+ * TypeScript prints the helper imports in the reverse of the order in which its transform first
+ * requests each module, and module order is evaluation order. For a runtime call it visits the
+ * children, then the attributes, then the key, and requests the helper last. For createElement it
+ * visits the attributes, requests the helper, and visits the children afterwards. This writer
+ * renders attributes before children, so the element settles the first request by that rule.
+ */
+static void settle_first_source(lowering *lower, const jsx_props *props, bool create) {
+  if (props->first_before) lower->first_source = props->first_before;
+  else if (create) lower->first_source = props->first_attributes ? props->first_attributes : source_create;
+  else if (!lower->first_source) {
+    lower->first_source = props->first_attributes ? props->first_attributes : props->first_key ? props->first_key : source_runtime;
+  }
 }
 
 static void write_bytes(writer *out, const void *bytes, size_t size) {
@@ -97,8 +121,49 @@ static bool same_bytes(const lowering *lower, TmtGrammar_span part, const char *
     !memcmp(lower->input.source + part.first, word, part.last - part.first);
 }
 
+static __attribute__((noinline, cold)) void log_run(tmt_run_log *runs, size_t out, uint32_t src, uint32_t length) {
+  if (runs->failed || out > UINT32_MAX) { runs->failed = true; return; }
+  if (runs->count) {
+    tmt_run *last = &runs->items[runs->count - 1];
+    if (last->out + last->length == out && last->src + last->length == src) { last->length += length; return; }
+  }
+  if (runs->count == runs->capacity) {
+    const size_t capacity = runs->capacity ? runs->capacity * 2 : 32;
+    tmt_run *grown = realloc(runs->items, capacity * sizeof(*grown));
+    if (!grown) { runs->failed = true; return; }
+    runs->items = grown;
+    runs->capacity = capacity;
+  }
+  runs->items[runs->count++] = (tmt_run){ (uint32_t)out, src, length };
+}
+
+/* Text inserted at an output offset moves every later copy, and splits a copy that spans the offset. */
+static __attribute__((noinline, cold)) void shift_runs(tmt_run_log *runs, size_t at, size_t width) {
+  for (size_t index = 0; index < runs->count && !runs->failed; index++) {
+    tmt_run *run = &runs->items[index];
+    if (run->out >= at) run->out += (uint32_t)width;
+    else if (run->out + run->length > at) {
+      const uint32_t head = (uint32_t)(at - run->out);
+      const tmt_run tail = { (uint32_t)(at + width), run->src + head, run->length - head };
+      run->length = head;
+      if (runs->count == runs->capacity) {
+        const size_t capacity = runs->capacity * 2;
+        tmt_run *grown = realloc(runs->items, capacity * sizeof(*grown));
+        if (!grown) { runs->failed = true; return; }
+        runs->items = grown;
+        runs->capacity = capacity;
+      }
+      memmove(runs->items + index + 2, runs->items + index + 1, (runs->count - index - 1) * sizeof(*runs->items));
+      runs->items[index + 1] = tail;
+      runs->count++;
+      index++;
+    }
+  }
+}
+
 static void source_bytes(lowering *lower, uint32_t first, uint32_t last) {
   if (first > last || last > lower->input.size) { lower->output.failed = true; return; }
+  if (lower->output.runs && first < last && !lower->output.failed) log_run(lower->output.runs, lower->output.length, first, last - first);
   write_bytes(&lower->output, lower->input.source + first, last - first);
 }
 
@@ -199,48 +264,267 @@ static bool literal_string(lowering *lower, uint32_t *last) {
   return true;
 }
 
-static bool enum_integer(lowering *lower, int64_t *value) {
-  const bool negative = consume(lower, '-');
-  if (!TmtGrammar_decimal_digit(peek(lower))) return false;
-  const bool zero = peek(lower) == '0';
+/*
+ * Constant enum initializers. TypeScript folds an initializer made of integer literals, earlier
+ * numeric members, parentheses and the arithmetic and bitwise operators, and prints the result.
+ * The evaluator follows JavaScript: arithmetic stays within the exactly representable integers,
+ * bitwise operators work on 32-bit values. It declines what it cannot print as a plain integer:
+ * a fraction, a negative zero, a value beyond 2^53 - 1, and every other kind of expression.
+ */
+typedef struct {
+  TmtGrammar_span key;
+  int64_t value;
+  bool numeric;
+} enum_member;
+
+enum { enum_inline_members = 24 };
+
+typedef struct {
+  enum_member *items;
+  size_t count, capacity;
+  TmtGrammar_span binding;
+  /* Most enums fit here, so the common case allocates nothing. */
+  enum_member inline_items[enum_inline_members];
+} enum_scope;
+
+enum { enum_safe_limit_shift = 53, enum_depth = 48 };
+
+static bool enum_safe(int64_t value) {
+  const int64_t limit = (INT64_C(1) << enum_safe_limit_shift) - 1;
+  return value >= -limit && value <= limit;
+}
+
+static int32_t enum_int32(int64_t value) { return (int32_t)(uint32_t)(uint64_t)value; }
+
+static bool enum_literal(lowering *lower, int64_t *value, bool *decimal) {
+  const uint8_t *source = lower->input.source;
+  const uint32_t size = lower->input.size;
+  uint32_t at = lower->at;
+  unsigned base = 10;
+  if (source[at] == '0' && at + 1 < size) {
+    const uint8_t prefix = source[at + 1] | 32;
+    base = prefix == 'x' ? 16 : prefix == 'o' ? 8 : prefix == 'b' ? 2 : 10;
+    if (base != 10) at += 2;
+    else if (TmtGrammar_decimal_digit(source[at + 1])) return false;
+  }
+  const uint32_t digits = at;
   uint64_t integer = 0;
-  do {
-    integer = integer * 10 + (peek(lower) - '0');
-    if (integer > UINT64_C(9007199254740991)) return false;
-    lower->at++;
-    if (zero && TmtGrammar_decimal_digit(peek(lower))) return false;
-  } while (TmtGrammar_decimal_digit(peek(lower)));
-  *value = negative ? -(int64_t)integer : (int64_t)integer;
+  for (; at < size; at++) {
+    const uint8_t byte = source[at];
+    const unsigned digit = byte >= '0' && byte <= '9' ? byte - '0' : (byte | 32) >= 'a' && (byte | 32) <= 'f' ? (byte | 32) - 'a' + 10 : 16;
+    if (digit >= base) break;
+    integer = integer * base + digit;
+    if (integer > (UINT64_C(1) << enum_safe_limit_shift) - 1) return false;
+  }
+  /* A fraction, an exponent, a separator, a BigInt suffix or a stray digit ends the native route. */
+  if (at == digits || (at < size && (TmtGrammar_identifier_continue(source[at]) || source[at] == '.'))) return false;
+  lower->at = at;
+  *value = (int64_t)integer;
+  *decimal = base == 10;
   return true;
 }
 
-static bool enum_numeric(lowering *lower, int64_t *value, bool *folded) {
-  if (!enum_integer(lower, value)) return false;
-  if (peek(lower) == ',' || peek(lower) == '}') return true;
-  const uint32_t literal_end = lower->at;
-  if (!trivia(lower)) return false;
-  const uint8_t operator = peek(lower);
-  if ((operator != '<' && operator != '>') || lower->input.size - lower->at < 2 ||
-      lower->input.source[lower->at + 1] != operator) {
-    lower->at = literal_end;
+/* A member may be named like a literal or an operator word, which a bare reference would not reach. */
+static bool enum_reserved(const uint8_t *word, uint32_t width) {
+  static const char *const words[] = { "true", "false", "null", "this", "undefined", "NaN", "Infinity", "void", "typeof",
+    "new", "delete", "await", "yield", "super", "in", "instanceof", "function", "class", "async", "import",
+    /* The remaining reserved words are syntax errors as a bare reference. */
+    "break", "case", "catch", "const", "continue", "debugger", "default", "do", "else", "enum", "export", "extends",
+    "finally", "for", "if", "return", "switch", "throw", "try", "var", "while", "with", "let", "static", "implements",
+    "interface", "package", "private", "protected", "public" };
+  for (size_t index = 0; index < sizeof(words) / sizeof(*words); index++) {
+    if (strlen(words[index]) == width && !memcmp(word, words[index], width)) return true;
+  }
+  return false;
+}
+
+static bool enum_reference(lowering *lower, const enum_scope *scope, int64_t *value) {
+  const uint8_t *source = lower->input.source;
+  uint32_t first = lower->at;
+  do { lower->at++; } while (TmtGrammar_identifier_continue(peek(lower)));
+  uint32_t last = lower->at;
+  const uint32_t binding = scope->binding.last - scope->binding.first;
+  const bool qualified = last - first == binding && !memcmp(source + first, source + scope->binding.first, binding) && peek(lower) == '.';
+  if (!qualified && enum_reserved(source + first, last - first)) return false;
+  if (qualified) {
+    lower->at++;
+    first = lower->at;
+    if (!TmtGrammar_identifier_start(peek(lower))) return false;
+    do { lower->at++; } while (TmtGrammar_identifier_continue(peek(lower)));
+    last = lower->at;
+  }
+  for (size_t index = scope->count; index-- > 0;) {
+    const enum_member member = scope->items[index];
+    if (member.key.last - member.key.first != last - first || memcmp(source + member.key.first, source + first, last - first)) continue;
+    *value = member.value;
+    return member.numeric;
+  }
+  return false;
+}
+
+static bool enum_binary(lowering *lower, const enum_scope *scope, unsigned minimum, unsigned depth, int64_t *value, bool *plain);
+
+static bool enum_primary(lowering *lower, const enum_scope *scope, unsigned depth, int64_t *value, bool *plain) {
+  if (!depth || !trivia(lower)) return false;
+  const uint8_t byte = peek(lower);
+  if (TmtGrammar_decimal_digit(byte)) {
+    bool decimal;
+    if (!enum_literal(lower, value, &decimal)) return false;
+    if (!decimal) *plain = false;
     return true;
   }
-  lower->at += 2;
-  const bool logical = operator == '>' && consume(lower, '>');
-  int64_t distance;
-  if (!trivia(lower) || !enum_integer(lower, &distance)) return false;
-  const uint32_t count = (uint32_t)distance & 31;
-  const uint32_t operand = (uint32_t)*value;
-  uint32_t shifted = operator == '<' ? operand << count : operand >> count;
-  if (operator == '>' && !logical && operand > INT32_MAX) shifted |= ~(UINT32_MAX >> count);
-  *value = !logical && shifted > INT32_MAX ? (int64_t)shifted - INT64_C(4294967296) : shifted;
-  *folded = true;
+  if (byte == '-') {
+    lower->at++;
+    /* A second sign directly after the first would be a decrement. */
+    if (peek(lower) == '-' || !enum_primary(lower, scope, depth - 1, value, plain) || *value == 0) return false;
+    *value = -*value;
+    return true;
+  }
+  *plain = false;
+  if (byte == '(') {
+    lower->at++;
+    return enum_binary(lower, scope, 1, depth - 1, value, plain) && trivia(lower) && consume(lower, ')');
+  }
+  if (byte == '+') {
+    lower->at++;
+    return peek(lower) != '+' && enum_primary(lower, scope, depth - 1, value, plain);
+  }
+  if (byte == '~') {
+    lower->at++;
+    if (!enum_primary(lower, scope, depth - 1, value, plain)) return false;
+    *value = ~enum_int32(*value);
+    return true;
+  }
+  return TmtGrammar_identifier_start(byte) && enum_reference(lower, scope, value);
+}
+
+/* Operator strengths follow JavaScript: | ^ & shift additive multiplicative, all left associative. */
+static unsigned enum_operator(const lowering *lower, uint32_t *width) {
+  const uint8_t *source = lower->input.source + lower->at;
+  const uint32_t rest = lower->input.size - lower->at;
+  const uint8_t first = rest ? source[0] : 0, second = rest > 1 ? source[1] : 0, third = rest > 2 ? source[2] : 0;
+  *width = 1;
+  if (second == '=') return 0;
+  switch (first) {
+    case '|': return second == '|' ? 0 : 1;
+    case '^': return 2;
+    case '&': return second == '&' ? 0 : 3;
+    case '<': if (second != '<' || third == '=') return 0; *width = 2; return 4;
+    case '>':
+      if (second != '>') return 0;
+      *width = third == '>' ? 3 : 2;
+      return rest > *width && source[*width] == '=' ? 0 : 4;
+    /* A doubled sign is an update operator, which is not constant. */
+    case '+': case '-': return second == first ? 0 : 5;
+    case '*': return second == '*' ? 0 : 6;
+    case '/': case '%': return 6;
+    default: return 0;
+  }
+}
+
+static bool enum_apply(uint8_t operator, uint32_t width, int64_t left, int64_t right, int64_t *value) {
+  const uint32_t count = (uint32_t)enum_int32(right) & 31;
+  switch (operator) {
+    case '|': *value = enum_int32(left) | enum_int32(right); return true;
+    case '^': *value = enum_int32(left) ^ enum_int32(right); return true;
+    case '&': *value = enum_int32(left) & enum_int32(right); return true;
+    case '<': *value = (int32_t)((uint32_t)enum_int32(left) << count); return true;
+    case '>':
+      if (width == 3) *value = (uint32_t)enum_int32(left) >> count;
+      else {
+        /* An arithmetic shift of a negative value, written without relying on the compiler's choice. */
+        const int32_t operand = enum_int32(left);
+        *value = operand < 0 ? ~(~operand >> count) : operand >> count;
+      }
+      return true;
+    case '+': *value = left + right; return enum_safe(*value);
+    case '-': *value = left - right; return enum_safe(*value);
+    case '*':
+      /* Both operands are below 2^53, so a product that leaves the 64-bit range is caught by the division. */
+      if (left == 0 || right == 0) { *value = 0; return left >= 0 && right >= 0; }
+      if ((left < 0 ? -left : left) > ((INT64_C(1) << enum_safe_limit_shift) - 1) / (right < 0 ? -right : right)) return false;
+      *value = left * right;
+      return true;
+    case '/':
+      if (right == 0 || left % right != 0 || (left == 0 && right < 0)) return false;
+      *value = left / right;
+      return true;
+    default:
+      if (right == 0) return false;
+      *value = left % right;
+      /* A zero remainder of a negative dividend is negative zero. */
+      return *value != 0 || left >= 0;
+  }
+}
+
+static bool enum_binary(lowering *lower, const enum_scope *scope, unsigned minimum, unsigned depth, int64_t *value, bool *plain) {
+  if (!depth || !enum_primary(lower, scope, depth, value, plain)) return false;
+  for (;;) {
+    const uint32_t end = lower->at;
+    uint32_t width;
+    if (!trivia(lower)) return false;
+    const unsigned strength = enum_operator(lower, &width);
+    if (strength < minimum || !strength) {
+      lower->at = end;
+      return true;
+    }
+    const uint8_t operator = peek(lower);
+    lower->at += width;
+    int64_t right;
+    *plain = false;
+    if (!enum_binary(lower, scope, strength + 1, depth - 1, &right, plain) || !enum_apply(operator, width, *value, right, value)) return false;
+  }
+}
+
+/* Evaluates a numeric initializer. A plain decimal literal keeps its source text in the output. */
+static bool enum_numeric(lowering *lower, const enum_scope *scope, int64_t *value, bool *folded) {
+  bool plain = true;
+  if (!enum_binary(lower, scope, 1, enum_depth, value, &plain)) return false;
+  *folded = !plain;
   return true;
 }
 
-static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported) {
+/* Two members of one name resolve differently in TypeScript's own emit, so the pair is left to it. */
+static bool enum_declared(const lowering *lower, const enum_scope *scope, TmtGrammar_span key) {
+  const uint8_t *source = lower->input.source;
+  for (size_t index = 0; index < scope->count; index++) {
+    const TmtGrammar_span other = scope->items[index].key;
+    if (other.last - other.first == key.last - key.first && !memcmp(source + other.first, source + key.first, key.last - key.first)) return true;
+  }
+  return false;
+}
+
+static bool enum_remember(enum_scope *scope, TmtGrammar_span key, int64_t value, bool numeric) {
+  if (scope->count == scope->capacity) {
+    const size_t capacity = scope->capacity * 2;
+    const bool inline_ = scope->items == scope->inline_items;
+    enum_member *grown = realloc(inline_ ? NULL : scope->items, capacity * sizeof(*grown));
+    if (!grown) return false;
+    if (inline_) memcpy(grown, scope->inline_items, scope->count * sizeof(*grown));
+    scope->items = grown;
+    scope->capacity = capacity;
+  }
+  scope->items[scope->count++] = (enum_member){ key, value, numeric };
+  return true;
+}
+
+static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exported, bool local, enum_scope *scope);
+
+static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported, bool local) {
+  enum_scope scope;
+  scope.items = scope.inline_items;
+  scope.count = 0;
+  scope.capacity = enum_inline_members;
+  scope.binding = binding;
+  const bool emitted = emit_enum_members(lower, binding, exported, local, &scope);
+  if (scope.items != scope.inline_items) free(scope.items);
+  return emitted;
+}
+
+static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exported, bool local, enum_scope *scope) {
   writer *out = &lower->output;
-  put(out, exported ? "export var " : "var ");
+  /* TypeScript declares an enum inside a block with let, so it is scoped to the block like the source. */
+  put(out, exported ? "export var " : local ? "let " : "var ");
   source_bytes(lower, binding.first, binding.last);
   put(out, "; (function (");
   source_bytes(lower, binding.first, binding.last);
@@ -251,10 +535,25 @@ static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported) {
     if (!trivia(lower)) return false;
     if (consume(lower, '}')) break;
     if (index == 4096) return false;
-    const uint32_t key_start = lower->at;
-    if (!TmtGrammar_identifier_start(peek(lower))) return false;
-    do { lower->at++; } while (TmtGrammar_identifier_continue(peek(lower)));
-    const TmtGrammar_span key = { key_start, lower->at };
+    TmtGrammar_span key = { lower->at, lower->at };
+    const uint8_t opener = peek(lower);
+    if (opener == '"' || opener == '\'') {
+      /* A quoted name is taken as written when it needs no escape in the output and is not numeric. */
+      uint32_t at = lower->at + 1;
+      key.first = at;
+      while (at < lower->input.size && lower->input.source[at] != opener) {
+        const uint8_t byte = lower->input.source[at++];
+        if (byte < 32 || byte >= 127 || byte == '"' || byte == '\'' || byte == '\\') return false;
+      }
+      if (at >= lower->input.size || at == key.first || TmtGrammar_decimal_digit(lower->input.source[key.first]) ||
+          lower->input.source[key.first] == '-') return false;
+      key.last = at;
+      lower->at = at + 1;
+    } else {
+      if (!TmtGrammar_identifier_start(opener)) return false;
+      do { lower->at++; } while (TmtGrammar_identifier_continue(peek(lower)));
+      key.last = lower->at;
+    }
     if (same_bytes(lower, key, "__proto__") || !trivia(lower)) return false;
 
     uint32_t value_start = 0, value_end = 0;
@@ -264,7 +563,7 @@ static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported) {
       value_start = lower->at;
       numeric = peek(lower) != '"' && peek(lower) != '\'';
       if (numeric) {
-        if (!enum_numeric(lower, &next, &folded)) return false;
+        if (!enum_numeric(lower, scope, &next, &folded)) return false;
       } else if (!literal_string(lower, &lower->at)) return false;
       value_end = lower->at;
     } else if (!numeric || next > INT64_C(9007199254740991)) return false;
@@ -283,6 +582,7 @@ static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported) {
       snprintf(value, sizeof(value), "%" PRId64, next);
       put(out, value);
     }
+    if (enum_declared(lower, scope, key) || !enum_remember(scope, key, next, numeric)) return false;
     if (numeric) {
       put(out, "]=");
       if (!quote(lower, key, false)) return false;
@@ -446,11 +746,13 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *propertie
       properties->create = spread;
       if (!spread) {
         lowering saved = *lower;
-        saved.output = (writer){ .limit = lower->output.limit };
+        saved.output = (writer){ .limit = lower->output.limit, .runs = lower->output.runs ? &properties->key_runs : NULL };
         saved.helpers = 0;
+        saved.first_source = source_none;
         const bool accepted = jsx_property_value(&saved, depth, prop.at);
         properties->key = saved.output;
         properties->key_helpers = saved.helpers;
+        properties->first_key = saved.first_source;
         if (!accepted) return false;
         lower->at = saved.at;
         continue;
@@ -466,9 +768,15 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *propertie
 static void put_jsx_key(lowering *lower, const jsx_props *props) {
   if (props->key.length) {
     put(&lower->output, ",");
+    if (lower->output.runs && !lower->output.failed) {
+      if (props->key_runs.failed) lower->output.runs->failed = true;
+      for (size_t index = 0; index < props->key_runs.count; index++) {
+        const tmt_run run = props->key_runs.items[index];
+        log_run(lower->output.runs, lower->output.length + run.out, run.src, run.length);
+      }
+    }
     write_bytes(&lower->output, props->key.code, props->key.length);
-    if (!lower->helpers) lower->helpers = props->key_helpers;
-    else lower->helpers |= props->key_helpers & ~jsx_create_first;
+    lower->helpers |= props->key_helpers;
   }
 }
 
@@ -567,8 +875,12 @@ static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, c
         }
         put(out, "}");
         put_jsx_key(lower, props);
+        settle_first_source(lower, props, false);
         register_jsx_helper(lower, children > 1 ? jsx_many : jsx_one);
-      } else if (props->create) register_jsx_helper(lower, jsx_create);
+      } else if (props->create) {
+        settle_first_source(lower, props, true);
+        register_jsx_helper(lower, jsx_create);
+      }
       put(out, ")");
       return !out->failed;
     }
@@ -635,7 +947,14 @@ static bool jsx_element(lowering *lower, uint32_t depth) {
   put(out, "{");
   jsx_props props = {0};
   bool accepted = false;
+  const unsigned first_before = lower->first_source;
   if (!fragment && !jsx_attributes(lower, depth - 1, &props)) goto done;
+  props.first_before = first_before;
+  if (!first_before) {
+    /* The children report their own first request. */
+    props.first_attributes = lower->first_source;
+    lower->first_source = source_none;
+  }
   const bool self_closed = !fragment && consume(lower, '/');
   if (self_closed) tag_space(lower);
   if (!consume(lower, '>')) goto done;
@@ -649,8 +968,12 @@ static bool jsx_element(lowering *lower, uint32_t depth) {
     if (!classic) {
       put(out, "}");
       put_jsx_key(lower, &props);
+      settle_first_source(lower, &props, false);
       register_jsx_helper(lower, jsx_one);
-    } else if (props.create) register_jsx_helper(lower, jsx_create);
+    } else if (props.create) {
+      settle_first_source(lower, &props, true);
+      register_jsx_helper(lower, jsx_create);
+    }
     put(out, ")");
     accepted = !out->failed;
   } else {
@@ -660,6 +983,7 @@ static bool jsx_element(lowering *lower, uint32_t depth) {
 
 done:
   free(props.key.code);
+  free(props.key_runs.items);
   return accepted;
 }
 
@@ -699,36 +1023,159 @@ static bool emit_jsx(lowering *lower, TmtPulseCompiler_runtime_head head) {
   return !lower->output.failed;
 }
 
+static bool pragma_text(const uint8_t *text, uint32_t available, const char *word) {
+  const uint32_t width = (uint32_t)strlen(word);
+  if (available < width) return false;
+  for (uint32_t index = 0; index < width; index++) {
+    if ((text[index] | 32) != (uint8_t)word[index] && text[index] != (uint8_t)word[index]) return false;
+  }
+  return true;
+}
+
+/*
+ * TypeScript reads pragmas from the block comments before the first token and lower-cases their
+ * names. The import source is the first word after @jsxImportSource on its line. This reader
+ * accepts the plain case only and reports every other @jsx text as unsupported, so that the
+ * TypeScript emitter decides it.
+ */
+static bool pragma_space(uint8_t byte) {
+  return byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r' || byte == '\v' || byte == '\f';
+}
+
+/*
+ * TypeScript finds tags in a comment with the pattern @(\S+)(\s+(?:\S.*)?)?$ and continues after each
+ * match. A match takes the tag, the white space after it across line breaks, and the rest of the line
+ * that follows. A pragma inside the text of an earlier match is therefore not seen. Non-ASCII text
+ * before the pragma is not followed here and counts as hiding it.
+ */
+static bool pragma_hidden(const uint8_t *source, uint32_t comment, uint32_t pragma, uint32_t limit) {
+  for (uint32_t index = comment; index < pragma; index++) {
+    if (source[index] >= 0x80) return true;
+  }
+  uint32_t at = comment;
+  while (at < pragma) {
+    const uint8_t *tag = memchr(source + at, '@', pragma - at);
+    if (!tag) return false;
+    uint32_t end = (uint32_t)(tag - source) + 1;
+    if (end >= limit || pragma_space(source[end])) {
+      at = end;
+      continue;
+    }
+    while (end < limit && !pragma_space(source[end])) end++;
+    uint32_t text = end;
+    while (text < limit && pragma_space(source[text])) text++;
+    if (text > end && text < limit) {
+      while (text < limit && source[text] != '\n' && source[text] != '\r') text++;
+      end = text;
+    }
+    if (pragma < end) return true;
+    at = end;
+  }
+  return false;
+}
+
+tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_t *first, uint32_t *last) {
+  uint32_t found = size, count = 0;
+  for (const uint8_t *at = memchr(source, '@', size); at; ) {
+    const uint32_t offset = (uint32_t)(at - source);
+    if (pragma_text(at + 1, size - offset - 1, "jsx")) {
+      found = offset;
+      if (++count > 1) return TMT_JSX_PRAGMA_OTHER;
+    }
+    at = offset + 1 < size ? memchr(at + 1, '@', size - offset - 1) : NULL;
+  }
+  if (!count) return TMT_JSX_PRAGMA_ABSENT;
+  /* Walk the trivia before the first token and require the pragma inside one of its block comments. */
+  uint32_t at = size >= 3 && source[0] == 0xEF && source[1] == 0xBB && source[2] == 0xBF ? 3 : 0;
+  if (size - at >= 2 && source[at] == '#' && source[at + 1] == '!') {
+    while (at < size && source[at] != '\n' && source[at] != '\r') at++;
+  }
+  bool inside = false;
+  while (at < size && !inside) {
+    const uint8_t byte = source[at];
+    if (byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r' || byte == '\v' || byte == '\f') at++;
+    else if (byte == '/' && at + 1 < size && source[at + 1] == '/') {
+      while (at < size && source[at] != '\n' && source[at] != '\r') at++;
+    } else if (byte == '/' && at + 1 < size && source[at + 1] == '*') {
+      uint32_t end = at + 2;
+      while (end + 1 < size && !(source[end] == '*' && source[end + 1] == '/')) end++;
+      if (end + 1 >= size) return TMT_JSX_PRAGMA_OTHER;
+      inside = found > at && found < end;
+      if (inside && pragma_hidden(source, at, found, end + 2)) return TMT_JSX_PRAGMA_OTHER;
+      at = end + 2;
+    } else break;
+  }
+  if (!inside || !pragma_text(source + found + 1, size - found - 1, "jsximportsource")) return TMT_JSX_PRAGMA_OTHER;
+  uint32_t name = found + 16;
+  if (name >= size || (source[name] != ' ' && source[name] != '\t')) return TMT_JSX_PRAGMA_OTHER;
+  while (name < size && (source[name] == ' ' || source[name] == '\t')) name++;
+  uint32_t end = name;
+  while (end < size) {
+    const uint8_t byte = source[end];
+    if (!(((byte | 32) >= 'a' && (byte | 32) <= 'z') || (byte >= '0' && byte <= '9') || byte == '@' || byte == '/' ||
+          byte == '.' || byte == '_' || byte == '~' || byte == '-')) break;
+    end++;
+  }
+  /* The name ends at white space. A name that runs into the comment's end would include it. */
+  if (end == name || end - name > 96 || end >= size ||
+      (source[end] != ' ' && source[end] != '\t' && source[end] != '\n' && source[end] != '\r')) return TMT_JSX_PRAGMA_OTHER;
+  *first = name;
+  *last = end;
+  return TMT_JSX_PRAGMA_SOURCE;
+}
+
 static bool inject_jsx_runtime(lowering *lower, size_t at) {
   if (!lower->helpers) return true;
   writer *out = &lower->output;
   const bool one = (lower->helpers & jsx_one) != 0;
   const bool many = (lower->helpers & jsx_many) != 0;
   const bool fragment = (lower->helpers & jsx_fragment) != 0;
-  const char *create = lower->helpers & jsx_create ? "import{createElement as _tmtElem}from\"react\";\n" : "";
-  const bool create_first = (lower->helpers & jsx_create_first) != 0;
-  char import[192];
+  /* The helpers come from react unless the source names another package in a pragma. */
+  uint32_t name_first = 0, name_last = 0;
+  const char *package = "react";
+  int package_width = 5;
+  if (memchr(lower->input.source, '@', lower->input.size)) {
+    const tmt_jsx_pragma_kind pragma = tmt_jsx_pragma(lower->input.source, lower->input.size, &name_first, &name_last);
+    if (pragma == TMT_JSX_PRAGMA_OTHER) return false;
+    if (pragma == TMT_JSX_PRAGMA_SOURCE) {
+      package = (const char *)lower->input.source + name_first;
+      package_width = (int)(name_last - name_first);
+    }
+  }
+  char create[160] = "";
+  if (lower->helpers & jsx_create) {
+    snprintf(create, sizeof(create), "import{createElement as _tmtElem}from\"%.*s\";\n", package_width, package);
+  }
+  /* The module requested first is printed last. */
+  const bool create_first = lower->first_source == source_runtime;
+  char runtime[160] = "";
+  if (one || many || fragment) snprintf(runtime, sizeof(runtime), "}from\"%.*s/jsx-runtime\";\n", package_width, package);
+  char import[448];
   const int size = snprintf(import, sizeof(import), "%s%s%s%s%s%s%s%s",
     create_first ? create : "", one || many || fragment ? "import{" : "",
     one ? "jsx as _tmtJsx0" : "", one && many ? "," : "", many ? "jsxs as _tmtJsxs" : "",
     fragment ? (one || many ? ",Fragment as _tmtFragment" : "Fragment as _tmtFragment") : "",
-    one || many || fragment ? "}from\"react/jsx-runtime\";\n" : "", create_first ? "" : create);
+    runtime, create_first ? "" : create);
   if (size < 0 || (size_t)size >= sizeof(import) || at > out->length) return false;
   const size_t before = out->length;
   write_bytes(out, import, (size_t)size);
   if (out->failed) return false;
   memmove(out->code + at + size, out->code + at, before - at);
   memcpy(out->code + at, import, (size_t)size);
+  if (out->runs) shift_runs(out->runs, at, (size_t)size);
   return true;
 }
 
-static char *lower_one(uint8_t *source, uint32_t size, bool jsx, bool typescript, bool classic, size_t *length) {
+static char *lower_one(uint8_t *source, uint32_t size, bool jsx, bool typescript, bool classic, size_t *length,
+  tmt_run_log *runs)
+{
   const TmtPulseMemory_tape input = { .source = source, .size = size };
   const TmtPulseCompiler_runtime_head head = TmtPulseCompiler_read_runtime_head(input, 0, jsx, typescript, false);
   if (!head.kind) return NULL;
-  lowering lower = { .input = input, .at = head.body, .classic = classic, .output.limit = (size_t)size * 32 + 1024 };
+  lowering lower = { .input = input, .at = head.body, .classic = classic, .output.limit = (size_t)size * 32 + 1024,
+    .output.runs = runs };
   source_bytes(&lower, 0, head.declaration);
-  const bool emitted = head.kind == 1 ? emit_enum(&lower, head.name_span, true) : emit_jsx(&lower, head);
+  const bool emitted = head.kind == 1 ? emit_enum(&lower, head.name_span, true, false) : emit_jsx(&lower, head);
   const uint32_t suffix = lower.at;
   if (emitted && trivia(&lower)) {
     consume(&lower, ';');
@@ -760,9 +1207,19 @@ static TmtPulseMemory_tape with_workspace(uint8_t *source, uint32_t size, module
   };
 }
 
+/* An import or an export at this item, also an exported class behind decorators. */
+static bool module_marker_at(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
+  if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
+  const TmtPulseParser_cursor head = TmtPulseParser_trivia(input, at);
+  return head.ok && head.at < input.size && input.source[head.at] == '@' && TmtPulseCompiler_decorated_module_marker(input, jsx, at);
+}
+
 static uint32_t find_marker(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
+  /* The scan reads the same grammar as the emitting parse, including the forms that only that parse records. */
+  input.capture_types = true;
+  input.count_only = true;
   while (at < input.size) {
-    if (TmtPulseCompiler_runtime_module_marker(input, at)) return at;
+    if (module_marker_at(input, at, jsx)) return at;
     const uint32_t next = TmtPulseCompiler_next_module_item(input, jsx, at);
     if (next <= at || next > input.size) break;
     at = next;
@@ -847,6 +1304,9 @@ enum {
   parameter_super = 27,
   contextual_reference = 28,
   uncertified_syntax = 29,
+  decorated_modifiers = 30,
+  prefix_assertion = 31,
+  local_enum = 32,
 };
 
 typedef struct {
@@ -854,6 +1314,8 @@ typedef struct {
   /* The parser kept TypeScript-only syntax, or a name whose runtime binding only V8 can decide. */
   bool uncertified;
   bool runtime_enums;
+  /* An enum inside a block. Beside parameter properties TypeScript declares it with var, so that pair is declined. */
+  bool local_enums;
   uint32_t properties;
 } projection_facts;
 
@@ -1065,7 +1527,7 @@ static bool erasable_expression_range(TmtPulseMemory_tape input, TmtGrammar_cand
   const uint8_t first = input.source[span.first];
   if (kind == type_annotation) return first == ':';
   if (kind == terminated_class_field) return first == ':' || (first == '?' && span.last - span.first == 1);
-  if (kind == type_arguments || kind == generic_arrow) return first == '<' && input.source[span.last - 1] == '>';
+  if (kind == type_arguments || kind == generic_arrow || kind == prefix_assertion) return first == '<' && input.source[span.last - 1] == '>';
   if (kind == type_marker) return span.last - span.first == 1 && (first == '?' || first == '!');
   if (first != 'a' && first != 's') return false;
   const TmtGrammar_span context = event.right;
@@ -1088,7 +1550,24 @@ static bool delimited_annotation(TmtPulseMemory_tape input, uint32_t last) {
     (tail.newline && TmtGrammar_identifier_start(byte));
 }
 
-static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span span, char *code) {
+/*
+ * A class member that starts with `[`, `*`, `in` or `instanceof` continues a field initializer on
+ * the line before it when nothing else separates the two. In the source an erased modifier or an
+ * erased member stood between them, so the eraser has to leave a separator in its place.
+ */
+static bool continues_initializer(TmtPulseMemory_tape input, uint32_t after) {
+  const TmtPulseParser_cursor next = TmtPulseParser_trivia(input, after);
+  if (!next.ok || next.at >= input.size) return false;
+  const uint8_t *word = input.source + next.at;
+  const uint32_t rest = input.size - next.at;
+  if (*word == '[' || *word == '*') return true;
+  if (rest > 2 && !memcmp(word, "in", 2) && !TmtGrammar_identifier_continue(word[2])) return true;
+  return rest > 10 && !memcmp(word, "instanceof", 10) && !TmtGrammar_identifier_continue(word[10]);
+}
+
+static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span span, char *code, bool separate) {
+  uint32_t leading = span.last;
+  bool kept = false;
   for (uint32_t at = span.first; at < span.last;) {
     const TmtPulseParser_cursor token = TmtPulseParser_trivia(input, at);
     if (!token.ok || token.at > span.last) return false;
@@ -1097,7 +1576,11 @@ static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span spa
     while (at < span.last && TmtGrammar_identifier_continue(input.source[at])) at++;
     const uint32_t width = at - token.at;
     const uint8_t *word = input.source + token.at;
-    if (width == 6 && !memcmp(word, "static", 6)) continue;
+    if (width == 6 && !memcmp(word, "static", 6)) {
+      kept = true;
+      continue;
+    }
+    if (!kept && leading == span.last) leading = token.at;
     if (!((width == 6 && !memcmp(word, "public", 6)) ||
           (width == 7 && !memcmp(word, "private", 7)) ||
           (width == 9 && !memcmp(word, "protected", 9)) ||
@@ -1105,6 +1588,8 @@ static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span spa
                           !memcmp(word, "abstract", 8))))) return false;
     memset(code + token.at, ' ', width);
   }
+  /* A leading modifier was erased and no static stands before it, so the member name follows the line before. */
+  if (separate && leading < span.last && continues_initializer(input, span.last)) code[leading] = ';';
   return true;
 }
 
@@ -1179,6 +1664,41 @@ static bool begins_runtime_declaration(TmtPulseMemory_tape input, uint32_t at) {
     TmtPulseParser_keyword(input, at, 5, UINT64_C(0x636c617373));
 }
 
+/*
+ * Erasing an assertion in front of `{`, `function`, `class` or `async` leaves that token where the assertion
+ * began. At the start of a statement or of an arrow body it would then open a block or a declaration. The
+ * erasure is kept only behind a token that can only be followed by an expression.
+ */
+static bool assertion_exposes_statement(TmtPulseMemory_tape input, TmtGrammar_span span) {
+  const TmtPulseParser_cursor operand = TmtPulseParser_trivia(input, span.last);
+  if (!operand.ok || operand.at >= input.size) return true;
+  const uint8_t *word = input.source + operand.at;
+  const uint32_t rest = input.size - operand.at;
+  const bool opens = *word == '{' ||
+    (rest > 8 && !memcmp(word, "function", 8) && !TmtGrammar_identifier_continue(word[8])) ||
+    (rest > 5 && !memcmp(word, "class", 5) && !TmtGrammar_identifier_continue(word[5])) ||
+    (rest > 5 && !memcmp(word, "async", 5) && !TmtGrammar_identifier_continue(word[5]));
+  if (!opens) return false;
+  uint32_t at = span.first;
+  while (at && (input.source[at - 1] == ' ' || input.source[at - 1] == '\t')) at--;
+  if (!at) return true;
+  const uint8_t before = input.source[at - 1];
+  if (before == '(' || before == ',' || before == '[' || before == '?' || before == '&' || before == '|' || before == '+' ||
+      before == '-' || before == '*' || before == '!' || before == '~' || before == '%' || before == '^') return false;
+  /* An equals sign that is not the head of an arrow. */
+  if (before == '=') return false;
+  static const char *const words[] = { "return", "typeof", "void", "await", "yield", "throw" };
+  for (size_t index = 0; index < sizeof(words) / sizeof(*words); index++) {
+    const uint32_t width = (uint32_t)strlen(words[index]);
+    if (at >= width && !memcmp(input.source + at - width, words[index], width) &&
+        (at == width || !TmtGrammar_identifier_continue(input.source[at - width - 1]))) return false;
+  }
+  return true;
+}
+
+/* An enum at module level or inside a block. */
+static bool enum_record(uint32_t kind) { return kind == runtime_enum || kind == local_enum; }
+
 static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool allow_properties,
   projection_facts *facts)
 {
@@ -1191,19 +1711,23 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
     if (event.original == uncertified_syntax) facts->uncertified = true;
-    if (event.original == runtime_enum) facts->runtime_enums = true;
+    if (enum_record(event.original)) facts->runtime_enums = true;
+    if (event.original == local_enum) facts->local_enums = true;
     if (event.original == parameter_property) {
       if (!allow_properties || facts->properties == 512) goto decline;
       facts->properties++;
     }
     const bool member = event.original == erased_list_member || event.original == erased_overload;
-    const bool modifiers = event.original == class_modifiers || event.original == parameter_property;
+    const bool modifiers = event.original == class_modifiers || event.original == parameter_property ||
+      event.original == decorated_modifiers;
     const bool arrow = event.original == generic_arrow;
     const bool result = event.original == arrow_result;
     const bool heritage = event.original == class_implements;
     const bool local_type = event.original == erased_local_type;
     const bool field = event.original == terminated_class_field;
-    if (!member && !modifiers && !arrow && !result && !heritage && !local_type && !field &&
+    const bool prefix = event.original == prefix_assertion;
+    if (prefix && assertion_exposes_statement(input, event.left)) goto decline;
+    if (!member && !modifiers && !arrow && !result && !heritage && !local_type && !field && !prefix &&
         (event.original < type_annotation || event.original > type_marker)) continue;
     const TmtGrammar_span span = event.left;
     if (span.first >= span.last || span.last > input.size) goto decline;
@@ -1263,11 +1787,13 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
       memcpy(code, input.source, input.size);
     }
     if (modifiers) {
-      if (!blank_class_modifiers(input, span, code)) goto decline;
+      /* A decorator already separates its member from the one before. */
+      if (!blank_class_modifiers(input, span, code, event.original != decorated_modifiers)) goto decline;
     } else if (!preserve_lines) memset(code + span.first, ' ', span.last - span.first);
     else if (!blank_lines((uint8_t *)code + span.first, input.source + span.first, span.last - span.first,
                           statement || local_type || annotation || event.original == erased_overload)) goto decline;
-    if (separate) code[span.first] = ';';
+    /* Only a signature can be an erased class member. A receiver parameter or a list entry takes no separator. */
+    if (separate || (event.original == erased_overload && continues_initializer(input, span.last))) code[span.first] = ';';
     if (arrow && !preserve_generic_arrow(input, span, code)) goto decline;
     if (result && (memchr(input.source + span.first, '\n', span.last - span.first) ||
                   memchr(input.source + span.first, '\r', span.last - span.first))) {
@@ -1359,8 +1885,30 @@ static int compare_insertions(const void *lhs, const void *rhs) {
   return a->name.first < b->name.first ? -1 : a->name.first > b->name.first;
 }
 
+static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, bool local);
+
+/* Copies a range of the projection and lowers the enum declarations recorded inside it. */
+static bool copy_lowering_enums(lowering *lower, uint32_t records, uint32_t *enum_index, uint32_t first, uint32_t last, bool enums) {
+  while (enums && *enum_index < records) {
+    const TmtGrammar_candidate event = lower->input.output[*enum_index];
+    if (!enum_record(event.original)) {
+      (*enum_index)++;
+      continue;
+    }
+    const TmtGrammar_span span = event.left;
+    if (span.first >= last) break;
+    if (span.first < first || span.last > last) return false;
+    source_bytes(lower, first, span.first);
+    if (!emit_recorded_enum(lower, span, event.original == local_enum)) return false;
+    first = span.last;
+    (*enum_index)++;
+  }
+  source_bytes(lower, first, last);
+  return true;
+}
+
 static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *projected, uint32_t records,
-  uint32_t properties, size_t *length)
+  uint32_t properties, bool enums, size_t *length, tmt_run_log *runs)
 {
   parameter_insertion *edits = malloc((size_t)properties * 2 * sizeof(*edits));
   if (!edits) return NULL;
@@ -1385,7 +1933,7 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
   qsort(edits, used, sizeof(*edits), compare_insertions);
   // Resolve statement boundaries in the original source. Copy only projected bytes.
   input.source = (uint8_t *)projected;
-  lowering lower = { .input = input, .output.limit = 1048576 };
+  lowering lower = { .input = input, .output.limit = enums ? (size_t)input.size * 32 + 1024 : 1048576, .output.runs = runs };
   if (reserve > lower.output.limit) {
     free(edits);
     return NULL;
@@ -1396,10 +1944,10 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
     return NULL;
   }
   lower.output.capacity = reserve;
-  uint32_t copied = 0;
+  uint32_t copied = 0, enum_index = 0;
   for (uint32_t index = 0; index < used; index++) {
     const parameter_insertion edit = edits[index];
-    source_bytes(&lower, copied, edit.at);
+    if (!copy_lowering_enums(&lower, records, &enum_index, copied, edit.at, enums)) lower.output.failed = true;
     if (edit.separate && copied != edit.at) put(&lower.output, ";");
     put(&lower.output, "\n");
     if (!edit.field) put(&lower.output, "this.");
@@ -1411,7 +1959,7 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
     put(&lower.output, ";");
     copied = edit.at;
   }
-  source_bytes(&lower, copied, input.size);
+  if (!copy_lowering_enums(&lower, records, &enum_index, copied, input.size, enums)) lower.output.failed = true;
   free(edits);
   if (lower.output.failed) {
     free(lower.output.code);
@@ -1421,27 +1969,27 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
   return lower.output.code;
 }
 
-static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span) {
+static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, bool local) {
   const uint32_t size = lower->input.size;
   if (span.first >= span.last || span.last > size) return false;
   lower->input.size = span.last;
   const TmtPulseCompiler_runtime_head head = TmtPulseCompiler_read_runtime_head(lower->input, span.first, false, true, true);
   lower->at = head.body;
   const bool emitted = (head.kind == 1 || head.kind == 3) && head.declaration == span.first && head.body < span.last &&
-    emit_enum(lower, head.name_span, head.kind == 1) && lower->at == span.last;
+    !(local && head.kind == 1) && emit_enum(lower, head.name_span, head.kind == 1, local) && lower->at == span.last;
   lower->input.size = size;
   return emitted;
 }
 
-static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, size_t *length) {
-  lowering lower = { .input = input, .output.limit = (size_t)input.size * 32 + 1024 };
+static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, size_t *length, tmt_run_log *runs) {
+  lowering lower = { .input = input, .output.limit = (size_t)input.size * 32 + 1024, .output.runs = runs };
   uint32_t copied = 0;
   for (uint32_t index = 0; index < records; index++) {
-    if (input.output[index].original != runtime_enum) continue;
+    if (!enum_record(input.output[index].original)) continue;
     const TmtGrammar_span span = input.output[index].left;
     if (span.first < copied || span.first >= span.last || span.last > input.size) goto decline;
     source_bytes(&lower, copied, span.first);
-    if (!emit_recorded_enum(&lower, span)) goto decline;
+    if (!emit_recorded_enum(&lower, span, input.output[index].original == local_enum)) goto decline;
     copied = span.last;
   }
   if (!copied) return NULL;
@@ -1451,19 +1999,21 @@ static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, s
   *length = lower.output.length;
   return lower.output.code;
 decline:
+  /* A log without its output would describe another buffer. */
+  if (runs) runs->failed = true;
   free(lower.output.code);
   return NULL;
 }
 
 static bool retained_module_marker(TmtPulseMemory_tape input, uint32_t at, uint32_t records) {
-  if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
+  if (module_marker_at(input, at, false)) return true;
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
     if (event.original != erased_type_statement || at < event.left.first || at >= event.left.last) continue;
     const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, event.left.last);
     if (!tail.ok || tail.at >= input.size) return false;
     at = tail.at;
-    if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
+    if (module_marker_at(input, at, false)) return true;
   }
   return false;
 }
@@ -1487,7 +2037,7 @@ static bool mentions_enum(const uint8_t *source, uint32_t size, tmt_enum_hint hi
 }
 
 static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, uint32_t marker, tmt_enum_hint enums, bool esm, bool module,
-  size_t *length, bool *complete)
+  size_t *length, bool *complete, tmt_run_log *runs)
 {
   char *code = NULL;
   projection_facts facts;
@@ -1497,17 +2047,18 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   if (module) audit_projection_guard(projected, records, "ts");
   *length = input.size;
   const bool needs_module_marker = code && esm && facts.remove_statement && !retained_module_marker(projected, marker, records);
+  bool unlowered_enum = facts.runtime_enums;
   if (facts.properties) {
-    if (!module || mentions_enum(input.source, input.size, enums)) goto enum_only;
-    char *lowered = emit_parameter_properties(input, code, records, facts.properties, length);
+    if (!module || facts.local_enums) goto enum_only;
+    /* One pass inserts the property statements and lowers the enums between them. */
+    char *lowered = emit_parameter_properties(input, code, records, facts.properties, facts.runtime_enums, length, runs);
     if (!lowered) goto enum_only;
     free(code);
     code = lowered;
-  }
-  bool unlowered_enum = facts.runtime_enums;
-  /* A committed enum record implies the word, so an unknown hint needs no scan here. */
-  if (enums != TMT_ENUMS_ABSENT) {
-    char *lowered = lower_recorded_enums(projected, records, length);
+    unlowered_enum = false;
+  } else if (enums != TMT_ENUMS_ABSENT) {
+    /* A committed enum record implies the word, so an unknown hint needs no scan here. */
+    char *lowered = lower_recorded_enums(projected, records, length, runs);
     if (lowered) {
       free(code);
       code = lowered;
@@ -1521,6 +2072,8 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
     char *with_marker = realloc(code, *length + sizeof(esm_marker));
     if (!with_marker) goto enum_only;
     code = with_marker;
+    /* The marker follows a projection of the whole source unless a lowering already logged its copies. */
+    if (runs && !runs->count && *length == input.size) log_run(runs, 0, 0, input.size);
     memcpy(code + *length, esm_marker, sizeof(esm_marker) - 1);
     *length += sizeof(esm_marker) - 1;
   }
@@ -1535,16 +2088,21 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   return code;
 enum_only:
   free(code);
-  return enums != TMT_ENUMS_ABSENT ? lower_recorded_enums(input, records, length) : NULL;
+  if (runs) runs->failed = true;
+  return enums != TMT_ENUMS_ABSENT ? lower_recorded_enums(input, records, length, NULL) : NULL;
 }
 #endif
 
 char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint enums, bool esm, bool allow_script,
-  size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property)
+  size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property, tmt_run_log *runs)
 {
   *checked = false;
   *complete = false;
   *script = false;
+  if (runs) {
+    runs->count = 0;
+    runs->failed = false;
+  }
   *property = TMT_PARAMETER_NONE;
 #ifdef TMT_V8_VALIDATOR
   module_workspace memory = {0};
@@ -1576,7 +2134,7 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   char *code = NULL;
   if (parsed.status == 0 && parsed.count <= input.capacity) {
     *checked = module;
-    code = erase_annotation_records(input, parsed.count, marker, enums, esm, module, length, complete);
+    code = erase_annotation_records(input, parsed.count, marker, enums, esm, module, length, complete, runs);
     *script = !module && *complete;
     if (!code && module) {
       for (uint32_t index = 0; index < parsed.count; index++) {
@@ -1602,6 +2160,7 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   (void)esm;
   (void)allow_script;
   (void)length;
+  (void)runs;
   return NULL;
 #endif
 }
@@ -1622,6 +2181,81 @@ bool tmt_plain_script(uint8_t *source, uint32_t size) {
 }
 
 #endif
+
+/* One line after its three slashes: a note without markup, or a reference with one known attribute and a quoted value. */
+static bool plain_triple_slash_line(const uint8_t *line, uint32_t width) {
+  uint32_t at = 0;
+  if (!memchr(line, '<', width)) return true;
+  while (at < width && line[at] == ' ') at++;
+  if (width - at < 11 || memcmp(line + at, "<reference ", 11)) return false;
+  at += 11;
+  while (at < width && line[at] == ' ') at++;
+  static const char *const names[] = { "types", "path", "lib" };
+  uint32_t name = 0;
+  for (; name < 3; name++) {
+    const uint32_t length = (uint32_t)strlen(names[name]);
+    if (width - at >= length && !memcmp(line + at, names[name], length)) { at += length; break; }
+  }
+  if (name == 3) return false;
+  /* TypeScript allows spaces around the equals sign. */
+  while (at < width && line[at] == ' ') at++;
+  if (at >= width || line[at] != '=') return false;
+  at++;
+  while (at < width && line[at] == ' ') at++;
+  if (at >= width || (line[at] != '"' && line[at] != '\'')) return false;
+  const uint8_t quote = line[at++];
+  const uint32_t value = at;
+  while (at < width && line[at] != quote && line[at] != '<' && line[at] != '>' && line[at] >= 32 && line[at] < 127) at++;
+  if (at == value || at >= width || line[at] != quote) return false;
+  at++;
+  while (at < width && line[at] == ' ') at++;
+  if (width - at < 2 || line[at] != '/' || line[at + 1] != '>') return false;
+  at += 2;
+  while (at < width && (line[at] == ' ' || line[at] == '\t')) at++;
+  return at == width;
+}
+
+/*
+ * The triple-slash comments before the first token. TypeScript reports a malformed reference directive,
+ * so only notes and well-formed references count as plain. Anything else, also a triple slash inside
+ * another comment, leaves the decision to TypeScript.
+ */
+tmt_triple_slash_kind tmt_triple_slash(uint8_t *source, uint32_t size) {
+  const TmtPulseMemory_tape input = { .source = source, .size = size };
+  const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
+  const uint32_t limit = first.ok ? first.at : size;
+  tmt_triple_slash_kind kind = TMT_TRIPLE_SLASH_ABSENT;
+  uint32_t at = size >= 3 && source[0] == 0xEF && source[1] == 0xBB && source[2] == 0xBF ? 3 : 0;
+  if (limit - at >= 2 && at < limit && source[at] == '#' && source[at + 1] == '!') {
+    while (at < limit && source[at] != '\n' && source[at] != '\r') at++;
+  }
+  while (at < limit) {
+    const uint8_t byte = source[at];
+    if (byte == '/' && at + 1 < limit && source[at + 1] == '/') {
+      uint32_t end = at;
+      while (end < limit && source[end] != '\n' && source[end] != '\r') end++;
+      if (end - at >= 3 && source[at + 2] == '/') {
+        if (end - at >= 4 && source[at + 3] == '/') return TMT_TRIPLE_SLASH_OTHER;
+        if (!plain_triple_slash_line(source + at + 3, end - at - 3)) return TMT_TRIPLE_SLASH_OTHER;
+        kind = TMT_TRIPLE_SLASH_PLAIN;
+      } else {
+        for (uint32_t index = at + 2; index + 2 < end; index++) {
+          if (source[index] == '/' && source[index + 1] == '/' && source[index + 2] == '/') return TMT_TRIPLE_SLASH_OTHER;
+        }
+      }
+      at = end;
+    } else if (byte == '/' && at + 1 < limit && source[at + 1] == '*') {
+      uint32_t end = at + 2;
+      while (end + 1 < limit && !(source[end] == '*' && source[end + 1] == '/')) end++;
+      for (uint32_t index = at; index + 2 < end + 2 && index + 2 < limit; index++) {
+        if (source[index] == '/' && source[index + 1] == '/' && source[index + 2] == '/') return TMT_TRIPLE_SLASH_OTHER;
+      }
+      at = end + 2;
+    } else if (byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r' || byte == '\v' || byte == '\f') at++;
+    else return tmt_leading_triple_slash(source, size) ? TMT_TRIPLE_SLASH_OTHER : kind;
+  }
+  return kind;
+}
 
 /* Equals a triple slash anywhere in the source and a leading directive, without scanning ordinary files. */
 bool tmt_leading_triple_slash(uint8_t *source, uint32_t size) {
@@ -1645,14 +2279,16 @@ bool tmt_leading_directive(uint8_t *source, uint32_t size) {
 }
 
 #ifndef TMT_DIRECT
-static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic, size_t *length) {
+static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic, size_t *length, tmt_run_log *runs) {
   module_workspace memory = {0};
   const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok || !TmtPulseCompiler_supported_module(input, jsx)) return NULL;
   const uint32_t marker = find_marker(input, first.at, jsx);
   if (marker == size) return NULL;
-  lowering lower = { .input = input, .classic = classic, .mixed = true, .output.limit = (size_t)size * 32 + 1024 };
+  if (runs) runs->count = 0;
+  lowering lower = { .input = input, .classic = classic, .mixed = true, .output.limit = (size_t)size * 32 + 1024,
+    .output.runs = runs };
   uint32_t keep = 0;
   size_t runtime_at = SIZE_MAX;
   for (uint32_t cursor = first.at; cursor < size;) {
@@ -1665,7 +2301,7 @@ static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic,
       if (head.declaration < keep || head.body > end) goto decline;
       source_bytes(&lower, keep, head.declaration);
       lower.at = head.body;
-      const bool emitted = head.kind == 1 || head.kind == 3 ? emit_enum(&lower, head.name_span, head.kind == 1) :
+      const bool emitted = head.kind == 1 || head.kind == 3 ? emit_enum(&lower, head.name_span, head.kind == 1, false) :
         emit_jsx(&lower, head);
       const uint32_t finish = lower.at;
       if (!emitted || !trivia(&lower)) goto decline;
@@ -1723,14 +2359,14 @@ static bool source_jsx_with_enums(lowering *lower, uint32_t first, uint32_t last
 #ifdef TMT_V8_VALIDATOR
   while (*index < records) {
     const TmtGrammar_candidate event = lower->input.output[*index];
-    if (event.original != runtime_enum) {
+    if (!enum_record(event.original)) {
       (*index)++;
       continue;
     }
     const TmtGrammar_span span = event.left;
     if (span.first >= last) break;
     if (span.first < first || span.last > last || !source_jsx(lower, first, span.first, 32) ||
-        !emit_recorded_enum(lower, span)) return false;
+        !emit_recorded_enum(lower, span, event.original == local_enum)) return false;
     first = span.last;
     (*index)++;
   }
@@ -1743,11 +2379,13 @@ static bool source_jsx_with_enums(lowering *lower, uint32_t first, uint32_t last
 
 static char *render_jsx_spans(TmtPulseMemory_tape input, const TmtGrammar_span *tags, size_t tag_count,
   const TmtGrammar_span *expressions, size_t expression_count, uint32_t insertion, bool classic, size_t *length,
-  uint32_t enum_records)
+  uint32_t enum_records, tmt_run_log *runs)
 {
+  /* Each attempt starts its own log. */
+  if (runs) runs->count = 0;
   lowering lower = { .input = input, .classic = classic, .jsx_spans = tags, .jsx_count = tag_count,
     .expressions = expressions, .expression_count = expression_count,
-    .output.limit = (size_t)input.size * 32 + 1024 };
+    .output.limit = (size_t)input.size * 32 + 1024, .output.runs = runs };
   uint32_t enum_index = 0;
   if (source_jsx_with_enums(&lower, 0, insertion, enum_records, &enum_index)) {
     const size_t runtime_at = lower.output.length;
@@ -1781,7 +2419,7 @@ static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records) 
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
     const uint32_t kind = event.original;
-    if (kind != 0 && kind != 5 && kind != lexical_text && kind != runtime_enum) continue;
+    if (kind != 0 && kind != 5 && kind != lexical_text && !enum_record(kind)) continue;
     if (event.left.first > event.left.last || event.left.last > input.size) {
       free(regions);
       return false;
@@ -1828,7 +2466,7 @@ static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records) 
 #endif
 
 static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans, uint32_t records,
-  uint32_t insertion, bool typescript, bool classic, size_t *length, bool *complete)
+  uint32_t insertion, bool typescript, bool classic, size_t *length, bool *complete, tmt_run_log *runs)
 {
   size_t elements = 0, expression_begin = records;
 #ifdef TMT_V8_VALIDATOR
@@ -1838,7 +2476,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
     if (input.output[index].original == 0) spans[elements++] = input.output[index].left;
     else if (input.output[index].original == 5) spans[--expression_begin] = input.output[index].left;
 #ifdef TMT_V8_VALIDATOR
-    else if (input.output[index].original == runtime_enum) enum_records = records;
+    else if (enum_record(input.output[index].original)) enum_records = records;
 #endif
   }
   const size_t expression_count = records - expression_begin;
@@ -1847,7 +2485,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   qsort(expressions, expression_count, sizeof(*spans), compare_spans);
 #ifdef TMT_V8_VALIDATOR
   if (!typescript) {
-    char *code = render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0);
+    char *code = render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0, runs);
     if (code && validate_emission(code, *length, "jsx")) {
       *complete = true;
       return code;
@@ -1863,7 +2501,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
       if (masked) projected.source = (uint8_t *)masked;
       {
         audit_projection_guard(projected, records, "tsx");
-        char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length, enum_records);
+        char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length, enum_records, runs);
         if (code && (!facts.remove_statement || retained_module_marker(projected, insertion, records) ||
                      (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&
             publishable(!facts.uncertified, code, *length, "tsx")) {
@@ -1881,10 +2519,12 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   if (!typescript) return NULL;
   (void)complete;
 #endif
-  return render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0);
+  return render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0, runs);
 }
 
-static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, bool classic, size_t *length, bool *complete) {
+static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, bool classic, size_t *length, bool *complete,
+  tmt_run_log *runs)
+{
   module_workspace memory = {0};
   TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
@@ -1913,7 +2553,7 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, b
     }
     if (small.status == 0 && small.count <= input.capacity) {
       TmtGrammar_span spans[sizeof(memory.marks)];
-      return render_jsx_module(input, spans, small.count, insertion, typescript, classic, length, complete);
+      return render_jsx_module(input, spans, small.count, insertion, typescript, classic, length, complete, runs);
     }
     if (small.status != 4) return NULL;
   }
@@ -1931,7 +2571,7 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, b
       parsed = capture_jsx(input, module);
     }
     if (parsed.status == 0 && parsed.count <= capacity) {
-      result = render_jsx_module(input, spans, parsed.count, insertion, typescript, classic, length, complete);
+      result = render_jsx_module(input, spans, parsed.count, insertion, typescript, classic, length, complete, runs);
     }
   }
   free(input.output);
@@ -1943,20 +2583,24 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, b
 #endif
 
 char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescript, bool classic,
-  bool mixed, size_t *length, bool *complete)
+  bool mixed, size_t *length, bool *complete, tmt_run_log *runs)
 {
   *complete = false;
+  if (runs) {
+    runs->count = 0;
+    runs->failed = false;
+  }
   if (!size) return NULL;
   if (mixed) {
 #ifdef TMT_DIRECT
     return NULL;
 #else
     if (jsx) {
-      char *general = lower_jsx_module(source, size, typescript, classic, length, complete);
+      char *general = lower_jsx_module(source, size, typescript, classic, length, complete, runs);
       if (general || !typescript) return general;
     }
-    return lower_mixed(source, size, jsx, classic, length);
+    return lower_mixed(source, size, jsx, classic, length, runs);
 #endif
   }
-  return lower_one(source, size, jsx, typescript, classic, length);
+  return lower_one(source, size, jsx, typescript, classic, length, runs);
 }

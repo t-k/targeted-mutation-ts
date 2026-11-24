@@ -356,13 +356,17 @@ let hex_value (ch:U8.t) : U32.t =
   else if U8.(ch >=^ 65uy && ch <=^ 70uy) then U32.sub n 55ul
   else 16ul
 
-let simple_escape (input:tape) (#frame:slprop) (at:U32.t) (template:bool) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+let simple_escape (input:tape) (#frame:slprop) (at:U32.t) (template extended:bool) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! escape = (fun () -> peek input #frame (next at)) in
   let! following = (fun () -> peek input #frame (plus at 2ul)) in
-  read_ret input #frame (escape = 92uy || escape = 34uy || escape = 39uy ||
-  escape = 110uy || escape = 114uy || escape = 116uy || escape = 98uy ||
-  escape = 102uy || escape = 118uy || (escape = 48uy && not (G.decimal_digit following)) ||
-  escape = 96uy || (template && escape = 36uy))
+  // In an ordinary string or template a backslash before any other printable ASCII character stands for that
+  // character. The exceptions have their own forms: x and u take hex digits, and a digit other than a lone zero is
+  // an octal or an invalid escape. A property key, a module specifier and a directive are compared as written,
+  // so they keep the short list.
+  read_ret input #frame ((escape = 48uy && not (G.decimal_digit following)) ||
+    (if extended then U8.(escape >=^ 32uy && escape <^ 127uy) && escape <> 120uy && escape <> 117uy && not (G.decimal_digit escape)
+    else escape = 92uy || escape = 34uy || escape = 39uy || escape = 110uy || escape = 114uy || escape = 116uy || escape = 98uy ||
+      escape = 102uy || escape = 118uy || escape = 96uy || (template && escape = 36uy)))
 
 let rec fixed_hex (input:tape) (#frame:slprop) (at digits:U32.t) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v digits) =
   if digits = 0ul then read_ret input #frame ({ at; ok = true; newline = false })
@@ -382,7 +386,7 @@ let rec unicode_escape (input:tape) (#frame:slprop) (at value fuel:U32.t) (seen:
     else unicode_escape input #frame (next at) (U32.add (U32.mul value 16ul) digit) (minus fuel 1ul) true)
 
 let escape_end (input:tape) (#frame:slprop) (at:U32.t) (template extended:bool) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  (let! anf_value_1 = (fun () -> simple_escape input #frame at template) in if anf_value_1 then read_ret input #frame ({ at = plus at 2ul; ok = true; newline = false })
+  (let! anf_value_1 = (fun () -> simple_escape input #frame at template extended) in if anf_value_1 then read_ret input #frame ({ at = plus at 2ul; ok = true; newline = false })
   else if not extended then read_ret input #frame ({ at; ok = false; newline = false })
   else
     let start = next at in
@@ -545,6 +549,12 @@ let regex_bmp_unit (input:tape) (#frame:slprop) (at:U32.t) (first:U8.t)
         read_ret input #frame { unit_end = plus at 3ul; unit_ok = true; character = value; repeatable = true; unicode_only = false }
       else read_ret input #frame invalid
 
+// Without the u or v flag a backslash before one of these characters stands for the character itself.
+// The pattern is then valid only without those flags.
+let legacy_identity_escape (byte:U8.t) : bool =
+  byte = 33uy || byte = 34uy || byte = 35uy || byte = 37uy || byte = 38uy || byte = 39uy || byte = 44uy || byte = 45uy ||
+  byte = 58uy || byte = 59uy || byte = 60uy || byte = 61uy || byte = 62uy || byte = 64uy || byte = 95uy || byte = 96uy || byte = 126uy
+
 let regex_class_unit (input:tape) (#frame:slprop) (at:U32.t) : Tot (stt regex_unit (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! byte = (fun () -> peek input #frame at) in
   if byte = 92uy then regex_escape input #frame at true
@@ -561,6 +571,15 @@ let rec regex_class (input:tape) (#frame:slprop) (at fuel:U32.t) (unicode_only l
   else (let! anf_value_1 = (fun () -> same input #frame at 93uy) in if anf_value_1 then
     read_ret input #frame ({ invalid with ending = { at = next at; ok = true; newline = false } })
   else
+    let! backslash = (fun () -> same input #frame at 92uy) in
+    let! escaped = (fun () -> if backslash then peek input #frame (next at) else read_ret input #frame 0uy) in
+    let! after = (fun () -> peek input #frame (plus at 2ul)) in
+    let! closing = (fun () -> peek input #frame (plus at 3ul)) in
+    // A legacy identity escape is taken as a single member. As the start of a range it is left to the reference parser.
+    if backslash && escaped <> 45uy && legacy_identity_escape escaped then
+      if after = 45uy && closing <> 93uy then read_ret input #frame invalid
+      else regex_class input #frame (plus at 2ul) (minus fuel 1ul) unicode_only true
+    else
     let! lhs = (fun () -> regex_class_unit input #frame at) in
     if not lhs.unit_ok then read_ret input #frame invalid
     else
@@ -663,7 +682,7 @@ let rec regex_pattern (input:tape) (#frame:slprop) (at depth fuel:U32.t) (nested
         if index.count_ok && U32.(index.count_value <=^ captures.count) then
           regex_pattern input #frame index.count_end depth rest nested true captures
         else read_ret input #frame (regex_result_at at false captures)
-      else if first = 58uy then
+      else if legacy_identity_escape first then
         regex_pattern input #frame (plus at 2ul) depth rest nested true { captures with legacy = true }
       else
         let! escaped = (fun () -> regex_escape input #frame at false) in
@@ -807,16 +826,25 @@ let is_function_binding (namespace:binding_namespace) : bool =
 let is_interface_binding (namespace:binding_namespace) : bool =
   namespace = InterfaceName || namespace = ExportedInterfaceName
 
+let is_class_binding (namespace:binding_namespace) : bool =
+  namespace = ClassName || namespace = AmbientClassName
+
 let names_overlap (left right:binding_namespace) : bool =
-  if left = RuntimeExport then right = ValueName || right = BothNames || right = FunctionImplementation
+  if left = RuntimeExport then right = ValueName || right = BothNames || right = FunctionImplementation || right = ClassName
   else if is_function_binding left && is_function_binding right then
     left = FunctionImplementation && right = FunctionImplementation
   else if left = ExportedInterfaceName && right = ExportedInterfaceName then false
-  else if (is_interface_binding left && right = TypeNamespace) || (left = TypeNamespace && is_interface_binding right) then false
+  // An interface and a class of one name merge into the class.
+  else if (is_interface_binding left && is_class_binding right) || (is_class_binding left && is_interface_binding right) then false
+  else if left = TypeNamespace || right = TypeNamespace then
+    // A namespace of types emits nothing and merges with any local declaration of its name.
+    // An import or an enum of that name still conflicts, and a lookup by BothNames still finds it.
+    let other = if left = TypeNamespace then right else left in
+    other = BothNames || other = TypeOnlyImport || other = AmbientBothNames
   else
     let effective binding = if is_function_binding binding || binding = AmbientValueName then ValueName
       else if is_interface_binding binding then TypeName
-      else if binding = TypeNamespace || binding = TypeOnlyImport || binding = AmbientBothNames then BothNames else binding in
+      else if binding = TypeOnlyImport || binding = AmbientBothNames || is_class_binding binding then BothNames else binding in
     let left = effective left in
     let right = effective right in
     left = BothNames || right = BothNames || left = right
@@ -849,8 +877,7 @@ let bind_since (input:tape) (st:parser_state) (base:names_base) (floor used:name
 
 let bind_pattern_name (input:tape) (st:parser_state) (base:names_base) (floor used:names_used) (pos:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) =
-  let namespace = if base = 0ul then ValueName else BothNames in
-  let! bound = (fun () -> bind_in_namespace input st base floor used pos namespace) in
+  let! bound = (fun () -> bind_in_namespace input st base floor used pos ValueName) in
   if not input.capture_types || bound.state.status <> 0ul then ret input bound
   else
     // A declared name such as `as` is an ordinary identifier for the projection guard.
@@ -1807,9 +1834,9 @@ let optional_type_parameters (input:tape) (#frame:slprop) (state:parser_state) (
   else (let! anf_value_1 = (fun () -> same input #frame state.offset 60uy) in if anf_value_1 then (let! anf_value_2 = (fun () -> (consume input #frame state 60uy)) in type_parameters input #frame anf_value_2 16ul 64ul allow_variance)
   else read_ret input #frame (state))
 
-let capture_type_parameters (input:tape) (state:parser_state) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+let capture_type_parameters (input:tape) (state:parser_state) (allow_variance:bool) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
   let! first = (fun () -> skip input state) in
-  let! arguments = (fun () -> optional_type_parameters input first false) in
+  let! arguments = (fun () -> optional_type_parameters input first allow_variance) in
   if not input.capture_types || arguments.offset = first.offset then skip input arguments
   else
     let! recorded = (fun () -> record_jsx_span input arguments 10ul first.offset arguments.offset) in
@@ -2119,7 +2146,7 @@ let admissible_type_binding (input:tape) (#frame:slprop) (first last:U32.t) : To
   read_ret input #frame (not (builtin_type packed || undefined || type_operator packed))
 
 let type_alias_tail (input:tape) (#frame:slprop) (state:parser_state) (before_brace:bool) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  let! st = (fun () -> (let! anf_value_1 = (fun () -> (optional_type_parameters input #frame state false)) in skip input #frame anf_value_1)) in
+  let! st = (fun () -> (let! anf_value_1 = (fun () -> (optional_type_parameters input #frame state true)) in skip input #frame anf_value_1)) in
   let! alias = (fun () -> (let! anf_value_2 = (fun () -> (consume input #frame st 61uy)) in annotation_type input #frame anf_value_2 16ul 256ul)) in
   statement_end input #frame alias alias.offset before_brace
 
@@ -2147,9 +2174,54 @@ let interface_tail (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt 
   let! st = (fun () -> if extends then interface_bases input #frame { st with offset = plus st.offset 7ul } 64ul else read_ret input #frame (st)) in
   (let! anf_value_2 = (fun () -> (consume input #frame st 123uy)) in object_type input #frame anf_value_2 15ul input.size)
 
+// The body of an enum inside a function is read as tokens up to its closing brace. The emitter evaluates
+// every member itself and declines the file unless each is a name with a constant or a string, so no
+// text from the body reaches the output unchecked.
+let rec enum_body_tokens (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
+  let! st = (fun () -> skip input #frame state) in
+  if st.status <> 0ul then read_ret input #frame st
+  else if fuel = 0ul then read_ret input #frame (failed st 3ul)
+  else
+    let! byte = (fun () -> peek input #frame st.offset) in
+    if byte = 125uy then consume input #frame st 125uy
+    else if byte = 34uy || byte = 39uy then
+      let! literal = (fun () -> string_end input #frame (next st.offset) byte input.size false) in
+      enum_body_tokens input #frame (from_cursor st literal) (minus fuel 1ul)
+    else if G.identifier_continue byte || byte = 61uy || byte = 44uy || byte = 43uy || byte = 45uy || byte = 42uy || byte = 47uy ||
+        byte = 37uy || byte = 124uy || byte = 38uy || byte = 94uy || byte = 126uy || byte = 40uy || byte = 41uy || byte = 60uy ||
+        byte = 62uy || byte = 46uy then
+      enum_body_tokens input #frame { st with offset = next st.offset } (minus fuel 1ul)
+    else read_ret input #frame (failed st 1ul)
+
+// `enum` or `const enum` at the start of a statement, with the offset of the enum keyword.
+let local_enum_start (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! first = (fun () -> peek input #frame start) in
+  let! constant = (fun () -> if first = 99uy then keyword input #frame start 5ul 0x636f6e7374uL else read_ret input #frame false) in
+  let! gap = (fun () -> if constant then trivia input #frame (plus start 5ul) else read_ret input #frame { at = start; ok = true; newline = false }) in
+  let! enumeration = (fun () -> if gap.ok && (constant || first = 101uy) then keyword input #frame gap.at 4ul 0x656e756duL else read_ret input #frame false) in
+  let! name_gap = (fun () -> if enumeration then trivia input #frame (plus gap.at 4ul) else read_ret input #frame { at = start; ok = false; newline = false }) in
+  let! name_start = (fun () -> peek input #frame name_gap.at) in
+  // `enum` is an ordinary name in a script, so a declaration needs its name on the same line.
+  read_ret input #frame { at = gap.at; ok = enumeration && name_gap.ok && not name_gap.newline && not gap.newline && G.identifier_start name_start; newline = false }
+
+// A block-scoped enum, kept out of line for the same reason. Kind 32 tells the emitter to declare it with let.
+let local_enum_declaration (input:tape) (st:parser_state) (keyword_at:U32.t) (floor used:names_used)
+  : Tot (stt named_state (heap input) (fun _ -> heap input)) =
+  let declared = record_binding_mode st LexicalLocals in
+  let! named = (fun () -> skip input { declared with offset = plus keyword_at 4ul }) in
+  let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
+  let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
+  let! opening = (fun () -> (let! body = (fun () -> skip input tracked) in consume input body 123uy)) in
+  let! closed = (fun () -> enum_body_tokens input opening input.size) in
+  let! recorded = (fun () -> record_jsx_span input closed 32ul st.offset closed.offset) in
+  ret input ({ decl with state = { recorded with local_names = decl.used } })
+
 let local_type_declaration (input:tape) (state:parser_state) (width:U32.t) (floor used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! start = (fun () -> skip input { state with offset = plus state.offset width }) in
-  let! decl = (fun () -> bind_since input start binding_region_width floor used start.offset) in
+  // A local type shares its name with a value, as a module-level type does.
+  let! decl = (fun () -> bind_in_namespace input start binding_region_width floor used start.offset
+    (if width = 9ul then InterfaceName else TypeName)) in
   let! valid = (fun () -> admissible_type_binding input start.offset decl.state.offset) in
   let! st = (fun () -> if valid then (if width = 9ul then interface_tail input decl.state else type_alias_tail input decl.state true) else ret input (failed decl.state 1ul)) in
   ret input ({ decl with state = { st with local_names = decl.used } })
@@ -2202,7 +2274,9 @@ let read_generic_postfix (input:tape) (#frame:slprop) (st:parser_state) (allow_i
   : Tot (stt generic_postfix (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! generic = (fun () -> expression_type_arguments input #frame st) in
   let! after = (fun () -> skip input #frame generic) in
-  let! call = (fun () -> if after.status = 0ul then same input #frame after.offset 40uy else read_ret input #frame (false)) in
+  // Type arguments belong to a call or to a tagged template that follows them.
+  let! follower = (fun () -> peek input #frame after.offset) in
+  let call = after.status = 0ul && U32.lt after.offset input.size && (follower = 40uy || follower = 96uy) in
   let! instantiates =
     (fun () -> if after.status = 0ul && not call && allow_instantiation then instantiation_follower input #frame generic after
     else read_ret input #frame (false)) in
@@ -2213,8 +2287,12 @@ let postfix_start (input:tape) (#frame:slprop) (base:parsed) : Tot (stt postfix_
   let st = from_cursor base.parser after in
   let! byte = (fun () -> peek input #frame st.offset) in
   let! increment = (fun () -> if after.newline then read_ret input #frame (0ul) else update_width input #frame st.offset byte) in
+  // The result of a call takes type arguments for a further call, as in f()<T>().
+  let! closing = (fun () -> if byte = 60uy && U32.gt base.range.G.last base.range.G.first then peek input #frame (minus base.range.G.last 1ul)
+    else read_ret input #frame 0uy) in
   let! generic =
-    (fun () -> if byte = 60uy && st.offset = base.range.G.last && (can_assign base.target || base.target = OptionalChain) then
+    (fun () -> if byte = 60uy && st.offset = base.range.G.last &&
+        (can_assign base.target || base.target = OptionalChain || closing = 41uy) then
       read_generic_postfix input #frame st (can_assign base.target)
     else read_ret input #frame ({ type_cursor = failed st 1ul; calls = false; instantiates = false })) in
   let! optional =
@@ -2366,18 +2444,20 @@ let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (st
 let constructor_property (input:tape) (#frame:slprop) (state:parser_state)
   : Tot (stt (parser_state & U32.t) (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! first = (fun () -> peek input #frame state.offset) in
-  if first <> 112uy && first <> 114uy then read_ret input #frame (state, state.offset)
+  if first <> 112uy && first <> 114uy && first <> 111uy then read_ret input #frame (state, state.offset)
   else
-    let! prefixes = (fun () -> class_modifiers input #frame state 0ul 2ul) in
+    // An accessibility modifier, override and readonly may each appear once. static and declare cannot.
+    let! prefixes = (fun () -> class_modifiers input #frame state 0ul 3ul) in
     let property = prefixes.key_state in
-    if property.status <> 0ul || prefixes.flags = 0ul || U32.logand prefixes.flags 25ul <> 0ul then read_ret input #frame (state, state.offset)
+    if property.status <> 0ul || prefixes.flags = 0ul || prefixes.flags = 8ul || U32.logand prefixes.flags 17ul <> 0ul then read_ret input #frame (state, state.offset)
     else
       let! binding = (fun () -> name input #frame property.offset false true) in
       let! tail = (fun () -> trivia input #frame binding.at) in
       let! optional = (fun () -> same input #frame tail.at 63uy) in
       let! colon = (fun () -> if optional then trivia input #frame (next tail.at) else read_ret input #frame (tail)) in
       let! typed = (fun () -> same input #frame colon.at 58uy) in
-      let! initialized = (fun () -> if optional || typed then read_ret input #frame false else same input #frame tail.at 61uy) in
+      let! follower = (fun () -> peek input #frame tail.at) in
+      let initialized = not optional && not typed && (follower = 61uy || follower = 44uy || follower = 41uy) in
       read_ret input #frame (if binding.ok && tail.ok && colon.ok && (typed || initialized) then (property, binding.at)
         else (state, state.offset))
 
@@ -2542,6 +2622,20 @@ let simple_less_argument (input:tape) (#frame:slprop) (start comma:parser_state)
   read_ret input #frame (tail.status = 0ul && tail.offset = comma.offset)
 
 #push-options "--z3rlimit 30"
+// The type of an angle-bracket assertion. It is a function of its own, and the build marks it as not to be
+// inlined, so that the expression parser's common path stays small. The operand has to follow on the same line,
+// because erasing the assertion must not leave a line break in front of it. Two opening angles in a row are a
+// shift operator to the scanner, as in <<T>(x: T) => T>f. Kind 31 is erased only when it lies on one line.
+let angle_assertion_head (input:tape) (st:parser_state) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  let start_pos = st.offset in
+  let! typed = (fun () -> annotation_type input { st with offset = next start_pos } 16ul 64ul) in
+  let! closing = (fun () -> skip input typed) in
+  let! closed = (fun () -> consume input closing 62uy) in
+  let! gap = (fun () -> trivia input closed.offset) in
+  let! doubled = (fun () -> same input (next start_pos) 60uy) in
+  if doubled || closed.status <> 0ul || not gap.ok || gap.newline then ret input (failed st 1ul)
+  else record_jsx_span input closed 31ul start_pos closed.offset
+
 let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 2; 0]) =
   let! st = (fun () -> skip input current) in
@@ -2592,6 +2686,15 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         else ret input (failed after 1ul)) in
       postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
         open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
+    else if ch = 60uy && not st.jsx_allowed && input.capture_types then
+      // A type assertion in angle brackets applies to the unary expression after it.
+      if fuel = 0ul then ret input (empty_range (failed st 3ul))
+      else
+        let! recorded = (fun () -> angle_assertion_head input st) in
+        if recorded.status <> 0ul then ret input (empty_range recorded)
+        else
+          let! child = (fun () -> atom input recorded (minus fuel 1ul)) in
+          ret input ({ child with range = { child.range with G.first = start_pos }; target = NotAssignable })
     else if ch = 60uy && st.jsx_allowed then
       if fuel = 0ul then ret input (empty_range (failed st 3ul))
       else
@@ -2855,6 +2958,26 @@ and arrow_parameters (input:tape) (state:parser_state) (fuel:U32.t)
 and comparison (input:tape) (current:parser_state) (fuel:U32.t)
   : Tot (stt parsed (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 25; 0]) =
   let! start = (fun () -> skip input current) in
+  let! first = (fun () -> peek input start.offset) in
+  let! yielding = (fun () -> if first = 121uy && start.yield_allowed then keyword input start.offset 5ul 0x7969656c64uL else ret input (false)) in
+  if yielding then
+    // A yield takes an optional operand. A star before the operand delegates, and the star stays on the keyword's line.
+    let head = plus start.offset 5ul in
+    let! after = (fun () -> trivia input head) in
+    let! byte = (fun () -> peek input after.at) in
+    let bare = { (empty_range (from_cursor start after)) with range = { G.first = start.offset; G.last = head } } in
+    if not after.ok || after.newline || byte = 59uy || byte = 125uy || byte = 41uy || byte = 93uy || byte = 44uy || byte = 58uy then ret input (bare)
+    else if fuel = 0ul then ret input (empty_range (failed start 3ul))
+    else
+      let! operand =
+        (fun () -> if byte = 42uy then
+          let! delegated = (fun () -> trivia input (next after.at)) in
+          // The reference parsers reject a line break between the star and its operand.
+          ret input (if delegated.newline then failed start 1ul else from_cursor start delegated)
+        else ret input (from_cursor start after)) in
+      let! value = (fun () -> comparison input operand (minus fuel 1ul)) in
+      ret input ({ value with range = { value.range with G.first = start.offset }; outer_or = false; shortcut = 0ul; target = NotAssignable })
+  else
   let! arrow = (fun () -> arrow_parameters input { start with yield_allowed = false } fuel) in
   if arrow.names.state.status = 0ul then
     let! body = (fun () -> skip input (enter_function_locals { arrow.names.state with local_names = arrow.names.used })) in
@@ -2985,7 +3108,8 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
       let! after = (fun () -> record_jsx_span input head.after_types 10ul st.offset head.after_types.offset) in
       ret input ({ base with parser = after; range = { base.range with G.last = after.offset }; target = NotAssignable })
     else if increment <> 0ul then
-      ret input (if not (can_assign base.target) then empty_range (failed st 1ul)
+      // A non-null assertion keeps its operand assignable, so x!++ updates x.
+      ret input (if not (can_assign_expression base.target) then empty_range (failed st 1ul)
       else
         let end_at = plus st.offset increment in
         { base with parser = { st with offset = end_at }; range = { base.range with G.last = end_at };
@@ -3002,7 +3126,7 @@ and postfix (input:tape) (base:parsed) (fuel remaining:U32.t)
           let! after = (fun () -> skip input { st with offset = plus st.offset 2ul }) in
           (let! anf_value_1 = (fun () -> same input after.offset 60uy) in if anf_value_1 then call_type_arguments input after else ret input (after))
         else ret input (st)) in
-      let! kind = (fun () -> if typed then ret input (40uy) else if optional then peek input operand.offset else ret input (byte)) in
+      let! kind = (fun () -> if typed || optional then peek input operand.offset else ret input (byte)) in
       let! next_st, private_access =
         (fun () -> if kind = 40uy || kind = 91uy || kind = 96uy then
           if kind = 96uy && (optional || base.target = OptionalChain) then ret input (failed st 1ul, false)
@@ -3449,29 +3573,13 @@ and for_header (input:tape) (state:parser_state) (top_level local_var:bool) (fue
   else if async_ then ret input (collection)
   else classic_for_header input st top_level local_var fuel
 
-and return_statement (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 44; 0]) =
+and return_statement (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 45; 0]) =
   let after = plus state.offset 6ul in
   let! body = (fun () -> trivia input after) in
   let st = from_cursor state body in
   let! byte = (fun () -> peek input st.offset) in
   if byte = 59uy || byte = 125uy || body.newline then statement_end input st after true
-  else
-    let! value = (fun () -> comparison input st fuel) in
-    statement_end input value.parser value.range.G.last true
-and yield_statement (input:tape) (state:parser_state) (fuel:U32.t) : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 44; 0]) =
-  let head = plus state.offset 5ul in
-  let! after = (fun () -> trivia input head) in
-  let st = from_cursor state after in
-  let! byte = (fun () -> peek input st.offset) in
-  if byte = 59uy || byte = 125uy || after.newline then statement_end input st head true
-  else
-    let! start =
-      (fun () -> if byte = 42uy then
-        let! operand = (fun () -> trivia input (next st.offset)) in
-        ret input (if operand.newline then failed st 1ul else from_cursor st operand)
-      else ret input (st)) in
-    let! value = (fun () -> comparison input start fuel) in
-    statement_end input value.parser value.range.G.last true
+  else statement_expressions input st fuel input.size
 
 and statement_expressions (input:tape) (state:parser_state) (fuel remaining:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 44; U32.v remaining]) =
@@ -3526,8 +3634,13 @@ and simple_statement (input:tape) (state:parser_state) (in_function:bool) (jumps
     (fun () -> if byte = 98uy then ((let! anf_value_1 = (fun () -> keyword input state.offset 5ul 0x627265616buL) in if anf_value_1 then ret input (5ul) else ret input (0ul)))
     else if byte = 99uy then ((let! anf_value_2 = (fun () -> keyword input state.offset 8ul 0x636f6e74696e7565uL) in if anf_value_2 then ret input (8ul) else ret input (0ul)))
     else ret input (0ul)) in
+  let! is_debugger = (fun () -> if byte = 100uy then keyword input state.offset 8ul 0x6465627567676572uL else ret input (false)) in
   if is_return then return_statement input state fuel
-  else if is_yield then yield_statement input state fuel
+  else if is_yield then statement_expressions input state fuel input.size
+  else if is_debugger then
+    let after = plus state.offset 8ul in
+    let! body = (fun () -> trivia input after) in
+    statement_end input (from_cursor state body) after true
   else if jump <> 0ul then jump_statement input state jumps jump
   else if is_throw then
     let! body = (fun () -> trivia input (plus state.offset 5ul)) in
@@ -3578,7 +3691,14 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
     else ret input false) in
   let! resource = (fun () -> if not root_control && allow_resource && (first = 117uy || first = 97uy && st.await_allowed) then
     resource_declaration_start input st first else ret input (failed st 1ul)) in
-  if width <> 0ul then local_declaration input st width floor used fuel
+  // Every const declaration passes here, so one byte decides before the keyword is read: `const enum` with a
+  // single space. Other spacing is left to the reference route.
+  let! after_const = (fun () -> if width = 5ul && input.capture_types then peek input (plus st.offset 6ul) else ret input 0uy) in
+  let! enumeration = (fun () -> if input.capture_types && not root_control && strict_locals st &&
+      ((first = 101uy && width = 0ul) || after_const = 101uy) then
+    local_enum_start input st.offset else ret input { at = st.offset; ok = false; newline = false }) in
+  if enumeration.ok then local_enum_declaration input st enumeration.at floor used
+  else if width <> 0ul then local_declaration input st width floor used fuel
   else if resource.status = 0ul then
     local_declarators input (record_binding_mode resource LexicalLocals) true true floor used fuel input.size
   else if function_head.ok then
@@ -3851,7 +3971,7 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
   let depth = minus 64ul fuel in
   let start = if U32.(depth >^ state.depth) then { state with depth } else state in
   let start = { start with super_context = FunctionBody; yield_allowed = false } in
-  let! start = (fun () -> capture_type_parameters input start) in
+  let! start = (fun () -> capture_type_parameters input start false) in
   let! opening = (fun () -> consume input start 40uy) in
   let! opening, limit =
     (fun () -> if arity = OrdinaryParameters then ret input ((opening, 64ul))
@@ -3909,12 +4029,36 @@ and class_field_tail (input:tape) (state:parser_state) (fuel:U32.t)
     ret input ({ closed with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed;
       super_context = state.super_context; in_allowed = state.in_allowed })
 
+// Decorators stay in the output as written. Each is a name, a member chain, or either followed by arguments.
+// The result is positioned at the declaration that the decorators apply to.
+and decorators (input:tape) (state:parser_state) (fuel remaining:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 55; U32.v remaining]) =
+  let! st = (fun () -> skip input state) in
+  let! at_sign = (fun () -> same input st.offset 64uy) in
+  if st.status <> 0ul || not at_sign then ret input st
+  else if remaining = 0ul || fuel = 0ul then ret input (failed st 3ul)
+  else
+    let! named = (fun () -> name input (next st.offset) false false) in
+    let! chain = (fun () -> qualified_name input (from_cursor st named) 16ul) in
+    let! tail = (fun () -> skip input chain) in
+    let! call = (fun () -> same input tail.offset 40uy) in
+    let! applied = (fun () -> if tail.status <> 0ul || not call then ret input tail
+      else
+        let! arguments = (fun () -> expression_list input { tail with offset = next tail.offset } (minus fuel 1ul) input.size 41uy false) in
+        ret input arguments.list_end) in
+    decorators input applied fuel (minus remaining 1ul)
+
 and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (derived seen_constructor:bool) (kind:class_kind) (pending:pending_overload)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 56; U32.v remaining]) =
-  let! st = (fun () -> skip input state) in
+  let! undecorated = (fun () -> skip input state) in
+  let! st = (fun () -> decorators input undecorated fuel 16ul) in
+  let decorated = st.offset <> undecorated.offset in
   let! byte = (fun () -> peek input st.offset) in
   let awaiting_body = pending.key_span.G.first <> pending.key_span.G.last in
   if st.status <> 0ul then ret input (st)
+  // A decorator applies to a member with a body or a value. It cannot stand before the end of the class,
+  // an empty member, a constructor or a signature that is erased.
+  else if decorated && (byte = 125uy || byte = 59uy || awaiting_body || kind = AmbientClass) then ret input (failed st 1ul)
   else if byte = 125uy then
     if awaiting_body then ret input (failed st 1ul) else consume input st 125uy
   else if remaining = 0ul then ret input (failed st 1ul)
@@ -3955,7 +4099,9 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             length = minus pending.key_span.G.last pending.key_span.G.first then
             same_bytes input key.first pending.key_span.G.first length
           else ret input false) in
-      if U32.logand key.modifier_flags 16ul <> 0ul then
+      if decorated && (U32.logand key.modifier_flags 16ul <> 0ul || member_head.ok || optional_method.status = 0ul || constructor_name) then
+        ret input (failed tail 1ul)
+      else if U32.logand key.modifier_flags 16ul <> 0ul then
         let! declared_first = (fun () -> keyword input st.offset 7ul 0x6465636c617265uL) in
         let! closed = (fun () -> if awaiting_body || kind = AmbientClass || not declared_first ||
           U32.logand key.modifier_flags 8ul <> 0ul || key.private_ || key.async_ || key.generator_ || accessor ||
@@ -4005,8 +4151,9 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         (accessor && (key.async_ || key.generator_ || constructor || next_byte <> 40uy)) ||
         (constructor && (seen_constructor || key.async_ || key.generator_ || next_byte <> 40uy)) then ret input (failed tail 1ul)
       else
+        // Kind 30 marks modifiers behind a decorator, which need no separator from the member before.
         let! tail = (fun () -> if U32.logand key.modifier_flags 110ul <> 0ul then
-          record_jsx_span input tail 15ul st.offset key.modifiers_end else ret input tail) in
+          record_jsx_span input tail (if decorated then 30ul else 15ul) st.offset key.modifiers_end else ret input tail) in
         let! tail = (fun () -> if key.private_ then record_private input tail { G.first = key.first; G.last = key.last } PrivateDeclaration
           else ret input tail) in
         let! after, pending =
@@ -4018,7 +4165,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
               let pending = if result.signature_only then
                 { key_span = { G.first = key.first; G.last = key.last }; key_flags = key.modifier_flags; key_async = key.async_ }
                 else no_overload in
-              let after = result.after_function in
+              let after = if result.signature_only && decorated then failed result.after_function 1ul else result.after_function in
               let! after = (fun () -> if result.signature_only then
                 record_jsx_span input { after with count = st.count } 21ul st.offset after.offset else ret input after) in
               ret input (after, pending)
@@ -4027,25 +4174,33 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         class_members input after fuel (minus remaining 1ul) derived (seen_constructor || (constructor && pending.key_span.G.first = pending.key_span.G.last)) kind pending
 and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (kind:class_kind)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 57; 0]) =
-  let! st = (fun () -> capture_type_parameters input state) in
+  // A class, an interface and a type alias take variance annotations on their type parameters.
+  let! st = (fun () -> capture_type_parameters input state true) in
   let! derived = (fun () -> keyword input st.offset 7ul 0x657874656e6473uL) in
   let! inherited =
     (fun () -> if not derived then ret input (st)
     else
       let! base = (fun () -> skip input { st with offset = plus st.offset 7ul }) in
-      let! named = (fun () -> name input base.offset false false) in
       let! forbidden = (fun () -> forbidden_field_arguments input base) in
-      if not named.ok || forbidden then ret input (failed base 1ul)
+      let! head = (fun () -> read_atom_head input base) in
+      // A heritage clause is a left-hand-side expression: a name, a member, a call, a parenthesized
+      // expression. A unary operator cannot start it.
+      if forbidden || head.prefix_ <> 0ul then ret input (failed base 1ul)
       else
-        let! typed = (fun () -> type_reference input base 16ul) in
-        let! recorded = (fun () -> if not input.capture_types || typed.status <> 0ul then ret input typed
-          else
-            let! qualified = (fun () -> qualified_name input (from_cursor base named) 64ul) in
-            let! arguments = (fun () -> skip input qualified) in
-            let! angle = (fun () -> same input arguments.offset 60uy) in
-            if angle && arguments.status = 0ul && U32.lt arguments.offset typed.offset then
-              record_jsx_span input typed 10ul arguments.offset typed.offset else ret input typed) in
-        skip input recorded) in
+        let! value = (fun () -> atom input base fuel) in
+        let! tail = (fun () -> skip input value.parser) in
+        let! angle = (fun () -> same input tail.offset 60uy) in
+        // A postfix update is not a left-hand-side expression. It ends in a doubled sign.
+        let! last = (fun () -> if U32.gte value.range.G.last 2ul then peek input (minus value.range.G.last 1ul) else ret input 0uy) in
+        let! before = (fun () -> if U32.gte value.range.G.last 2ul then peek input (minus value.range.G.last 2ul) else ret input 0uy) in
+        if tail.status = 0ul && (last = 43uy || last = 45uy) && before = last then ret input (failed tail 1ul)
+        else if tail.status <> 0ul || not angle then ret input tail
+        else
+          // Type arguments after the expression belong to the heritage clause and are erased.
+          let! typed = (fun () -> expression_type_arguments input tail) in
+          let! recorded = (fun () -> if not input.capture_types || typed.status <> 0ul then ret input typed
+            else record_jsx_span input typed 10ul tail.offset typed.offset) in
+          skip input recorded) in
   let! word_ = (fun () -> word input inherited.offset 8ul 0uL) in
   let! implements = (fun () -> if word_ = 0x696d706c656d656euL then keyword input (plus inherited.offset 8ul) 2ul 0x7473uL
     else ret input (false)) in
@@ -4646,7 +4801,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
       let type_only = width = 4ul || width = 9ul in
       let! decl =
         (fun () -> if head.class_declaration then
-          bind_in_namespace input start 0ul 0ul used start.offset (if head.ambient_declaration then AmbientBothNames else BothNames)
+          bind_in_namespace input start 0ul 0ul used start.offset (if head.ambient_declaration then AmbientClassName else ClassName)
         else
           let! namespace = (fun () -> if width <> 9ul then
               ret input (if type_only then TypeName else if head.ambient_declaration then AmbientValueName else ValueName)
@@ -4698,7 +4853,8 @@ let rec reserve_direct_exports (input:tape) (state:parser_state) (used previous 
   else
     let index = U32.sub current 1ul in
     let! binding = (fun () -> get_binding input index) in
-    let! named = (fun () -> if binding.namespace = TypeName || is_interface_binding binding.namespace || binding.namespace = FunctionSignature then ret input ({ state; used })
+    let! named = (fun () -> if binding.namespace = TypeName || is_interface_binding binding.namespace || binding.namespace = FunctionSignature ||
+        binding.namespace = TypeNamespace then ret input ({ state; used })
       else reserve_export input state used binding.span.G.first binding.span.G.last) in
     reserve_direct_exports input named.state named.used previous index
 
@@ -4951,9 +5107,23 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
   else if declared then module_declaration input st used
   else (let! anf_value_6 = (fun () -> (let! anf_value_7 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_7.state))) in ret input ({ state = anf_value_6; used }))
 
+// Decorators before a class declaration: the words export, default and abstract may stand between them and class.
+let decorated_class_start (input:tape) (state:parser_state) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  let! st = (fun () -> decorators input state 64ul 16ul) in
+  if st.status <> 0ul || st.offset = state.offset then ret input st
+  else
+    let! exported = (fun () -> keyword input st.offset 6ul 0x6578706f7274uL) in
+    let! after_export = (fun () -> if exported then trivia input (plus st.offset 6ul) else ret input { at = st.offset; ok = true; newline = false }) in
+    let! default_ = (fun () -> if exported && after_export.ok then keyword input after_export.at 7ul 0x64656661756c74uL else ret input false) in
+    let! after_default = (fun () -> if default_ then trivia input (plus after_export.at 7ul) else ret input after_export) in
+    let! abstract_ = (fun () -> if after_default.ok then abstract_class_start input after_default.at else ret input { at = st.offset; ok = false; newline = false }) in
+    let! class_ = (fun () -> if after_default.ok && not abstract_.ok then class_keyword input after_default.at else ret input false) in
+    ret input (if st.module_mode && (abstract_.ok || class_) then st else failed st 1ul)
+
 let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (exports:names_used) (pending:pending_exports) (family:U8.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v fuel) =
-  let! st = (fun () -> skip input state) in
+  let! undecorated = (fun () -> skip input state) in
+  let! st = (fun () -> decorated_class_start input undecorated) in
   if st.status <> 0ul then ret input st
   else if st.offset = input.size then check_local_exports input st used pending
   else if fuel = 0ul then ret input (failed st 1ul)

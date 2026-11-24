@@ -4,6 +4,7 @@
 
 #include "Custard.h"
 #include "lowering.h"
+#include "source-map.h"
 
 #define NAPI(call) do { if ((call) != napi_ok) goto error; } while (0)
 enum { source_limit = 1048576, binding_capacity = 2367 };
@@ -333,7 +334,7 @@ static napi_value lower_source(napi_env env, napi_callback_info info) {
   NAPI(napi_get_value_bool(env, args[2], &typescript));
   NAPI(napi_get_value_bool(env, args[3], &classic));
   NAPI(napi_get_value_bool(env, args[4], &mixed));
-  if (size <= source_limit) output = tmt_lower_runtime(source, (uint32_t)size, jsx, typescript, classic, mixed, &length, &complete);
+  if (size <= source_limit) output = tmt_lower_runtime(source, (uint32_t)size, jsx, typescript, classic, mixed, &length, &complete, NULL);
   if (output) {
     NAPI(create_source_string(env, output, length, &result));
     if (complete) {
@@ -372,7 +373,7 @@ static napi_value emit_annotated_module(napi_env env, napi_callback_info info) {
   if (size <= source_limit) {
     output = tmt_emit_annotated_module(source, (uint32_t)size,
       hint == napi_undefined ? TMT_ENUMS_UNKNOWN : enums ? TMT_ENUMS_PRESENT : TMT_ENUMS_ABSENT, esm, allow_script,
-      &length, &checked, &complete, &script, &property);
+      &length, &checked, &complete, &script, &property, NULL);
   }
   if (output) {
     NAPI(create_source_string(env, output, length, &result));
@@ -500,7 +501,53 @@ static bool contains(const uint8_t *text, size_t size, const char *needle, bool 
   return false;
 }
 
-enum { emit_tsx = 1, emit_esm = 2, emit_classic = 4 };
+enum { emit_tsx = 1, emit_esm = 2, emit_classic = 4, emit_mapped = 16 };
+
+/* A source without @jsx text, or with one import-source pragma under the automatic runtime. */
+static bool jsx_pragma_supported(const uint8_t *source, uint32_t size, bool classic) {
+  if (!memchr(source, '@', size)) return true;
+  uint32_t first, last;
+  const tmt_jsx_pragma_kind pragma = tmt_jsx_pragma(source, size, &first, &last);
+  return pragma == TMT_JSX_PRAGMA_ABSENT || (pragma == TMT_JSX_PRAGMA_SOURCE && !classic);
+}
+
+/*
+ * Publishes [code, mappings] for an output that is a projection of the source. Any other output
+ * yields undefined, and the caller's compatibility route then produces the code and its map.
+ */
+static TMT_MAP_COLD napi_status create_mapped_result(napi_env env, const uint8_t *source, size_t size, const char *code, size_t length,
+  const tmt_run_log *runs, napi_value *result)
+{
+  size_t written = 0;
+  /* A lowering logs its copies. Without a log the output must be one copy of the whole source. */
+  const bool lowered = runs && runs->count;
+  if (runs && runs->failed) return napi_get_undefined(env, result);
+  char *mappings = lowered ? tmt_run_mappings(source, size, (const uint8_t *)code, length, runs->items, runs->count, &written) :
+    tmt_projection_mappings(source, (const uint8_t *)code, size, length, &written);
+  if (!mappings && lowered) return napi_get_undefined(env, result);
+  if (!mappings) {
+    /* A module of types alone leaves comments and line breaks, which need no mapping. */
+    /* The explicit module marker of an erased module is generated text. */
+    static const char marker[] = "export {};\n";
+    const size_t tail = sizeof(marker) - 1;
+    const size_t body = length >= tail && !memcmp(code + length - tail, marker, tail) ? length - tail : length;
+    bool trivia = body == 0;
+    if (body && body <= source_limit) {
+      const TmtPulseMemory_tape output = { .source = (uint8_t *)code, .size = (uint32_t)body };
+      const TmtPulseParser_cursor end = TmtPulseCompiler_runtime_source_start(output);
+      trivia = end.ok && end.at == body;
+    }
+    if (!trivia) return napi_get_undefined(env, result);
+  }
+  napi_value text, map;
+  napi_status status = create_source_string(env, code, length, &text);
+  if (status == napi_ok) status = napi_create_string_latin1(env, mappings ? mappings : "", written, &map);
+  free(mappings);
+  if (status == napi_ok) status = napi_create_array_with_length(env, 2, result);
+  if (status == napi_ok) status = napi_set_element(env, *result, 0, text);
+  if (status == napi_ok) status = napi_set_element(env, *result, 1, map);
+  return status;
+}
 
 /*
  * The default-option TypeScript route in one call. The steps and their order mirror compile() in
@@ -517,17 +564,25 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
   NAPI(napi_get_buffer_info(env, args[0], &bytes, &size));
   NAPI(napi_get_value_uint32(env, args[1], &flags));
   uint8_t *source = bytes;
+  tmt_run_log runs = { 0 };
   const bool jsx = flags & emit_tsx, esm = flags & emit_esm, classic = flags & emit_classic;
   if (!size || size > source_limit || !unshared_buffer(env, args[0]) || !valid_utf8(source, size)) goto decline;
   const uint32_t width = (uint32_t)size;
-  /* The restricted grammars start at an export after trivia. An import cannot use them. */
-  const bool restricted = source[0] != 'i';
-  if (restricted && tmt_leading_triple_slash(source, width)) goto decline;
+  /*
+   * The restricted grammars start at an export after trivia. An import cannot use them, and a leading
+   * triple-slash directive keeps them out as well. The module routes keep the directive as the comment it is.
+   */
+  const tmt_triple_slash_kind directive = source[0] != 'i' && tmt_leading_triple_slash(source, width) ?
+    tmt_triple_slash(source, width) : TMT_TRIPLE_SLASH_ABSENT;
+  if (directive == TMT_TRIPLE_SLASH_OTHER) goto decline;
+  const bool restricted = source[0] != 'i' && directive == TMT_TRIPLE_SLASH_ABSENT;
   if (restricted && !jsx) {
     uint8_t *planned;
     bool failed;
     if (direct_plan(source, size, &planned, &failed)) {
-      const napi_status created = create_source_string(env, planned ? (char *)planned : (char *)source, size, &result);
+      const char *code = planned ? (char *)planned : (char *)source;
+      const napi_status created = flags & emit_mapped ? create_mapped_result(env, source, size, code, size, NULL, &result) :
+        create_source_string(env, code, size, &result);
       free(planned);
       NAPI(created);
       return result;
@@ -535,11 +590,10 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     free(planned);
     if (failed) goto error;
   }
-  const bool runtime = jsx && !(memchr(source, '@', size) && contains(source, size, "@jsx", true)) &&
-    !contains(source, size, "_tmt", false);
+  const bool runtime = jsx && jsx_pragma_supported(source, width, classic) && !contains(source, size, "_tmt", false);
   bool complete;
   if (restricted && (!jsx || runtime)) {
-    output = tmt_lower_runtime(source, width, jsx, true, classic, false, &length, &complete);
+    output = tmt_lower_runtime(source, width, jsx, true, classic, false, &length, &complete, flags & emit_mapped ? &runs : NULL);
     if (output) goto publish;
   }
   if (!jsx || !memchr(source, '<', size)) {
@@ -549,29 +603,33 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     tmt_parameter_route property;
     output = tmt_emit_annotated_module(source, width,
       !jsx ? TMT_ENUMS_UNKNOWN : runtime ? TMT_ENUMS_PRESENT : TMT_ENUMS_ABSENT, esm, !esm && !jsx,
-      &length, &checked, &complete, &script, &property);
+      &length, &checked, &complete, &script, &property, flags & emit_mapped ? &runs : NULL);
     if (output && complete && !script) goto publish;
     /* Scripts, partial projections and compatibility hints continue in JavaScript. */
     goto decline;
   }
   if (runtime && !contains(source, size, "\\u", false)) {
-    output = tmt_lower_runtime(source, width, true, true, classic, true, &length, &complete);
+    output = tmt_lower_runtime(source, width, true, true, classic, true, &length, &complete, flags & emit_mapped ? &runs : NULL);
     if (output && complete) goto publish;
   }
 decline:
   free(output);
+  free(runs.items);
   NAPI(napi_get_undefined(env, &result));
   return result;
 publish:
   {
-    const napi_status created = create_source_string(env, output, length, &result);
+    const napi_status created = flags & emit_mapped ? create_mapped_result(env, source, size, output, length, &runs, &result) :
+      create_source_string(env, output, length, &result);
     free(output);
+    free(runs.items);
     output = NULL;
     NAPI(created);
   }
   return result;
 error:
   free(output);
+  free(runs.items);
   napi_throw_error(env, NULL, "Native TypeScript emission arguments or allocation failed");
   return NULL;
 }
@@ -604,7 +662,7 @@ static napi_value emit_javascript_module(napi_env env, napi_callback_info info) 
   bool checked, complete, script;
   tmt_parameter_route property;
   output = tmt_emit_annotated_module(source, width, TMT_ENUMS_ABSENT, false, false,
-    &length, &checked, &complete, &script, &property);
+    &length, &checked, &complete, &script, &property, NULL);
   if (!output || !complete || script || length != size || memcmp(output, source, size)) goto decline;
   {
     const napi_status created = create_source_string(env, output, length, &result);
@@ -620,6 +678,57 @@ decline:
 error:
   free(output);
   napi_throw_error(env, NULL, "Native JavaScript emission arguments or allocation failed");
+  return NULL;
+}
+
+/* Whether the JSX routes may take a source: it has no @jsx text, or one import-source pragma outside classic mode. */
+static napi_value jsx_pragma_supported_export(napi_env env, napi_callback_info info) {
+  napi_value args[2], result;
+  size_t argc = 2, size;
+  void *source;
+  bool classic;
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc != 2) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &source, &size));
+  NAPI(napi_get_value_bool(env, args[1], &classic));
+  NAPI(napi_get_boolean(env, size <= source_limit && jsx_pragma_supported(source, (uint32_t)size, classic), &result));
+  return result;
+error:
+  napi_throw_type_error(env, NULL, "Expected a source buffer and a classic flag");
+  return NULL;
+}
+
+/*
+ * The mappings for a source and its projection, or undefined when the second buffer is not a
+ * projection of the first. A third argument lists copy runs as triples of output offset, source
+ * offset and length in a Uint32Array, as a lowering logs them.
+ */
+static TMT_MAP_COLD napi_value projection_mappings(napi_env env, napi_callback_info info) {
+  napi_value args[3], result, buffer;
+  size_t argc = 3, size, length, written = 0, count = 0, offset;
+  void *source, *code, *triples = NULL;
+  napi_typedarray_type type;
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc < 2) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &source, &size));
+  NAPI(napi_get_buffer_info(env, args[1], &code, &length));
+  if (argc == 3) {
+    NAPI(napi_get_typedarray_info(env, args[2], &type, &count, &triples, &buffer, &offset));
+    if (type != napi_uint32_array || count % 3) goto error;
+  }
+  _Static_assert(sizeof(tmt_run) == 3 * sizeof(uint32_t), "A run is three 32-bit fields");
+  char *mappings = argc == 3 ? tmt_run_mappings(source, size, code, length, triples, count / 3, &written) :
+    tmt_projection_mappings(source, code, size, length, &written);
+  if (!mappings) {
+    NAPI(napi_get_undefined(env, &result));
+    return result;
+  }
+  const napi_status created = napi_create_string_latin1(env, mappings, written, &result);
+  free(mappings);
+  NAPI(created);
+  return result;
+error:
+  napi_throw_type_error(env, NULL, "Expected a source buffer and a code buffer");
   return NULL;
 }
 
@@ -660,7 +769,8 @@ static napi_value leading_triple_slash(napi_env env, napi_callback_info info) {
       directive = !memcmp((const char *)source + index, "///", 3);
     }
   } else directive = tmt_leading_triple_slash(source, (uint32_t)size);
-  NAPI(napi_get_boolean(env, directive, &result));
+  /* 0 for no directive, 1 for notes and well-formed references only, 2 for anything else. */
+  NAPI(napi_create_uint32(env, !directive ? 0 : size <= source_limit && tmt_triple_slash(source, (uint32_t)size) == TMT_TRIPLE_SLASH_PLAIN ? 1 : 2, &result));
   return result;
 error:
   napi_throw_type_error(env, NULL, "Expected a source buffer");
@@ -711,6 +821,10 @@ static napi_value init(napi_env env, napi_value exports) {
   NAPI(napi_set_named_property(env, exports, "emitJavaScriptModule", entry));
   NAPI(napi_create_function(env, "emitTypeScript", NAPI_AUTO_LENGTH, emit_typescript, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "emitTypeScript", entry));
+  NAPI(napi_create_function(env, "jsxPragmaSupported", NAPI_AUTO_LENGTH, jsx_pragma_supported_export, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "jsxPragmaSupported", entry));
+  NAPI(napi_create_function(env, "projectionMappings", NAPI_AUTO_LENGTH, projection_mappings, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "projectionMappings", entry));
   NAPI(napi_create_function(env, "triviaOnly", NAPI_AUTO_LENGTH, trivia_only, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "triviaOnly", entry));
 #endif

@@ -49,7 +49,9 @@ test('inputs outside the Low* grammar receive complete extraction', () => {
   for (const [src, dialect, count, path = 'fallback'] of [
     ['const x = f <number>(2) < 3;', 'ts', 1],
     [String.raw`const x = /\p{Letter}/u.test("a") && 3 / 4 > 0;`, 'ts', 1],
-    ['const x = format<string>`x > < ${2 >= 3}`;', 'ts', 1],
+    // Type arguments before a tagged template are within the grammar.
+    ['const x = format<string>`x > < ${2 >= 3}`;', 'ts', 1, 'fast'],
+    ['const x = [tag<T>`>`, a < b];', 'ts', 1, 'fast'],
     ['const x = ' + '('.repeat(65) + '2 >= 3' + ')'.repeat(65), 'ts', 1, 'fallback'],
     ['const x = 2 < 3; const y = obj <number>().count > 5;', 'ts', 2],
   ]) {

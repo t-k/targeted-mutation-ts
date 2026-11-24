@@ -1,0 +1,12 @@
+Pragma	Place	Mode	Helpers	Tail
+Absent	None	Automatic	Runtime	SpaceClose
+ImportSource	LeadingBlock	Automatic	Runtime	SpaceClose
+ImportSource	LeadingBlock	Automatic	Both	LineEnd
+ImportSource	LeadingBlock	Automatic	Create	SpaceClose
+ImportSource	LeadingBlock	Automatic	Fragment	SpaceClose
+ImportSource	LeadingBlock	Classic	Runtime	SpaceClose
+ImportSource	LeadingBlock	Automatic	Runtime	DirectClose
+ImportSource	LeadingLine	Automatic	Runtime	SpaceClose
+ImportSource	AfterCode	Automatic	Runtime	SpaceClose
+Runtime	LeadingBlock	Automatic	Runtime	SpaceClose
+Twice	LeadingBlock	Automatic	Runtime	SpaceClose

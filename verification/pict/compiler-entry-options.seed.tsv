@@ -1,0 +1,11 @@
+Name	Mode	Target	Module	SourceMap	Jsx
+TS	Omitted	Omitted	Omitted	Omitted	Omitted
+TS	Transform	Omitted	Omitted	Omitted	Omitted
+TS	Transform	ESNext	Preserve	False	Automatic
+TSX	Transform	Omitted	ESM	Omitted	Classic
+JS	Transform	Omitted	ESM	Omitted	Omitted
+MJS	Transform	ESNext	ESM	False	Omitted
+TS	Strip	Omitted	Omitted	Omitted	Omitted
+TS	Transform	ES2020	Omitted	Omitted	Omitted
+TS	Transform	Omitted	CJS	Omitted	Omitted
+TS	Transform	Omitted	Omitted	True	Omitted

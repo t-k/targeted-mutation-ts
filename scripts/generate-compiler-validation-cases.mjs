@@ -167,8 +167,58 @@ export function ambiguityCases() {
   return inputs;
 }
 
+// Erased syntax packed against its neighbours. With no trivia on either side, a recorded span that is
+// one byte too long or too short damages a token that the output keeps.
+const denseSources = new Map([
+  ['alias', 'const a=1;type T=number;const result=a;export{result};'],
+  ['interface', 'const a=1;interface I{x:number}const result=a;export{result};'],
+  ['exported-types', 'export const a=1;export type T=number;export interface I{x:T}export const result=a;'],
+  ['local-type', 'function f(){const a=1;type L=number;interface M{x:L}return a}export const result=f();'],
+  ['overload', 'function f(x:string):void;function f(x:any){return x}export const result=f(1);'],
+  ['local-overload', 'function o(){function f(x:string):void;function f(x:any){return x}return f(1)}export const result=o();'],
+  ['default-overload', 'export default function f(x:string):void;export default function f(x:number):void;export default function f(x:any){return x}'],
+  ['declare-field', 'class C{declare a:number;b=1}export const result=new C;'],
+  ['abstract-member', 'abstract class A{abstract m():void;n(){return 1}}export const result=A;'],
+  ['optional-method', 'class C{m?():void;n(){return 1}}export const result=new C;'],
+  ['modifiers', 'class C{private x=1;public readonly y=2;protected static z=3}export const result=new C;'],
+  ['heritage', 'interface I{}class B<T>{}class C<T>extends B<T>implements I{x=1}export const result=new C;'],
+  ['abstract-class', 'export abstract class A{}export default abstract class B{}'],
+  ['import-members', 'import{type A,b}from"./m.js";import{c,type D}from"./m.js";export const result=[b,c];'],
+  ['export-members', 'const b=1,c=2;type A=number;export{type A,b};export{c,type A as D};'],
+  ['type-statements', 'import type{A}from"./m.js";import{b}from"./m.js";export type{A}from"./m.js";export*from"./n.js";export const result=b;'],
+  ['annotations', 'let a:number=1,b:string="s";const f=(x:number):number=>x;function g(y?:number,...z:number[]):void{}export const result=[a,b,f,g];'],
+  ['receiver', 'function f(this:Window,a:number){return a}function g(this:Window){return 1}export const result=[f,g];'],
+  ['assertions', 'const a=1 as number;const b=a!;const c=<T,>(x:T)=>x;const d=c<number>(a);export const result=[a as any as number,b,d];'],
+  ['ambient', 'declare const d:number;declare class K{}declare enum E{A}const e=1;export const result=e;'],
+  ['fields', 'class C{a?:number;b!:string;c:number=1;d?\n;e=2}export const result=new C;'],
+  ['parameter-property', 'class C{constructor(public a:number,private readonly b=2){}}export const result=new C(1);'],
+  ['enum', 'enum E{A=1,B}const enum F{C="c"}export const result=[E.A,F.C];'],
+  ['definite', 'let a!:number;a=1;export const result=a;'],
+  ['after-block', 'function g(){}type T=number;function h(){}interface I{}function k(){}import type{A}from"./m.js";' +
+    'function m(){}export type{A}from"./m.js";function n(){}export type*from"./n.js";function p(){}' +
+    'function r(x:string):void;function r(x:any){}export const result=[g,h,k,m,n,p,r];'],
+  ['ambient-after-block', 'function g(){}declare const d:number;function h(){}declare global{interface W{}}' +
+    'function k(){}declare class K{}function m(){}declare enum E{A}function s(){}namespace N{export type T=number}' +
+    'export const result=[g,h,k,m,s];'],
+  ['local-type-after-block', 'function f(a:number){if(a){}type L=number;if(a){}interface M{x:L}return a}export const result=f(1);'],
+  ['abstract-between-comments', 'export/**/abstract/**/class A{}export default/**/abstract/**/class B{}'],
+  ['type-import-at-end', 'export const result=1;import type{A}from"./m.js"'],
+  ['type-export-at-end', 'export const result=1;export type{A}from"./m.js"'],
+  ['type-star-at-end', 'export const result=1;export type*from"./m.js"'],
+  ['line-ended', 'type T=number\ninterface I{x:T}\nimport type{A}from"./m.js"\nexport type{A}from"./m.js"\n' +
+    'export type*from"./n.js"\nfunction f(x:string):void\nfunction f(x:any){return x}\nlet a!:number\na=1\n' +
+    'declare const d:number\ndeclare global{}\nexport const result=[f,a]'],
+  ['line-ended-overloads', 'function o(){function f(x:string):void\nfunction f(x:any){return x}\nreturn f}\n' +
+    'export default function p(x:string):void\nexport default function p(x:number):void\nexport default function p(x:any){}\n' +
+    'export const result=o'],
+]);
+
+export function denseCases() {
+  return [...denseSources].map(([name, source]) => fixture('dense/' + name + '.ts', source));
+}
+
 if (import.meta.main) {
-  const inputs = generatedCases().concat(certificationCases());
+  const inputs = generatedCases().concat(certificationCases(), denseCases());
   for (const path of process.argv.slice(2)) {
     const raw = JSON.parse(readFileSync(path));
     inputs.push(...mutateCases(path, raw.rows ?? raw));

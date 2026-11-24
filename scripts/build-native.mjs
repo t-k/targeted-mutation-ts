@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from 'node:fs'
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { simdSource } from './native-simd-source.mjs';
+import { coldSource, simdSource } from './native-simd-source.mjs';
 
 const { values } = parseArgs({ options: {
   'low-only': { type: 'boolean' }, 'scalar-scans': { type: 'boolean' }, pgo: { type: 'boolean' }, output: { type: 'string' },
@@ -100,7 +100,7 @@ function buildProfiled(input) {
 
 const scratch = mkdtempSync(resolve(outputDirectory, '.native-'));
 try {
-  const input = simdSource(root, 'native/generated/Custard.c', scratch, values['scalar-scans']);
+  const input = simdSource(root, coldSource(root, 'native/generated/Custard.c', scratch), scratch, values['scalar-scans']);
   if (values.pgo && buildProfiled(input)) {
     console.log('Built native extractor with fixture PGO');
   } else {

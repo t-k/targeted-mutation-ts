@@ -1,11 +1,12 @@
-// Mutation check for the parser's compiler records. Each mutant drops one record call from the
-// generated parser, so the projection keeps what that record would have erased or lowered. A mutant
+// Mutation check for the parser's compiler records. Each mutant changes one record call in the
+// generated parser: it drops the record, moves one end of the recorded span by a byte, or keeps the
+// inner records that the call was meant to replace. A mutant
 // is detected when the audit build reports a certified projection that V8 rejects, or when a published
 // output no longer has the syntax TypeScript emits. A mutant that only moves files to a compatibility
 // route or changes spacing is harmless. A surviving mutant changes the syntax of a published output
 // without either check noticing, and a mutant without effect marks a record the corpora never exercise.
 //
-//   node --experimental-vm-modules scripts/mutate-compiler-records.mjs [--jobs 4] [--sites 3,7] corpus.json...
+//   node --experimental-vm-modules scripts/mutate-compiler-records.mjs [--jobs 4] [--mutants 3,7] [--operators drop] corpus.json...
 //
 // Corpus files are read as data. Nothing they contain is executed.
 import assert from 'node:assert/strict';
@@ -25,6 +26,7 @@ const recorders = ['TmtPulseParser_record_jsx_span', 'TmtPulseParser_record_comp
 // Splits the arguments of the call whose opening parenthesis is at `open`.
 function callArguments(source, open) {
   const parts = [];
+  const ranges = [];
   let depth = 0;
   let start = open + 1;
   for (let at = open; at < source.length; at++) {
@@ -33,10 +35,12 @@ function callArguments(source, open) {
     else if (byte === ')' || byte === '}') {
       if (--depth === 0) {
         parts.push(source.slice(start, at));
-        return { parts, end: at + 1 };
+        ranges.push([start, at]);
+        return { parts, ranges, end: at + 1 };
       }
     } else if (byte === ',' && depth === 1) {
       parts.push(source.slice(start, at));
+      ranges.push([start, at]);
       start = at + 1;
     }
   }
@@ -51,11 +55,12 @@ export function recordSites(source) {
     const before = source.lastIndexOf('\n', match.index);
     // A definition starts its line with the function name.
     if (before + 1 === match.index) continue;
-    const { parts, end } = callArguments(source, match.index + match[1].length);
+    const { parts, ranges, end } = callArguments(source, match.index + match[1].length);
     assert.ok(parts.length === 5, 'Unexpected record call shape');
     const line = source.slice(0, match.index).split('\n').length;
     if (/return TmtPulseParser_record_compiler_span\(input, state, kind, span, span\)/.test(source.slice(match.index - 7, end))) continue;
-    sites.push({ start: match.index, end, state: parts[1].trim(), kind: parts[2].trim(), line });
+    sites.push({ start: match.index, end, state: parts[1].trim(), kind: parts[2].trim(), line, ranges,
+      spans: match[1].endsWith('compiler_span') });
   }
   return sites;
 }
@@ -63,6 +68,54 @@ export function recordSites(source) {
 // The mutant returns the parser state as it was before the record.
 export function dropRecord(source, site) {
   return source.slice(0, site.start) + '(' + site.state + ')' + source.slice(site.end);
+}
+
+const shiftHelper = 'static TmtGrammar_span tmt_mutant_shift(TmtGrammar_span span, int32_t first, int32_t last)\n' +
+  '{ span.first += (uint32_t)first; span.last += (uint32_t)last; return span; }\n';
+const shifts = { 'start-late': [1, 0], 'start-early': [-1, 0], 'end-early': [0, -1], 'end-late': [0, 1] };
+
+// A span that starts or ends one byte off erases too little or too much.
+export function shiftRecord(source, site, operator) {
+  const [first, last] = shifts[operator];
+  const replace = (range, text) => source.slice(0, range[0]) + text + source.slice(range[1]);
+  if (site.spans) {
+    const shifted = replace(site.ranges[3], ` tmt_mutant_shift(${source.slice(...site.ranges[3])}, ${first}, ${last})`);
+    const include = '#include "Custard.h"\n';
+    assert.ok(shifted.includes(include));
+    return shifted.replace(include, include + shiftHelper);
+  }
+  const range = site.ranges[first ? 3 : 4];
+  const delta = first || last;
+  return replace(range, ` ((${source.slice(...range)}) ${delta > 0 ? '+' : '-'} 1U)`);
+}
+
+// Some calls first rewind the record count, so one record replaces everything recorded inside its span.
+export function resetSource(site) {
+  const count = /\.count = (\w+)\.count/.exec(site.state)?.[1];
+  const origin = /\.offset = (\w+)\.offset/.exec(site.state)?.[1];
+  return count && origin && count !== origin ? { count, origin } : null;
+}
+
+export function keepInnerRecords(source, site) {
+  const { count, origin } = resetSource(site);
+  const state = source.slice(site.ranges[1][0], site.ranges[1][1]).replace(`.count = ${count}.count`, `.count = ${origin}.count`);
+  return source.slice(0, site.ranges[1][0]) + state + source.slice(site.ranges[1][1]);
+}
+
+export function mutants(source) {
+  const list = [];
+  for (const [site, call] of recordSites(source).entries()) {
+    list.push({ site, operator: 'drop' });
+    for (const operator of Object.keys(shifts)) list.push({ site, operator });
+    if (resetSource(call)) list.push({ site, operator: 'keep-inner' });
+  }
+  return list;
+}
+
+export function applyMutant(source, { site, operator }) {
+  const call = recordSites(source)[site];
+  return operator === 'drop' ? dropRecord(source, call) : operator === 'keep-inner' ? keepInnerRecords(source, call) :
+    shiftRecord(source, call, operator);
 }
 
 function loadCases(paths) {
@@ -160,20 +213,21 @@ async function evaluate(scratch, label, mutate, casesPath) {
 
 if (import.meta.main) {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
-    jobs: { type: 'string', default: '4' }, sites: { type: 'string' }, worker: { type: 'string' },
+    jobs: { type: 'string', default: '4' }, mutants: { type: 'string' }, operators: { type: 'string' }, worker: { type: 'string' },
     scratch: { type: 'string' }, cases: { type: 'string' }, output: { type: 'string' },
   } });
   const source = readFileSync(join(root, generated), 'utf8');
   const sites = recordSites(source);
+  const candidates = mutants(source);
   if (values.worker !== undefined) {
     const index = Number(values.worker);
-    const result = await evaluate(values.scratch, 'site-' + index, text => dropRecord(text, recordSites(text)[index]), values.cases);
-    rmSync(join(values.scratch, 'site-' + index), { recursive: true, force: true });
+    const result = await evaluate(values.scratch, 'mutant-' + index, text => applyMutant(text, candidates[index]), values.cases);
+    rmSync(join(values.scratch, 'mutant-' + index), { recursive: true, force: true });
     console.log(JSON.stringify(result));
   } else {
     assert.ok(positionals.length, 'Pass one or more JSON corpora');
-    const { ambiguityCases, certificationCases, generatedCases } = await import('./generate-compiler-validation-cases.mjs');
-    const cases = [...certificationCases(), ...generatedCases(), ...ambiguityCases()]
+    const { ambiguityCases, certificationCases, denseCases, generatedCases } = await import('./generate-compiler-validation-cases.mjs');
+    const cases = [...certificationCases(), ...denseCases(), ...generatedCases(), ...ambiguityCases()]
       .map(test => ({ ...test, name: test.file })).concat(loadCases(positionals));
     mkdirSync(join(root, 'build'), { recursive: true });
     const scratch = mkdtempSync(join(root, 'build/.record-mutation-'));
@@ -185,7 +239,9 @@ if (import.meta.main) {
       assert.equal(baseline.build, undefined, baseline.build);
       assert.equal(baseline.certifiedRejections, 0, 'The unmutated compiler has certified rejections');
       const differs = (outputs, index) => outputs[index] !== null && expected[index] !== null && outputs[index].shape !== expected[index];
-      const selected = values.sites ? values.sites.split(',').map(Number) : sites.map((_, index) => index);
+      const operators = values.operators?.split(',');
+      const selected = values.mutants ? values.mutants.split(',').map(Number) :
+        candidates.map((_, index) => index).filter(index => !operators || operators.includes(candidates[index].operator));
       const results = [];
       const queue = [...selected];
       const run = () => new Promise(done => {
@@ -198,8 +254,8 @@ if (import.meta.main) {
         child.on('close', () => {
           let result;
           try { result = JSON.parse(text.trim().split('\n').at(-1)); } catch { result = { build: 'worker failed' }; }
-          const site = sites[index];
-          const row = { site: index, line: site.line, kind: site.kind };
+          const site = sites[candidates[index].site];
+          const row = { mutant: index, site: candidates[index].site, operator: candidates[index].operator, line: site.line, kind: site.kind };
           if (result.build) Object.assign(row, { outcome: 'build-failed' });
           else {
             // A mutant may also push a file to a compatibility route, which is safe, or change only spacing.
@@ -222,12 +278,13 @@ if (import.meta.main) {
         });
       });
       await Promise.all(Array.from({ length: Number(values.jobs) }, run));
-      results.sort((a, b) => a.site - b.site);
+      results.sort((a, b) => a.mutant - b.mutant);
       const tally = {};
       for (const row of results) tally[row.outcome] = (tally[row.outcome] ?? 0) + 1;
-      const report = { node: process.version, cases: cases.length, sites: sites.length, evaluated: results.length, tally, results };
+      const report = { node: process.version, cases: cases.length, sites: sites.length, mutants: candidates.length,
+        evaluated: results.length, tally, results };
       if (values.output) writeFileSync(resolve(values.output), JSON.stringify(report, null, 1) + '\n');
-      console.log(JSON.stringify({ cases: cases.length, sites: sites.length, evaluated: results.length, tally }));
+      console.log(JSON.stringify({ cases: cases.length, sites: sites.length, mutants: candidates.length, evaluated: results.length, tally }));
     } finally {
       rmSync(scratch, { recursive: true, force: true });
     }

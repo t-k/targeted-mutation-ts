@@ -33,7 +33,7 @@ The `pulse+node-strip` route passes the remaining erasable syntax through Node. 
 
 The Pulse span writer proves that a successful replacement changes only the requested bytes and that invalid spans leave the buffer untouched. The extracted parser preserves its input borrow. Syntax-only validation counts comparisons without reserving candidate slots. The NEON and SSE2 builds also skip ordinary 16-byte JSX runs. Lean proves that these skips preserve the scalar cursor state, and the native test checks the matching predicates for every byte in every lane. The extraction check regenerates and compares both variants of the generated C and headers.
 
-Computed enum initializers, runtime namespaces, object-literal JSX spreads, CommonJS, downlevel targets, and source maps can still require the TypeScript emitter. Output formatting can differ across the supported backends.
+Computed enum initializers, runtime namespaces, object-literal JSX spreads, CommonJS, and downlevel targets can still require the TypeScript emitter. Source maps for ESNext module output come from the native emitter (see "Native source maps"). Output formatting can differ across the supported backends.
 
 ```sh
 FSTAR_EXE=/path/to/fstar.exe KARAMEL_EXE=/path/to/krml npm run verify:compiler
@@ -365,3 +365,98 @@ The comparison uses Node 24.14.0 on Linux arm64 and Node 24.22.3 on the Ryzen 9 
 | TypeScript JavaScript bundle | 1 | 54.58 | 88.64 (Oxc) | 56.10 | 92.73 (Oxc) |
 
 TMT leads all 23 common warm rows on Linux arm64 and all 20 on the Ryzen host. It leads 22 of 23 and 19 of 20 first-process rows. The two exceptions are `UserSettings.tsx` on arm64 (0.52 against 0.48 ms) and the ten local modules on the Ryzen host (1.86 against 1.82 ms). Single runs disagree on both, and a direct 41-sample repetition of the Ryzen first-process sample measured 2.04 ms for TMT against 2.38 ms for SWC Next. The [pooled samples, audit totals and experiments](../evidence/compiler/certified-native-emission.json) record every row.
+
+### Record mutation check and sanitizer fuzzing
+
+`scripts/mutate-compiler-records.mjs` changes one record call of the generated parser at a time. It drops the record, moves one end of its span by a byte, or keeps the records that a count rewind was meant to replace. Over 59 record calls this gives 305 mutants, run against 18,777 cases. No mutant changed the syntax of a published output without the audit build or the TypeScript comparison noticing. 152 were detected, 105 only moved files to a compatibility route, and 48 had no visible effect. Of those 48, 27 sit on records whose span the ordinary build does not read, 10 change spacing of a whole erased statement, 4 leave an empty statement, and 7 are unexplained.
+
+`scripts/fuzz-compiler-native.mjs` builds `native/compiler/fuzz.c` with libFuzzer, AddressSanitizer and UndefinedBehaviorSanitizer and runs every emitter entry on exactly sized inputs. It needs a clang that ships libFuzzer (`TMT_FUZZ_CLANG`). Ten minutes on four workers found no defect.
+
+The entry also accepts options spelled out with their default values, so `tmt-compile file.ts` and callers that pass `target: 'esnext'` or `sourceMap: false` take the native call.
+
+### Native source maps
+
+With `sourceMap: true` the ESNext module routes for `.ts`, `.mts` and `.tsx` publish the same code as without it, plus a map written by the native emitter. The TypeScript emitter is used only where it already produced the code (scripts, CommonJS, downlevel targets, `jsx: 'preserve'`, a byte order mark, names with unusual extensions).
+
+The writer logs every copy of source bytes into the output as a run of output offset, source offset and length. Type erasure is one run that covers the whole file. Parameter properties, enums and JSX produce several runs with generated text between them, and the inserted JSX helper import moves the runs after it. `native/compiler/source-map.h` walks the runs once. Inside a run it checks that the output is a projection of the source (equal bytes, a space, `;`, `(` or `)` written over erased syntax, the eraser's equal-width blanks over erased non-ASCII text, every line terminator kept) and writes a segment where a run of word or punctuation characters starts. Generated text has no segment. Columns are UTF-16 code units and lines end at LF, CRLF, CR, U+2028 and U+2029. If a run fails the check, no native map is published and the TypeScript route produces code and map.
+
+`version`, `file`, `sourceRoot`, `sources`, `names` and `sourcesContent` equal what TypeScript writes. `mappings` is finer for copied text and absent for generated text. A module of types alone has empty mappings.
+
+Checks: 36 pairwise rows over line endings, non-ASCII placement, edit kind, input form and name; every output token (TypeScript scanner) maps to the same token in the source for position-preserving output, and every segment maps to the same text for lowered output, over the fixtures and 2,400 files of the fixed projects; direct tests of the scan with hand-made runs; 26 mutants of the scan, of which 24 fail the tests, one does not build and one guards a position that cannot occur.
+
+On an Apple M-series host under load, the fixed projects with maps take 1.6 to 2.2 times the time without maps and about one twentieth to one thirtieth of the TypeScript emitter's time (Vite 26 ms against 545 ms, mreact 66 ms against 2,370 ms, mreact TSX 3.4 ms against 105 ms). Competitors were not measured with maps.
+
+### Wider corpora, declaration merging and two emission defects
+
+Eleven tagged open-source projects (zod, hono, rxjs, trpc, excalidraw, drizzle, vue, typescript-eslint, playwright, effect, prisma; 8,973 `.ts` and `.tsx` files, read as data) were added to the scratch corpora to see where the native routes stop and whether their output is right. Declined files fell from 984 to 640 after the changes below. The remaining causes are listed at the end.
+
+Comparing every native output with TypeScript's emit found two defects that were older than this work:
+
+- A class member that starts with `[`, `*`, `in` or `instanceof` joined the field initializer on the line before it once an erased modifier or an erased member no longer stood between them (`a = f` / `readonly [k] = 2` became `a = f[k] = 2`). The eraser now writes `;` at the start of an erased leading modifier or an erased signature when the next member starts that way. 57 corpus files change.
+- The two JSX helper imports were printed in the opposite order to TypeScript's when a file used both the runtime and `createElement`. The writer now settles which module was requested first by TypeScript's visiting order (children, attributes, key, then the helper for a runtime call; attributes, the helper, then children for `createElement`).
+
+New native coverage:
+
+- `yield` as an expression, `return` with a comma expression, `debugger`.
+- Enum initializers fold like TypeScript's constant evaluation (hex, octal and binary literals, parentheses, unary and binary arithmetic and bitwise operators, earlier members). A fraction, a negative zero, a value beyond 2^53 - 1, a member named like a literal and an update operator leave the native route. `test/compiler-enum-constants.test.mjs` generates 6,000 declarations and compares the enum objects that the native output and TypeScript's output build.
+- An interface merges with a class of its name. A namespace of types merges with a type alias, an interface, a value, a function or a class of its name.
+- Parameter properties take `override`, need neither a type nor an initializer, and lower in the same pass as enums.
+
+After these changes 14,531 of 14,535 native outputs over all corpora have TypeScript's syntax. The four differences are a kept parenthesis around a callee and two TypeScript quirks (`default_1`, a setter's return annotation). Warm timings of the fixed projects are unchanged within noise.
+
+A second round reduced declined files to their cause by deleting statements while the file stayed declined, and added: a heritage clause that is any left-hand-side expression with optional type arguments (`extends S.Class<A>("A")({})`), type arguments before a tagged template and after the result of a call, `x!++`, variance annotations on class and type alias parameters, a local type that shares its name with a value, an exported namespace of types beside an exported value of its name, and quoted enum member names.
+
+| Project | Files | Declined before | Declined now |
+| --- | ---: | ---: | ---: |
+| zod | 164 | 42 | 18 |
+| hono | 346 | 37 | 37 |
+| rxjs | 757 | 116 | 115 |
+| trpc | 596 | 43 | 40 |
+| excalidraw | 348 | 5 | 4 |
+| drizzle | 574 | 79 | 22 |
+| vue | 472 | 19 | 12 |
+| typescript-eslint | 1,173 | 35 | 28 |
+| playwright | 1,045 | 58 | 56 |
+| effect | 1,579 | 525 | 31 |
+| prisma | 1,919 | 26 | 23 |
+| Total | 8,973 | 985 | 386 |
+
+Over all corpora 14,824 of 14,828 native outputs have TypeScript's syntax. No output that was native before these parser changes differs after them, apart from the two defects above.
+
+Still declined, by what the reductions show: decorators (most of rxjs, whose documentation app is Angular), a JSX import-source pragma and a leading triple-slash directive (most of hono), JSX spread of an object literal, a comparison followed by a comma and a literal in an argument list (`skip(v < 104, 'reason')`, which the parser cannot yet tell from type arguments), enums and type declarations in blocks outside a function, runtime namespaces, `export =` and `import =`, ambient classes and modules, angle-bracket assertions, and non-ASCII identifiers.
+
+### Speed after the wider grammar and native maps
+
+On the Ryzen 9950X host the build before this work (`de3adb4`) and the current build were measured in alternating runs, three each, 21 samples pooled per row, with the usual isolation (rootless Podman, no network, CPU 13, 9 GiB scope). Warm time is unchanged and the compiler is ahead of every peer on 20 of 20 common rows. First-process time is ahead on 19 of 20, as before. The exception is still the ten local `.mjs` scripts (1.863 against 1.747 ms).
+
+The first measurement showed a first-process regression of 0.03 to 0.1 ms on small inputs. The entry's compile function and file had grown with explicit options and maps, and V8 compiles that function on the first call. The default call has its earlier shape again, and `src/compiler-maps.cjs` holds the handling of spelled-out options and maps and loads only when one is given. After that every row is within about one percent of the earlier build. A single first call remains 0.004 to 0.007 ms slower, which matches an addon that is about three percent larger.
+
+Peers were not measured with source maps.
+
+### Decorators, JSX import source, triple-slash comments and identity escapes
+
+A third round added four things that kept whole files on the TypeScript emitter.
+
+- Decorators. TypeScript keeps standard decorators as written at the ESNext target, so the native route only has to parse them: a name, a member chain, or either with arguments, before a class declaration (also behind `export`, `export default` and `abstract`) and before a method, field or accessor. An erased modifier behind a decorator is blanked without a separator. Parameter decorators, a decorator on a constructor or an erased signature, `@(expr)`, type arguments in a decorator, `export @dec class`, class expressions, local classes and `accessor` fields stay with TypeScript. V8 does not parse decorators, so the router's module route asks the certified parse when V8 refuses an `.mjs` source, as the entry does.
+- `@jsxImportSource`. One pragma in a block comment before the first token, with a plain package name, selects that package for the helper imports under the automatic runtime. The reader follows TypeScript's tag matching, in which a tag takes the white space after it and the rest of the following line, so an earlier tag can hide the pragma. Every other `@jsx` text stays with TypeScript.
+- Leading triple-slash comments. Notes without markup and references with `types`, `path` or `lib` and a quoted value are taken by the module emitters, which keep them as comments. A malformed reference keeps TypeScript's diagnostic 1084.
+- Identity escapes. An ordinary string or template takes a backslash before any printable ASCII character other than `x`, `u` and a digit. A regular expression without the `u` flag takes an identity escape of punctuation. Property keys, module specifiers and directives are compared as written and keep the short list. `test/compiler-literal-escapes.test.mjs` generates 11,000 literals and checks that whatever the native lexer accepts, V8 accepts in strict code.
+
+| Project | Files | Declined at the start | Declined now |
+| --- | ---: | ---: | ---: |
+| zod | 164 | 42 | 16 |
+| hono | 346 | 37 | 6 |
+| rxjs | 757 | 116 | 47 |
+| trpc | 596 | 43 | 34 |
+| excalidraw | 348 | 5 | 4 |
+| drizzle | 574 | 79 | 17 |
+| vue | 472 | 19 | 11 |
+| typescript-eslint | 1,173 | 35 | 28 |
+| playwright | 1,045 | 58 | 41 |
+| effect | 1,579 | 525 | 29 |
+| prisma | 1,919 | 26 | 19 |
+| Total | 8,973 | 985 | 252 |
+
+Over all corpora 15,006 of 15,010 native outputs have TypeScript's syntax, with the same four benign differences. The entry and the router return the same result for 65,756 compile calls. On the Ryzen host the build with decorators and the pragma, measured against the build before them in alternating runs, is unchanged on the project rows and still ahead of every peer on 20 of 20 warm rows and 19 of 20 first-process rows. The triple-slash change was made after that measurement.
+
+Still declined: enums and type declarations inside blocks, JSX spread of an object literal, a comparison followed by a comma and a literal in an argument list, angle-bracket assertions, parameter decorators, runtime namespaces, `export =` and `import =`, ambient classes and modules, and non-ASCII identifiers.

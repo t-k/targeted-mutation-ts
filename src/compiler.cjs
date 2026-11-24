@@ -53,14 +53,20 @@ function compile(input, options) {
   let file = 'input.ts';
   let flags = 0;
   let defaults = options === undefined;
-  if (!defaults && options !== null && typeof options === 'object' && options.mode === undefined &&
-      options.target === undefined && options.module === undefined && options.sourceMap === undefined) {
-    const name = options.file;
-    const jsx = options.jsx;
-    if ((name === undefined || typeof name === 'string') && (jsx === undefined || jsx === 'automatic' || jsx === 'classic')) {
-      defaults = true;
-      if (name !== undefined) file = name;
-      if (jsx === 'classic') flags = classic;
+  if (!defaults && options !== null && typeof options === 'object') {
+    if (options.mode === undefined && options.target === undefined && options.module === undefined && options.sourceMap === undefined) {
+      const name = options.file;
+      const jsx = options.jsx;
+      if ((name === undefined || typeof name === 'string') && (jsx === undefined || jsx === 'automatic' || jsx === 'classic')) {
+        defaults = true;
+        if (name !== undefined) file = name;
+        if (jsx === 'classic') flags = classic;
+      }
+    } else {
+      // Spelled-out options are rarer. Their handling lives in a file that a default compile never loads.
+      const result = require('./compiler-maps.cjs').compileExplicit(input, options, compile, sourceKind,
+        () => pulse ??= nativeAddon('compiler-module.node'));
+      if (result !== undefined) return result;
     }
   }
   if (defaults) {
