@@ -1,0 +1,6 @@
+Target: Class, ExportedClass, DefaultClass, AbstractClass, Method, Field, Getter, StaticField, ComputedField, GeneratorMethod
+Form: Name, Chain, Call, Two, OwnLine
+Follows: Plain, ErasedModifier, StaticThenErased
+Before: InitializedField, Method, Nothing
+IF [Target] IN {"Class", "ExportedClass", "DefaultClass", "AbstractClass"} THEN [Follows] = "Plain" AND [Before] = "Nothing";
+IF [Target] = "StaticField" THEN [Follows] <> "Plain";

@@ -1165,9 +1165,16 @@ static TmtPulseMemory_tape with_workspace(uint8_t *source, uint32_t size, module
   };
 }
 
+/* An import or an export at this item, also an exported class behind decorators. */
+static bool module_marker_at(TmtPulseMemory_tape input, uint32_t at) {
+  if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
+  const TmtPulseParser_cursor head = TmtPulseParser_trivia(input, at);
+  return head.ok && head.at < input.size && input.source[head.at] == '@' && TmtPulseCompiler_decorated_module_marker(input, at);
+}
+
 static uint32_t find_marker(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
   while (at < input.size) {
-    if (TmtPulseCompiler_runtime_module_marker(input, at)) return at;
+    if (module_marker_at(input, at)) return at;
     const uint32_t next = TmtPulseCompiler_next_module_item(input, jsx, at);
     if (next <= at || next > input.size) break;
     at = next;
@@ -1252,6 +1259,7 @@ enum {
   parameter_super = 27,
   contextual_reference = 28,
   uncertified_syntax = 29,
+  decorated_modifiers = 30,
 };
 
 typedef struct {
@@ -1508,7 +1516,7 @@ static bool continues_initializer(TmtPulseMemory_tape input, uint32_t after) {
   return rest > 10 && !memcmp(word, "instanceof", 10) && !TmtGrammar_identifier_continue(word[10]);
 }
 
-static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span span, char *code) {
+static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span span, char *code, bool separate) {
   uint32_t leading = span.last;
   bool kept = false;
   for (uint32_t at = span.first; at < span.last;) {
@@ -1532,7 +1540,7 @@ static bool blank_class_modifiers(TmtPulseMemory_tape input, TmtGrammar_span spa
     memset(code + token.at, ' ', width);
   }
   /* A leading modifier was erased and no static stands before it, so the member name follows the line before. */
-  if (leading < span.last && continues_initializer(input, span.last)) code[leading] = ';';
+  if (separate && leading < span.last && continues_initializer(input, span.last)) code[leading] = ';';
   return true;
 }
 
@@ -1625,7 +1633,8 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
       facts->properties++;
     }
     const bool member = event.original == erased_list_member || event.original == erased_overload;
-    const bool modifiers = event.original == class_modifiers || event.original == parameter_property;
+    const bool modifiers = event.original == class_modifiers || event.original == parameter_property ||
+      event.original == decorated_modifiers;
     const bool arrow = event.original == generic_arrow;
     const bool result = event.original == arrow_result;
     const bool heritage = event.original == class_implements;
@@ -1691,7 +1700,8 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
       memcpy(code, input.source, input.size);
     }
     if (modifiers) {
-      if (!blank_class_modifiers(input, span, code)) goto decline;
+      /* A decorator already separates its member from the one before. */
+      if (!blank_class_modifiers(input, span, code, event.original != decorated_modifiers)) goto decline;
     } else if (!preserve_lines) memset(code + span.first, ' ', span.last - span.first);
     else if (!blank_lines((uint8_t *)code + span.first, input.source + span.first, span.last - span.first,
                           statement || local_type || annotation || event.original == erased_overload)) goto decline;
@@ -1909,14 +1919,14 @@ decline:
 }
 
 static bool retained_module_marker(TmtPulseMemory_tape input, uint32_t at, uint32_t records) {
-  if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
+  if (module_marker_at(input, at)) return true;
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
     if (event.original != erased_type_statement || at < event.left.first || at >= event.left.last) continue;
     const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, event.left.last);
     if (!tail.ok || tail.at >= input.size) return false;
     at = tail.at;
-    if (TmtPulseCompiler_runtime_module_marker(input, at)) return true;
+    if (module_marker_at(input, at)) return true;
   }
   return false;
 }

@@ -3937,12 +3937,36 @@ and class_field_tail (input:tape) (state:parser_state) (fuel:U32.t)
     ret input ({ closed with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed;
       super_context = state.super_context; in_allowed = state.in_allowed })
 
+// Decorators stay in the output as written. Each is a name, a member chain, or either followed by arguments.
+// The result is positioned at the declaration that the decorators apply to.
+and decorators (input:tape) (state:parser_state) (fuel remaining:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 55; U32.v remaining]) =
+  let! st = (fun () -> skip input state) in
+  let! at_sign = (fun () -> same input st.offset 64uy) in
+  if st.status <> 0ul || not at_sign then ret input st
+  else if remaining = 0ul || fuel = 0ul then ret input (failed st 3ul)
+  else
+    let! named = (fun () -> name input (next st.offset) false false) in
+    let! chain = (fun () -> qualified_name input (from_cursor st named) 16ul) in
+    let! tail = (fun () -> skip input chain) in
+    let! call = (fun () -> same input tail.offset 40uy) in
+    let! applied = (fun () -> if tail.status <> 0ul || not call then ret input tail
+      else
+        let! arguments = (fun () -> expression_list input { tail with offset = next tail.offset } (minus fuel 1ul) input.size 41uy false) in
+        ret input arguments.list_end) in
+    decorators input applied fuel (minus remaining 1ul)
+
 and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (derived seen_constructor:bool) (kind:class_kind) (pending:pending_overload)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 56; U32.v remaining]) =
-  let! st = (fun () -> skip input state) in
+  let! undecorated = (fun () -> skip input state) in
+  let! st = (fun () -> decorators input undecorated fuel 16ul) in
+  let decorated = st.offset <> undecorated.offset in
   let! byte = (fun () -> peek input st.offset) in
   let awaiting_body = pending.key_span.G.first <> pending.key_span.G.last in
   if st.status <> 0ul then ret input (st)
+  // A decorator applies to a member with a body or a value. It cannot stand before the end of the class,
+  // an empty member, a constructor or a signature that is erased.
+  else if decorated && (byte = 125uy || byte = 59uy || awaiting_body || kind = AmbientClass) then ret input (failed st 1ul)
   else if byte = 125uy then
     if awaiting_body then ret input (failed st 1ul) else consume input st 125uy
   else if remaining = 0ul then ret input (failed st 1ul)
@@ -3983,7 +4007,9 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             length = minus pending.key_span.G.last pending.key_span.G.first then
             same_bytes input key.first pending.key_span.G.first length
           else ret input false) in
-      if U32.logand key.modifier_flags 16ul <> 0ul then
+      if decorated && (U32.logand key.modifier_flags 16ul <> 0ul || member_head.ok || optional_method.status = 0ul || constructor_name) then
+        ret input (failed tail 1ul)
+      else if U32.logand key.modifier_flags 16ul <> 0ul then
         let! declared_first = (fun () -> keyword input st.offset 7ul 0x6465636c617265uL) in
         let! closed = (fun () -> if awaiting_body || kind = AmbientClass || not declared_first ||
           U32.logand key.modifier_flags 8ul <> 0ul || key.private_ || key.async_ || key.generator_ || accessor ||
@@ -4033,8 +4059,9 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         (accessor && (key.async_ || key.generator_ || constructor || next_byte <> 40uy)) ||
         (constructor && (seen_constructor || key.async_ || key.generator_ || next_byte <> 40uy)) then ret input (failed tail 1ul)
       else
+        // Kind 30 marks modifiers behind a decorator, which need no separator from the member before.
         let! tail = (fun () -> if U32.logand key.modifier_flags 110ul <> 0ul then
-          record_jsx_span input tail 15ul st.offset key.modifiers_end else ret input tail) in
+          record_jsx_span input tail (if decorated then 30ul else 15ul) st.offset key.modifiers_end else ret input tail) in
         let! tail = (fun () -> if key.private_ then record_private input tail { G.first = key.first; G.last = key.last } PrivateDeclaration
           else ret input tail) in
         let! after, pending =
@@ -4046,7 +4073,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
               let pending = if result.signature_only then
                 { key_span = { G.first = key.first; G.last = key.last }; key_flags = key.modifier_flags; key_async = key.async_ }
                 else no_overload in
-              let after = result.after_function in
+              let after = if result.signature_only && decorated then failed result.after_function 1ul else result.after_function in
               let! after = (fun () -> if result.signature_only then
                 record_jsx_span input { after with count = st.count } 21ul st.offset after.offset else ret input after) in
               ret input (after, pending)
@@ -4988,9 +5015,23 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
   else if declared then module_declaration input st used
   else (let! anf_value_6 = (fun () -> (let! anf_value_7 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_7.state))) in ret input ({ state = anf_value_6; used }))
 
+// Decorators before a class declaration: the words export, default and abstract may stand between them and class.
+let decorated_class_start (input:tape) (state:parser_state) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  let! st = (fun () -> decorators input state 64ul 16ul) in
+  if st.status <> 0ul || st.offset = state.offset then ret input st
+  else
+    let! exported = (fun () -> keyword input st.offset 6ul 0x6578706f7274uL) in
+    let! after_export = (fun () -> if exported then trivia input (plus st.offset 6ul) else ret input { at = st.offset; ok = true; newline = false }) in
+    let! default_ = (fun () -> if exported && after_export.ok then keyword input after_export.at 7ul 0x64656661756c74uL else ret input false) in
+    let! after_default = (fun () -> if default_ then trivia input (plus after_export.at 7ul) else ret input after_export) in
+    let! abstract_ = (fun () -> if after_default.ok then abstract_class_start input after_default.at else ret input { at = st.offset; ok = false; newline = false }) in
+    let! class_ = (fun () -> if after_default.ok && not abstract_.ok then class_keyword input after_default.at else ret input false) in
+    ret input (if st.module_mode && (abstract_.ok || class_) then st else failed st 1ul)
+
 let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (exports:names_used) (pending:pending_exports) (family:U8.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v fuel) =
-  let! st = (fun () -> skip input state) in
+  let! undecorated = (fun () -> skip input state) in
+  let! st = (fun () -> decorated_class_start input undecorated) in
   if st.status <> 0ul then ret input st
   else if st.offset = input.size then check_local_exports input st used pending
   else if fuel = 0ul then ret input (failed st 1ul)

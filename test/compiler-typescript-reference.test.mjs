@@ -481,3 +481,75 @@ test('unusual import-source pragmas are left to TypeScript', () => {
   // Only the first word after the pragma is the package, as in TypeScript.
   assert.match(sameAsTypeScript('/* @jsxImportSource pre act*/\nexport const view = <i/>;\n', 'view.tsx').code, /from"pre\/jsx-runtime"/);
 });
+
+// Decorators are kept as written, as TypeScript keeps them at the ESNext target.
+{
+  const { readFileSync } = await import('node:fs');
+  const { createRequire: requireFrom } = await import('node:module');
+  const router = requireFrom(import.meta.url)('../src/compiler-routes.cjs').compile;
+  const rows = readFileSync(new URL('../verification/pict/compiler-decorators.tsv', import.meta.url), 'utf8')
+    .trimEnd().split(/\r?\n/).slice(1);
+  const forms = { Name: '@dec ', Chain: '@ns.dec ', Call: '@dec(1, value as number) ', Two: '@first @second({ a: 1 }) ', OwnLine: '@dec\n  ' };
+  for (const row of rows) {
+    test('decorators ' + row.replaceAll('\t', ' '), () => {
+      const [target, form, follows, before] = row.split('\t');
+      const decorator = forms[form];
+      let source;
+      if (/Class$/.test(target)) {
+        const head = { Class: 'class C', ExportedClass: 'export class C', DefaultClass: 'export default class', AbstractClass: 'abstract class C' }[target];
+        source = `import { dec, first, second, ns, value } from "./d.js";\n${decorator.trimEnd()}\n${head} { m(): number { return 1; } }\n` +
+          (target === 'Class' || target === 'AbstractClass' ? 'export { C };\n' : '');
+      } else {
+        const modifier = { Plain: '', ErasedModifier: target === 'Getter' || /Method/.test(target) ? 'public ' : 'readonly ',
+          // A field takes static readonly. A method takes an accessibility modifier, which stands before static.
+          StaticThenErased: target === 'Getter' || /Method/.test(target) ? 'public static ' : 'static readonly ' }[follows];
+        const member = { Method: 'm(x: number): number { return x; }', Field: 'f: number = 1', Getter: 'get g(): number { return 1; }',
+          StaticField: 's: number = 2', ComputedField: '[key] = 3', GeneratorMethod: '*gen() {}' }[target];
+        const prior = { InitializedField: 'a = start', Method: 'b() {}', Nothing: '' }[before];
+        source = `import { dec, first, second, ns, value, key, start } from "./d.js";\nexport class C {\n  ${prior}\n  ${decorator}${modifier}${member}\n}\n`;
+      }
+      const result = sameAsTypeScript(source, 'decorated.ts');
+      assert.equal(result.backend, 'pulse', source);
+      assert.deepEqual(router(Buffer.from(source), { file: 'decorated.ts' }), result, source);
+      // Every decorator of the source is in the output, and nothing was written between one and its member.
+      assert.equal(result.code.match(/@\w/g).length, source.match(/@\w/g).length, source);
+      assert.doesNotMatch(result.code, /@[\w.]+(?:\([^)]*\))?\s*;/, source);
+    });
+  }
+}
+
+test('decorators that the native grammar does not take are left to TypeScript', () => {
+  for (const source of [
+    '@d\nclass C { @d declare x: number }\nexport { C };',
+    '@d\nclass C { @d constructor() {} }\nexport { C };',
+    'class C { constructor(@Inject(X) private doc: any) {} }\nexport { C };',
+    'class C { @d m(): void; m(x?: any) {} }\nexport { C };',
+    'abstract class C { @d abstract m(): void }\nexport { C };',
+    '@(a.b)\nclass C {}\nexport { C };',
+    '@d<T>()\nclass C {}\nexport { C };',
+    'export @d class C {}',
+    'const K = @d class {};\nexport { K };',
+    'export function f() { @d class L {} return L; }',
+    'class C { @d accessor x = 1 }\nexport { C };',
+    '@d\nfunction f() {}\nexport { f };',
+    '@d\nexport const x = 1;',
+    '@d\ndeclare class C {}\nexport {};',
+    'class C { @d }\nexport { C };',
+    'class C { @d; m() {} }\nexport { C };',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'decorated.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('a decorated JavaScript module gives the same result on the entry and the router', async () => {
+  const { createRequire: requireFrom } = await import('node:module');
+  const router = requireFrom(import.meta.url)('../src/compiler-routes.cjs').compile;
+  const source = 'import { d } from "./d.js";\n@d\nexport class C { @d m() {} }\n';
+  for (const file of ['a.js', 'a.mjs', 'a.jsx', 'a.ts', 'a.tsx']) {
+    for (const input of [Buffer.from(source), source]) {
+      const result = compile(input, { file });
+      assert.deepEqual(router(input, { file }), result, file);
+      assert.match(result.code, /@d\s+export class C/, file);
+    }
+  }
+});

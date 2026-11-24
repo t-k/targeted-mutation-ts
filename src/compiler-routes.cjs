@@ -152,6 +152,13 @@ function startsStaticModule(source, start) {
   return /^[A-Za-z_$'"{*]$/.test(specifier);
 }
 
+// V8 does not parse decorators yet. The certified parse does, and the entry asks it first, so a module
+// that V8 refuses is published when that parse accepts it unchanged.
+function certifiedModule(source, bytes) {
+  const emit = loadModuleAddon()?.emitJavaScriptModule;
+  return emit !== undefined && emit(bytes ?? Buffer.from(source), true) !== undefined ? source : null;
+}
+
 function modernJavaScript(source, file, format) {
   const moduleFile = format === 'esm' && /\.mjs$/i.test(file);
   const start = moduleFile ? undefined : javascriptModuleStart(source);
@@ -169,14 +176,15 @@ function modernJavaScript(source, file, format) {
     const validate = javascriptTextValidator();
     if (validate) {
       const valid = validate(source);
-      if (valid || moduleFile) return valid ? source : null;
+      if (valid) return source;
+      if (moduleFile) return certifiedModule(source, bytes);
     }
   }
   const addon = loadModuleAddon();
   if (!addon) return null;
   bytes ??= Buffer.from(source);
   if (moduleFile && addon.validModule) {
-    return addon.validModule(bytes) ? source : null;
+    return addon.validModule(bytes) ? source : certifiedModule(source, bytes);
   }
   if (!moduleFile && !staticHead) {
     const validate = javascriptTextValidator();
