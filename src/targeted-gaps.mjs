@@ -7,8 +7,21 @@ const clip = text => {
   return line.length > 60 ? line.slice(0, 57) + '...' : line;
 };
 
-function missingInput({ operator, form, boolean, left, differsFor, subject, pureRight }, expression) {
+const rules = { arithmetic: 'arithmetic-swap/v1', extreme: 'extreme-swap/v1', rounding: 'rounding-swap/v1', ends: 'sequence-end/v1' };
+// For which numbers two ways of rounding differ.
+const roundingDiffers = { 'floor trunc': 'negative and not a whole number', 'ceil trunc': 'positive and not a whole number',
+  'floor round': 'a number with a fractional part of .5 or more', 'ceil round': 'a number with a fractional part below .5 that is not whole' };
+
+function missingInput({ operator, form, boolean, left, differsFor, subject, pureRight }, expression, rule, replacement) {
   const side = '`' + clip(left) + '`';
+  if (rule === rules.arithmetic) return `a test in which \`${clip(expression)}\` is not \`${clip(replacement)}\``;
+  if (rule === rules.extreme) return `a test in which the two arguments of \`${clip(expression)}\` differ`;
+  if (rule === rules.rounding) return `a test in which ${side} is ${roundingDiffers[[operator, form].sort().join(' ')] ?? 'not a whole number'}`;
+  if (rule === rules.ends) {
+    return operator.startsWith('find') ? `a test in which ${side} has two or more elements`
+      : operator.endsWith('ndexOf') ? `a test in which ${side} holds the searched value more than once`
+        : `a test in which ${side} has two or more elements and the first is not the last`;
+  }
   if (form === 'true' || form === 'false') return `a test in which \`${clip(expression)}\` is ${form === 'true' ? 'false' : 'true'}`;
   if (form === 'loose' || form === 'strict' || form === 'other') return `a test in which \`${clip(subject)}\` is ${differsFor}`;
   if (form === 'or' || form === 'nullish') return `a test in which ${side} is 0, 0n, '', false or NaN${pureRight ? ' and not the right side\'s value' : ''}`;
@@ -29,6 +42,11 @@ export function targetedGap(mutant, seen) {
     return { kind: 'ASSERTION GAP', ...common, tests: seen.differing, ...(seen.outside ? { outsideTests: true } : {}),
       ...(seen.differ ? { example: { operands: seen.differ } } : {}) };
   }
-  return { kind: 'INPUT GAP', ...common, reachedBy: seen.agreeing, missing: missingInput(mutant.targeted, mutant.original),
-    ...(seen.agree ? { observed: { operands: seen.agree } } : {}) };
+  const missing = missingInput(mutant.targeted, mutant.original, mutant.mutatorName, mutant.replacement);
+  // Where the recording could not work the edit out (a search callback, an object among the operands), the
+  // tests may have the input already and only lack the assertion.
+  if (seen.unsure?.length) {
+    return { kind: 'INPUT GAP', ...common, missing, uncertain: true, tests: seen.unsure, ...(seen.unknown ? { example: { operands: seen.unknown } } : {}) };
+  }
+  return { kind: 'INPUT GAP', ...common, reachedBy: seen.agreeing, missing, ...(seen.agree ? { observed: { operands: seen.agree } } : {}) };
 }

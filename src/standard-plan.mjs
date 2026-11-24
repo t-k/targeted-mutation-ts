@@ -34,23 +34,30 @@ export function indexCoverage(records, tests) {
 }
 
 // What the probes of the targeted rules recorded, per edit: the passing tests in which the edit would have given
-// the same as the original every time, those in which it would not, and whether it would not outside any of them
-// (while a file loads, in a hook, in a test that did not pass).
+// the same as the original every time, those in which it would not, those in which that is not known, and
+// whether it would not outside any of them (while a file loads, in a hook, in a test that did not pass).
 export function indexAgreement(records, tests) {
   const merged = new Map();
   for (const { observed } of records) {
     for (const [id, entry] of Object.entries(observed ?? {})) {
-      if (!merged.has(id)) merged.set(id, { agreeing: new Set(), differing: new Set(), outside: false, typed: false });
+      if (!merged.has(id)) merged.set(id, { agreeing: new Set(), differing: new Set(), unsure: new Set(), outside: false, typed: false });
       const into = merged.get(id);
-      for (const [test, [, differed]] of Object.entries(entry.tests ?? {})) {
-        if (!tests.has(test)) into.outside ||= differed > 0;
-        else if (differed > 0 || into.differing.has(test)) (into.differing.add(test), into.agreeing.delete(test));
+      for (const [test, [, differed, unknown = 0]] of Object.entries(entry.tests ?? {})) {
+        if (!tests.has(test)) into.outside ||= differed + unknown > 0;
+        else if (differed > 0) into.differing.add(test);
+        else if (unknown > 0) into.unsure.add(test);
         else into.agreeing.add(test);
       }
       into.differ ??= entry.differ;
       into.agree ??= entry.agree;
+      into.unknown ??= entry.unsure;
       into.typed ||= entry.typed === true;
     }
+  }
+  // A test belongs to the strongest of what it saw, over all the files that recorded it.
+  for (const into of merged.values()) {
+    for (const test of into.differing) (into.unsure.delete(test), into.agreeing.delete(test));
+    for (const test of into.unsure) into.agreeing.delete(test);
   }
   return merged;
 }

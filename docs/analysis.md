@@ -82,22 +82,27 @@ A mutation that a worker left to a fresh run carries the reason in `fallback`: `
 
 Test files run beside each other, each in its own worker, unless the project sets `fileParallelism: false`. `--concurrency N` sets the number of workers (default: the CPU count minus one). The session starts with one Vitest instance and opens another only when, two seconds into the trials, one test file still has more than six seconds of measured work left. `--isolated-trials` gives every mutation a fresh Vitest run from the start; use it for a suite whose tests depend on state from earlier tests in ways a control run would not show. `--verify-trials N` runs N of the worker-decided mutations again in fresh runs, keeps the fresh verdict and lists any difference. The report's `trials` field counts these: `{ "workers": 1, "inWorker": 180, "isolated": 10, "verified": { "sampled": 5, "mismatches": [] } }`.
 
-Two limits come with runtime switches, here as in StrykerJS. A test that reads source text or positions (`Function.prototype.toString`, stack frames, snapshot of an error's line) sees the switched code and not the mutated file. A Vite plugin that rewrites the project's source at build time receives the switched expression, so a compile-time transform may treat it differently from the mutation written out. `--audit` in the default profile, and the Playwright path, run the edit as plain source instead.
+Two limits come with runtime switches, here as in StrykerJS. A test that reads source text or positions (`Function.prototype.toString`, stack frames, snapshot of an error's line, the message of a `TypeError` that quotes the expression) sees the switched code and not the mutated file. A Vite plugin that rewrites the project's source at build time receives the switched expression, so a compile-time transform may treat it differently from the mutation written out. `--audit` in the default profile, and the Playwright path, run the edit as plain source instead.
 
 The default profile uses the same session. Its comparison boundaries, `>=` with `>` and `<=` with `<`, are decided in a worker. So are its threshold edits and the tightened comparisons of `--displace-thresholds`: every comparison gets one more switch that moves its right side by an integer chosen at run time, and once the recorded comparisons show which thresholds to try, the session runs them through that switch. `n >= 100` with a shift of 3 behaves as `n >= 103`. The profile starts Vitest once on its own, for the run that records the comparisons; that run also serves as its baseline when it passes, because the session runs the suite beside it. When the recording run does not pass, the plain baseline runs and is reported as before. `--audit` and Playwright run every edit against the rewritten source instead.
 
 ### Targeted edits
 
-`--mutators targeted` adds four rules to the focused profile. Each replaces one expression by another that gives the same value for some operands and a different one for others, and still evaluates what the original evaluates.
+`--mutators targeted` adds eight rules to the focused profile. Each replaces one expression by another that gives the same value for some operands and a different one for others, and still evaluates what the original evaluates.
 
 | Rule | Code | Edit | Differs when |
 |------|------|------|--------------|
 | `equality-constant/v1` | `a === b`, `!==`, `==`, `!=` | `(a, b, true)`, `(a, b, false)` | the comparison gives the other value |
 | `ignored-operand/v1` | `a && b`, `a \|\| b`, `a ?? b` | `(a, b)`: the left side decides nothing | the original would not have evaluated `b` |
 | | | `a && (b, true)`, `a \|\| (b, false)`, `a ?? (b, undefined)`: the right side's value is not used | `b` is evaluated and gives another value |
-| `nullish-fallback/v1` | `a ?? b`, and `a \|\| b` where its value is used | `a \|\| b`, `a ?? b` | `a` is `0`, `''`, `false` or `NaN` |
+| `nullish-fallback/v1` | `a ?? b`, and `a \|\| b` where its value is used | `a \|\| b`, `a ?? b` | `a` is `0`, `0n`, `''`, `false` or `NaN` |
 | `nullish-equality/v1` | `a === null`, `a !== undefined` | `a == null`, `a != undefined` | `a` is the other of `null` and `undefined` |
 | | `a == null`, `a != null` | `a === null` and `a === undefined` | `a` is the one the edit leaves out |
+| `arithmetic-swap/v1` | `a + b`, `-`, `*`, `/`, `%` | two other operators each: `+` to `-` and `*`, `-` to `+` and `/`, `*` to `/` and `+`, `/` to `*` and `%`, `%` to `/` and `+` | the two operators give different results (`fee` is not 0, `factor` is not 1) |
+| `extreme-swap/v1` | `Math.max(a, b)`, `Math.min(a, b)` | the other of the two | the arguments differ |
+| `rounding-swap/v1` | `Math.floor(x)`, `ceil`, `round`, `trunc` | `floor` to `ceil`, `round` and `trunc`; the others to `floor` and one more | `x` is not whole (for `floor` and `trunc`: negative and not whole) |
+| `sequence-end/v1` | `list[0]`, `list.at(0)`, `list.at(-1)`, `list[list.length - 1]` | the other end | the first element is not the last |
+| | `find` and `findLast`, `findIndex` and `findLastIndex`, `indexOf` and `lastIndexOf` | the other of the two | more than one element matches |
 
 With Vitest 4 each such expression becomes a probe in the test session. While the baseline runs, the probe notes for every edit of the expression and for every test whether the edit would have given the same value after evaluating the same operands. The edits then run like any other switch, against the tests that reach them. A survivor is reported with what the recording says about it:
 
@@ -113,7 +118,10 @@ ASSERTION GAP src/form.ts:31:20  ignored-operand/v1
 
 An `INPUT GAP` means the edit agreed with the original at every evaluation in every passing test: no test has the input that tells them apart, and `missing` names it. An `ASSERTION GAP` lists the tests in which the edit went another way and that passed all the same, with the operands of the first such evaluation. In JSON the entries are in `diagnostics`, with `expression`, `missing`, `reachedBy`, `tests` and `example`.
 
-- Where only the truth of the value is used (a condition, under `!`, or an operand of `&&` or `||` used that way), an ignored right operand counts as agreeing when the truth is the same. Elsewhere the values must be the same.
+- Where only the truth of the value is used (a condition, under `!`, or an operand of `&&` or `||` used that way), an ignored right operand counts as agreeing when the truth is the same. Elsewhere the values must be the same, and `0` is not `-0`.
+- Beside a written literal on the right (`retries ?? 0`), an edit that evaluates the literal where the original does not agrees whenever the values are the same. Any other right side is not evaluated to compare.
+- The probe works an edit out again only where that has no effect: arithmetic on numbers, text and other plain values, the functions of `Math` on numbers, and the ends of arrays and of text. With an object among arithmetic operands, with something that is neither an array nor text, and for `find` on more than one element (its callback would run again), the recording cannot tell. A survivor is then an `INPUT GAP` marked `uncertain`, with the tests in which that happened: they may already have the input and only lack the assertion.
+- `+` beside a string or template literal is left alone. `Math.max` and `Math.min` are edited with exactly two arguments. An element that is assigned, updated, deleted, called, or reached through `?.` is left alone, and `list[list.length - 1]` is taken for a last element only where `list` is a name or a chain of property names.
 - `??` and `||` give the same for `null`, `undefined` and every object. When no test gave the left side a number, a string or a boolean and the two never differed, the edit is listed as `ignored` and not run. `||` is not taken for `??` where only the truth of its value is used.
 - The strict and loose comparison edits are offered only beside a written `null` or `undefined`.
 - A logical expression whose right side contains `await` or `yield` gets no probe and no targeted edit.

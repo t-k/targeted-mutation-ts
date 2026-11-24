@@ -15,6 +15,7 @@ const edited = (source, mutant) => {
 const session = Symbol.for('targeted-mutation-ts/session');
 
 // Runs `f` on each input as a test of its own and returns what it gave and which operands it evaluated, per input.
+// An error is named by its kind: its message quotes the source, which a probe replaces.
 // A result is named by the operand it is, so two runs can be compared without sharing objects.
 function run(code, inputs, state = {}, recording = false) {
   const context = vm.createContext({ __stryker__: state, inputs, results: [] });
@@ -24,7 +25,7 @@ for (var n = 0; n < inputs.length; n++) {
   __stryker__.currentTestId = ${recording ? "'t' + n" : 'undefined'};
   trace.length = 0;
   var given = inputs[n], out;
-  try { out = f.apply(null, given); } catch (error) { out = 'threw ' + error.message; }
+  try { out = f.apply(null, given); } catch (error) { out = 'threw ' + error.name; }
   var at = given.indexOf(out);
   results.push(JSON.stringify([at >= 0 && typeof out === 'object' && out !== null ? 'operand ' + at : typeof out + ' ' + String(out), trace.slice()]));
 }`, context, { timeout: 2_000 });
@@ -87,17 +88,22 @@ function random(seed) {
 function expression(next, depth) {
   const pick = list => list[Math.floor(next() * list.length)];
   if (depth === 0 || next() < 0.2) return pick(["see('a', a)", "see('b', b)", "see('c', c)", 'null', 'undefined', '0', "''"]);
+  if (next() < 0.15) {
+    const inner = expression(next, depth - 1);
+    return pick([`Math.max(${inner}, see('b', b))`, `Math.round(${inner})`, `[${inner}, see('c', c)][0]`, `[see('a', a), ${inner}].at(-1)`,
+      `[${inner}, 1, see('a', a)].indexOf(1)`, `[${inner}, 2].find(n => n)`]);
+  }
   const left = expression(next, depth - 1);
   const right = expression(next, depth - 1);
   const kind = next();
   if (kind < 0.1) return `!(${left})`;
   if (kind < 0.2) return `((${left}) ? ${right} : ${expression(next, depth - 1)})`;
   // `??` cannot stand beside `&&` or `||` without parentheses, so every operand has its own.
-  return `(${left}) ${pick(['===', '!==', '==', '!=', '&&', '||', '??', '>=', '<'])} (${right})`;
+  return `(${left}) ${pick(['===', '!==', '==', '!=', '&&', '||', '??', '>=', '<', '+', '-', '*', '/', '%'])} (${right})`;
 }
 
 test('generated programs: switches off change nothing, a switch is its source edit, and an edit that agreed on an input behaves the same there', () => {
-  const pool = [undefined, null, 0, '', false, true, 1, 2, 'x', NaN];
+  const pool = [undefined, null, 0, '', false, true, 1, 2, 'x', NaN, 0.5, -1.5];
   let checked = 0;
   let agreedAndRun = 0;
   for (let seed = 1; seed <= 200; seed++) {
@@ -119,8 +125,8 @@ test('generated programs: switches off change nothing, a switch is its source ed
       if (!mutant.targeted) continue;
       for (const [index] of inputs.entries()) {
         const counts = state.observed?.[mutant.id]?.tests['t' + index];
-        // Not reached, or the edit went another way in this test: nothing is claimed.
-        if (counts && counts[1] > 0) continue;
+        // Not reached, the edit went another way in this test, or the probe could not tell: nothing is claimed.
+        if (counts && counts[1] + counts[2] > 0) continue;
         agreedAndRun++;
         assert.equal(rewritten[index], original[index], `seed ${seed} input ${index}: ${mutant.original} -> ${mutant.replacement}`);
       }
@@ -159,6 +165,9 @@ test('the targeted edits of each operator, and where none is offered', () => {
   // The computed name of a method on the right is evaluated where the expression stands.
   assert.deepEqual(list('async function f(cached: unknown, name: () => Promise<string>) { return cached ?? { [await name()]() {} }; }'), []);
   assert.equal(list('function f(cached: unknown, name: () => string) { return cached ?? { [name()]() {} }; }').length, 3);
+  // Where only the truth is used and the written fallback is falsy, `??` and `||` are the same for every value.
+  assert.deepEqual(list('function f(n?: number) { if (n ?? 0) return 1; return !(n || false); }').map(entry => entry[1]), ['left', 'right', 'left', 'right']);
+  assert.equal(list('function f(n?: number) { if (n ?? 1) return 1; }').at(-1)[1], 'or');
   // Without the option the built-in set is as before.
   assert.ok(collectMutations('const f = (a, b) => a === b && a;', 'f.js').every(mutation => !mutation.targeted));
 });
@@ -168,6 +177,10 @@ test('only the truth of a value is used in a condition, under a negation and thr
     .filter(mutation => mutation.targeted?.form === 'right').map(mutation => [mutation.targeted.left, mutation.targeted.boolean]));
   assert.deepEqual(contexts('function f(a, b, c, d) { if ((a && b) || c) return 1; while (!(c && d)) c = 1; return a ? b && c : d && a; }'),
     { '(a && b)': true, a: true, c: true, b: false, d: false });
+  // The conditions of a loop and of a conditional expression count; what a loop starts with, a branch and an
+  // operand of another operator do not.
+  assert.deepEqual(contexts('function f(a, b, c, d, e) { for (e && a; a && b;) b = 0; do { c = 0 } while (c && d); return (d && e ? 1 : 2) + -(b && c); }'),
+    { e: false, a: true, c: true, d: true, b: false });
   // A value that passes on through `??` or into a call is used as it is.
   assert.deepEqual(contexts('function f(a, b, c) { if (c ?? (a && b)) return 1; return Boolean(b && c); }'), { c: true, a: false, b: false });
 });
@@ -233,7 +246,7 @@ test('a probe keeps this, arguments and typed operands, counts hits like a switc
   const recorded = {};
   call(output, recorded, true);
   // Outside a test the observations are kept under an empty name.
-  assert.deepEqual(JSON.parse(JSON.stringify(recorded.observed[fallback.id])), { tests: { '': [1, 1] }, agree: ['null', '7'], differ: ['0'], typed: true });
+  assert.deepEqual(JSON.parse(JSON.stringify(recorded.observed[fallback.id])), { tests: { '': [1, 1, 0] }, agree: ['null', '7'], differ: ['0'], typed: true });
   const active = { activeMutant: fallback.id, hitCount: 0, hitLimit: 1 };
   assert.match((() => { try { return call(output, active); } catch (error) { return error.message; } })(), /hit limit/);
   for (const mutant of mutants) assert.equal(call(output, { activeMutant: mutant.id }), call(edited(source, mutant), {}), mutant.replacement);
@@ -252,6 +265,12 @@ test('beside a literal right side, agreement is whether the source edit gives th
         const source = prelude + (condition ? `function f(l) { if (l ${operator} ${right}) return 'yes'; return 'no'; }\n` : `function f(l) { return l ${operator} ${right}; }\n`);
         const { output, mutants } = render(source);
         assert.ok(mutants.length >= 2, source);
+        // Signed zeros are different values: `1 / (x ?? 0)` is not `1 / (x || 0)` for -0.
+        if (operator === '??' && right === '0' && !condition) {
+          const zero = {};
+          run(output, [[-0]], zero, true);
+          assert.deepEqual([...zero.observed[mutants.find(mutant => mutant.targeted.form === 'or').id].tests.t0], [0, 1, 0]);
+        }
         const context = vm.createContext({});
         const inputs = lefts.map(left => [vm.runInContext(`(${left})`, context)]);
         const original = run(source, inputs);
@@ -271,7 +290,8 @@ test('beside a literal right side, agreement is whether the source edit gives th
       }
     }
   }
-  assert.ok(cases >= 1500 && agreeing > 300 && agreeing < cases - 300, `${agreeing} of ${cases}`);
+  assert.ok(cases >= 1400 && agreeing > 300 && agreeing < cases - 300, `${agreeing} of ${cases}`);
+  assert.ok(render('function f(a) { return a ?? -1n; }').mutants.every(mutant => mutant.targeted.pureRight));
   // Anything else on the right may have an effect, and is not evaluated to compare.
   assert.ok(render('function f(a, b) { return a ?? b.c; }').mutants.every(mutant => !mutant.targeted.pureRight));
 });
@@ -305,7 +325,151 @@ test('a right side that throws is still an observation: an edit that would not h
   const seen = form => JSON.parse(JSON.stringify(state.observed[mutants.find(mutant => mutant.targeted.form === form).id].tests));
   // `??` returns '' without calling; with the left side ignored the call is made in both tests; with the right
   // side's value ignored the call is still made and throws as before.
-  assert.deepEqual(seen('nullish'), { t0: [1, 0], t1: [0, 1] });
-  assert.deepEqual(seen('left'), { t0: [0, 1], t1: [1, 0] });
-  assert.deepEqual(seen('right'), { t0: [1, 0], t1: [1, 0] });
+  assert.deepEqual(seen('nullish'), { t0: [1, 0, 0], t1: [0, 1, 0] });
+  assert.deepEqual(seen('left'), { t0: [0, 1, 0], t1: [1, 0, 0] });
+  assert.deepEqual(seen('right'), { t0: [1, 0, 0], t1: [1, 0, 0] });
 });
+
+test('a written null or undefined on the left is found there, and the edits say for which value they differ', () => {
+  const source = prelude + "function f(l) { return [null == see('l', l), undefined !== see('l', l)]; }\n";
+  const { output, mutants } = render(source);
+  const describe = mutants.filter(mutant => mutant.targeted.literalSide !== undefined)
+    .map(mutant => [mutant.replacement, mutant.targeted.literalSide, mutant.targeted.differsFor, mutant.targeted.subject]);
+  assert.deepEqual(describe, [["null === see('l', l)", 0, 'undefined', "see('l', l)"], ["undefined === see('l', l)", 0, 'null', "see('l', l)"],
+    ["undefined != see('l', l)", 0, 'null', "see('l', l)"]]);
+  const inputs = [[null], [undefined], [0]];
+  const original = run(source, inputs);
+  const state = {};
+  assert.deepEqual(run(output, inputs, state, true), original);
+  for (const mutant of mutants) {
+    const rewritten = run(edited(source, mutant), inputs);
+    assert.deepEqual(run(output, inputs, { activeMutant: mutant.id }), rewritten, mutant.replacement);
+    if (mutant.targeted.literalSide === undefined) continue;
+    // An array holds both comparisons, so the whole result differs exactly where this comparison does.
+    for (const [index] of inputs.entries()) {
+      assert.equal(state.observed[mutant.id].tests['t' + index][0] === 1, rewritten[index] === original[index], `${mutant.replacement} for input ${index}`);
+    }
+  }
+  // Only the fallback edits ask for a typed left side, and only a probe of a logical operator wraps its right side.
+  const flags = text => render(text).mutants.map(mutant => [mutant.targeted.form, mutant.targeted.evidence === true, mutant.targeted.thunk === true]);
+  assert.deepEqual(flags('const f = (a, b) => a ?? b;'), [['left', false, true], ['right', false, true], ['or', true, true]]);
+  assert.deepEqual(flags('const f = (a, b) => a === b;'), [['true', false, false], ['false', false, false]]);
+});
+
+const operations = {
+  Add: (l, r) => `${l} + ${r}`, Sub: (l, r) => `${l} - ${r}`, Mul: (l, r) => `${l} * ${r}`, Div: (l, r) => `${l} / ${r}`, Rem: (l, r) => `${l} % ${r}`,
+  Max: (l, r) => `Math.max(${l}, ${r})`, Min: (l, r) => `Math.min(${l}, ${r})`,
+  Floor: l => `Math.floor(${l})`, Ceil: l => `Math.ceil(${l})`, Round: l => `Math.round(${l})`, Trunc: l => `Math.trunc(${l})`,
+  IndexFirst: l => `${l}[0]`, AtFirst: l => `${l}.at(0)`, AtLast: l => `${l}.at(-1)`, IndexLast: () => 'l[l.length - 1]',
+  Find: (l, r) => `${l}.find(${r})`, FindLast: (l, r) => `${l}.findLast(${r})`, FindIndex: (l, r) => `${l}.findIndex(${r})`,
+  FindLastIndex: (l, r) => `${l}.findLastIndex(${r})`, IndexOf: (l, r) => `${l}.indexOf(${r})`, LastIndexOf: (l, r) => `${l}.lastIndexOf(${r})`,
+};
+const operands = {
+  Zero: 0, One: 1, MinusOne: -1, Two: 2, Half: 0.5, MinusHalf: -0.5, NotANumber: NaN, Digits: '7', Record: { valueOf: undefined },
+  Empty: [], Single: [3], Pair: [1, 2], Repeated: [5, 5], Mixed: [1, 2, 1, 4], Letters: 'aba', Lookalike: { 0: 'x', length: 1 },
+  SearchPresent: 1, SearchAbsent: 9, IsOdd: n => n % 2 === 1, Unused: undefined,
+};
+// For these the probe works the edit out again, so what it records is exact. A search callback is not run again,
+// and an object among arithmetic operands is not converted again: there a recorded difference may be none.
+// Neither is text given to a function of Math.
+// Nor is the end of something that is neither an array nor text read again.
+const exact = (operation, left, right) => !operation.startsWith('Find') && left !== 'Record' && right !== 'Record' && left !== 'Lookalike' &&
+  !(['Max', 'Min', 'Floor', 'Ceil', 'Round', 'Trunc'].includes(operation) && [left, right].includes('Digits'));
+const valueRows = readFileSync(new URL('../verification/pict/targeted-values.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1)
+  .map(line => line.split('\t'));
+
+test('the value table has every required case', () => {
+  const seeds = readFileSync(new URL('../verification/pict/targeted-values.seed.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1);
+  const table = new Set(valueRows.map(row => row.join('\t')));
+  for (const seed of seeds) assert.ok(table.has(seed), seed);
+});
+
+for (const [operation, which, left, right, placement] of valueRows) {
+  test(`value agreement: ${operation} of ${left} and ${right}, ${which} edit, ${placement}`, () => {
+    const expression = operations[operation]("see('l', l)", "see('r', r)");
+    const grouped = operations[operation].length === 2 && !expression.includes('(' + "see('l'") && !expression.startsWith('Math') ? `(${expression})` : expression;
+    const body = { Returned: `return ${expression};`, Condition: `if (${expression}) return 'yes'; return 'no';`,
+      Member: `return typeof ${/^see\('l', l\) [-+*\/%] /.test(expression) ? grouped : expression}.valueOf;`, Argument: `return wrap(${expression});` }[placement];
+    const source = prelude + `function wrap(value) { return 'wrapped ' + typeof value + ' ' + String(value); }\nfunction f(l, r) { ${body} }\n`;
+    const { output, mutants } = render(source);
+    const mutant = mutants[{ First: 0, Second: 1, Third: 2 }[which]];
+    assert.ok(mutant?.targeted, `${which} edit of ${expression}: ${mutants.map(candidate => candidate.replacement).join(' | ')}`);
+    const inputs = [[operands[left], operands[right]]];
+    const original = run(source, inputs);
+    const state = {};
+    assert.deepEqual(run(output, inputs, state, true), original);
+    const rewritten = run(edited(source, mutant), inputs);
+    assert.deepEqual(run(output, inputs, { activeMutant: mutant.id }), rewritten, `${mutant.original} -> ${mutant.replacement}`);
+    const [agreed, differed, unsure] = state.observed[mutant.id].tests.t0;
+    assert.equal(agreed + differed + unsure, 1);
+    // An agreement is never wrong. Where the probe can work the edit out it always says which, and a difference
+    // is never wrong either. (An operation that throws is recorded as a difference whatever the edit does.)
+    if (agreed) assert.equal(rewritten[0], original[0]);
+    if (exact(operation, left, right)) assert.equal(unsure, 0);
+    else if (operation.startsWith('Find') && operands[left].length > 1 && Array.isArray(operands[left])) assert.equal(unsure, 1);
+    if (differed && placement !== 'Condition' && placement !== 'Member' && !original[0].includes('threw')) assert.notEqual(rewritten[0], original[0]);
+  });
+}
+
+test('the edits of arithmetic, of Math and of the ends of a sequence, and where none is offered', () => {
+  const list = source => collectMutations(source, 'f.ts', { targeted: true }).filter(mutation => mutation.targeted)
+    .map(mutation => [mutation.name, mutation.targeted.operator, mutation.targeted.form, mutation.replacement]);
+  const texts = source => list(source).map(entry => entry[3]);
+  assert.deepEqual(list('const f = (a: number, b: number) => a + b;'), [
+    [targetedRules.arithmetic, '+', '-', '(a - b)'], [targetedRules.arithmetic, '+', '*', '(a * b)']]);
+  // An operand that is an operation keeps its group under the other operator.
+  assert.deepEqual(texts('const f = (a: number, b: number, c: number) => a - b * c;'), ['(a + (b * c))', '(a / (b * c))', '(b / c)', '(b + c)']);
+  // Text is joined, not added.
+  assert.deepEqual(texts("const f = (a: string) => 'id-' + a + `-${a}`;"), []);
+  assert.deepEqual(list('const f = (a: number, b: number) => Math.max(a, b) - Math.min(a, 0);').filter(entry => entry[0] === targetedRules.extreme), [
+    [targetedRules.extreme, 'max', 'min', 'Math.min(a, b)'], [targetedRules.extreme, 'min', 'max', 'Math.max(a, 0)']]);
+  assert.deepEqual(texts('const f = (a: number) => [Math.floor(a), Math.ceil(a), Math.round(a), Math.trunc(a)];'), [
+    'Math.ceil(a)', 'Math.round(a)', 'Math.trunc(a)', 'Math.floor(a)', 'Math.round(a)', 'Math.floor(a)', 'Math.ceil(a)', 'Math.floor(a)', 'Math.round(a)']);
+  // Only the two-argument forms of max and min, without a spread, on Math itself.
+  assert.deepEqual(texts('const f = (a: number[], m: typeof Math) => [Math.max(...a), Math.max(1, 2, 3), Math.min(1), m.max(1, 2), Math.floor(1, 2), Math?.round(1)];'), []);
+  assert.deepEqual(list('const f = (a: number[], g: (n: number) => boolean) => [a[0], a.at(0), a.at(-1), a[a.length - 1], a.find(g), a.findLastIndex(g), a.lastIndexOf(1)];')
+    .map(entry => entry.slice(1)), [['idx0', 'at-1', 'a.at(-1)'], ['at0', 'at-1', 'a.at(-1)'], ['at-1', 'at0', 'a.at(0)'], ['idxLast', 'idx0', 'a[0]'],
+    ['find', 'findLast', 'a.findLast(g)'], ['findLastIndex', 'findIndex', 'a.findIndex(g)'], ['lastIndexOf', 'indexOf', 'a.indexOf(1)']]);
+  // The index of a last element is worked out by its probe and holds no edit of its own.
+  assert.deepEqual(texts('const f = (o: { items: number[] }) => o.items[o.items.length - 1] + 1;'), ['(o.items[o.items.length - 1] - 1)', '(o.items[o.items.length - 1] * 1)', 'o.items[0]']);
+  // Reading the sequence twice must give the same: a call, or another sequence in the index, is no last element.
+  assert.deepEqual(texts('const f = (g: () => number[], a: number[], b: number[]) => [g()[g().length - 1], a[b.length - 1], a[a.length - 2]];')
+    .filter(text => !/[-+*\/] [12]\)$/.test(text)), []);
+  // An element that is written, removed, called or reached through `?.` stays as it is.
+  assert.deepEqual(texts('function f(a: any[], o: any) { a[0] = 1; a[0]++; delete a[0]; a[0](); a[0]`x`; [a[0]] = [1]; for (a[0] of a) {} return [o?.[0], o?.a[0], a.at(1), a.at(), a.find(), a.indexOf(1, 2), a.find(...a)]; }'), []);
+  assert.deepEqual(texts('class B extends Array<number> { first() { return super.find(n => n > 0); } }').filter(text => text.includes('find')), []);
+  assert.deepEqual(texts('const f = (a: number[][]) => a[0][0].toFixed();'), ['a[0].at(-1)', 'a.at(-1)']);
+});
+
+const valueHazards = {
+  'an element that is written, removed and called beside one that is read': 'var a = [3, 4, 5]; var o = { list: [function () { return this === o.list; }] }; a[0] = a[0] + 1; a[0]++; delete a[2]; var result = [a[0], a.length, o.list[0](), a[a.length - 1]]',
+  'a last element of a property chain and of this': 'var o = { items: [1, 2, 3], last() { return this.items[this.items.length - 1]; } }; var result = [o.items[o.items.length - 1], o.last()]',
+  'arithmetic beside its neighbours': 'var a = 7, b = 2, c = 3; var result = [a - b * c, a * b - c, a / b / c, -a - -b, a % b + c, a + b + "x", 2 ** a - 1]',
+  'the functions of Math on numbers and on other values': 'var result = [Math.max(1, 2), Math.min("3", 2), Math.floor(-0.5), Math.round(2.5), Math.trunc("7.9"), Math.ceil(null), String(Math.max(0, -0))]',
+  'the ends of text, of an empty array and of an array-like': 'var like = { 0: "x", length: 1 }; var result = ["ab"[0], "ab".at(-1), [].at(0), [][0], like[0], [1, 2, 1].indexOf(1), "aba".lastIndexOf("a"), [1, 2, 3].find(function (n) { return n > 1; }), [4, 5].findLastIndex(function (n) { return n > 9; })]',
+  'a search whose callback counts its calls': 'var calls = 0; var found = [1, 2, 3].find(function (n) { calls++; return n > 1; }); var result = [found, calls]',
+};
+for (const [name, source] of Object.entries(valueHazards)) {
+  test(`value probes preserve ${name}`, () => {
+    const evaluate = (code, state = {}, recording = false) => {
+      const context = vm.createContext({ __stryker__: state });
+      if (recording) context[session] = { phase: 'baseline' };
+      try {
+        vm.runInContext(code, context, { timeout: 1_000 });
+        return JSON.stringify(context.result);
+      } catch (error) {
+        return error.constructor.name;
+      }
+    };
+    const rendered = render(source, 'hazard.js');
+    const expected = evaluate(source);
+    assert.doesNotMatch(expected, /Error$/, expected);
+    assert.ok(rendered.mutants.length > 0);
+    assert.equal(evaluate(rendered.output), expected, rendered.output);
+    // Recording works the edits out again and must not be seen by the program.
+    assert.equal(evaluate(rendered.output, {}, true), expected);
+    for (const mutant of rendered.mutants) {
+      assert.equal(evaluate(rendered.output, { activeMutant: mutant.id }), evaluate(edited(source, mutant)), `${mutant.original} -> ${mutant.replacement}`);
+    }
+  });
+}

@@ -32,12 +32,24 @@ function ${table}(i) {
   return (${table}.rows || (${table}.rows = ${JSON.stringify(rows)}))[i];
 }
 function ${see}(i, l, r) {
-  var site = ${table}(i), op = site[0], edits = site[2], scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
-  var logical = op === '&&' || op === '||' || op === '??', missing = l === null || l === void 0, k, form;
+  var site = ${table}(i), op = site[0], edits = site[2], kind = site[6], scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
+  var logical = kind === 'l', missing = l === null || l === void 0, k, form;
   var taken = op === '&&' ? !!l : op === '||' ? !l : missing;
   var constant = op === '&&' ? true : op === '||' ? false : void 0;
   function equal(operator, a, b) { return operator === '===' ? a === b : operator === '!==' ? a !== b : operator === '==' ? a == b : a != b; }
+  // An operation on values: arithmetic, the functions of Math, and the ends of a sequence.
+  function apply(o, a, b) {
+    switch (o) {
+      case '+': return a + b; case '-': return a - b; case '*': return a * b; case '/': return a / b; case '%': return a % b;
+      case 'max': return Math.max(a, b); case 'min': return Math.min(a, b);
+      case 'floor': return Math.floor(a); case 'ceil': return Math.ceil(a); case 'round': return Math.round(a); case 'trunc': return Math.trunc(a);
+      case 'idx0': return a[0]; case 'idxLast': return a[a.length - 1]; case 'at0': return a.at(0); case 'at-1': return a.at(-1);
+      case 'find': return a.find(b); case 'findLast': return a.findLast(b); case 'findIndex': return a.findIndex(b);
+      case 'findLastIndex': return a.findLastIndex(b); case 'indexOf': return a.indexOf(b); default: return a.lastIndexOf(b);
+    }
+  }
   function edited(f) {
+    if (kind !== 'e') return apply(f, l, r);
     if (f === 'true') return true;
     if (f === 'false') return false;
     if (f === 'loose') return equal(op.slice(0, 2), l, r);
@@ -45,10 +57,28 @@ function ${see}(i, l, r) {
     var subject = site[3] ? l : r, other = (site[3] ? r : l) === null ? void 0 : null;
     return (subject === other) === (op === '==');
   }
+  function original() { return logical ? (taken ? r() : l) : kind === 'e' ? equal(op, l, r) : apply(op, l, r); }
+  function plain(v) { return v === null || (typeof v !== 'object' && typeof v !== 'function'); }
+  function is(a, b) { return a === b ? a !== 0 || 1 / a === 1 / b : a !== a && b !== b; }
+  // Whether the edit gives the same, where the operation can be worked out again without an effect: on plain
+  // values and numbers, and on arrays and text for their ends. Otherwise it is not known (null).
+  function alike(f, value) {
+    var sequence = scope.Array.isArray(l);
+    if (kind === 'a' ? !plain(l) || !plain(r) : kind === 'm' ? typeof l !== 'number' || (site[7] === 2 && typeof r !== 'number')
+      : !sequence && typeof l !== 'string') return null;
+    // The callback of a search would run again: with at most one element both ends are the same search.
+    if (op.slice(0, 4) === 'find') return sequence && l.length <= 1 ? true : null;
+    try {
+      return is(value, apply(f, l, r));
+    } catch (error) {
+      return false;
+    }
+  }
   function show(v) {
     var t = typeof v;
     return v === null ? 'null' : t === 'string' ? '"' + (v.length > 40 ? v.slice(0, 40) + '...' : v) + '"'
-      : t === 'number' ? (v === 0 && 1 / v < 0 ? '-0' : '' + v) : t === 'boolean' || t === 'undefined' ? '' + v : t === 'bigint' ? v + 'n' : t;
+      : t === 'number' ? (v === 0 && 1 / v < 0 ? '-0' : '' + v) : t === 'boolean' || t === 'undefined' ? '' + v : t === 'bigint' ? v + 'n'
+        : scope.Array.isArray(v) ? 'array of ' + v.length : t;
   }
   if (ns.activeMutant !== void 0) for (k = 0; k < edits.length; k++) if (edits[k][0] === ns.activeMutant) form = edits[k][1];
   if (form !== void 0) {
@@ -60,11 +90,11 @@ function ${see}(i, l, r) {
   }
   ${cover}.apply(null, site[4]);
   var state = scope[scope.Symbol.for('targeted-mutation-ts/session')];
-  if (!state || state.phase !== 'baseline') return logical ? (taken ? r() : l) : equal(op, l, r);
-  // A right side that throws is observed too: an edit that evaluates it throws as well, and any other differs.
+  if (!state || state.phase !== 'baseline') return original();
+  // An operation that throws is observed too: an edit that evaluates the same right side throws as well, and any other differs.
   var value, threw = true;
   try {
-    value = logical ? (taken ? r() : l) : equal(op, l, r);
+    value = original();
     threw = false;
   } finally {
     if (threw) note();
@@ -76,18 +106,20 @@ function ${see}(i, l, r) {
     for (k = 0; k < edits.length; k++) {
       var f = edits[k][1], same, other;
       if (threw) same = logical && (f !== 'nullish' || missing);
-      else if (!logical) same = value === edited(f);
+      else if (kind === 'e') same = value === edited(f);
+      else if (!logical) same = alike(f, value);
       else if (site[5] || f === 'right') {
         // A written right side can be evaluated to compare; the constant of an ignored right side needs no evaluation.
         if (f === 'right' && !taken) same = true;
         else {
           other = f === 'right' ? constant : f === 'left' ? r() : (f === 'or' ? !l : missing) ? r() : l;
-          same = site[1] ? !value === !other : value === other || (value !== value && other !== other);
+          same = site[1] ? !value === !other : is(value, other);
         }
       } else same = f === 'left' ? taken : missing || !!l;
-      var entry = seen[edits[k][0]] || (seen[edits[k][0]] = { tests: {} }), counts = entry.tests[test] || (entry.tests[test] = [0, 0]);
-      counts[same ? 0 : 1]++;
-      if (!entry[same ? 'agree' : 'differ']) entry[same ? 'agree' : 'differ'] = logical && (!taken || threw) ? [show(l)] : [show(l), show(logical ? value : r)];
+      var entry = seen[edits[k][0]] || (seen[edits[k][0]] = { tests: {} }), counts = entry.tests[test] || (entry.tests[test] = [0, 0, 0]);
+      var slot = same === null ? 'unsure' : same ? 'agree' : 'differ';
+      counts[same === null ? 2 : same ? 0 : 1]++;
+      if (!entry[slot]) entry[slot] = (logical ? !taken || threw : site[7] === 1) ? [show(l)] : [show(l), show(logical ? value : r)];
       var type = typeof l;
       if (type === 'number' || type === 'string' || type === 'bigint' || type === 'boolean') entry.typed = true;
     }
@@ -163,15 +195,19 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         // The leading space separates the switch from a keyword such as `do` or `else`.
         out += group.statement ? ` ${choice}` : group.leading ? ` void 0, (${choice})` : `(${choice})`;
       } else if (group.kind === 'observed') {
-        const [leftStart, leftEnd, rightStart, rightEnd] = group.operands;
-        const left = render(leftStart, leftEnd);
-        const right = render(rightStart, rightEnd);
+        // The operands are rendered in source order; what stands between them is the operation the probe performs.
+        const operands = group.operands.map(([start, end]) => render(start, end));
         const { operator, boolean, thunk } = group.targeted;
         // Only the edits beside a written null or undefined say on which side it stands.
         const literalSide = group.mutants.find(mutant => mutant.targeted.literalSide !== undefined)?.targeted.literalSide ?? 0;
+        const kind = thunk ? 'l' : ['===', '!==', '==', '!='].includes(operator) ? 'e' : operator.length === 1 ? 'a'
+          : ['max', 'min', 'floor', 'ceil', 'round', 'trunc'].includes(operator) ? 'm' : 's';
         probed.push([operator, boolean ? 1 : 0, group.mutants.map(mutant => [mutant.id, mutant.targeted.form]), literalSide,
-          group.mutants.map(mutant => mutant.id), group.targeted.pureRight ? 1 : 0]);
-        const call = `${see}(${probed.length - 1}, ${left}, ${thunk ? `() => (${right})` : right})`;
+          group.mutants.map(mutant => mutant.id), group.targeted.pureRight ? 1 : 0, kind, operands.length]);
+        if (thunk) operands[1] = `() => (${operands[1]})`;
+        const call = `${see}(${probed.length - 1}, ${operands.join(', ')})`;
+        // Nothing inside the expression is left to render: an index the probe works out itself has no switch.
+        while (index < ordered.length && ordered[index].placement[0] < last) index++;
         out += group.statement ? ` ${call}` : group.leading ? ` void 0, (${call})` : `(${call})`;
       } else if (group.kind === 'block') {
         // The semicolon ends a directive prologue that relies on a line break.

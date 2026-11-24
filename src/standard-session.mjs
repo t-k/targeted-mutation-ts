@@ -225,7 +225,8 @@ try {
     if (agreement.size) {
       const named = ids => [...ids].map(id => tests.get(id)).map(({ id, project, file, name }) => ({ id, project, file, name }));
       record({ observed: Object.fromEntries([...agreement].map(([id, seen]) => [id, { agreeing: seen.agreeing.size,
-        differing: named(seen.differing), outside: seen.outside, differ: seen.differ, agree: seen.agree }])) });
+        differing: named(seen.differing), unsure: named(seen.unsure), outside: seen.outside, differ: seen.differ, agree: seen.agree,
+        unknown: seen.unknown }])) });
     }
     const focusedTrace = numericTraces(baseline.records, focused, tests);
     for (const { id } of focused) {
@@ -273,7 +274,7 @@ try {
       // `??` and `||` give the same for null, undefined and every object. Where no test gave the left side a value
       // of a type that has a falsy one, the two are taken for the same code and the edit is not tried.
       const seen = agreement.get(id);
-      if (mutant.evidence && seen && !seen.differing.size && !seen.outside && !seen.typed) {
+      if (mutant.evidence && seen && !seen.differing.size && !seen.unsure.size && !seen.outside && !seen.typed) {
         record({ id, status: 'ignored', statusReason: 'No test gives the left side a number, a string or a boolean, so both operators are taken to behave alike here' });
         continue;
       }

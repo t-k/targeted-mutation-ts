@@ -104,6 +104,10 @@ test('observations are merged per edit over test files, and a test that differed
     {},
   ], known);
   assert.deepEqual([...merged.get('m').agreeing], ['c']);
+  // A test in which the recording could not tell is neither, unless another file saw it differ.
+  const unsure = indexAgreement([{ observed: { m: { tests: { a: [1, 0, 1], b: [0, 0, 2], c: [3, 0, 0], '': [0, 0, 1] }, unsure: ['array of 2'] } } },
+    { observed: { m: { tests: { b: [0, 1, 0], c: [0, 0, 1] } } } }], known).get('m');
+  assert.deepEqual([[...unsure.agreeing], [...unsure.unsure].sort(), [...unsure.differing], unsure.outside, unsure.unknown], [[], ['a', 'c'], ['b'], true, ['array of 2']]);
   assert.deepEqual([...merged.get('m').differing].sort(), ['a', 'b']);
   assert.deepEqual([merged.get('m').outside, merged.get('m').typed, merged.get('m').agree, merged.get('m').differ], [false, true, ['1'], ['0']]);
   // Outside the passing tests only a difference counts.
@@ -134,6 +138,12 @@ test('a gap is described only for a surviving targeted edit that was observed', 
   assert.equal(missing({ operator: '??', form: 'right', boolean: false, left: 'a' }), 'a test in which `a` is null or undefined and the right side is not undefined');
   assert.equal(missing({ operator: '===', form: 'true', left: 'a' }, 'a === b'), 'a test in which `a === b` is false');
   assert.equal(missing({ operator: '!=', form: 'other', left: 'a', subject: 'a', differsFor: 'null' }), 'a test in which `a` is null');
+  assert.equal(missing({ operator: '===', form: 'loose', left: 'null', subject: 'b', differsFor: 'undefined' }), 'a test in which `b` is undefined');
+  assert.equal(missing({ operator: '==', form: 'strict', left: 'a', subject: 'a', differsFor: 'undefined' }), 'a test in which `a` is undefined');
+  // Text is shown on one line and cut at sixty characters.
+  assert.equal(missing({ operator: '&&', form: 'left', left: 'a\n\t  .b' }), 'a test in which `a .b` is falsy');
+  assert.equal(missing({ operator: '&&', form: 'left', left: 'x'.repeat(60) }), `a test in which \`${'x'.repeat(60)}\` is falsy`);
+  assert.equal(missing({ operator: '&&', form: 'left', left: 'x'.repeat(61) }), `a test in which \`${'x'.repeat(57)}...\` is falsy`);
   assert.equal(missing({ operator: '||', form: 'nullish', left: 'a\n  .b' + 'c'.repeat(80) }).length, 'a test in which `` is 0, 0n, \'\', false or NaN'.length + 60);
   assert.match(missing({ operator: '??', form: 'or', left: 'a', pureRight: true }), /NaN and not the right side's value$/);
 });
@@ -150,4 +160,58 @@ test('without a session the targeted edits are plain source edits beside the com
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('arithmetic, Math and sequence ends: the tests are told which numbers and lists they lack', () => {
+  const values = `export const total = (price: number, fee: number, factor: number) => (price + fee) * factor;
+export const clamp = (n: number, low: number) => Math.max(n, low);
+export const pages = (items: number, size: number) => Math.floor(items / size);
+export const newest = (list: number[]) => list[list.length - 1];
+export const firstOdd = (list: number[]) => list.find(n => n % 2 === 1);
+export const where = (list: string[], name: string) => list.indexOf(name);
+`;
+  const suite = `import { expect, it } from 'vitest';
+import { clamp, firstOdd, newest, pages, total, where } from './subject';
+it('total', () => { expect(total(100, 0, 1)).toBe(100); expect(total(50, 0, 1)).toBe(50); });
+it('clamp', () => { expect(clamp(3, 3)).toBe(3); });
+it('pages', () => { expect(pages(10, 5)).toBe(2); expect(pages(-9, 3)).toBe(-3); });
+it('newest', () => { expect(newest([7])).toBe(7); });
+it('firstOdd', () => { expect(firstOdd([2, 3, 4])).toBe(3); });
+it('where', () => { expect(where(['a', 'b'], 'b')).toBe(1); });
+`;
+  const { status, stderr, report } = analyzeProject({ 'subject.ts': values, 'subject.test.ts': suite });
+  assert.equal(status, 0, stderr);
+  const verdict = replacement => report.mutants.find(mutant => mutant.replacement === replacement)?.status;
+  const gap = replacement => report.diagnostics.find(entry => entry.mutations.some(mutation => mutation.replacement === replacement));
+  // `fee` is always 0 and `factor` always 1.
+  assert.deepEqual([verdict('(price - fee)'), verdict('(price * fee)')], ['survived', 'killed']);
+  assert.equal(gap('(price - fee)').missing, 'a test in which `price + fee` is not `(price - fee)`');
+  assert.deepEqual(gap('(price - fee)').observed.operands, ['100', '0']);
+  assert.equal(verdict('((price + fee) / factor)'), 'survived');
+  assert.equal(gap('Math.min(n, low)').missing, 'a test in which the two arguments of `Math.max(n, low)` differ');
+  // Every quotient in the tests is whole, so no rounding is told from another; each edit says which number would.
+  assert.equal(gap('Math.ceil(items / size)').missing, 'a test in which `items / size` is not a whole number');
+  assert.equal(gap('Math.round(items / size)').missing, 'a test in which `items / size` is a number with a fractional part of .5 or more');
+  assert.equal(gap('Math.trunc(items / size)').missing, 'a test in which `items / size` is negative and not a whole number');
+  assert.equal(gap('list[0]').missing, 'a test in which `list` has two or more elements and the first is not the last');
+  assert.equal(gap('list.lastIndexOf(name)').missing, 'a test in which `list` holds the searched value more than once');
+  // The callback of a search is not run again, so the recording cannot tell whether a list with two matches was given.
+  const search = gap('list.findLast(n => n % 2 === 1)');
+  assert.deepEqual([search.kind, search.uncertain, search.tests.map(entry => entry.name), search.example.operands], ['INPUT GAP', true, ['firstOdd'], ['array of 3', 'function']]);
+  const text = renderText(report);
+  assert.match(text, /add a test in which `list` has two or more elements, or an assertion that tells them apart: the recording cannot tell whether a test has such an input/);
+});
+
+test('the missing input of the value rules', () => {
+  const mutant = { id: 'm', location: { file: 'a.ts', line: 1, column: 1, start: 0, end: 9 }, edit: [0, 9], status: 'survived', evidence: 'reexecuted' };
+  const seen = { agreeing: 1, differing: [], unsure: [], outside: false };
+  const missing = (mutatorName, targeted, original = 'x', replacement = 'y') => targetedGap({ ...mutant, mutatorName, original, replacement, targeted }, seen).missing;
+  assert.equal(missing('rounding-swap/v1', { operator: 'floor', form: 'trunc', left: 'n' }), 'a test in which `n` is negative and not a whole number');
+  assert.equal(missing('rounding-swap/v1', { operator: 'trunc', form: 'floor', left: 'n' }), 'a test in which `n` is negative and not a whole number');
+  assert.equal(missing('rounding-swap/v1', { operator: 'ceil', form: 'round', left: 'n' }), 'a test in which `n` is a number with a fractional part below .5 that is not whole');
+  assert.equal(missing('rounding-swap/v1', { operator: 'round', form: 'floor', left: 'n' }), 'a test in which `n` is a number with a fractional part of .5 or more');
+  assert.equal(missing('rounding-swap/v1', { operator: 'trunc', form: 'round', left: 'n' }), 'a test in which `n` is not a whole number');
+  assert.equal(missing('sequence-end/v1', { operator: 'findIndex', form: 'findLastIndex', left: 'rows' }), 'a test in which `rows` has two or more elements');
+  assert.equal(missing('sequence-end/v1', { operator: 'lastIndexOf', form: 'indexOf', left: 'rows' }), 'a test in which `rows` holds the searched value more than once');
+  assert.equal(missing('sequence-end/v1', { operator: 'at0', form: 'at-1', left: 'rows' }), 'a test in which `rows` has two or more elements and the first is not the last');
 });

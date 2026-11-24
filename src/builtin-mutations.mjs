@@ -25,7 +25,12 @@ export const shiftPlaceholder = '\u0000shift\u0000';
 // of a logical operator decides and still evaluates it.
 export const targetedRules = {
   constant: 'equality-constant/v1', nullish: 'nullish-equality/v1', ignored: 'ignored-operand/v1', fallback: 'nullish-fallback/v1',
+  arithmetic: 'arithmetic-swap/v1', extreme: 'extreme-swap/v1', rounding: 'rounding-swap/v1', ends: 'sequence-end/v1',
 };
+// Two other operators for each arithmetic one: its inverse, and the one the same operands most often agree on.
+const arithmeticSwaps = { '+': ['-', '*'], '-': ['+', '/'], '*': ['/', '+'], '/': ['*', '%'], '%': ['/', '+'] };
+const roundingSwaps = { floor: ['ceil', 'round', 'trunc'], ceil: ['floor', 'round'], round: ['floor', 'ceil'], trunc: ['floor', 'round'] };
+const endSwaps = { find: 'findLast', findLast: 'find', findIndex: 'findLastIndex', findLastIndex: 'findIndex', indexOf: 'lastIndexOf', lastIndexOf: 'indexOf' };
 const ignoredValue = { '&&': 'true', '||': 'false', '??': 'undefined' };
 
 export function collectMutations(text, file, { dialect, selected = () => true, shifts = false, targeted = false, ts = loadTypeScript() } = {}) {
@@ -129,8 +134,11 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
 
   const mutations = [];
   let live = 0;
+  // Code that a probe does not evaluate again (the index in `list[list.length - 1]`) holds no edit of its own.
+  const unprobed = [];
   function add(name, node, replacement, placement, extra, from) {
     const start = begin(node);
+    if (extra?.targeted && unprobed.some(([from, to]) => from <= start && node.end <= to)) return;
     for (let line = lineOf(start); line <= lineOf(node.end); line++) if (!selected(line + 1)) return;
     const ignored = ignoreReason(name, lineOf(start), from);
     // A shift switch is not a mutation of the set, so it does not count for the rules about statement removals.
@@ -221,13 +229,32 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const inner = strip(node);
     return ts.isNumericLiteral(inner) || ts.isBigIntLiteral(inner) || ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner) ||
       [K.TrueKeyword, K.FalseKeyword, K.NullKeyword].includes(inner.kind) || (ts.isIdentifier(inner) && inner.text === 'undefined') ||
-      (ts.isPrefixUnaryExpression(inner) && inner.operator === K.MinusToken && ts.isNumericLiteral(inner.operand));
+      (ts.isPrefixUnaryExpression(inner) && inner.operator === K.MinusToken && (ts.isNumericLiteral(inner.operand) || ts.isBigIntLiteral(inner.operand)));
   }
+  const writtenFalsy = node => {
+    const inner = strip(node);
+    return written(node) && (['0', '0n', 'false', 'null', 'undefined'].includes(source(inner)) || source(inner).length === 2 && !ts.isNumericLiteral(inner));
+  };
 
   const nullishLiteral = node => {
     const inner = strip(node);
     return inner.kind === K.NullKeyword ? 'null' : ts.isIdentifier(inner) && inner.text === 'undefined' ? 'undefined' : undefined;
   };
+
+  // An edit of one expression that a probe can stand for. `operands` are the parts the probe evaluates, in order.
+  function probed(node, operator, operands, shared = {}) {
+    // The probe stands where the expression stands, inside its own parentheses: what encloses them (a template
+    // tag, `delete`) still applies to what the probe gives.
+    const statement = ts.isExpressionStatement(node.parent);
+    const boolean = onlyTruthUsed(node);
+    const spans = operands.map(operand => [begin(operand), operand.end]);
+    return (rule, form, replacement, more) => add(rule, node, replacement, { kind: 'observed', placement: [begin(node), node.end], statement,
+      leading: !statement && begin(node) === statementStart, mutated: ` ${replacement} ` },
+    { targeted: { operator, form, boolean, left: source(operands[0]), ...shared, ...more }, operands: spans });
+  }
+
+  // A different precedence would regroup an unparenthesized operand, so operands keep their own group.
+  const grouped = side => ts.isBinaryExpression(side) ? `(${source(side)})` : source(side);
 
   function targetedEdits(node) {
     const operator = operatorOf(node);
@@ -235,14 +262,14 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const left = source(node.left);
     const right = source(node.right);
     const boolean = onlyTruthUsed(node);
-    const operands = [begin(node.left), node.left.end, begin(node.right), node.right.end];
-    // The probe stands where the expression stands, inside its own parentheses: what encloses them (a template
-    // tag, `delete`) still applies to what the probe gives.
-    const statement = ts.isExpressionStatement(node.parent);
-    const place = replacement => ({ kind: 'observed', placement: [begin(node), node.end], statement,
-      leading: !statement && begin(node) === statementStart, mutated: ` ${replacement} ` });
-    const edit = (rule, form, replacement, more) => add(rule, node, replacement, place(replacement),
-      { targeted: { operator, form, boolean, left, ...more }, operands });
+    const edit = probed(node, operator, [node.left, node.right]);
+    if (isBinary(node) && arithmeticSwaps[operator]) {
+      const leftKind = isBinary(strip(node.left)) ? strip(strip(node.left).right) : strip(node.left);
+      // Text is joined with `+`; another operator there is a type error and not a wrong program.
+      if (isString(strip(node.right)) || isString(leftKind)) return;
+      for (const swap of arithmeticSwaps[operator]) edit(targetedRules.arithmetic, swap, `(${grouped(node.left)} ${swap} ${grouped(node.right)})`);
+      return;
+    }
     if (isBinary(node) && ['===', '!==', '==', '!='].includes(operator)) {
       edit(targetedRules.constant, 'true', `(${left}, ${right}, true)`);
       edit(targetedRules.constant, 'false', `(${left}, ${right}, false)`);
@@ -261,14 +288,63 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
           { literalSide, differsFor: written[literalSide], subject });
       }
     } else if (isLogical(node) && !staysInPlace(node.right)) {
-      // A different precedence would regroup an unparenthesized operand, so operands keep their own group.
-      const operand = side => ts.isBinaryExpression(side) ? `(${source(side)})` : source(side);
+      const operand = grouped;
       const more = { thunk: true, ...(written(node.right) ? { pureRight: true } : {}) };
       edit(targetedRules.ignored, 'left', `(${left}, ${right})`, more);
       edit(targetedRules.ignored, 'right', `(${left} ${operator} (${right}, ${ignoredValue[operator]}))`, more);
+      // Where only the truth is used, a written falsy fallback makes `??` and `||` the same for every value.
+      if (boolean && writtenFalsy(node.right)) return;
       if (operator === '??') edit(targetedRules.fallback, 'or', `(${operand(node.left)} || ${operand(node.right)})`, { ...more, evidence: true });
       // Where only the truth of the value is used, nobody writes `??` for `||`.
       else if (operator === '||' && !boolean) edit(targetedRules.fallback, 'nullish', `(${operand(node.left)} ?? ${operand(node.right)})`, { ...more, evidence: true });
+    }
+  }
+
+  const rename = (node, name, to) => text.slice(begin(node), begin(name)) + to + text.slice(name.end, node.end);
+
+  function targetedCall(node) {
+    const callee = node.expression;
+    if (!ts.isPropertyAccessExpression(callee) || !ts.isIdentifier(callee.name) || ts.isOptionalChain(node) ||
+        callee.expression.kind === K.SuperKeyword || node.arguments.some(ts.isSpreadElement)) return;
+    const name = callee.name.text;
+    const args = node.arguments;
+    if (ts.isIdentifier(callee.expression) && callee.expression.text === 'Math') {
+      if ((name === 'max' || name === 'min') && args.length === 2) {
+        probed(node, name, [args[0], args[1]])(targetedRules.extreme, name === 'max' ? 'min' : 'max', rename(node, callee.name, name === 'max' ? 'min' : 'max'));
+      } else if (roundingSwaps[name] && args.length === 1) {
+        const edit = probed(node, name, [args[0]]);
+        for (const swap of roundingSwaps[name]) edit(targetedRules.rounding, swap, rename(node, callee.name, swap));
+      }
+    } else if (endSwaps[name] && args.length === 1) {
+      probed(node, name, [callee.expression, args[0]])(targetedRules.ends, endSwaps[name], rename(node, callee.name, endSwaps[name]));
+    } else if (name === 'at' && args.length === 1 && ['0', '-1'].includes(source(args[0]).replace(/\s/g, ''))) {
+      const first = source(args[0]) === '0';
+      probed(node, first ? 'at0' : 'at-1', [callee.expression])(targetedRules.ends, first ? 'at-1' : 'at0',
+        text.slice(begin(node), begin(args[0])) + (first ? '-1' : '0') + text.slice(args[0].end, node.end));
+    }
+  }
+
+  // A name or a chain of property names: reading it twice gives the same and does nothing else.
+  const plainReference = node => ts.isIdentifier(node) || node.kind === K.ThisKeyword ||
+    (ts.isPropertyAccessExpression(node) && !node.questionDotToken && ts.isIdentifier(node.name) && plainReference(node.expression));
+
+  function targetedElement(node) {
+    const [parent, child] = up(node);
+    const written = isAssignmentTarget(node) || ts.isDeleteExpression(parent) ||
+      ((ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) && [K.PlusPlusToken, K.MinusMinusToken].includes(parent.operator)) ||
+      (isAssignment(parent) && parent.left === child);
+    // As a callee the element is called with its sequence as `this`.
+    const called = (ts.isCallExpression(parent) && parent.expression === child) || (ts.isTaggedTemplateExpression(parent) && parent.tag === child);
+    if (written || called || ts.isOptionalChain(node) || node.expression.kind === K.SuperKeyword) return;
+    const index = strip(node.argumentExpression);
+    const receiver = source(node.expression);
+    if (ts.isNumericLiteral(index) && index.text === '0') {
+      probed(node, 'idx0', [node.expression])(targetedRules.ends, 'at-1', `${receiver}.at(-1)`);
+    } else if (ts.isBinaryExpression(index) && operatorOf(index) === '-' && ts.isNumericLiteral(strip(index.right)) && strip(index.right).text === '1' &&
+        ts.isPropertyAccessExpression(strip(index.left)) && strip(index.left).name.text === 'length' && plainReference(node.expression) &&
+        source(strip(index.left).expression) === receiver) {
+      probed(node, 'idxLast', [node.expression])(targetedRules.ends, 'idx0', `${receiver}[0]`);
+      unprobed.push([begin(node.argumentExpression), node.argumentExpression.end]);
     }
   }
 
@@ -373,6 +449,8 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const before = mutations.length;
     if (ts.isBinaryExpression(node)) binary(node);
     if (targeted && ts.isBinaryExpression(node)) targetedEdits(node);
+    else if (targeted && ts.isCallExpression(node)) targetedCall(node);
+    else if (targeted && ts.isElementAccessExpression(node)) targetedElement(node);
     if (ts.isExpression(node) && !ts.isParenthesizedExpression(node)) condition(node);
     if (ts.isArrayLiteralExpression(node) && !isAssignmentTarget(node)) {
       add('ArrayDeclaration', node, node.elements.length ? '[]' : '["Stryker was here"]');
