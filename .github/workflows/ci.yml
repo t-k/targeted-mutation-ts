@@ -105,3 +105,26 @@ jobs:
             test/targeted-run.test.mjs \
             test/assertion-strength.test.mjs \
             test/change-undone.test.mjs
+
+  windows-portable:
+    name: Windows portable package (windows-latest)
+    if: github.event.repository.visibility == 'public'
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.14.0
+          package-manager-cache: false
+
+      - run: npm ci
+
+      - name: Pack main package and test portable Windows runtime
+        run: |
+          node scripts/pack-runtime.mjs --only main
+          node scripts/test-package.mjs --portable

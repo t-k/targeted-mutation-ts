@@ -14,7 +14,8 @@ const syntax = 'build/typescript-syntax/';
 mkdirSync(output, { recursive: true });
 
 function run(command, args, options = {}) {
-  const result = spawnSync(command, args, { encoding: 'utf8', timeout: 120_000, ...options });
+  const shell = process.platform === 'win32' && command.endsWith('.cmd');
+  const result = spawnSync(command, args, { encoding: 'utf8', timeout: 120_000, shell, ...options });
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')}: ${result.error?.message ?? result.stderr + result.stdout}`);
   return result.stdout;
 }
