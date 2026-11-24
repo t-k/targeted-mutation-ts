@@ -992,6 +992,9 @@ TmtPulseParser_resource_declaration_start(
   uint8_t first
 );
 
+TmtPulseParser_cursor
+TmtPulseParser_local_enum_start(TmtPulseMemory_tape input, uint32_t start);
+
 extern uint32_t TmtPulseParser_mixed_locals_status;
 
 TmtPulseParser_parser_state
@@ -1029,6 +1032,13 @@ TmtPulseParser_record_local_pattern(
   TmtPulseParser_parser_state st,
   uint32_t first,
   uint32_t used
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_enum_body_tokens(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t fuel0
 );
 
 typedef struct TmtPulseParser_generator_head_s

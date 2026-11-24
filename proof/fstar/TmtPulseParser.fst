@@ -2174,6 +2174,37 @@ let interface_tail (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt 
   let! st = (fun () -> if extends then interface_bases input #frame { st with offset = plus st.offset 7ul } 64ul else read_ret input #frame (st)) in
   (let! anf_value_2 = (fun () -> (consume input #frame st 123uy)) in object_type input #frame anf_value_2 15ul input.size)
 
+// The body of an enum inside a function is read as tokens up to its closing brace. The emitter evaluates
+// every member itself and declines the file unless each is a name with a constant or a string, so no
+// text from the body reaches the output unchecked.
+let rec enum_body_tokens (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
+  let! st = (fun () -> skip input #frame state) in
+  if st.status <> 0ul then read_ret input #frame st
+  else if fuel = 0ul then read_ret input #frame (failed st 3ul)
+  else
+    let! byte = (fun () -> peek input #frame st.offset) in
+    if byte = 125uy then consume input #frame st 125uy
+    else if byte = 34uy || byte = 39uy then
+      let! literal = (fun () -> string_end input #frame (next st.offset) byte input.size false) in
+      enum_body_tokens input #frame (from_cursor st literal) (minus fuel 1ul)
+    else if G.identifier_continue byte || byte = 61uy || byte = 44uy || byte = 43uy || byte = 45uy || byte = 42uy || byte = 47uy ||
+        byte = 37uy || byte = 124uy || byte = 38uy || byte = 94uy || byte = 126uy || byte = 40uy || byte = 41uy || byte = 60uy ||
+        byte = 62uy || byte = 46uy then
+      enum_body_tokens input #frame { st with offset = next st.offset } (minus fuel 1ul)
+    else read_ret input #frame (failed st 1ul)
+
+// `enum` or `const enum` at the start of a statement, with the offset of the enum keyword.
+let local_enum_start (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! first = (fun () -> peek input #frame start) in
+  let! constant = (fun () -> if first = 99uy then keyword input #frame start 5ul 0x636f6e7374uL else read_ret input #frame false) in
+  let! gap = (fun () -> if constant then trivia input #frame (plus start 5ul) else read_ret input #frame { at = start; ok = true; newline = false }) in
+  let! enumeration = (fun () -> if gap.ok && (constant || first = 101uy) then keyword input #frame gap.at 4ul 0x656e756duL else read_ret input #frame false) in
+  let! name_gap = (fun () -> if enumeration then trivia input #frame (plus gap.at 4ul) else read_ret input #frame { at = start; ok = false; newline = false }) in
+  let! name_start = (fun () -> peek input #frame name_gap.at) in
+  // `enum` is an ordinary name in a script, so a declaration needs its name on the same line.
+  read_ret input #frame { at = gap.at; ok = enumeration && name_gap.ok && not name_gap.newline && not gap.newline && G.identifier_start name_start; newline = false }
+
 let local_type_declaration (input:tape) (state:parser_state) (width:U32.t) (floor used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! start = (fun () -> skip input { state with offset = plus state.offset width }) in
   // A local type shares its name with a value, as a module-level type does.
@@ -2629,6 +2660,23 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         else ret input (failed after 1ul)) in
       postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
         open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
+    else if ch = 60uy && not st.jsx_allowed && input.capture_types then
+      // A type assertion in angle brackets applies to the unary expression after it. The operand has to follow
+      // on the same line, because erasing the assertion must not leave a line break in front of it.
+      if fuel = 0ul then ret input (empty_range (failed st 3ul))
+      else
+        let! typed = (fun () -> annotation_type input { st with offset = next start_pos } 16ul 64ul) in
+        let! closing = (fun () -> skip input typed) in
+        let! closed = (fun () -> consume input closing 62uy) in
+        let! gap = (fun () -> trivia input closed.offset) in
+        // Two opening angles in a row are a shift operator to the scanner, as in <<T>(x: T) => T>f.
+        let! doubled = (fun () -> same input (next start_pos) 60uy) in
+        if doubled || closed.status <> 0ul || not gap.ok || gap.newline then ret input (empty_range (failed st 1ul))
+        else
+          // Kind 31 is erased only when it lies on one line.
+          let! recorded = (fun () -> record_jsx_span input closed 31ul start_pos closed.offset) in
+          let! child = (fun () -> atom input recorded (minus fuel 1ul)) in
+          ret input ({ child with range = { child.range with G.first = start_pos }; target = NotAssignable })
     else if ch = 60uy && st.jsx_allowed then
       if fuel = 0ul then ret input (empty_range (failed st 3ul))
       else
@@ -3625,7 +3673,19 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
     else ret input false) in
   let! resource = (fun () -> if not root_control && allow_resource && (first = 117uy || first = 97uy && st.await_allowed) then
     resource_declaration_start input st first else ret input (failed st 1ul)) in
-  if width <> 0ul then local_declaration input st width floor used fuel
+  let! enumeration = (fun () -> if input.capture_types && not root_control && strict_locals st && (first = 101uy || width = 5ul) then
+    local_enum_start input st.offset else ret input { at = st.offset; ok = false; newline = false }) in
+  if enumeration.ok then
+    // A block-scoped enum. Kind 32 tells the emitter to declare it with let.
+    let declared = record_binding_mode st LexicalLocals in
+    let! named = (fun () -> skip input { declared with offset = plus enumeration.at 4ul }) in
+    let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
+    let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
+    let! opening = (fun () -> (let! body = (fun () -> skip input tracked) in consume input body 123uy)) in
+    let! closed = (fun () -> enum_body_tokens input opening input.size) in
+    let! recorded = (fun () -> record_jsx_span input closed 32ul st.offset closed.offset) in
+    ret input ({ decl with state = { recorded with local_names = decl.used } })
+  else if width <> 0ul then local_declaration input st width floor used fuel
   else if resource.status = 0ul then
     local_declarators input (record_binding_mode resource LexicalLocals) true true floor used fuel input.size
   else if function_head.ok then

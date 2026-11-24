@@ -606,3 +606,81 @@ test('well-formed leading triple-slash comments stay on the module routes and ma
   assert.equal(malformed.code, null);
   assert.equal(malformed.diagnostics[0].code, 1084);
 });
+
+test('angle-bracket assertions are erased in a .ts file', () => {
+  for (const source of [
+    'export function f(o: unknown) { return <any>o; }',
+    'export let dummy = <Record<string, number>>{};',
+    'export const s = (<Observable<T>>source).pipe(x);',
+    'observable.source = <Observable<T>>source;\nexport {};',
+    'x.y = <T>z;',
+    'export const a = <any>(<unknown>b), c = [<number>d, <string>e.f(g)], h = f(<T>x, <U>y);',
+    'export const n = -<number>x + +<number><unknown>y;',
+    'export const t = typeof (<any>source).getSubject === "function";',
+    'export const isBaz = (x: any): x is Baz => x && (<Baz>x).baz !== undefined;',
+    'export const r = <any>((x: number) => x);',
+    'export const k = <const>["a", "b"], l = <any>await p, v = <T>x!.y;',
+    'export const w = new (<any>Ctor)(1), z = <any>new Ctor();',
+    'export const q = <any>`t${1}`, u = <number><any>"s";',
+    'export const g = <T>(x: T) => x, h = <T,>(x: T): T => <T>x;',
+    'export const o = <any>{ a: 1 }, f = [<any>function () {}, <any>class {}], g2 = h(<T>{}), r2 = < <T>(x: T) => T>f;',
+    'export function k(x: any) { x = <any>{}; return <any>{ a: x }; }',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'assert.ts').backend, 'pulse', source);
+  }
+});
+
+test('an assertion that erasing would split from its operand, and one in other dialects, is left to the reference route', () => {
+  for (const source of [
+    'export function f(o: unknown) { return <any>\n o; }',
+    'export function f(o: unknown) { return <{\n a: 1 }>o; }',
+    'export const p = <number>value ** 2;',
+    // Erased, these would open a block, a declaration or an arrow body where the source has an expression.
+    'export const v = (a: number) => <any>{};',
+    '<Foo>{ a: undefined };\nexport {};',
+    'export function f(x: any) { if (x) <any>{ a: 1 }; else <any>function () {}; }',
+    'label: <any>{ a: 1 };\nexport {};',
+    '<any>class {};\nexport {};',
+    // Two opening angles are a shift operator to the scanner.
+    'var r3 = <<T>(x: T) => T>f;\nexport {};',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'assert.ts' }).backend, 'pulse', source);
+  }
+  assert.equal(compile(Buffer.from('x.y = <T>z;\nexport {};'), { file: 'assert.js' }).code, null);
+  assert.match(compile(Buffer.from('const a = <T>z</T>;\nexport {};'), { file: 'assert.tsx' }).code, /children/);
+});
+
+test('an enum inside a function or a block is lowered with a block-scoped binding', () => {
+  for (const source of [
+    'test("native enum", () => { enum Fruits { apple = "apple", orange = "orange", } const s = z.nativeEnum(Fruits); });\nexport {};',
+    'export function f() { enum E { A, B = 1 << 2, C } return E.C; }',
+    'export function f(x: number) { if (x) { const enum K { Z = 9 } return K.Z; } enum E { A } return E.A; }',
+    'export const g = () => { enum GridLineColor { Bold = "#cccccc", Regular = "#e5e5e5" } return GridLineColor.Bold; };',
+    'export enum Top { A }\nexport function f() { enum Inner { B = 2 } return [Top.A, Inner.B]; }',
+    'export function f() { let a = b\n enum E { A }\n return [a, E.A]; }',
+    '{ enum B { A } }\nexport {};',
+    'export function f() { enum E { A = 1, B = A + 1, "c d" = 3 } return <number>E.B; }',
+  ]) {
+    const result = sameAsTypeScript(source, 'local.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.match(result.code, /\blet \w+; \(function/, source);
+  }
+  // In a constructor that also has parameter properties TypeScript declares the enum with var. Both bind in the body.
+  const mixed = compile(Buffer.from('export class C { constructor(public a: number) { enum L { X = 4 } this.a = L.X; } }'), { file: 'local.ts' });
+  assert.equal(mixed.backend, 'pulse');
+  assert.match(mixed.code, /this\.a = a; let L; \(function \(L\) \{L\[L\["X"\]=4\]="X";\}\)\(L\|\|\(L=\{\}\)\); this\.a = L\.X;/);
+  const view = sameAsTypeScript('export const v = () => { enum E { A } return <i>{E.A}</i>; };', 'local.tsx');
+  assert.equal(view.backend, 'pulse');
+});
+
+test('enums inside blocks that the emitter cannot evaluate, and enum as a plain name, stay off the native route', () => {
+  for (const source of [
+    'export function f() { enum E { A = g() } return E.A; }',
+    'export function f() { enum E { A } enum E { B } return E; }',
+    'export function f() { enum E { A = `x` } }',
+    'export function f() { enum E { [k] = 1 } }',
+    'export function f() { declare enum E { A } return 1; }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'local.ts' }).backend, 'pulse', source);
+  }
+});

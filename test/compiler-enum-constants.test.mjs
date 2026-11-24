@@ -86,6 +86,25 @@ test('constant enum initializers evaluate as TypeScript evaluates them', () => {
   assert.ok(native > total * 0.5, `${native} of ${total}`);
 });
 
+test('constant enum initializers evaluate the same inside a function', () => {
+  let native = 0;
+  for (let seed = 1; seed <= 1500; seed++) {
+    const source = 'export function make() {\n' + declaration(seed).replace('export enum', 'enum') + 'return E;\n}\n';
+    const expected = reference(source);
+    if (expected === null) continue;
+    const result = compile(Buffer.from(source), { file: 'e.ts' });
+    if (result.backend !== 'pulse') continue;
+    native++;
+    const members = code => {
+      const context = vm.createContext({});
+      vm.runInContext(code.replace(/^export /gm, ''), context);
+      return Object.entries(vm.runInContext('make()', context)).map(([key, member]) => [key, Object.is(member, -0) ? '-0' : member]);
+    };
+    assert.deepEqual(members(result.code), members(expected), `seed ${seed}: ${source}${result.code}`);
+  }
+  assert.ok(native > 700, String(native));
+});
+
 test('enum initializers outside the constant evaluator match TypeScript or leave the native route', () => {
   for (const [source, native] of [
     ['export enum E { A = 0x10, B = 0b101, C = 0o17, D }', true],

@@ -504,22 +504,23 @@ static bool enum_remember(enum_scope *scope, TmtGrammar_span key, int64_t value,
   return true;
 }
 
-static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exported, enum_scope *scope);
+static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exported, bool local, enum_scope *scope);
 
-static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported) {
+static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported, bool local) {
   enum_scope scope;
   scope.items = scope.inline_items;
   scope.count = 0;
   scope.capacity = enum_inline_members;
   scope.binding = binding;
-  const bool emitted = emit_enum_members(lower, binding, exported, &scope);
+  const bool emitted = emit_enum_members(lower, binding, exported, local, &scope);
   if (scope.items != scope.inline_items) free(scope.items);
   return emitted;
 }
 
-static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exported, enum_scope *scope) {
+static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exported, bool local, enum_scope *scope) {
   writer *out = &lower->output;
-  put(out, exported ? "export var " : "var ");
+  /* TypeScript declares an enum inside a block with let, so it is scoped to the block like the source. */
+  put(out, exported ? "export var " : local ? "let " : "var ");
   source_bytes(lower, binding.first, binding.last);
   put(out, "; (function (");
   source_bytes(lower, binding.first, binding.last);
@@ -1170,7 +1171,7 @@ static char *lower_one(uint8_t *source, uint32_t size, bool jsx, bool typescript
   lowering lower = { .input = input, .at = head.body, .classic = classic, .output.limit = (size_t)size * 32 + 1024,
     .output.runs = runs };
   source_bytes(&lower, 0, head.declaration);
-  const bool emitted = head.kind == 1 ? emit_enum(&lower, head.name_span, true) : emit_jsx(&lower, head);
+  const bool emitted = head.kind == 1 ? emit_enum(&lower, head.name_span, true, false) : emit_jsx(&lower, head);
   const uint32_t suffix = lower.at;
   if (emitted && trivia(&lower)) {
     consume(&lower, ';');
@@ -1210,6 +1211,9 @@ static bool module_marker_at(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
 }
 
 static uint32_t find_marker(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
+  /* The scan reads the same grammar as the emitting parse, including the forms that only that parse records. */
+  input.capture_types = true;
+  input.count_only = true;
   while (at < input.size) {
     if (module_marker_at(input, at, jsx)) return at;
     const uint32_t next = TmtPulseCompiler_next_module_item(input, jsx, at);
@@ -1297,6 +1301,8 @@ enum {
   contextual_reference = 28,
   uncertified_syntax = 29,
   decorated_modifiers = 30,
+  prefix_assertion = 31,
+  local_enum = 32,
 };
 
 typedef struct {
@@ -1515,7 +1521,7 @@ static bool erasable_expression_range(TmtPulseMemory_tape input, TmtGrammar_cand
   const uint8_t first = input.source[span.first];
   if (kind == type_annotation) return first == ':';
   if (kind == terminated_class_field) return first == ':' || (first == '?' && span.last - span.first == 1);
-  if (kind == type_arguments || kind == generic_arrow) return first == '<' && input.source[span.last - 1] == '>';
+  if (kind == type_arguments || kind == generic_arrow || kind == prefix_assertion) return first == '<' && input.source[span.last - 1] == '>';
   if (kind == type_marker) return span.last - span.first == 1 && (first == '?' || first == '!');
   if (first != 'a' && first != 's') return false;
   const TmtGrammar_span context = event.right;
@@ -1652,6 +1658,41 @@ static bool begins_runtime_declaration(TmtPulseMemory_tape input, uint32_t at) {
     TmtPulseParser_keyword(input, at, 5, UINT64_C(0x636c617373));
 }
 
+/*
+ * Erasing an assertion in front of `{`, `function`, `class` or `async` leaves that token where the assertion
+ * began. At the start of a statement or of an arrow body it would then open a block or a declaration. The
+ * erasure is kept only behind a token that can only be followed by an expression.
+ */
+static bool assertion_exposes_statement(TmtPulseMemory_tape input, TmtGrammar_span span) {
+  const TmtPulseParser_cursor operand = TmtPulseParser_trivia(input, span.last);
+  if (!operand.ok || operand.at >= input.size) return true;
+  const uint8_t *word = input.source + operand.at;
+  const uint32_t rest = input.size - operand.at;
+  const bool opens = *word == '{' ||
+    (rest > 8 && !memcmp(word, "function", 8) && !TmtGrammar_identifier_continue(word[8])) ||
+    (rest > 5 && !memcmp(word, "class", 5) && !TmtGrammar_identifier_continue(word[5])) ||
+    (rest > 5 && !memcmp(word, "async", 5) && !TmtGrammar_identifier_continue(word[5]));
+  if (!opens) return false;
+  uint32_t at = span.first;
+  while (at && (input.source[at - 1] == ' ' || input.source[at - 1] == '\t')) at--;
+  if (!at) return true;
+  const uint8_t before = input.source[at - 1];
+  if (before == '(' || before == ',' || before == '[' || before == '?' || before == '&' || before == '|' || before == '+' ||
+      before == '-' || before == '*' || before == '!' || before == '~' || before == '%' || before == '^') return false;
+  /* An equals sign that is not the head of an arrow. */
+  if (before == '=') return false;
+  static const char *const words[] = { "return", "typeof", "void", "await", "yield", "throw" };
+  for (size_t index = 0; index < sizeof(words) / sizeof(*words); index++) {
+    const uint32_t width = (uint32_t)strlen(words[index]);
+    if (at >= width && !memcmp(input.source + at - width, words[index], width) &&
+        (at == width || !TmtGrammar_identifier_continue(input.source[at - width - 1]))) return false;
+  }
+  return true;
+}
+
+/* An enum at module level or inside a block. */
+static bool enum_record(uint32_t kind) { return kind == runtime_enum || kind == local_enum; }
+
 static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool allow_properties,
   projection_facts *facts)
 {
@@ -1664,7 +1705,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
     if (event.original == uncertified_syntax) facts->uncertified = true;
-    if (event.original == runtime_enum) facts->runtime_enums = true;
+    if (enum_record(event.original)) facts->runtime_enums = true;
     if (event.original == parameter_property) {
       if (!allow_properties || facts->properties == 512) goto decline;
       facts->properties++;
@@ -1677,7 +1718,9 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     const bool heritage = event.original == class_implements;
     const bool local_type = event.original == erased_local_type;
     const bool field = event.original == terminated_class_field;
-    if (!member && !modifiers && !arrow && !result && !heritage && !local_type && !field &&
+    const bool prefix = event.original == prefix_assertion;
+    if (prefix && assertion_exposes_statement(input, event.left)) goto decline;
+    if (!member && !modifiers && !arrow && !result && !heritage && !local_type && !field && !prefix &&
         (event.original < type_annotation || event.original > type_marker)) continue;
     const TmtGrammar_span span = event.left;
     if (span.first >= span.last || span.last > input.size) goto decline;
@@ -1835,13 +1878,13 @@ static int compare_insertions(const void *lhs, const void *rhs) {
   return a->name.first < b->name.first ? -1 : a->name.first > b->name.first;
 }
 
-static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span);
+static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, bool local);
 
 /* Copies a range of the projection and lowers the enum declarations recorded inside it. */
 static bool copy_lowering_enums(lowering *lower, uint32_t records, uint32_t *enum_index, uint32_t first, uint32_t last, bool enums) {
   while (enums && *enum_index < records) {
     const TmtGrammar_candidate event = lower->input.output[*enum_index];
-    if (event.original != runtime_enum) {
+    if (!enum_record(event.original)) {
       (*enum_index)++;
       continue;
     }
@@ -1849,7 +1892,7 @@ static bool copy_lowering_enums(lowering *lower, uint32_t records, uint32_t *enu
     if (span.first >= last) break;
     if (span.first < first || span.last > last) return false;
     source_bytes(lower, first, span.first);
-    if (!emit_recorded_enum(lower, span)) return false;
+    if (!emit_recorded_enum(lower, span, event.original == local_enum)) return false;
     first = span.last;
     (*enum_index)++;
   }
@@ -1919,14 +1962,14 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
   return lower.output.code;
 }
 
-static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span) {
+static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, bool local) {
   const uint32_t size = lower->input.size;
   if (span.first >= span.last || span.last > size) return false;
   lower->input.size = span.last;
   const TmtPulseCompiler_runtime_head head = TmtPulseCompiler_read_runtime_head(lower->input, span.first, false, true, true);
   lower->at = head.body;
   const bool emitted = (head.kind == 1 || head.kind == 3) && head.declaration == span.first && head.body < span.last &&
-    emit_enum(lower, head.name_span, head.kind == 1) && lower->at == span.last;
+    !(local && head.kind == 1) && emit_enum(lower, head.name_span, head.kind == 1, local) && lower->at == span.last;
   lower->input.size = size;
   return emitted;
 }
@@ -1935,11 +1978,11 @@ static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, s
   lowering lower = { .input = input, .output.limit = (size_t)input.size * 32 + 1024, .output.runs = runs };
   uint32_t copied = 0;
   for (uint32_t index = 0; index < records; index++) {
-    if (input.output[index].original != runtime_enum) continue;
+    if (!enum_record(input.output[index].original)) continue;
     const TmtGrammar_span span = input.output[index].left;
     if (span.first < copied || span.first >= span.last || span.last > input.size) goto decline;
     source_bytes(&lower, copied, span.first);
-    if (!emit_recorded_enum(&lower, span)) goto decline;
+    if (!emit_recorded_enum(&lower, span, input.output[index].original == local_enum)) goto decline;
     copied = span.last;
   }
   if (!copied) return NULL;
@@ -2245,7 +2288,7 @@ static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic,
       if (head.declaration < keep || head.body > end) goto decline;
       source_bytes(&lower, keep, head.declaration);
       lower.at = head.body;
-      const bool emitted = head.kind == 1 || head.kind == 3 ? emit_enum(&lower, head.name_span, head.kind == 1) :
+      const bool emitted = head.kind == 1 || head.kind == 3 ? emit_enum(&lower, head.name_span, head.kind == 1, false) :
         emit_jsx(&lower, head);
       const uint32_t finish = lower.at;
       if (!emitted || !trivia(&lower)) goto decline;
@@ -2303,14 +2346,14 @@ static bool source_jsx_with_enums(lowering *lower, uint32_t first, uint32_t last
 #ifdef TMT_V8_VALIDATOR
   while (*index < records) {
     const TmtGrammar_candidate event = lower->input.output[*index];
-    if (event.original != runtime_enum) {
+    if (!enum_record(event.original)) {
       (*index)++;
       continue;
     }
     const TmtGrammar_span span = event.left;
     if (span.first >= last) break;
     if (span.first < first || span.last > last || !source_jsx(lower, first, span.first, 32) ||
-        !emit_recorded_enum(lower, span)) return false;
+        !emit_recorded_enum(lower, span, event.original == local_enum)) return false;
     first = span.last;
     (*index)++;
   }
@@ -2363,7 +2406,7 @@ static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records) 
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
     const uint32_t kind = event.original;
-    if (kind != 0 && kind != 5 && kind != lexical_text && kind != runtime_enum) continue;
+    if (kind != 0 && kind != 5 && kind != lexical_text && !enum_record(kind)) continue;
     if (event.left.first > event.left.last || event.left.last > input.size) {
       free(regions);
       return false;
@@ -2420,7 +2463,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
     if (input.output[index].original == 0) spans[elements++] = input.output[index].left;
     else if (input.output[index].original == 5) spans[--expression_begin] = input.output[index].left;
 #ifdef TMT_V8_VALIDATOR
-    else if (input.output[index].original == runtime_enum) enum_records = records;
+    else if (enum_record(input.output[index].original)) enum_records = records;
 #endif
   }
   const size_t expression_count = records - expression_begin;
