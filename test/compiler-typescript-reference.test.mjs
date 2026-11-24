@@ -586,6 +586,7 @@ test('well-formed leading triple-slash comments stay on the module routes and ma
   const body = '\nimport { value } from "./v.js";\nexport const f: number = value;\n';
   for (const [comment, native] of [
     ['/// <reference types="vitest" />', true], ['///<reference path="./a.d.ts"/>', true], ['/// <reference lib="es2015" />', true],
+    ['/// <reference types = "vite/client" />', true], ['///  <reference   path  =  \'a\'   />', true],
     ["/// <reference types='a' />", true], ['/// plain note', true], ['#!/usr/bin/env node\n// one\n/// <reference types="a" />\n/* two */', true],
     ['/// <reference />', false], ['/// <reference foo="a" />', false], ['/// <reference types="a" >', false],
     ['/// <amd-module name="x" />', false], ['/// <reference types="a" resolution-mode="import" />', false],
@@ -665,10 +666,13 @@ test('an enum inside a function or a block is lowered with a block-scoped bindin
     assert.equal(result.backend, 'pulse', source);
     assert.match(result.code, /\blet \w+; \(function/, source);
   }
-  // In a constructor that also has parameter properties TypeScript declares the enum with var. Both bind in the body.
-  const mixed = compile(Buffer.from('export class C { constructor(public a: number) { enum L { X = 4 } this.a = L.X; } }'), { file: 'local.ts' });
-  assert.equal(mixed.backend, 'pulse');
-  assert.match(mixed.code, /this\.a = a; let L; \(function \(L\) \{L\[L\["X"\]=4\]="X";\}\)\(L\|\|\(L=\{\}\)\); this\.a = L\.X;/);
+  // Beside parameter properties TypeScript declares a block enum with var, which is visible before its
+  // declaration. That pair is left to TypeScript.
+  for (const source of ['export class C { constructor(public a: number) { enum L { X = 4 } this.a = L.X; } }',
+    'export class Job { constructor(public state: string) { const read = () => typeof State; this.state = read(); enum State { Ready } } }',
+    'export class C { constructor(public a: number) {} }\nexport function f() { enum L { X } return L.X; }']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'local.ts' }).backend, 'pulse', source);
+  }
   const view = sameAsTypeScript('export const v = () => { enum E { A } return <i>{E.A}</i>; };', 'local.tsx');
   assert.equal(view.backend, 'pulse');
 });

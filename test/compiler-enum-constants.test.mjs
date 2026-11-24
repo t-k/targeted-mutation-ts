@@ -136,6 +136,10 @@ test('enum initializers outside the constant evaluator match TypeScript or leave
     ['export enum E { true = 2, null = 3, A = true | null }', false],
     ['export enum E { false = 7, Default = E.false + 1 }', true],
     ['export enum E { A = 1, B = A++ + 2 }', false],
+    // A reserved word is a syntax error as a bare reference, even when a member has that name.
+    ['export enum E { default = 0, initial = default }', false],
+    ['export enum E { return = 1, x = return + 1 }', false],
+    ['export enum E { default = 0, initial = E.default + 2 }', true],
     // Two members of one name, quoted or not, are left to TypeScript, which resolves a reference to the first.
     ['export enum E { "Ready" = 1, Ready = 2, Default = Ready }', false],
     ['export enum E { A = 1, A = 2 }', false],

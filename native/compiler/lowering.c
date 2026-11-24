@@ -327,7 +327,11 @@ static bool enum_literal(lowering *lower, int64_t *value, bool *decimal) {
 /* A member may be named like a literal or an operator word, which a bare reference would not reach. */
 static bool enum_reserved(const uint8_t *word, uint32_t width) {
   static const char *const words[] = { "true", "false", "null", "this", "undefined", "NaN", "Infinity", "void", "typeof",
-    "new", "delete", "await", "yield", "super", "in", "instanceof", "function", "class", "async", "import" };
+    "new", "delete", "await", "yield", "super", "in", "instanceof", "function", "class", "async", "import",
+    /* The remaining reserved words are syntax errors as a bare reference. */
+    "break", "case", "catch", "const", "continue", "debugger", "default", "do", "else", "enum", "export", "extends",
+    "finally", "for", "if", "return", "switch", "throw", "try", "var", "while", "with", "let", "static", "implements",
+    "interface", "package", "private", "protected", "public" };
   for (size_t index = 0; index < sizeof(words) / sizeof(*words); index++) {
     if (strlen(words[index]) == width && !memcmp(word, words[index], width)) return true;
   }
@@ -1310,6 +1314,8 @@ typedef struct {
   /* The parser kept TypeScript-only syntax, or a name whose runtime binding only V8 can decide. */
   bool uncertified;
   bool runtime_enums;
+  /* An enum inside a block. Beside parameter properties TypeScript declares it with var, so that pair is declined. */
+  bool local_enums;
   uint32_t properties;
 } projection_facts;
 
@@ -1706,6 +1712,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     const TmtGrammar_candidate event = input.output[index];
     if (event.original == uncertified_syntax) facts->uncertified = true;
     if (enum_record(event.original)) facts->runtime_enums = true;
+    if (event.original == local_enum) facts->local_enums = true;
     if (event.original == parameter_property) {
       if (!allow_properties || facts->properties == 512) goto decline;
       facts->properties++;
@@ -2042,7 +2049,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   const bool needs_module_marker = code && esm && facts.remove_statement && !retained_module_marker(projected, marker, records);
   bool unlowered_enum = facts.runtime_enums;
   if (facts.properties) {
-    if (!module) goto enum_only;
+    if (!module || facts.local_enums) goto enum_only;
     /* One pass inserts the property statements and lowers the enums between them. */
     char *lowered = emit_parameter_properties(input, code, records, facts.properties, facts.runtime_enums, length, runs);
     if (!lowered) goto enum_only;
@@ -2183,13 +2190,19 @@ static bool plain_triple_slash_line(const uint8_t *line, uint32_t width) {
   if (width - at < 11 || memcmp(line + at, "<reference ", 11)) return false;
   at += 11;
   while (at < width && line[at] == ' ') at++;
-  static const char *const names[] = { "types=", "path=", "lib=" };
+  static const char *const names[] = { "types", "path", "lib" };
   uint32_t name = 0;
   for (; name < 3; name++) {
     const uint32_t length = (uint32_t)strlen(names[name]);
     if (width - at >= length && !memcmp(line + at, names[name], length)) { at += length; break; }
   }
-  if (name == 3 || at >= width || (line[at] != '"' && line[at] != '\'')) return false;
+  if (name == 3) return false;
+  /* TypeScript allows spaces around the equals sign. */
+  while (at < width && line[at] == ' ') at++;
+  if (at >= width || line[at] != '=') return false;
+  at++;
+  while (at < width && line[at] == ' ') at++;
+  if (at >= width || (line[at] != '"' && line[at] != '\'')) return false;
   const uint8_t quote = line[at++];
   const uint32_t value = at;
   while (at < width && line[at] != quote && line[at] != '<' && line[at] != '>' && line[at] >= 32 && line[at] < 127) at++;
