@@ -457,7 +457,8 @@ for (const row of ambientRows) {
 
 test('an ambient declaration cannot erase a runtime namespace or a malformed member', () => {
   const runtime = 'export namespace State { export const value: number = 3; }';
-  assert.notEqual(compile(runtime).backend, 'pulse');
+  // It is lowered, not erased: the object still receives its member.
+  assert.match(compile(runtime).code, /State\.value\s*=\s*3/);
   const malformed = 'export {}; declare global { interface Window { value: } }';
   assert.equal(compile(malformed).code, null);
 });

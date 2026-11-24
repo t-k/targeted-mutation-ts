@@ -1390,6 +1390,16 @@ enum {
   local_enum = 32,
   /* `export =` up to its equals sign, written as `module.exports =`. */
   export_assignment = 33,
+  /*
+   * A namespace that exists at run time: its head through the opening brace, `export const ` up to the name,
+   * `export ` before a function or a class, the closing brace of that declaration, and the closing brace of
+   * the namespace.
+   */
+  namespace_head = 34,
+  namespace_variable = 35,
+  namespace_declaration = 36,
+  namespace_declaration_end = 37,
+  namespace_end = 38,
 };
 
 typedef struct {
@@ -1783,7 +1793,11 @@ static bool assertion_exposes_statement(TmtPulseMemory_tape input, TmtGrammar_sp
 
 /* An enum at module level or inside a block. */
 /* A record whose text is replaced: an enum at module level or inside a block, or the head of an export assignment. */
-static bool enum_record(uint32_t kind) { return kind == runtime_enum || kind == local_enum || kind == export_assignment; }
+static bool namespace_record(uint32_t kind) { return kind >= namespace_head && kind <= namespace_end; }
+
+static bool enum_record(uint32_t kind) {
+  return kind == runtime_enum || kind == local_enum || kind == export_assignment || namespace_record(kind);
+}
 
 static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool allow_properties,
   projection_facts *facts)
@@ -2060,6 +2074,8 @@ static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, uint32_t k
   const uint32_t size = lower->input.size;
   const bool local = kind == local_enum;
   if (span.first >= span.last || span.last > size) return false;
+  /* A namespace is lowered only where no other lowering shares the file. */
+  if (namespace_record(kind)) return false;
   if (kind == export_assignment) {
     put(&lower->output, "module.exports =");
     lower->at = span.last;
@@ -2074,16 +2090,132 @@ static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, uint32_t k
   return emitted;
 }
 
+static bool plain_name(TmtPulseMemory_tape input, TmtGrammar_span name) {
+  if (name.first >= name.last || name.last > input.size || !TmtGrammar_identifier_start(input.source[name.first])) return false;
+  for (uint32_t at = name.first; at < name.last; at++) {
+    if (input.source[at] >= 128 || !TmtGrammar_identifier_continue(input.source[at])) return false;
+  }
+  return true;
+}
+
+/* How often a name stands as a whole word in a range. Text in strings and comments counts as well. */
+static uint32_t word_count(TmtPulseMemory_tape input, uint32_t first, uint32_t last, TmtGrammar_span name) {
+  const uint32_t width = name.last - name.first;
+  uint32_t count = 0;
+  for (uint32_t at = first; at + width <= last; at++) {
+    if (memcmp(input.source + at, input.source + name.first, width)) continue;
+    const bool before = at > first && (input.source[at - 1] >= 128 || TmtGrammar_identifier_continue(input.source[at - 1]));
+    const bool after = at + width < last && (input.source[at + width] >= 128 || TmtGrammar_identifier_continue(input.source[at + width]));
+    if (!before && !after) count++;
+  }
+  return count;
+}
+
+static void put_name(lowering *lower, TmtGrammar_span name) {
+  write_bytes(&lower->output, lower->input.source + name.first, name.last - name.first);
+}
+
+static bool skip_word(TmtPulseMemory_tape input, uint32_t *at, const char *word) {
+  const uint32_t width = (uint32_t)strlen(word);
+  if (input.size - *at <= width || memcmp(input.source + *at, word, width) ||
+      TmtGrammar_identifier_continue(input.source[*at + width])) return false;
+  *at += width;
+  return true;
+}
+
+/*
+ * Writes the text TypeScript gives a namespace: var N;(function (N) { ... })(N||(N={}));
+ * An exported variable is written as a property of N. If its name stood anywhere else in the body, that
+ * reference would need N. in front of it as well, so such a namespace is declined, as is one whose own name
+ * stands in its body.
+ */
+static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t index, TmtGrammar_span *scope) {
+  const TmtPulseMemory_tape input = lower->input;
+  const TmtGrammar_candidate event = input.output[index];
+  const TmtGrammar_span span = event.left;
+  if (event.original == namespace_head) {
+    const TmtGrammar_span name = event.right;
+    if (scope->first != scope->last || !plain_name(input, name)) return false;
+    uint32_t tail = index + 1;
+    while (tail < records && input.output[tail].original != namespace_end) {
+      if (input.output[tail].original == namespace_head) return false;
+      tail++;
+    }
+    if (tail == records) return false;
+    const uint32_t body_last = input.output[tail].left.first;
+    if (body_last < span.last || word_count(input, span.last, body_last, name) != 0) return false;
+    for (uint32_t member = index + 1; member < tail; member++) {
+      if (input.output[member].original != namespace_variable) continue;
+      const TmtGrammar_span variable = input.output[member].right;
+      if (!plain_name(input, variable) || word_count(input, span.last, body_last, variable) != 1) return false;
+    }
+    const bool exported = input.size - span.first > 6 && !memcmp(input.source + span.first, "export", 6);
+    put(&lower->output, exported ? "export var " : "var ");
+    put_name(lower, name);
+    put(&lower->output, ";(function (");
+    put_name(lower, name);
+    put(&lower->output, ") {");
+    *scope = name;
+    return !lower->output.failed;
+  }
+  if (scope->first == scope->last) return false;
+  if (event.original == namespace_variable) {
+    /* The variable needs a value: `export let c;` declares nothing that TypeScript would write. */
+    uint32_t at = event.right.last;
+    while (at < input.size && (input.source[at] == ' ' || input.source[at] == '\t' || input.source[at] == '\n' || input.source[at] == '\r')) at++;
+    if (at + 1 >= input.size || input.source[at] != '=' || input.source[at + 1] == '=' || input.source[at + 1] == '>') return false;
+    put_name(lower, *scope);
+    put(&lower->output, ".");
+    return !lower->output.failed;
+  }
+  if (event.original == namespace_declaration) return true;
+  if (event.original == namespace_declaration_end) {
+    if (input.source[span.first] != '}') return false;
+    uint32_t at = event.right.first;
+    for (;;) {
+      while (at < input.size && (input.source[at] == ' ' || input.source[at] == '\t' || input.source[at] == '\n' || input.source[at] == '\r')) at++;
+      if (at < input.size && input.source[at] == '*') at++;
+      else if (!skip_word(input, &at, "async") && !skip_word(input, &at, "function") && !skip_word(input, &at, "class")) break;
+    }
+    TmtGrammar_span name = { at, at };
+    while (name.last < input.size && input.source[name.last] < 128 && TmtGrammar_identifier_continue(input.source[name.last])) name.last++;
+    if (!plain_name(input, name)) return false;
+    put(&lower->output, "}");
+    put_name(lower, *scope);
+    put(&lower->output, ".");
+    put_name(lower, name);
+    put(&lower->output, "=");
+    put_name(lower, name);
+    put(&lower->output, ";");
+    return !lower->output.failed;
+  }
+  /* The end of the namespace. */
+  if (input.source[span.first] != '}') return false;
+  put(&lower->output, "})(");
+  put_name(lower, *scope);
+  put(&lower->output, "||(");
+  put_name(lower, *scope);
+  put(&lower->output, "={}));");
+  *scope = (TmtGrammar_span){ 0, 0 };
+  return !lower->output.failed;
+}
+
 /* An export assignment is written only where the output may be CommonJS. */
 static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, bool commonjs, size_t *length, tmt_run_log *runs) {
   lowering lower = { .input = input, .output.limit = (size_t)input.size * 32 + 1024, .output.runs = runs };
   uint32_t copied = 0;
+  TmtGrammar_span scope = { 0, 0 };
   for (uint32_t index = 0; index < records; index++) {
     if (!enum_record(input.output[index].original)) continue;
     const TmtGrammar_span span = input.output[index].left;
     if (span.first < copied || span.first >= span.last || span.last > input.size) goto decline;
     if (input.output[index].original == export_assignment && !commonjs) goto decline;
     source_bytes(&lower, copied, span.first);
+    if (namespace_record(input.output[index].original)) {
+      if (!emit_namespace_record(&lower, records, index, &scope)) goto decline;
+      copied = span.last;
+      continue;
+    }
     if (!emit_recorded_enum(&lower, span, input.output[index].original)) goto decline;
     copied = span.last;
   }

@@ -950,3 +950,45 @@ test('an export assignment at the end of a file becomes module.exports', () => {
   const mapped = compile(Buffer.from('const value: number = 1;\nexport = value;\n'), { file: 'assign.ts', sourceMap: true });
   assert.equal(mapped.code.includes('module.exports = value;'), true);
 });
+
+test('a namespace with exported variables, functions and classes is lowered as TypeScript lowers it', () => {
+  for (const source of [
+    'export namespace N { export const a = 1; }',
+    'namespace N { export const a = 1; }\nexport {};',
+    'export namespace errorUtil { export type E = string; export const errToObj = (message?: string) => typeof message === "string" ? { message } : message || {}; export const toStr = (m?: string): string => "x"; }',
+    'export namespace D { export function disposeAll(d: any[]): void { for (const x of d) x(); } }',
+    'export namespace D { export class K<T> { v!: T } }',
+    'export namespace D { const hidden = 2; function g() { return hidden; } export async function h() { return g(); } }',
+    'export namespace N { export interface I { a: 1 } export const v: I = { a: 1 }; type L = 1; enum Loc { A } export const w = Loc.A; }',
+    'const before = 1\nexport namespace N { export var x = before }\nconst after = N.x',
+    'export namespace N { export function* g() { yield 1 } export const k = class {} }',
+    'export namespace D { export function f() { } export const a = 1; }',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'space.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'export namespace N { export const a = 1; export const b = a + 1; }',
+    'export namespace N { export const a = () => N; }',
+    'export namespace N { export const a = 1, b = 2; }',
+    'export namespace N { export let c; }',
+    'export namespace N { export const { a } = o; }',
+    'export namespace N { export enum E { A } }',
+    'export namespace N { export namespace M { export const a = 1; } }',
+    'export namespace A.B { export const a = 1; }',
+    'export namespace N { export const a = 1; }\nexport namespace N { export const b = 2; }',
+    'export function N() {}\nexport namespace N { export const a = 1; }',
+    'export namespace N { export function f(): void; export function f() {} }',
+    'export namespace N { export const a = 1; return 1; }',
+    'export namespace N { export const a = 1; export default 1; }',
+    'export namespace N { import X = Y.Z; export const a = 1; }',
+    'export namespace N { export declare const z: number; export const a = 1; }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'space.ts' }).backend, 'pulse', source);
+  }
+  // The lowered text runs: the object receives its members.
+  const result = compile(Buffer.from('namespace N { export const a = 1; export function f() { return 2; } export class K {} }\nglobalThis.seen = [N.a, N.f(), typeof N.K];\nexport {};'), { file: 'space.ts' });
+  assert.equal(result.backend, 'pulse');
+  new Function(result.code.replace('export {};', ''))();
+  assert.deepEqual(globalThis.seen, [1, 2, 'function']);
+  delete globalThis.seen;
+});

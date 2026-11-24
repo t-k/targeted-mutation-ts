@@ -2545,6 +2545,24 @@ TmtPulseParser_type_namespace_members(
   bool ambient
 );
 
+TmtPulseParser_parser_state
+TmtPulseParser_runtime_namespace_members(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_runtime_namespace(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t declaration_start,
+  uint32_t name_start,
+  TmtPulseParser_parser_state body_start
+);
+
 TmtPulseParser_named_state
 TmtPulseParser_module_function(
   TmtPulseMemory_tape input,
