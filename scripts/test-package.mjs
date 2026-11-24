@@ -36,8 +36,8 @@ try {
   const home = homedir();
   const repoRoot = resolve('.');
   const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Lean's prebuilt runtime libraries are compiled on GitHub Actions under <home>/(actions-runner/_work|_work|work)/lean4/lean4/.
-  const leanUpstream = new RegExp(`${escapeRegExp(home)}/(?:actions-runner/_work|_work|work)/lean4/lean4/`, 'g');
+  // Lean's prebuilt runtime and LLVM C++/unwind libraries are compiled on GitHub Actions under <home>/.../lean4/lean4/ or lean-llvm/lean-llvm/.
+  const leanUpstream = new RegExp(`${escapeRegExp(home)}/(?:actions-runner/_work|_work|work)/(?:lean4/lean4|lean-llvm/lean-llvm)/`, 'g');
   const homeSnippet = new RegExp(`${escapeRegExp(home)}[^\\0\\r\\n"']{0,120}`, 'g');
   for (const binary of ['tmt.node', 'tmt-decide']) {
     const content = readFileSync(join(platformPackage, binary));
