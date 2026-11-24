@@ -3673,7 +3673,11 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
     else ret input false) in
   let! resource = (fun () -> if not root_control && allow_resource && (first = 117uy || first = 97uy && st.await_allowed) then
     resource_declaration_start input st first else ret input (failed st 1ul)) in
-  let! enumeration = (fun () -> if input.capture_types && not root_control && strict_locals st && (first = 101uy || width = 5ul) then
+  // Every const declaration passes here, so one byte decides before the keyword is read: `const enum` with a
+  // single space. Other spacing is left to the reference route.
+  let! after_const = (fun () -> if width = 5ul && input.capture_types then peek input (plus st.offset 6ul) else ret input 0uy) in
+  let! enumeration = (fun () -> if input.capture_types && not root_control && strict_locals st &&
+      ((first = 101uy && width = 0ul) || after_const = 101uy) then
     local_enum_start input st.offset else ret input { at = st.offset; ok = false; newline = false }) in
   if enumeration.ok then
     // A block-scoped enum. Kind 32 tells the emitter to declare it with let.
