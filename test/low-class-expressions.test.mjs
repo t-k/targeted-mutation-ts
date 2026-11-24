@@ -60,7 +60,9 @@ test('class accessors and heritage cannot publish candidates in compatibility er
     'async set value(v: number) {}',
   ]) check(`const C = class { ${head} }; const keep = a < b;`, 'diagnostic');
   check('abstract class C { abstract get value(): boolean; } const keep = a < b;', 'fallback');
-  check('declare class C { get value(): boolean; } const keep = a < b;', 'fallback');
+  // A declared class may declare a getter with a result type.
+  check('declare class C { get value(): boolean; } const keep = a < b;', 'fast');
+  check('declare class C { get value() { return a < b; } } const keep = a < b;', 'fallback');
   check('const C = class extends {}; const keep = a < b;', 'diagnostic');
   // A heritage clause is any left-hand-side expression.
   check('const C = class extends {} {}; const keep = a < b;', 'fast');
