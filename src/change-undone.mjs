@@ -7,6 +7,7 @@ import { sourceTrials, sourceTrialsAsync, verdict } from './analysis.mjs';
 import { inParallel } from './in-parallel.mjs';
 import { failedTests } from './vitest-reporter.mjs';
 import { selectScope } from './scope.mjs';
+import { byteOffsets } from './source-text.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
 import { inside } from './vitest.mjs';
 
@@ -40,10 +41,12 @@ export function undoEdits(patch, old, current) {
     // A hunk that only removes lines names the line before them on the other side.
     const from = d ? at(newStarts, c, current.length) : at(newStarts, c + 1, current.length);
     const to = d ? at(newStarts, c + d, current.length) : from;
-    const before = b ? old.subarray(at(oldStarts, a, old.length), at(oldStarts, a + b, old.length)) : Buffer.alloc(0);
+    const oldFrom = b ? at(oldStarts, a, old.length) : at(oldStarts, a, old.length);
+    const oldTo = b ? at(oldStarts, a + b, old.length) : oldFrom;
+    const before = b ? old.subarray(oldFrom, oldTo) : Buffer.alloc(0);
     // Lines put back after a last line that has no line end must not join it.
     const joins = !d && from === current.length && current.length && current.at(-1) !== 10;
-    edits.push({ edit: [from, to], replacement: joins ? Buffer.concat([Buffer.from('\n'), before]) : before,
+    edits.push({ edit: [from, to], oldSpan: [oldFrom, oldTo], replacement: joins ? Buffer.concat([Buffer.from('\n'), before]) : before,
       line: d ? c : Math.min(c + 1, Math.max(1, newStarts.length - 1)), lines: [c, d ? c + d - 1 : c + 1] });
   }
   return edits;
@@ -82,24 +85,188 @@ function code(ts, file, text) {
 
 const parses = (ts, file, text) => ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false).parseDiagnostics.length === 0;
 
-// The trials for one file: every change in scope that changes code, put back alone, and those together where
-// one of them does not parse alone.
+function nodeSignature(ts, tree, text, node) {
+  const parts = [];
+  (function walk(inner) {
+    if (inner.kind >= ts.SyntaxKind.FirstJSDocNode && inner.kind <= ts.SyntaxKind.LastJSDocNode) return;
+    const children = inner.getChildren(tree);
+    parts.push(inner.kind);
+    if (!children.length) parts.push(JSON.stringify(text.slice(inner.getStart(tree), inner.end)));
+    else {
+      parts.push('(');
+      for (const child of children) walk(child);
+      parts.push(')');
+    }
+  })(node);
+  return parts.join(' ');
+}
+
+function isObjectAssignmentTarget(ts, node) {
+  let child = node;
+  let parent = child.parent;
+  while (parent && ts.isParenthesizedExpression(parent)) (child = parent, parent = parent.parent);
+  if (!parent) return false;
+  if (ts.isBinaryExpression(parent) && parent.left === child &&
+      parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment && parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment) return true;
+  if ((ts.isForOfStatement(parent) || ts.isForInStatement(parent)) && parent.initializer === child) return true;
+  if (ts.isArrayLiteralExpression(parent) || ts.isSpreadElement(parent)) return isObjectAssignmentTarget(ts, parent);
+  if (ts.isPropertyAssignment(parent) || ts.isShorthandPropertyAssignment(parent) || ts.isSpreadAssignment(parent)) {
+    return isObjectAssignmentTarget(ts, parent.parent);
+  }
+  return false;
+}
+
+function flattenLogical(ts, node, kind, out = []) {
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === kind) {
+    flattenLogical(ts, node.left, kind, out);
+    flattenLogical(ts, node.right, kind, out);
+  } else {
+    out.push(node);
+  }
+  return out;
+}
+
+function oldItemsInSpan(ts, oldTree, oldText, oldBytes, span) {
+  const terms = new Set();
+  const props = new Set();
+  if (!oldTree || !span || span[0] === span[1]) return { terms, props };
+  const [from, to] = span;
+  const overlaps = node => oldBytes[node.getStart(oldTree)] < to && oldBytes[node.end] > from;
+  (function visit(node) {
+    if (!overlaps(node)) return;
+    if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+        node.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
+      const opKind = node.operatorToken.kind;
+      if (!ts.isBinaryExpression(node.parent) || node.parent.operatorToken.kind !== opKind) {
+        for (const term of flattenLogical(ts, node, opKind)) {
+          if (overlaps(term)) terms.add(nodeSignature(ts, oldTree, oldText, term));
+        }
+      }
+    } else if (ts.isObjectLiteralExpression(node) && !isObjectAssignmentTarget(ts, node)) {
+      for (const prop of node.properties) {
+        if ((ts.isPropertyAssignment(prop) || ts.isShorthandPropertyAssignment(prop)) && overlaps(prop)) {
+          props.add(nodeSignature(ts, oldTree, oldText, prop));
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  })(oldTree);
+  // Also record single-expression values/conditions from the old hunk (e.g., `=> a` or `if (a)` before `a && b && c`),
+  // without collecting parameter or declaration identifiers.
+  (function collectAtoms(node) {
+    if (!overlaps(node)) return;
+    const parent = node.parent;
+    const isConditionOrValue = parent && (
+      (ts.isArrowFunction(parent) && parent.body === node) ||
+      (ts.isReturnStatement(parent) && parent.expression === node) ||
+      ((ts.isIfStatement(parent) || ts.isWhileStatement(parent) || ts.isDoStatement(parent)) && parent.expression === node) ||
+      (ts.isConditionalExpression(parent) && parent.condition === node) ||
+      (ts.isVariableDeclaration(parent) && parent.initializer === node) ||
+      (ts.isPropertyAssignment(parent) && parent.initializer === node)
+    );
+    if (isConditionOrValue && !ts.isBinaryExpression(node)) {
+      terms.add(nodeSignature(ts, oldTree, oldText, node));
+    }
+    ts.forEachChild(node, collectAtoms);
+  })(oldTree);
+  return { terms, props };
+}
+
+function subhunkEdits(ts, file, current, text, tree, curBytes, oldTree, oldText, oldBytes, change, now, wholeCode, selected, seenCodes) {
+  const [from, to] = change.edit;
+  if (from === to) return [];
+  const { terms: oldTerms, props: oldProps } = oldItemsInSpan(ts, oldTree, oldText, oldBytes, change.oldSpan);
+  const overlaps = node => curBytes[node.getStart(tree)] < to && curBytes[node.end] > from;
+  const results = [];
+  const tryEmit = (delStartChar, delEndChar, kind, anchorNode) => {
+    const startLine = tree.getLineAndCharacterOfPosition(anchorNode.getStart(tree)).line + 1;
+    const endLine = tree.getLineAndCharacterOfPosition(anchorNode.end).line + 1;
+    let inScope = false;
+    for (let line = startLine; line <= endLine && !inScope; line++) inScope = selected(line);
+    if (!inScope) return;
+    const edit = [curBytes[delStartChar], curBytes[delEndChar]];
+    const replacement = Buffer.alloc(0);
+    const undone = apply(current, { edit, replacement }).toString();
+    if (!parses(ts, file, undone)) return;
+    const undoneCode = code(ts, file, undone);
+    if (undoneCode === now || undoneCode === wholeCode || seenCodes.has(undoneCode)) return;
+    seenCodes.add(undoneCode);
+    results.push({ edit, replacement, line: startLine, lines: [startLine, endLine], parses: true, subhunk: kind });
+  };
+  (function visit(node) {
+    if (!overlaps(node)) return;
+    if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
+        node.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
+      const opKind = node.operatorToken.kind;
+      if (!ts.isBinaryExpression(node.parent) || node.parent.operatorToken.kind !== opKind) {
+        const terms = flattenLogical(ts, node, opKind);
+        if (terms.length >= 2) {
+          for (let i = 0; i < terms.length; i++) {
+            const term = terms[i];
+            if (!overlaps(term) || oldTerms.has(nodeSignature(ts, tree, text, term))) continue;
+            const delStart = i === 0 ? term.getStart(tree) : terms[i - 1].end;
+            const delEnd = i === 0 ? terms[1].getStart(tree) : term.end;
+            tryEmit(delStart, delEnd, 'logical-term', term);
+          }
+        }
+      }
+    } else if (ts.isObjectLiteralExpression(node) && !isObjectAssignmentTarget(ts, node)) {
+      const props = node.properties;
+      for (let i = 0; i < props.length; i++) {
+        const prop = props[i];
+        if ((!ts.isPropertyAssignment(prop) && !ts.isShorthandPropertyAssignment(prop)) || !overlaps(prop)) continue;
+        if (oldProps.has(nodeSignature(ts, tree, text, prop))) continue;
+        const propStart = prop.getStart(tree);
+        const afterLimit = i + 1 < props.length ? props[i + 1].getStart(tree) : node.end - 1;
+        const trailingComma = text.indexOf(',', prop.end);
+        if (trailingComma !== -1 && trailingComma < afterLimit) {
+          tryEmit(propStart, trailingComma + 1, 'object-property', prop);
+        } else if (i > 0) {
+          const prevComma = text.lastIndexOf(',', propStart - 1);
+          if (prevComma >= props[i - 1].end) {
+            tryEmit(prevComma, prop.end, 'object-property', prop);
+          }
+        } else {
+          tryEmit(propStart, prop.end, 'object-property', prop);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  })(tree);
+  return results;
+}
+
+// The trials for one file: every change in scope that changes code, put back alone, plus AST sub-hunks for
+// added `&&`/`||` terms and added object properties, and all hunks together where one does not parse alone.
 export function planUndo(file, old, current, patch, selected = () => true, ts = loadTypeScript()) {
   const text = current.toString();
   const now = code(ts, file, text);
-  const sound = parses(ts, file, text);
+  const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const sound = tree.parseDiagnostics.length === 0;
+  const oldText = old.toString();
+  const oldTree = sound ? ts.createSourceFile(file, oldText, ts.ScriptTarget.Latest, true) : null;
+  const oldSound = oldTree && oldTree.parseDiagnostics.length === 0;
+  const curBytes = sound ? byteOffsets(text) : null;
+  const oldBytes = oldSound ? byteOffsets(oldText) : null;
   const trials = [];
+  const seenCodes = new Set();
   for (const change of undoEdits(patch, old, current)) {
     let inScope = false;
     for (let line = change.lines[0]; line <= change.lines[1] && !inScope; line++) inScope = selected(line);
     if (!inScope) continue;
     const undone = apply(current, change).toString();
-    if (code(ts, file, undone) === now) continue;
+    const wholeCode = code(ts, file, undone);
+    if (wholeCode === now) continue;
+    seenCodes.add(wholeCode);
     trials.push({ ...change, parses: !sound || parses(ts, file, undone) });
+    if (sound) {
+      trials.push(...subhunkEdits(ts, file, current, text, tree, curBytes, oldSound ? oldTree : null, oldText, oldBytes, change, now, wholeCode, selected, seenCodes));
+    }
   }
-  if (trials.length > 1 && trials.some(trial => !trial.parses)) {
-    const all = [...trials].sort((a, b) => b.edit[0] - a.edit[0]).reduce(apply, current);
-    trials.push({ edit: [0, current.length], replacement: all, line: trials[0].line, together: true, parses: !sound || parses(ts, file, all.toString()) });
+  const wholeHunks = trials.filter(trial => !trial.subhunk);
+  if (wholeHunks.length > 1 && wholeHunks.some(trial => !trial.parses)) {
+    const all = [...wholeHunks].sort((a, b) => b.edit[0] - a.edit[0]).reduce(apply, current);
+    trials.push({ edit: [0, current.length], replacement: all, line: wholeHunks[0].line, together: true, parses: !sound || parses(ts, file, all.toString()) });
   }
   return trials;
 }
@@ -142,7 +309,7 @@ function prepareUndoPlan(project, files, options) {
     const planned = planUndo(file, old, input, patch, selected);
     if (!planned.length) continue;
     subjects.push({ file, input, digest: sha(input), sites: [] });
-    const singleHunks = planned.filter(trial => !trial.together);
+    const singleHunks = planned.filter(trial => !trial.together && !trial.subhunk);
     fileHunks.set(file, { input, hunks: singleHunks, hasTogether: planned.some(trial => trial.together) });
     for (const trial of planned) {
       const location = { file, ...locate(input, trial.edit[0]), start: trial.edit[0], end: trial.edit[1] };
@@ -155,7 +322,8 @@ function prepareUndoPlan(project, files, options) {
 
 function classifyUndoOutcome(trial, result, baseline, options, revision) {
   const mutant = { site: trial.site.id, location: trial.site.location, rule: undoneRule, original: trial.original, edit: trial.edit,
-    replacement: trial.replacement, since: revision, ...(trial.together ? { together: true } : {}) };
+    replacement: trial.replacement, since: revision, ...(trial.together ? { together: true } : {}),
+    ...(trial.subhunk ? { subhunk: trial.subhunk } : {}) };
   if (!trial.parses) {
     return { mutant: { ...mutant, status: 'unsupported', statusReason: 'Put back alone, this change does not parse' }, unloadable: false, diagnostic: null, incomplete: false };
   }
@@ -172,7 +340,8 @@ function classifyUndoOutcome(trial, result, baseline, options, revision) {
     ...(status === 'killed' ? { tests: result.tests.filter(test => test.status === 'failed').map(({ id, project, file, name }) => ({ id, project, file, name })) } : {}) };
   const diagnostic = status === 'survived'
     ? { kind: 'UNTESTED CHANGE', site: trial.site.id, location: trial.site.location, rule: undoneRule, since: revision,
-      ...(trial.together ? { together: true } : {}), mutations: [{ rule: undoneRule, edit: trial.edit, replacement: trial.replacement, evidence: 'reexecuted' }] }
+      ...(trial.together ? { together: true } : {}), ...(trial.subhunk ? { subhunk: trial.subhunk } : {}),
+      mutations: [{ rule: undoneRule, edit: trial.edit, replacement: trial.replacement, evidence: 'reexecuted' }] }
     : null;
   return { mutant: entry, unloadable, diagnostic, incomplete: status === 'error' };
 }
