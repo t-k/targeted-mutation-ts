@@ -488,4 +488,43 @@ Over all corpora 158 more files compile natively, no output that was native chan
 
 The first build with the two forms was 2 to 4 percent slower on the project rows of the Ryzen host. Swapping the parser and the emitter one at a time showed the parser alone caused it, although neither form occurs in those rows. The build inlines aggressively, so the new bodies were copied into the expression and statement parsers, and a second recursive call in the expression parser made the build copy that function once more. The two forms are now functions of their own that the build marks `noinline` and `cold` in a scratch copy of the generated source (`coldSource` in `scripts/native-simd-source.mjs`), and the assertion continues through the recursive call that prefix operators already use. Warm times on five project rows are then within 1 percent of the build before the two forms. In the pooled comparison before the last of these changes the build was ahead of every peer on 20 of 20 warm rows and 20 of 20 first-process rows.
 
-Still declined: type declarations inside non-function blocks, JSX spread of an object literal, a comparison followed by a comma and a literal in an argument list, parameter decorators, runtime namespaces, `export =` and `import =`, ambient classes and modules, and non-ASCII identifiers.
+### Declined files by cause, and the forms taken from that list
+
+Every declined file of the eleven projects was reduced to the construct that declines it, and the causes were counted. The largest were taken first.
+
+| Form | Rule |
+| --- | --- |
+| `f(a.b && c < 3, 'text')` | TypeScript tries a type argument list at the less-than sign. The argument is taken when its only `<` byte compares with a name or a number that ends the argument, and the following arguments read as types up to the closing parenthesis, where the attempt fails. |
+| `<g {...{ a: 1 }} b />` | The members of the literal are written among the other properties, as TypeScript writes them: a getter stays a getter and a later key attribute keeps the runtime call. The verified parser bounds the literal (`jsx_operand_end`). Declined: `__proto__`, a comment, a spread member before a later key, an empty literal for the classic factory, a trailing comma behind a line separator outside ASCII. |
+| interfaces of one name | They merge whatever they extend and whether or not they are exported. |
+| `[{ a: 1 }?]`, `[(A \| B)?]` | Optional tuple elements with a composite operand. |
+| overloads followed by `async` | An async method implements signatures that are not async. |
+| `abstract class` inside a function | The modifier and the abstract members are erased as at module level. |
+| `type` and `interface` in a block at module level | Erased as inside a function. |
+| `declare function`, `declare const a: T, b` | Erased. The first was not read as a declaration at all before. |
+| members of a `declare class` | May be static, readonly or override. |
+
+A statement that ends by a line break now ends at its last token, not where the next token starts. An erased declaration used to take the comment on the following line with it, which lost a `/*#__PURE__*/` annotation. The helper import written at a module marker adds a semicolon when the text before it does not end a statement, and a directive prologue without semicolons still precedes the import in a script.
+
+TypeScript ends an expression at a JSX element. A parenthesis, bracket, template or member access behind one, even on the next line, was read as a call or an access and, once lowered, applied to the element. Such sources are declined.
+
+| Project | Files | Declined before | Declined now |
+| --- | ---: | ---: | ---: |
+| zod | 164 | 6 | 4 |
+| hono | 346 | 5 | 3 |
+| rxjs | 757 | 20 | 18 |
+| trpc | 596 | 34 | 7 |
+| excalidraw | 348 | 3 | 3 |
+| drizzle | 574 | 17 | 12 |
+| vue | 472 | 9 | 2 |
+| typescript-eslint | 1,173 | 28 | 23 |
+| playwright | 1,045 | 41 | 11 |
+| effect | 1,579 | 19 | 8 |
+| prisma | 1,919 | 18 | 15 |
+| Total | 8,973 | 200 | 106 |
+
+On TypeScript's own test cases the native route takes 3,033 of 6,479 files under `tests/cases/compiler` and 2,104 of 5,877 under `tests/cases/conformance`; the rest take the TypeScript route, 1,007 of them with TypeScript's diagnostics. Those suites exercise namespaces, `import =`, legacy scripts, decorators and deliberate errors far more than projects do. Over all corpora 15,667 of 15,675 native outputs have TypeScript's syntax. The eight differences are benign: the `default_1` name TypeScript gives an anonymous default class (five), a pair of parentheses (two) and a setter's return annotation (one). No native output is invalid and no input that TypeScript rejects is published. The entry and the router agree on 181,776 compile calls.
+
+On the Ryzen host the build is ahead of every peer on 20 of 20 warm rows and 19 of 20 first-process rows, the exception being `tmt-scripts.js` on the first call as before. Against the build before this section's forms the project rows are within about 1 percent, which is the spread between repeated runs of one build.
+
+Still declined: `export =` and `import =`, parameter decorators and decorators on classes inside functions, runtime namespaces, `declare module` with a string name, non-ASCII identifiers, and single forms such as `new X!()`, an assignment pattern with defaults, an unnamed parameter in a function type, accessors in interfaces, import attributes and computed keys in a binding pattern.
