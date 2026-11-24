@@ -586,3 +586,26 @@ The list parser has to stay a loop. The first version of the rule for comparison
 Review findings of this round, all fixed: a non-null mark behind a JSX element was erased although TypeScript rejects it; a declaration erased in front of a string statement let the string become a directive, where TypeScript writes the helper import of a JSX file in front of it; `with` on the line after a re-export was read as attributes; and a target of an assignment pattern has to be assignable in strict code, which an existing test of the extractor caught.
 
 Test262 was run again on this build, with `test/built-ins/RegExp` added: no test that behaved identically before behaves differently now, and the only differences on the native route remain scripts that receive `"use strict"`. After a file of comments alone, characters outside the Basic Multilingual Plane as pattern characters of a regular expression, and the review fixes on directives in JSX files, 36 of the 8,973 project files take the TypeScript route, nine of them for parameter decorators; 15,910 of 15,918 native outputs over all corpora have TypeScript's syntax. On the Ryzen host the build is ahead of every peer on 20 of 20 warm rows and 19 of 20 first-process rows; against the build before these forms the project rows are 0.6 to 2.2 percent slower.
+
+### TypeScript's own test cases: scripts, the module keyword and the byte order mark
+
+On `tests/cases/compiler` and `tests/cases/conformance` the native route answered for fewer than half of the files. A sample of 400 declined files was reduced to causes, each confirmed by a counter-test on the original. The largest causes were restrictions of routes, not missing syntax, and three of them accounted for about 1,700 files.
+
+| Cause | Change |
+| --- | --- |
+| A script, a file without imports or exports, was read in its own mode, where even `function f() { var a = 1; }` was declined. | The compiler publishes a TypeScript script with the strict directive in front, as TypeScript does, and now reads it as strict code. The extractor keeps the script's mode. The published script is still checked by V8. |
+| `module M { }`, the older spelling of a namespace. | Read as a namespace. `declare module 'name'`, `module.exports` and `module` before a line break keep their meaning. |
+| A byte order mark. | Dropped, as TypeScript drops it. A result with diagnostics is produced from the unchanged input, so positions hold, and a mark in front of a hashbang is left to TypeScript, which reports the hashbang. |
+| Enums, namespaces and parameter properties in scripts. | Lowered as in a module. |
+| `function f();`, `m();` in a class, `interface I { x; y? }`. | Signatures without a result type and properties without a type are erased. |
+
+| Suite | Files | Native before | Native now |
+| --- | ---: | ---: | ---: |
+| `tests/cases/compiler` | 6,479 | 3,166 | 3,930 |
+| `tests/cases/conformance` | 5,877 | 2,206 | 3,070 |
+
+Of the files that remain on the TypeScript route in these suites, about 1,000 carry TypeScript's diagnostics, and a tenth of the rest are sources with syntax errors that TypeScript's recovery tolerates; the native route does not take those by design. Over all corpora 17,601 of 17,609 native outputs have TypeScript's syntax, with the eight benign differences.
+
+The comparison with TypeScript's output used to cover the certified route only. It now also covers the routes that erase through Node, and a review found a real defect there: `a + b as T * c` is `((a + b) as T) * c`, and Node's type stripping blanks the assertion and leaves `a + b * c`. The native route declined such a source and the node-strip route then published Node's result. A source with an assertion followed on its line by an arithmetic or shift operator is now handed to TypeScript, and strip mode reports `AMBIGUOUS_TYPE_ERASURE` for it. Other findings of that review: a hashbang line ending in CRLF kept the carriage return in front of the inserted directive, and `get value: number` in a declared class was erased although it is an error.
+
+The oracle on the snapshot also caught a defect before it was pushed: a namespace that holds only interfaces was written as an empty function when its type-only reading failed on repeated interface names. The runtime reading now needs a member that is not a type declaration.
