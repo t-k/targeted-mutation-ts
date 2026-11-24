@@ -36,18 +36,22 @@ describe('dogfood issues 001-007 and review regressions', () => {
     assert.ok(copyMutant);
     // Execute the instrumented code to verify the runtime probe records nonPlain (not realCopy).
     const prev = globalThis.__stryker__;
+    const sessionSym = Symbol.for('targeted-mutation-ts/session');
+    const prevSession = globalThis[sessionSym];
     try {
       globalThis.__stryker__ = { currentTestId: 't1' };
+      globalThis[sessionSym] = { phase: 'baseline' };
       const fn = new Function(rendered.output.replace('export function wrap()', 'function wrap()') + '\nreturn wrap();');
       const result = fn();
       assert.equal(Object.getPrototypeOf(result), Object.prototype);
-      const observed = globalThis.__stryker__.targetedObserved?.[copyMutant.id];
+      const observed = globalThis.__stryker__.observed?.[copyMutant.id];
       assert.equal(observed?.realCopy, undefined);
       assert.equal(observed?.nonPlain, true);
       const gap = targetedGap({ ...copyMutant, status: 'survived' }, { agreeing: 1, differing: [], nonPlain: true });
       assert.match(gap.advice, /prototype/);
     } finally {
       globalThis.__stryker__ = prev;
+      globalThis[sessionSym] = prevSession;
     }
   });
 
