@@ -14788,7 +14788,7 @@ TmtPulseParser_class_members(
             if
             (
               awaiting_body || constructor_name && !ambient_constructor ||
-                accessor && kind != TmtPulseParser_AmbientClass
+                accessor && (kind != TmtPulseParser_AmbientClass || !method)
               || value5.private_
               || value5.quoted_
               || value5.computed

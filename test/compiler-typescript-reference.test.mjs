@@ -1332,12 +1332,14 @@ test('method signatures without a result type, and optional properties and gette
     'export type W = { m(), n(): void };',
     'declare class S extends T { p?: Partial<P>; q?: number }\nexport {};',
     'declare class S { get d(): X; static get e(): Y; }\nexport {};',
+    'declare class S { set d(v: X); }\nexport {};',
   ]) {
     assert.equal(sameAsTypeScript(source, 'signatures.ts').backend, 'pulse', source);
   }
   for (const source of [
-    'declare class S { set d(v: X); }\nexport {};',
     'declare class S { get d() { return 1 } }\nexport {};',
+    // An accessor is declared with its parameter list.
+    'declare class Client { get value: number; }\nexport const x = 1;',
     'declare class S { p?: number = 1 }\nexport {};',
   ]) {
     assert.notEqual(compile(Buffer.from(source), { file: 'signatures.ts' }).backend, 'pulse', source);

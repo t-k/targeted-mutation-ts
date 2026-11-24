@@ -66,8 +66,19 @@ function transformCompatibility(source, options) {
   return require('./compiler-compat.cjs').transform(source, options, verifyRuntimeExports, fail);
 }
 
+// `a + b as T * c` is `((a + b) as T) * c`. Node's erasure blanks the assertion and leaves `a + b * c`, which
+// groups differently. An assertion followed on its line by an arithmetic or shift operator is therefore not
+// erased here; the reference compiler writes the parentheses.
+const regroupingAssertion = /\b(?:as|satisfies)\s[^;,)\]}\n]*?(?:[*%+-]|\/(?![/*])|<<|>>)/;
+
 function strip(source, file) {
   try {
+    if ((source.includes(' as ') || source.includes('satisfies')) && regroupingAssertion.test(source)) {
+      return fail('node-strip', [{
+        file, code: 'AMBIGUOUS_TYPE_ERASURE', severity: 'error',
+        message: 'Position-preserving erasure of an assertion would regroup the operators around it', start: 0, end: 0,
+      }]);
+    }
     const code = require('node:module').stripTypeScriptTypes(source);
     if (hasSplitDeclare(source, code)) {
       return fail('node-strip', [{
@@ -99,7 +110,8 @@ function hasModuleMarker(addon, code, bytes = Buffer.from(code)) {
 
 function strictScript(source, file) {
   if (source.includes('<!--') || (source.includes('-->') && /(?:^|\*\/)[^\S\r\n\u2028\u2029]*-->/m.test(source))) return null;
-  const hashbang = source.startsWith('#!') ? source.search(/[\r\n]/) + 1 : 0;
+  // The interpreter line ends with its whole line break, so that a carriage return does not stay on it.
+  const hashbang = source.startsWith('#!') ? (match => match === null ? source.length : match.index + match[0].length)(/\r\n|[\r\n]/.exec(source)) : 0;
   const trivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[\s\S]*?\*\/)*/y;
   trivia.lastIndex = hashbang;
   trivia.exec(source);
@@ -293,7 +305,9 @@ function compile(input, options = {}) {
   if (!sourceMap && mode === 'transform' && typed) {
     const marked = Buffer.isBuffer(input) ? input.length >= 3 && input[0] === 0xef && input[1] === 0xbb && input[2] === 0xbf :
       typeof input === 'string' && input.charCodeAt(0) === 0xfeff;
-    if (marked) {
+    // A hashbang behind the mark is not at the start of the file, and TypeScript reports it.
+    const hashbang = marked && (Buffer.isBuffer(input) ? input[3] === 0x23 && input[4] === 0x21 : input.startsWith('#!', 1));
+    if (marked && !hashbang) {
       const result = compile(Buffer.isBuffer(input) ? input.subarray(3) : input.slice(1), options);
       if (result.code !== null && result.backend !== 'typescript') return result;
     }

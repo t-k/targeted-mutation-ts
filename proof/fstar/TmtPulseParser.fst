@@ -4359,7 +4359,8 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
       else if member_head.ok || kind = AmbientClass then
         let ambient_constructor = kind = AmbientClass && constructor && not member_head.ok && next_byte = 40uy in
         let! closed =
-          (fun () -> if awaiting_body || (constructor_name && not ambient_constructor) || (accessor && kind <> AmbientClass) ||
+          // An accessor is declared with its parameter list: get value: number is an error.
+          (fun () -> if awaiting_body || (constructor_name && not ambient_constructor) || (accessor && (kind <> AmbientClass || not method)) ||
             key.private_ || key.quoted_ || key.computed || key.async_ || key.generator_ || prototype ||
             // A declared class is erased whole, so its members may be static or carry an access modifier.
             // An abstract member is erased whole, so it may also be marked override.

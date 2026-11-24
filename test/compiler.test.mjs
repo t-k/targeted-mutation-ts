@@ -153,3 +153,28 @@ test('a TypeScript file of comments and white space alone is a strict script', (
     assert.notEqual(compile(source, { file }).backend, 'pulse', JSON.stringify(source));
   }
 });
+
+test('review findings: a hashbang behind a byte order mark, a hashbang line ending in CRLF, and assertions that regroup operators', () => {
+  // TypeScript reports a hashbang that is not at the very start of the file.
+  for (const input of ['﻿#!/usr/bin/env node\nconsole.log("ok");', Buffer.from('﻿#!/usr/bin/env node\nconsole.log("ok");')]) {
+    const result = compile(input, { file: 'cli.ts' });
+    assert.equal(result.code, null);
+    assert.equal(result.diagnostics[0].code, 18026);
+  }
+  // The strict directive follows the whole line break of the interpreter line.
+  const script = compile('#!/usr/bin/env node\r\nfunction main() { var status = "ok"; console.log(status); }\r\nmain();', { file: 'cli.ts' });
+  assert.equal(script.code.startsWith('#!/usr/bin/env node\r\n"use strict";\n'), true);
+  // ((a + b) as T) * c: blanking the assertion would leave a + b * c. Node's erasure does that, so it is not used.
+  for (const [source, expected] of [
+    ['export const v = subtotal + tax as number * quantity;', /\(subtotal \+ tax\) \* quantity/],
+    ['export const v = a << b as number + c;', /\(a << b\) \+ c/],
+  ]) {
+    const result = compile(source, { file: 'a.ts' });
+    assert.match(result.code, expected, source);
+    assert.equal(compile(source, { file: 'a.ts', mode: 'strip' }).diagnostics[0].code, 'AMBIGUOUS_TYPE_ERASURE');
+  }
+  const element = compile('export const label = <span>{subtotal + tax as number * quantity}</span>;', { file: 'a.tsx', jsx: 'classic' });
+  assert.match(element.code, /\(subtotal \+ tax\) \* quantity/);
+  // An assertion with nothing arithmetic behind it is erased as before.
+  assert.equal(compile('export const v = x as number;', { file: 'a.ts', mode: 'strip' }).code, 'export const v = x          ;');
+});
