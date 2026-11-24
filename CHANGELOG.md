@@ -1,25 +1,18 @@
 # Changelog
 
-## Unreleased
-
-- `--mutators targeted`: edits that the values of the tests can tell apart (an equality that is always true or false, an operand of `&&`, `||` or `??` that never decides, `??` for `||`, `== null` for `=== null`, another arithmetic operator, `Math.min` for `Math.max`, another rounding, the other end of a list, a numeric sort without its comparison, an `await` left out, a spread copy left out). A recording run notes per test whether each edit would have behaved differently, and a survivor is reported as an input gap with the missing input or as an assertion gap with the tests that had it.
-- `--undo-changes` with `--since REV`: each change is put back as it was at `REV` and run against the suite. A change the tests pass without is reported as `UNTESTED CHANGE`.
-- `--suggest-assertions`: for a survivor whose tests had the input, the calls those tests make without pinning the result are run with and without the edit, and the report gives the value to compare with.
-- A surviving targeted edit lists the expressions its tests newly reach or no longer reach with the edit.
-
 ## 0.1.0
 
 First public release.
 
 - `targeted-mutation` command with the alias `tmts`: `analyze`, `extract` and `prototype`.
-- Focused comparison and threshold edits, the witness profile, and the standard StrykerJS mutator set for Vitest; focused edits for Playwright.
-- `--mutators operators`: built-in equality, logical and arithmetic operator swaps with no extra package, run in one switched session with per-test coverage on Vitest 4.
-- `--mutators full`: the complete StrykerJS mutator set, built in, with no extra package.
-- `// Stryker disable` and `// Stryker restore` comments are honoured by the built-in mutation set and the default profile.
+- Default `--mutators targeted` profile combining comparison boundaries (`<`, `<=`, `>`, `>=`), constant-RHS integer thresholds (`comparison-threshold/v1`), Lean-verified variable-RHS comparison margins (`comparison-margin/v1`), and twenty value-aware semantic rules (constant equality, ignored logical operand, `??`/`||` fallback, strict/loose nullish equality, arithmetic swap, `Math.min`/`Math.max`, rounding swap, clamp bound drop, sequence ends, numeric sort without comparator, `every`/`some` quantifier swap, literal-set element pruning, `startsWith`/`endsWith` to `includes`, `replace`/`replaceAll` multiplicity, regex anchor slack, defensive spread copy drop, spread-update individual property drop, merge precedence swap, dropped `await`, and dropped `finally` cleanup call).
+- Observation-guided survivor diagnostics on Vitest separating `INPUT GAP` (exact missing input or boundary witness) from `ASSERTION GAP` (exact test that observed a difference and passed), plus newly reached / no-longer-reached expression `effects`.
+- `--suggest-assertions`: runs unpinned calls in a warm Vitest session with and without the surviving edit, printing the exact assertion and narrowing multi-key plain objects to the single changed sibling property path (`expect(res.fee).toBe(600)`).
+- `--undo-changes` with `--since REV`: reverts each changed Git hunk and independent AST sub-hunk (added `&&`/`||` terms and added object properties) to report `UNTESTED CHANGE`, with dynamic whole-file fallback when a single hunk fails to parse or load.
+- `--mutators full`: the complete StrykerJS-compatible mutation set, built in, with no external instrumenter package.
+- `--witnesses`: parallel witness search (`--concurrency N`, up to 8 by default), including paired round-trip and public-state contract checks.
+- `// Stryker disable` and `// Stryker restore` comments are honoured by both `targeted` and `full` profiles.
 - `--since` and `--lines` select a comparison when any of its lines is in scope, and `--since` leaves files that Git ignores out of discovery.
-- A trial in which the runner breaks down makes the evaluation `incomplete` and the command exit with 1.
-- `--timeout SECONDS` for one run of the suite, and `--test FILE` for Playwright.
-- `--witnesses` tries its candidates in project copies side by side (`--concurrency N`, up to 8 by default) and reports them in the planned order.
-- Vitest 4 sessions decide mutations inside running workers, with a control run after each one and a fresh Vitest run for whatever a worker cannot decide. `--concurrency N`, `--verify-trials N` and `--isolated-trials` control this.
-- Text report on a terminal, JSON report (`schemaVersion: 1`) when piped, `--format` to choose.
-- Prebuilt native parser and a 2 MB Lean decision executable for macOS and Linux (glibc) on arm64 and x64.
+- Vitest 4 sessions decide mutations inside running workers, with an immediate post-trial control run and automatic fallback to a fresh Vitest run when worker state leaks. `--concurrency N`, `--verify-trials N`, `--isolated-trials`, `--timeout SECONDS`, and `--test FILE` control execution.
+- Text report on a terminal, JSON report (`schemaVersion: 1`) when piped, `--format` to choose; runner breakdown marks evaluation `incomplete` and exits with status 1.
+- Prebuilt native parser and Lean 4 decision executable (`tmt-decide`) for macOS and Linux (glibc) on arm64 and x64, with automatic TypeScript/JavaScript fallback on other platforms.
