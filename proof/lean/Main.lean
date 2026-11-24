@@ -214,6 +214,10 @@ inductive Op where
   | leLiteral (value : Int)
   | gtLiteral (value : Int)
   | geLiteral (value : Int)
+  | ltShift (delta : Int)
+  | leShift (delta : Int)
+  | gtShift (delta : Int)
+  | geShift (delta : Int)
 deriving DecidableEq, Repr
 
 def compareBy (op : Op) (lhs rhs : Int) : Bool :=
@@ -227,6 +231,10 @@ def compareBy (op : Op) (lhs rhs : Int) : Bool :=
   | .leLiteral value => lhs ≤ value
   | .gtLiteral value => lhs > value
   | .geLiteral value => lhs ≥ value
+  | .ltShift delta => lhs < rhs + delta
+  | .leShift delta => lhs ≤ rhs + delta
+  | .gtShift delta => lhs > rhs + delta
+  | .geShift delta => lhs ≥ rhs + delta
 
 structure Observation where
   site : Nat
@@ -276,8 +284,14 @@ structure ReplayHeader where
 structure Request extends ReplayHeader where
   observations : List (Int × Int)
 
+def safeShiftOp (op : Op) (rhs : Int) : Bool :=
+  match op with
+  | .ltShift delta | .leShift delta | .gtShift delta | .geShift delta => safe (rhs + delta)
+  | _ => true
+
 def checkedPair (original replacement : Op) (pair : Int × Int) : Bool :=
-  safe pair.1 && safe pair.2 && (compareBy original pair.1 pair.2 == compareBy replacement pair.1 pair.2)
+  safe pair.1 && safe pair.2 && safeShiftOp replacement pair.2 &&
+  (compareBy original pair.1 pair.2 == compareBy replacement pair.1 pair.2)
 
 def readyToReplay (request : ReplayHeader) : Bool :=
   request.candidate != "" && request.candidate == request.traceCandidate &&
@@ -324,7 +338,7 @@ private theorem boundary_pair (original replacement : Op) (pair : Int × Int)
   have swapped : (pair.2 != pair.1) = (pair.1 != pair.2) := by
     simp only [bne, Bool.beq_comm]
   cases original <;> cases replacement <;> simp [boundaryFlip] at flip
-  all_goals simp only [checkedPair, safeAndUnequal, compareBy]
+  all_goals simp only [checkedPair, safeShiftOp, safeAndUnequal, compareBy, Bool.and_true]
   · rw [strict_inclusive_agreement]
   · rw [Bool.beq_comm (a := decide (pair.1 ≤ pair.2)), strict_inclusive_agreement]
   · rw [strict_inclusive_agreement, swapped]
@@ -418,7 +432,25 @@ def decodeReplayHeader (input : Wire.Value) : Except String ReplayHeader := do
         let literal ← v.int?
         unless original == .lt && safe literal do throw "invalid literal threshold"
         pure (.ltLiteral literal)
-      | _, _, _, _ => throw "invalid literal threshold"
+      | _, _, _, _ =>
+        match encoded.field? "geShift", encoded.field? "gtShift", encoded.field? "leShift", encoded.field? "ltShift" with
+        | .ok v, .error _, .error _, .error _ =>
+          let delta ← v.int?
+          unless original == .ge && safe delta do throw "invalid shift threshold"
+          pure (.geShift delta)
+        | .error _, .ok v, .error _, .error _ =>
+          let delta ← v.int?
+          unless original == .gt && safe delta do throw "invalid shift threshold"
+          pure (.gtShift delta)
+        | .error _, .error _, .ok v, .error _ =>
+          let delta ← v.int?
+          unless original == .le && safe delta do throw "invalid shift threshold"
+          pure (.leShift delta)
+        | .error _, .error _, .error _, .ok v =>
+          let delta ← v.int?
+          unless original == .lt && safe delta do throw "invalid shift threshold"
+          pure (.ltShift delta)
+        | _, _, _, _ => throw "invalid literal threshold"
   pure { candidate, traceCandidate, complete, deterministic, original, replacement }
 
 def decideReplay (input : Wire.Value) : Except String Bool := do
@@ -687,6 +719,103 @@ def decodeGap (input : Wire.Value) : Except String (Option Gap) := do
 
 end Threshold
 
+/-! Variable-RHS margin inference over integer observation pairs `(lhs, rhs)`.
+The algebraic reduction `holds op lhs (rhs + shift) ↔ holds op (lhs - rhs) shift` holds over exact integers;
+in JavaScript safe-integer arithmetic, `decodeMarginGap` additionally enforces `safe lhs`, `safe rhs`,
+`safe (lhs - rhs)`, and `safe (rhs + alternate)` on every observed pair. -/
+namespace Margin
+
+def safePair (p : Int × Int) : Bool :=
+  safe p.1 && safe p.2 && safe (p.1 - p.2)
+
+def safeShifted (delta : Int) (p : Int × Int) : Bool :=
+  safe p.1 && safe p.2 && safe (p.2 + delta)
+
+def FeasibleShift (op : Threshold.Cmp) (lo hi shift : Int) (pairs : List (Int × Int)) : Prop :=
+  lo ≤ shift ∧ shift ≤ hi ∧ ∀ p ∈ pairs, (Threshold.holds op p.1 p.2 ↔ Threshold.holds op p.1 (p.2 + shift))
+
+theorem margin_shift_iff (op : Threshold.Cmp) (lhs rhs shift : Int) :
+    Threshold.holds op lhs (rhs + shift) ↔ Threshold.holds op (lhs - rhs) shift := by
+  cases op <;> simp [Threshold.holds] <;> omega
+
+theorem feasible_margin_iff_threshold (op : Threshold.Cmp) (lo hi shift : Int) (pairs : List (Int × Int)) :
+    FeasibleShift op lo hi shift pairs ↔
+      Threshold.Feasible op 0 lo hi shift (pairs.map (fun p => p.1 - p.2)) := by
+  unfold FeasibleShift Threshold.Feasible
+  constructor
+  · rintro ⟨hlo, hhi, hobs⟩
+    refine ⟨hlo, hhi, ?_⟩
+    intro d hd
+    rw [List.mem_map] at hd
+    obtain ⟨p, hp, rfl⟩ := hd
+    have h0 := hobs p hp
+    have h1 := margin_shift_iff op p.1 p.2 0
+    have h2 := margin_shift_iff op p.1 p.2 shift
+    simp only [Int.add_zero] at h1
+    exact h1.symm.trans (h0.trans h2)
+  · rintro ⟨hlo, hhi, hobs⟩
+    refine ⟨hlo, hhi, ?_⟩
+    intro p hp
+    have hd := hobs (p.1 - p.2) (List.mem_map.mpr ⟨p, hp, rfl⟩)
+    have h1 := margin_shift_iff op p.1 p.2 0
+    have h2 := margin_shift_iff op p.1 p.2 shift
+    simp only [Int.add_zero] at h1
+    exact h1.trans (hd.trans h2.symm)
+
+theorem choose_correct (op : Threshold.Cmp) (lo hi : Int) (pairs : List (Int × Int)) (g : Threshold.Gap)
+    (inside : lo ≤ 0 ∧ 0 ≤ hi)
+    (chosen : Threshold.choose op 0 (Threshold.bounds op 0 lo hi (pairs.map (fun p => p.1 - p.2))) = some g) :
+    FeasibleShift op lo hi g.alternate pairs ∧
+    g.interval = Threshold.bounds op 0 lo hi (pairs.map (fun p => p.1 - p.2)) ∧
+    (g.alternate = -1 ∨ g.alternate = 1) ∧
+    (∀ lhs rhs : Int, lhs - rhs = g.witness →
+      Threshold.eval op lhs rhs = g.expected ∧
+      Threshold.eval op lhs (rhs + g.alternate) = g.mutant) ∧
+    g.expected ≠ g.mutant := by
+  have base := Threshold.choose_correct op 0 lo hi (pairs.map (fun p => p.1 - p.2)) g inside chosen
+  refine ⟨(feasible_margin_iff_threshold op lo hi g.alternate pairs).mpr base.1, base.2.1, ?_, ?_, base.2.2.2.2.2.1⟩
+  · have h := base.2.2.1
+    omega
+  · intro lhs rhs hdiff
+    have he := base.2.2.2.1
+    have hm := base.2.2.2.2.1
+    constructor
+    · rw [he]
+      cases op <;> simp only [Threshold.eval] <;> exact decide_eq_decide.mpr (by omega)
+    · rw [hm]
+      cases op <;> simp only [Threshold.eval] <;> exact decide_eq_decide.mpr (by omega)
+
+theorem no_gap_iff_unique (op : Threshold.Cmp) (lo hi : Int) (pairs : List (Int × Int))
+    (inside : lo ≤ 0 ∧ 0 ≤ hi) :
+    Threshold.choose op 0 (Threshold.bounds op 0 lo hi (pairs.map (fun p => p.1 - p.2))) = none ↔
+      ∀ s, FeasibleShift op lo hi s pairs → s = 0 := by
+  have base := Threshold.no_gap_iff_unique op 0 lo hi (pairs.map (fun p => p.1 - p.2)) inside
+  refine base.trans ⟨fun h s hs => h s ((feasible_margin_iff_threshold op lo hi s pairs).mp hs),
+    fun h s hs => h s ((feasible_margin_iff_threshold op lo hi s pairs).mpr hs)⟩
+
+def decodeMarginGap (input : Wire.Value) : Except String (Option Threshold.Gap) := do
+  let pairs ← (← input.field? "pairs").pairs?
+  let lo ← match input.field? "min" with
+    | .ok raw => raw.int?
+    | .error _ => pure (-9007199254740991)
+  let hi ← match input.field? "max" with
+    | .ok raw => raw.int?
+    | .error _ => pure 9007199254740991
+  let op ← match input.field? "operator" with
+    | .ok raw => Threshold.decodeCmp (← raw.string?)
+    | .error _ => pure .ge
+  if safe lo && safe hi && lo ≤ 0 && 0 ≤ hi && !pairs.isEmpty &&
+      pairs.all (fun p => safePair p && lo ≤ p.1 - p.2 && p.1 - p.2 ≤ hi) then
+    let diffs := pairs.map (fun p => p.1 - p.2)
+    match Threshold.choose op 0 (Threshold.bounds op 0 lo hi diffs) with
+    | some g =>
+      if pairs.all (safeShifted g.alternate) then return some g
+      else return none
+    | none => return none
+  return none
+
+end Margin
+
 /-! The targeted rules. A probe gives an outcome for its operands: the value and which operands it evaluated.
 An edit that gives the outcome of the original at every probe of a run leaves that run as it is, whatever the
 values and the outcomes are. -/
@@ -730,6 +859,10 @@ def main (args : List String) : IO UInt32 := do
       let gaps := requests.map fun request => (Threshold.decodeGap request).toOption.join
       (← IO.getStdout).putStrLn (Wire.renderArray (gaps.map fun gap => (gap.map Threshold.Gap.render).getD "null"))
       return 0
+    if args == ["margins"] then
+      let gaps := requests.map fun request => (Margin.decodeMarginGap request).toOption.join
+      (← IO.getStdout).putStrLn (Wire.renderArray (gaps.map fun gap => (gap.map Threshold.Gap.render).getD "null"))
+      return 0
     let decisions := requests.map fun request => (decideReplay request).toOption.getD false
     (← IO.getStdout).putStrLn (Wire.renderArray (decisions.map Wire.renderBool))
     return 0
@@ -742,6 +875,11 @@ def main (args : List String) : IO UInt32 := do
 #print axioms Threshold.choose_correct
 
 #print axioms Threshold.no_gap_iff_unique
+
+#print axioms Margin.margin_shift_iff
+#print axioms Margin.feasible_margin_iff_threshold
+#print axioms Margin.choose_correct
+#print axioms Margin.no_gap_iff_unique
 
 #print axioms Agreement.agreeing_edit_replays
 #print axioms Agreement.differing_edit_is_seen

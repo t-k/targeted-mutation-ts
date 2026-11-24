@@ -1,0 +1,157 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+import { planFocusedTrials } from '../src/analysis.mjs';
+import { renderText } from '../src/cli-output.mjs';
+import { extract } from '../src/extract.mjs';
+import { checkedMarginGaps, marginGap } from '../src/threshold.mjs';
+
+function evalOp(operator, x, t) {
+  switch (operator) {
+    case '<': return x < t;
+    case '<=': return x <= t;
+    case '>': return x > t;
+    case '>=': return x >= t;
+  }
+}
+
+function oracleMargin(pairs, operator = '>=') {
+  if (!pairs.length) return null;
+  for (const pair of pairs) {
+    if (!Array.isArray(pair) || pair.length !== 2) return null;
+    const [l, r] = pair;
+    if (!Number.isSafeInteger(l) || !Number.isSafeInteger(r) || !Number.isSafeInteger(l - r)) return null;
+  }
+  const upper = operator === '>' || operator === '<=';
+  let lo = Number.MIN_SAFE_INTEGER;
+  let hi = Number.MAX_SAFE_INTEGER;
+  for (const [l, r] of pairs) {
+    const d = l - r;
+    if (upper) {
+      if (d <= 0) lo = Math.max(lo, d);
+      else hi = Math.min(hi, d - 1);
+    } else {
+      if (d < 0) lo = Math.max(lo, d + 1);
+      else hi = Math.min(hi, d);
+    }
+  }
+  let alternate = null;
+  let witness = null;
+  if (upper) {
+    if (0 < hi) (alternate = 1, witness = 1);
+    else if (lo < 0) (alternate = -1, witness = 0);
+  } else {
+    if (lo < 0) (alternate = -1, witness = -1);
+    else if (0 < hi) (alternate = 1, witness = 0);
+  }
+  if (alternate === null) return null;
+  if (pairs.some(([, r]) => !Number.isSafeInteger(r + alternate))) return null;
+  return {
+    interval: [lo, hi],
+    alternate,
+    witness,
+    expected: evalOp(operator, witness, 0),
+    mutant: evalOp(operator, witness, alternate),
+  };
+}
+
+const rows = readFileSync(new URL('../verification/pict/margin-gaps.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1)
+  .map(line => line.split('\t'));
+const opSymbols = { Lt: '<', Le: '<=', Gt: '>', Ge: '>=' };
+
+test('the margin-gaps PICT table has every required seed', () => {
+  const seeds = readFileSync(new URL('../verification/pict/margin-gaps.seed.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1);
+  const table = new Set(rows.map(row => row.join('\t')));
+  for (const seed of seeds) assert.ok(table.has(seed), seed);
+});
+
+for (const [opName, slack, rhsKind] of rows) {
+  test(`PICT margin: ${opName} / ${slack} / ${rhsKind}`, () => {
+    const op = opSymbols[opName];
+    const upper = op === '>' || op === '<=';
+    const min = Number.MIN_SAFE_INTEGER;
+    const max = Number.MAX_SAFE_INTEGER;
+    const rhsA = 50;
+    const rhsB = rhsKind === 'Constant' ? 50 : 80;
+    const pairs = {
+      BothWithSlack: [[rhsA - 10, rhsA], [rhsB + 10, rhsB]],
+      BelowOnly: [[rhsA - 10, rhsA], [rhsB - 5, rhsB]],
+      AboveOnly: [[rhsA + 10, rhsA], [rhsB + 5, rhsB]],
+      Tight: upper ? [[rhsA, rhsA], [rhsB + 1, rhsB]] : [[rhsA - 1, rhsA], [rhsB, rhsB]],
+      Empty: [],
+      UnsafeDiff: [[max, -10], [0, 10]],
+      UnsafeShift: upper ? [[max, max], [max - 1, max]] : [[min, min], [min + 1, min]],
+      Fraction: [[10.5, 10], [20, 15]],
+    }[slack];
+    const expected = oracleMargin(pairs, op);
+    assert.deepEqual(marginGap(pairs, op), expected);
+    assert.deepEqual(checkedMarginGaps([{ operator: op, pairs }]), [expected]);
+
+    // Check planFocusedTrials integration for varying vs constant RHS.
+    if (slack !== 'Fraction' && slack !== 'Empty' && slack !== 'UnsafeDiff' && slack !== 'UnsafeShift') {
+      const passing = { id: 'p', file: 't.ts', project: '', status: 'passed' };
+      const input = Buffer.from(`export const ok = (a: number, b: number) => a ${op} b;\n`);
+      const [site] = extract(input, { file: 'f.ts' }).candidates.map(c => ({ ...c, id: 's0' }));
+      const trace = [{ loaded: ['s0'] }, ...pairs.map(([l, r]) => ({
+        site: 's0', operator: op, identity: passing, operands: [l, r], result: evalOp(op, l, r),
+      }))];
+      const planned = planFocusedTrials([{ file: 'f.ts', input, sites: [site] }], trace, { tests: [passing] }, {}, false);
+      const marginTrial = planned.find(t => t.rule === 'comparison-margin/v1');
+      const thresholdTrial = planned.find(t => t.rule === 'comparison-threshold/v1');
+      if (rhsKind === 'Constant') {
+        assert.equal(marginTrial, undefined);
+      } else if (slack === 'Tight') {
+        assert.equal(marginTrial, undefined);
+        assert.equal(thresholdTrial, undefined);
+      } else if (expected) {
+        const boundaryEquiv = (op === '>=' || op === '<') ? expected.alternate === 1 : expected.alternate === -1;
+        assert.equal(Boolean(marginTrial), !boundaryEquiv);
+        if (marginTrial) assert.equal(marginTrial.adjustment, expected.alternate);
+      }
+    }
+  });
+}
+
+test('Lean replay accepts shift operators only for safe integer pairs that agree', () => {
+  const valid = {
+    candidate: 's0', traceCandidate: 's0', complete: true, deterministic: true,
+    original: '>=', replacement: { geShift: -1 }, observations: [[100, 50], [20, 50], [80, 60]],
+  };
+  const differs = { ...valid, observations: [[49, 50], [100, 50]] };
+  const unsafeShift = { ...valid, observations: [[Number.MIN_SAFE_INTEGER, Number.MIN_SAFE_INTEGER]] };
+  const wrongOp = { ...valid, original: '<' };
+  const run = spawnSync('build/tmt-decide', [], { encoding: 'utf8', input: JSON.stringify([valid, differs, unsafeShift, wrongOp]) });
+  assert.equal(run.status, 0, run.stderr);
+  assert.deepEqual(JSON.parse(run.stdout), [true, false, false, false]);
+});
+
+test('end-to-end Vitest reports comparison-margin/v1 INPUT GAP with feasibleMargins for varying-RHS comparison', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tmt-margin-e2e-'));
+  try {
+    writeFileSync(join(root, 'subject.ts'), 'export const canAfford = (balance: number, price: number) => balance >= price;\n');
+    writeFileSync(join(root, 'subject.test.ts'), `import { expect, it } from 'vitest';
+import { canAfford } from './subject';
+it('checks affordability with wide margin', () => {
+  expect(canAfford(100, 50)).toBe(true);
+  expect(canAfford(20, 60)).toBe(false);
+});
+`);
+    const runResult = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', root, 'subject.ts', '--mutators', 'targeted', '--format', 'json'],
+      { encoding: 'utf8', timeout: 60_000 });
+    assert.equal(runResult.status, 0, runResult.stderr);
+    const report = JSON.parse(runResult.stdout);
+    const marginMutant = report.mutants.find(m => m.rule === 'comparison-margin/v1');
+    assert.equal(marginMutant?.status, 'survived');
+    const marginGapDiag = report.diagnostics.find(d => d.rule === 'comparison-margin/v1');
+    assert.equal(marginGapDiag?.kind, 'INPUT GAP');
+    assert.deepEqual(marginGapDiag.feasibleMargins, [-39, 50]);
+    assert.equal(marginGapDiag.witness.margin, -1);
+    const text = renderText(report);
+    assert.match(text, /comparison-margin\/v1/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

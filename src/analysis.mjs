@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writ
 import { dirname, relative, resolve, sep } from 'node:path';
 import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mjs';
 import { comparisonThresholdSites } from './prototype.mjs';
-import { thresholdGaps } from './threshold.mjs';
+import { marginGaps, thresholdGaps } from './threshold.mjs';
 import { shiftedReplacement, tightenComparison } from './displacement.mjs';
 import { failedTests } from './vitest-reporter.mjs';
 import { inside, runVitest, runVitestAsync, withCopy } from './vitest.mjs';
@@ -20,6 +20,7 @@ const sha = source => createHash('sha256').update(source).digest('hex');
 const identity = test => JSON.stringify([test.project, test.file, test.id]);
 const testcase = ({ id, project, file, name }) => ({ id, project, file, name });
 const literalKey = { '<': 'ltLiteral', '<=': 'leLiteral', '>': 'gtLiteral', '>=': 'geLiteral' };
+const shiftKey = { '<': 'ltShift', '<=': 'leShift', '>': 'gtShift', '>=': 'geShift' };
 
 function compare(operator, left, right) {
   switch (operator) {
@@ -266,12 +267,19 @@ function constantThreshold(site, observation, callable) {
   };
 }
 
+function variableMargin(site, observation, constant) {
+  if (constant || !observation.complete || !observation.rows.length || !['<', '<=', '>', '>='].includes(site.operator)) return null;
+  const pairs = observation.rows.map(row => row.operands);
+  return { operator: site.operator, pairs, gap: null };
+}
+
 const isBoundaryEquivalentShift = (operator, threshold, alternate) =>
   (operator === '>=' || operator === '<') ? alternate === threshold + 1 : alternate === threshold - 1;
 
 export function planFocusedTrials(subjects, trace, baseline, specification, displaceThresholds) {
   const sites = [];
   const thresholdRequests = [];
+  const marginRequests = [];
   const observations = indexObservations(trace, baseline);
   for (const subject of subjects) {
     const lookupThreshold = thresholdLookup(subject);
@@ -280,21 +288,25 @@ export function planFocusedTrials(subjects, trace, baseline, specification, disp
       const tightened = tightenComparison(subject.input, site, observation, displaceThresholds);
       const callable = callableThreshold(subject, site, observation, specification, lookupThreshold);
       const constant = constantThreshold(site, observation, callable);
+      const margin = variableMargin(site, observation, constant);
       if (constant) thresholdRequests.push(constant);
-      sites.push({ subject, site, observation, tightened, callable, constant });
+      if (margin) marginRequests.push(margin);
+      sites.push({ subject, site, observation, tightened, callable, constant, margin });
     }
   }
   const gaps = thresholdGaps(thresholdRequests.map(({ operator, value, inputs, min, max }) => ({
     operator, threshold: value, observations: inputs, min, max,
   })));
   thresholdRequests.forEach((entry, index) => { entry.gap = gaps[index]; });
+  const mGaps = marginGaps(marginRequests.map(({ operator, pairs }) => ({ operator, pairs })));
+  marginRequests.forEach((entry, index) => { entry.gap = mGaps[index]; });
 
   const trials = [];
-  for (const { subject, site, observation, tightened, callable, constant } of sites) {
+  for (const { subject, site, observation, tightened, callable, constant, margin } of sites) {
     if (callable && constant) callable.gap = constant.gap;
     const boundary = {
       site, edit: site.edit, replacement: site.replacement, source: site.source, rule: site.rule,
-      observation, threshold: callable, thresholdGap: constant?.gap ?? null,
+      observation, threshold: callable, thresholdGap: constant?.gap ?? null, marginGap: margin?.gap ?? null,
     };
     trials.push(boundary);
     let thresholdAdjustment;
@@ -314,7 +326,20 @@ export function planFocusedTrials(subjects, trace, baseline, specification, disp
         });
       }
     }
-    if (tightened && tightened.adjustment !== thresholdAdjustment) trials.push({ ...tightened, threshold: callable });
+    let marginAdjustment;
+    if (margin?.gap) {
+      const { alternate } = margin.gap;
+      if (!isBoundaryEquivalentShift(site.operator, 0, alternate)) {
+        marginAdjustment = alternate;
+        trials.push({
+          site, edit: site.right, replacement: shiftedReplacement(subject.input, site, alternate),
+          rule: 'comparison-margin/v1', observation, adjustment: alternate, marginGap: margin.gap,
+        });
+      }
+    }
+    if (tightened && tightened.adjustment !== thresholdAdjustment && tightened.adjustment !== marginAdjustment) {
+      trials.push({ ...tightened, threshold: callable });
+    }
   }
   return trials;
 }
@@ -361,12 +386,15 @@ function leanSkips(trials, baseline, deterministic, coverage) {
     if (observation.observed.size !== observation.tests.size &&
         !matchesFocusedCoverage(observation.observed, coverage.get(site.id))) continue;
     const literal = rule === 'comparison-threshold/v1' && trial.isLiteralThreshold === true;
-    if (!literal && rule !== site.rule) continue;
+    const margin = rule === 'comparison-margin/v1' && Number.isSafeInteger(trial.adjustment);
+    if (!literal && !margin && rule !== site.rule) continue;
     indices.push(index);
     requests.push({
       candidate: site.id, traceCandidate: site.id, complete: true, deterministic,
       original: site.operator,
-      replacement: literal ? { [literalKey[site.operator]]: Number(trial.replacement) } : trial.replacement,
+      replacement: literal ? { [literalKey[site.operator]]: Number(trial.replacement) }
+        : margin ? { [shiftKey[site.operator]]: trial.adjustment }
+          : trial.replacement,
       observations: observation.rows.map(row => row.operands),
     });
   }
@@ -397,22 +425,27 @@ function diagnose(trial, result) {
   const binary = observation.rows[0]?.operands;
   if (!binary) return null;
   const gap = trial.rule === 'comparison-threshold/v1' ? trial.thresholdGap : null;
-  const input = gap?.witness ?? binary[1] + (trial.adjustment ?? 0);
+  const mGap = trial.rule === 'comparison-margin/v1' ? trial.marginGap : null;
+  const input = gap?.witness ?? (mGap ? binary[1] + mGap.witness : binary[1] + (trial.adjustment ?? 0));
   const comparison = values(input, binary[1]);
-  const expected = gap?.expected ?? comparison.original;
-  const mutant = gap?.mutant ?? comparison.mutant;
+  const expected = gap?.expected ?? mGap?.expected ?? comparison.original;
+  const mutant = gap?.mutant ?? mGap?.mutant ?? comparison.mutant;
   const constantThreshold = threshold && threshold.meta.threshold === binary[1];
   const specified = constantThreshold && threshold.specified &&
     input >= (threshold.contract.min ?? Number.MIN_SAFE_INTEGER) && input <= (threshold.contract.max ?? Number.MAX_SAFE_INTEGER);
   return {
     kind: 'INPUT GAP', site: site.id, location: site.location,
+    ...(mGap ? { rule: 'comparison-margin/v1' } : {}),
     witness: {
-      input: constantThreshold ? input : undefined, operands: [input, binary[1]], original: expected, mutant,
+      input: constantThreshold ? input : undefined, operands: [input, binary[1]],
+      ...(mGap ? { margin: mGap.witness } : {}),
+      original: expected, mutant,
       expectation: specified ? 'specification' : constantThreshold ? 'original' : 'hypothetical-operands',
     },
     observedInputs: constantThreshold ? [...new Set(threshold.inputs)].sort((a, b) => a - b) : undefined,
     suggestedTest: constantThreshold ? `expect(${threshold.meta.functionName}(${input})).toBe(${expected})` : undefined,
     feasibleThresholds: gap?.interval ?? trial.thresholdGap?.interval ?? (constantThreshold ? threshold.gap?.interval : undefined),
+    ...(mGap || trial.marginGap ? { feasibleMargins: (mGap ?? trial.marginGap).interval } : {}),
   };
 }
 
