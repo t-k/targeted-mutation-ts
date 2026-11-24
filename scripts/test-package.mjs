@@ -33,8 +33,15 @@ try {
   const addon = load(join(platformPackage, 'tmt.node'));
   assert.equal(addon.syntax, undefined);
   assert.equal(addon.standalone, undefined);
+  const home = homedir();
+  const repoRoot = resolve('.');
+  // Lean's prebuilt runtime libraries are compiled on GitHub Actions under <home>/work/lean4/lean4/.
+  const leanUpstream = `${home}/work/lean4/lean4/`;
   for (const binary of ['tmt.node', 'tmt-decide']) {
-    assert.equal(readFileSync(join(platformPackage, binary)).includes(homedir()), false, `${binary} records the build machine's home directory`);
+    const content = readFileSync(join(platformPackage, binary));
+    assert.equal(content.includes(repoRoot), false, `${binary} records the build repository path`);
+    const scrubbed = binary === 'tmt-decide' ? content.toString('latin1').replaceAll(leanUpstream, '') : content;
+    assert.equal(scrubbed.includes(home), false, `${binary} records the build machine's home directory`);
   }
   for (const file of ['LICENSE', 'NOTICE', 'lean/LICENSE', 'lean/LICENSES', 'lean/GPL-3.0.txt', 'lean/libuv-LICENSE.txt', 'lean/libuv-LICENSE-extra.txt']) assert.ok(readFileSync(join(platformPackage, file)).length, file);
   const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
