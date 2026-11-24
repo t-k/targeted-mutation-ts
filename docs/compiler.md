@@ -561,3 +561,28 @@ Further forms: setters in object types, index signatures as class members, state
 Three review findings of this round had one cause: the emitter called the parser for a boundary while it was still reading the records of the first parse, and the second parse wrote into them. A file with an enum and a constructor with statements before `super`, or with a decorator holding a template literal in front of a namespace, lost a lowering. The tape now stops recording as soon as the first parse returns. Since no corpus held such a combination, a further check was added: fixed constructs with unique names (an enum with a namespace, a constructor with parameter properties behind a statement, a decorated class with a template literal, an abstract class with overloads) are put in front of and behind 1,488 real files, in eight variants, and every native output is compared with TypeScript's. Of 11,904 files 9,164 compile natively and all of them match.
 
 68 of the 8,973 project files still take the TypeScript route. Over all corpora 15,806 of 15,814 native outputs have TypeScript's syntax, with the eight benign differences named above. On the Ryzen host the build is ahead of every peer on 20 of 20 warm rows and 19 of 20 first-process rows.
+
+### The remaining declined files, cause by cause
+
+Each of the 57 project files that still took the TypeScript route was reduced to its cause and checked the other way round: with only that construct replaced, the original file compiles natively. There were 35 causes, most of them in one to three files. The following were taken.
+
+| Form | Rule |
+| --- | --- |
+| `g(1, () => x < 3, () => x + 1)`, `const ok = s < 300, other = 1` | TypeScript tries a type argument list at a less-than sign and takes it only if the list ends in a greater-than sign before the closing bracket, or before the end of the statement for declarators. With no such sign behind the first less-than sign, an arrow head aside, the item is a comparison. |
+| `({ a = 1, b: c = 2, ...rest } = value)` | An assignment pattern with defaults, with targets that strict code may assign. |
+| `(string) => string[]`, `(a, b) => void` | Parameters of signatures without a type. |
+| `(...[head, ...tail]: Params) => head` | A binding pattern as the rest parameter of an arrow function. |
+| `/** @jsx h */`, `@jsxFrag` | Ignored under the automatic runtime, as TypeScript ignores them; declined under the classic factory. |
+| `abstract override m(): void;` | An abstract member is erased whole. |
+| a type declaration behind a lowered namespace or enum | Erased. |
+| `import type { A } from 'a' with { 'resolution-mode': 'import' }` | One import attribute with a name or string key and a string value. |
+| `new W!(u)` | The mark is erased. |
+| `declare module 'name' { }` before the first import, `declare global { let x: T }` | Erased. |
+
+Left to TypeScript by decision: parameter decorators, which need `experimentalDecorators` and are an error in TypeScript's default configuration. Still declined: a reference to an exported namespace variable inside the namespace, nested and merged namespaces, labelled statements other than loops, regular expressions and identifiers with characters outside the Basic Multilingual Plane, more than 512 declarations in one scope, conditional types nested deeper than 16, JSX type arguments, JSX spread children, and a few single forms.
+
+The list parser has to stay a loop. The first version of the rule for comparison items called the list parser from a position that was not its tail, the extraction no longer produced a loop, and an array literal of 30,000 items overflowed the C stack. The parser now carries the offset of the first such item through its iterations and searches once when it reaches the bracket. Lists of 40,000 items are tested, and `build/fable/self-calls.py` compares the generated C with an earlier commit for functions that became self-recursive.
+
+Review findings of this round, all fixed: a non-null mark behind a JSX element was erased although TypeScript rejects it; a declaration erased in front of a string statement let the string become a directive, where TypeScript writes the helper import of a JSX file in front of it; `with` on the line after a re-export was read as attributes; and a target of an assignment pattern has to be assignable in strict code, which an existing test of the extractor caught.
+
+Test262 was run again on this build, with `test/built-ins/RegExp` added: no test that behaved identically before behaves differently now, and the only differences on the native route remain scripts that receive `"use strict"`. Of the 8,973 project files 44 take the TypeScript route, nine of them for parameter decorators. On the Ryzen host the build is ahead of every peer on 20 of 20 warm rows and 19 of 20 first-process rows; against the build before these forms the project rows are 0.6 to 2.2 percent slower.
