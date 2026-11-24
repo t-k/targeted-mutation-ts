@@ -1324,3 +1324,23 @@ test('review findings: a mark behind JSX, a string behind an erased declaration,
     assert.notEqual(sameAsTypeScript(source, 'a.ts').backend, 'pulse', source);
   }
 });
+
+test('method signatures without a result type, and optional properties and getters of declared classes', () => {
+  for (const source of [
+    'export type W = { getRuntime: () => { __wbg_set_wasm() } }',
+    'export interface W { m(); n?(a: string); o<T>(x: T) }',
+    'export type W = { m(), n(): void };',
+    'declare class S extends T { p?: Partial<P>; q?: number }\nexport {};',
+    'declare class S { get d(): X; static get e(): Y; }\nexport {};',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'signatures.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'declare class S { set d(v: X); }\nexport {};',
+    'declare class S { get d() { return 1 } }\nexport {};',
+    'declare class S { p?: number = 1 }\nexport {};',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'signatures.ts' }).backend, 'pulse', source);
+  }
+  assert.equal(compile(Buffer.from('export type W = { m() => void };'), { file: 'signatures.ts' }).code, null);
+});

@@ -1556,7 +1556,11 @@ and object_type_member (input:tape) (#frame:slprop) (st:parser_state) (fuel:U32.
           let! opening = (fun () -> if byte = 60uy then (let! anf_value_8 = (fun () -> ((let! anf_value_9 = (fun () -> (consume input #frame after 60uy)) in type_parameters input #frame anf_value_9 inner 64ul false))) in skip input #frame anf_value_8)
             else read_ret input #frame (after)) in
           let! parameters = (fun () -> (let! anf_value_10 = (fun () -> (consume input #frame opening 40uy)) in signature_parameters input #frame anf_value_10 inner 64ul anf_value_10.offset empty_signature_names)) in
-          (let! anf_value_11 = (fun () -> ((let! anf_value_12 = (fun () -> (skip input #frame parameters)) in consume input #frame anf_value_12 58uy))) in result_type input #frame anf_value_11 fuel)
+          // A method signature may stand without a result type, as in { run() }.
+          let! after_parameters = (fun () -> skip input #frame parameters) in
+          let! typed = (fun () -> same input #frame after_parameters.offset 58uy) in
+          if typed then (let! anf_value_11 = (fun () -> consume input #frame after_parameters 58uy) in result_type input #frame anf_value_11 fuel)
+          else read_ret input #frame parameters
       else (let! anf_value_13 = (fun () -> (consume input #frame after 58uy)) in delimited_type input #frame anf_value_13 fuel)
 and object_type (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 7; U32.v remaining]) =
@@ -4351,8 +4355,8 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
       else if member_head.ok || kind = AmbientClass then
         let ambient_constructor = kind = AmbientClass && constructor && not member_head.ok && next_byte = 40uy in
         let! closed =
-          (fun () -> if awaiting_body || (constructor_name && not ambient_constructor) || accessor || key.private_ || key.quoted_ || key.computed ||
-            key.async_ || key.generator_ || prototype ||
+          (fun () -> if awaiting_body || (constructor_name && not ambient_constructor) || (accessor && kind <> AmbientClass) ||
+            key.private_ || key.quoted_ || key.computed || key.async_ || key.generator_ || prototype ||
             // A declared class is erased whole, so its members may be static or carry an access modifier.
             // An abstract member is erased whole, so it may also be marked override.
             (kind <> AmbientClass && U32.logand key.modifier_flags (U32.logor class_access_flags 1ul) <> 0ul) then ret input (failed tail 1ul)
@@ -4360,9 +4364,13 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             if fuel = 0ul || key.readonly_ then ret input (failed tail 1ul)
             else
               let mode = if ambient_constructor then BaseConstructor else MethodSuper in
-              let! result = (fun () -> function_form input tail (minus fuel 1ul) false mode true OrdinaryParameters false) in
+              // A declared class may declare a getter: get name(): T;
+              let! result = (fun () -> function_form input tail (minus fuel 1ul) false mode true key.arity false) in
               ret input (if result.signature_only then result.after_function else failed result.after_function 1ul)
           else
+            // A declared class may mark a property optional.
+            let! optional = (fun () -> if kind = AmbientClass then same input tail.offset 63uy else ret input false) in
+            let! tail = (fun () -> if optional then (let! mark = (fun () -> consume input tail 63uy) in skip input mark) else ret input tail) in
             let! annotation = (fun () -> consume input tail 58uy) in
             let! typed = (fun () -> annotation_type input annotation 16ul 64ul) in
             let! following = (fun () -> skip input typed) in

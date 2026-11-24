@@ -4590,8 +4590,14 @@ TmtPulseParser_object_type_member(
               value12.offset,
               TmtPulseParser_empty_signature_names);
           TmtPulseParser_parser_state value14 = TmtPulseParser_skip(input, value13);
-          TmtPulseParser_parser_state value15 = TmtPulseParser_consume(input, value14, 58U);
-          return TmtPulseParser_result_type(input, value15, fuel);
+          bool value15 = TmtPulseParser_same(input, value14.offset, 58U);
+          if (value15)
+          {
+            TmtPulseParser_parser_state value16 = TmtPulseParser_consume(input, value14, 58U);
+            return TmtPulseParser_result_type(input, value16, fuel);
+          }
+          else
+            return value13;
         }
       }
       else
@@ -15088,8 +15094,9 @@ TmtPulseParser_class_members(
             TmtPulseParser_parser_state value120;
             if
             (
-              awaiting_body || constructor_name && !ambient_constructor || accessor ||
-                value5.private_
+              awaiting_body || constructor_name && !ambient_constructor ||
+                accessor && kind != TmtPulseParser_AmbientClass
+              || value5.private_
               || value5.quoted_
               || value5.computed
               || value5.async_
@@ -15118,7 +15125,7 @@ TmtPulseParser_class_members(
                     false,
                     mode,
                     true,
-                    TmtPulseParser_OrdinaryParameters,
+                    value5.arity,
                     false);
                 if (value12.signature_only)
                   value120 = value12.after_function;
@@ -15128,15 +15135,28 @@ TmtPulseParser_class_members(
             }
             else
             {
-              TmtPulseParser_parser_state value12 = TmtPulseParser_consume(input, value6, 58U);
-              TmtPulseParser_parser_state
-              value13 = TmtPulseParser_annotation_type(input, value12, 16U, 64U);
-              TmtPulseParser_parser_state value14 = TmtPulseParser_skip(input, value13);
-              bool value15 = TmtPulseParser_same(input, value14.offset, 61U);
-              if (value15)
-                value120 = TmtPulseParser_failed(value14, 1U);
+              bool value12;
+              if (kind == TmtPulseParser_AmbientClass)
+                value12 = TmtPulseParser_same(input, value6.offset, 63U);
               else
-                value120 = TmtPulseParser_statement_end(input, value13, value13.offset, true);
+                value12 = false;
+              TmtPulseParser_parser_state value130;
+              if (value12)
+              {
+                TmtPulseParser_parser_state value13 = TmtPulseParser_consume(input, value6, 63U);
+                value130 = TmtPulseParser_skip(input, value13);
+              }
+              else
+                value130 = value6;
+              TmtPulseParser_parser_state value14 = TmtPulseParser_consume(input, value130, 58U);
+              TmtPulseParser_parser_state
+              value15 = TmtPulseParser_annotation_type(input, value14, 16U, 64U);
+              TmtPulseParser_parser_state value16 = TmtPulseParser_skip(input, value15);
+              bool value17 = TmtPulseParser_same(input, value16.offset, 61U);
+              if (value17)
+                value120 = TmtPulseParser_failed(value16, 1U);
+              else
+                value120 = TmtPulseParser_statement_end(input, value15, value15.offset, true);
             }
             TmtPulseParser_parser_state value13;
             if (kind != TmtPulseParser_AmbientClass)
