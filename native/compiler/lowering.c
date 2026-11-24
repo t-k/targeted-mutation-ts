@@ -26,6 +26,8 @@ typedef struct {
   uint32_t at;
   writer output;
   bool classic, mixed;
+  /* The namespace whose exported enum is being written, or an empty span. */
+  TmtGrammar_span owner;
   unsigned helpers;
   /* The helper module that TypeScript's transform would request first: none, the JSX runtime or createElement. */
   unsigned first_source;
@@ -595,6 +597,17 @@ static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exp
   }
   put(out, "})(");
   source_bytes(lower, binding.first, binding.last);
+  if (lower->owner.first != lower->owner.last) {
+    /* An enum exported from a namespace: (E=N.E||(N.E={})) */
+    put(out, "=");
+    for (int twice = 0; twice < 2; twice++) {
+      write_bytes(out, lower->input.source + lower->owner.first, lower->owner.last - lower->owner.first);
+      put(out, ".");
+      source_bytes(lower, binding.first, binding.last);
+      put(out, twice ? "={}));" : "||(");
+    }
+    return !out->failed;
+  }
   put(out, "||(");
   source_bytes(lower, binding.first, binding.last);
   put(out, "={}));");
@@ -1400,6 +1413,8 @@ enum {
   namespace_declaration = 36,
   namespace_declaration_end = 37,
   namespace_end = 38,
+  /* An enum exported from a namespace, from `export` to its closing brace. */
+  namespace_enum = 39,
 };
 
 typedef struct {
@@ -1793,7 +1808,7 @@ static bool assertion_exposes_statement(TmtPulseMemory_tape input, TmtGrammar_sp
 
 /* An enum at module level or inside a block. */
 /* A record whose text is replaced: an enum at module level or inside a block, or the head of an export assignment. */
-static bool namespace_record(uint32_t kind) { return kind >= namespace_head && kind <= namespace_end; }
+static bool namespace_record(uint32_t kind) { return kind >= namespace_head && kind <= namespace_enum; }
 
 static bool enum_record(uint32_t kind) {
   return kind == runtime_enum || kind == local_enum || kind == export_assignment || namespace_record(kind);
@@ -2098,12 +2113,15 @@ static bool plain_name(TmtPulseMemory_tape input, TmtGrammar_span name) {
   return true;
 }
 
-/* How often a name stands as a whole word in a range. Text in strings and comments counts as well. */
+/* How often a name stands as a whole word in a range, property accesses aside. Text in strings and comments counts as well. */
 static uint32_t word_count(TmtPulseMemory_tape input, uint32_t first, uint32_t last, TmtGrammar_span name) {
   const uint32_t width = name.last - name.first;
   uint32_t count = 0;
   for (uint32_t at = first; at + width <= last; at++) {
     if (memcmp(input.source + at, input.source + name.first, width)) continue;
+    /* A name behind a single dot is a property, not a reference. */
+    const bool property = at > first + 1 && input.source[at - 1] == '.' && input.source[at - 2] != '.';
+    if (property) continue;
     const bool before = at > first && (input.source[at - 1] >= 128 || TmtGrammar_identifier_continue(input.source[at - 1]));
     const bool after = at + width < last && (input.source[at + width] >= 128 || TmtGrammar_identifier_continue(input.source[at + width]));
     if (!before && !after) count++;
@@ -2169,6 +2187,18 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
     return !lower->output.failed;
   }
   if (event.original == namespace_declaration) return true;
+  if (event.original == namespace_enum) {
+    const uint32_t size = lower->input.size;
+    lower->input.size = span.last;
+    const TmtPulseCompiler_runtime_head head = TmtPulseCompiler_read_runtime_head(lower->input, event.right.first, false, true, true);
+    lower->at = head.body;
+    lower->owner = *scope;
+    const bool emitted = head.kind == 3 && head.declaration == event.right.first && head.body < span.last &&
+      emit_enum(lower, head.name_span, false, true) && lower->at == span.last;
+    lower->owner = (TmtGrammar_span){ 0, 0 };
+    lower->input.size = size;
+    return emitted;
+  }
   if (event.original == namespace_declaration_end) {
     if (input.source[span.first] != '}') return false;
     uint32_t at = event.right.first;

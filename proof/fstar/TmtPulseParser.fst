@@ -4889,7 +4889,19 @@ let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:
       let! class_ = (fun () -> class_keyword input after.at) in
       let! abstract_ = (fun () -> abstract_class_start input after.at) in
       let! type_width = (fun () -> type_declaration_width input after.at) in
+      let! enumeration = (fun () -> local_enum_start input after.at) in
       if not after.ok then ret input (failed st 1ul)
+      else if enumeration.ok then
+        // Kind 39: the emitter writes the enum as inside a block and stores it in the namespace object.
+        let declared = record_binding_mode st LexicalLocals in
+        let! named = (fun () -> skip input { declared with offset = plus enumeration.at 4ul }) in
+        let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
+        let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
+        let! opening = (fun () -> (let! body = (fun () -> skip input tracked) in consume input body 123uy)) in
+        let! closed = (fun () -> enum_body_tokens input opening input.size) in
+        let! recorded = (fun () -> record_compiler_span input closed 39ul { G.first = st.offset; G.last = closed.offset }
+          { G.first = after.at; G.last = closed.offset }) in
+        runtime_namespace_members input { recorded with local_names = decl.used } floor decl.used (minus remaining 1ul)
       else if lexical <> 0ul || var_ then
         let width = if var_ then 3ul else lexical in
         let! named = (fun () -> skip input { st with offset = plus after.at width }) in
@@ -4961,8 +4973,9 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
           let! recorded = (fun () -> record_jsx_span input body 8ul state.offset body.offset) in
           ret input { named with state = recorded }
         else
-          // Not a namespace of types alone. Its name is a value and conflicts with every other declaration.
-          let! value = (fun () -> bind_in_namespace input st 0ul 0ul used namespace_.name_start BothNames) in
+          // Not a namespace of types alone. Its name is a value: it conflicts with every other value and
+          // shares the name with a type alias or an interface.
+          let! value = (fun () -> bind_in_namespace input st 0ul 0ul used namespace_.name_start ValueName) in
           if value.state.status <> 0ul then ret input value
           else
             let! lowered = (fun () -> runtime_namespace input st state.offset namespace_.name_start namespace_.body_start) in

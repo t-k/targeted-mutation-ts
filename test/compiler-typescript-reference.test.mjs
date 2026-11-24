@@ -963,8 +963,25 @@ test('a namespace with exported variables, functions and classes is lowered as T
     'const before = 1\nexport namespace N { export var x = before }\nconst after = N.x',
     'export namespace N { export function* g() { yield 1 } export const k = class {} }',
     'export namespace D { export function f() { } export const a = 1; }',
+    // An exported enum is written as inside a block and stored in the namespace object.
+    'export namespace N { export enum E { A, B = "b" } }',
+    'export namespace N { export const enum F { Strict = "strict", Lax = "lax", } export const x = F.Lax; }',
+    // A name behind a dot is a property, not a reference to the exported variable.
+    'namespace Scope { export const ScopeType = scopeManager.ScopeType; }\nexport {};',
+    'export namespace N { export const a = 1; export const b = o.a + o?.a; }',
+    // The namespace is a value and shares its name with a type.
+    'export interface N { a: 1 }\nexport namespace N { export const a = 1; }',
+    'namespace N { export type T = 1 }\nnamespace N { export const a = 1; }\nexport {};',
   ]) {
     assert.equal(sameAsTypeScript(source, 'space.ts').backend, 'pulse', source);
+  }
+  for (const source of ['export class N { }\nexport namespace N { export const a = 1; }',
+    'export enum N { A }\nexport namespace N { export const a = 1; }',
+    'import { N } from "m";\nexport namespace N { export const a = 1; }',
+    'export namespace N { export const a = 1; export const b = { a: 2 }; }',
+    'export namespace N { export const a = 1; export const b = [...a]; }',
+    'export namespace N { export enum E { A } export enum E { B } }']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'space.ts' }).backend, 'pulse', source);
   }
   for (const source of [
     'export namespace N { export const a = 1; export const b = a + 1; }',
@@ -972,7 +989,6 @@ test('a namespace with exported variables, functions and classes is lowered as T
     'export namespace N { export const a = 1, b = 2; }',
     'export namespace N { export let c; }',
     'export namespace N { export const { a } = o; }',
-    'export namespace N { export enum E { A } }',
     'export namespace N { export namespace M { export const a = 1; } }',
     'export namespace A.B { export const a = 1; }',
     'export namespace N { export const a = 1; }\nexport namespace N { export const b = 2; }',

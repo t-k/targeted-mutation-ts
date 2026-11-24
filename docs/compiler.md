@@ -528,3 +528,24 @@ On TypeScript's own test cases the native route takes 3,033 of 6,479 files under
 On the Ryzen host the build is ahead of every peer on 20 of 20 warm rows and 19 of 20 first-process rows, the exception being `tmt-scripts.js` on the first call as before. Against the build before this section's forms the project rows are within about 1 percent, which is the spread between repeated runs of one build.
 
 Still declined: `export =` and `import =`, parameter decorators and decorators on classes inside functions, runtime namespaces, `declare module` with a string name, non-ASCII identifiers, and single forms such as `new X!()`, an assignment pattern with defaults, an unnamed parameter in a function type, accessors in interfaces, import attributes and computed keys in a binding pattern.
+
+### Running Test262 through the compiler
+
+Every test under `test/language` of Test262 was compiled twice, as JavaScript (`.js`, `.mjs`) and as TypeScript (`.ts`, `.mts`), and the original and the compiled text were both executed with the upstream harness, in strict and sloppy mode as the metadata asks. Compilation ran on the development machine; execution ran in a container without network. A test counts as identical when both sides pass, or fail in the same phase with the same error constructor.
+
+| | JavaScript | TypeScript |
+| --- | ---: | ---: |
+| Compared (file and mode) | 43,993 | 43,993 |
+| Native route | 35,173 | 12,534 |
+| TypeScript route | 6,450 | 28,980 |
+| Rejected, as the test expects | 2,363 | 2,363 |
+| Rejected although valid | 7 | 116 |
+| Identical behaviour | 40,662 | 40,552 |
+| Different on the native route | 335 | 236 |
+| Different on the TypeScript route | 626 | 726 |
+
+All differences on the native route have one cause, and it is TypeScript's own behaviour that the compiler follows: a script without imports or exports receives `"use strict";`, so a sloppy-mode test such as `undeclared = 1;` throws afterwards. Each of them reproduces with the directive added to the original by hand. With strict or module input the native route changed the behaviour of no test.
+
+The differences on the TypeScript route are TypeScript's: the same directive (`with ({}) {}` becomes a syntax error), JavaScript syntax errors that its printer repairs (`function f(...a,) {}`, a line break before `=>`, `({async async})`), and one module where `await /x.y/g` is printed as a division. Valid inputs that TypeScript rejects as TypeScript are counted apart: legacy octal and escaped `let` in sloppy scripts, identifiers of recent Unicode versions, and a private name behind an optional chain, which TypeScript does not allow.
+
+The run used the build of commit 8e9ce0a. It found two defects outside the native route, both fixed afterwards: an `.mts` file without imports or exports was handed to TypeScript as a script, and an internal failure of TypeScript's printer on `return o?.c.#f` escaped as an exception instead of a diagnostic. `test/built-ins` was not run, since the compiler does not change built-ins.
