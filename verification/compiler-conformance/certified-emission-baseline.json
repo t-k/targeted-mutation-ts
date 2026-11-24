@@ -810,42 +810,42 @@
   ]
  },
  "certification/ambient-function-export/lf/first.ts": {
-  "backend": "typescript",
+  "backend": "node-strip",
   "codeSha256": null,
   "diagnostics": [
    "UNBOUND_RUNTIME_EXPORT"
   ]
  },
  "certification/ambient-function-export/lf/after-import.ts": {
-  "backend": "typescript",
+  "backend": "node-strip",
   "codeSha256": null,
   "diagnostics": [
    "UNBOUND_RUNTIME_EXPORT"
   ]
  },
  "certification/ambient-function-export/lf/after-erased.ts": {
-  "backend": "typescript",
+  "backend": "node-strip",
   "codeSha256": null,
   "diagnostics": [
    "UNBOUND_RUNTIME_EXPORT"
   ]
  },
  "certification/ambient-function-export/crlf/first.ts": {
-  "backend": "typescript",
+  "backend": "node-strip",
   "codeSha256": null,
   "diagnostics": [
    "UNBOUND_RUNTIME_EXPORT"
   ]
  },
  "certification/ambient-function-export/crlf/after-import.ts": {
-  "backend": "typescript",
+  "backend": "node-strip",
   "codeSha256": null,
   "diagnostics": [
    "UNBOUND_RUNTIME_EXPORT"
   ]
  },
  "certification/ambient-function-export/crlf/after-erased.ts": {
-  "backend": "typescript",
+  "backend": "node-strip",
   "codeSha256": null,
   "diagnostics": [
    "UNBOUND_RUNTIME_EXPORT"
@@ -1812,42 +1812,42 @@
   ]
  },
  "certification/ambient-function-export/lf/first.tsx": {
-  "backend": "typescript",
+  "backend": "pulse+node-strip",
   "codeSha256": null,
   "diagnostics": [
    "UNBOUND_RUNTIME_EXPORT"
   ]
  },
  "certification/ambient-function-export/lf/after-import.tsx": {
-  "backend": "typescript",
+  "backend": "pulse+node-strip",
   "codeSha256": null,
   "diagnostics": [
    "UNBOUND_RUNTIME_EXPORT"
   ]
  },
  "certification/ambient-function-export/lf/after-erased.tsx": {
-  "backend": "typescript",
+  "backend": "pulse+node-strip",
   "codeSha256": null,
   "diagnostics": [
    "UNBOUND_RUNTIME_EXPORT"
   ]
  },
  "certification/ambient-function-export/crlf/first.tsx": {
-  "backend": "typescript",
+  "backend": "pulse+node-strip",
   "codeSha256": null,
   "diagnostics": [
    "UNBOUND_RUNTIME_EXPORT"
   ]
  },
  "certification/ambient-function-export/crlf/after-import.tsx": {
-  "backend": "typescript",
+  "backend": "pulse+node-strip",
   "codeSha256": null,
   "diagnostics": [
    "UNBOUND_RUNTIME_EXPORT"
   ]
  },
  "certification/ambient-function-export/crlf/after-erased.tsx": {
-  "backend": "typescript",
+  "backend": "pulse+node-strip",
   "codeSha256": null,
   "diagnostics": [
    "UNBOUND_RUNTIME_EXPORT"

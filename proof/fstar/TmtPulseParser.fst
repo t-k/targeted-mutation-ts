@@ -4155,7 +4155,9 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         let ambient_constructor = kind = AmbientClass && constructor && not member_head.ok && next_byte = 40uy in
         let! closed =
           (fun () -> if awaiting_body || (constructor_name && not ambient_constructor) || accessor || key.private_ || key.quoted_ || key.computed ||
-            key.async_ || key.generator_ || U32.logand key.modifier_flags (U32.logor class_access_flags 9ul) <> 0ul then ret input (failed tail 1ul)
+            key.async_ || key.generator_ || prototype ||
+            // A declared class is erased whole, so its members may be static or carry an access modifier.
+            (kind <> AmbientClass && U32.logand key.modifier_flags (U32.logor class_access_flags 9ul) <> 0ul) then ret input (failed tail 1ul)
           else if method then
             if fuel = 0ul || key.readonly_ then ret input (failed tail 1ul)
             else
@@ -4518,6 +4520,7 @@ let ambient_modifier (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt curso
       if byte = 99uy then class_keyword input #frame after.at
       else if byte = 101uy then keyword input #frame after.at 4ul 0x656e756duL
       else if byte = 110uy then namespace_keyword input #frame after.at
+      else if byte = 102uy then keyword input #frame after.at 8ul 0x66756e6374696f6euL
       else
         let! abstract_ = (fun () -> abstract_class_start input #frame after.at) in
         read_ret input #frame abstract_.ok
@@ -4558,6 +4561,8 @@ let module_function (input:tape) (state:parser_state) (used:names_used) (declara
   let! function_ = (fun () -> function_form input named 64ul async_ NoSuper (not head.generator) OrdinaryParameters head.generator) in
   let after = function_.after_function in
   if after.status <> 0ul then ret input ({ state = after; used })
+  // A declared function has no body.
+  else if ambient && not function_.signature_only then ret input ({ state = failed after 1ul; used })
   else
     let namespace = if function_.signature_only then FunctionSignature else FunctionImplementation in
     let! binding = (fun () -> bind_in_namespace input state 0ul 0ul used state.offset namespace) in
@@ -4584,6 +4589,23 @@ let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) 
     else if not comma then (let! anf_value_1 = (fun () -> statement_end input value.parser value.range.G.last false) in ret input ({ decl with state = anf_value_1 }))
     else if value.open_angle then ret input ({ decl with state = failed tail 1ul })
     else (let! anf_value_2 = (fun () -> (consume input tail 44uy)) in module_lexical_list input anf_value_2 decl.used constant names_only (minus remaining 1ul))
+
+// The declarators of `declare const a: T, b;`: names with optional annotations and no initializers.
+let rec ambient_declarators (input:tape) (decl:named_state) (remaining:U32.t)
+  : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
+  let! st = (fun () -> skip input decl.state) in
+  let! colon = (fun () -> same input st.offset 58uy) in
+  let! annotation = (fun () -> if colon then
+      (let! opened = (fun () -> consume input st 58uy) in annotation_type input opened 16ul 64ul)
+    else ret input decl.state) in
+  let! tail = (fun () -> skip input annotation) in
+  let! comma = (fun () -> same input tail.offset 44uy) in
+  if tail.status <> 0ul || not comma then ret input ({ decl with state = annotation })
+  else if remaining = 0ul then ret input ({ decl with state = failed tail 3ul })
+  else
+    let! following = (fun () -> skip input { tail with offset = next tail.offset }) in
+    let! bound = (fun () -> bind_in_namespace input following 0ul 0ul decl.used following.offset AmbientValueName) in
+    ambient_declarators input bound (minus remaining 1ul)
 
 let rec enum_members (input:tape) (state:parser_state) (remaining:U32.t) (ambient:bool)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
@@ -4831,6 +4853,13 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
         let! recorded = (fun () -> record_jsx_span input declared.state 13ul state.offset declared.state.offset) in
         ret input { declared with state = recorded }
       else module_lexical_list input start used (width = 5ul) false input.size
+    else if (width = 3ul || width = 5ul) && head.ambient_declaration && not head.class_declaration then
+      let! first = (fun () -> bind_in_namespace input start 0ul 0ul used start.offset AmbientValueName) in
+      let! all = (fun () -> ambient_declarators input first 64ul) in
+      let! ended = (fun () -> statement_end input all.state all.state.offset false) in
+      let! recorded = (fun () -> if input.capture_types then record_jsx_span input { ended with count = state.count } 8ul state.offset ended.offset
+        else ret input ended) in
+      ret input ({ all with state = { recorded with await_allowed = state.await_allowed } })
     else
       let type_only = width = 4ul || width = 9ul in
       let! decl =

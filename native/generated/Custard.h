@@ -2591,6 +2591,13 @@ TmtPulseParser_module_function(
 );
 
 TmtPulseParser_named_state
+TmtPulseParser_ambient_declarators(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_named_state decl0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_named_state
 TmtPulseParser_module_declaration(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,

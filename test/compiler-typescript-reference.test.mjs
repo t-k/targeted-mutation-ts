@@ -806,3 +806,41 @@ test('abstract classes inside functions and type declarations in module-level bl
     assert.notEqual(compile(Buffer.from(source), { file: 'block.ts' }).backend, 'pulse', source);
   }
 });
+
+test('declared functions, declared variable lists and static members of declared classes are erased', () => {
+  for (const source of [
+    'declare function gc(): void\nexport {};',
+    'declare function v(a: number,): { }\nexport {};',
+    'declare function t<V, M extends string = string,>(): E<D<any, V, M>>\nexport {};',
+    'declare function f(a: string): void;\ndeclare function f(a: number): void;\nexport const b = f(1);',
+    'export const a = 1;\ndeclare function gc(): void;',
+    'declare const module: any, global: any;\nexport {};',
+    'declare const e;\nexport {};',
+    'declare var a, b: string, c;\nexport const d = [a, b, c];',
+    'declare class L { static readonly version: string; }\nexport {};',
+    'export declare class E<C extends L.T, O extends S<C>,> { static readonly version: string; }',
+    'declare class F extends S.E<A.B, C.D> { static readonly c: "flat"; }\nexport {};',
+    'declare class L { override m(): void; static override n: number; }\nexport {};',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'ambient.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'declare function f() { }\nexport {};',
+    'declare function* f(): void;\nexport {};',
+    'declare async function gc(): void;\nexport const a = 1;',
+    'declare function f(): void;\nconst f = 1;\nexport {};',
+    'declare\nfunction f(): void;\nexport {};',
+    'declare const a: number = 1;\nexport {};',
+    'declare const a: number, a: string;\nexport {};',
+    'declare const a: number;\nconst a = 1;\nexport {};',
+    'declare let { a }: any;\nexport {};',
+    'declare class L { static prototype: L; }\nexport {};',
+    'declare class L { static m() {} }\nexport {};',
+    'declare class L { static x = 1; }\nexport {};',
+    'declare class L { declare x: number; }\nexport {};',
+    'declare class L { static async m(): void; }\nexport {};',
+    'class L { static m(): void; }\nexport {};',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'ambient.ts' }).backend, 'pulse', source);
+  }
+});

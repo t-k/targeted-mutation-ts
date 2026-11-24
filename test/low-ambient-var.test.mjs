@@ -32,8 +32,10 @@ for (const row of rows) {
 test('ambient var modifiers and declarations retain namespace and initializer boundaries', () => {
   compare('declare var item: Options; type item = string; const ok = item < limit;', true);
   compare('const before = a < b; declare\nvar item: T;', true);
+  compare('const before = a < b; declare var item;', true);
+  compare('const before = a < b; declare var item, other: T;', true);
   for (const suffix of ['declare var item: T; const item = 0;', 'declare var item: T = a > b;',
-    'declare var item;']) {
+    'declare var item, item: T;']) {
     compare(`const before = a < b; ${suffix}`, false);
   }
 });
