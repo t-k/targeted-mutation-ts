@@ -488,6 +488,22 @@ static bool valid_utf8(const uint8_t *text, size_t size) {
   return true;
 }
 
+/*
+ * The helper names start with _tmt, and a source that holds that text is declined. A unicode escape could spell
+ * such a name without the text: \u005f, \u0074 and \u006d are its letters, and the braced form can pad them.
+ * Other escapes, as in 'Loading\u2026', cannot.
+ */
+static bool spells_helper_letter(const uint8_t *text, size_t size) {
+  for (size_t at = 0; at + 2 < size; at++) {
+    if (text[at] != '\\' || text[at + 1] != 'u') continue;
+    if (text[at + 2] == '{') return true;
+    if (size - at < 6 || text[at + 2] != '0' || text[at + 3] != '0') continue;
+    const uint8_t high = text[at + 4], low = text[at + 5] | 0x20;
+    if ((high == '5' && low == 'f') || (high == '7' && low == '4') || (high == '6' && low == 'd')) return true;
+  }
+  return false;
+}
+
 static bool contains(const uint8_t *text, size_t size, const char *needle, bool fold) {
   const size_t width = strlen(needle);
   for (size_t at = 0; size - at >= width && size >= width; at++) {
@@ -608,7 +624,7 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     /* Scripts, partial projections and compatibility hints continue in JavaScript. */
     goto decline;
   }
-  if (runtime && !contains(source, size, "\\u", false)) {
+  if (runtime && !spells_helper_letter(source, size)) {
     output = tmt_lower_runtime(source, width, true, true, classic, true, &length, &complete, flags & emit_mapped ? &runs : NULL);
     if (output && complete) goto publish;
   }

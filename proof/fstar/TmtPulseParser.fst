@@ -3424,7 +3424,8 @@ and jsx_attribute (input:tape) (state:parser_state) (fuel:U32.t)
         let! disabled = (fun () -> if value.outer_or && minus named.at state.offset = 8ul then
           let! attr_name = (fun () -> word input state.offset 8ul 0uL) in ret input (attr_name = 0x64697361626c6564uL)
           else ret input (false)) in
-        if disabled then ret input (failed st 1ul) else finish_jsx_expression input st start.offset
+        // The extractor delegates this form to its focused rewrite. The compiler lowers it like any attribute.
+        if disabled && not input.capture_types then ret input (failed st 1ul) else finish_jsx_expression input st start.offset
 
 and jsx_attributes (input:tape) (state:parser_state) (fuel remaining:U32.t)
   : Tot (stt jsx_opening (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 31; U32.v remaining]) =

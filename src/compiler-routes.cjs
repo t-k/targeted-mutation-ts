@@ -354,7 +354,9 @@ function compile(input, options = {}) {
             const result = eraseLoweredModule(addon, annotated.code, file, format);
             if (result) return result;
           }
-          if (runtime() && (!jsxFile || !source.includes('\\u'))) {
+          // A unicode escape could spell a helper name without the text _tmt: only the escapes of its letters
+          // and the braced form, which can pad them, keep a JSX file off this route.
+          if (runtime() && (!jsxFile || !source.includes('\\u') || !/\\u(?:\{|00(?:5f|74|6d))/i.test(source.toString('latin1')))) {
             const mixed = addon.lower(source, jsxFile, typed, jsx === 'classic', true);
             if (mixed !== null) {
               if (typeof mixed !== 'string') {

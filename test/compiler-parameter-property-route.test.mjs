@@ -22,7 +22,9 @@ for (const row of rows) {
     const [kind, parameter, other] = row.split('\t');
     const base = kind === 'Derived' ? 'class Base {}\n' : '';
     const extendsBase = kind === 'Derived' ? ' extends Base' : '';
-    const body = kind === 'Derived' ? 'void value; super();' : '"custom";';
+    // A super call inside a block is not a statement of the constructor body, so the native emitter has no
+    // place for the assignment and the reference compiler takes the file.
+    const body = kind === 'Derived' ? '{ super(); }' : '"custom";';
     const source = base + 'export class Entry' + extendsBase + ' {\n  constructor(' + parameters[parameter] + ') { ' +
       body + ' }\n  read() { return this.value; }\n}' + extra[other];
     const hint = emitAnnotatedModule(Buffer.from(source), other === 'Enum', false);

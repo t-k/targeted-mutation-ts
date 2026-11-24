@@ -1979,7 +1979,20 @@ static bool property_anchors(TmtPulseMemory_tape input, uint32_t count, TmtGramm
 
   for (uint32_t index = 0; index < count; index++) {
     const TmtGrammar_candidate entry = input.output[index];
-    if (entry.original != parameter_super || entry.left.first != first.at) continue;
+    if (entry.original != parameter_super || entry.left.first < first.at || entry.left.first >= body.last) continue;
+    /*
+     * TypeScript writes the assignments behind the first super call that is a statement of the body itself.
+     * Statements may stand before it: each is read as a whole, and the walk has to arrive at the call exactly.
+     */
+    uint32_t statement = first.at;
+    while (statement < entry.left.first) {
+      const uint32_t next = TmtPulseCompiler_next_module_item(input, false, statement);
+      if (next <= statement || next > entry.left.first) return false;
+      const TmtPulseParser_cursor following = TmtPulseParser_trivia(input, next);
+      if (!following.ok) return false;
+      statement = following.at;
+    }
+    if (statement != entry.left.first) return false;
     const uint32_t end = entry.left.last;
     if (end <= first.at || end >= body.last || input.source[end - 1] != ')') return false;
     const TmtPulseParser_cursor tail = TmtPulseParser_trivia(input, end);

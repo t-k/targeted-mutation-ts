@@ -12123,7 +12123,7 @@ TmtPulseParser_jsx_attribute(
         }
         else
           value110 = false;
-        if (value110)
+        if (value110 && !input.capture_types)
           return TmtPulseParser_failed(value10, 1U);
         else
           return TmtPulseParser_finish_jsx_expression(input, value10, value8.offset);

@@ -1008,3 +1008,46 @@ test('a namespace with exported variables, functions and classes is lowered as T
   assert.deepEqual(globalThis.seen, [1, 2, 'function']);
   delete globalThis.seen;
 });
+
+test('parameter properties are assigned behind a super call that follows other statements', () => {
+  for (const source of [
+    'export class P extends Column { constructor(readonly table: G, config: X) { if (!config.u) { config.u = k(table); } super(table, config); } }',
+    'export class P extends Column { constructor(readonly table: G) { const a = 1; f(a); super(table); this.g(); } }',
+    'export class P extends Column { constructor(readonly table: G) { f()\n    super(table)\n    g() } }',
+    'export class P extends Column { constructor(readonly table: G) { "use strict"; super(table); } }',
+    'export class P extends Column { constructor(readonly table: G) { super(table); super(table); } }',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'super.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'export class P extends Column { constructor(readonly table: G) { if (x) { super(table); } else { super(1); } } }',
+    'export class P extends Column { constructor(readonly table: G) { f(() => super(table)); } }',
+    'export class P extends Column { constructor(readonly table: G) { try { super(table); } finally { } } }',
+    'export class P extends Column { constructor(readonly table: G) { const v = super(table); } }',
+    'export class P extends Column { constructor(readonly table: G) { f(); super(table), g(); } }',
+    'export class P extends Column { constructor(readonly table: G) { label: super(table); } }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'super.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('a JSX file with unicode escapes in strings and a disabled disjunction are lowered natively', () => {
+  for (const source of [
+    'export const a = <T n={l ? "Loading\\u2026" : "No"} />;',
+    'export const a = f("L\\u2026"); export const b = <T/>;',
+    'export const a = <R c={s.map(() => ({ label: `${scale}\\u00d7` }))} />;',
+    'export const a = <button disabled={!x || y}>t</button>;',
+    'export const a = <button disabled={x || y} />;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'escape.tsx').backend, 'pulse', source);
+  }
+  // These escapes could spell a helper name that the text search for _tmt would not see.
+  for (const source of [
+    'export const a = <T n={"\\u{2026}"} />;',
+    'export const \\u005ftmtJsx0 = 1; export const b = <T/>;',
+    'export const _\\u0074mtJsx0 = 1; export const b = <T/>;',
+    'export const _t\\u006DtJsx0 = 1; export const b = <T/>;',
+  ]) {
+    assert.notEqual(sameAsTypeScript(source, 'escape.tsx').backend, 'pulse', source);
+  }
+});
