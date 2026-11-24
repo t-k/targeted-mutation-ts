@@ -44,6 +44,7 @@ npx targeted-mutation analyze . src/cart.ts        # selected files
 npx targeted-mutation analyze --lines src/cart.ts:10-40
 npx targeted-mutation analyze --since origin/main  # comparisons on lines changed since a revision
 npx targeted-mutation analyze --since origin/main --undo-changes  # also: which changes do the tests pass without?
+npx targeted-mutation analyze --mutators targeted --suggest-assertions  # more kinds of edits, and the value a weak assertion should compare with
 ```
 
 `tmts` is a short alias for the same command. `targeted-mutation --help` lists every option.

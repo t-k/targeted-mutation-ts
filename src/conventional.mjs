@@ -203,7 +203,8 @@ export async function analyzeConventional(project, files, options) {
       const seen = new Map();
       for (const { id, test } of entries) {
         const { location, original } = places.get(id) ?? {};
-        if (!location || (location.file === own.file && location.start === own.start && location.end === own.end)) continue;
+        // What stands inside the edited code is evaluated by the edit itself, without a switch to show it.
+        if (!location || (location.file === own.file && own.start <= location.start && location.end <= own.end)) continue;
         seen.set(`${test}:${location.file}:${location.start}:${location.end}`, { ...(test === undefined ? {} : { test }),
           location: { file: location.file, line: location.line, column: location.column }, expression: original });
       }

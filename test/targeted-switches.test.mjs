@@ -169,7 +169,9 @@ test('the targeted edits of each operator, and where none is offered', () => {
   assert.deepEqual(list('function f(n?: number) { if (n ?? 0) return 1; return !(n || false); }').map(entry => entry[1]), ['left', 'right', 'left', 'right']);
   assert.equal(list('function f(n?: number) { if (n ?? 1) return 1; }').at(-1)[1], 'or');
   assert.equal(list('function f(limit?: number) { if (limit ?? -1) return 1; }').at(-1)[1], 'or');
-  assert.deepEqual(list('function f(balance?: number) { if (balance ?? -0) return 1; }').map(entry => entry[1]), ['left', 'right']);
+  assert.deepEqual(list('function f(balance?: number, big?: bigint) { if (balance ?? -0) return 1; if (balance ?? -0.0) return 2; if (balance || 0x0) return 3; if (big ?? 0n) return 4; }')
+    .map(entry => entry[1]), ['left', 'right', 'left', 'right', 'left', 'right', 'left', 'right']);
+  assert.equal(list('function f(n?: number) { if (n ?? 0.5) return 1; }').at(-1)[1], 'or');
   assert.deepEqual(list("function f(n?: string) { if (n ?? '') return 1; if (n || ``) return 2; }").map(entry => entry[1]), ['left', 'right', 'left', 'right']);
   // Without the option the built-in set is as before.
   assert.ok(collectMutations('const f = (a, b) => a === b && a;', 'f.js').every(mutation => !mutation.targeted));
@@ -434,6 +436,7 @@ test('the edits of arithmetic, of Math and of the ends of a sequence, and where 
   assert.equal(texts('// Uses Math\nconst note = "Math"; export const f = (x: number) => Math.floor(x);').length, 3);
   assert.deepEqual(texts('import { Math } from "./lib"; export const f = (x: number) => Math.floor(x);'), []);
   assert.deepEqual(texts('const { Math } = lib; export const f = (x: number) => Math.round(x);'), []);
+  assert.deepEqual(texts('const Rounding = class Math { static floor(n: number) { return n; } static format(n: number) { return Math.floor(n); } };'), []);
   // A name Math of the file's own is not the built-in one.
   assert.deepEqual(texts('function f(Math: { max(a: number, b: number): number }) { return Math.max(1, 2); }'), []);
   // Only the two-argument forms of max and min, without a spread, on Math itself.
@@ -495,12 +498,16 @@ test('the edits of a sort, an awaited call and a copy, and where none is offered
     .map(mutation => [mutation.name, mutation.replacement]);
   assert.deepEqual(list('const f = (a: number[]) => [a.sort((x, y) => x - y), a.toSorted((x, y) => (x) - (y))];'), [
     [targetedRules.order, 'a.sort()'], [targetedRules.order, 'a.toSorted()']]);
+  // A comma after the comparison goes with it.
+  assert.deepEqual(list('const f = (a: number[]) => a.sort(\n  (x, y) => x - y, // ascending\n);'), [[targetedRules.order, 'a.sort()']]);
   // Only the comparison of two numbers in ascending order: without it a descending sort or a sort by a field is another program at once.
   assert.deepEqual(list('const f = (a: any[], by: any) => [a.sort((x, y) => y - x), a.sort((x, y) => x.n - y.n), a.sort(by), a.sort(), a.sort((x, y) => { return x - y; }), a.sort(function (x, y) { return x - y; }), a.sort((x, y = 0) => x - y)];'), []);
   assert.deepEqual(list('async function f(g: () => Promise<void>, o: { h(): Promise<void> }) { await g(); await o.h(); const kept = await g(); return await g(); }'), [
-    [targetedRules.awaited, 'g();'], [targetedRules.awaited, 'o.h();']]);
-  // Only a call is left to go on alone, and one that could continue the line before is left as it is.
-  assert.deepEqual(list('async function f(p: Promise<void>, g: any) { await p; await (g)(); await [g][0](); for await (const x of g()) {} }'), []);
+    [targetedRules.awaited, 'void g();'], [targetedRules.awaited, 'void o.h();']]);
+  // Only a call is left to go on alone. Whatever it begins with, it stays an expression.
+  assert.deepEqual(list('async function f(p: Promise<void>, g: any) { await p; for await (const x of g()) {} }'), []);
+  assert.deepEqual(list('async function f(g: any, on: boolean) { await (on ? g : g)(1); await async function start() { await g(); }(); }').map(entry => entry[1]),
+    ['void (on ? g : g)(1);', 'void async function start() { await g(); }();', 'void g();']);
   assert.deepEqual(list('const f = (a: number[], o: object) => [[...a], { ...o }];'), [[targetedRules.copy, '(a)'], [targetedRules.copy, '(o)']]);
   // A literal with anything beside the spread is not a copy, and a pattern on the left is no literal.
   assert.deepEqual(list('function f(a: number[], o: any) { let rest; [...rest] = a; ({ ...rest } = o); return [[...a, 1], [0, ...a], { ...o, k: 1 }, [], {}, [a], { o }]; }'), []);
@@ -509,7 +516,7 @@ test('the edits of a sort, an awaited call and a copy, and where none is offered
 test('a sort without its comparison agrees exactly when numbers and text keep their order as text', () => {
   const lists = [[3, 1, 2], [9, 10], [10, 9, 1], [], [5], [-1, -2], [1, 10, 2], ['b', 'a'], [2, 'a', 1], [0.5, 0.25], [1, , 3], [{ n: 1 }, { n: 2 }], [3, null], [1, 1]];
   for (const method of ['sort', 'toSorted']) {
-    const source = prelude + `function f(l) { var given = l.slice(); var out = given.${method}((a, b) => a - b); return JSON.stringify([out, given, out === given]); }\n`;
+    const source = prelude + `function f(l) { var given = []; given.length = l.length; for (var n = 0; n < l.length; n++) if (n in l) given[n] = l[n]; var out = given.${method}((a, b) => a - b); return JSON.stringify([out, given, out === given]); }\n`;
     const { output, mutants } = render(source);
     const mutant = mutants.find(candidate => candidate.mutatorName === targetedRules.order);
     assert.ok(mutant, method);
@@ -526,6 +533,25 @@ test('a sort without its comparison agrees exactly when numbers and text keep th
     for (const [index, code] of recorded.entries()) if (code !== '001') assert.equal(code === '100', rewritten[index] === original[index], `${method} of ${JSON.stringify(lists[index])}`);
     assert.deepEqual([recorded[0], recorded[1], recorded[5]], ['100', '010', '010']);
   }
+});
+
+test('a sort of a subclass with a sort of its own is not worked out', () => {
+  const source = prelude + `class Scores extends Array { sort(compare = (a, b) => b - a) { return super.sort(compare); } }
+function f(l) { return JSON.stringify(Array.from(Scores.from(l).sort((a, b) => a - b))); }\n`;
+  const { output, mutants } = render(source);
+  const state = {};
+  assert.deepEqual(run(output, [[[1, 2]]], state, true), run(source, [[[1, 2]]]));
+  const order = mutants.find(mutant => mutant.mutatorName === targetedRules.order && mutant.original.includes('Scores.from'));
+  assert.deepEqual([...state.observed[order.id].tests.t0], [0, 0, 1]);
+});
+
+test('recording a sort does not construct an array of a subclass', () => {
+  const source = prelude + `class Scores extends Array { constructor(items) { super(); for (const item of items) this.push(item); } }
+function f(l) { const sorted = new Scores(l).sort((a, b) => a - b); return JSON.stringify([Array.from(sorted), sorted instanceof Scores]); }\n`;
+  const { output } = render(source);
+  const inputs = [[[10, 9]], [[1, 2]]];
+  assert.deepEqual(run(output, inputs, {}, true), run(source, inputs));
+  assert.deepEqual(run(source, inputs), ['["string [[9,10],true]",[]]', '["string [[1,2],true]",[]]']);
 });
 
 test('an awaited call left to go on alone and a copy that is the original are the edits written into the source', async () => {
@@ -550,6 +576,6 @@ async function f(a) { await slow('one'); log.push('after'); const copy = [...a];
     assert.equal(results[mutant.replacement], await call(edited(source, mutant)), mutant.replacement);
   }
   // Not waited for, the call ends after what follows it; without the copy the push reaches the caller's array.
-  assert.deepEqual(results, { "slow('one');": '[["after"],[1],[1,9],{"n":1}]', '(a)': '[["one","after"],[1,9],[1,9],{"n":2}]',
+  assert.deepEqual(results, { "void slow('one');": '[["after"],[1],[1,9],{"n":1}]', '(a)': '[["one","after"],[1,9],[1,9],{"n":2}]',
     '({ n: a.length })': original });
 });

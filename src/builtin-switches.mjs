@@ -60,6 +60,13 @@ function ${see}(i, l, r) {
   }
   function original() { return logical ? (taken ? r() : l) : kind === 'e' ? equal(op, l, r) : apply(op, l, r); }
   function plain(v) { return v === null || (typeof v !== 'object' && typeof v !== 'function'); }
+  // An array of the built-in kind with the same elements: slice would call the constructor of a subclass.
+  function copy(a) {
+    var plainArray = [], n;
+    plainArray.length = a.length;
+    for (n = 0; n < a.length; n++) if (n in a) plainArray[n] = a[n];
+    return plainArray;
+  }
   function is(a, b) { return a === b ? a !== 0 || 1 / a === 1 / b : a !== a && b !== b; }
   // Whether the edit gives the same, where the operation can be worked out again without an effect: on plain
   // values and numbers, and on arrays and text for their ends. Otherwise it is not known (null).
@@ -69,9 +76,10 @@ function ${see}(i, l, r) {
       // The order without the comparison is the order of the elements as text. For numbers and text that can be
       // worked out on a copy; anything else would be converted by its own code.
       var from = op === 'sort' ? unsorted : l, n;
-      if (!scope.Array.isArray(from) || !scope.Array.isArray(value) || from.length !== value.length) return null;
+      // Only the sort of the built-in arrays is known: a subclass may have one of its own.
+      if (!scope.Array.isArray(from) || !scope.Array.isArray(value) || from.length !== value.length || l[op] !== scope.Array.prototype[op]) return null;
       for (n = 0; n < from.length; n++) if (!(n in from) || (typeof from[n] !== 'number' && typeof from[n] !== 'string')) return null;
-      var other = from.slice().sort();
+      var other = copy(from).sort();
       for (n = 0; n < other.length; n++) if (!is(other[n], value[n])) return false;
       return true;
     }
@@ -104,7 +112,7 @@ function ${see}(i, l, r) {
   if (!state || state.phase !== 'baseline') return original();
   // An operation that throws is observed too: an edit that evaluates the same right side throws as well, and any other differs.
   // A sort in place loses the order it started from.
-  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? l.slice() : void 0;
+  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? copy(l) : void 0;
   try {
     value = original();
     threw = false;

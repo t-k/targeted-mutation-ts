@@ -236,7 +236,9 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
   }
   const writtenFalsy = node => {
     const inner = strip(node);
-    return written(node) && (['0', '0n', 'false', 'null', 'undefined', '-0', '-0n'].includes(source(inner).replace(/\s/g, '')) ||
+    const number = ts.isPrefixUnaryExpression(inner) ? inner.operand : inner;
+    return written(node) && (['false', 'null', 'undefined'].includes(source(inner)) ||
+      (ts.isNumericLiteral(number) && Number(number.text) === 0) || (ts.isBigIntLiteral(number) && /^0[box]?0*n$/i.test(number.text)) ||
       ((ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) && inner.text === ''));
   };
 
@@ -317,7 +319,8 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
           if (bindsMath) return;
           const name = inner.name;
           bindsMath = name !== undefined && ts.isIdentifier(name) && name.text === 'Math' && (ts.isParameter(inner) || ts.isVariableDeclaration(inner) ||
-            ts.isBindingElement(inner) || ts.isFunctionDeclaration(inner) || ts.isClassDeclaration(inner) || ts.isImportSpecifier(inner) ||
+            ts.isBindingElement(inner) || ts.isFunctionDeclaration(inner) || ts.isClassDeclaration(inner) || ts.isFunctionExpression(inner) ||
+            ts.isClassExpression(inner) || ts.isImportSpecifier(inner) ||
             ts.isImportClause(inner) || ts.isNamespaceImport(inner));
           if (!bindsMath) ts.forEachChild(inner, look);
         })(tree);
@@ -342,7 +345,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       }
     } else if ((name === 'sort' || name === 'toSorted') && args.length === 1 && ascending(args[0])) {
       // Without its comparison a sort orders numbers as text: 10 before 9.
-      probed(node, name, [callee.expression, args[0]])(targetedRules.order, 'default', text.slice(begin(node), begin(args[0])) + text.slice(args[0].end, node.end));
+      probed(node, name, [callee.expression, args[0]])(targetedRules.order, 'default', text.slice(begin(node), args.pos) + ')');
     } else if (endSwaps.has(name) && args.length === 1) {
       probed(node, name, [callee.expression, args[0]])(targetedRules.ends, endSwaps.get(name), rename(node, callee.name, endSwaps.get(name)));
     } else if (name === 'at' && args.length === 1 && ['0', '-1'].includes(source(args[0]).replace(/\s/g, ''))) {
@@ -365,9 +368,10 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     if (ts.isExpressionStatement(node)) {
       const awaited = strip(node.expression);
       const call = ts.isAwaitExpression(awaited) ? strip(awaited.expression) : undefined;
-      // The call goes on alone: what follows no longer waits for it.
-      if (call && ts.isCallExpression(call) && !'([`'.includes(source(call)[0])) {
-        add(targetedRules.awaited, node, `${source(call)};`, { kind: 'statement', placement: [begin(node), node.end], mutated: `${source(call)};` },
+      // The call goes on alone: what follows no longer waits for it. `void` keeps it an expression whatever it
+      // begins with (a parenthesis, a function that is called at once).
+      if (call && ts.isCallExpression(call)) {
+        add(targetedRules.awaited, node, `void ${source(call)};`, { kind: 'statement', placement: [begin(node), node.end], mutated: `void ${source(call)};` },
           { targeted: { operator: 'await', form: 'dropped', left: source(call) } });
       }
       return;

@@ -11,7 +11,7 @@ const rules = { arithmetic: 'arithmetic-swap/v1', extreme: 'extreme-swap/v1', ro
   order: 'sort-order/v1', awaited: 'await-dropped/v1', copy: 'copy-dropped/v1' };
 // What to assert where no recording can say which input is missing.
 const advice = {
-  [rules.awaited]: 'the tests pass when this call is not waited for: assert on what it has done by the time the function ends',
+  [rules.awaited]: 'the tests pass when this call is not waited for: assert on what it has done before what follows it goes on',
   [rules.copy]: 'the tests pass when this copy is the original itself: assert that the original is unchanged after the copy is changed, or that the two are not the same object',
 };
 // For which numbers two ways of rounding differ.

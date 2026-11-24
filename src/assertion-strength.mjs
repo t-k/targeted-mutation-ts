@@ -66,7 +66,8 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
   function suitesOf(call) {
     const titles = [];
     for (let node = call.parent; node; node = node.parent) {
-      if (!ts.isCallExpression(node) || !(ts.isArrowFunction(node.arguments[1] ?? node) || ts.isFunctionExpression(node.arguments[1] ?? node))) continue;
+      // The callback is the last argument: options may stand before it.
+      if (!ts.isCallExpression(node) || !node.arguments.some(argument => ts.isArrowFunction(argument) || ts.isFunctionExpression(argument))) continue;
       // `describe.skip(...)`, and `describe.each(rows)(...)`, whose title is a pattern filled in per row.
       let callee = node.expression;
       let each = false;
@@ -88,7 +89,7 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
     if (!callback || !(ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) || !ts.isCallExpression(callback.parent)) return undefined;
     const call = callback.parent;
     const title = call.arguments[0];
-    if (!ts.isIdentifier(call.expression) || !['it', 'test'].includes(call.expression.text) || call.arguments[1] !== callback ||
+    if (!ts.isIdentifier(call.expression) || !['it', 'test'].includes(call.expression.text) || call.arguments.at(-1) !== callback || call.arguments.length < 2 ||
         !title || !ts.isStringLiteralLike(title)) return undefined;
     return { title: title.text, suites: suitesOf(call) };
   }
@@ -113,30 +114,36 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
       const { title, suites } = (statement && testOf(statement)) ?? {};
       const start = node.getStart(tree);
       const call = text.slice(start, node.end);
-      // A test is named with its suites. Where a suite's title is not written out, the test's own title must do.
-      const named = name => (suites ? name === [...suites, title].join(' > ') : name === title || name.endsWith(' > ' + title));
-      if (title !== undefined && !/[\n\r]/.test(call) && testNames.some(named)) {
+      if (title !== undefined && !/[\n\r]/.test(call)) {
         const { line, character } = tree.getLineAndCharacterOfPosition(start);
-        found.push({ start, end: node.end, text: call, test: title, line: line + 1, column: character + 1, ...(bound ? { bound } : {}) });
+        found.push({ start, end: node.end, text: call, test: title, full: suites && [...suites, title].join(' > '), line: line + 1, column: character + 1,
+          ...(bound ? { bound } : {}) });
       }
     }
     ts.forEachChild(node, visit);
   })(tree);
-  return found;
+  // A test is named with its suites. Where a suite's title is not written out, the test's own title has to do,
+  // for the names that no fully written test of the file has.
+  const spelled = new Set(found.map(call => call.full).filter(name => name !== undefined));
+  return found.filter(call => (call.full !== undefined ? testNames.includes(call.full)
+    : testNames.some(name => !spelled.has(name) && (name === call.test || name.endsWith(' > ' + call.test)))))
+    .map(({ full: _full, ...call }) => call);
 }
 
 // The test file with one call wrapped so that every value it gives is written beside the file.
 export function recordingCall(text, call, key) {
   const name = `__tmtValue_${key}`;
-  // The file system is taken from Node itself: the test may have replaced the module with a mock.
+  // The file system is taken from Node itself, when the file has loaded: a test may replace the module with a
+  // mock, or `process` with something else.
   const helper = `
+var __tmtFiles_${key} = globalThis.process.getBuiltinModule('node:fs');
 function ${name}(value) {
   var type = typeof value, shown = null;
   if (value === null || type === 'boolean' || type === 'undefined') shown = String(value);
   else if (type === 'number') shown = Object.is(value, -0) ? '-0' : String(value);
   else if (type === 'string') shown = JSON.stringify(value);
   else if (type === 'bigint') shown = value + 'n';
-  globalThis.process.getBuiltinModule('node:fs').appendFileSync(new URL('./.tmt-values-${key}.jsonl', import.meta.url), JSON.stringify(shown) + '\\n');
+  __tmtFiles_${key}.appendFileSync(new URL('./.tmt-values-${key}.jsonl', import.meta.url), JSON.stringify(shown) + '\\n');
   return value;
 }
 `;
@@ -173,9 +180,10 @@ export function strengthenAssertions(root, report, options, run = { sourceTrials
         if (!original.length || original.includes(null)) continue;
         tried++;
         const edited = valuesOf(attempt({ witness, collect, trial }));
-        // The first time the call gives another value with the edit. Where the edit keeps the test from making
-        // the call at all, an assertion at that place would not run either.
-        const at = original.findIndex((value, index) => index < edited.length && edited[index] !== value);
+        // The first time the call gives another value with the edit. Where the edit keeps a test from making the
+        // call, an assertion at that place would not run either.
+        // The values are matched by their order, so the call has to be made as often with the edit as without.
+        const at = edited.length === original.length ? original.findIndex((value, index) => edited[index] !== value) : -1;
         if (at === -1) continue;
         // A result the test keeps is compared where it is kept: calling again may give another value.
         gap.suggestedTest = `expect(${call.bound ?? call.text}).toBe(${original[at]})`;

@@ -109,6 +109,11 @@ registerHooks({ load(url, context, next) {
   assert.ok(builtIn.mutants.some(mutant => mutant.mutatorName === 'ArrowFunction' && mutant.status === 'killed'));
   assert.ok(builtIn.mutants.some(mutant => mutant.mutatorName === 'EqualityOperator' && mutant.replacement === 'age < 18' && mutant.status === 'killed'));
   assert.ok(builtIn.mutants.some(mutant => mutant.rule === 'comparison-boundary/v1' && mutant.status === 'survived'));
+  // The targeted profile runs from the installed files too, with the options that add runs of their own.
+  const targeted = JSON.parse(run(process.execPath, [entry, 'analyze', 'fixture', 'src/eligibility.ts', '--mutators', 'targeted', '--suggest-assertions',
+    '--test', 'test/eligibility.test.ts']));
+  assert.deepEqual([targeted.evaluation, targeted.operatorExecution, targeted.mutators], ['evaluated', 'session', 'targeted']);
+  assert.ok(targeted.mutants.some(mutant => mutant.rule === 'comparison-boundary/v1' && mutant.status === 'survived'));
   const vitest = join(cwd, 'node_modules/vitest');
   const hiddenVitest = join(cwd, 'hidden-vitest');
   const instrumenter = join(cwd, 'node_modules/@stryker-mutator/instrumenter');

@@ -287,9 +287,9 @@ it('rejects', () => { commit([['b', -5]]); });
 test('a sort, an awaited call and a copy: one names its numbers, the others say what to assert', () => {
   const code = `export const sorted = (list: number[]) => [...list].sort((a, b) => a - b);
 export const log: string[] = [];
-const write = async (line: string) => { log.push(line); };
+const write = async (line: string, times: number) => { log.push(line.repeat(times)); };
 export async function record(line: string) {
-  await write(line);
+  await write(line, 2 - 1);
   return log.length;
 }
 export const options = (given: { size?: number }) => ({ ...given });
@@ -305,11 +305,13 @@ it('options', () => { expect(options({ size: 2 })).toEqual({ size: 2 }); });
   const gap = replacement => report.diagnostics.find(entry => entry.mutations[0].replacement === replacement);
   assert.deepEqual([gap('[...list].sort()').kind, gap('[...list].sort()').missing],
     ['INPUT GAP', 'a test in which `[...list]` holds numbers whose order as text is not their order as numbers (9 and 10)']);
-  assert.deepEqual([gap('write(line);').kind, gap('write(line);').rule], ['ASSERTION GAP', 'await-dropped/v1']);
-  assert.match(gap('write(line);').advice, /not waited for/);
+  assert.deepEqual([gap('void write(line, 2 - 1);').kind, gap('void write(line, 2 - 1);').rule], ['ASSERTION GAP', 'await-dropped/v1']);
+  assert.match(gap('void write(line, 2 - 1);').advice, /not waited for/);
+  // What the edited statement itself evaluates is not reported as no longer evaluated.
+  assert.equal(gap('void write(line, 2 - 1);').effects, undefined);
   assert.match(gap('(given)').advice, /the original itself/);
   assert.match(gap('(list)').advice, /the original itself/);
-  assert.match(renderText(report), /ASSERTION GAP subject\.ts:5:3 {2}await-dropped\/v1\n {2}`await write\(line\);` passes every test as `write\(line\);`\n {2}the tests pass when this call is not waited for/);
+  assert.match(renderText(report), /ASSERTION GAP subject\.ts:5:3 {2}await-dropped\/v1\n {2}`await write\(line, 2 - 1\);` passes every test as `void write\(line, 2 - 1\);`\n {2}the tests pass when this call is not waited for/);
   // A test that looks at the caller's list afterwards and one with 9 and 10 close two of them.
   const closed = analyzeProject({ 'subject.ts': code, 'subject.test.ts': suite +
     "it('keeps', () => { const given = [10, 9]; expect(sorted(given)).toEqual([9, 10]); expect(given).toEqual([10, 9]); });\n" });

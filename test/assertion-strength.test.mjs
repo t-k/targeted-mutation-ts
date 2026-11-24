@@ -42,8 +42,13 @@ test('a call is taken only from the tests a finding names, and is located in its
   const inSuites = names => weakCalls(suites, 'test/subject.test.ts', 'src/subject.ts', names).map(call => call.text);
   // Under a suite whose title is a pattern or not written out, the test's own title has to do.
   assert.deepEqual(inSuites(['charges > works']), ['fee(2, 2)', 'fee(3, 3)']);
-  assert.deepEqual(inSuites(['refunds > works']), ['fee(1, 1)', 'fee(2, 2)', 'fee(3, 3)']);
+  // A name that a fully written test of the file has belongs to that test alone.
+  assert.deepEqual(inSuites(['refunds > works']), ['fee(1, 1)']);
   assert.deepEqual(inSuites(['refunds > other']), []);
+  // Options may stand between a title and its callback.
+  const options = `${head}describe('fees', { timeout: 5000 }, () => { it('works', { retry: 0 }, () => { fee(4, 4); }); });\n`;
+  assert.deepEqual(weakCalls(options, 'test/subject.test.ts', 'src/subject.ts', ['fees > works']).map(call => call.text), ['fee(4, 4)']);
+  assert.deepEqual(weakCalls(options, 'test/subject.test.ts', 'src/subject.ts', ['works']), []);
 });
 
 test('a wrapped call gives its value on and writes down what a comparison can be written with', () => {
@@ -54,9 +59,11 @@ test('a wrapped call gives its value on and writes down what a comparison can be
   assert.match(rewritten, /out\.push\(pick\(3\), __tmtValue_k1\(pick\('a"b'\)\)\);/);
   const written = [];
   const helper = rewritten.slice(rewritten.indexOf('function __tmtValue_k1')).replace('import.meta.url', "'file:///t/'");
-  // The file system comes from Node itself, so a test that mocks 'node:fs' does not get in the way.
+  // The file system comes from Node itself when the file has loaded, so a test that mocks 'node:fs' or replaces
+  // `process` afterwards does not get in the way.
   assert.doesNotMatch(rewritten, /import .* from 'node:fs'/);
   const context = vm.createContext({ URL, process: { getBuiltinModule: name => ({ 'node:fs': { appendFileSync: (url, line) => written.push([String(url), line]) } })[name] } });
+  vm.runInContext(rewritten.slice(rewritten.indexOf('var __tmtFiles_k1'), rewritten.indexOf('function __tmtValue_k1')) + '; process = undefined;', context);
   const shown = value => { context.value = value; vm.runInContext(helper + '; var given = __tmtValue_k1(value);', context); return [context.given === value || Number.isNaN(value), JSON.parse(written.pop()[1])]; };
   assert.deepEqual([3, -0, NaN, 'a"b', true, null, undefined, 5n].map(shown), [[true, '3'], [true, '-0'], [true, 'NaN'], [true, '"a\\"b"'], [true, 'true'],
     [true, 'null'], [true, 'undefined'], [true, '5n']]);
@@ -132,6 +139,13 @@ test('the runs are shared and bounded: one for a call as it is, one per finding,
   const crashed = { diagnostics: [gap('(cents + rate)')] };
   strengthenAssertions(root, crashed, {}, run);
   assert.equal(crashed.diagnostics[0].suggestedTest, undefined);
+  // Made once as it is and twice or never with the edit (a retry, a case that returns early): the values cannot be matched.
+  for (const [original, edited] of [['"600"', '"600"\n"601"'], ['"1"\n"2"', '"2"']]) {
+    Object.assign(values, { original, edited });
+    const unmatched = { diagnostics: [gap('(cents + rate)')] };
+    strengthenAssertions(root, unmatched, {}, run);
+    assert.equal(unmatched.diagnostics[0].suggestedTest, undefined, `${original} against ${edited}`);
+  }
   // A call made twice in a loop of tests: the first value that differs is the one compared.
   Object.assign(values, { original: '"600"\n"7"', edited: '"600"\n"8"' });
   const later = { diagnostics: [gap('(cents + rate)')] };
@@ -188,3 +202,25 @@ for (const [use, args, origin, place, named] of callRows) {
     if (taken) assert.equal(text.slice(found[0].start, found[0].end), call);
   });
 }
+
+test('the conditions of a taken call, one at a time', () => {
+  // Each written kind of argument on its own, and what is not written beside it.
+  for (const argument of ["'a'", '`t`', 'true', 'false', 'null', 'undefined', '-1', '-2n', '[]', '{}', "{ 'k': [1] }"]) assert.deepEqual(calls(`fee(${argument});`), [`fee(${argument})`], argument);
+  for (const argument of ['-amount', '!1', '[1, amount]', '{ a: 1, b: amount }', '{ amount }', '{ ...{} }', '`${1}`', 'fee', '1 + 1']) assert.deepEqual(calls(`const amount = 1;\nfee(${argument});`), [], argument);
+  // An assertion has to be a statement that calls a matcher on `expect(call)` alone.
+  assert.deepEqual(calls('expect(fee(1));\nexpect(fee(2), "why").toBeTruthy();\nconst kept = expect(fee(3)).toBeTruthy();\nexpect.soft(fee(4)).toBeTruthy();\nassert(fee(5)).toBeTruthy();'), []);
+  assert.deepEqual(calls('expect(fee(1)).not.toBeNull();\nexpect((fee(2))).toHaveLength(1);'), ['fee(1)', 'fee(2)']);
+  // A kept result is a declaration statement of the test: not the start of a loop.
+  assert.deepEqual(calls('for (let kept = fee(1); kept < 1;) break;\nlet first = 1, second = fee(2);').sort(), ['fee(2)']);
+  assert.deepEqual(weakCalls(`${head}it('t', () => {\n  const { size } = fee(1);\n  const kept = fee(2);\n});\n`, 'test/subject.test.ts', 'src/subject.ts', ['t']).map(call => call.bound), [undefined, 'kept']);
+  // Only a test: `it` or `test` with a written title and its callback last.
+  const outside = body => weakCalls(`${head}${body}\n`, 'test/subject.test.ts', 'src/subject.ts', ['t']).map(call => call.text);
+  assert.deepEqual(outside("bench('t', () => { fee(1); });\nit(() => { fee(2); });\nit('t', () => { fee(3); }, 500);\nit.only('t', () => { fee(4); });\nfee(5);\nconst t = () => { fee(6); };"), []);
+  assert.deepEqual(outside("test('t', function () { fee(1); });\nit('t', async () => { fee(2); });"), ['fee(1)', 'fee(2)']);
+  // A wrapper that is no suite gives no part of the name.
+  assert.deepEqual(outside("each('rows', () => { it('t', () => { fee(1); }); });\ndescribe.skip('s', () => { it('t', () => { fee(2); }); });"), ['fee(1)']);
+  // Only names imported by name from the edited file: no default, no namespace, no package of the same name.
+  const imported = line => weakCalls(`import { it } from 'vitest';\n${line}\nit('t', () => { fee(1); s.fee(2); });\n`, 'subject.test.ts', 'subject.ts', ['t']).length;
+  assert.deepEqual(["import { fee } from './subject';", "import { fee } from './subject.js';", "import fee from './subject';", "import * as s from './subject';",
+    "import { fee } from 'subject';", "import './subject';", "import { fee } from './subject/index';"].map(imported), [1, 1, 0, 0, 0, 0, 0]);
+});
