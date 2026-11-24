@@ -682,7 +682,9 @@ static bool jsx_value(lowering *lower, uint32_t depth) {
     if (!jsx_element(lower, depth)) return false;
 #ifndef TMT_DIRECT
   } else if (lower->mixed) {
-    const TmtPulseParser_cursor end = TmtPulseCompiler_jsx_expression_end(lower->input, lower->at);
+    TmtPulseMemory_tape probe = lower->input;
+    probe.count_only = true;
+    const TmtPulseParser_cursor end = TmtPulseCompiler_jsx_expression_end(probe, lower->at);
     if (!end.ok || end.at <= lower->at || end.at >= lower->input.size) return false;
     put(&lower->output, "(");
     source_bytes(lower, lower->at, end.at);
@@ -755,7 +757,10 @@ static bool jsx_literal_spread(lowering *lower, uint32_t depth, jsx_props *prope
     /* The direct build reads only simple operands, so it leaves the literal to the module build. */
     accepted = false;
 #else
-    const TmtPulseParser_cursor closing = TmtPulseCompiler_jsx_operand_end(lower->input, first);
+    /* This parse must not write into the records the emitter is reading. */
+    TmtPulseMemory_tape probe = lower->input;
+    probe.count_only = true;
+    const TmtPulseParser_cursor closing = TmtPulseCompiler_jsx_operand_end(probe, first);
     accepted = closing.ok && closing.at + 1 == last;
 #endif
   }

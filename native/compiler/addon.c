@@ -495,7 +495,11 @@ static bool valid_utf8(const uint8_t *text, size_t size) {
  */
 static bool spells_helper_letter(const uint8_t *text, size_t size) {
   for (size_t at = 0; at + 2 < size; at++) {
-    if (text[at] != '\\' || text[at + 1] != 'u') continue;
+    /* Backslashes are rare, so the search for the next one does the work. */
+    const uint8_t *found = memchr(text + at, '\\', size - at - 2);
+    if (!found) return false;
+    at = (size_t)(found - text);
+    if (text[at + 1] != 'u') continue;
     if (text[at + 2] == '{') return true;
     if (size - at < 6 || text[at + 2] != '0' || text[at + 3] != '0') continue;
     const uint8_t high = text[at + 4], low = text[at + 5] | 0x20;
