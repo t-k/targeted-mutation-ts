@@ -88,9 +88,11 @@ test('Vitest createRequire observes and audits native CommonJS', () => {
     writeFileSync(join(root, 'subject.test.mjs'), "import { createRequire } from 'node:module'; import { expect, it } from 'vitest'; const keep = createRequire(import.meta.url)('./subject.cjs'); it('checks boundary', () => expect(keep(2)).toBe(true));");
     const report = analyze(root, 'subject.cjs');
     assert.equal(report.instrumented.status, 'passed');
-    assert.deepEqual(report.mutants.map(({ status, audit }) => [status, audit.status]), [
+    const boundaries = report.mutants.filter(mutant => mutant.rule === 'comparison-boundary/v1');
+    assert.deepEqual(boundaries.map(({ status, audit }) => [status, audit.status]), [
       ['survived', 'agreed'], ['killed', 'agreed'],
     ]);
+    assert.ok(report.mutants.some(mutant => mutant.rule === 'comparison-threshold/v1' && mutant.status === 'survived'));
     assert.equal(readFileSync(join(root, 'subject.cjs'), 'utf8'), source);
   } finally {
     rmSync(root, { recursive: true, force: true });
