@@ -1126,3 +1126,31 @@ test('an ambient module at the start of a file and lexical globals in a global a
     assert.equal(sameAsTypeScript(source, 'ambient.ts').backend, 'pulse', source);
   }
 });
+
+test('import attributes with any single key and a non-null mark on a constructor are native', () => {
+  for (const source of [
+    'import type { A } from "knip" with { "resolution-mode": "import" };\nexport {};',
+    'import type * as U from "u" with { "resolution-mode": "import" };\nexport {};',
+    'import j from "./a.json" with { type: "json" };\nexport { j };',
+    'import j from "./a.json" with { "a-b": "c", };\nexport { j };',
+    'import j from "./a.json" with { foo: "bar" }\nexport { j };',
+    'export const s = new W!(u);',
+    'export const s = p ? new W!(u, p) : new a.b.W!();',
+    'export const s = new W!;',
+    'export const s = new W! (u);',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'attributes.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'import j from "./a.json" with { type: 1 };\nexport { j };',
+    'import j from "./a.json" with { type: "json", type: "x" };\nexport { j };',
+    'export const s = new W!.x();',
+    'export const s = new W\n!(u);',
+    'export const s = new W != u;',
+    'export const s = new W!<T>(u);',
+    'export const s = new W![0](u);',
+    'export const s = new W!!(u);',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'attributes.ts' }).backend, 'pulse', source);
+  }
+});

@@ -2808,6 +2808,13 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
                   let! boundary = (fun () -> trivia input path.offset) in
                   ret input (path, boundary)) in
               let tail = from_cursor named boundary in
+              // new Name!(...) asserts that the constructor is defined. The mark is erased like any other.
+              let! bang = (fun () -> if input.capture_types && not boundary.newline then same input tail.offset 33uy else ret input false) in
+              let! equality = (fun () -> if bang then same input (next tail.offset) 61uy else ret input false) in
+              let! tail = (fun () -> if bang && not equality then
+                  (let! recorded = (fun () -> record_jsx_span input { tail with offset = next tail.offset } 12ul tail.offset (next tail.offset)) in
+                    skip input recorded)
+                else ret input tail) in
               let! typed = (fun () -> same input tail.offset 60uy) in
               let! tail = (fun () -> if typed && tail.offset = named.offset then call_type_arguments input tail else ret input (tail)) in
               let! next_token = (fun () -> peek input tail.offset) in
@@ -4446,9 +4453,12 @@ let static_import_attributes (input:tape) (#frame:slprop) (state:parser_state) :
   let! opening = (fun () -> (let! anf_value_1 = (fun () -> (skip input #frame { state with offset = plus state.offset 4ul })) in consume input #frame anf_value_1 123uy)) in
   let! key = (fun () -> skip input #frame opening) in
   (let! anf_value_2 = (fun () -> same input #frame key.offset 125uy) in if anf_value_2 then consume input #frame key 125uy
-  else (let! anf_value_3 = (fun () -> (let! anf_value_4 = (fun () -> (keyword input #frame key.offset 4ul 0x74797065uL)) in read_ret input #frame (not anf_value_4))) in if anf_value_3 then read_ret input #frame (failed key 1ul)
   else
-    let! colon = (fun () -> skip input #frame { key with offset = plus key.offset 4ul }) in
+    // One attribute: a name or a string as its key and a string as its value, as engines require.
+    let! key_first = (fun () -> peek input #frame key.offset) in
+    let! key_end = (fun () -> if key_first = 34uy || key_first = 39uy then string_end input #frame (next key.offset) key_first input.size false
+      else name input #frame key.offset false false) in
+    let! colon = (fun () -> skip input #frame (from_cursor key key_end)) in
     let! value = (fun () -> (let! anf_value_5 = (fun () -> (consume input #frame colon 58uy)) in skip input #frame anf_value_5)) in
     let! delimiter = (fun () -> peek input #frame value.offset) in
     if delimiter <> 34uy && delimiter <> 39uy then read_ret input #frame (failed value 1ul)
@@ -4456,7 +4466,7 @@ let static_import_attributes (input:tape) (#frame:slprop) (state:parser_state) :
       let! literal = (fun () -> string_end input #frame (next value.offset) delimiter input.size false) in
       let! ending = (fun () -> skip input #frame (from_cursor value literal)) in
       let! ending = (fun () -> (let! anf_value_6 = (fun () -> same input #frame ending.offset 44uy) in if anf_value_6 then (let! anf_value_7 = (fun () -> (consume input #frame ending 44uy)) in skip input #frame anf_value_7) else read_ret input #frame (ending))) in
-      consume input #frame ending 125uy))
+      consume input #frame ending 125uy)
 
 let import_source (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! st = (fun () -> skip input #frame state) in
