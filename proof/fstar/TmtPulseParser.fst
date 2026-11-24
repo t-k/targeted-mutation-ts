@@ -2652,10 +2652,16 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
     let deleting = head.deleting_ in
     let prefix = head.prefix_ in
     let constructor = head.constructor_ in
-    if prefix <> 0ul then
+    // A type assertion in angle brackets applies to the unary expression after it, as a prefix operator does.
+    // Both continue through the one recursive call below: a second call site made the build copy this
+    // function's body once more and slowed every file.
+    let asserted = prefix = 0ul && ch = 60uy && not st.jsx_allowed && input.capture_types in
+    let! operand = (fun () -> if asserted then angle_assertion_head input st else ret input ({ st with offset = plus start_pos prefix })) in
+    if prefix <> 0ul || asserted then
       if fuel = 0ul then ret input (empty_range (failed st 3ul))
+      else if operand.status <> 0ul then ret input (empty_range operand)
       else
-        let! child = (fun () -> atom input { st with offset = plus start_pos prefix } (minus fuel 1ul)) in
+        let! child = (fun () -> atom input operand (minus fuel 1ul)) in
         ret input (if (increment <> 0ul && not (can_assign child.target)) ||
            (deleting && child.target <> MemberTarget && child.target <> OptionalChain) then
           empty_range (failed child.parser 1ul)
@@ -2686,15 +2692,6 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         else ret input (failed after 1ul)) in
       postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
         open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
-    else if ch = 60uy && not st.jsx_allowed && input.capture_types then
-      // A type assertion in angle brackets applies to the unary expression after it.
-      if fuel = 0ul then ret input (empty_range (failed st 3ul))
-      else
-        let! recorded = (fun () -> angle_assertion_head input st) in
-        if recorded.status <> 0ul then ret input (empty_range recorded)
-        else
-          let! child = (fun () -> atom input recorded (minus fuel 1ul)) in
-          ret input ({ child with range = { child.range with G.first = start_pos }; target = NotAssignable })
     else if ch = 60uy && st.jsx_allowed then
       if fuel = 0ul then ret input (empty_range (failed st 3ul))
       else

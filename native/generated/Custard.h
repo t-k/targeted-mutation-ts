@@ -1170,6 +1170,9 @@ uint32_t TmtPulseParser_unary_width(TmtPulseMemory_tape input, uint32_t at, uint
 TmtPulseParser_atom_head
 TmtPulseParser_read_atom_head(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
 
+TmtPulseParser_parser_state
+TmtPulseParser_angle_assertion_head(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
+
 bool TmtPulseParser_can_assign(TmtPulseParser_assignment_target target);
 
 typedef struct TmtPulseParser_postfix_head_s
@@ -1252,9 +1255,6 @@ TmtPulseParser_record_private(
   TmtGrammar_span span,
   TmtPulseMemory_binding_namespace namespace0
 );
-
-TmtPulseParser_parser_state
-TmtPulseParser_angle_assertion_head(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
 
 TmtPulseParser_parser_state
 TmtPulseParser_tag_space(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);

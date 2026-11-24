@@ -460,3 +460,32 @@ A third round added four things that kept whole files on the TypeScript emitter.
 Over all corpora 15,006 of 15,010 native outputs have TypeScript's syntax, with the same four benign differences. The entry and the router return the same result for 65,756 compile calls. On the Ryzen host the build with decorators and the pragma, measured against the build before them in alternating runs, is unchanged on the project rows and still ahead of every peer on 20 of 20 warm rows and 19 of 20 first-process rows. The triple-slash change was made after that measurement.
 
 Still declined: enums and type declarations inside blocks, JSX spread of an object literal, a comparison followed by a comma and a literal in an argument list, angle-bracket assertions, parameter decorators, runtime namespaces, `export =` and `import =`, ambient classes and modules, and non-ASCII identifiers.
+
+### Angle-bracket assertions and enums inside blocks
+
+In a `.ts` file `<T>x` is erased to `x`. The assertion and the start of its operand lie on one line, since the erased text must not put a line break after `return`. An operand that starts with a brace, `function`, `class` or `async` is taken only behind a token that can only be followed by an expression. Erased at the start of a statement or of an arrow body it would open a block or a declaration: `a => <any>{}` would lose its object. Two opening angles in a row are a shift operator to TypeScript's scanner and stay an error. The extractor's parse is unchanged.
+
+An enum inside a function or a block is lowered where it stands and declared with `let`, as TypeScript declares it. The emitter evaluates the body with the same constant folding as at module level. Beside lowered parameter properties TypeScript declares a block enum with `var`, so that pair is declined. A bare reserved word in an enum initializer is declined, because it is a syntax error even when a member has that name. A reference directive may have spaces around its equals sign.
+
+Two differences from TypeScript are left as they are. `-<number>-value` keeps the space between the signs and negates twice, where TypeScript 6.0.3 prints `--value`, a decrement. `(<string>"use client");` keeps its parentheses and is an expression statement, where TypeScript prints a directive.
+
+| Project | Files | Declined before | Declined now |
+| --- | ---: | ---: | ---: |
+| zod | 164 | 16 | 6 |
+| hono | 346 | 6 | 5 |
+| rxjs | 757 | 47 | 20 |
+| trpc | 596 | 34 | 34 |
+| excalidraw | 348 | 4 | 3 |
+| drizzle | 574 | 17 | 17 |
+| vue | 472 | 11 | 9 |
+| typescript-eslint | 1,173 | 28 | 28 |
+| playwright | 1,045 | 41 | 41 |
+| effect | 1,579 | 29 | 19 |
+| prisma | 1,919 | 19 | 18 |
+| Total | 8,973 | 252 | 200 |
+
+Over all corpora 158 more files compile natively, no output that was native changes, and 15,135 of 15,139 native outputs have TypeScript's syntax, with the same four benign differences.
+
+The first build with the two forms was 2 to 4 percent slower on the project rows of the Ryzen host. Swapping the parser and the emitter one at a time showed the parser alone caused it, although neither form occurs in those rows. The build inlines aggressively, so the new bodies were copied into the expression and statement parsers, and a second recursive call in the expression parser made the build copy that function once more. The two forms are now functions of their own that the build marks `noinline` and `cold` in a scratch copy of the generated source (`coldSource` in `scripts/native-simd-source.mjs`), and the assertion continues through the recursive call that prefix operators already use. Warm times on five project rows are then within 1 percent of the build before the two forms. In the pooled comparison before the last of these changes the build was ahead of every peer on 20 of 20 warm rows and 20 of 20 first-process rows.
+
+Still declined: type declarations inside non-function blocks, JSX spread of an object literal, a comparison followed by a comma and a literal in an argument list, parameter decorators, runtime namespaces, `export =` and `import =`, ambient classes and modules, and non-ASCII identifiers.
