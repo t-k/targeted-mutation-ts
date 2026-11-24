@@ -81,8 +81,9 @@ test('a wrapped call gives its value on and writes down what a comparison can be
   const shown = value => { context.value = value; vm.runInContext(helper + '; var given = __tmtValue_k1(value);', context); return [context.given === value || Number.isNaN(value), JSON.parse(written.pop()[1])]; };
   assert.deepEqual([3, -0, NaN, 'a"b', true, null, undefined, 5n].map(shown), [[true, '3'], [true, '-0'], [true, 'NaN'], [true, '"a\\"b"'], [true, 'true'],
     [true, 'null'], [true, 'undefined'], [true, '5n']]);
-  // Plain bounded objects (canonical key order) and arrays format for `toStrictEqual`; exotic/unsafe values stay null.
-  assert.deepEqual([{ a: 1, 'k-2': [true] }, { b: 2, a: 1 }, [1, 'x'], {}].map(shown), [
+  // Plain bounded same-realm objects (canonical key order) and arrays format for `toStrictEqual`; cross-realm & exotic values stay null.
+  const sameRealm = expr => vm.runInContext(`(${expr})`, context);
+  assert.deepEqual(['{ a: 1, "k-2": [true] }', '{ b: 2, a: 1 }', '[1, "x"]', '{}'].map(expr => shown(sameRealm(expr))), [
     [true, '{ a: 1, "k-2": [true] }'], [true, '{ a: 1, b: 2 }'], [true, '[1, "x"]'], [true, '{}'],
   ]);
   const cyclic = {}; cyclic.self = cyclic;
@@ -98,8 +99,10 @@ test('a wrapped call gives its value on and writes down what a comparison can be
   // eslint-disable-next-line no-sparse-arrays
   const sparse = [1, , 3];
   const protoKey = Object.defineProperty({}, '__proto__', { value: 1, enumerable: true });
-  assert.deepEqual([() => 1, new Date(0), cyclic, withGetter, Object.create(null), proxyTarget, proxyProto, new SubArray(1, 2), trickedArray, sparse, protoKey].map(shown),
-    Array.from({ length: 11 }, () => [true, null]));
+  const crossRealmObj = { a: 1 };
+  const crossRealmArr = [1, 2];
+  assert.deepEqual([() => 1, new Date(0), cyclic, withGetter, Object.create(null), proxyTarget, proxyProto, new SubArray(1, 2), trickedArray, sparse, protoKey, crossRealmObj, crossRealmArr].map(shown),
+    Array.from({ length: 13 }, () => [true, null]));
   assert.equal(getterRan, 0);
   assert.equal(proxyTraps, 0);
   shown(1);
@@ -267,10 +270,11 @@ test('the conditions of a taken call, one at a time', () => {
   const imported = line => weakCalls(`import { it } from 'vitest';\n${line}\nit('t', () => { fee(1); s.fee(2); });\n`, 'subject.test.ts', 'subject.ts', ['t']).length;
   assert.deepEqual(["import { fee } from './subject';", "import { fee } from './subject.js';", "import fee from './subject';", "import * as s from './subject';",
     "import { fee } from 'subject';", "import './subject';", "import { fee } from './subject/index';"].map(imported), [1, 1, 1, 1, 0, 0, 0]);
-  // Awaited calls are wrapped as a whole (`await fee(1)`), and shadowed locals are skipped.
+  // Awaited calls are wrapped as a whole (`await fee(1)`), and shadowed locals (including hoisted `var`) are skipped.
   assert.deepEqual(calls("await fee(1, 2);\nconst res = await fee(3, 4);\nexpect(await fee(5, 6)).toBeGreaterThan(0);"),
     ['await fee(1, 2)', 'await fee(3, 4)', 'await fee(5, 6)']);
   assert.deepEqual(calls("const fee = (x: number) => x;\nfee(1);"), []);
+  assert.deepEqual(calls("if (true) { var fee = (x: number) => x; }\nfee(2);"), []);
   assert.deepEqual(weakCalls("import { it } from 'vitest';\nimport * as s from './subject';\nit('t', () => {\n  const s = { fee: (x: number) => x };\n  s.fee(1);\n});\n", 'subject.test.ts', 'subject.ts', ['t']), []);
 });
 

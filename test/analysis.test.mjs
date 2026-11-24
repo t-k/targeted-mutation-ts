@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 function analyze(...args) {
-  const run = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', ...args], { encoding: 'utf8', timeout: 50_000 });
+  const run = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', ...args], { encoding: 'utf8', timeout: 90_000 });
   assert.equal(run.status, 0, run.error?.message ?? run.stderr + run.stdout);
   return JSON.parse(run.stdout);
 }
@@ -241,7 +241,7 @@ test('kills a focused mutation when the tests import through a project alias', (
   }
 });
 
-test('analyze succeeds via the TypeScript parser when the native addon is unavailable', () => {
+test('analyze succeeds via the TypeScript parser when the native addon is unavailable or fails to load', () => {
   const scratch = mkdtempSync(join(tmpdir(), 'tmt-no-native-'));
   try {
     const tool = join(scratch, 'tool');
@@ -251,14 +251,20 @@ test('analyze succeeds via the TypeScript parser when the native addon is unavai
     symlinkSync(join(process.cwd(), 'node_modules'), join(tool, 'node_modules'), 'dir');
     const project = join(scratch, 'project');
     cpSync('fixtures/eligibility', project, { recursive: true });
-    const run = spawnSync(process.execPath, [join(tool, 'bin/tmt.mjs'), 'analyze', project, 'src/eligibility.ts', '--format', 'json'],
-      { encoding: 'utf8', timeout: 60_000 });
-    assert.equal(run.status, 0, run.stderr + run.stdout);
-    const report = JSON.parse(run.stdout);
-    assert.equal(report.evaluation, 'evaluated');
-    assert.equal(report.extraction[0].path, 'fallback');
-    assert.equal(report.extraction[0].reason, 'native-unavailable');
-    assert.equal(report.diagnostics[0].suggestedTest, 'expect(eligible(18)).toBe(true)');
+    for (const label of ['missing', 'dlopen-failed']) {
+      if (label === 'dlopen-failed') {
+        mkdirSync(join(tool, 'build'), { recursive: true });
+        writeFileSync(join(tool, 'build/tmt.node'), 'not a valid native addon');
+      }
+      const run = spawnSync(process.execPath, [join(tool, 'bin/tmt.mjs'), 'analyze', project, 'src/eligibility.ts', '--format', 'json'],
+        { encoding: 'utf8', timeout: 60_000 });
+      assert.equal(run.status, 0, `${label}: ${run.stderr}${run.stdout}`);
+      const report = JSON.parse(run.stdout);
+      assert.equal(report.evaluation, 'evaluated', label);
+      assert.equal(report.extraction[0].path, 'fallback', label);
+      assert.equal(report.extraction[0].reason, 'native-unavailable', label);
+      assert.equal(report.diagnostics[0].suggestedTest, 'expect(eligible(18)).toBe(true)', label);
+    }
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }

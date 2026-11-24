@@ -10,7 +10,15 @@ export { byteOffsets, sourceDialect } from './source-text.mjs';
 
 const load = createRequire(import.meta.url);
 const nativePath = binaryPath('tmt.node');
-const native = nativePath ? load(nativePath) : null;
+let native = null;
+let nativeLoadError = null;
+if (nativePath) {
+  try {
+    native = load(nativePath);
+  } catch (error) {
+    nativeLoadError = error;
+  }
+}
 const operators = ['', '<', '<=', '>', '>='];
 const reasons = ['', 'outside-l1', 'source-limit', 'depth-limit', 'candidate-limit', 'duplicate-lexical'];
 export const rule = 'comparison-boundary/v1';
@@ -76,6 +84,7 @@ export function extractFallback(input, options = {}) {
 
 export function extract(input, options = {}) {
   if (!native && options.requireNative) throw new Error(`The native extractor is not available for ${process.platform} ${process.arch}. ` +
+      (nativeLoadError ? `Loading ${nativePath} failed (${nativeLoadError.code ?? nativeLoadError.message}). ` : '') +
       'Prebuilt binaries cover macOS and Linux (glibc) on arm64 and x64; check that optional dependencies were installed. ' +
       'In a source checkout, run npm run build:native to build the extractor.');
   const { dialect, mode } = optionsFor(options);

@@ -80,3 +80,27 @@ test('threshold metadata stays scoped to its source and baseline', () => {
   assert.deepEqual(unknown.map(trial => trial.threshold), [null, null]);
   assert.equal(globalThis[parseCounter], 2);
 });
+
+test('keeps non-literal constant-RHS threshold shift even when integer-adjacent to boundary toggle', () => {
+  const source = Buffer.from('export function ok(x: number, bound: number) { return x >= bound; }\n');
+  const opAt = source.indexOf('>=');
+  const rhsAt = source.indexOf('bound', opAt);
+  const site = {
+    id: 'site-nonlit',
+    rule: 'comparison-boundary/v1',
+    operator: '>=',
+    replacement: '>',
+    edit: [opAt, opAt + 2],
+    left: [opAt - 2, opAt - 1],
+    right: [rhsAt, rhsAt + 5],
+    location: { file: 'src/nonlit.ts', line: 1, column: opAt + 1 },
+  };
+  const passing = { project: '', file: 'test/nonlit.test.ts', id: 't1', name: 'runs', status: 'passed' };
+  const trace = [{ site: site.id, operator: '>=', identity: passing, operands: [9, 10], result: false }];
+  const trials = planFocusedTrials([{ file: 'src/nonlit.ts', input: source, sites: [site] }], trace, { tests: [passing] }, {}, false);
+  const boundaryTrial = trials.find(trial => trial.rule === 'comparison-boundary/v1');
+  const thresholdTrial = trials.find(trial => trial.rule === 'comparison-threshold/v1');
+  assert.equal(boundaryTrial.equivalentOnSafeIntegers, undefined);
+  assert.ok(thresholdTrial, 'non-literal RHS shift must not be dropped as integer-boundary-equivalent');
+  assert.equal(thresholdTrial.replacement, '((bound) + 1)');
+});

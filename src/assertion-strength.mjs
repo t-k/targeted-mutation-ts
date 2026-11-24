@@ -67,6 +67,15 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
       }
     }
   }
+  function collectHoistedVars(node, out) {
+    if (!node) return;
+    if (ts.isVariableDeclarationList(node) && (node.flags & ts.NodeFlags.BlockScoped) === 0) {
+      for (const decl of node.declarations) collectBindingNames(decl.name, out);
+      return;
+    }
+    if (ts.isFunctionLike(node) || ts.isClassLike(node)) return;
+    ts.forEachChild(node, child => collectHoistedVars(child, out));
+  }
   function localBindingsIn(container) {
     const names = new Set();
     const record = statement => {
@@ -76,13 +85,16 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
         names.add(statement.name.text);
       }
     };
-    if (ts.isBlock(container) || ts.isModuleBlock(container)) {
+    if (ts.isSourceFile(container)) {
+      for (const statement of container.statements) collectHoistedVars(statement, names);
+    } else if (ts.isBlock(container) || ts.isModuleBlock(container)) {
       for (const statement of container.statements) record(statement);
     } else if (ts.isCaseClause(container) || ts.isDefaultClause(container)) {
       for (const statement of container.statements) record(statement);
     } else if (ts.isFunctionLike(container)) {
       if (container.name && ts.isIdentifier(container.name)) names.add(container.name.text);
       for (const param of container.parameters) collectBindingNames(param.name, names);
+      if (container.body) collectHoistedVars(container.body, names);
     } else if (ts.isCatchClause(container) && container.variableDeclaration) {
       collectBindingNames(container.variableDeclaration.name, names);
     } else if ((ts.isForStatement(container) || ts.isForInStatement(container) || ts.isForOfStatement(container)) &&
@@ -208,22 +220,6 @@ function ${name}(value) {
     try { __tmtUtil_${key} = globalThis.process.getBuiltinModule('node:util'); } catch (error) { /* unavailable */ }
   }
   var isProxy = __tmtUtil_${key} && __tmtUtil_${key}.types && typeof __tmtUtil_${key}.types.isProxy === 'function' ? __tmtUtil_${key}.types.isProxy : null;
-  function isPlainObjectProto(proto) {
-    if (proto === Object.prototype) return true;
-    if (proto === null || isProxy(proto)) return false;
-    if (Object.getPrototypeOf(proto) !== null) return false;
-    var ctor = Object.getOwnPropertyDescriptor(proto, 'constructor');
-    var hasOwn = Object.getOwnPropertyDescriptor(proto, 'hasOwnProperty');
-    if (!ctor || !('value' in ctor) || typeof ctor.value !== 'function' || isProxy(ctor.value)) return false;
-    var nameDesc = Object.getOwnPropertyDescriptor(ctor.value, 'name');
-    if (!nameDesc || !('value' in nameDesc) || nameDesc.value !== 'Object') return false;
-    return !!(hasOwn && 'value' in hasOwn && typeof hasOwn.value === 'function');
-  }
-  function isPlainArrayProto(proto) {
-    if (proto === Array.prototype) return true;
-    if (proto === null || isProxy(proto) || !Array.isArray(proto)) return false;
-    return isPlainObjectProto(Object.getPrototypeOf(proto));
-  }
   function fmt(v, depth, seen) {
     var type = typeof v;
     if (v === null || type === 'boolean' || type === 'undefined') return String(v);
@@ -234,7 +230,7 @@ function ${name}(value) {
     if (seen.indexOf(v) >= 0) return null;
     var nextSeen = seen.concat([v]);
     if (Array.isArray(v)) {
-      if (!isPlainArrayProto(Object.getPrototypeOf(v))) return null;
+      if (Object.getPrototypeOf(v) !== Array.prototype) return null;
       if (v.length > 20 || Object.getOwnPropertySymbols(v).length > 0 || Object.getOwnPropertyNames(v).length !== v.length + 1) return null;
       var items = [];
       for (var i = 0; i < v.length; i++) {
@@ -247,7 +243,7 @@ function ${name}(value) {
       return '[' + items.join(', ') + ']';
     }
     if (Object.getOwnPropertySymbols(v).length > 0) return null;
-    if (!isPlainObjectProto(Object.getPrototypeOf(v))) return null;
+    if (Object.getPrototypeOf(v) !== Object.prototype) return null;
     var keys = Object.keys(v);
     if (keys.length > 20 || Object.getOwnPropertyNames(v).length !== keys.length) return null;
     keys.sort();

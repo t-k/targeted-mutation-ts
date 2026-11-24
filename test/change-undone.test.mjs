@@ -297,3 +297,19 @@ test('a multi-hunk file where one hunk fails to load alone falls back to reverti
   assert.equal(seen.at(-1)[1], old);
   assert.ok(report.diagnostics.some(d => d.kind === 'UNTESTED CHANGE' && d.together === true));
 }));
+
+test('real Vitest distinguishes import load failure from file-level beforeAll/afterAll failures', () => repository((root, git) => {
+  writeFileSync(join(root, 'subject.ts'), 'export const mode = "old";\nexport const keep = 1;\n');
+  writeFileSync(join(root, 'subject.test.ts'), `import { beforeAll, expect, it } from 'vitest';
+import { mode } from './subject';
+beforeAll(() => { if (mode === 'old') throw new Error('beforeAll boom'); });
+it('checks', () => { expect(mode).toBe('new'); });
+`);
+  git('add', '.');
+  git('commit', '-qm', 'base');
+  writeFileSync(join(root, 'subject.ts'), 'export const mode = "new";\nexport const keep = 1;\nexport const extra = 2;\n');
+  const hookReport = analyzeUndoneChanges(root, ['subject.ts'], { since: 'HEAD' });
+  assert.equal(hookReport.mutants.find(m => m.original.includes('mode = "new"')).status, 'error');
+  assert.equal(hookReport.evaluation, 'incomplete');
+  assert.ok(hookReport.mutants.every(m => !m.together), 'beforeAll failure must not trigger together load_error fallback');
+}));
