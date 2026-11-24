@@ -4,20 +4,22 @@ import { dirname, relative, resolve, sep } from 'node:path';
 import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mjs';
 import { comparisonThresholdSites } from './prototype.mjs';
 import { thresholdGaps } from './threshold.mjs';
-import { tightenComparison } from './displacement.mjs';
+import { shiftedReplacement, tightenComparison } from './displacement.mjs';
 import { failedTests } from './vitest-reporter.mjs';
-import { inside, runVitest, withCopy } from './vitest.mjs';
+import { inside, runVitest, runVitestAsync, withCopy } from './vitest.mjs';
 import { createProbePreloadCheck, freshProbeBinding, instrument, installProbe, rewrite } from './probe.mjs';
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
 import { checkReplay } from './lean-replay.mjs';
 import { ignoredSwaps, renderBuiltinSwitches } from './builtin-switches.mjs';
-import { collectOperatorSites } from './operator-sites.mjs';
 import { inspectTrace, pendingTraceDirectory, sameObservations } from './trace-buffer.mjs';
+
+export const baselineRunSymbol = Symbol.for('targeted-mutation-ts/baseline-run');
 
 const sha = source => createHash('sha256').update(source).digest('hex');
 const identity = test => JSON.stringify([test.project, test.file, test.id]);
 const testcase = ({ id, project, file, name }) => ({ id, project, file, name });
+const literalKey = { '<': 'ltLiteral', '<=': 'leLiteral', '>': 'gtLiteral', '>=': 'geLiteral' };
 
 function compare(operator, left, right) {
   switch (operator) {
@@ -28,23 +30,27 @@ function compare(operator, left, right) {
   }
 }
 
-// The Playwright extraction reports a logical operator with an operand-dropping edit. The operator swap is a different edit at the same position.
+// The Playwright extraction reports a logical operator with an operand-dropping edit (`jsx-disabled-drop-left/v1`).
 // The complete built-in set as plain source edits, for runners that cannot use runtime switches.
-// A comparison boundary that the focused analysis already edits is left to it.
+// A comparison boundary or JSX disabled left-drop that the focused analysis already edits is left to it.
 function builtInSites(comparisons, input, file, dialect, selected, options = {}) {
   const focused = new Set(comparisons.map(candidate => `${candidate.edit[0]}:${candidate.replacement}`));
+  const droppedLeft = new Set(comparisons.filter(candidate => candidate.rule === 'jsx-disabled-drop-left/v1')
+    .map(candidate => `${candidate.edit[0]}:${candidate.edit[1]}`));
   return renderBuiltinSwitches(input, file, selected, { dialect, ...options }).mutants
-    .filter(mutant => mutant.status === undefined && !(mutant.operatorSwap && focused.has(mutant.operatorSwap.join(':'))))
+    .filter(mutant => mutant.status === undefined &&
+      !(mutant.operatorSwap && focused.has(mutant.operatorSwap.join(':'))) &&
+      !(mutant.targeted?.form === 'left' && droppedLeft.has(`${mutant.edit[0]}:${mutant.edit[1]}`)))
     .map(mutant => ({ rule: mutant.mutatorName, original: mutant.original, replacement: mutant.replacement, edit: mutant.edit,
       left: [mutant.edit[0], mutant.edit[0]], right: [mutant.edit[1], mutant.edit[1]], source: mutant.source, unobserved: true }));
 }
 
-function withOperatorSites(comparisons, input, file, { mutators, dialect }, selected) {
+function withProfileSites(comparisons, input, file, { mutators, dialect }, selected) {
   const start = candidate => (candidate.operatorEdit ?? candidate.edit)[0];
-  // Without a session nothing is recorded, so the targeted edits run as plain source edits.
+  // Without a session nothing is recorded, so the targeted or full edits run as plain source edits.
   const added = mutators === 'full' ? builtInSites(comparisons, input, file, dialect, selected)
     : mutators === 'targeted' ? builtInSites(comparisons, input, file, dialect, selected, { targeted: true, keep: mutation => mutation.targeted !== undefined })
-      : collectOperatorSites(input, file, { dialect });
+      : [];
   return added.length ? [...comparisons, ...added].sort((a, b) => start(a) - start(b)) : comparisons;
 }
 
@@ -53,14 +59,14 @@ export function collectComparisons(root, files, options) {
   const extraction = [];
   for (const { file, selected } of selectScope(root, files, options)) {
     const input = readFileSync(inside(root, file));
-    const { path, fallback, reason, candidates: comparisons, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, requireNative: true, logical: options.runner === 'playwright' });
+    const { path, fallback, reason, candidates: comparisons, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, logical: options.runner === 'playwright' });
     extraction.push({ file, path, reason, diagnostics, ...(fallback === undefined ? {} : { fallback }) });
     if (path === 'diagnostic') continue;
     // A boundary under a `// Stryker disable` comment is not edited by any profile.
     const disabled = ignoredSwaps(input, file, { dialect: options.dialect });
     const kept = disabled.size ? comparisons.filter(candidate => !disabled.has(`${candidate.edit[0]}:${candidate.replacement}`)) : comparisons;
     if (kept.length !== comparisons.length) extraction.at(-1).ignored = comparisons.length - kept.length;
-    const candidates = ['targeted', 'operators', 'full'].includes(options.mutators) ? withOperatorSites(kept, input, file, options, selected) : kept;
+    const candidates = ['targeted', 'full'].includes(options.mutators) ? withProfileSites(kept, input, file, options, selected) : kept;
     const positions = byteLocations(input, candidates.map(candidate => (candidate.operatorEdit ?? candidate.edit)[0]));
     // A comparison is in scope when any line from its left operand to its right operand is: a threshold on its
     // own line belongs to the comparison whose operator is on the line above.
@@ -158,6 +164,27 @@ export function sourceTrials(root, subjects, options) {
   return settings => makeAttempt(root, subjects, runner, options['copy-exclude'], new Map(), settings);
 }
 
+// Asynchronous Vitest plain-source runs, so independent witness checks can run side by side.
+export function sourceTrialsAsync(root, subjects, options) {
+  const runner = (workspace, temp, settings) => runVitestAsync(workspace, temp, {
+    ...settings, config: options.config, testFiles: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
+  return settings => withCopy(root, async (workspace, temp) => {
+    const { trial, witness, collect } = settings ?? {};
+    for (const subject of subjects) {
+      const file = inside(workspace, subject.file);
+      if (sha(readFileSync(file)) !== subject.digest) throw new Error(`Source changed during analysis: ${subject.file}`);
+      if (trial?.site.location.file === subject.file) writeFileSync(file, rewrite(subject.input, trial.source?.edit ?? trial.edit, trial.source?.replacement ?? trial.replacement));
+    }
+    if (witness?.rewrite) writeFileSync(inside(workspace, witness.rewrite.file), witness.rewrite.content);
+    const result = await runner(workspace, temp, { product: true });
+    if (collect) {
+      const path = resolve(workspace, collect);
+      return { ...result, collected: existsSync(path) ? readFileSync(path, 'utf8') : '' };
+    }
+    return result;
+  }, { exclude: options['copy-exclude'] });
+}
+
 function indexObservations(trace, baseline) {
   const tests = new Map(baseline.tests.filter(test => test.status === 'passed').map(test => [identity(test), test]));
   const bySite = new Map();
@@ -224,40 +251,70 @@ function callableThreshold(subject, site, observations, specification, lookupThr
   return { meta, gap: null, specified, inputs, contract };
 }
 
+function constantThreshold(site, observation, callable) {
+  if (!observation.complete || !observation.rows.length || !['<', '<=', '>', '>='].includes(site.operator)) return null;
+  const value = observation.rows[0].operands[1];
+  if (observation.rows.some(row => row.operands[1] !== value)) return null;
+  const inputs = observation.rows.map(row => row.operands[0]);
+  return {
+    operator: site.operator,
+    value,
+    inputs,
+    min: callable?.specified ? callable.contract.min : undefined,
+    max: callable?.specified ? callable.contract.max : undefined,
+    gap: null,
+  };
+}
+
+const isBoundaryEquivalentShift = (operator, threshold, alternate) =>
+  (operator === '>=' || operator === '<') ? alternate === threshold + 1 : alternate === threshold - 1;
+
 export function planFocusedTrials(subjects, trace, baseline, specification, displaceThresholds) {
   const sites = [];
-  const thresholds = [];
+  const thresholdRequests = [];
   const observations = indexObservations(trace, baseline);
   for (const subject of subjects) {
     const lookupThreshold = thresholdLookup(subject);
     for (const site of subject.sites) {
       const observation = matchObservations(site, observations);
       const tightened = tightenComparison(subject.input, site, observation, displaceThresholds);
-      const threshold = site.operator === '>=' || tightened
-        ? callableThreshold(subject, site, observation, specification, lookupThreshold) : null;
-      if (threshold && site.operator === '>=') thresholds.push(threshold);
-      sites.push({ site, observation, tightened, threshold });
+      const callable = callableThreshold(subject, site, observation, specification, lookupThreshold);
+      const constant = constantThreshold(site, observation, callable);
+      if (constant) thresholdRequests.push(constant);
+      sites.push({ subject, site, observation, tightened, callable, constant });
     }
   }
-  const gaps = thresholdGaps(thresholds.map(({ meta, inputs, specified, contract }) => ({
-    threshold: meta.threshold, observations: inputs,
-    min: specified ? contract.min : undefined, max: specified ? contract.max : undefined,
+  const gaps = thresholdGaps(thresholdRequests.map(({ operator, value, inputs, min, max }) => ({
+    operator, threshold: value, observations: inputs, min, max,
   })));
-  thresholds.forEach((threshold, index) => { threshold.gap = gaps[index]; });
+  thresholdRequests.forEach((entry, index) => { entry.gap = gaps[index]; });
 
   const trials = [];
-  for (const { site, observation, tightened, threshold } of sites) {
-    const boundary = { site, edit: site.edit, replacement: site.replacement, source: site.source, rule: site.rule, observation, threshold: site.operator === '>=' ? threshold : null };
+  for (const { subject, site, observation, tightened, callable, constant } of sites) {
+    if (callable && constant) callable.gap = constant.gap;
+    const boundary = {
+      site, edit: site.edit, replacement: site.replacement, source: site.source, rule: site.rule,
+      observation, threshold: callable, thresholdGap: constant?.gap ?? null,
+    };
     trials.push(boundary);
-    if (threshold?.gap) {
-      const alternate = String(threshold.gap.alternate);
-      if (threshold.gap.alternate === threshold.meta.threshold + 1) {
-        boundary.equivalentOnSafeIntegers = [`>= ${alternate}`];
+    let thresholdAdjustment;
+    if (constant?.gap) {
+      const { alternate } = constant.gap;
+      if (isBoundaryEquivalentShift(site.operator, constant.value, alternate)) {
+        boundary.equivalentOnSafeIntegers = [`${site.operator} ${alternate}`];
       } else {
-        trials.push({ site, edit: site.right, replacement: alternate, rule: 'comparison-threshold/v1', observation, threshold });
+        thresholdAdjustment = alternate - constant.value;
+        const rhsText = subject.input.subarray(...site.right).toString();
+        const isLiteral = /^-?\s*\d+$/.test(rhsText) && Number(rhsText.replace(/\s+/g, '')) === constant.value;
+        const replacement = isLiteral ? String(alternate) : shiftedReplacement(subject.input, site, thresholdAdjustment);
+        trials.push({
+          site, edit: site.right, replacement, rule: 'comparison-threshold/v1', observation,
+          adjustment: thresholdAdjustment, thresholdValue: constant.value, isLiteralThreshold: isLiteral,
+          thresholdGap: constant.gap, threshold: callable,
+        });
       }
     }
-    if (tightened) trials.push({ ...tightened, threshold });
+    if (tightened && tightened.adjustment !== thresholdAdjustment) trials.push({ ...tightened, threshold: callable });
   }
   return trials;
 }
@@ -303,12 +360,13 @@ function leanSkips(trials, baseline, deterministic, coverage) {
     if (!observation.complete) continue;
     if (observation.observed.size !== observation.tests.size &&
         !matchesFocusedCoverage(observation.observed, coverage.get(site.id))) continue;
-    const literal = rule === 'comparison-threshold/v1';
+    const literal = rule === 'comparison-threshold/v1' && trial.isLiteralThreshold === true;
     if (!literal && rule !== site.rule) continue;
     indices.push(index);
     requests.push({
       candidate: site.id, traceCandidate: site.id, complete: true, deterministic,
-      original: site.operator, replacement: literal ? { geLiteral: Number(trial.replacement) } : trial.replacement,
+      original: site.operator,
+      replacement: literal ? { [literalKey[site.operator]]: Number(trial.replacement) } : trial.replacement,
       observations: observation.rows.map(row => row.operands),
     });
   }
@@ -322,8 +380,7 @@ function diagnose(trial, result) {
   function values(lhs, rhs) {
     const original = compare(site.operator, lhs, rhs);
     const mutant = trial.adjustment !== undefined ? compare(site.operator, lhs, rhs + trial.adjustment)
-      : trial.rule === 'comparison-threshold/v1' ? lhs >= Number(trial.replacement)
-        : compare(trial.replacement, lhs, rhs);
+      : compare(trial.replacement, lhs, rhs);
     return { original, mutant };
   }
   const differs = ([lhs, rhs]) => {
@@ -339,7 +396,7 @@ function diagnose(trial, result) {
   }
   const binary = observation.rows[0]?.operands;
   if (!binary) return null;
-  const gap = trial.rule === 'comparison-threshold/v1' ? threshold.gap : null;
+  const gap = trial.rule === 'comparison-threshold/v1' ? trial.thresholdGap : null;
   const input = gap?.witness ?? binary[1] + (trial.adjustment ?? 0);
   const comparison = values(input, binary[1]);
   const expected = gap?.expected ?? comparison.original;
@@ -355,7 +412,7 @@ function diagnose(trial, result) {
     },
     observedInputs: constantThreshold ? [...new Set(threshold.inputs)].sort((a, b) => a - b) : undefined,
     suggestedTest: constantThreshold ? `expect(${threshold.meta.functionName}(${input})).toBe(${expected})` : undefined,
-    feasibleThresholds: gap?.interval ?? (constantThreshold ? threshold.gap?.interval : undefined),
+    feasibleThresholds: gap?.interval ?? trial.thresholdGap?.interval ?? (constantThreshold ? threshold.gap?.interval : undefined),
   };
 }
 
@@ -425,6 +482,7 @@ function analyzePlaywright(root, subjects, report, options, specification) {
   }
 
   report.evaluation = 'evaluated';
+  Object.defineProperty(report, baselineRunSymbol, { value: baseline, enumerable: false });
   report.instrumented = { status: 'unavailable', reason: 'browser-observations-unavailable' };
   for (const subject of subjects) {
     for (const site of subject.sites) {
@@ -488,7 +546,7 @@ export function prepareAnalysis(project, files, options) {
   const root = realpathSync(project);
   const { subjects, extraction } = collectComparisons(root, files, options);
   const report = { schemaVersion: 1, runner: options.runner ?? 'vitest', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
-  if (['targeted', 'operators', 'full'].includes(options.mutators)) report.mutators = options.mutators;
+  if (['targeted', 'full'].includes(options.mutators)) report.mutators = options.mutators;
   if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
     report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
   }
@@ -509,6 +567,7 @@ export function prepareAnalysis(project, files, options) {
     return { report: { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } } };
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
+  Object.defineProperty(report, baselineRunSymbol, { value: baseline, enumerable: false });
 
   const traced = recorded?.status === 'passed' ? recorded : attempt({ tracing: true });
   const tracedStatus = verdict(traced, baseline);

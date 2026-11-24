@@ -209,7 +209,11 @@ def renderArray (items : Array String) : String := "[" ++ ",".intercalate items.
 end Wire
 
 inductive Op where
-  | lt | le | gt | ge | constantTrue | geLiteral (value : Int)
+  | lt | le | gt | ge | constantTrue
+  | ltLiteral (value : Int)
+  | leLiteral (value : Int)
+  | gtLiteral (value : Int)
+  | geLiteral (value : Int)
 deriving DecidableEq, Repr
 
 def compareBy (op : Op) (lhs rhs : Int) : Bool :=
@@ -219,6 +223,9 @@ def compareBy (op : Op) (lhs rhs : Int) : Bool :=
   | .gt => lhs > rhs
   | .ge => lhs ≥ rhs
   | .constantTrue => true
+  | .ltLiteral value => lhs < value
+  | .leLiteral value => lhs ≤ value
+  | .gtLiteral value => lhs > value
   | .geLiteral value => lhs ≥ value
 
 structure Observation where
@@ -394,9 +401,24 @@ def decodeReplayHeader (input : Wire.Value) : Except String ReplayHeader := do
   let replacement ← match encoded with
     | .str op => decodeOp op
     | _ => do
-      let literal ← (← encoded.field? "geLiteral").int?
-      unless original == .ge && safe literal do throw "invalid literal threshold"
-      pure (.geLiteral literal)
+      match encoded.field? "geLiteral", encoded.field? "gtLiteral", encoded.field? "leLiteral", encoded.field? "ltLiteral" with
+      | .ok v, .error _, .error _, .error _ =>
+        let literal ← v.int?
+        unless original == .ge && safe literal do throw "invalid literal threshold"
+        pure (.geLiteral literal)
+      | .error _, .ok v, .error _, .error _ =>
+        let literal ← v.int?
+        unless original == .gt && safe literal do throw "invalid literal threshold"
+        pure (.gtLiteral literal)
+      | .error _, .error _, .ok v, .error _ =>
+        let literal ← v.int?
+        unless original == .le && safe literal do throw "invalid literal threshold"
+        pure (.leLiteral literal)
+      | .error _, .error _, .error _, .ok v =>
+        let literal ← v.int?
+        unless original == .lt && safe literal do throw "invalid literal threshold"
+        pure (.ltLiteral literal)
+      | _, _, _, _ => throw "invalid literal threshold"
   pure { candidate, traceCandidate, complete, deterministic, original, replacement }
 
 def decideReplay (input : Wire.Value) : Except String Bool := do
@@ -413,73 +435,141 @@ def decideReplay (input : Wire.Value) : Except String Bool := do
 
 namespace Threshold
 
-def bounds (threshold lo hi : Int) : List Int → Int × Int
+inductive Cmp where
+  | lt | le | gt | ge
+deriving DecidableEq, Repr
+
+def holds (op : Cmp) (x t : Int) : Prop :=
+  match op with
+  | .lt => x < t
+  | .le => x ≤ t
+  | .gt => x > t
+  | .ge => x ≥ t
+
+def eval (op : Cmp) (x t : Int) : Bool :=
+  match op with
+  | .lt => decide (x < t)
+  | .le => decide (x ≤ t)
+  | .gt => decide (x > t)
+  | .ge => decide (x ≥ t)
+
+/-- `gt` and `le` split integers at `x ≤ t` vs `t < x`; `ge` and `lt` split at `x < t` vs `t ≤ x`. -/
+def upperInclusive (op : Cmp) : Bool :=
+  match op with
+  | .gt | .le => true
+  | .ge | .lt => false
+
+def bounds (op : Cmp) (threshold lo hi : Int) : List Int → Int × Int
   | [] => (lo, hi)
   | x :: xs =>
-    if x < threshold then bounds threshold (max lo (x + 1)) hi xs
-    else bounds threshold lo (min hi x) xs
+    if upperInclusive op then
+      if x ≤ threshold then bounds op threshold (max lo x) hi xs
+      else bounds op threshold lo (min hi (x - 1)) xs
+    else
+      if x < threshold then bounds op threshold (max lo (x + 1)) hi xs
+      else bounds op threshold lo (min hi x) xs
 
-def Feasible (threshold lo hi candidate : Int) (xs : List Int) : Prop :=
-  lo ≤ candidate ∧ candidate ≤ hi ∧ ∀ x ∈ xs, (threshold ≤ x ↔ candidate ≤ x)
+def Feasible (op : Cmp) (threshold lo hi candidate : Int) (xs : List Int) : Prop :=
+  lo ≤ candidate ∧ candidate ≤ hi ∧ ∀ x ∈ xs, (holds op x threshold ↔ holds op x candidate)
 
-theorem bounds_exact (threshold lo hi candidate : Int) (xs : List Int) :
-    let b := bounds threshold lo hi xs
-    (b.1 ≤ candidate ∧ candidate ≤ b.2) ↔ Feasible threshold lo hi candidate xs := by
+theorem bounds_exact (op : Cmp) (threshold lo hi candidate : Int) (xs : List Int) :
+    let b := bounds op threshold lo hi xs
+    (b.1 ≤ candidate ∧ candidate ≤ b.2) ↔ Feasible op threshold lo hi candidate xs := by
   induction xs generalizing lo hi with
   | nil => simp [bounds, Feasible]
   | cons x xs ih =>
-    simp only [bounds]
-    split <;> rename_i hx <;>
-      simp only [ih, Feasible, List.mem_cons, forall_eq_or_imp, Int.max_le, Int.le_min]
-    · constructor
-      · rintro ⟨⟨lower, next⟩, upper, rest⟩
-        exact ⟨lower, upper, by omega, rest⟩
-      · rintro ⟨lower, upper, same, rest⟩
-        exact ⟨⟨lower, by omega⟩, upper, rest⟩
-    · constructor
-      · rintro ⟨lower, ⟨upper, previous⟩, rest⟩
-        exact ⟨lower, upper, by omega, rest⟩
-      · rintro ⟨lower, upper, same, rest⟩
-        exact ⟨lower, ⟨upper, by omega⟩, rest⟩
+    cases op <;> simp only [bounds, upperInclusive, ↓reduceIte, Bool.false_eq_true]
+    all_goals
+      split <;> rename_i hx <;>
+        simp only [ih, Feasible, holds, List.mem_cons, forall_eq_or_imp, Int.max_le, Int.le_min]
+      · constructor
+        · rintro ⟨⟨lower, next⟩, upper, rest⟩
+          exact ⟨lower, upper, by omega, rest⟩
+        · rintro ⟨lower, upper, same, rest⟩
+          exact ⟨⟨lower, by omega⟩, upper, rest⟩
+      · constructor
+        · rintro ⟨lower, ⟨upper, previous⟩, rest⟩
+          exact ⟨lower, upper, by omega, rest⟩
+        · rintro ⟨lower, upper, same, rest⟩
+          exact ⟨lower, ⟨upper, by omega⟩, rest⟩
 
-theorem feasible_extrema (threshold lo hi candidate : Int) (observations extrema : List Int)
+theorem feasible_extrema (op : Cmp) (threshold lo hi candidate : Int) (observations extrema : List Int)
     (subset : ∀ x ∈ extrema, x ∈ observations)
     (covers : ∀ x ∈ observations,
-      (x < threshold → ∃ y ∈ extrema, x ≤ y ∧ y < threshold) ∧
-      (threshold ≤ x → ∃ y ∈ extrema, threshold ≤ y ∧ y ≤ x)) :
-    Feasible threshold lo hi candidate observations ↔ Feasible threshold lo hi candidate extrema := by
+      if upperInclusive op then
+        (x ≤ threshold → ∃ y ∈ extrema, x ≤ y ∧ y ≤ threshold) ∧
+        (threshold < x → ∃ y ∈ extrema, threshold < y ∧ y ≤ x)
+      else
+        (x < threshold → ∃ y ∈ extrema, x ≤ y ∧ y < threshold) ∧
+        (threshold ≤ x → ∃ y ∈ extrema, threshold ≤ y ∧ y ≤ x)) :
+    Feasible op threshold lo hi candidate observations ↔ Feasible op threshold lo hi candidate extrema := by
   constructor
   · rintro ⟨lower, upper, agrees⟩
     exact ⟨lower, upper, fun x hx => agrees x (subset x hx)⟩
   · rintro ⟨lower, upper, agrees⟩
     refine ⟨lower, upper, ?_⟩
     intro x hx
-    by_cases side : x < threshold
-    · obtain ⟨y, hy, atLeast, below⟩ := (covers x hx).1 side
-      have witness := agrees y hy
-      omega
-    · obtain ⟨y, hy, above, atMost⟩ := (covers x hx).2 (by omega)
-      have witness := agrees y hy
-      omega
+    have cov := covers x hx
+    cases op <;> simp only [upperInclusive, ↓reduceIte, Bool.false_eq_true, holds] at cov ⊢
+    · by_cases side : x < threshold
+      · obtain ⟨y, hy, atLeast, below⟩ := cov.1 side
+        have witness := agrees y hy
+        simp only [holds] at witness
+        omega
+      · obtain ⟨y, hy, above, atMost⟩ := cov.2 (by omega)
+        have witness := agrees y hy
+        simp only [holds] at witness
+        omega
+    · by_cases side : x ≤ threshold
+      · obtain ⟨y, hy, atLeast, below⟩ := cov.1 side
+        have witness := agrees y hy
+        simp only [holds] at witness
+        omega
+      · obtain ⟨y, hy, above, atMost⟩ := cov.2 (by omega)
+        have witness := agrees y hy
+        simp only [holds] at witness
+        omega
+    · by_cases side : x ≤ threshold
+      · obtain ⟨y, hy, atLeast, below⟩ := cov.1 side
+        have witness := agrees y hy
+        simp only [holds] at witness
+        omega
+      · obtain ⟨y, hy, above, atMost⟩ := cov.2 (by omega)
+        have witness := agrees y hy
+        simp only [holds] at witness
+        omega
+    · by_cases side : x < threshold
+      · obtain ⟨y, hy, atLeast, below⟩ := cov.1 side
+        have witness := agrees y hy
+        simp only [holds] at witness
+        omega
+      · obtain ⟨y, hy, above, atMost⟩ := cov.2 (by omega)
+        have witness := agrees y hy
+        simp only [holds] at witness
+        omega
 
-theorem bounds_extrema (threshold lo hi : Int) (observations extrema : List Int)
+theorem bounds_extrema (op : Cmp) (threshold lo hi : Int) (observations extrema : List Int)
     (inside : lo ≤ threshold ∧ threshold ≤ hi)
     (subset : ∀ x ∈ extrema, x ∈ observations)
     (covers : ∀ x ∈ observations,
-      (x < threshold → ∃ y ∈ extrema, x ≤ y ∧ y < threshold) ∧
-      (threshold ≤ x → ∃ y ∈ extrema, threshold ≤ y ∧ y ≤ x)) :
-    bounds threshold lo hi observations = bounds threshold lo hi extrema := by
-  let full := bounds threshold lo hi observations
-  let reduced := bounds threshold lo hi extrema
+      if upperInclusive op then
+        (x ≤ threshold → ∃ y ∈ extrema, x ≤ y ∧ y ≤ threshold) ∧
+        (threshold < x → ∃ y ∈ extrema, threshold < y ∧ y ≤ x)
+      else
+        (x < threshold → ∃ y ∈ extrema, x ≤ y ∧ y < threshold) ∧
+        (threshold ≤ x → ∃ y ∈ extrema, threshold ≤ y ∧ y ≤ x)) :
+    bounds op threshold lo hi observations = bounds op threshold lo hi extrema := by
+  let full := bounds op threshold lo hi observations
+  let reduced := bounds op threshold lo hi extrema
   have equal (candidate : Int) :
       (full.1 ≤ candidate ∧ candidate ≤ full.2) ↔
         (reduced.1 ≤ candidate ∧ candidate ≤ reduced.2) :=
-    (bounds_exact threshold lo hi candidate observations).trans
-      ((feasible_extrema threshold lo hi candidate observations extrema subset covers).trans
-        (bounds_exact threshold lo hi candidate extrema).symm)
-  have feasible : Feasible threshold lo hi threshold observations := ⟨inside.1, inside.2, by simp⟩
+    (bounds_exact op threshold lo hi candidate observations).trans
+      ((feasible_extrema op threshold lo hi candidate observations extrema subset covers).trans
+        (bounds_exact op threshold lo hi candidate extrema).symm)
+  have feasible : Feasible op threshold lo hi threshold observations := ⟨inside.1, inside.2, by simp⟩
   have fullIn : full.1 ≤ threshold ∧ threshold ≤ full.2 :=
-    (bounds_exact threshold lo hi threshold observations).mpr feasible
+    (bounds_exact op threshold lo hi threshold observations).mpr feasible
   have reducedIn := (equal threshold).mp fullIn
   change full = reduced
   apply Prod.ext
@@ -501,74 +591,98 @@ def Gap.render (gap : Gap) : String :=
   s!"\{\"interval\":[{gap.interval.1},{gap.interval.2}],\"alternate\":{gap.alternate},\"witness\":{gap.witness}," ++
     s!"\"expected\":{Wire.renderBool gap.expected},\"mutant\":{Wire.renderBool gap.mutant}}"
 
-def choose (threshold : Int) (b : Int × Int) : Option Gap :=
-  if b.1 < threshold then
-    some ⟨b, threshold - 1, threshold - 1, false, true⟩
-  else if threshold < b.2 then
-    some ⟨b, threshold + 1, threshold, true, false⟩
-  else none
+def choose (op : Cmp) (threshold : Int) (b : Int × Int) : Option Gap :=
+  if upperInclusive op then
+    if threshold < b.2 then
+      some ⟨b, threshold + 1, threshold + 1, eval op (threshold + 1) threshold, eval op (threshold + 1) (threshold + 1)⟩
+    else if b.1 < threshold then
+      some ⟨b, threshold - 1, threshold, eval op threshold threshold, eval op threshold (threshold - 1)⟩
+    else none
+  else
+    if b.1 < threshold then
+      some ⟨b, threshold - 1, threshold - 1, eval op (threshold - 1) threshold, eval op (threshold - 1) (threshold - 1)⟩
+    else if threshold < b.2 then
+      some ⟨b, threshold + 1, threshold, eval op threshold threshold, eval op threshold (threshold + 1)⟩
+    else none
 
-theorem choose_correct (threshold lo hi : Int) (xs : List Int) (g : Gap)
+theorem choose_correct (op : Cmp) (threshold lo hi : Int) (xs : List Int) (g : Gap)
     (inside : lo ≤ threshold ∧ threshold ≤ hi)
-    (chosen : choose threshold (bounds threshold lo hi xs) = some g) :
-    Feasible threshold lo hi g.alternate xs ∧
-    g.interval = bounds threshold lo hi xs ∧
+    (chosen : choose op threshold (bounds op threshold lo hi xs) = some g) :
+    Feasible op threshold lo hi g.alternate xs ∧
+    g.interval = bounds op threshold lo hi xs ∧
     (g.alternate = threshold - 1 ∨ g.alternate = threshold + 1) ∧
-    (g.expected = decide (threshold ≤ g.witness)) ∧
-    (g.mutant = decide (g.alternate ≤ g.witness)) ∧
+    (g.expected = eval op g.witness threshold) ∧
+    (g.mutant = eval op g.witness g.alternate) ∧
     g.expected ≠ g.mutant ∧
-    ∀ c, Feasible threshold lo hi c xs →
+    ∀ c, Feasible op threshold lo hi c xs →
       ((c < threshold ∧ g.alternate < threshold) ∨ (threshold < c ∧ threshold < g.alternate)) →
-      decide (c ≤ g.witness) = g.mutant := by
-  have self := (bounds_exact threshold lo hi threshold xs).mpr
-    (show Feasible threshold lo hi threshold xs from ⟨inside.1, inside.2, by simp⟩)
-  unfold choose at chosen
-  split at chosen
-  · cases chosen
-    refine ⟨(bounds_exact ..).mp (by dsimp; omega), rfl, Or.inl rfl, by simp <;> omega,
-      by simp <;> omega, by simp, ?_⟩
-    intro c _ side
-    simp only at side ⊢
-    simp [show c ≤ threshold - 1 by omega]
-  · split at chosen
+      eval op g.witness c = g.mutant := by
+  have self := (bounds_exact op threshold lo hi threshold xs).mpr
+    (show Feasible op threshold lo hi threshold xs from ⟨inside.1, inside.2, by simp⟩)
+  cases op <;> unfold choose at chosen <;> simp only [upperInclusive, ↓reduceIte, Bool.false_eq_true] at chosen
+  all_goals
+    split at chosen
     · cases chosen
-      refine ⟨(bounds_exact ..).mp (by dsimp; omega), rfl, Or.inr rfl, by simp,
-        by simp <;> omega, by simp, ?_⟩
+      refine ⟨(bounds_exact ..).mp (by dsimp; omega), rfl, by dsimp; omega, rfl, rfl, by simp [eval] <;> omega, ?_⟩
       intro c _ side
-      simp only at side ⊢
-      simp [show ¬ c ≤ threshold by omega]
-    · contradiction
+      simp only [eval] at side ⊢
+      exact decide_eq_decide.mpr ⟨fun _ => by omega, fun _ => by omega⟩
+    · split at chosen
+      · cases chosen
+        refine ⟨(bounds_exact ..).mp (by dsimp; omega), rfl, by dsimp; omega, rfl, rfl, by simp [eval] <;> omega, ?_⟩
+        intro c _ side
+        simp only [eval] at side ⊢
+        exact decide_eq_decide.mpr ⟨fun _ => by omega, fun _ => by omega⟩
+      · contradiction
 
-theorem no_gap_iff_unique (threshold lo hi : Int) (xs : List Int)
+theorem no_gap_iff_unique (op : Cmp) (threshold lo hi : Int) (xs : List Int)
     (inside : lo ≤ threshold ∧ threshold ≤ hi) :
-    choose threshold (bounds threshold lo hi xs) = none ↔
-      ∀ c, Feasible threshold lo hi c xs → c = threshold := by
-  have self := (bounds_exact threshold lo hi threshold xs).mpr
-    (show Feasible threshold lo hi threshold xs from ⟨inside.1, inside.2, by simp⟩)
-  constructor
-  · intro noGap c feasible
-    have member := (bounds_exact ..).mpr feasible
-    unfold choose at noGap
-    split at noGap <;> try contradiction
-    split at noGap <;> first | contradiction | omega
-  · intro unique
-    unfold choose
-    split <;> rename_i lower
-    · have adjacent := unique (threshold - 1) ((bounds_exact ..).mp (by omega))
-      omega
-    · split <;> rename_i upper
-      · have adjacent := unique (threshold + 1) ((bounds_exact ..).mp (by omega))
-        omega
-      · rfl
+    choose op threshold (bounds op threshold lo hi xs) = none ↔
+      ∀ c, Feasible op threshold lo hi c xs → c = threshold := by
+  have self := (bounds_exact op threshold lo hi threshold xs).mpr
+    (show Feasible op threshold lo hi threshold xs from ⟨inside.1, inside.2, by simp⟩)
+  cases op <;> constructor
+  all_goals
+    intro h
+    try
+      intro c feasible
+      have member := (bounds_exact ..).mpr feasible
+      unfold choose at h
+      simp only [upperInclusive, ↓reduceIte, Bool.false_eq_true] at h
+      split at h <;> try contradiction
+      split at h <;> first | contradiction | omega
+    try
+      unfold choose
+      simp only [upperInclusive, ↓reduceIte, Bool.false_eq_true]
+      split <;> rename_i first
+      · first
+        | (have adj := h (threshold - 1) ((bounds_exact ..).mp (by omega)); omega)
+        | (have adj := h (threshold + 1) ((bounds_exact ..).mp (by omega)); omega)
+      · split <;> rename_i second
+        · first
+          | (have adj := h (threshold + 1) ((bounds_exact ..).mp (by omega)); omega)
+          | (have adj := h (threshold - 1) ((bounds_exact ..).mp (by omega)); omega)
+        · rfl
+
+def decodeCmp (op : String) : Except String Cmp :=
+  match op with
+  | "<" => .ok .lt
+  | "<=" => .ok .le
+  | ">" => .ok .gt
+  | ">=" => .ok .ge
+  | _ => .error "unknown comparison operator"
 
 def decodeGap (input : Wire.Value) : Except String (Option Gap) := do
   let threshold ← (← input.field? "threshold").int?
   let lo ← (← input.field? "min").int?
   let hi ← (← input.field? "max").int?
   let xs ← (← input.field? "observations").ints?
+  let op ← match input.field? "operator" with
+    | .ok raw => decodeCmp (← raw.string?)
+    | .error _ => pure .ge
   if safe lo && safe hi && lo ≤ threshold && threshold ≤ hi && !xs.isEmpty &&
       xs.all (fun x => lo ≤ x && x ≤ hi) then
-    return choose threshold (bounds threshold lo hi xs)
+    return choose op threshold (bounds op threshold lo hi xs)
   return none
 
 end Threshold
