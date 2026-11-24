@@ -432,3 +432,31 @@ On the Ryzen 9950X host the build before this work (`de3adb4`) and the current b
 The first measurement showed a first-process regression of 0.03 to 0.1 ms on small inputs. The entry's compile function and file had grown with explicit options and maps, and V8 compiles that function on the first call. The default call has its earlier shape again, and `src/compiler-maps.cjs` holds the handling of spelled-out options and maps and loads only when one is given. After that every row is within about one percent of the earlier build. A single first call remains 0.004 to 0.007 ms slower, which matches an addon that is about three percent larger.
 
 Peers were not measured with source maps.
+
+### Decorators, JSX import source, triple-slash comments and identity escapes
+
+A third round added four things that kept whole files on the TypeScript emitter.
+
+- Decorators. TypeScript keeps standard decorators as written at the ESNext target, so the native route only has to parse them: a name, a member chain, or either with arguments, before a class declaration (also behind `export`, `export default` and `abstract`) and before a method, field or accessor. An erased modifier behind a decorator is blanked without a separator. Parameter decorators, a decorator on a constructor or an erased signature, `@(expr)`, type arguments in a decorator, `export @dec class`, class expressions, local classes and `accessor` fields stay with TypeScript. V8 does not parse decorators, so the router's module route asks the certified parse when V8 refuses an `.mjs` source, as the entry does.
+- `@jsxImportSource`. One pragma in a block comment before the first token, with a plain package name, selects that package for the helper imports under the automatic runtime. The reader follows TypeScript's tag matching, in which a tag takes the white space after it and the rest of the following line, so an earlier tag can hide the pragma. Every other `@jsx` text stays with TypeScript.
+- Leading triple-slash comments. Notes without markup and references with `types`, `path` or `lib` and a quoted value are taken by the module emitters, which keep them as comments. A malformed reference keeps TypeScript's diagnostic 1084.
+- Identity escapes. An ordinary string or template takes a backslash before any printable ASCII character other than `x`, `u` and a digit. A regular expression without the `u` flag takes an identity escape of punctuation. Property keys, module specifiers and directives are compared as written and keep the short list. `test/compiler-literal-escapes.test.mjs` generates 11,000 literals and checks that whatever the native lexer accepts, V8 accepts in strict code.
+
+| Project | Files | Declined at the start | Declined now |
+| --- | ---: | ---: | ---: |
+| zod | 164 | 42 | 16 |
+| hono | 346 | 37 | 6 |
+| rxjs | 757 | 116 | 47 |
+| trpc | 596 | 43 | 34 |
+| excalidraw | 348 | 5 | 4 |
+| drizzle | 574 | 79 | 17 |
+| vue | 472 | 19 | 11 |
+| typescript-eslint | 1,173 | 35 | 28 |
+| playwright | 1,045 | 58 | 41 |
+| effect | 1,579 | 525 | 29 |
+| prisma | 1,919 | 26 | 19 |
+| Total | 8,973 | 985 | 252 |
+
+Over all corpora 15,006 of 15,010 native outputs have TypeScript's syntax, with the same four benign differences. The entry and the router return the same result for 65,756 compile calls. On the Ryzen host the build with decorators and the pragma, measured against the build before them in alternating runs, is unchanged on the project rows and still ahead of every peer on 20 of 20 warm rows and 19 of 20 first-process rows. The triple-slash change was made after that measurement.
+
+Still declined: enums and type declarations inside blocks, JSX spread of an object literal, a comparison followed by a comma and a literal in an argument list, angle-bracket assertions, parameter decorators, runtime namespaces, `export =` and `import =`, ambient classes and modules, and non-ASCII identifiers.
