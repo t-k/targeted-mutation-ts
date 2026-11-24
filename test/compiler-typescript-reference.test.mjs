@@ -688,3 +688,63 @@ test('enums inside blocks that the emitter cannot evaluate, and enum as a plain 
     assert.notEqual(compile(Buffer.from(source), { file: 'local.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a spread of an object literal in JSX writes its members among the other properties', () => {
+  for (const source of [
+    'export const a = <g {...{ }} />;',
+    'export const a = <g {...{ a: 1 }} b={2} />;',
+    'export const a = <g c {...{ a: 1, ...q, m(){}, [k]: 2, get x(){ return 1; } }} b={2} />;',
+    'export const a = <g {...{}} {...o} />;',
+    'export const a = <g {...{a}}>x</g>;',
+    'export const a = <g key="k" {...{ a: 1 }} />;',
+    // A literal is not a spread for the choice between the runtime and createElement.
+    'export const a = <g {...{ a: 1 }} key="k" />;',
+    'export const a = <g {...{ }} key="k" />;',
+    'export const a = <g {...{ key: 1 }} />;',
+    'export const a = <g {...{ a: 1, }} {...{b:2}} />;',
+    'export const a = <g {...{ a: x as any, b: <T,>(y: T) => y }} />;',
+    'export const a = <g {...{\n a: 1,\n b: 2,\n}} />;',
+    'export const a = <g {...{ children: 1 }}>x</g>;',
+    'export const a = <g {...{ a: <b {...{ c: 1 }} /> }} d />;',
+    'export const a = <g {...{ a: [1, 2,], }} {...o} key={k} />;',
+    'export const a = <g {...{ s: \'x,\', t: `a${b},` }} />;',
+    'interface P { a: number }\nexport const a = (p: P) => <g {...{ a: p.a, "b-c": 2, d: () => { return { e: 1 }; } }} />;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'spread.tsx').backend, 'pulse', source);
+  }
+  // TypeScript keeps the spread of a literal that names __proto__. A comment could hide a trailing comma. A
+  // literal followed by an operator or a member access is not the whole value.
+  for (const source of [
+    'export const a = <g {...{ __proto__: null }} />;',
+    'export const a = <g {...{ a: 1 /* c */, }} />;',
+    'export const a = <g {...{ a: 1 } || { b: 2 }} />;',
+    'export const a = <g {...{ a: 1 }[k]} />;',
+    'export const a = <g {... { a: 1 }.b} />;',
+    'export const a = <g {...{ a: 1 } as any} />;',
+  ]) {
+    assert.notEqual(sameAsTypeScript(source, 'spread.tsx').backend, 'pulse', source);
+  }
+});
+
+test('a comparison with a name or a number before a comma in an argument list is not a type argument list', () => {
+  for (const source of [
+    'export const a = f(x < 3, "any object");',
+    'it.skip(isElectron && electronMajorVersion < 30, "error: Browser > context");\nexport {};',
+    'it.skip(browserName === "webkit" && isMac && parseInt(os.release(), 10) < 20, "WebKit");\nexport {};',
+    'export const g = f(a < b, c, d), h = f(v.major < 18, `t${a}`), i = f(a < b, () => x), l = f(a < 3n, 0x10, -1);',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'less.ts').backend, 'pulse', source);
+  }
+  // Here TypeScript reads type arguments, or the rest does not end the attempt at the closing parenthesis.
+  for (const source of [
+    'export const b = f(a < b, c > (d));',
+    'export const c = f(a < b, c >> (d));',
+    'export const d = f(a < 3, c > (d));',
+    'export const e = f(a < b, "x", c > (d));',
+    'export const k = f(a < b, [c] > (d));',
+    'export const m = f(a < b, c\n> (d));',
+    'export const n = f(a < b < c, d);',
+  ]) {
+    assert.notEqual(sameAsTypeScript(source, 'less.ts').backend, 'pulse', source);
+  }
+});

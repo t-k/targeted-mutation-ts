@@ -718,6 +718,72 @@ static bool jsx_property_value(lowering *lower, uint32_t depth, uint32_t name_en
   return consume(lower, '{') && jsx_value(lower, depth) && !lower->output.failed;
 }
 
+static bool jsx_blank(char byte) { return byte == ' ' || byte == '\t' || byte == '\r' || byte == '\n'; }
+
+/*
+ * A spread of an object literal, {...{ a: 1 }}. TypeScript writes the members of the literal among the other
+ * properties, so a getter stays a getter and a later key attribute does not switch to createElement. The literal
+ * is written to a buffer of its own, and the text between its braces is appended without a trailing comma.
+ * A literal that names __proto__ keeps its spread in TypeScript, and a comment could hide a trailing comma, so
+ * both are declined.
+ */
+static bool jsx_literal_spread(lowering *lower, uint32_t depth, jsx_props *properties) {
+  const uint32_t first = lower->at;
+  tmt_run_log runs = { 0 };
+  const writer outer = lower->output;
+  lower->output = (writer){ .limit = outer.limit, .runs = outer.runs ? &runs : NULL };
+  bool accepted = jsx_value(lower, depth) && !lower->output.failed;
+  const writer literal = lower->output;
+  lower->output = outer;
+  const uint32_t last = lower->at;
+  if (accepted) {
+    /* The literal has to be the whole value: { a: 1 } || b also starts and ends with a brace. */
+#ifdef TMT_DIRECT
+    /* The direct build reads only simple operands, so it leaves the literal to the module build. */
+    accepted = false;
+#else
+    const TmtPulseParser_cursor closing = TmtPulseCompiler_jsx_operand_end(lower->input, first);
+    accepted = closing.ok && closing.at + 1 == last;
+#endif
+  }
+  for (uint32_t at = first; accepted && at + 1 < last; at++) {
+    const uint8_t *text = lower->input.source + at;
+    if ((text[0] == '/' && (text[1] == '/' || text[1] == '*')) || (last - at >= 9 && !memcmp(text, "__proto__", 9))) accepted = false;
+  }
+  size_t begin = 0, end = literal.length;
+  if (accepted && end && literal.code[0] == '(' && literal.code[end - 1] == ')') { begin++; end--; }
+  if (accepted && end - begin >= 2 && literal.code[begin] == '{' && literal.code[end - 1] == '}') { begin++; end--; }
+  else accepted = false;
+  if (accepted) {
+    while (begin < end && jsx_blank(literal.code[begin])) begin++;
+    while (begin < end && jsx_blank(literal.code[end - 1])) end--;
+    if (begin < end && literal.code[end - 1] == ',') end--;
+    while (begin < end && jsx_blank(literal.code[end - 1])) end--;
+    if (begin < end) {
+      if (properties->count++ != 0) put(&lower->output, ",");
+      if (lower->output.runs && !lower->output.failed) {
+        if (runs.failed) lower->output.runs->failed = true;
+        for (size_t index = 0; index < runs.count; index++) {
+          tmt_run run = runs.items[index];
+          /* Keep the part of each copy that lies between the braces. */
+          if (run.out < begin) {
+            const size_t cut = begin - run.out;
+            if (cut >= run.length) continue;
+            run.out += cut; run.src += cut; run.length -= cut;
+          }
+          if (run.out >= end) continue;
+          if (run.out + run.length > end) run.length = end - run.out;
+          log_run(lower->output.runs, lower->output.length + run.out - begin, run.src, run.length);
+        }
+      }
+      write_bytes(&lower->output, literal.code + begin, end - begin);
+    }
+  }
+  free(literal.code);
+  free(runs.items);
+  return accepted && !lower->output.failed;
+}
+
 static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *properties) {
   bool spread = false;
   for (;;) {
@@ -727,9 +793,12 @@ static bool jsx_attributes(lowering *lower, uint32_t depth, jsx_props *propertie
     if (previous == lower->at || properties->count == 4096) return false;
     if (consume(lower, '{')) {
       if (!trivia(lower) || !consume(lower, '.') || !consume(lower, '.') || !consume(lower, '.') || !trivia(lower)) return false;
+      if (peek(lower) == '{') {
+        if (!jsx_literal_spread(lower, depth, properties)) return false;
+        continue;
+      }
       if (properties->count++ != 0) put(&lower->output, ",");
       put(&lower->output, "...");
-      if (peek(lower) == '{') return false;
       spread = true;
       if (!jsx_value(lower, depth)) return false;
       continue;

@@ -1169,6 +1169,15 @@ TmtPulseParser_call_type_arguments(
   TmtPulseParser_parser_state state
 );
 
+uint32_t
+TmtPulseParser_single_less_byte(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t stop0,
+  uint32_t found0,
+  uint32_t fuel0
+);
+
 bool
 TmtPulseParser_simple_less_argument(
   TmtPulseMemory_tape input,
@@ -2621,6 +2630,8 @@ TmtPulseParser_parser_state
 TmtPulseParser_parse(TmtPulseMemory_tape input, bool jsx, bool module_mode);
 
 TmtPulseParser_cursor TmtPulseCompiler_plain_cursor(uint32_t at, bool ok);
+
+TmtPulseParser_cursor TmtPulseCompiler_jsx_operand_end(TmtPulseMemory_tape input, uint32_t at);
 
 TmtPulseParser_cursor
 TmtPulseCompiler_jsx_expression_end(TmtPulseMemory_tape input, uint32_t at);

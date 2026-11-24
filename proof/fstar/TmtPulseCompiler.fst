@@ -598,6 +598,21 @@ fn next_module_item (input:tape) (jsx:bool) (at:U32.t)
   next_module_boundary input jsx at
 }
 
+// The end of a JSX expression that is one operand with its member accesses and calls, and no operator.
+fn jsx_operand_end (input:tape) (at:U32.t)
+  requires heap input
+  returns end_:P.cursor
+  ensures heap input
+{
+  let initial = P.initial_state true true P.primary_locals;
+  let value = P.atom input { initial with P.offset = at } 64ul;
+  unfold heap;
+  let end_ = P.skip input #(workspace_ready input) value.P.parser;
+  let closed = P.same input #(workspace_ready input) end_.P.offset 125uy;
+  fold heap;
+  plain_cursor end_.P.offset (end_.P.status = 0ul && U32.gt end_.P.offset at && closed)
+}
+
 fn jsx_expression_end (input:tape) (at:U32.t)
   requires heap input
   returns end_:P.cursor

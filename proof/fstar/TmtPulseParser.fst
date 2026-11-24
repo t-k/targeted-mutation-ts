@@ -2611,15 +2611,29 @@ let rec type_arguments_end_at_call_close (input:tape) (#frame:slprop) (state:par
       type_arguments_end_at_call_close input #frame { tail with offset = next tail.offset } (minus remaining 1ul)
     else read_ret input #frame (byte = 41uy)
 
+// The offset behind the only `<` byte between two offsets, or zero when there is none or more than one.
+let rec single_less_byte (input:tape) (#frame:slprop) (at stop found:U32.t) (fuel:U32.t)
+  : Tot (stt U32.t (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
+  if fuel = 0ul || U32.(at >=^ stop) then read_ret input #frame found
+  else
+    let! byte = (fun () -> peek input #frame at) in
+    if byte = 60uy && found <> 0ul then read_ret input #frame 0ul
+    else single_less_byte input #frame (next at) stop (if byte = 60uy then next at else found) (minus fuel 1ul)
+
+// An argument whose only `<` byte is a comparison with a name or a number that ends the argument, as in
+// f(a.b && c < 3, 'text'). TypeScript tries a type argument list at that `<`, so the caller still has to show
+// that the following arguments read as types up to the closing parenthesis, where the attempt fails. With one
+// `<` byte in the argument, the operator the parser saw is that byte, whatever stands to its left.
 let simple_less_argument (input:tape) (#frame:slprop) (start comma:parser_state)
   : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  let! lhs = (fun () -> name input #frame start.offset false false) in
-  let! operator = (fun () -> skip input #frame (from_cursor start lhs)) in
-  let! right = (fun () -> consume input #frame operator 60uy) in
-  let! right = (fun () -> skip input #frame right) in
-  let! rhs = (fun () -> name input #frame right.offset false false) in
-  let! tail = (fun () -> skip input #frame (from_cursor right rhs)) in
-  read_ret input #frame (tail.status = 0ul && tail.offset = comma.offset)
+  let! less = (fun () -> single_less_byte input #frame start.offset comma.offset 0ul (minus comma.offset start.offset)) in
+  if less = 0ul then read_ret input #frame false
+  else
+    let! right = (fun () -> skip input #frame { start with offset = less }) in
+    let! first = (fun () -> peek input #frame right.offset) in
+    let! rhs = (fun () -> if G.decimal_digit first then number_end input #frame right.offset else name input #frame right.offset false false) in
+    let! tail = (fun () -> skip input #frame (from_cursor right rhs)) in
+    read_ret input #frame (tail.status = 0ul && tail.offset = comma.offset)
 
 #push-options "--z3rlimit 30"
 // The type of an angle-bracket assertion. It is a function of its own, and the build marks it as not to be

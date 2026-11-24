@@ -50,5 +50,5 @@ extract module native/compiler/generated "$@" \
   --custard_entry TmtPulseCompiler.type_only_module \
   --custard_entry TmtPulseCompiler.runtime_module_marker \
   --custard_entry TmtPulseCompiler.supported_module --custard_entry TmtPulseCompiler.next_module_item --custard_entry TmtPulseCompiler.decorated_module_marker \
-  --custard_entry TmtPulseCompiler.jsx_expression_end --custard_entry TmtPulseParser.parse \
+  --custard_entry TmtPulseCompiler.jsx_expression_end --custard_entry TmtPulseCompiler.jsx_operand_end --custard_entry TmtPulseParser.parse \
   --custard_entry TmtPulseCompiler.supported_script --custard_entry TmtPulseCompiler.unbound_runtime_export

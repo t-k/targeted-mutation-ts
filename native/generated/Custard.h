@@ -1227,6 +1227,15 @@ TmtPulseParser_call_type_arguments(
   TmtPulseParser_parser_state state
 );
 
+uint32_t
+TmtPulseParser_single_less_byte(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t stop0,
+  uint32_t found0,
+  uint32_t fuel0
+);
+
 bool
 TmtPulseParser_simple_less_argument(
   TmtPulseMemory_tape input,

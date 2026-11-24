@@ -48,7 +48,8 @@ export function simdSource(root, original, scratch, scalar) {
 // Parser functions for rare syntax. The build inlines aggressively, and their bodies inside the expression and
 // statement parsers slowed every file by 2 to 3 percent on x64. Marked cold and not inlined they cost a call
 // only where the syntax occurs.
-const rare = ['angle_assertion_head', 'local_enum_declaration', 'local_enum_start', 'enum_body_tokens'];
+const rare = ['angle_assertion_head', 'local_enum_declaration', 'local_enum_start', 'enum_body_tokens',
+  'simple_less_argument', 'single_less_byte', 'type_arguments_end_at_call_close'];
 
 export function coldSource(root, original, scratch) {
   if (!existsSync(resolve(root, original))) return original;
