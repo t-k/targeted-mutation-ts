@@ -16922,10 +16922,12 @@ TmtPulseParser_control_statement(
       return ((TmtPulseParser_named_state){ .state = state, .used = used });
     else if (value == 0U)
     {
-      bool local_var = in_function && TmtPulseParser_strict_locals(state);
+      bool typed_local = in_function && TmtPulseParser_strict_locals(state);
+      bool
+      local_var = typed_local || state.module_mode && state.super_context == TmtPulseParser_NoSuper;
       uint8_t value1 = TmtPulseMemory_peek(input, state.offset);
       uint32_t value2;
-      if (local_var && (value1 == 116U || value1 == 105U))
+      if (typed_local && (value1 == 116U || value1 == 105U))
         value2 = TmtPulseParser_type_declaration_width(input, state.offset);
       else
         value2 = 0U;
@@ -17234,7 +17236,8 @@ TmtPulseParser_control_statement(
                 }
               ),
               allow_var,
-              in_function && TmtPulseParser_strict_locals(state1),
+              in_function && TmtPulseParser_strict_locals(state1) ||
+                state1.module_mode && state1.super_context == TmtPulseParser_NoSuper,
               fuel);
           TmtPulseParser_named_state
           value2 =
@@ -18788,6 +18791,100 @@ TmtPulseParser_decorated_class_start(
     else
       return TmtPulseParser_failed(value, 1U);
   }
+}
+
+TmtPulseParser_named_state
+TmtPulseParser_hoist_root_vars(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint16_t index0
+)
+{
+  TmtPulseMemory_tape input = input0;
+  TmtPulseParser_parser_state state = state0;
+  uint32_t floor = floor0;
+  uint32_t used = used0;
+  uint16_t index = index0;
+  while (true)
+    if (index == 0U || state.status != 0U)
+      return ((TmtPulseParser_named_state){ .state = state, .used = used });
+    else
+    {
+      uint16_t previous = (uint32_t)index - 1U;
+      TmtPulseMemory_binding_name
+      value = TmtPulseMemory_get_binding(input, TmtPulseParser_local_slot(previous));
+      if (value.namespace0 != TmtPulseMemory_LocalVarName)
+      {
+        uint16_t tmp = previous;
+        index = tmp;
+      }
+      else
+      {
+        uint32_t length = TmtPulseParser_minus(value.span.last, value.span.first);
+        bool
+        value1 =
+          TmtPulseParser_name_seen(input,
+            0U,
+            0U,
+            floor,
+            value.span.first,
+            length,
+            TmtPulseMemory_BothNames);
+        bool
+        value2 =
+          TmtPulseParser_name_seen(input,
+            0U,
+            floor,
+            used,
+            value.span.first,
+            length,
+            TmtPulseMemory_ValueName);
+        if (value1)
+          return
+            (
+              (TmtPulseParser_named_state){
+                .state = TmtPulseParser_failed(state, 1U),
+                .used = used
+              }
+            );
+        else if (value2)
+        {
+          uint16_t tmp = previous;
+          index = tmp;
+        }
+        else if (used == TmtPulseMemory_binding_region_width)
+          return
+            (
+              (TmtPulseParser_named_state){
+                .state = TmtPulseParser_failed(state, 1U),
+                .used = used
+              }
+            );
+        else
+        {
+          TmtPulseMemory_set_binding(input,
+            used,
+            (
+              (TmtPulseMemory_binding_name){
+                .span = value.span,
+                .namespace0 = TmtPulseMemory_ValueName,
+                .owner = 0U
+              }
+            ));
+          uint32_t tmp0 = used + 1U;
+          uint16_t tmp = previous;
+          used = tmp0;
+          index = tmp;
+        }
+      }
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
 }
 
 uint32_t TmtPulseMemory_deferred_export_base = 2303U;
@@ -23322,8 +23419,19 @@ TmtPulseParser_module_sequence(
     TmtPulseParser_parser_state value1 = TmtPulseParser_decorated_class_start(input, value);
     if (value1.status != 0U)
       return value1;
+    else if
+    (
+      value1.offset == input.size && value1.module_mode &&
+        value1.local_log_floor == TmtPulseParser_primary_locals
+      && value1.binding_mode == TmtPulseParser_VarLocals
+    )
+      return TmtPulseParser_failed(value1, TmtPulseParser_mixed_locals_status);
     else if (value1.offset == input.size)
-      return TmtPulseParser_check_local_exports(input, value1, used, pending);
+    {
+      TmtPulseParser_named_state
+      value2 = TmtPulseParser_hoist_root_vars(input, value1, used, used, value1.local_log_used);
+      return TmtPulseParser_check_local_exports(input, value2.state, value2.used, pending);
+    }
     else if (fuel == 0U)
       return TmtPulseParser_failed(value1, 1U);
     else
@@ -24026,12 +24134,17 @@ TmtPulseParser_parse_attempt(
   else
   {
     TmtPulseParser_parser_state value5 = parse_state(input, initial, module_mode);
-    if (value5.status == 1U || value5.status == 0U && value5.offset != input.size)
+    bool
+    hoisting =
+      module_mode && value5.status == 0U &&
+        (value5.binding_mode == TmtPulseParser_VarLocals ||
+          value5.binding_mode == TmtPulseParser_MixedLocals);
+    if (value5.status == 1U || value5.status == 0U && value5.offset != input.size || hoisting)
     {
       TmtPulseMemory_clear_marks(input);
       TmtPulseParser_parser_state
       value7 = TmtPulseParser_module_sequence(input, initial, 0U, input.size, 0U, 0U, 0U);
-      value50 = value7.status == 1U ? value5 : value7;
+      value50 = value7.status == 1U && !hoisting ? value5 : value7;
     }
     else
       value50 = value5;
@@ -24138,7 +24251,11 @@ TmtPulseParser_parse_candidates(TmtPulseMemory_tape input, bool jsx, bool module
   else
   {
     TmtPulseMemory_clear_marks(input);
-    return TmtPulseParser_parse_attempt(input, jsx, module_mode, TmtPulseParser_inactive_locals);
+    return
+      TmtPulseParser_parse_attempt(input,
+        jsx,
+        module_mode,
+        module_mode ? 0U : TmtPulseParser_inactive_locals);
   }
 }
 

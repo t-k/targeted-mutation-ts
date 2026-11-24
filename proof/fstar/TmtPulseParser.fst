@@ -4031,9 +4031,11 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
   let! kind = (fun () -> statement_kind input state.offset) in
   if state.status <> 0ul then ret input ({ state; used })
   else if kind = 0ul then
-    let local_var = in_function && strict_locals state in
+    // Outside functions a var is taken in a module only: its names are entered among the module's at the end.
+    let typed_local = in_function && strict_locals state in
+    let local_var = typed_local || (state.module_mode && state.super_context = NoSuper) in
     let! first = (fun () -> peek input state.offset) in
-    let! type_width = (fun () -> if local_var && (first = 116uy || first = 105uy) then type_declaration_width input state.offset
+    let! type_width = (fun () -> if typed_local && (first = 116uy || first = 105uy) then type_declaration_width input state.offset
       else ret input 0ul) in
     let! var = (fun () -> if local_var && first = 118uy then keyword input state.offset 3ul 0x766172uL else ret input (false)) in
     if type_width = 4ul || type_width = 9ul then
@@ -4085,7 +4087,7 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
     else
       let! result =
         (fun () -> if kind = 4ul then
-          let! tested = (fun () -> for_header input { state with offset = plus state.offset 3ul } allow_var (in_function && strict_locals state) fuel) in
+          let! tested = (fun () -> for_header input { state with offset = plus state.offset 3ul } allow_var ((in_function && strict_locals state) || (state.module_mode && state.super_context = NoSuper)) fuel) in
           let! body = (fun () -> control_body input tested inner in_function (loop_jumps jumps) tested.local_names tested.local_names) in
           finish_local_scope input { body.state with local_names = state.local_names } state.local_log_used
         else if kind = 5ul then
@@ -5578,12 +5580,37 @@ let decorated_class_start (input:tape) (state:parser_state) : Tot (stt parser_st
     let! class_ = (fun () -> if after_default.ok && not abstract_.ok then class_keyword input after_default.at else ret input false) in
     ret input (if st.module_mode && (abstract_.ok || class_) then st else failed st 1ul)
 
+// A var inside a block, a loop or a loop head at the top level belongs to the module. Such names stay in the
+// local log; at the end of the module each one is entered among the module's names, so that an export list
+// finds it. One that meets a name the module declared itself is refused, a repeated var is entered once.
+let rec hoist_root_vars (input:tape) (state:parser_state) (floor used:names_used) (index:local_log_used)
+  : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases U16.v index) =
+  if index = 0us || state.status <> 0ul then ret input ({ state; used })
+  else
+    let previous = U16.sub index 1us in
+    let! entry = (fun () -> get_binding input (local_slot previous)) in
+    if entry.namespace <> LocalVarName then hoist_root_vars input state floor used previous
+    else
+      let length = minus entry.span.G.last entry.span.G.first in
+      let! declared = (fun () -> name_seen input 0ul 0ul floor entry.span.G.first length BothNames) in
+      let! repeated = (fun () -> name_seen input 0ul floor used entry.span.G.first length ValueName) in
+      if declared then ret input ({ state = failed state 1ul; used })
+      else if repeated then hoist_root_vars input state floor used previous
+      else if used = binding_region_width then ret input ({ state = failed state 1ul; used })
+      else
+        let! _ = (fun () -> set_binding input (U32.add 0ul used) { span = entry.span; namespace = ValueName; owner = 0uy }) in
+        hoist_root_vars input state floor (U32.add used 1ul) previous
+
 let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (exports:names_used) (pending:pending_exports) (family:U8.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v fuel) =
   let! undecorated = (fun () -> skip input state) in
   let! st = (fun () -> decorated_class_start input undecorated) in
   if st.status <> 0ul then ret input st
-  else if st.offset = input.size then check_local_exports input st used pending
+  // The first reading keeps no log of local names. A var below the top level needs one, so that reading is given up.
+  else if st.offset = input.size && st.module_mode && st.local_log_floor = primary_locals && st.binding_mode = VarLocals then
+    ret input (failed st mixed_locals_status)
+  else if st.offset = input.size then (let! hoisted = (fun () -> hoist_root_vars input st used used st.local_log_used) in
+    check_local_exports input hoisted.state hoisted.used pending)
   else if fuel = 0ul then ret input (failed st 1ul)
   else (let! anf_value_1 = (fun () -> same input st.offset 59uy) in if anf_value_1 then
     (let! anf_value_2 = (fun () -> consume input st 59uy) in module_sequence input anf_value_2 used (minus fuel 1ul) exports pending family)
@@ -5697,10 +5724,13 @@ let parse_attempt (input:tape) (jsx module_mode:bool) (local_log_floor:U16.t)
         ret input (if legacy.status <> 1ul && (legacy.status <> 0ul || legacy.offset = input.size) then legacy else expanded)
     else
       let! legacy = (fun () -> parse_state input initial module_mode) in
-      if legacy.status = 1ul || (legacy.status = 0ul && legacy.offset <> input.size) then
+      // A var below the top level belongs to the file. Only the reading that keeps the file's names can tell
+      // whether it meets one of them, so its answer stands.
+      let hoisting = module_mode && legacy.status = 0ul && (legacy.binding_mode = VarLocals || legacy.binding_mode = MixedLocals) in
+      if legacy.status = 1ul || (legacy.status = 0ul && legacy.offset <> input.size) || hoisting then
         let! _ = (fun () -> clear_marks input) in
         let! expanded = (fun () -> module_sequence input initial 0ul input.size 0ul 0ul 0uy) in
-        ret input (if expanded.status = 1ul then legacy else expanded)
+        ret input (if expanded.status = 1ul && not hoisting then legacy else expanded)
       else ret input legacy) in
   let! private_ok = (fun () -> if state.status = 0ul && state.offset = input.size && state.private_count <> 0uy then
     valid_private_log input state.private_count state.private_count else ret input true) in
@@ -5719,7 +5749,8 @@ let parse_candidates (input:tape) (jsx module_mode:bool)
   if first.status <> mixed_locals_status then ret #(parse_result input) input first
   else
     let! _ = (fun () -> clear_marks input) in
-    parse_attempt input jsx module_mode inactive_locals
+    // A module's second reading keeps the log at the top level too, for the vars below it.
+    parse_attempt input jsx module_mode (if module_mode then 0us else inactive_locals)
 
 fn parse (input:tape) (jsx module_mode:bool)
   requires heap input

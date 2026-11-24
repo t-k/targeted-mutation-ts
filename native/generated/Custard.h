@@ -2332,6 +2332,15 @@ TmtPulseParser_decorated_class_start(
   TmtPulseParser_parser_state state
 );
 
+TmtPulseParser_named_state
+TmtPulseParser_hoist_root_vars(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint16_t index0
+);
+
 extern uint32_t TmtPulseMemory_deferred_export_base;
 
 uint32_t TmtPulseParser_deferred_export_slot(uint32_t index);

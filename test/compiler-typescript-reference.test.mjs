@@ -1548,3 +1548,34 @@ test('the interpreter line is written with a line feed', () => {
     }
   }
 });
+
+test('a var below the top level of a module belongs to the module', () => {
+  for (const source of [
+    '{ var a = 1; }\nexport {};',
+    'for (var k in o) {}\nexport {};',
+    'for (var i = 0; i < 2; i++) { var j = i; }\nfor (var i = 0; i < 2; i++) { }\nexport {};',
+    'if (x) { var y = 1; }\nexport {};',
+    'while (x) { var w = 1; }\nexport { w };',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'hoist.ts').backend, 'pulse', source);
+  }
+  // V8 rejects each of these as a redeclaration, so the certified route must not answer.
+  for (const source of [
+    '{ var a = 1; }\nlet a = 2;\nexport {};',
+    'let a = 2;\n{ var a = 1; }\nexport {};',
+    '{ var a; }\nimport { a } from "x";',
+    'import { a } from "x";\n{ var a; }',
+    '{ var a; }\nfunction a() {}\nexport {};',
+    'function a() {}\n{ var a; }\nexport {};',
+    '{ var a; }\nclass a {}\nexport {};',
+    '{ var a; }\nexport const a = 1;',
+    '{ var [a, { b }] = c; }\nconst b = 1;\nexport {};',
+    'for (var i = 0;;) {}\nlet i;\nexport {};',
+    'for (var k in o) {}\nconst k = 1;\nexport {};',
+    '{ let a; { var a; } }\nexport {};',
+    '{ { var a; } let a; }\nexport {};',
+    '{ var a; }\nenum a { X }\nexport {};',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'hoist.ts' }).backend, 'pulse', source);
+  }
+});
