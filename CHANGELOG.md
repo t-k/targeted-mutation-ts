@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- Fix `--witnesses` automatic contract discovery on Windows by preserving OS-native relative paths instead of TypeScript's `/`-normalized `fileName`, and canonicalize `importMatches` against 8.3 short paths and symlinks.
+- Add a Windows (`windows-latest`) portable-package CI job and `--portable` mode in `scripts/test-package.mjs` to verify the pure-JS/TypeScript fallback runtime end-to-end on Windows.
+
 ## 0.1.0
 
 First public release.
