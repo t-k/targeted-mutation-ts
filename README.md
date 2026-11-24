@@ -28,21 +28,7 @@ Conventional mutation tools (such as StrykerJS) generate edits purely from synta
 
 `targeted-mutation` records the actual runtime values flowing through your code during the baseline run, synthesizes the smallest undistinguished edits from those observations, and classifies every survivor into an actionable test gap.
 
-```mermaid
-flowchart TD
-  src["Source + Test Suite"] --> base["Baseline Run with Value Probes"]
-  base --> cmp["Comparison Sites: (lhs, rhs) pairs"]
-  base --> val["20 Value-Aware Rules: per-test agreement"]
-  cmp --> lean["Lean 4 (tmt-decide): feasible threshold & margin intervals"]
-  lean --> synth["Synthesize nearest open edit (threshold +/- 1, rhs +/- 1)"]
-  synth --> session["Vitest Worker Session (runtime switches + per-trial control check)"]
-  val --> session
-  session -->|"Test fails"| killed["killed"]
-  session -->|"All tests pass (agreed everywhere)"| inputGap["INPUT GAP: exact missing input / witness"]
-  session -->|"All tests pass (differed in test T)"| assertGap["ASSERTION GAP: names weak test T"]
-  assertGap -->|"--suggest-assertions"| narrow["Suggest exact assertion (e.g. expect(res.fee).toBe(600))"]
-  src -.->|"--since REV --undo-changes"| undo["Revert Git hunks & AST sub-hunks -> UNTESTED CHANGE"]
-```
+![How targeted-mutation works](docs/how-it-works.svg)
 
 | Capability | Conventional mutation testing | `targeted-mutation` |
 |------------|-------------------------------|---------------------|
