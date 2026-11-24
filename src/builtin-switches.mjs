@@ -155,6 +155,24 @@ function ${see}(i, l, r) {
           } catch (error) { /* leave unclassified */ }
         }
       }
+      if (kind === 's' && !threw && (op === 'idx0' || op === 'idxLast')) {
+        if (scope.Array.isArray(l) || typeof l === 'string' || (scope.ArrayBuffer.isView(l) && !(l instanceof scope.DataView))) entry.sequence = true;
+        else if (l != null) {
+          var isSeq = false;
+          try {
+            if (isProxy && isProxy(l)) isSeq = true;
+            else {
+              for (var cur = l, depth = 0; cur && depth < 16; depth++) {
+                if (isProxy && isProxy(cur)) { isSeq = true; break; }
+                var atDesc = scope.Object.getOwnPropertyDescriptor(cur, 'at');
+                if (atDesc) { isSeq = 'value' in atDesc ? typeof atDesc.value === 'function' : true; break; }
+                cur = scope.Object.getPrototypeOf(cur);
+              }
+            }
+          } catch (error) { isSeq = true; }
+          if (isSeq) entry.sequence = true; else entry.nonSequence = true;
+        }
+      }
       var slot = same === null ? 'unsure' : same ? 'agree' : 'differ';
       counts[same === null ? 2 : same ? 0 : 1]++;
       if (kind !== 'c' && !entry[slot]) entry[slot] = (logical ? !taken || threw : site[7] === 1) ? [show(l)] : [show(l), show(logical ? value : r)];

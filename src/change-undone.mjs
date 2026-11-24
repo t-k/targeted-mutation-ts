@@ -1,8 +1,10 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import { sep } from 'node:path';
-import { sourceTrials, verdict } from './analysis.mjs';
+import { sourceTrials, sourceTrialsAsync, verdict } from './analysis.mjs';
+import { inParallel } from './in-parallel.mjs';
 import { failedTests } from './vitest-reporter.mjs';
 import { selectScope } from './scope.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
@@ -110,7 +112,7 @@ function locate(current, offset) {
   return { line, column: before.subarray(start).toString().length + 1 };
 }
 
-export function analyzeUndoneChanges(project, files, options, run = { sourceTrials }) {
+function prepareUndoPlan(project, files, options) {
   const root = realpathSync(project);
   if (options.since === undefined) throw new Error('--undo-changes requires --since REV');
   let revision;
@@ -148,6 +150,54 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
         replacement: trial.replacement.toString(), original: input.subarray(...trial.edit).toString() });
     }
   }
+  return { root, revision, subjects, trials, fileHunks };
+}
+
+function classifyUndoOutcome(trial, result, baseline, options, revision) {
+  const mutant = { site: trial.site.id, location: trial.site.location, rule: undoneRule, original: trial.original, edit: trial.edit,
+    replacement: trial.replacement, since: revision, ...(trial.together ? { together: true } : {}) };
+  if (!trial.parses) {
+    return { mutant: { ...mutant, status: 'unsupported', statusReason: 'Put back alone, this change does not parse' }, unloadable: false, diagnostic: null, incomplete: false };
+  }
+  // Only genuine module load failures (not post-load unhandled rejections or suite hook errors) count as `load_error`.
+  // Rather than falsely reporting an unloadable single hunk as killed by tests, report `load_error` and fall back to
+  // reverting all in-scope hunks of the file together when multiple hunks exist.
+  const loadErrors = Array.isArray(result.moduleErrors)
+    ? result.moduleErrors
+    : (result.errors?.length > 0 && Array.isArray(result.tests) && result.tests.length < baseline.tests.length ? result.errors : []);
+  const unloadable = options.runner !== 'playwright' && result.status === 'error' && loadErrors.length > 0 && Array.isArray(result.tests);
+  const status = unloadable ? 'load_error' : verdict(result, baseline);
+  const entry = { ...mutant, status, evidence: 'reexecuted',
+    ...(unloadable ? { statusReason: 'The suite did not load: ' + String(loadErrors[0]).split('\n')[0] } : {}),
+    ...(status === 'killed' ? { tests: result.tests.filter(test => test.status === 'failed').map(({ id, project, file, name }) => ({ id, project, file, name })) } : {}) };
+  const diagnostic = status === 'survived'
+    ? { kind: 'UNTESTED CHANGE', site: trial.site.id, location: trial.site.location, rule: undoneRule, since: revision,
+      ...(trial.together ? { together: true } : {}), mutations: [{ rule: undoneRule, edit: trial.edit, replacement: trial.replacement, evidence: 'reexecuted' }] }
+    : null;
+  return { mutant: entry, unloadable, diagnostic, incomplete: status === 'error' };
+}
+
+function buildTogetherTrials(needsTogether, fileHunks) {
+  if (!needsTogether.size) return [];
+  const ts = loadTypeScript();
+  const extra = [];
+  for (const file of needsTogether) {
+    const info = fileHunks.get(file);
+    if (!info || info.hasTogether || info.hunks.length < 2) continue;
+    const all = [...info.hunks].sort((a, b) => b.edit[0] - a.edit[0]).reduce(apply, info.input);
+    const edit = [0, info.input.length];
+    const location = { file, ...locate(info.input, info.hunks[0].edit[0]), start: edit[0], end: edit[1] };
+    extra.push({
+      edit, replacement: all.toString(), original: info.input.toString(), together: true,
+      parses: !parses(ts, file, info.input.toString()) || parses(ts, file, all.toString()),
+      site: { id: sha(JSON.stringify([file, undoneRule, edit, sha(all)])).slice(0, 16), location },
+    });
+  }
+  return extra;
+}
+
+export function analyzeUndoneChanges(project, files, options, run = { sourceTrials }) {
+  const { root, revision, subjects, trials, fileHunks } = prepareUndoPlan(project, files, options);
   const report = { mutants: [], diagnostics: [], evaluation: 'no_sites', since: revision };
   if (!trials.length) return report;
   const attempt = run.sourceTrials(root, subjects, options);
@@ -161,49 +211,61 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
   // A file the suite runs as a test is not the program: its assertions stay as they are in every trial.
   const testFiles = new Set(baseline.tests.map(entry => entry.file));
   const needsTogether = new Set();
-  const runTrial = trial => {
-    const mutant = { site: trial.site.id, location: trial.site.location, rule: undoneRule, original: trial.original, edit: trial.edit,
-      replacement: trial.replacement, since: revision, ...(trial.together ? { together: true } : {}) };
-    if (!trial.parses) {
-      report.mutants.push({ ...mutant, status: 'unsupported', statusReason: 'Put back alone, this change does not parse' });
-      return;
-    }
-    const result = attempt({ trial });
-    // Only genuine module load failures (not post-load unhandled rejections or suite hook errors) count as `load_error`.
-    // Rather than falsely reporting an unloadable single hunk as killed by tests, report `load_error` and fall back to
-    // reverting all in-scope hunks of the file together when multiple hunks exist.
-    const loadErrors = Array.isArray(result.moduleErrors)
-      ? result.moduleErrors
-      : (result.errors?.length > 0 && Array.isArray(result.tests) && result.tests.length < baseline.tests.length ? result.errors : []);
-    const unloadable = options.runner !== 'playwright' && result.status === 'error' && loadErrors.length > 0 && Array.isArray(result.tests);
-    const status = unloadable ? 'load_error' : verdict(result, baseline);
+  const recordOutcome = (trial, result) => {
+    const { mutant, unloadable, diagnostic, incomplete } = classifyUndoOutcome(trial, result, baseline, options, revision);
     if (unloadable && !trial.together) needsTogether.add(trial.site.location.file);
-    report.mutants.push({ ...mutant, status, evidence: 'reexecuted',
-      ...(unloadable ? { statusReason: 'The suite did not load: ' + String(loadErrors[0]).split('\n')[0] } : {}),
-      ...(status === 'killed' ? { tests: result.tests.filter(test => test.status === 'failed').map(({ id, project, file, name }) => ({ id, project, file, name })) } : {}) });
-    if (status === 'error') report.evaluation = 'incomplete';
-    if (status === 'survived') {
-      report.diagnostics.push({ kind: 'UNTESTED CHANGE', site: trial.site.id, location: trial.site.location, rule: undoneRule, since: revision,
-        ...(trial.together ? { together: true } : {}), mutations: [{ rule: undoneRule, edit: trial.edit, replacement: trial.replacement, evidence: 'reexecuted' }] });
-    }
+    report.mutants.push(mutant);
+    if (incomplete) report.evaluation = 'incomplete';
+    if (diagnostic) report.diagnostics.push(diagnostic);
   };
   for (const trial of trials) {
     if (testFiles.has(trial.site.location.file)) continue;
-    runTrial(trial);
+    recordOutcome(trial, trial.parses ? attempt({ trial }) : null);
   }
-  // If any single hunk in a multi-hunk file failed to load alone, revert all in-scope hunks together once.
-  const ts = needsTogether.size ? loadTypeScript() : null;
-  for (const file of needsTogether) {
-    const info = fileHunks.get(file);
-    if (!info || info.hasTogether || info.hunks.length < 2) continue;
-    const all = [...info.hunks].sort((a, b) => b.edit[0] - a.edit[0]).reduce(apply, info.input);
-    const edit = [0, info.input.length];
-    const location = { file, ...locate(info.input, info.hunks[0].edit[0]), start: edit[0], end: edit[1] };
-    runTrial({
-      edit, replacement: all.toString(), original: info.input.toString(), together: true,
-      parses: !parses(ts, file, info.input.toString()) || parses(ts, file, all.toString()),
-      site: { id: sha(JSON.stringify([file, undoneRule, edit, sha(all)])).slice(0, 16), location },
-    });
+  for (const trial of buildTogetherTrials(needsTogether, fileHunks)) {
+    recordOutcome(trial, trial.parses ? attempt({ trial }) : null);
+  }
+  return report;
+}
+
+export async function analyzeUndoneChangesAsync(project, files, options, run = { sourceTrialsAsync }) {
+  const { root, revision, subjects, trials, fileHunks } = prepareUndoPlan(project, files, options);
+  const report = { mutants: [], diagnostics: [], evaluation: 'no_sites', since: revision };
+  if (!trials.length) return report;
+  const runnerFactory = run.sourceTrialsAsync ?? run.sourceTrials;
+  const attempt = runnerFactory(root, subjects, options);
+  const baseline = options.existingBaseline?.plain === true && options.existingBaseline.status === 'passed' && Array.isArray(options.existingBaseline.tests)
+    ? options.existingBaseline : await attempt();
+  if (baseline.status !== 'passed') {
+    return { ...report, evaluation: 'baseline_error',
+      baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } };
+  }
+  report.evaluation = 'evaluated';
+  const testFiles = new Set(baseline.tests.map(entry => entry.file));
+  const active = trials.filter(trial => !testFiles.has(trial.site.location.file));
+  const concurrency = options.runner === 'playwright' ? 1 : (options.concurrency ?? Math.max(1, Math.min(8, availableParallelism() - 1)));
+  const results = new Array(active.length);
+  await inParallel(active.map((trial, index) => ({ trial, index })), concurrency, async ({ trial, index }) => {
+    results[index] = trial.parses ? await attempt({ trial }) : null;
+  });
+  const needsTogether = new Set();
+  for (let i = 0; i < active.length; i++) {
+    const { mutant, unloadable, diagnostic, incomplete } = classifyUndoOutcome(active[i], results[i], baseline, options, revision);
+    if (unloadable && !active[i].together) needsTogether.add(active[i].site.location.file);
+    report.mutants.push(mutant);
+    if (incomplete) report.evaluation = 'incomplete';
+    if (diagnostic) report.diagnostics.push(diagnostic);
+  }
+  const togetherTrials = buildTogetherTrials(needsTogether, fileHunks);
+  const togetherResults = new Array(togetherTrials.length);
+  await inParallel(togetherTrials.map((trial, index) => ({ trial, index })), concurrency, async ({ trial, index }) => {
+    togetherResults[index] = trial.parses ? await attempt({ trial }) : null;
+  });
+  for (let i = 0; i < togetherTrials.length; i++) {
+    const { mutant, diagnostic, incomplete } = classifyUndoOutcome(togetherTrials[i], togetherResults[i], baseline, options, revision);
+    report.mutants.push(mutant);
+    if (incomplete) report.evaluation = 'incomplete';
+    if (diagnostic) report.diagnostics.push(diagnostic);
   }
   return report;
 }

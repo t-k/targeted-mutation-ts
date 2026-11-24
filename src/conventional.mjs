@@ -83,6 +83,7 @@ export async function analyzeConventional(project, files, options) {
         id,
         ...(parametric ? { parametric } : {}),
         ...(targeted?.evidence ? { evidence: true } : {}),
+        ...(targeted?.operator === 'idx0' || targeted?.operator === 'idxLast' ? { sequenceIndex: true } : {}),
         ...(targeted ? { effects: true } : {}),
       })),
       isolatedTrials: options['isolated-trials'] === true,

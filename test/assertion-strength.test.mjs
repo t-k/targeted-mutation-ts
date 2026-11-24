@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import util from 'node:util';
 import vm from 'node:vm';
@@ -116,7 +116,10 @@ test('a wrapped call gives its value on and writes down what a comparison can be
 async function project(files, action) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'tmt-assert-test-')));
   try {
-    for (const [name, content] of Object.entries(files)) writeFileSync(join(root, name), content);
+    for (const [name, content] of Object.entries(files)) {
+      mkdirSync(dirname(join(root, name)), { recursive: true });
+      writeFileSync(join(root, name), content);
+    }
     return await action(root);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -339,4 +342,46 @@ it('namespace quotes', async () => { expect(await subject.namedQuote(100, 4)).to
   assert.equal(defaultGap.suggestedTest, 'expect(await quote(200, 3)).toStrictEqual({ total: 600 })');
   assert.equal(nsGap.kind, 'ASSERTION GAP');
   assert.equal(nsGap.suggestedTest, 'expect(await subject.namedQuote(100, 4)).toStrictEqual({ total: 400 })');
+}));
+
+test('weakCalls and suggest-assertions resolve tsconfig paths and barrel re-exports via warm Vitest session', () => project({
+  'tsconfig.json': JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'] } } }),
+  'vitest.config.ts': `import { defineConfig } from 'vitest/config';
+import { resolve } from 'node:path';
+export default defineConfig({ resolve: { alias: { '@': resolve(__dirname, 'src') } } });
+`,
+  'src/other.ts': 'export const other = (n: number) => n + 1;\n',
+  'src/pricing.ts': 'export const fee = (cents: number, rate: number) => cents * rate;\nexport default function discount(cents: number, off: number) { return cents - off; }\n',
+  'src/index.ts': `export { fee, default as discount } from './pricing';
+export * as pricingNs from './pricing';
+export { other } from './other';
+`,
+  'src/star.ts': "export * from './pricing';\nexport { other } from './other';\n",
+  'test/pricing.test.ts': `import { expect, it } from 'vitest';
+import { discount, fee, other, pricingNs } from '@/index';
+import * as barrel from '@/index';
+import * as star from '@/star';
+it('barrel calls', () => {
+  expect(fee(200, 3)).toBeGreaterThan(0);
+  expect(discount(500, 50)).toBeGreaterThan(0);
+  expect(pricingNs.fee(10, 4)).toBeGreaterThan(0);
+  expect(barrel.fee(20, 5)).toBeGreaterThan(0);
+  expect(barrel.other(1)).toBeGreaterThan(0);
+  expect(star.fee(30, 2)).toBeGreaterThan(0);
+  expect(other(1)).toBeGreaterThan(0);
+});
+`,
+}, root => {
+  const testText = readFileSync(join(root, 'test/pricing.test.ts'), 'utf8');
+  const found = weakCalls(testText, 'test/pricing.test.ts', 'src/pricing.ts', ['barrel calls'], loadTypeScript(), { root });
+  // `other(1)` and `barrel.other(1)` come from `src/other.ts` and must be excluded; all 5 calls tracing to `src/pricing.ts` match.
+  assert.deepEqual(found.map(c => c.text), ['fee(200, 3)', 'discount(500, 50)', 'pricingNs.fee(10, 4)', 'barrel.fee(20, 5)', 'star.fee(30, 2)']);
+  const run = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', root, 'src/pricing.ts', '--suggest-assertions', '--format', 'json'],
+    { encoding: 'utf8', timeout: 120_000 });
+  assert.equal(run.status, 0, run.stderr + run.stdout);
+  const report = JSON.parse(run.stdout);
+  const feeGap = report.diagnostics.find(entry => entry.location.line === 1 && entry.mutations[0].replacement === '(cents + rate)');
+  const discGap = report.diagnostics.find(entry => entry.location.line === 2 && entry.mutations[0].replacement === '(cents + off)');
+  assert.equal(feeGap.suggestedTest, 'expect(fee(200, 3)).toBe(600)');
+  assert.equal(discGap.suggestedTest, 'expect(discount(500, 50)).toBe(450)');
 }));

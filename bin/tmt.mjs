@@ -93,10 +93,10 @@ try {
       withoutSourceEdits(result);
     }
     if (values['undo-changes']) {
-      const { analyzeUndoneChanges, withUndoneChanges } = await import('../src/change-undone.mjs');
+      const { analyzeUndoneChangesAsync, withUndoneChanges } = await import('../src/change-undone.mjs');
       const { baselineRunSymbol } = await import('../src/analysis.mjs');
       if (result.evaluation !== 'baseline_error') {
-        result = withUndoneChanges(result, analyzeUndoneChanges(project, files, { ...values, existingBaseline: result[baselineRunSymbol] }));
+        result = withUndoneChanges(result, await analyzeUndoneChangesAsync(project, files, { ...values, existingBaseline: result[baselineRunSymbol] }));
       }
     }
     if (format === 'json') console.log(JSON.stringify(result, null, 2));

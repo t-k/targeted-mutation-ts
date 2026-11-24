@@ -1,11 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { availableParallelism } from 'node:os';
-import { posix, sep } from 'node:path';
+import { dirname, posix, relative, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { sourceTrialsAsync } from './analysis.mjs';
 import { inParallel } from './in-parallel.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
-import { inside } from './vitest.mjs';
+import { inside, withCopy } from './vitest.mjs';
 
 // A test can make the very call that tells an edit from the original and still pass, because its assertion does
 // not pin the result down: `expect(bucket(3)).not.toBe('none')`, `expect(total(1, 2)).toBeGreaterThan(0)`, a call
@@ -14,27 +16,202 @@ import { inside } from './vitest.mjs';
 const pinning = new Set(['toBe', 'toEqual', 'toStrictEqual', 'toBeNull', 'toBeUndefined', 'toBeNaN', 'toBeCloseTo',
   'toMatchSnapshot', 'toMatchInlineSnapshot', 'toMatchObject']);
 const extension = /\.(?:[cm]?[jt]s|[jt]sx)$/;
+const sourceExtensions = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
+const defaultRun = { sourceTrialsAsync };
 
-// The calls of the subject's exported functions (named, default, or namespace-imported, optionally awaited) with
-// written arguments that a test of the given names makes directly in its body without pinning the result down.
-export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeScript()) {
+function loadTsPaths(root, fromFile, ts, cache) {
+  let dir = dirname(resolve(root, fromFile));
+  const visited = [];
+  while (true) {
+    if (cache.tsconfigs.has(dir)) {
+      const found = cache.tsconfigs.get(dir);
+      for (const seen of visited) cache.tsconfigs.set(seen, found);
+      return found;
+    }
+    visited.push(dir);
+    const candidate = resolve(dir, 'tsconfig.json');
+    if (existsSync(candidate) && statSync(candidate).isFile()) {
+      let info = null;
+      try {
+        const read = ts.readConfigFile(candidate, file => readFileSync(file, 'utf8'));
+        if (!read.error && read.config) {
+          const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, dir, undefined, candidate);
+          const opts = parsed.options ?? {};
+          const paths = opts.paths && typeof opts.paths === 'object' ? opts.paths : null;
+          const baseDir = opts.baseUrl ? resolve(dir, opts.baseUrl) : (opts.pathsBasePath ?? dir);
+          if (paths || opts.baseUrl) info = { paths, baseDir, hasBaseUrl: Boolean(opts.baseUrl) };
+        }
+      } catch { /* ignore unreadable tsconfig */ }
+      for (const seen of visited) cache.tsconfigs.set(seen, info);
+      return info;
+    }
+    if (dir === root) break;
+    const parent = dirname(dir);
+    if (parent === dir || relative(root, parent).startsWith('..')) break;
+    dir = parent;
+  }
+  for (const seen of visited) cache.tsconfigs.set(seen, null);
+  return null;
+}
+
+function candidatePathsFor(root, fromFile, specifier, ts, cache) {
+  const candidates = [];
+  if (specifier.startsWith('.')) {
+    candidates.push(resolve(dirname(resolve(root, fromFile)), specifier));
+    return candidates;
+  }
+  const tsPaths = loadTsPaths(root, fromFile, ts, cache);
+  if (!tsPaths) return candidates;
+  if (tsPaths.paths) {
+    for (const [pattern, targets] of Object.entries(tsPaths.paths)) {
+      if (!Array.isArray(targets)) continue;
+      const star = pattern.indexOf('*');
+      if (star === -1) {
+        if (specifier === pattern) for (const target of targets) candidates.push(resolve(tsPaths.baseDir, target));
+      } else {
+        const prefix = pattern.slice(0, star);
+        const suffix = pattern.slice(star + 1);
+        if (specifier.startsWith(prefix) && specifier.endsWith(suffix) && specifier.length >= prefix.length + suffix.length) {
+          const matched = specifier.slice(prefix.length, specifier.length - suffix.length);
+          for (const target of targets) candidates.push(resolve(tsPaths.baseDir, target.replace('*', matched)));
+        }
+      }
+    }
+  }
+  if (tsPaths.hasBaseUrl) candidates.push(resolve(tsPaths.baseDir, specifier));
+  return candidates;
+}
+
+function resolveModuleInRoot(root, fromFile, specifier, ts, cache) {
+  const cacheKey = `${fromFile}\0${specifier}`;
+  if (cache.resolved.has(cacheKey)) return cache.resolved.get(cacheKey);
+  let found = null;
+  for (const base of candidatePathsFor(root, fromFile, specifier, ts, cache)) {
+    const stripped = base.replace(extension, '');
+    const tries = [base, ...sourceExtensions.map(ext => stripped + ext), ...sourceExtensions.map(ext => resolve(stripped, 'index' + ext))];
+    for (const file of tries) {
+      try {
+        if (!existsSync(file) || !statSync(file).isFile()) continue;
+        const safe = inside(root, file);
+        found = relative(root, safe).split(sep).join('/');
+        break;
+      } catch { /* escapes root or unreadable */ }
+    }
+    if (found) break;
+  }
+  cache.resolved.set(cacheKey, found);
+  return found;
+}
+
+function exportsFromSubject(root, filePosix, subjectPosix, ts, cache, depth = 0, visiting = new Set()) {
+  if (filePosix === subjectPosix) {
+    return { all: true, names: new Set(), defaultExport: true, namespaces: new Map() };
+  }
+  if (depth >= 4 || visiting.has(filePosix)) {
+    return { all: false, names: new Set(), defaultExport: false, namespaces: new Map() };
+  }
+  const key = `${filePosix}\0${subjectPosix}`;
+  if (depth === 0 && cache.exports.has(key)) return cache.exports.get(key);
+  let tree = cache.asts.get(filePosix);
+  if (!tree) {
+    try {
+      const abs = inside(root, filePosix);
+      tree = ts.createSourceFile(filePosix, readFileSync(abs, 'utf8'), ts.ScriptTarget.Latest, true);
+      cache.asts.set(filePosix, tree);
+    } catch {
+      return { all: false, names: new Set(), defaultExport: false, namespaces: new Map() };
+    }
+  }
+  const nextVisiting = new Set(visiting);
+  nextVisiting.add(filePosix);
+  const info = { all: false, names: new Set(), defaultExport: false, namespaces: new Map() };
+  for (const statement of tree.statements) {
+    if (!ts.isExportDeclaration(statement) || statement.isTypeOnly || !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const target = resolveModuleInRoot(root, filePosix, statement.moduleSpecifier.text, ts, cache);
+    if (!target) continue;
+    const child = exportsFromSubject(root, target, subjectPosix, ts, cache, depth + 1, nextVisiting);
+    if (!child.all && !child.defaultExport && !child.names.size && !child.namespaces.size) continue;
+    const clause = statement.exportClause;
+    if (!clause) {
+      // `export * from '...'` forwards named exports (not `default`).
+      if (child.all) info.all = true;
+      else {
+        for (const name of child.names) info.names.add(name);
+        for (const [ns, members] of child.namespaces) info.namespaces.set(ns, members);
+      }
+    } else if (ts.isNamespaceExport(clause)) {
+      if (child.all) info.namespaces.set(clause.name.text, null);
+      else if (child.names.size) info.namespaces.set(clause.name.text, new Set(child.names));
+    } else if (ts.isNamedExports(clause)) {
+      for (const element of clause.elements) {
+        if (element.isTypeOnly) continue;
+        const orig = (element.propertyName ?? element.name).text;
+        const exported = element.name.text;
+        if (orig === 'default') {
+          if (child.defaultExport) {
+            if (exported === 'default') info.defaultExport = true;
+            else info.names.add(exported);
+          }
+        } else if (child.namespaces.has(orig)) {
+          info.namespaces.set(exported, child.namespaces.get(orig));
+        } else if (child.all || child.names.has(orig)) {
+          if (exported === 'default') info.defaultExport = true;
+          else info.names.add(exported);
+        }
+      }
+    }
+  }
+  if (depth === 0) cache.exports.set(key, info);
+  return info;
+}
+
+// The calls of the subject's exported functions (named, default, or namespace-imported, directly or via
+// tsconfig path aliases and barrel re-exports, optionally awaited) with written arguments that a test of the
+// given names makes directly in its body without pinning the result down.
+export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeScript(), context = {}) {
   const tree = ts.createSourceFile(testFile, text, ts.ScriptTarget.Latest, true);
   const K = ts.SyntaxKind;
-  const subject = subjectFile.split(sep).join('/').replace(extension, '');
+  const testPosix = testFile.split(sep).join('/');
+  const subjectPosix = subjectFile.split(sep).join('/');
+  const subjectStem = subjectPosix.replace(extension, '');
+  const root = context.root ? realpathSync(context.root) : null;
+  const cache = context.cache ?? { tsconfigs: new Map(), resolved: new Map(), asts: new Map(), exports: new Map() };
   const imported = new Set();
-  const namespaces = new Set();
+  // Map of namespace identifier -> null (any member) or Set of member names originating from subjectFile.
+  const namespaces = new Map();
+  const addNamespace = (name, members) => {
+    if (!namespaces.has(name) || members === null) { namespaces.set(name, members); return; }
+    const existing = namespaces.get(name);
+    if (existing !== null) for (const member of members) existing.add(member);
+  };
   for (const statement of tree.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.importClause?.isTypeOnly) continue;
     const specifier = statement.moduleSpecifier.text;
-    if (!specifier.startsWith('.')) continue;
-    const target = posix.join(posix.dirname(testFile.split(sep).join('/')), specifier).replace(extension, '');
-    if (target !== subject && target + '/index' !== subject) continue;
-    if (statement.importClause?.name) imported.add(statement.importClause.name.text);
+    let info = null;
+    if (root) {
+      const resolved = resolveModuleInRoot(root, testPosix, specifier, ts, cache);
+      if (resolved) info = exportsFromSubject(root, resolved, subjectPosix, ts, cache);
+    }
+    if (!info && specifier.startsWith('.')) {
+      const target = posix.join(posix.dirname(testPosix), specifier).replace(extension, '');
+      if (target === subjectStem || target + '/index' === subjectStem) {
+        info = { all: true, names: new Set(), defaultExport: true, namespaces: new Map() };
+      }
+    }
+    if (!info) continue;
+    if (statement.importClause?.name && info.defaultExport) imported.add(statement.importClause.name.text);
     const bindings = statement.importClause?.namedBindings;
     if (bindings && ts.isNamedImports(bindings)) {
-      for (const element of bindings.elements) if (!element.isTypeOnly) imported.add(element.name.text);
+      for (const element of bindings.elements) {
+        if (element.isTypeOnly) continue;
+        const orig = (element.propertyName ?? element.name).text;
+        const local = element.name.text;
+        if (info.namespaces.has(orig)) addNamespace(local, info.namespaces.get(orig));
+        else if (orig === 'default' ? info.defaultExport : (info.all || info.names.has(orig))) imported.add(local);
+      }
     } else if (bindings && ts.isNamespaceImport(bindings)) {
-      namespaces.add(bindings.name.text);
+      if (info.all) addNamespace(bindings.name.text, null);
+      else if (info.names.size) addNamespace(bindings.name.text, new Set(info.names));
     }
   }
   if (!imported.size && !namespaces.size) return [];
@@ -108,7 +285,10 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
     if (ts.isIdentifier(node.expression)) return imported.has(node.expression.text) && !shadowed.has(node.expression.text);
     if (ts.isPropertyAccessExpression(node.expression) && !node.expression.questionDotToken &&
         ts.isIdentifier(node.expression.expression) && ts.isIdentifier(node.expression.name)) {
-      return namespaces.has(node.expression.expression.text) && !shadowed.has(node.expression.expression.text);
+      const ns = node.expression.expression.text;
+      if (!namespaces.has(ns) || shadowed.has(ns)) return false;
+      const allowed = namespaces.get(ns);
+      return allowed === null || allowed.has(node.expression.name.text);
     }
     return false;
   }
@@ -269,23 +449,104 @@ function ${name}(value) {
 
 const valuesOf = run => (run.collected ?? '').split('\n').filter(Boolean).map(line => JSON.parse(line));
 const matcherFor = formatted => (formatted.startsWith('[') || formatted.startsWith('{')) ? 'toStrictEqual' : 'toBe';
+const applyEdit = (input, [start, end], replacement) => Buffer.concat([input.subarray(0, start), Buffer.from(replacement), input.subarray(end)]);
 
-export async function strengthenAssertions(root, report, options, run = { sourceTrialsAsync }) {
+// Reuses one temporary project copy and one warm Vitest 4 instance (with `isolate: true` per run) across all
+// assertion-strength value recordings, falling back to `sourceTrialsAsync` if Vitest 4 cannot drive the project.
+async function withWarmAssertionSession(root, subjectsByFile, options, action) {
+  return withCopy(root, async workspace => {
+    let vitest;
+    try {
+      const req = createRequire(resolve(workspace, 'package.json'));
+      const version = req('vitest/package.json').version;
+      if (!version.startsWith('4.')) return null;
+      const { createVitest } = await import(pathToFileURL(req.resolve('vitest/node')).href);
+      const config = options.config === undefined ? undefined : inside(workspace, options.config);
+      vitest = await createVitest('test', {
+        root: workspace, config, watch: false, api: false, ui: false, cache: false,
+        pool: 'threads', isolate: true, maxConcurrency: 1, maxWorkers: 1, fileParallelism: false,
+        coverage: { enabled: false }, onConsoleLog: () => false,
+        reporters: [{ onInit() {} }],
+      });
+      for (const project of vitest.projects) {
+        if (project.config.browser?.enabled || project.config.typecheck?.enabled || project.config.runner) {
+          return null;
+        }
+      }
+      const specCache = new Map();
+      const timeoutMs = (options.timeout ?? 60) * 1000;
+      let broken = false;
+      const runInSession = async ({ testFile, rewriteContent, collect, trial }) => {
+        if (broken) return null;
+        const absTest = inside(workspace, testFile);
+        const origTest = readFileSync(absTest);
+        const subject = trial ? subjectsByFile.get(trial.site.location.file) : null;
+        const absSubject = subject ? inside(workspace, subject.file) : null;
+        const origSubject = absSubject ? readFileSync(absSubject) : null;
+        const absCollect = resolve(workspace, collect);
+        if (subject && createHash('sha256').update(origSubject).digest('hex') !== subject.digest) {
+          throw new Error(`Source changed during analysis: ${subject.file}`);
+        }
+        try {
+          if (!specCache.has(absTest)) {
+            const specs = await vitest.globTestSpecifications([absTest]);
+            if (!specs.length) return null;
+            specCache.set(absTest, specs);
+          }
+          writeFileSync(absTest, rewriteContent);
+          if (absSubject && trial) writeFileSync(absSubject, applyEdit(subject.input, trial.edit, trial.replacement));
+          vitest.vite?.moduleGraph?.invalidateAll();
+          for (const project of vitest.projects) project.vite?.moduleGraph?.invalidateAll();
+          let timer;
+          const timedOut = new Promise(resolveTimeout => { timer = setTimeout(() => resolveTimeout(true), timeoutMs); });
+          const hitTimeout = await Promise.race([
+            vitest.runTestSpecifications(specCache.get(absTest)).then(() => false),
+            timedOut,
+          ]);
+          clearTimeout(timer);
+          if (hitTimeout) {
+            broken = true;
+            return { collected: '' };
+          }
+          return { collected: existsSync(absCollect) ? readFileSync(absCollect, 'utf8') : '' };
+        } finally {
+          rmSync(absCollect, { force: true });
+          writeFileSync(absTest, origTest);
+          if (absSubject && origSubject) writeFileSync(absSubject, origSubject);
+        }
+      };
+      return await action(runInSession);
+    } catch {
+      return null;
+    } finally {
+      if (vitest) await Promise.race([vitest.close().catch(() => {}), new Promise(resolveClose => setTimeout(resolveClose, 5_000))]);
+    }
+  }, { exclude: options['copy-exclude'] });
+}
+
+export async function strengthenAssertions(root, report, options, run = defaultRun) {
   const runnerFactory = run.sourceTrialsAsync ?? run.sourceTrials;
   const concurrency = options.concurrency ?? Math.max(1, Math.min(8, availableParallelism() - 1));
+  const ts = loadTypeScript();
+  const resolveContext = { root, cache: { tsconfigs: new Map(), resolved: new Map(), asts: new Map(), exports: new Map() } };
+  const subjectsByFile = new Map();
   const candidates = [];
   for (const gap of report.diagnostics ?? []) {
     const mutation = gap.mutations?.[0];
     if (!gap.tests?.length || !mutation || gap.suggestedTest || !gap.location?.file) continue;
-    const input = readFileSync(inside(root, gap.location.file));
-    const subject = { file: gap.location.file, input, digest: createHash('sha256').update(input).digest('hex'), sites: [] };
+    let subject = subjectsByFile.get(gap.location.file);
+    if (!subject) {
+      const input = readFileSync(inside(root, gap.location.file));
+      subject = { file: gap.location.file, input, digest: createHash('sha256').update(input).digest('hex'), sites: [] };
+      subjectsByFile.set(gap.location.file, subject);
+    }
     const trial = { site: { location: gap.location }, edit: mutation.source?.edit ?? mutation.edit, replacement: mutation.source?.replacement ?? mutation.replacement };
     const calls = [];
     for (const testFile of [...new Set(gap.tests.map(test => test.file))].slice(0, 2)) {
       const text = readFileSync(inside(root, testFile), 'utf8');
       const names = gap.tests.filter(test => test.file === testFile).map(test => test.name);
       const attempt = runnerFactory(root, [subject], { ...options, test: [testFile] });
-      for (const call of weakCalls(text, testFile, gap.location.file, names)) {
+      for (const call of weakCalls(text, testFile, gap.location.file, names, ts, resolveContext)) {
         if (calls.length >= 4) break;
         const id = `${testFile}:${call.start}`;
         calls.push({ id, testFile, text, call, attempt });
@@ -294,9 +555,65 @@ export async function strengthenAssertions(root, report, options, run = { source
     }
     if (calls.length) candidates.push({ gap, trial, calls });
   }
+  if (!candidates.length) return report;
+
   const originalPromises = new Map();
   let tried = 0;
-  // Run candidates in deterministic order while parallelizing safe batches whose worst-case cost fits the remaining budget.
+  const evaluateCandidate = async ({ gap, trial, calls }, sessionRun) => {
+    for (const { id, testFile, text, call, attempt } of calls) {
+      if (tried >= 24) break;
+      let originalPromise = originalPromises.get(id);
+      if (!originalPromise) {
+        originalPromise = (async () => {
+          const key = randomUUID().replaceAll('-', '');
+          const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
+          const rewriteContent = recordingCall(text, call, key);
+          const outcome = sessionRun
+            ? (await sessionRun({ testFile, rewriteContent, collect })) ?? await attempt({ witness: { rewrite: { file: testFile, content: rewriteContent } }, collect })
+            : await attempt({ witness: { rewrite: { file: testFile, content: rewriteContent } }, collect });
+          return valuesOf(outcome);
+        })();
+        originalPromises.set(id, originalPromise);
+      }
+      const original = await originalPromise;
+      if (!original?.length || original.includes(null)) continue;
+      if (tried >= 24) break;
+      tried++;
+      const key = randomUUID().replaceAll('-', '');
+      const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
+      const rewriteContent = recordingCall(text, call, key);
+      const outcome = sessionRun
+        ? (await sessionRun({ testFile, rewriteContent, collect, trial })) ?? await attempt({ witness: { rewrite: { file: testFile, content: rewriteContent } }, collect, trial })
+        : await attempt({ witness: { rewrite: { file: testFile, content: rewriteContent } }, collect, trial });
+      const edited = valuesOf(outcome);
+      // The first time the call gives another comparable value with the edit. Where the edit keeps a test from making
+      // the call, or returns an unformattable value, nothing is suggested.
+      // The values are matched by their order, so the call has to be made as often with the edit as without.
+      const at = edited.length === original.length
+        ? original.findIndex((value, index) => edited[index] !== null && edited[index] !== value)
+        : -1;
+      if (at === -1) continue;
+      // A result the test keeps is compared where it is kept: calling again may give another value.
+      gap.suggestedTest = `expect(${call.bound ?? call.text}).${matcherFor(original[at])}(${original[at]})`;
+      gap.strengthens = { file: testFile, test: call.test, line: call.line, column: call.column, call: call.text, original: original[at], edited: edited[at] };
+      break;
+    }
+  };
+
+  const useWarmSession = run === defaultRun && options.runner !== 'playwright' && !options['isolated-trials'];
+  if (useWarmSession) {
+    const completed = await withWarmAssertionSession(root, subjectsByFile, options, async sessionRun => {
+      for (const candidate of candidates) {
+        if (tried >= 24) break;
+        await evaluateCandidate(candidate, sessionRun);
+      }
+      return true;
+    });
+    if (completed) return report;
+  }
+
+  // Fallback path (custom runner, --isolated-trials, non-Vitest-4, or unit tests): run candidates in deterministic
+  // order while parallelizing safe batches whose worst-case cost fits the remaining budget.
   let cursor = 0;
   while (cursor < candidates.length && tried < 24) {
     const remaining = 24 - tried;
@@ -309,40 +626,7 @@ export async function strengthenAssertions(root, report, options, run = { source
       reserved += worstCase;
       if (reserved >= remaining) break;
     }
-    await inParallel(batch, batch.length, async ({ gap, trial, calls }) => {
-      for (const { id, testFile, text, call, attempt } of calls) {
-        if (tried >= 24) break;
-        let originalPromise = originalPromises.get(id);
-        if (!originalPromise) {
-          originalPromise = (async () => {
-            const key = randomUUID().replaceAll('-', '');
-            const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
-            const witness = { rewrite: { file: testFile, content: recordingCall(text, call, key) } };
-            return valuesOf(await attempt({ witness, collect }));
-          })();
-          originalPromises.set(id, originalPromise);
-        }
-        const original = await originalPromise;
-        if (!original?.length || original.includes(null)) continue;
-        if (tried >= 24) break;
-        tried++;
-        const key = randomUUID().replaceAll('-', '');
-        const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
-        const witness = { rewrite: { file: testFile, content: recordingCall(text, call, key) } };
-        const edited = valuesOf(await attempt({ witness, collect, trial }));
-        // The first time the call gives another comparable value with the edit. Where the edit keeps a test from making
-        // the call, or returns an unformattable value, nothing is suggested.
-        // The values are matched by their order, so the call has to be made as often with the edit as without.
-        const at = edited.length === original.length
-          ? original.findIndex((value, index) => edited[index] !== null && edited[index] !== value)
-          : -1;
-        if (at === -1) continue;
-        // A result the test keeps is compared where it is kept: calling again may give another value.
-        gap.suggestedTest = `expect(${call.bound ?? call.text}).${matcherFor(original[at])}(${original[at]})`;
-        gap.strengthens = { file: testFile, test: call.test, line: call.line, column: call.column, call: call.text, original: original[at], edited: edited[at] };
-        break;
-      }
-    });
+    await inParallel(batch, batch.length, candidate => evaluateCandidate(candidate, null));
   }
   return report;
 }

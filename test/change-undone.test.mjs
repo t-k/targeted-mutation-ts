@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { renderText } from '../src/cli-output.mjs';
-import { analyzeUndoneChanges, planUndo, undoEdits, withUndoneChanges } from '../src/change-undone.mjs';
+import { analyzeUndoneChanges, analyzeUndoneChangesAsync, planUndo, undoEdits, withUndoneChanges } from '../src/change-undone.mjs';
 
 function repository(action) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'tmt-undo-test-')));
@@ -313,3 +313,43 @@ it('checks', () => { expect(mode).toBe('new'); });
   assert.equal(hookReport.evaluation, 'incomplete');
   assert.ok(hookReport.mutants.every(m => !m.together), 'beforeAll failure must not trigger together load_error fallback');
 }));
+
+test('analyzeUndoneChangesAsync runs hunks concurrently in deterministic order with dynamic together fallback', async () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'tmt-undo-async-')));
+  const git = (...args) => execFileSync('git', ['-C', root, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid', ...args],
+    { encoding: 'latin1', stdio: ['ignore', 'pipe', 'pipe'] });
+  try {
+    git('init', '-q');
+    const old = 'export const a = 1;\nexport const keep1 = 0;\nexport const b = 2;\nexport const keep2 = 0;\nexport const c = 3;\n';
+    writeFileSync(join(root, 'subject.js'), old);
+    git('add', '.');
+    git('commit', '-qm', 'base');
+    const current = 'export const a = 10;\nexport const keep1 = 0;\nexport const b = 20;\nexport const keep2 = 0;\nexport const c = 30;\n';
+    writeFileSync(join(root, 'subject.js'), current);
+    const loaded = [{ file: 'subject.test.js', name: 'runs', status: 'passed' }];
+    let baselineCalls = 0;
+    const run = {
+      sourceTrialsAsync: () => async settings => {
+        if (!settings) { baselineCalls++; return { status: 'passed', tests: loaded }; }
+        // Delay earlier hunks longer so async completion order is reversed.
+        const delay = settings.trial.replacement.includes('a = 1') ? 40 : settings.trial.replacement.includes('b = 2') ? 20 : 5;
+        await new Promise(r => setTimeout(r, delay));
+        if (!settings.trial.together && settings.trial.replacement.includes('a = 1')) {
+          return { status: 'error', tests: [], errors: ['ReferenceError: x'], moduleErrors: ['ReferenceError: x'] };
+        }
+        return { status: 'passed', tests: loaded };
+      },
+    };
+    const report = await analyzeUndoneChangesAsync(root, ['subject.js'], { since: 'HEAD', concurrency: 3, existingBaseline: { status: 'passed', tests: loaded, plain: true } }, run);
+    assert.equal(baselineCalls, 0);
+    assert.equal(report.evaluation, 'evaluated');
+    assert.deepEqual(report.mutants.map(m => [m.location.line, m.status, m.together === true]), [
+      [1, 'load_error', false],
+      [3, 'survived', false],
+      [5, 'survived', false],
+      [1, 'survived', true],
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

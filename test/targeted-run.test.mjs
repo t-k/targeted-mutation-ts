@@ -348,3 +348,38 @@ it('reads property', () => { expect(safeCopy(new Box(7)).a).toBe(7); });
   assert.equal(spreadGap.kind, 'ASSERTION GAP');
   assert.match(spreadGap.advice, /object spread is replaced by its source directly/);
 });
+
+test('sequence-end/v1 skips non-sequence index receivers without triggering Proxy or getter traps', () => {
+  const code = `export const fromMap = (record: Record<number, string>) => record[0];
+export function fromArgs(..._unused: number[]) { return arguments[0]; }
+export const fromArray = (list: number[]) => list[0];
+export const fromBytes = (bytes: Uint8Array) => bytes[0];
+export class CustomSeq {
+  constructor(private items: number[]) {}
+  0 = 10;
+  at(i: number) { return this.items.at(i); }
+}
+export const fromCustom = (seq: CustomSeq) => seq[0];
+`;
+  const suite = `import { expect, it } from 'vitest';
+import { CustomSeq, fromArgs, fromArray, fromBytes, fromCustom, fromMap } from './subject';
+it('reads map and arguments', () => {
+  expect(fromMap({ 0: 'zero', 1: 'one' })).toBe('zero');
+  expect(fromArgs(42, 99)).toBe(42);
+});
+it('reads real sequences and custom .at()', () => {
+  expect(fromArray([1, 2])).toBe(1);
+  expect(fromBytes(new Uint8Array([3, 4]))).toBe(3);
+  expect(fromCustom(new CustomSeq([10, 20]))).toBe(10);
+});
+`;
+  const { status, stderr, report } = analyzeProject({ 'subject.ts': code, 'subject.test.ts': suite });
+  assert.equal(status, 0, stderr);
+  const byReplacement = replacement => report.mutants.find(m => m.replacement === replacement);
+  assert.equal(byReplacement('record.at(-1)').status, 'ignored');
+  assert.match(byReplacement('record.at(-1)').statusReason, /No test passes a sequence/);
+  assert.equal(byReplacement('arguments.at(-1)').status, 'ignored');
+  assert.equal(byReplacement('list.at(-1)').status, 'killed');
+  assert.equal(byReplacement('bytes.at(-1)').status, 'killed');
+  assert.equal(byReplacement('seq.at(-1)').status, 'killed');
+});
