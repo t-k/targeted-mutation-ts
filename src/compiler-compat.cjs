@@ -33,7 +33,9 @@ function transform(source, { file, target, outputModule, jsx, sourceMap }, verif
   const ts = require('typescript');
   const extraDiagnostics = [];
   const compilerFile = file.replace(/\.[cm]([jt]s)$/i, '.$1');
-  const result = ts.transpileModule(source, {
+  let result;
+  try {
+    result = ts.transpileModule(source, {
     fileName: compilerFile,
     reportDiagnostics: true,
     transformers: outputModule === 'esm' ? { before: [invalidModuleSyntax(ts, file, extraDiagnostics)] } : undefined,
@@ -42,10 +44,20 @@ function transform(source, { file, target, outputModule, jsx, sourceMap }, verif
       module: { preserve: ts.ModuleKind.Preserve, esm: ts.ModuleKind.ESNext, cjs: ts.ModuleKind.CommonJS }[outputModule],
       jsx: { automatic: ts.JsxEmit.ReactJSX, classic: ts.JsxEmit.React, preserve: ts.JsxEmit.Preserve }[jsx],
       verbatimModuleSyntax: true,
+      // The file is handed over under a plain extension, so a module extension has to be stated: an .mts file
+      // without imports or exports is still a module and receives no "use strict".
+      ...(/\.m[jt]s$/i.test(file) ? { moduleDetection: ts.ModuleDetectionKind.Force } : {}),
       sourceMap,
       inlineSources: sourceMap,
     },
-  });
+    });
+  } catch (error) {
+    // TypeScript's printer fails on some inputs it should reject, such as `return o?.c.#f`. That is an error
+    // in the source for this compiler, not an exception for its caller.
+    if (!(error instanceof Error) || !/^Debug Failure/.test(error.message)) throw error;
+    return fail('typescript', [{ file, code: 'TYPESCRIPT_FAILURE', severity: 'error',
+      message: `TypeScript could not print this source: ${error.message.split('\n')[0]}`, start: 0, end: 0 }]);
+  }
   const diagnostics = result.diagnostics.map(diagnostic => ({
     file,
     code: diagnostic.code,

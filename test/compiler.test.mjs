@@ -126,3 +126,17 @@ test('strip mode keeps its TypeScript filename contract', () => {
     assert.equal(compile('const x: number = 42;', { file, mode: 'strip' }).diagnostics[0].code, 'STRIP_DIALECT');
   }
 });
+
+test('an .mts file without imports or exports is compiled as a module, and a TypeScript printer failure is a diagnostic', () => {
+  for (const source of ['await 1;', 'const a: number = 1;']) {
+    const result = compile(source, { file: 'input.mts' });
+    assert.equal(typeof result.code, 'string', source);
+    assert.doesNotMatch(result.code, /use strict/, source);
+  }
+  assert.match(compile('const a: number = 1;', { file: 'input.cts' }).code, /^"use strict";/);
+  // TypeScript 6.0.3 fails inside its printer on a private name behind an optional chain in a return statement.
+  const failed = compile('class C { #f = 1; static t(o) { return o?.c.#f; } }', { file: 'input.ts' });
+  assert.equal(failed.code, null);
+  assert.equal(failed.diagnostics.length > 0, true);
+  assert.equal(failed.diagnostics[0].severity, 'error');
+});
