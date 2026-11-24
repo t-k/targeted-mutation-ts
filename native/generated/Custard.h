@@ -1256,6 +1256,14 @@ TmtPulseParser_type_arguments_end_at_call_close(
   uint32_t remaining0
 );
 
+bool
+TmtPulseParser_bare_greater_between(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t stop0,
+  uint32_t fuel0
+);
+
 TmtPulseParser_cursor
 TmtPulseParser_private_identifier(TmtPulseMemory_tape input, uint32_t start);
 
@@ -2255,12 +2263,12 @@ TmtPulseParser_comparison(
 
 TmtPulseParser_expression_items
 TmtPulseParser_expression_list(
-  TmtPulseMemory_tape input0,
-  TmtPulseParser_parser_state state0,
-  uint32_t fuel0,
-  uint32_t remaining0,
-  uint8_t close0,
-  bool valid_array_target0
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t fuel,
+  uint32_t remaining,
+  uint8_t close,
+  bool valid_array_target
 );
 
 TmtPulseParser_parser_state
@@ -2354,7 +2362,11 @@ TmtPulseParser_global_augmentation_start(
 );
 
 TmtPulseParser_parser_state
-TmtPulseParser_ambient_global_var(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
+TmtPulseParser_ambient_global_var(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t width
+);
 
 TmtPulseParser_parser_state
 TmtPulseParser_ambient_global_function(

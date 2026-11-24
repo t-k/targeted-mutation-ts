@@ -2634,6 +2634,17 @@ let rec type_arguments_end_at_call_close (input:tape) (#frame:slprop) (state:par
       type_arguments_end_at_call_close input #frame { tail with offset = next tail.offset } (minus remaining 1ul)
     else read_ret input #frame (byte = 41uy)
 
+// Whether a `>` byte that is not the head of an arrow stands between two offsets. Bytes in strings and
+// comments count as well, which only declines more.
+let rec bare_greater_between (input:tape) (#frame:slprop) (at stop:U32.t) (fuel:U32.t)
+  : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
+  if fuel = 0ul || U32.(at >=^ stop) then read_ret input #frame false
+  else
+    let! byte = (fun () -> peek input #frame at) in
+    let! arrow = (fun () -> if byte = 62uy && U32.gt at 0ul then same input #frame (minus at 1ul) 61uy else read_ret input #frame false) in
+    if byte = 62uy && not arrow then read_ret input #frame true
+    else bare_greater_between input #frame (next at) stop (minus fuel 1ul)
+
 // The offset behind the only `<` byte between two offsets, or zero when there is none or more than one.
 let rec single_less_byte (input:tape) (#frame:slprop) (at stop found:U32.t) (fuel:U32.t)
   : Tot (stt U32.t (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
@@ -3281,7 +3292,15 @@ and expression_list (input:tape) (state:parser_state) (fuel remaining:U32.t) (cl
             if simple then type_arguments_end_at_call_close input following 32ul else ret input false
           else ret input (false)) in
         // A type argument list cannot continue across an elision or an unmatched closing parenthesis.
-        if arg.open_angle && not disambiguated then ret input ({ list_end = failed st 1ul; valid_array_target = false })
+        if arg.open_angle && not disambiguated then
+          // TypeScript tries a type argument list at the less-than sign and takes it only if the list ends in
+          // a greater-than sign before the bracket that closes these items. Without such a sign between this
+          // item and that bracket the attempt fails, whatever the following items are. An arrow is not one.
+          let! rest = (fun () -> expression_list input next_item fuel (minus remaining 1ul) close valid_array_target) in
+          let! closer = (fun () -> if rest.list_end.status = 0ul then
+              bare_greater_between input start.offset rest.list_end.offset (minus rest.list_end.offset start.offset)
+            else ret input true) in
+          ret input (if closer then { list_end = failed st 1ul; valid_array_target = false } else rest)
         else expression_list input next_item fuel (minus remaining 1ul) close valid_array_target
       else (let! anf_value_5 = (fun () -> consume input st close) in ret input ({ list_end = anf_value_5; valid_array_target }))))
 and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required seen_prototype:bool)
@@ -4749,9 +4768,9 @@ let rec ambient_interfaces (input:tape) (#frame:slprop) (state:parser_state) (re
     let! member = (fun () -> ambient_interface input #frame st allow_exports) in
     ambient_interfaces input #frame member (minus remaining 1ul) allow_exports)
 
-let ambient_global_var (input:tape) (#frame:slprop) (st:parser_state)
+let ambient_global_var (input:tape) (#frame:slprop) (st:parser_state) (width:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  let! start = (fun () -> skip input #frame { st with offset = plus st.offset 3ul }) in
+  let! start = (fun () -> skip input #frame { st with offset = plus st.offset width }) in
   let! named = (fun () -> name input #frame start.offset false true) in
   let! colon = (fun () -> skip input #frame (from_cursor start named)) in
   let! typed = (fun () -> consume input #frame colon 58uy) in
@@ -4782,11 +4801,14 @@ let rec global_augmentation_members (input:tape) (#frame:slprop) (state:parser_s
   else if remaining = 0ul then read_ret input #frame (failed st 3ul, family)
   else
     let! byte = (fun () -> peek input #frame st.offset) in
-    let! var = (fun () -> if byte = 118uy then keyword input #frame st.offset 3ul 0x766172uL else read_ret input #frame false) in
+    let! plain_var = (fun () -> if byte = 118uy then keyword input #frame st.offset 3ul 0x766172uL else read_ret input #frame false) in
+    // let and const declare a global as var does.
+    let! lexical = (fun () -> if byte = 108uy || byte = 99uy then local_width input #frame st.offset else read_ret input #frame 0ul) in
+    let var = plain_var || lexical <> 0ul in
     let! function_ = (fun () -> if byte = 102uy then keyword input #frame st.offset 8ul 0x66756e6374696f6euL else read_ret input #frame false) in
     if (var && family = 2uy) || (function_ && family = 1uy) then read_ret input #frame (failed st 1ul, family)
     else
-      let! body = (fun () -> if var then ambient_global_var input #frame st
+      let! body = (fun () -> if var then ambient_global_var input #frame st (if plain_var then 3ul else lexical)
         else if function_ then ambient_global_function input #frame st
         else
           let! namespace_ = (fun () -> named_namespace_start input #frame st) in

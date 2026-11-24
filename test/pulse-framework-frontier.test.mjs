@@ -27,7 +27,7 @@ const forms = {
   InterfaceMerge: ['export interface Entry { left: number; } export interface Entry { right: number; }',
     'export interface Entry<T> { left: T; } export type Entry<T> = { right: T; };'],
   CallComma: ['test(actual < expected, `expected \${actual} less than \${expected}`, expected, actual, false,);',
-    'test(actual < expected, ...remaining);'],
+    'test(actual < expected, other >= limit);'],
 };
 for (const row of matrix) {
   const [surface, input, suffix] = row.split('\t');

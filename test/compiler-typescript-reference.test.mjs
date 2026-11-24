@@ -768,7 +768,6 @@ test('a comparison with a name or a number before a comma in an argument list is
     'export const e = f(a < b, "x", c > (d));',
     'export const k = f(a < b, [c] > (d));',
     'export const m = f(a < b, c\n> (d));',
-    'export const n = f(a < b < c, d);',
   ]) {
     assert.notEqual(sameAsTypeScript(source, 'less.ts').backend, 'pulse', source);
   }
@@ -1087,4 +1086,43 @@ test('looking for a module marker behind a decorator leaves the records of the f
   const mapped = compile(Buffer.from('export namespace Data { export const size = 1; }'), { file: 'a.ts', sourceMap: true });
   assert.equal(mapped.backend, 'pulse');
   assert.equal(mapped.sourceMap.mappings.length > 0, true);
+});
+
+test('a comparison item is not a type argument list when no closing angle follows before the bracket', () => {
+  for (const source of [
+    'export const a = g(1, () => x < 3, () => x + 1);',
+    'export const a = fold([s, 0], () => t[1] < max, ([o, c],) => [f(o, i), c + 1]);',
+    'export const a = filter(() => a < max, { typeId: L, description: max === 0 ? "neg" : `less ${max}` });',
+    'assert.ok(Math.abs(r.getTime() - now) < 100, `${r.getTime()} is within`);\nexport {};',
+    'export const a = f(a < b, g(c), h) > (d);',
+    'export const a = [a < b, () => 1];',
+    'export const a = f(g(a < b, c), d > (e));',
+    'export const a = f(x => a < b, y => y, z);',
+    'export const n = f(a < b < c, d);',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'angle.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'export const a = f(a < b, c > (d));',
+    'export const a = f(a < b, c >= d);',
+    'export const a = f(a < b, c >> (d));',
+    'export const a = f(a < b, () => c > (d));',
+    'export const a = f(a < b, x => x, c > (d));',
+    'export const a = f(a < b, g(c > (d)));',
+    'export const a = [a < b, c > (d)];',
+    'export const a = f(a < b, c = d > (e));',
+  ]) {
+    assert.notEqual(sameAsTypeScript(source, 'angle.ts').backend, 'pulse', source);
+  }
+});
+
+test('an ambient module at the start of a file and lexical globals in a global augmentation are erased', () => {
+  for (const source of [
+    'declare module "typescript" { }\nexport {};',
+    'declare module "typescript" { export interface A { a: 1 } }\nexport const a = 1;',
+    'declare global { let $g: typeof g | undefined }\nexport {};',
+    'declare global { const T: "a" | "b" }\nexport {};',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'ambient.ts').backend, 'pulse', source);
+  }
 });

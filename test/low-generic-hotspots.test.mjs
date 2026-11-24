@@ -41,7 +41,8 @@ test('const type parameters keep bindings, constraints and arrow ambiguity', () 
 
 test('augmentation and unique types keep their enclosing boundaries', () => {
   check('type Window = string; declare global { interface Window {} interface Window { item: Thing } } const keep = a < b;', 'fast');
-  check('declare global { let item: Thing; } const keep = a < b;', 'fallback');
+  check('declare global { let item: Thing; } const keep = a < b;', 'fast');
+  check('declare global { let item: Thing = 1; } const keep = a < b;', 'fallback');
   check('declare global { interface Window {} type Window = Thing; } const keep = a < b;', 'diagnostic');
   check('const item: readonly unique symbol[] = keys; const keep = a < b;', 'fast');
   check('const item: unique Alternate = key; const keep = a < b;', 'fallback');

@@ -558,7 +558,11 @@ let module_item_end (input:tape) (state:P.parser_state)
   if augmentation.status = 0ul then
     let! closed, _ = (fun () -> P.global_augmentation_members input augmentation input.size 0uy) in
     ret input closed
-  else ordinary_module_item_end input state
+  else
+    // declare module 'name' { ... } holds interfaces only and is erased whole.
+    let! ambient_module = (fun () -> if first = 100uy then P.ambient_module_start input state else ret input (P.failed state 1ul)) in
+    if ambient_module.status = 0ul then P.ambient_interfaces input ambient_module input.size true
+    else ordinary_module_item_end input state
 
 let next_module_boundary (input:tape) (jsx:bool) (at:U32.t)
   : Tot (stt U32.t (heap input) (fun _ -> heap input)) =
