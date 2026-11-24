@@ -2718,7 +2718,15 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
     else if ch = 60uy && st.jsx_allowed then
       if fuel = 0ul then ret input (empty_range (failed st 3ul))
       else
-        let! closed = (fun () -> jsx_element input st (minus fuel 1ul)) in
+        let! element = (fun () -> jsx_element input st (minus fuel 1ul)) in
+        // TypeScript ends the expression at a JSX element: a parenthesis, bracket, template or member access
+        // behind it, even on the next line, starts something new or is an error. Lowered to a call it would
+        // be applied to the element, so these are left to TypeScript.
+        let! behind = (fun () -> skip input element) in
+        let! follower = (fun () -> peek input behind.offset) in
+        let! dotted = (fun () -> if follower = 63uy then same input (next behind.offset) 46uy else ret input false) in
+        let closed = if element.status = 0ul && behind.status = 0ul &&
+          (follower = 40uy || follower = 91uy || follower = 96uy || follower = 46uy || dotted) then failed element 1ul else element in
         postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
           open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target = NotAssignable } fuel input.size
     else if constructor || ch = 96uy || ch = 91uy || ch = 123uy then

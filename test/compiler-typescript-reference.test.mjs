@@ -869,3 +869,31 @@ test('declared functions, declared variable lists and static members of declared
     assert.notEqual(compile(Buffer.from(source), { file: 'ambient.ts' }).backend, 'pulse', source);
   }
 });
+
+test('the helper import and a JSX element keep the statement boundaries of a source without semicolons', () => {
+  for (const source of [
+    'const n = 1\nexport const v = <W />',
+    'const x=<X/>\nexport {x}',
+    'const n = 1\nconst m = 2\nexport const v = <W />;',
+    '"use client"\nexport const v = <W />',
+    '"use client" // c\n"use strict"\nexport const v = <a/>',
+    'import a from "a"\nexport const v = <W />',
+  ]) {
+    const result = sameAsTypeScript(source, 'asi.tsx');
+    assert.equal(result.backend, 'pulse', source);
+    assert.doesNotThrow(() => new Function(result.code.replace(/^\s*import[^;\n]*[;\n]/gm, '').replace(/export /g, '').replace(/import\{[^}]*\}from"[^"]*";/g, '')), source);
+  }
+  // Without an export the file is a script, and its directive has to stay in front of the helper import.
+  const script = compile(Buffer.from('"use client"\nconst v = <W />'), { file: 'asi.tsx' });
+  assert.match(script.code, /^"use client"\s*;?\s*import/);
+  // TypeScript ends the expression at a JSX element. Lowered to a call, these would apply it.
+  for (const source of [
+    'export const x=<X/>\n(foo)()',
+    'export const x=<X/>\n[a].map(f)',
+    'export const x=<X/> // c\n`t`',
+    'export const x=<><a/></>\n(foo)()',
+    'export const v = <W {...{id: 1, }} disabled />',
+  ]) {
+    assert.notEqual(sameAsTypeScript(source, 'asi.tsx').backend, 'pulse', source);
+  }
+});

@@ -12909,12 +12909,28 @@ TmtPulseParser_atom(
         {
           TmtPulseParser_parser_state
           value4 = TmtPulseParser_jsx_element(input, value, TmtPulseParser_minus(fuel, 1U));
+          TmtPulseParser_parser_state value5 = TmtPulseParser_skip(input, value4);
+          uint8_t value6 = TmtPulseMemory_peek(input, value5.offset);
+          bool value7;
+          if (value6 == 63U)
+            value7 = TmtPulseParser_same(input, TmtPulseParser_next(value5.offset), 46U);
+          else
+            value7 = false;
+          TmtPulseParser_parser_state closed;
+          if
+          (
+            value4.status == 0U && value5.status == 0U &&
+              (value6 == 40U || value6 == 91U || value6 == 96U || value6 == 46U || value7)
+          )
+            closed = TmtPulseParser_failed(value4, 1U);
+          else
+            closed = value4;
           return
             TmtPulseParser_postfix(input,
               (
                 (TmtPulseParser_parsed){
-                  .parser = value4,
-                  .range = { .first = start_pos, .last = value4.offset },
+                  .parser = closed,
+                  .range = { .first = start_pos, .last = closed.offset },
                   .open_angle = false,
                   .outer_or = false,
                   .right_shift = false,

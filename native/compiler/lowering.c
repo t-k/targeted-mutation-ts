@@ -760,6 +760,8 @@ static bool jsx_literal_spread(lowering *lower, uint32_t depth, jsx_props *prope
     while (begin < end && jsx_blank(literal.code[end - 1])) end--;
     if (begin < end && literal.code[end - 1] == ',') end--;
     while (begin < end && jsx_blank(literal.code[end - 1])) end--;
+    /* A line separator outside ASCII may still hide a trailing comma. */
+    if (begin < end && (unsigned char)literal.code[end - 1] >= 0x80) accepted = false;
     /* A classic factory receives {} for an empty literal, where a tag without attributes passes null. */
     if (begin == end && lower->classic) accepted = false;
     if (begin < end) {
@@ -1224,9 +1226,11 @@ static bool inject_jsx_runtime(lowering *lower, size_t at) {
   const bool create_first = lower->first_source == source_runtime;
   char runtime[160] = "";
   if (one || many || fragment) snprintf(runtime, sizeof(runtime), "}from\"%.*s/jsx-runtime\";\n", package_width, package);
-  /* A directive without a semicolon ends at its closing quote, so the import needs a separator of its own. */
+  /* A statement without a semicolon ends at its last token, so the import needs a separator of its own. */
   if (at > out->length) return false;
-  const bool separate = at != 0 && (out->code[at - 1] == '\'' || out->code[at - 1] == '"');
+  size_t token = at;
+  while (token != 0 && (out->code[token - 1] == ' ' || out->code[token - 1] == '\t')) token--;
+  const bool separate = token != 0 && out->code[token - 1] != ';' && out->code[token - 1] != '\n' && out->code[token - 1] != '\r';
   char import[448];
   const int size = snprintf(import, sizeof(import), "%s%s%s%s%s%s%s%s%s", separate ? ";" : "",
     create_first ? create : "", one || many || fragment ? "import{" : "",
@@ -2415,7 +2419,8 @@ static uint32_t jsx_script_prelude(TmtPulseMemory_tape input, uint32_t at) {
     if (tail.at == input.size) return input.size;
     const uint32_t boundary = TmtPulseCompiler_next_module_item(input, true, at);
     const bool semicolon = input.source[tail.at] == ';';
-    if (!(semicolon ? boundary == tail.at + 1 : tail.newline && boundary == tail.at)) break;
+    /* Without a semicolon the directive ends at its closing quote. */
+    if (!(semicolon ? boundary == tail.at + 1 : tail.newline && boundary == string.at)) break;
     const TmtPulseParser_cursor next = TmtPulseParser_trivia(input, boundary);
     if (!next.ok) break;
     at = next.at;
