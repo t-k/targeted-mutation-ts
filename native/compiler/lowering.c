@@ -480,6 +480,16 @@ static bool enum_numeric(lowering *lower, const enum_scope *scope, int64_t *valu
   return true;
 }
 
+/* Two members of one name resolve differently in TypeScript's own emit, so the pair is left to it. */
+static bool enum_declared(const lowering *lower, const enum_scope *scope, TmtGrammar_span key) {
+  const uint8_t *source = lower->input.source;
+  for (size_t index = 0; index < scope->count; index++) {
+    const TmtGrammar_span other = scope->items[index].key;
+    if (other.last - other.first == key.last - key.first && !memcmp(source + other.first, source + key.first, key.last - key.first)) return true;
+  }
+  return false;
+}
+
 static bool enum_remember(enum_scope *scope, TmtGrammar_span key, int64_t value, bool numeric) {
   if (scope->count == scope->capacity) {
     const size_t capacity = scope->capacity * 2;
@@ -567,7 +577,7 @@ static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exp
       snprintf(value, sizeof(value), "%" PRId64, next);
       put(out, value);
     }
-    if (!enum_remember(scope, key, next, numeric)) return false;
+    if (enum_declared(lower, scope, key) || !enum_remember(scope, key, next, numeric)) return false;
     if (numeric) {
       put(out, "]=");
       if (!quote(lower, key, false)) return false;

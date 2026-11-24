@@ -372,6 +372,8 @@ test('heritage expressions and type arguments on call results and templates matc
 test('a unary heritage clause and a spaced comparison are not read as the new forms', () => {
   for (const source of [
     'export class A extends -B {}',
+    'export class A extends Base++ {}',
+    'export class A extends Base-- {}',
     'export class A extends await b {}',
     'export class A extends b ? c : d {}',
     'export function f(a: any) { a()!++; }',

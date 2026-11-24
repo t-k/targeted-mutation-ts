@@ -4071,7 +4071,11 @@ and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (kind:class_kind)
         let! value = (fun () -> atom input base fuel) in
         let! tail = (fun () -> skip input value.parser) in
         let! angle = (fun () -> same input tail.offset 60uy) in
-        if tail.status <> 0ul || not angle then ret input tail
+        // A postfix update is not a left-hand-side expression. It ends in a doubled sign.
+        let! last = (fun () -> if U32.gte value.range.G.last 2ul then peek input (minus value.range.G.last 1ul) else ret input 0uy) in
+        let! before = (fun () -> if U32.gte value.range.G.last 2ul then peek input (minus value.range.G.last 2ul) else ret input 0uy) in
+        if tail.status = 0ul && (last = 43uy || last = 45uy) && before = last then ret input (failed tail 1ul)
+        else if tail.status <> 0ul || not angle then ret input tail
         else
           // Type arguments after the expression belong to the heritage clause and are erased.
           let! typed = (fun () -> expression_type_arguments input tail) in

@@ -64,3 +64,13 @@ test('a declaration name is refused with every option the entry handles itself',
     }
   }
 });
+
+test('a JavaScript source that the parser must reject is refused with spelled-out default options too', () => {
+  const source = Buffer.from('export class Widget extends Base++ {}');
+  for (const options of [{ file: 'widget.js' }, { file: 'widget.mjs' }, { file: 'widget.ts' },
+    { file: 'widget.js', mode: 'transform', target: 'esnext', module: 'preserve', sourceMap: false }]) {
+    const expected = router(source, options);
+    assert.equal(expected.code, null, JSON.stringify(options));
+    assert.deepEqual(compile(source, options), expected, JSON.stringify(options));
+  }
+});
