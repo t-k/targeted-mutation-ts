@@ -4,6 +4,7 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, r
 import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const target = `${process.platform}-${process.arch}`;
@@ -97,7 +98,7 @@ registerHooks({ load(url, context, next) {
   if (url.endsWith('/typescript/lib/typescript.js')) throw new Error('Full compiler loaded during extraction');
   return next(url, context);
 } });\n`);
-  const broad = JSON.parse(run(process.execPath, ['--import', hook, entry, 'extract', 'broad.ts']));
+  const broad = JSON.parse(run(process.execPath, ['--import', pathToFileURL(hook).href, entry, 'extract', 'broad.ts']));
   assert.equal(broad.path, 'fallback');
   assert.equal(broad.fallback, 'typescript');
   if (!portable) assert.equal(broad.metrics.astNodes, 0);
