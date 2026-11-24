@@ -29,6 +29,24 @@ export function snapshotVitestRun(root, modules, unhandled, reason) {
   return { tests, modules: files, errors: errors.map(error => error.message), reason };
 }
 
+// How long each test and each test file's collection took, for ordering later work by cost.
+export function timeVitestRun(modules) {
+  const tests = {};
+  const collection = {};
+  for (const module of modules) {
+    collection[JSON.stringify([module.project.name, module.moduleId])] = module.diagnostic()?.collectDuration ?? 0;
+    for (const test of module.children.allTests()) tests[test.id] = test.diagnostic()?.duration ?? 0;
+  }
+  return { tests, collection };
+}
+
+// A baseline report names what failed so the suite can be fixed without a second run.
+export function failedTests(run, limit = 20) {
+  return (run.tests ?? []).filter(test => test.status === 'failed').slice(0, limit).map(test => ({
+    file: test.file, name: test.name, failures: (test.failures ?? []).slice(0, 5).map(failure => String(failure).slice(0, 2000)),
+  }));
+}
+
 export default class TmtReporter {
   onTestRunEnd(modules, unhandled, reason) {
     const run = snapshotVitestRun(process.env.TMT_WORKSPACE, modules, unhandled, reason);

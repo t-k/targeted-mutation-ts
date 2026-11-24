@@ -1,0 +1,7 @@
+# A call in a test whose result the test does not pin down: how the result is used, what the arguments are,
+# where the function comes from, where the call stands, and whether the finding names the test.
+Use: Unused, Bound, WeakMatcher, NegatedMatcher, PinningMatcher, PromiseMatcher
+Arguments: Scalars, Collection, Variable, Spread
+Function: Subject, SubjectAlias, OtherModule, TypeImport
+Place: TestBody, Loop, Callback
+TestNamed: Yes, No

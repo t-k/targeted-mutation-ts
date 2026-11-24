@@ -1,0 +1,7 @@
+# A change since a revision, put back alone: what kind of change, whether it changes code, where in the file,
+# how the file ends, and whether the file has another change.
+Change: Replace, AddLines, RemoveLines
+Code: Tokens, CommentOnly, SpacingOnly
+Position: FileStart, Middle, FileEnd
+FinalLineEnd: Present, Missing
+OtherChange: None, Code, Comment

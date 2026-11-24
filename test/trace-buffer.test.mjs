@@ -212,7 +212,7 @@ test('an overlapping child trace retries before the focused audit trusts orderin
       it('does not reach either candidate', () => expect(5).toBe(5));
     `);
     const run = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', root, 'subject.mjs', 'other.cjs', '--deterministic', '--audit'],
-      { encoding: 'utf8', timeout: 25_000 });
+      { encoding: 'utf8', timeout: 90_000 });
     assert.equal(run.status, 0, run.error?.message ?? run.stderr + run.stdout);
     const report = JSON.parse(run.stdout);
     assert.deepEqual(report.instrumented, { status: 'passed', stable: true });

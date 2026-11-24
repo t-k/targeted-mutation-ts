@@ -1,0 +1,208 @@
+{
+ "date": "2026-11-23",
+ "host": "Apple M5 Max, 18 cores, macOS, Node 24.14.0",
+ "note": "The host was carrying other work (load average 16 to 30) during every run. Commands alternate within a round, so compare times within a round.",
+ "tools": {
+  "strykerjs": "@stryker-mutator/core 10.1.1 with @stryker-mutator/vitest-runner 10.1.1, coverageAnalysis perTest",
+  "vitest": "4.0.18",
+  "targetedMutation": "commit 374b960"
+ },
+ "samples": [
+  {
+   "name": "one source file, one test file",
+   "mutants": 220,
+   "verdicts": {
+    "killed": 124,
+    "survived": 66,
+    "unreached": 30
+   },
+   "verdictsEqual": true,
+   "millisecondsPerRound": {
+    "strykerDefault": [
+     22050,
+     19750,
+     22917
+    ],
+    "full": [
+     4602,
+     4421,
+     5511
+    ],
+    "strykerConcurrency1": [
+     59781,
+     68936,
+     50618
+    ],
+    "fullConcurrency1": [
+     3957,
+     6971,
+     8748
+    ],
+    "standard": [
+     3711,
+     4490,
+     5711
+    ],
+    "focused": [
+     2828,
+     3911,
+     4836
+    ]
+   },
+   "before": {
+    "commit": "f2001bd",
+    "millisecondsPerRound": {
+     "strykerDefault": [
+      6834,
+      9909,
+      17008
+     ],
+     "strykerConcurrency1": [
+      24498,
+      30293,
+      47618
+     ],
+     "full": [
+      34282,
+      41947,
+      53068
+     ],
+     "standard": [
+      35313,
+      46720,
+      32109
+     ],
+     "focused": [
+      7980,
+      8024,
+      6698
+     ]
+    }
+   }
+  },
+  {
+   "name": "twelve source files, twelve test files",
+   "mutants": 2640,
+   "verdicts": {
+    "killed": 1488,
+    "survived": 792,
+    "unreached": 360
+   },
+   "verdictsEqual": true,
+   "millisecondsPerRound": {
+    "strykerDefault": [
+     98298
+    ],
+    "full": [
+     12288
+    ],
+    "strykerConcurrency1": [
+     528448
+    ],
+    "fullConcurrency1": [
+     20772
+    ],
+    "standard": [
+     3221
+    ],
+    "focused": [
+     2724
+    ]
+   }
+  }
+ ],
+ "note2": "Rounds under 'final' were taken at commit 6fb6785, one StrykerJS run followed directly by one run of this tool. Load average 17 to 50.",
+ "final": [
+  {
+   "name": "sample, one source file",
+   "mutants": 220,
+   "verdictsEqual": true,
+   "rounds": [
+    {
+     "stryker": 19957,
+     "full": 3104
+    },
+    {
+     "stryker": 33689,
+     "full": 6141
+    }
+   ]
+  },
+  {
+   "name": "sample, twelve source files",
+   "mutants": 2640,
+   "verdictsEqual": true,
+   "rounds": [
+    {
+     "stryker": 120824,
+     "full": 19900
+    }
+   ]
+  },
+  {
+   "name": "jsdom UI library, store module, StrykerJS 10.0.0 concurrency 4, Vitest 4.1.9",
+   "mutants": 85,
+   "verdicts": {
+    "killed": 76,
+    "survived": 9
+   },
+   "verdictsEqual": true,
+   "rounds": [
+    {
+     "stryker": 58377,
+     "full": 14502
+    },
+    {
+     "stryker": 78332,
+     "full": 28601
+    }
+   ],
+   "oneWorker": [
+    {
+     "stryker": 157815,
+     "full": 22721
+    },
+    {
+     "stryker": 118775,
+     "full": 37506
+    }
+   ]
+  },
+  {
+   "name": "jsdom UI library, router module, StrykerJS 10.0.0 concurrency 2",
+   "mutants": 160,
+   "verdicts": {
+    "killed": 152,
+    "survived": 8
+   },
+   "verdictsEqual": true,
+   "rounds": [
+    {
+     "stryker": 144203,
+     "full": 21112
+    }
+   ]
+  },
+  {
+   "name": "Firestore data library, five utility modules, StrykerJS 10.0.0 concurrency 1, Vitest 4.1.11",
+   "mutants": 210,
+   "verdicts": {
+    "killed": 208,
+    "survived": 1,
+    "timeout": 1
+   },
+   "verdictsEqual": true,
+   "rounds": [
+    {
+     "stryker": 93024,
+     "full": 14088,
+     "fullOneWorker": 17280
+    }
+   ],
+   "trials": {
+    "inWorker": 205,
+    "isolated": 5
+   }
+  }
+ ]
+}

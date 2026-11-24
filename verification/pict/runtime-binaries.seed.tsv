@@ -1,0 +1,7 @@
+Platform	Arch	Local	Package
+darwin	arm64	Present	Absent
+darwin	arm64	Absent	Matching
+linux	x64	Absent	Matching
+linux	x64	Absent	Mismatched
+win32	x64	Absent	Absent
+linux	arm64	Present	Matching

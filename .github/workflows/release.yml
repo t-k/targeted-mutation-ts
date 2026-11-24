@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: Package (${{ matrix.target }})
+    # Workflows start once the repository is public. Provenance also requires a public repository.
+    if: github.event.repository.visibility == 'public'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - { os: ubuntu-24.04, target: linux-x64 }
+          - { os: ubuntu-24.04-arm, target: linux-arm64 }
+          - { os: macos-15, target: darwin-arm64 }
+          - { os: macos-15-intel, target: darwin-x64 }
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.14.0
+          package-manager-cache: false
+
+      - name: Install the pinned Lean toolchain and build the decision executable
+        uses: leanprover/lean-action@v1.7.1
+        with:
+          auto-config: false
+          build: true
+          use-github-cache: false
+          lake-package-directory: proof/lean
+
+      - run: npm ci
+
+      - name: Pack and test the installed packages
+        run: |
+          npm run pack:runtime
+          npm run test:package
+
+      # Every runner builds the same main package. The Linux x64 copy is the one published.
+      - name: Keep one main package
+        if: matrix.target != 'linux-x64'
+        shell: bash
+        run: find build/packages -maxdepth 1 -name 'targeted-mutation-[0-9]*.tgz' -delete
+
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: packages-${{ matrix.target }}
+          path: build/packages/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish to npm
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.14.0
+          package-manager-cache: false
+
+      - uses: actions/download-artifact@v8.0.2
+        with:
+          pattern: packages-*
+          path: build/packages
+          merge-multiple: true
+
+      # The first release uses the NPM_TOKEN environment secret. Later releases leave it unset
+      # and authenticate through npm trusted publishing (OIDC), which needs npm 11.5.1 or later.
+      - name: Publish platform packages, then the main package
+        shell: bash
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          NPM_CONFIG_USERCONFIG: ${{ runner.temp }}/npmrc
+        run: |
+          npm --version
+          if [[ -n "$NPM_TOKEN" ]]; then
+            printf '//registry.npmjs.org/:_authToken=%s\n' "$NPM_TOKEN" > "$NPM_CONFIG_USERCONFIG"
+          fi
+          node scripts/publish-packages.mjs build/packages --tag "$RELEASE_TAG"

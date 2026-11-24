@@ -1,0 +1,21 @@
+# Agreement probes of the targeted profile: which edit of which operator, where the expression stands,
+# and what the operands are in the one evaluation a test makes.
+Operator: StrictEq, StrictNe, LooseEq, LooseNe, And, Or, Nullish
+Form: ConstTrue, ConstFalse, Loose, Strict, OtherNullish, IgnoreLeft, IgnoreRight, ToOr, ToNullish
+Context: Condition, Value
+Left: Undefined, Null, Zero, EmptyText, False, True, One, Text, Record
+Right: Undefined, Null, Zero, EmptyText, False, True, One, Text, Record
+RightWritten: Variable, NullLiteral, UndefinedLiteral
+
+IF [Operator] IN {"StrictEq", "StrictNe"} THEN [Form] IN {"ConstTrue", "ConstFalse", "Loose"};
+IF [Operator] IN {"LooseEq", "LooseNe"} THEN [Form] IN {"ConstTrue", "ConstFalse", "Strict", "OtherNullish"};
+IF [Operator] = "And" THEN [Form] IN {"IgnoreLeft", "IgnoreRight"};
+IF [Operator] = "Or" THEN [Form] IN {"IgnoreLeft", "IgnoreRight", "ToNullish"};
+IF [Operator] = "Nullish" THEN [Form] IN {"IgnoreLeft", "IgnoreRight", "ToOr"};
+# The strict and loose edits exist only beside a written null or undefined.
+IF [Form] IN {"Loose", "Strict", "OtherNullish"} THEN [RightWritten] <> "Variable";
+IF [Operator] IN {"And", "Or", "Nullish"} THEN [RightWritten] = "Variable";
+IF [RightWritten] = "NullLiteral" THEN [Right] = "Null";
+IF [RightWritten] = "UndefinedLiteral" THEN [Right] = "Undefined";
+# `||` to `??` is offered only where the value is used.
+IF [Form] = "ToNullish" THEN [Context] = "Value";

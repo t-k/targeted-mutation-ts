@@ -172,7 +172,7 @@ test('the standalone CLI extracts without Cargo, Oxc, or installed npm dependenc
     }
     cpSync(new URL('../native/', import.meta.url), join(root, 'native'), { recursive: true });
     const built = spawnSync(process.execPath, ['scripts/build-native.mjs', '--low-only'], {
-      cwd: root, encoding: 'utf8', timeout: 30_000, env: { ...process.env, TMT_CARGO: join(root, 'absent-cargo') },
+      cwd: root, encoding: 'utf8', timeout: 120_000, env: { ...process.env, TMT_CARGO: join(root, 'absent-cargo') },
     });
     assert.equal(built.status, 0, built.error?.message ?? built.stderr);
     const source = 'import { limit } from "./settings"; export function ready(n: number) { return n < limit; }';

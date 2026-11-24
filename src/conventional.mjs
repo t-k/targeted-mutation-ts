@@ -1,12 +1,16 @@
 import { isUtf8 } from 'node:buffer';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, renameSync, existsSync, openSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
+import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { byteOffsets } from './extract.mjs';
 import { collectComparisons } from './analysis.mjs';
+import { boundarySwap, prepareBuiltinSwitches, targetedOrBoundary } from './builtin-switches.mjs';
+import { targetedGap } from './targeted-gaps.mjs';
+import { prepareOperatorSwitches } from './operator-switches.mjs';
 import { selectScope } from './scope.mjs';
 import { inside, resolveOptional, runnerPackage, withCopy } from './vitest.mjs';
 
@@ -90,10 +94,32 @@ export async function prepareConventional(subjects, print, entry = compatibility
   return { sources: instrumented.files.map(({ name, content }) => ({ file: name, output: content })), mutants };
 }
 
+// The session runs beside its caller, which may block while it waits for other runs.
+function superviseSession(workspace, temp, manifest, limit, signal) {
+  const log = resolve(temp, 'mutation-session.stderr');
+  const descriptor = openSync(log, 'w');
+  return new Promise(settle => {
+    const child = spawn(process.execPath, [supervisor, resolve(temp, 'mutation-session.pid'), String(limit), session, manifest], {
+      cwd: workspace, stdio: ['ignore', 'ignore', descriptor], timeout: limit + 5_000, signal,
+      env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test' },
+    });
+    const finish = result => {
+      closeSync(descriptor);
+      settle({ ...result, stderr: readFileSync(log, 'utf8').slice(0, 4 * 1024 * 1024) });
+    };
+    let failure;
+    child.once('error', error => { failure = error; });
+    child.once('close', (status, stopped) => finish({ status, signal: stopped, error: failure }));
+  });
+}
+
 export async function analyzeConventional(project, files, options) {
   const root = realpathSync(project);
   const combined = options.mutators === 'all';
-  const entry = compatibilityEntry(root);
+  // The built-in switches use the same session and need no instrumenter package.
+  // `boundaries` is the internal profile that runs only the swaps the focused analysis asks about.
+  const builtIn = ['operators', 'full', 'boundaries', 'targeted'].includes(options.mutators);
+  const entry = builtIn ? null : compatibilityEntry(root);
   const prefix = '.tmt-session-' + randomUUID();
   const runtime = prefix + '-focus.mjs';
   const targets = selectScope(root, files, options).map(subject => ({
@@ -106,7 +132,10 @@ export async function analyzeConventional(project, files, options) {
   const focus = combined ? await import('./focused-switch.mjs') : null;
   const require = combined ? createRequire(entry) : null;
   const babel = require && { types: require('@babel/core').types, generate: require('@babel/generator').generate };
-  const { sources, mutants } = await prepareConventional(targets, focus &&
+  const prepareBuiltIn = options.mutators === 'operators' ? prepareOperatorSwitches : prepareBuiltinSwitches;
+  const awaitsExtras = builtIn && options.mutators !== 'operators' && options.extras !== undefined;
+  const { sources, mutants: prepared } = builtIn ? prepareBuiltIn(targets, { dialect: options.dialect, shifts: awaitsExtras,
+    ...(options.mutators === 'boundaries' ? { keep: boundarySwap } : options.mutators === 'targeted' ? { keep: targetedOrBoundary, targeted: true } : {}) }) : await prepareConventional(targets, focus &&
     ((source, { starts, bytes }) => focus.printWithFocusedSwitches(
       source, starts, bytes, byFile.get(source.originFileName) ?? [], runtime, preparedFocused, babel,
     )), entry);
@@ -115,12 +144,14 @@ export async function analyzeConventional(project, files, options) {
     extraction: comparison?.extraction ?? [], mutants: [], diagnostics: [], evaluation: 'no_sites',
     selection: { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] },
   };
-  const runnable = mutants.filter(mutant => mutant.status === undefined);
+  // Shift switches belong to the session and not to the report.
+  const mutants = prepared.filter(mutant => !mutant.parametric);
+  const runnable = prepared.filter(mutant => mutant.status === undefined);
   const focused = focus?.eligibleFocusedSites(runnable, preparedFocused) ?? [];
   if (!mutants.length && !focused.length) return report;
-  if (!runnable.length && !focused.length) return { ...report, evaluation: 'evaluated', mutants };
+  if (!runnable.length && !focused.length) return { ...report, evaluation: 'evaluated', mutants: mutants.map(({ targeted: _rule, ...mutant }) => mutant) };
 
-  return withCopy(root, (workspace, temp) => {
+  return withCopy(root, async (workspace, temp) => {
     runnerPackage(workspace, 'vitest');
     for (const { file, output } of sources) {
       const path = inside(workspace, file);
@@ -135,17 +166,27 @@ export async function analyzeConventional(project, files, options) {
     const manifest = resolve(temp, 'mutation-session.json');
     const output = resolve(temp, 'mutation-session.jsonl');
     writeFileSync(manifest, JSON.stringify({
-      workspace, setup, workerRunner, output, temporary: temp, mutants: runnable.map(({ id }) => ({ id })),
-      focused: focused.map(({ id }) => ({ id })),
+      workspace, setup, workerRunner, output, temporary: temp, awaitsExtras,
+      mutants: runnable.map(({ id, parametric, targeted }) => ({ id, ...(parametric ? { parametric } : {}), ...(targeted?.evidence ? { evidence: true } : {}),
+        ...(targeted ? { effects: true } : {}) })),
+      focused: focused.map(({ id }) => ({ id })), isolatedTrials: options['isolated-trials'] === true,
+      concurrency: options.concurrency ?? Math.max(1, availableParallelism() - 1), verifyTrials: options['verify-trials'] ?? 0,
+      ...(options.timeout ? { runTimeout: options.timeout * 1000 } : {}),
       replay: options.deterministic ? focus.comparisonReplays(runnable, focused, originals) : [],
       config: options.config === undefined ? undefined : inside(workspace, options.config),
       files: [...new Set((options.test ?? []).map(file => inside(workspace, file)))],
     }));
-    const limit = 75_000 + 60_000 * (runnable.length + focused.length);
-    const run = spawnSync(process.execPath, [supervisor, resolve(temp, 'mutation-session.pid'), String(limit), session, manifest], {
-      cwd: workspace, encoding: 'utf8', timeout: limit + 5_000, maxBuffer: 4 * 1024 * 1024,
-      env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test' },
-    });
+    const limit = 75_000 + (options.timeout ? options.timeout * 1000 : 60_000) * (runnable.length + focused.length);
+    // The focused analysis names its threshold edits once it has recorded the comparisons. The session waits for the list.
+    const extras = resolve(temp, 'extras.json');
+    if (awaitsExtras) {
+      Promise.resolve(options.extras).then(list => list ?? [], () => []).then(list => {
+        // Written beside its final name and moved, so the session never reads half a list.
+        writeFileSync(extras + '.part', JSON.stringify(list));
+        renameSync(extras + '.part', extras);
+      });
+    }
+    const run = await superviseSession(workspace, temp, manifest, limit, options.signal);
     const events = readEvents(output);
     const error = events.findLast(event => event.error)?.error ?? run.error?.message ??
       (run.stderr?.trim() || `Vitest session stopped (exit ${run.status ?? run.signal})`);
@@ -155,14 +196,41 @@ export async function analyzeConventional(project, files, options) {
     const completed = run.status === 0 && events.at(-1)?.complete === true;
     const trace = events.find(event => event.focusedTrace)?.focusedTrace;
     const targeted = focused.map(entry => focus.focusedResult(entry, trace, results, originals)).filter(Boolean);
+    const observed = events.find(event => event.observed)?.observed ?? {};
+    // The expressions behind the switches an edit's tests newly reach or no longer reach, without the edit's own.
+    const places = new Map(prepared.map(mutant => [mutant.id, mutant]));
+    const expressionsOf = (entries, own, plain) => {
+      const seen = new Map();
+      for (const { id, test } of entries) {
+        const { location, original } = places.get(id) ?? {};
+        if (!location || (location.file === own.file && own.start === location.start && location.end === own.end)) continue;
+        // An edit without a probe is plain text: what stands inside it is evaluated without a switch to show it.
+        if (plain && location.file === own.file && own.start <= location.start && location.end <= own.end) continue;
+        seen.set(`${test}:${location.file}:${location.start}:${location.end}`, { ...(test === undefined ? {} : { test }),
+          location: { file: location.file, line: location.line, column: location.column }, expression: original });
+      }
+      return [...seen.values()].slice(0, 3);
+    };
+    const withEffects = (gap, mutant) => {
+      if (!gap || !mutant.effects) return gap;
+      const plain = ['await', 'copy'].includes(mutant.targeted?.operator);
+      const nowRuns = expressionsOf(mutant.effects.now, mutant.location, plain);
+      const noLongerRuns = expressionsOf(mutant.effects.gone, mutant.location, plain);
+      return nowRuns.length || noLongerRuns.length ? { ...gap, effects: { nowRuns, noLongerRuns } } : gap;
+    };
+    const judged = mutants.map(mutant => {
+      const result = results.get(mutant.id);
+      // An edit the session left out was not run.
+      if (result?.status === 'ignored') return { ...mutant, ...result };
+      if (result) return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
+      return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Mutation session ended early' };
+    });
     return {
-      ...report, baseline, evaluation: completed ? 'evaluated' : 'incomplete',
-      mutants: [...mutants.map(mutant => {
-        const result = results.get(mutant.id);
-        if (result) return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
-        return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Mutation session ended early' };
-      }), ...targeted.map(entry => entry.mutant)],
-      diagnostics: targeted.flatMap(entry => entry.diagnosis ? [entry.diagnosis] : []),
+      ...report, baseline, evaluation: completed ? 'evaluated' : 'incomplete', trials: events.find(event => event.trials)?.trials,
+      ...(awaitsExtras ? { extras: events.filter(event => event.extra !== undefined) } : {}),
+      mutants: [...judged.map(({ targeted: _rule, effects: _effects, ...mutant }) => mutant), ...targeted.map(entry => entry.mutant)],
+      diagnostics: [...judged.flatMap(mutant => withEffects(targetedGap(mutant, observed[mutant.id]), mutant) ?? []),
+        ...targeted.flatMap(entry => entry.diagnosis ? [entry.diagnosis] : [])],
     };
   }, { exclude: options['copy-exclude'] });
 }

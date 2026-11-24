@@ -1,15 +1,18 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mjs';
 import { comparisonThresholdSites } from './prototype.mjs';
 import { thresholdGaps } from './threshold.mjs';
 import { tightenComparison } from './displacement.mjs';
+import { failedTests } from './vitest-reporter.mjs';
 import { inside, runVitest, withCopy } from './vitest.mjs';
 import { createProbePreloadCheck, freshProbeBinding, instrument, installProbe, rewrite } from './probe.mjs';
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
 import { checkReplay } from './lean-replay.mjs';
+import { ignoredSwaps, renderBuiltinSwitches } from './builtin-switches.mjs';
+import { collectOperatorSites } from './operator-sites.mjs';
 import { inspectTrace, pendingTraceDirectory, sameObservations } from './trace-buffer.mjs';
 
 const sha = source => createHash('sha256').update(source).digest('hex');
@@ -25,20 +28,57 @@ function compare(operator, left, right) {
   }
 }
 
+// The Playwright extraction reports a logical operator with an operand-dropping edit. The operator swap is a different edit at the same position.
+// The complete built-in set as plain source edits, for runners that cannot use runtime switches.
+// A comparison boundary that the focused analysis already edits is left to it.
+function builtInSites(comparisons, input, file, dialect, selected, options = {}) {
+  const focused = new Set(comparisons.map(candidate => `${candidate.edit[0]}:${candidate.replacement}`));
+  return renderBuiltinSwitches(input, file, selected, { dialect, ...options }).mutants
+    .filter(mutant => mutant.status === undefined && !(mutant.operatorSwap && focused.has(mutant.operatorSwap.join(':'))))
+    .map(mutant => ({ rule: mutant.mutatorName, original: mutant.original, replacement: mutant.replacement, edit: mutant.edit,
+      left: [mutant.edit[0], mutant.edit[0]], right: [mutant.edit[1], mutant.edit[1]], source: mutant.source, unobserved: true }));
+}
+
+function withOperatorSites(comparisons, input, file, { mutators, dialect }, selected) {
+  const start = candidate => (candidate.operatorEdit ?? candidate.edit)[0];
+  // Without a session nothing is recorded, so the targeted edits run as plain source edits.
+  const added = mutators === 'full' ? builtInSites(comparisons, input, file, dialect, selected)
+    : mutators === 'targeted' ? builtInSites(comparisons, input, file, dialect, selected, { targeted: true, keep: mutation => mutation.targeted !== undefined })
+      : collectOperatorSites(input, file, { dialect });
+  return added.length ? [...comparisons, ...added].sort((a, b) => start(a) - start(b)) : comparisons;
+}
+
 export function collectComparisons(root, files, options) {
   const subjects = [];
   const extraction = [];
   for (const { file, selected } of selectScope(root, files, options)) {
     const input = readFileSync(inside(root, file));
-    const { path, fallback, reason, candidates, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, requireNative: true, logical: options.runner === 'playwright' });
+    const { path, fallback, reason, candidates: comparisons, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, requireNative: true, logical: options.runner === 'playwright' });
     extraction.push({ file, path, reason, diagnostics, ...(fallback === undefined ? {} : { fallback }) });
     if (path === 'diagnostic') continue;
+    // A boundary under a `// Stryker disable` comment is not edited by any profile.
+    const disabled = ignoredSwaps(input, file, { dialect: options.dialect });
+    const kept = disabled.size ? comparisons.filter(candidate => !disabled.has(`${candidate.edit[0]}:${candidate.replacement}`)) : comparisons;
+    if (kept.length !== comparisons.length) extraction.at(-1).ignored = comparisons.length - kept.length;
+    const candidates = ['targeted', 'operators', 'full'].includes(options.mutators) ? withOperatorSites(kept, input, file, options, selected) : kept;
     const positions = byteLocations(input, candidates.map(candidate => (candidate.operatorEdit ?? candidate.edit)[0]));
+    // A comparison is in scope when any line from its left operand to its right operand is: a threshold on its
+    // own line belongs to the comparison whose operator is on the line above.
+    const reach = candidates.map(candidate => {
+      const [start, end] = candidate.operatorEdit ?? candidate.edit;
+      return [Math.min(start, candidate.left?.[0] ?? start), Math.max(start, (candidate.right?.[1] ?? end) - 1)];
+    });
+    // The lookup takes offsets in ascending order, and nested comparisons overlap.
+    const offsets = [...new Set(reach.flat())].sort((a, b) => a - b);
+    const located = byteLocations(input, offsets);
+    const lineAt = new Map(offsets.map((offset, index) => [offset, located[index * 2]]));
     let digest;
     const sites = candidates.flatMap((candidate, index) => {
       const [start, end] = candidate.operatorEdit ?? candidate.edit;
       const location = { file, line: positions[index * 2], column: positions[index * 2 + 1], start, end };
-      if (!selected(location.line)) return [];
+      let inScope = false;
+      for (let line = lineAt.get(reach[index][0]); line <= lineAt.get(reach[index][1]) && !inScope; line++) inScope = selected(line);
+      if (!inScope) return [];
       digest ??= sha(input);
       return [{ ...candidate, location, id: sha(JSON.stringify([
         file, digest, options.mode ?? 'module', options.dialect ?? sourceDialect(file),
@@ -62,7 +102,7 @@ export function verdict(run, baseline) {
 }
 
 function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings = {}) {
-  const { tracing = false, activate, trial, witness, coverageSites, synchronousTrace } = settings;
+  const { tracing = false, activate, trial, witness, coverageSites, synchronousTrace, collect } = settings;
   const attempt = withCopy(root, (workspace, temp) => {
     const trace = tracing ? resolve(temp, 'trace.jsonl') : undefined;
     if (trace) mkdirSync(pendingTraceDirectory(trace));
@@ -73,12 +113,16 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
     for (const entry of files) {
       const { subject, file } = entry;
       if (sha(readFileSync(file)) !== subject.digest) throw new Error(`Source changed during analysis: ${subject.file}`);
-      if (tracing) writeFileSync(file, instrument(workspace, subject.file, subject.input, subject.sites,
+      const observable = tracing ? subject.sites.filter(site => !site.unobserved) : [];
+      if (observable.length) writeFileSync(file, instrument(workspace, subject.file, subject.input, observable,
         preloaded.has(entry) ? binding : undefined, coverageSites));
-      else if (trial?.site.location.file === subject.file) writeFileSync(file, rewrite(subject.input, trial.edit, trial.replacement));
+      else if (!tracing && trial?.site.location.file === subject.file) writeFileSync(file, rewrite(subject.input, trial.source?.edit ?? trial.edit, trial.source?.replacement ?? trial.replacement));
     }
     let witnessFile;
-    if (witness?.appendTo) {
+    if (witness?.rewrite) {
+      // A test file with one of its calls wrapped, to record what the call gives where the test makes it.
+      writeFileSync(inside(workspace, witness.rewrite.file), witness.rewrite.content);
+    } else if (witness?.appendTo) {
       const path = inside(workspace, witness.appendTo);
       appendFileSync(path, witness.source);
       witnessFile = relative(workspace, path);
@@ -89,6 +133,10 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
       witnessFile = relative(workspace, path);
     }
     const result = runner(workspace, temp, { trace, active: activate, product: true, probePreload, synchronousTrace });
+    if (!tracing && collect) {
+      const path = resolve(workspace, collect);
+      return { ...result, collected: existsSync(path) ? readFileSync(path, 'utf8') : '' };
+    }
     if (!tracing) return { ...result, witnessFile, witnessName: witness?.testName };
     const { rows, overlap } = inspectTrace(trace);
     return { ...result, trace: rows, overlap, synchronousTrace };
@@ -97,6 +145,17 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
     return makeAttempt(root, subjects, runner, copyExclude, probeChecks, { ...settings, synchronousTrace: true });
   }
   return attempt;
+}
+
+// Runs of the suite against plain source edits, for analyses that record nothing: `attempt()` is the baseline
+// and `attempt({ trial })` one edit, each in a fresh copy of the project.
+export function sourceTrials(root, subjects, options) {
+  const runner = options.runner === 'playwright'
+    ? (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root,
+      tests: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) })
+    : (workspace, temp, settings) => runVitest(workspace, temp, {
+      ...settings, config: options.config, testFiles: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
+  return settings => makeAttempt(root, subjects, runner, options['copy-exclude'], new Map(), settings);
 }
 
 function indexObservations(trace, baseline) {
@@ -188,7 +247,7 @@ export function planFocusedTrials(subjects, trace, baseline, specification, disp
 
   const trials = [];
   for (const { site, observation, tightened, threshold } of sites) {
-    const boundary = { site, edit: site.edit, replacement: site.replacement, rule: site.rule, observation, threshold: site.operator === '>=' ? threshold : null };
+    const boundary = { site, edit: site.edit, replacement: site.replacement, source: site.source, rule: site.rule, observation, threshold: site.operator === '>=' ? threshold : null };
     trials.push(boundary);
     if (threshold?.gap) {
       const alternate = String(threshold.gap.alternate);
@@ -354,23 +413,25 @@ function verifyWitnessRuns(baseline, original, changed) {
 }
 
 function analyzePlaywright(root, subjects, report, options, specification) {
-  const runner = (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root });
+  const runner = (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root,
+    tests: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
   const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
   const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
   const baseline = attempt();
   report.baseline = playwrightSummary(baseline);
   if (baseline.status !== 'passed') {
-    return { ...report, evaluation: 'baseline_error', baseline: { ...report.baseline, output: baseline.output } };
+    return { ...report, evaluation: 'baseline_error',
+      baseline: { ...report.baseline, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } };
   }
 
   report.evaluation = 'evaluated';
   report.instrumented = { status: 'unavailable', reason: 'browser-observations-unavailable' };
   for (const subject of subjects) {
     for (const site of subject.sites) {
-      const trial = { site, edit: site.edit, replacement: site.replacement };
+      const trial = { site, edit: site.edit, replacement: site.replacement, source: site.source };
       const mutant = attempt({ trial });
       const result = {
-        site: site.id, location: site.location, rule: site.rule, operator: site.operator, edit: site.edit,
+        site: site.id, location: site.location, rule: site.rule, operator: site.operator, original: site.original, edit: site.edit,
         replacement: site.replacement, status: verdict(mutant, baseline), evidence: 'reexecuted', run: playwrightSummary(mutant),
       };
       if (result.status === 'killed') result.tests = mutant.tests.filter(test => test.status === 'failed').map(testcase);
@@ -382,6 +443,7 @@ function analyzePlaywright(root, subjects, report, options, specification) {
         if (!agrees && ['killed', 'survived'].includes(result.status)) result.status = 'unstable';
       }
       report.mutants.push(result);
+      if (result.status === 'error') report.evaluation = 'incomplete';
 
       const match = Array.isArray(specification.playwright) && specification.playwright.find(entry =>
         entry.file === subject.file && entry.operator === site.operator && entry.rule === site.rule &&
@@ -414,29 +476,41 @@ export function focusedAuditStatus(source, probe, predicted, status) {
   return 'inconclusive';
 }
 
+// The whole focused analysis in one call.
 export function analyze(project, files, options) {
+  const prepared = prepareAnalysis(project, files, options);
+  return prepared.trials ? completeAnalysis(prepared) : prepared.report;
+}
+
+// Everything up to the planned trials: extraction, the baseline and the recorded comparisons.
+// Returns { report } when the analysis already ended there.
+export function prepareAnalysis(project, files, options) {
   const root = realpathSync(project);
   const { subjects, extraction } = collectComparisons(root, files, options);
   const report = { schemaVersion: 1, runner: options.runner ?? 'vitest', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
+  if (['targeted', 'operators', 'full'].includes(options.mutators)) report.mutators = options.mutators;
   if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
     report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
   }
-  if (!subjects.length) return report;
+  if (!subjects.length) return { report };
 
   const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
-  if (report.runner === 'playwright') return analyzePlaywright(root, subjects, report, options, specification);
+  if (report.runner === 'playwright') return { report: analyzePlaywright(root, subjects, report, options, specification) };
   const runner = (workspace, temp, settings) => runVitest(workspace, temp, {
-    ...settings, config: options.config, testFiles: options.test,
+    ...settings, config: options.config, testFiles: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}),
   });
   const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
   const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
-  const baseline = attempt();
+  // Beside a session, which runs the suite on its own, the recording run stands for the baseline when it passes.
+  // Otherwise the plain baseline runs first, so a failing suite is reported as before.
+  const recorded = options.traceIsBaseline ? attempt({ tracing: true }) : null;
+  const baseline = recorded?.status === 'passed' ? { status: 'passed', tests: recorded.tests } : attempt();
   if (baseline.status !== 'passed') {
-    return { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors } };
+    return { report: { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } } };
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
 
-  const traced = attempt({ tracing: true });
+  const traced = recorded?.status === 'passed' ? recorded : attempt({ tracing: true });
   const tracedStatus = verdict(traced, baseline);
   report.instrumented = { status: tracedStatus === 'survived' ? 'passed' : tracedStatus };
   let trace = tracedStatus === 'survived' ? traced.trace : null;
@@ -451,23 +525,30 @@ export function analyze(project, files, options) {
 
   const trials = planFocusedTrials(subjects, trace, baseline, specification, options['displace-thresholds']);
   const skips = leanSkips(trials, baseline, !!options.deterministic, coverage);
+  return { root, report, options, attempt, baseline, traced, trace, trials, skips };
+}
+
+// Runs the planned trials. `settled` answers a trial that another run already decided: it returns
+// { status, tests } for the same edit, or nothing when this analysis has to run the edit itself.
+export function completeAnalysis({ root, report, options, attempt, baseline, traced, trace, trials, skips }, settled = () => undefined) {
   report.evaluation = 'evaluated';
 
   for (const [index, trial] of trials.entries()) {
     const predicted = skips.has(index);
     const { site } = trial;
     const result = {
-      site: site.id, location: site.location, rule: trial.rule, operator: site.operator,
+      site: site.id, location: site.location, rule: trial.rule, operator: site.operator, original: site.original,
       edit: trial.edit, replacement: trial.replacement, equivalentOnSafeIntegers: trial.equivalentOnSafeIntegers,
       status: predicted ? 'survived' : 'unevaluated', evidence: predicted ? 'predicted' : 'reexecuted',
     };
     let audit;
     if (!predicted || options.audit) {
-      const source = attempt({ trial });
-      const actual = verdict(source, baseline);
+      const known = options.audit ? undefined : settled(trial);
+      const source = known ? null : attempt({ trial });
+      const actual = known ? known.status : verdict(source, baseline);
       if (!predicted) {
         result.status = actual;
-        if (actual === 'killed') result.tests = source.tests.filter(test => test.status === 'failed').map(testcase);
+        if (actual === 'killed') result.tests = known ? known.tests : source.tests.filter(test => test.status === 'failed').map(testcase);
       }
 
       if (options.audit) {
@@ -478,7 +559,9 @@ export function analyze(project, files, options) {
       }
     }
 
-    if (result.status === 'survived' && (report.instrumented.stable === false || trial.observation.rows.length === 0)) {
+    // Operator edits are never traced, so reach is unknown and a surviving run stands as survived.
+    if (result.status === 'survived' && !site.unobserved &&
+        (report.instrumented.stable === false || trial.observation.rows.length === 0)) {
       result.sourceVerdict = 'survived';
       result.status = report.instrumented.stable === false ? 'unstable'
         : trial.observation.loaded ? 'unreached' : 'unevaluated';
@@ -489,6 +572,8 @@ export function analyze(project, files, options) {
       if (status === 'mismatch') result.status = 'unstable';
     }
     report.mutants.push(result);
+    // The runner broke down in this trial, which is neither a kill nor a survivor: the analysis is not complete.
+    if (result.status === 'error') report.evaluation = 'incomplete';
     const gap = diagnose(trial, result);
     if (gap) {
       if (options.audit && gap.suggestedTest) gap.verification = verifyVitestWitness(root, attempt, baseline, trial, gap);

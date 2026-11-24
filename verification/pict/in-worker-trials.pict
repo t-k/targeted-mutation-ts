@@ -1,0 +1,5 @@
+Files: One, Two
+First: Killed, Survived, Timeout, Stuck, Open, Missing
+Second: None, Killed, Survived, Timeout, Open, Missing
+IF [Files] = "One" THEN [Second] = "None";
+IF [Files] = "Two" THEN [Second] <> "None";

@@ -1,0 +1,15 @@
+# Probes of value operations in the targeted profile: the operation, which of its edits, what its operands are
+# in one evaluation, and where the expression stands.
+Operation: Add, Sub, Mul, Div, Rem, Max, Min, Floor, Ceil, Round, Trunc, IndexFirst, AtFirst, AtLast, IndexLast, Find, FindLast, FindIndex, FindLastIndex, IndexOf, LastIndexOf
+Edit: First, Second, Third
+Left: Zero, One, MinusOne, Two, Half, MinusHalf, NotANumber, Digits, Record, Empty, Single, Pair, Repeated, Mixed, Letters, Lookalike
+Right: Zero, One, MinusOne, Two, Half, NotANumber, Digits, Record, SearchPresent, SearchAbsent, IsOdd, Unused
+Placement: Returned, Condition, Member, Argument
+
+IF [Operation] IN {"Add", "Sub", "Mul", "Div", "Rem"} THEN [Edit] <> "Third" AND [Left] IN {"Zero", "One", "MinusOne", "Two", "Half", "MinusHalf", "NotANumber", "Digits", "Record"} AND [Right] IN {"Zero", "One", "MinusOne", "Two", "Half", "NotANumber", "Digits", "Record"};
+IF [Operation] IN {"Max", "Min"} THEN [Edit] = "First" AND [Left] IN {"Zero", "One", "MinusOne", "Two", "Half", "MinusHalf", "NotANumber", "Digits"} AND [Right] IN {"Zero", "One", "MinusOne", "Two", "Half", "NotANumber", "Digits"};
+IF [Operation] IN {"Floor", "Ceil", "Round", "Trunc"} THEN [Left] IN {"Zero", "One", "MinusOne", "Two", "Half", "MinusHalf", "NotANumber", "Digits"} AND [Right] = "Unused";
+IF [Operation] IN {"Ceil", "Round", "Trunc"} THEN [Edit] <> "Third";
+IF [Operation] IN {"IndexFirst", "AtFirst", "AtLast", "IndexLast"} THEN [Edit] = "First" AND [Left] IN {"Empty", "Single", "Pair", "Repeated", "Mixed", "Letters", "Lookalike"} AND [Right] = "Unused";
+IF [Operation] IN {"Find", "FindLast", "FindIndex", "FindLastIndex"} THEN [Edit] = "First" AND [Left] IN {"Empty", "Single", "Pair", "Repeated", "Mixed", "Letters"} AND [Right] = "IsOdd";
+IF [Operation] IN {"IndexOf", "LastIndexOf"} THEN [Edit] = "First" AND [Left] IN {"Empty", "Single", "Pair", "Repeated", "Mixed", "Letters"} AND [Right] IN {"SearchPresent", "SearchAbsent"};

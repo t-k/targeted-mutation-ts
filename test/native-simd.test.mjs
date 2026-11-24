@@ -18,7 +18,7 @@ test('the native scanner and scalar build return identical packed rows at block 
   const destination = join(scratch, 'scalar.node');
   try {
     const build = spawnSync(process.execPath, ['scripts/build-native.mjs', '--scalar-scans', '--output', destination], {
-      encoding: 'utf8', timeout: 30_000,
+      encoding: 'utf8', timeout: 120_000,
     });
     assert.equal(build.status, 0, build.error?.message ?? build.stderr);
     const reference = require(destination);

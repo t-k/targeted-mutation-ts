@@ -191,3 +191,12 @@ test('applies a project-wide sort specification to a different selected source',
   const result = runWitness(root, source, suite, '--spec', 'order-spec.json', '--lines', `${source}:5-5`);
   assert.ok(result.diagnostics.some(gap => gap.rule === 'first-to-last-index/v1'));
 });
+
+test('side-by-side runs report what one-by-one runs report, in the same order', () => {
+  const shape = report => ({ ...report, diagnostics: report.diagnostics.map(({ fixtureEdit, ...gap }) => gap) });
+  const scrub = report => JSON.parse(JSON.stringify(shape(report)).replace(/TMT witness [0-9a-f]{32}/g, 'marker'));
+  const beside = runWitness(root, source, suite, '--concurrency', '4');
+  const single = runWitness(root, source, suite, '--concurrency', '1');
+  assert.ok(beside.mutants.length >= 5);
+  assert.deepEqual(scrub(beside), scrub(single));
+});

@@ -1,0 +1,6 @@
+Platform: darwin, linux, win32
+Arch: arm64, x64, ia32
+Local: Present, Absent
+Package: Matching, Mismatched, Absent
+
+IF [Platform] = "win32" OR [Arch] = "ia32" THEN [Package] = "Absent";

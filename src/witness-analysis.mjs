@@ -4,7 +4,10 @@ import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync }
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { verdict } from './analysis.mjs';
 import { selectScope } from './scope.mjs';
-import { inside, runVitest, withCopy } from './vitest.mjs';
+import { failedTests } from './vitest-reporter.mjs';
+import { availableParallelism } from 'node:os';
+import { inParallel } from './in-parallel.mjs';
+import { inside, runVitestAsync, withCopy } from './vitest.mjs';
 import { parseSource, discoverWitnessRules } from './witness-rules.mjs';
 import { fixtureCalls, witnessProposals } from './witness-fixtures.mjs';
 import { prepareContracts, evaluateContracts } from './witness-contracts.mjs';
@@ -28,8 +31,9 @@ export function applyTextEdits(source, edits) {
   return source;
 }
 
+// One run of the suite in its own copy of the project. Copies are independent, so attempts can run side by side.
 function runAttempt(root, options, snapshots, edits = [], append, capture = false) {
-  return withCopy(root, (workspace, temp) => {
+  return withCopy(root, async (workspace, temp) => {
     for (const [file, expected] of snapshots) {
       const current = readFileSync(inside(workspace, file));
       if (!isUtf8(current) || current.toString() !== expected) throw new Error(`Source changed during analysis: ${file}`);
@@ -41,7 +45,8 @@ function runAttempt(root, options, snapshots, edits = [], append, capture = fals
       writeFileSync(path, applyTextEdits(source, edits.filter(edit => edit.file === file)));
     }
     if (append) appendFileSync(inside(workspace, append.file), append.source);
-    const result = runVitest(workspace, temp, { product: true, config: options.config, testFiles: options.test });
+    const result = await runVitestAsync(workspace, temp, { product: true, config: options.config, testFiles: options.test,
+      ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
     if (capture && result.status === 'passed') {
       for (const file of new Set(result.tests.map(test => test.file))) {
         const bytes = readFileSync(inside(workspace, file));
@@ -63,7 +68,7 @@ export function isExpectedFailure(run, baseline, target, original, alternate, ma
      error.actual === String(alternate) && error.expected === String(original));
 }
 
-function verifyProposal(attempt, baseline, candidate, proposal, snapshots) {
+async function verifyProposal(attempt, baseline, candidate, proposal, snapshots) {
   const { fixture, rewrite, original, mutant } = proposal;
   const suffix = randomUUID().replaceAll('-', '');
   const marker = 'TMT witness ' + suffix;
@@ -71,9 +76,9 @@ function verifyProposal(attempt, baseline, candidate, proposal, snapshots) {
     const target = distinct(baseline.tests, fixture.name, fixture.file)[0];
     const edit = { ...rewrite, file: fixture.file };
     const tagged = { file: fixture.file, start: fixture.expectEnd, end: fixture.expectEnd, original: '', replacement: ', ' + JSON.stringify(marker) };
-    const originalRun = attempt([edit, tagged]);
+    const originalRun = await attempt([edit, tagged]);
     if (verdict(originalRun, baseline) !== 'survived') return null;
-    const changed = attempt([candidate.edit, edit, tagged]);
+    const changed = await attempt([candidate.edit, edit, tagged]);
     if (isExpectedFailure(changed, baseline, target, original, mutant, marker)) {
       const source = snapshots.get(edit.file);
       const fixtureEdit = { ...edit, start: Buffer.byteLength(source.slice(0, edit.start)), end: Buffer.byteLength(source.slice(0, edit.end)) };
@@ -89,20 +94,20 @@ import { expect as __tmtExpect_${suffix}, it as __tmtIt_${suffix} } from 'vitest
 import { ${candidate.name} as __tmtCall_${suffix} } from ${JSON.stringify(fixture.module)};
 __tmtIt_${suffix}(${JSON.stringify(name)}, () => __tmtExpect_${suffix}(${expression}, ${JSON.stringify(marker)}).toBe(${JSON.stringify(original)}));
 ` };
-  return verifyAppend(attempt, baseline, [candidate.edit], append, marker, original, mutant)
+  return await verifyAppend(attempt, baseline, [candidate.edit], append, marker, original, mutant)
     ? { verification: { status: 'confirmed', original: 'passed', rewrite: 'failed' } } : null;
 }
 
-function verifyAppend(attempt, baseline, edits, append, marker, original, mutant) {
-  const originalRun = attempt([], append);
+async function verifyAppend(attempt, baseline, edits, append, marker, original, mutant) {
+  const originalRun = await attempt([], append);
   if (originalRun.status !== 'passed' || originalRun.tests.length !== baseline.tests.length + 1) return false;
   const [target, extra] = distinct(originalRun.tests, marker, append.file);
   if (!target || extra || target.status !== 'passed' ||
       verdict({ ...originalRun, tests: originalRun.tests.filter(test => test !== target) }, baseline) !== 'survived') return false;
-  return isExpectedFailure(attempt(edits, append), originalRun, target, original, mutant, marker);
+  return isExpectedFailure(await attempt(edits, append), originalRun, target, original, mutant, marker);
 }
 
-export function analyzeWitnesses(project, files, options) {
+export async function analyzeWitnesses(project, files, options) {
   const root = realpathSync(project);
   const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
   if (!specification || typeof specification !== 'object' || Array.isArray(specification)) throw new Error('Expected a witness specification object');
@@ -162,9 +167,12 @@ export function analyzeWitnesses(project, files, options) {
     ['encoder', 'decoder'].every(kind => sources.some(source => source.endpoints.some(endpoint => endpoint.kind === kind)));
   if ((!candidates.length && !plans.length && !discoveryPossible) || extraction.some(entry => entry.path === 'diagnostic')) return report;
   const attempt = (edits, append) => runAttempt(root, options, snapshots, edits, append);
-  const baseline = runAttempt(root, options, snapshots, [], undefined, true);
+  const baseline = await runAttempt(root, options, snapshots, [], undefined, true);
+  // Each candidate, and each contract after them, is tried in copies of its own, several at a time.
+  // The report keeps the candidates' order whatever order they finish in.
+  const concurrency = options.concurrency ?? Math.max(1, Math.min(8, availableParallelism() - 1));
   if (baseline.status !== 'passed') return { ...report, evaluation: 'baseline_error',
-    baseline: { status: baseline.status, errors: baseline.errors, output: baseline.output } };
+    baseline: { status: baseline.status, errors: baseline.errors, output: baseline.output, failedTests: failedTests(baseline) } };
   report.baseline = { status: 'passed', tests: baseline.tests.length };
   const testFiles = new Set(baseline.tests.map(test => test.file));
   const fixtureSources = [...testFiles].flatMap(file => {
@@ -187,34 +195,40 @@ export function analyzeWitnesses(project, files, options) {
   witnessSearch.evaluated = Math.min(prepared.length, candidateLimit);
   witnessSearch.omitted = Math.max(0, prepared.length - candidateLimit);
 
-  for (const { candidate, fixtures, proposals } of prepared.slice(0, candidateLimit)) {
+  const tried = await inParallel(prepared.slice(0, candidateLimit), concurrency, async ({ candidate, fixtures, proposals }) => {
     const { id, location, rule, edit } = candidate;
-    const outcome = verdict(attempt([edit]), baseline);
-    report.mutants.push({ id, location, rule, edit: [location.start, location.end], original: edit.original,
-      replacement: edit.replacement, status: outcome, evidence: 'reexecuted' });
-    if (outcome !== 'survived') continue;
+    const outcome = verdict(await attempt([edit]), baseline);
+    const mutant = { id, location, rule, edit: [location.start, location.end], original: edit.original,
+      replacement: edit.replacement, status: outcome, evidence: 'reexecuted' };
+    if (outcome !== 'survived') return { mutant };
     for (const proposal of proposals.slice(0, proposalLimit)) {
-      const verified = verifyProposal(attempt, baseline, candidate, proposal, snapshots);
+      const verified = await verifyProposal(attempt, baseline, candidate, proposal, snapshots);
       if (!verified) continue;
-      const { fixture, original, mutant } = proposal;
-      report.diagnostics.push({
+      const { fixture, original, mutant: changed } = proposal;
+      return { mutant, diagnostic: {
         kind: 'INPUT GAP', site: id, rule, location,
-        witness: { arguments: proposal.arguments, original, mutant, expectation: 'original' },
+        witness: { arguments: proposal.arguments, original, mutant: changed, expectation: 'original' },
         observedOutcomes: candidate.outcome ? [...new Set(fixtures
           .map(seed => candidate.outcome(seed.args.map(arg => arg.value), seed.expected)).filter(Boolean))].sort() : undefined,
         seed: { file: fixture.file, test: fixture.name },
         suggestedTest: `expect(${fixture.bindingName}(${proposal.arguments.map(value => JSON.stringify(value)).join(', ')})${fixture.suffix}).toBe(${JSON.stringify(original)})`,
         constraints: candidate.constraints,
         ...verified,
-      });
-      break;
+      } };
     }
+    return { mutant };
+  });
+  for (const { mutant, diagnostic } of tried) {
+    report.mutants.push(mutant);
+    if (diagnostic) report.diagnostics.push(diagnostic);
   }
   const automatic = discoverContracts(fixtureSources, baseline, sources, { project: root }).filter(plan => !plans.some(explicit =>
     explicit.testFile === plan.testFile && explicit.seedTest === plan.seedTest &&
     explicit.edits.length === plan.edits.length && explicit.edits.every(edit => plan.edits.some(other =>
       edit.file === other.file && edit.line === other.line && edit.original === other.original && edit.replacement === other.replacement))));
   const discovered = prepareContracts({ witnessPlans: automatic }, selection, snapshots, { discovered: true });
-  evaluateContracts([...plans, ...discovered], attempt, baseline, snapshots, verifyAppend, report);
+  await evaluateContracts([...plans, ...discovered], attempt, baseline, snapshots, verifyAppend, report, concurrency);
+  // A trial the runner could not finish is neither a kill nor a survivor.
+  if (report.mutants.some(mutant => mutant.status === 'error')) report.evaluation = 'incomplete';
   return report;
 }
