@@ -60,7 +60,7 @@ const at = location => location ? `${location.file}:${location.line}:${location.
 
 function describeEdit(mutant) {
   const name = mutant.mutatorName ?? mutant.rule ?? 'edit';
-  if (mutant.since !== undefined) return `${name}: ${mutant.wholeFile ? 'all changes of the file' : firstLine(mutant.original) || '(removed lines)'} as it was at ${printable(mutant.since.slice(0, 12))}`;
+  if (mutant.since !== undefined) return `${name}: ${mutant.together ? 'the changes of the file together' : firstLine(mutant.original) || '(removed lines)'} as it was at ${printable(mutant.since.slice(0, 12))}`;
   if (mutant.original !== undefined) return `${name}: ${firstLine(mutant.original)} -> ${firstLine(mutant.replacement)}`;
   const operator = String(mutant.replacement).trim();
   if (mutant.operator !== undefined && /^[<>=!&|?+*\/%-]+$/.test(operator)) return `${name}: ${mutant.operator} -> ${operator}`;
@@ -102,7 +102,7 @@ function describeGap(gap) {
     }
   }
   if (gap.kind === 'UNTESTED CHANGE') {
-    lines.push(`  the tests pass with ${gap.wholeFile ? "all of this file's changes" : 'this change'} put back as it was at ${printable(String(gap.since).slice(0, 12))}`,
+    lines.push(`  the tests pass with ${gap.together ? 'these changes of the file put back together as they were' : 'this change put back as it was'} at ${printable(String(gap.since).slice(0, 12))}`,
       '  add a test that fails without the change');
   }
   if (gap.suggestedTest) lines.push(`  suggested test: ${printable(gap.suggestedTest)}`);

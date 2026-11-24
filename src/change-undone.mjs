@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, realpathSync } from 'node:fs';
 import { sep } from 'node:path';
 import { sourceTrials, verdict } from './analysis.mjs';
+import { failedTests } from './vitest-reporter.mjs';
 import { selectScope } from './scope.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
 import { inside } from './vitest.mjs';
@@ -48,22 +49,37 @@ export function undoEdits(patch, old, current) {
 
 const apply = (current, { edit, replacement }) => Buffer.concat([current.subarray(0, edit[0]), replacement, current.subarray(edit[1])]);
 
-// The tokens of a source text without comments and spacing: a change that leaves them alone changes no code.
-function tokens(ts, file, text) {
-  const variant = /\.[jt]sx$/.test(file) ? ts.LanguageVariant.JSX : ts.LanguageVariant.Standard;
-  const scanner = ts.createScanner(ts.ScriptTarget.Latest, true, variant, text);
-  const seen = [];
-  for (let kind = scanner.scan(); kind !== ts.SyntaxKind.EndOfFileToken; kind = scanner.scan()) seen.push(scanner.getTokenText());
-  return seen.join('\u0000');
+// The code of a source text: its syntax tree with every token as the parser read it, without comments and
+// spacing. A line end that ends a statement changes the tree, a space in a regular expression or a template
+// changes a token, and text between tags counts as JSX reads it, without the indentation of its lines.
+function code(ts, file, text) {
+  const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false);
+  const parts = [];
+  (function walk(node) {
+    if (node.kind >= ts.SyntaxKind.FirstJSDocNode && node.kind <= ts.SyntaxKind.LastJSDocNode) return;
+    const children = node.getChildren(tree);
+    parts.push(node.kind);
+    if (node.kind === ts.SyntaxKind.JsxText) {
+      const lines = node.text.split(/\r\n|[\n\r]/);
+      parts.push(JSON.stringify(lines.map((line, index) => (index ? line.trimStart() : line)).map((line, index) =>
+        (index < lines.length - 1 ? line.trimEnd() : line)).filter((line, index) => line || lines.length === 1 && !index).join(' ')));
+    } else if (!children.length) parts.push(JSON.stringify(text.slice(node.getStart(tree), node.end)));
+    else {
+      parts.push('(');
+      for (const child of children) walk(child);
+      parts.push(')');
+    }
+  })(tree);
+  return parts.join(' ');
 }
 
 const parses = (ts, file, text) => ts.createSourceFile(file, text, ts.ScriptTarget.Latest, false).parseDiagnostics.length === 0;
 
-// The trials for one file: every change that changes code, put back alone, and all of them together where one
-// of them does not parse alone.
+// The trials for one file: every change in scope that changes code, put back alone, and those together where
+// one of them does not parse alone.
 export function planUndo(file, old, current, patch, selected = () => true, ts = loadTypeScript()) {
   const text = current.toString();
-  const now = tokens(ts, file, text);
+  const now = code(ts, file, text);
   const sound = parses(ts, file, text);
   const trials = [];
   for (const change of undoEdits(patch, old, current)) {
@@ -71,11 +87,12 @@ export function planUndo(file, old, current, patch, selected = () => true, ts = 
     for (let line = change.lines[0]; line <= change.lines[1] && !inScope; line++) inScope = selected(line);
     if (!inScope) continue;
     const undone = apply(current, change).toString();
-    if (tokens(ts, file, undone) === now) continue;
+    if (code(ts, file, undone) === now) continue;
     trials.push({ ...change, parses: !sound || parses(ts, file, undone) });
   }
-  if (trials.length > 1 && trials.some(trial => !trial.parses) && tokens(ts, file, old.toString()) !== now) {
-    trials.push({ edit: [0, current.length], replacement: old, line: trials[0].line, whole: true, parses: !sound || parses(ts, file, old.toString()) });
+  if (trials.length > 1 && trials.some(trial => !trial.parses)) {
+    const all = [...trials].sort((a, b) => b.edit[0] - a.edit[0]).reduce(apply, current);
+    trials.push({ edit: [0, current.length], replacement: all, line: trials[0].line, together: true, parses: !sound || parses(ts, file, all.toString()) });
   }
   return trials;
 }
@@ -106,7 +123,8 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
     const pathspec = sep === '/' ? file : file.replaceAll(sep, '/');
     let old;
     try {
-      old = git(root, ['show', `${revision}:./${pathspec}`]);
+      // As a checkout of the revision would write it: with the line ends the attributes of the path ask for.
+      old = git(root, ['cat-file', '--filters', `${revision}:./${pathspec}`]);
     } catch {
       // The file is new since the revision: there is nothing to put back.
       continue;
@@ -126,23 +144,33 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
   if (!trials.length) return report;
   const attempt = run.sourceTrials(root, subjects, options);
   const baseline = attempt();
-  if (baseline.status !== 'passed') return { ...report, evaluation: 'baseline_error', baseline };
+  if (baseline.status !== 'passed') {
+    return { ...report, evaluation: 'baseline_error',
+      baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } };
+  }
   report.evaluation = 'evaluated';
+  // A file the suite runs as a test is not the program: its assertions stay as they are in every trial.
+  const testFiles = new Set(baseline.tests.map(entry => entry.file));
   for (const trial of trials) {
+    if (testFiles.has(trial.site.location.file)) continue;
     const mutant = { site: trial.site.id, location: trial.site.location, rule: undoneRule, original: trial.original, edit: trial.edit,
-      replacement: trial.replacement, since: revision, ...(trial.whole ? { wholeFile: true } : {}) };
+      replacement: trial.replacement, since: revision, ...(trial.together ? { together: true } : {}) };
     if (!trial.parses) {
       report.mutants.push({ ...mutant, status: 'unsupported', statusReason: 'Put back alone, this change does not parse' });
       continue;
     }
     const result = attempt({ trial });
-    const status = verdict(result, baseline);
+    // A suite that ran to its end with errors outside the tests could not load the code as it was: the change
+    // is noticed. A runner that broke down reports no such errors and stays an error.
+    const unloadable = result.status === 'error' && result.errors?.length > 0 && Array.isArray(result.tests);
+    const status = unloadable ? 'killed' : verdict(result, baseline);
     report.mutants.push({ ...mutant, status, evidence: 'reexecuted',
+      ...(unloadable ? { statusReason: 'The suite did not load: ' + String(result.errors[0]).split('\n')[0] } : {}),
       ...(status === 'killed' ? { tests: result.tests.filter(test => test.status === 'failed').map(({ id, project, file, name }) => ({ id, project, file, name })) } : {}) });
     if (status === 'error') report.evaluation = 'incomplete';
     if (status === 'survived') {
       report.diagnostics.push({ kind: 'UNTESTED CHANGE', site: trial.site.id, location: trial.site.location, rule: undoneRule, since: revision,
-        ...(trial.whole ? { wholeFile: true } : {}), mutations: [{ rule: undoneRule, edit: trial.edit, replacement: trial.replacement, evidence: 'reexecuted' }] });
+        ...(trial.together ? { together: true } : {}), mutations: [{ rule: undoneRule, edit: trial.edit, replacement: trial.replacement, evidence: 'reexecuted' }] });
     }
   }
   return report;

@@ -60,10 +60,10 @@ UNTESTED CHANGE src/session.ts:9:1  change-undone/v1
 ```
 
 - A change is what Git reports as one hunk without context: changed lines next to each other are one change, and lines that were only removed are a change at the place they stood.
-- A change that leaves the tokens of the file as they are (comments, spacing, blank lines) is not tried. A file that is new since `REV` has nothing to put back.
-- A change that does not parse when it is put back alone (one of two braces) is listed as `unsupported` and not run. When a file has such a change and others, all of the file's changes are also put back together, as one more edit.
-- A change that parses and fails at run time when put back alone (it calls a function that only another change adds) fails the tests and counts as `killed`. Nothing here checks types.
-- The tests stay as they are. `--lines` limits the changes to those that touch the given lines; a removal belongs to the lines around it.
+- A change that leaves the code as it is (comments, spacing, blank lines, the indentation of text between JSX tags) is not tried: the tokens and the syntax tree of the file are compared, so a line end that ends a statement counts. A file that is new since `REV` has nothing to put back, and a renamed or deleted file is not followed.
+- A change that does not parse when it is put back alone (one of two braces) is listed as `unsupported` and not run. When a file has such a change and others, the file's changes in scope are also put back together, as one more edit.
+- A change that parses and fails at run time when put back alone (it calls a function that only another change adds) fails the tests, or keeps the suite from loading, and counts as `killed`. Nothing here checks types.
+- The tests stay as they are: a changed file that the suite runs as a test is not put back. `--lines` limits the changes to those that touch the given lines; a removal belongs to the lines around it.
 - Each change costs one run of the suite, after one baseline run of its own. A refactoring passes with the old code by design; such a finding is expected.
 - The option works with every profile except `--witnesses`, and with Playwright. In JSON the edits have the rule `change-undone/v1` and `since`, the report has `changesSince`, and a finding is a `diagnostics` entry of kind `UNTESTED CHANGE`.
 

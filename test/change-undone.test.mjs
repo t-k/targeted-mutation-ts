@@ -88,10 +88,12 @@ test('a change that does not parse alone is not run, and the file is then also t
   const current = Buffer.from('export function f(a) {\n  if (a)\n    note(a);\n    note(1);\n  return 2;\n}\nexport const g = 2;\n');
   const patch = patchOf(old, current);
   const planned = planUndo('f.js', old, current, patch);
-  assert.deepEqual(planned.map(trial => [trial.parses, trial.whole === true]), [[false, false], [false, false], [true, false], [true, true]]);
-  assert.equal(planned.at(-1).whole, true);
+  assert.deepEqual(planned.map(trial => [trial.parses, trial.together === true]), [[false, false], [false, false], [true, false], [true, true]]);
   assert.equal(planned.at(-1).replacement.toString(), old.toString());
-  assert.equal(planned.at(-1).parses, true);
+  // Together means the changes in scope: with the braces selected, the constant after them stays as it is.
+  const braces = planUndo('f.js', old, current, patch, line => line <= 5);
+  assert.deepEqual(braces.map(trial => trial.together === true), [false, false, true]);
+  assert.equal(braces.at(-1).replacement.toString(), old.toString().replace('g = 1', 'g = 2'));
   // A line scope keeps the changes that touch it; a removal belongs to the lines around it.
   assert.deepEqual(planUndo('f.js', old, current, patch, line => line === 7).map(trial => trial.replacement.toString()), ['export const g = 1;\n']);
   const removed = Buffer.from('const a = 1\nconst c = 3\nconst d = 4\n');
@@ -157,12 +159,13 @@ test('without changes of code nothing runs, a failing suite is a baseline error,
   git('commit', '-qm', 'first');
   writeFileSync(join(root, 'subject.ts'), subject.replace('export const total', '// sums\nexport const total'));
   let runs = 0;
-  const counting = { sourceTrials: () => () => { runs++; return { status: 'failed', tests: [] }; } };
+  const counting = { sourceTrials: () => () => { runs++; return { status: 'failed', tests: [{ file: 'subject.test.ts', name: 'total', status: 'failed', failures: ['expected 3'] }] }; } };
   assert.equal(analyzeUndoneChanges(root, [], { since: 'HEAD' }, counting).evaluation, 'no_sites');
   assert.equal(runs, 0);
   writeFileSync(join(root, 'subject.ts'), subject.replace('a + b', 'a - b'));
   const failed = analyzeUndoneChanges(root, [], { since: 'HEAD' }, counting);
   assert.deepEqual([failed.evaluation, runs], ['baseline_error', 1]);
+  assert.match(renderText({ runner: 'vitest', ...withUndoneChanges({ evaluation: 'evaluated', mutants: [], diagnostics: [] }, failed) }), /FAILED subject\.test\.ts > total\n {4}expected 3/);
   assert.throws(() => analyzeUndoneChanges(root, [], {}), /requires --since/);
   assert.throws(() => analyzeUndoneChanges(root, [], { since: 'nowhere' }), /Cannot resolve Git revision: nowhere/);
   const flag = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', root, '--undo-changes'], { encoding: 'utf8' });
@@ -190,8 +193,51 @@ test('a change that does not parse alone is listed as unsupported without a run,
   const edits = [];
   const passing = { sourceTrials: () => settings => { if (settings) edits.push(settings.trial.replacement); return { status: 'passed', tests: [] }; } };
   const report = analyzeUndoneChanges(root, ['subject.js'], { since: 'HEAD' }, passing);
-  assert.deepEqual(report.mutants.map(mutant => [mutant.status, mutant.wholeFile === true]), [['unsupported', false], ['unsupported', false], ['survived', true]]);
+  assert.deepEqual(report.mutants.map(mutant => [mutant.status, mutant.together === true]), [['unsupported', false], ['unsupported', false], ['survived', true]]);
   assert.deepEqual(edits, [old]);
   assert.match(report.mutants[0].statusReason, /does not parse/);
-  assert.match(renderText({ runner: 'vitest', evaluation: 'evaluated', ...report }), /all of this file's changes put back as it was at/);
+  assert.match(renderText({ runner: 'vitest', evaluation: 'evaluated', ...report }), /the tests pass with these changes of the file put back together as they were at/);
+}));
+
+test('a change of spacing that changes the program is tried, and one that does not is left out', () => {
+  const tried = (file, old, current) => planUndo(file, Buffer.from(old), Buffer.from(current), patchOf(Buffer.from(old), Buffer.from(current))).length;
+  // A line end after `return` ends the statement.
+  assert.equal(tried('f.js', 'function f() {\n  return\n  1\n}\n', 'function f() {\n  return 1\n}\n'), 1);
+  assert.equal(tried('f.js', 'const f = (a, b) => a +\n  b\n', 'const f = (a, b) => a + b\n'), 0);
+  // Text between tags is code; the indentation of its lines is not.
+  assert.equal(tried('f.jsx', 'const a = <b>Hello world</b>\n', 'const a = <b>Hello  world</b>\n'), 1);
+  assert.equal(tried('f.jsx', 'const a = <b>\n  Hello\n</b>\n', 'const a = <b>\n      Hello\n</b>\n'), 0);
+  assert.equal(tried('f.ts', 'let n = 1\n', 'const n = 1\n'), 1);
+  // A space in a regular expression or a template is code; a comment after a template is not.
+  assert.equal(tried('f.js', 'const r = /a +b/\n', 'const r = /a+b/\n'), 1);
+  assert.equal(tried('f.js', 'const t = `a  ${1} b`\n', 'const t = `a ${1} b`\n'), 1);
+  assert.equal(tried('f.js', 'const greet = name => `Hi ${name}!`;\n// old\n', 'const greet = name => `Hi ${name}!`;\n// new\n'), 0);
+  assert.equal(tried('f.js', '/** old */\nfunction f() {}\n', '/** new\n * @returns nothing */\nfunction f() {}\n'), 0);
+  assert.equal(tried('f.js', 'const n = -a\n', 'const n = +a\n'), 1);
+});
+
+test('the old lines come back with the line ends of the checkout, a test file is not put back, and code that cannot load is noticed', () => repository((root, git) => {
+  writeFileSync(join(root, '.gitattributes'), '*.js text eol=crlf\n');
+  writeFileSync(join(root, 'subject.js'), 'export const a = 1;\r\nexport const b = 2;\r\n');
+  writeFileSync(join(root, 'checks.js'), 'export const expected = 1;\r\n');
+  git('add', '.');
+  git('commit', '-qm', 'first');
+  writeFileSync(join(root, 'subject.js'), 'export const a = 5;\r\nexport const b = 2;\r\n');
+  writeFileSync(join(root, 'checks.js'), 'export const expected = 5;\r\n');
+  const edits = [];
+  const loaded = [{ file: 'checks.js', name: 'checks', status: 'passed' }];
+  const run = { sourceTrials: () => settings => {
+    if (!settings) return { status: 'passed', tests: loaded };
+    edits.push([settings.trial.site.location.file, settings.trial.replacement]);
+    return { status: 'error', tests: [], errors: ['ReferenceError: defaults is not defined\n    at subject.js:1'] };
+  } };
+  const report = analyzeUndoneChanges(root, [], { since: 'HEAD' }, run);
+  assert.deepEqual(edits, [['subject.js', 'export const a = 1;\r\n']]);
+  assert.deepEqual(report.mutants.map(mutant => [mutant.location.file, mutant.status, mutant.statusReason]),
+    [['subject.js', 'killed', 'The suite did not load: ReferenceError: defaults is not defined']]);
+  assert.equal(report.evaluation, 'evaluated');
+  // A runner that broke down names no error of the suite.
+  const broken = analyzeUndoneChanges(root, ['subject.js'], { since: 'HEAD' },
+    { sourceTrials: () => settings => (settings ? { status: 'error', output: 'spawn failed' } : { status: 'passed', tests: loaded }) });
+  assert.deepEqual([broken.mutants[0].status, broken.evaluation], ['error', 'incomplete']);
 }));
