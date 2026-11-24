@@ -944,7 +944,6 @@ test('an export assignment at the end of a file becomes module.exports', () => {
     'export = f\nfunction f() {}',
     'export = { a: 1 };\nconst b = 2;',
     'export const a = 1;\nexport = a;',
-    'import fs = require("fs");\nexport = fs;',
   ]) {
     assert.notEqual(compile(Buffer.from(source), { file: 'assign.ts' }).backend, 'pulse', source);
   }
@@ -1468,6 +1467,9 @@ test('import-equals declarations become const or var', () => {
     'import x = require(y);\nx;', 'import x = require("x");\nconst x = 1;']) {
     assert.notEqual(compile(Buffer.from(source), { file: 'alias.ts' }).backend, 'pulse', source);
   }
+  // With an empty namespace between them the file still is a module and must not get the strict directive
+  // of a script, whichever route answers.
+  assert.doesNotMatch(sameAsTypeScript('import i = require("mod");\nnamespace N {\n}\nexport = N;', 'alias.ts').code, /use strict/);
   for (const options of [{ file: 'alias.mts' }, { file: 'alias.ts', module: 'esm' }]) {
     const result = compile(Buffer.from('import x = require("x");\nx();'), options);
     assert.equal(result.code, null);

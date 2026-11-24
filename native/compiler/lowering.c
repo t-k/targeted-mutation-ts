@@ -2386,7 +2386,11 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
 enum_only:
   free(code);
   if (runs) runs->failed = true;
-  return enums != TMT_ENUMS_ABSENT ? lower_recorded_enums(input, records, module && !esm, length, NULL) : NULL;
+  /*
+   * This text still holds its types and goes on to another eraser, which decides by the words import and export
+   * whether it is a module. A require call or module.exports written here would hide that, so they are not.
+   */
+  return enums != TMT_ENUMS_ABSENT ? lower_recorded_enums(input, records, false, length, NULL) : NULL;
 }
 #endif
 
