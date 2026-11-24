@@ -1344,3 +1344,18 @@ test('method signatures without a result type, and optional properties and gette
   }
   assert.equal(compile(Buffer.from('export type W = { m() => void };'), { file: 'signatures.ts' }).code, null);
 });
+
+test('a declared module may hold type aliases beside interfaces', () => {
+  for (const source of [
+    'import type { K } from "knex";\ndeclare module "knex/types/tables.ts" { export type Knexify<T extends Table> = K.C<T> & {}; }',
+    'interface Tables { a: 1 }\ndeclare module "m" { interface Tables { b: 2 } }\nexport {};',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'ambient.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'declare module "m" { export const a = 1; }\nexport {};',
+    'declare module "m" { f(); }\nexport {};',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'ambient.ts' }).backend, 'pulse', source);
+  }
+});

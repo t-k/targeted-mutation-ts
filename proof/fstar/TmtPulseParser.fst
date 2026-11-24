@@ -5478,7 +5478,11 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
       let! width = (fun () -> local_width input st.offset) in ret input (width <> 0ul)) in
   if resource.status = 0ul then module_lexical_list input resource used true true input.size 0ul
   else if ambient_module.status = 0ul then
-    let! body = (fun () -> ambient_interfaces input ambient_module input.size true) in
+    // The body of a declared module holds what a declared namespace may hold: types, interfaces and declarations
+    // without values. Interfaces alone are tried first, since they may repeat names of the file.
+    let! interfaces = (fun () -> ambient_interfaces input ambient_module input.size true) in
+    let! body = (fun () -> if interfaces.status = 0ul then ret input interfaces
+      else type_namespace_members input ambient_module 0ul used used 8ul input.size true) in
     let! recorded = (fun () -> record_jsx_span input body 8ul st.offset body.offset) in
     ret input ({ state = recorded; used })
   else if declared then module_declaration input st used

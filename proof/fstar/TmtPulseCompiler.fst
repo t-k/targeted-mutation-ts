@@ -561,7 +561,10 @@ let module_item_end (input:tape) (state:P.parser_state)
   else
     // declare module 'name' { ... } holds interfaces only and is erased whole.
     let! ambient_module = (fun () -> if first = 100uy then P.ambient_module_start input state else ret input (P.failed state 1ul)) in
-    if ambient_module.status = 0ul then P.ambient_interfaces input ambient_module input.size true
+    if ambient_module.status = 0ul then
+      let! interfaces = (fun () -> P.ambient_interfaces input ambient_module input.size true) in
+      if interfaces.status = 0ul then ret input interfaces
+      else P.type_namespace_members input ambient_module 0ul 0ul 0ul 8ul input.size true
     else ordinary_module_item_end input state
 
 let next_module_boundary (input:tape) (jsx:bool) (at:U32.t)

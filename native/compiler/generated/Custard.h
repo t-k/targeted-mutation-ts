@@ -2557,6 +2557,28 @@ TmtPulseParser_module_lexical_list(
   uint32_t angled0
 );
 
+TmtPulseParser_named_state
+TmtPulseParser_ambient_namespace_exports(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t floor0,
+  uint32_t used0,
+  uint32_t locals0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_type_namespace_members(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t locals,
+  uint32_t depth,
+  uint32_t remaining,
+  bool ambient
+);
+
 typedef struct TmtPulseParser_declaration_head_s
 {
   TmtPulseParser_parser_state after_modifiers;
@@ -2584,28 +2606,6 @@ TmtPulseParser_enum_declaration(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   uint32_t used,
-  bool ambient
-);
-
-TmtPulseParser_named_state
-TmtPulseParser_ambient_namespace_exports(
-  TmtPulseMemory_tape input0,
-  TmtPulseParser_parser_state state0,
-  uint32_t floor0,
-  uint32_t used0,
-  uint32_t locals0,
-  uint32_t remaining0
-);
-
-TmtPulseParser_parser_state
-TmtPulseParser_type_namespace_members(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t floor,
-  uint32_t used,
-  uint32_t locals,
-  uint32_t depth,
-  uint32_t remaining,
   bool ambient
 );
 
