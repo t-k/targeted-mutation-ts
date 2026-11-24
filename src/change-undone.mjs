@@ -151,7 +151,7 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
   const report = { mutants: [], diagnostics: [], evaluation: 'no_sites', since: revision };
   if (!trials.length) return report;
   const attempt = run.sourceTrials(root, subjects, options);
-  const baseline = options.existingBaseline?.status === 'passed' && Array.isArray(options.existingBaseline.tests)
+  const baseline = options.existingBaseline?.plain === true && options.existingBaseline.status === 'passed' && Array.isArray(options.existingBaseline.tests)
     ? options.existingBaseline : attempt();
   if (baseline.status !== 'passed') {
     return { ...report, evaluation: 'baseline_error',
@@ -169,14 +169,17 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
       return;
     }
     const result = attempt({ trial });
-    // A suite that ran to its end with errors outside the tests could not load the code as it was.
-    // Rather than falsely reporting the change as killed by tests, report `load_error` and fall back to
+    // Only genuine module load failures (not post-load unhandled rejections or suite hook errors) count as `load_error`.
+    // Rather than falsely reporting an unloadable single hunk as killed by tests, report `load_error` and fall back to
     // reverting all in-scope hunks of the file together when multiple hunks exist.
-    const unloadable = options.runner !== 'playwright' && result.status === 'error' && result.errors?.length > 0 && Array.isArray(result.tests);
+    const loadErrors = Array.isArray(result.moduleErrors)
+      ? result.moduleErrors
+      : (result.errors?.length > 0 && Array.isArray(result.tests) && result.tests.length < baseline.tests.length ? result.errors : []);
+    const unloadable = options.runner !== 'playwright' && result.status === 'error' && loadErrors.length > 0 && Array.isArray(result.tests);
     const status = unloadable ? 'load_error' : verdict(result, baseline);
     if (unloadable && !trial.together) needsTogether.add(trial.site.location.file);
     report.mutants.push({ ...mutant, status, evidence: 'reexecuted',
-      ...(unloadable ? { statusReason: 'The suite did not load: ' + String(result.errors[0]).split('\n')[0] } : {}),
+      ...(unloadable ? { statusReason: 'The suite did not load: ' + String(loadErrors[0]).split('\n')[0] } : {}),
       ...(status === 'killed' ? { tests: result.tests.filter(test => test.status === 'failed').map(({ id, project, file, name }) => ({ id, project, file, name })) } : {}) });
     if (status === 'error') report.evaluation = 'incomplete';
     if (status === 'survived') {

@@ -222,7 +222,7 @@ function vitestOutcome(root, { report, testsToRun, product }, result) {
       : !complete || data.errors.length ? 'error'
         : result.status === 1 && failed.length ? 'failed'
           : result.status === 0 && data.tests.some(test => test.status === 'passed') && !failed.length ? 'passed' : 'error';
-    return { status, tests: data.tests, errors: data.errors, output: result.stderr + result.stdout };
+    return { status, tests: data.tests, errors: data.errors, moduleErrors: data.moduleErrors ?? [], output: result.stderr + result.stdout };
   }
   const tests = data.testResults.flatMap(file => file.assertionResults.map(assertion => ({
     file: relative(root, file.name),

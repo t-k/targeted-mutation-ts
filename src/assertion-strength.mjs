@@ -58,12 +58,45 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
     }
     return false;
   }
-  function isSubjectCall(node) {
+  function collectBindingNames(binding, out) {
+    if (!binding) return;
+    if (ts.isIdentifier(binding)) out.add(binding.text);
+    else if (ts.isObjectBindingPattern(binding) || ts.isArrayBindingPattern(binding)) {
+      for (const element of binding.elements) {
+        if (ts.isBindingElement(element)) collectBindingNames(element.name, out);
+      }
+    }
+  }
+  function localBindingsIn(container) {
+    const names = new Set();
+    const record = statement => {
+      if (ts.isVariableStatement(statement)) {
+        for (const decl of statement.declarationList.declarations) collectBindingNames(decl.name, names);
+      } else if ((ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement)) && statement.name) {
+        names.add(statement.name.text);
+      }
+    };
+    if (ts.isBlock(container) || ts.isModuleBlock(container)) {
+      for (const statement of container.statements) record(statement);
+    } else if (ts.isCaseClause(container) || ts.isDefaultClause(container)) {
+      for (const statement of container.statements) record(statement);
+    } else if (ts.isFunctionLike(container)) {
+      if (container.name && ts.isIdentifier(container.name)) names.add(container.name.text);
+      for (const param of container.parameters) collectBindingNames(param.name, names);
+    } else if (ts.isCatchClause(container) && container.variableDeclaration) {
+      collectBindingNames(container.variableDeclaration.name, names);
+    } else if ((ts.isForStatement(container) || ts.isForInStatement(container) || ts.isForOfStatement(container)) &&
+        container.initializer && ts.isVariableDeclarationList(container.initializer)) {
+      for (const decl of container.initializer.declarations) collectBindingNames(decl.name, names);
+    }
+    return names;
+  }
+  function isSubjectCall(node, shadowed) {
     if (!ts.isCallExpression(node) || node.questionDotToken) return false;
-    if (ts.isIdentifier(node.expression)) return imported.has(node.expression.text);
+    if (ts.isIdentifier(node.expression)) return imported.has(node.expression.text) && !shadowed.has(node.expression.text);
     if (ts.isPropertyAccessExpression(node.expression) && !node.expression.questionDotToken &&
         ts.isIdentifier(node.expression.expression) && ts.isIdentifier(node.expression.name)) {
-      return namespaces.has(node.expression.expression.text);
+      return namespaces.has(node.expression.expression.text) && !shadowed.has(node.expression.expression.text);
     }
     return false;
   }
@@ -114,13 +147,15 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
   const found = [];
   // Every test of the file whose name is written out in full, with or without a call to take.
   const spelled = new Set();
-  (function visit(node) {
+  (function visit(node, shadowed) {
+    const locals = localBindingsIn(node);
+    const scope = locals.size ? new Set([...shadowed, ...locals]) : shadowed;
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && ['it', 'test'].includes(node.expression.text) && node.arguments[0] &&
         ts.isStringLiteralLike(node.arguments[0])) {
       const suites = suitesOf(node);
       if (suites) spelled.add([...suites, node.arguments[0].text].join(' > '));
     }
-    if (isSubjectCall(node) && node.arguments.every(written)) {
+    if (isSubjectCall(node, scope) && node.arguments.every(written)) {
       let target = node;
       let [parent, child] = up(node);
       if (ts.isAwaitExpression(parent) && parent.expression === child) {
@@ -148,8 +183,8 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
           ...(bound ? { bound } : {}) });
       }
     }
-    ts.forEachChild(node, visit);
-  })(tree);
+    ts.forEachChild(node, childNode => visit(childNode, scope));
+  })(tree, new Set());
   // A test is named with its suites. Where a suite's title is not written out, the test's own title has to do,
   // for the names that no fully written test of the file has.
   return found.filter(call => (call.full !== undefined ? testNames.includes(call.full)
@@ -158,33 +193,53 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
 }
 
 // The test file with one call wrapped so that every value it gives is written beside the file.
-// Supports primitives (`toBe`) and plain, acyclic, bounded arrays and objects (`toEqual`) without invoking getters.
+// Supports primitives (`toBe`) and plain, acyclic, bounded arrays and objects (`toStrictEqual`) without invoking getters or Proxy traps.
 export function recordingCall(text, call, key) {
   const name = `__tmtValue_${key}`;
-  // The file system is taken from Node itself, when the file has loaded or else at the first call: a test may
+  // The file system and `node:util` are taken from Node itself, when the file has loaded or else at the first call: a test may
   // replace the module with a mock, or `process` with something else for a while.
   const helper = `
 var __tmtFiles_${key};
 var __tmtUtil_${key};
 try { __tmtFiles_${key} = globalThis.process.getBuiltinModule('node:fs'); } catch (error) { /* taken at the first call */ }
-try { __tmtUtil_${key} = globalThis.process.getBuiltinModule('node:util'); } catch (error) { /* optional */ }
+try { __tmtUtil_${key} = globalThis.process.getBuiltinModule('node:util'); } catch (error) { /* taken at the first call */ }
 function ${name}(value) {
+  if (!__tmtUtil_${key}) {
+    try { __tmtUtil_${key} = globalThis.process.getBuiltinModule('node:util'); } catch (error) { /* unavailable */ }
+  }
+  var isProxy = __tmtUtil_${key} && __tmtUtil_${key}.types && typeof __tmtUtil_${key}.types.isProxy === 'function' ? __tmtUtil_${key}.types.isProxy : null;
+  function isPlainObjectProto(proto) {
+    if (proto === Object.prototype) return true;
+    if (proto === null || isProxy(proto)) return false;
+    if (Object.getPrototypeOf(proto) !== null) return false;
+    var ctor = Object.getOwnPropertyDescriptor(proto, 'constructor');
+    var hasOwn = Object.getOwnPropertyDescriptor(proto, 'hasOwnProperty');
+    if (!ctor || !('value' in ctor) || typeof ctor.value !== 'function' || isProxy(ctor.value)) return false;
+    var nameDesc = Object.getOwnPropertyDescriptor(ctor.value, 'name');
+    if (!nameDesc || !('value' in nameDesc) || nameDesc.value !== 'Object') return false;
+    return !!(hasOwn && 'value' in hasOwn && typeof hasOwn.value === 'function');
+  }
+  function isPlainArrayProto(proto) {
+    if (proto === Array.prototype) return true;
+    if (proto === null || isProxy(proto) || !Array.isArray(proto)) return false;
+    return isPlainObjectProto(Object.getPrototypeOf(proto));
+  }
   function fmt(v, depth, seen) {
     var type = typeof v;
     if (v === null || type === 'boolean' || type === 'undefined') return String(v);
     if (type === 'number') return Object.is(v, -0) ? '-0' : String(v);
     if (type === 'string') return JSON.stringify(v);
     if (type === 'bigint') return v + 'n';
-    if (type !== 'object' || depth >= 4) return null;
-    if (__tmtUtil_${key} && __tmtUtil_${key}.types && __tmtUtil_${key}.types.isProxy(v)) return null;
+    if (type !== 'object' || depth >= 4 || !isProxy || isProxy(v)) return null;
     if (seen.indexOf(v) >= 0) return null;
     var nextSeen = seen.concat([v]);
     if (Array.isArray(v)) {
-      if (v.length > 20 || Object.keys(v).length !== v.length || Object.getOwnPropertySymbols(v).length > 0) return null;
+      if (!isPlainArrayProto(Object.getPrototypeOf(v))) return null;
+      if (v.length > 20 || Object.getOwnPropertySymbols(v).length > 0 || Object.getOwnPropertyNames(v).length !== v.length + 1) return null;
       var items = [];
       for (var i = 0; i < v.length; i++) {
         var d = Object.getOwnPropertyDescriptor(v, i);
-        if (!d || !('value' in d)) return null;
+        if (!d || !('value' in d) || !d.enumerable) return null;
         var item = fmt(d.value, depth + 1, nextSeen);
         if (item === null) return null;
         items.push(item);
@@ -192,14 +247,10 @@ function ${name}(value) {
       return '[' + items.join(', ') + ']';
     }
     if (Object.getOwnPropertySymbols(v).length > 0) return null;
-    var proto = Object.getPrototypeOf(v);
-    if (proto !== Object.prototype && proto !== null) {
-      var ctor = Object.getOwnPropertyDescriptor(proto, 'constructor');
-      var hasOwn = Object.getOwnPropertyDescriptor(proto, 'hasOwnProperty');
-      if (Object.getPrototypeOf(proto) !== null || !ctor || typeof ctor.value !== 'function' || ctor.value.name !== 'Object' || !hasOwn || typeof hasOwn.value !== 'function') return null;
-    }
+    if (!isPlainObjectProto(Object.getPrototypeOf(v))) return null;
     var keys = Object.keys(v);
-    if (keys.length > 20) return null;
+    if (keys.length > 20 || Object.getOwnPropertyNames(v).length !== keys.length) return null;
+    keys.sort();
     var pairs = [];
     for (var j = 0; j < keys.length; j++) {
       var k = keys[j], desc = Object.getOwnPropertyDescriptor(v, k);
@@ -221,7 +272,7 @@ function ${name}(value) {
 }
 
 const valuesOf = run => (run.collected ?? '').split('\n').filter(Boolean).map(line => JSON.parse(line));
-const matcherFor = formatted => (formatted.startsWith('[') || formatted.startsWith('{')) ? 'toEqual' : 'toBe';
+const matcherFor = formatted => (formatted.startsWith('[') || formatted.startsWith('{')) ? 'toStrictEqual' : 'toBe';
 
 export async function strengthenAssertions(root, report, options, run = { sourceTrialsAsync }) {
   const runnerFactory = run.sourceTrialsAsync ?? run.sourceTrials;
@@ -249,39 +300,54 @@ export async function strengthenAssertions(root, report, options, run = { source
   }
   const originalPromises = new Map();
   let tried = 0;
-  // Evaluate findings concurrently, sharing each call's original-value run and capping edits at 4 per finding and 24 in total.
-  await inParallel(candidates, concurrency, async ({ gap, trial, calls }) => {
-    for (const { id, testFile, text, call, attempt } of calls) {
-      if (tried >= 24) break;
-      let originalPromise = originalPromises.get(id);
-      if (!originalPromise) {
-        originalPromise = (async () => {
-          const key = randomUUID().replaceAll('-', '');
-          const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
-          const witness = { rewrite: { file: testFile, content: recordingCall(text, call, key) } };
-          return valuesOf(await attempt({ witness, collect }));
-        })();
-        originalPromises.set(id, originalPromise);
-      }
-      const original = await originalPromise;
-      if (!original?.length || original.includes(null)) continue;
-      if (tried >= 24) break;
-      tried++;
-      const key = randomUUID().replaceAll('-', '');
-      const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
-      const witness = { rewrite: { file: testFile, content: recordingCall(text, call, key) } };
-      const edited = valuesOf(await attempt({ witness, collect, trial }));
-      // The first time the call gives another value with the edit. Where the edit keeps a test from making the
-      // call, an assertion at that place would not run either.
-      // The values are matched by their order, so the call has to be made as often with the edit as without.
-      const at = edited.length === original.length ? original.findIndex((value, index) => edited[index] !== value) : -1;
-      if (at === -1) continue;
-      // A result the test keeps is compared where it is kept: calling again may give another value.
-      gap.suggestedTest = `expect(${call.bound ?? call.text}).${matcherFor(original[at])}(${original[at]})`;
-      gap.strengthens = { file: testFile, test: call.test, line: call.line, column: call.column, call: call.text, original: original[at], edited: edited[at] };
-      break;
+  // Run candidates in deterministic order while parallelizing safe batches whose worst-case cost fits the remaining budget.
+  let cursor = 0;
+  while (cursor < candidates.length && tried < 24) {
+    const remaining = 24 - tried;
+    const batch = [];
+    let reserved = 0;
+    while (cursor < candidates.length && batch.length < concurrency) {
+      const worstCase = candidates[cursor].calls.length;
+      if (batch.length > 0 && reserved + worstCase > remaining) break;
+      batch.push(candidates[cursor++]);
+      reserved += worstCase;
+      if (reserved >= remaining) break;
     }
-  });
+    await inParallel(batch, batch.length, async ({ gap, trial, calls }) => {
+      for (const { id, testFile, text, call, attempt } of calls) {
+        if (tried >= 24) break;
+        let originalPromise = originalPromises.get(id);
+        if (!originalPromise) {
+          originalPromise = (async () => {
+            const key = randomUUID().replaceAll('-', '');
+            const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
+            const witness = { rewrite: { file: testFile, content: recordingCall(text, call, key) } };
+            return valuesOf(await attempt({ witness, collect }));
+          })();
+          originalPromises.set(id, originalPromise);
+        }
+        const original = await originalPromise;
+        if (!original?.length || original.includes(null)) continue;
+        if (tried >= 24) break;
+        tried++;
+        const key = randomUUID().replaceAll('-', '');
+        const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
+        const witness = { rewrite: { file: testFile, content: recordingCall(text, call, key) } };
+        const edited = valuesOf(await attempt({ witness, collect, trial }));
+        // The first time the call gives another comparable value with the edit. Where the edit keeps a test from making
+        // the call, or returns an unformattable value, nothing is suggested.
+        // The values are matched by their order, so the call has to be made as often with the edit as without.
+        const at = edited.length === original.length
+          ? original.findIndex((value, index) => edited[index] !== null && edited[index] !== value)
+          : -1;
+        if (at === -1) continue;
+        // A result the test keeps is compared where it is kept: calling again may give another value.
+        gap.suggestedTest = `expect(${call.bound ?? call.text}).${matcherFor(original[at])}(${original[at]})`;
+        gap.strengthens = { file: testFile, test: call.test, line: call.line, column: call.column, call: call.text, original: original[at], edited: edited[at] };
+        break;
+      }
+    });
+  }
   return report;
 }
 

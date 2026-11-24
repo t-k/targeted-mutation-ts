@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from '
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import util from 'node:util';
 import vm from 'node:vm';
 import { recordingCall, strengthenAssertions, weakCalls, withoutSourceEdits } from '../src/assertion-strength.mjs';
 import { renderText } from '../src/cli-output.mjs';
@@ -62,25 +63,45 @@ test('a wrapped call gives its value on and writes down what a comparison can be
   // The file system comes from Node itself when the file has loaded, so a test that mocks 'node:fs' or replaces
   // `process` afterwards does not get in the way.
   assert.doesNotMatch(rewritten, /import .* from 'node:fs'/);
-  const context = vm.createContext({ URL, process: { getBuiltinModule: name => ({ 'node:fs': { appendFileSync: (url, line) => written.push([String(url), line]) } })[name] } });
+  const context = vm.createContext({ URL, process: { getBuiltinModule: name => ({ 'node:fs': { appendFileSync: (url, line) => written.push([String(url), line]) }, 'node:util': util })[name] } });
   vm.runInContext(rewritten.slice(rewritten.indexOf('var __tmtFiles_k1'), rewritten.indexOf('function __tmtValue_k1')) + '; process = undefined;', context);
-  // Where `process` is replaced while the file loads and back when the test runs, the file system is taken at the first call.
+  // Where `process` is replaced while the file loads and back when the test runs, both `node:fs` and `node:util` are taken at the first call.
   const late = vm.createContext({ URL, process: {} });
+  let lateProxyTraps = 0;
+  late.proxyVal = new Proxy({ a: 1 }, new Proxy({}, { get() { lateProxyTraps++; return () => {}; } }));
   vm.runInContext(rewritten.slice(rewritten.indexOf('var __tmtFiles_k1')).replace('import.meta.url', "'file:///t/'") +
-    '; process = { getBuiltinModule: () => ({ appendFileSync: (url, line) => { globalThis.wrote = line; } }) }; __tmtValue_k1(7);', late);
-  assert.equal(late.wrote, '"7"\n');
+    '; process = { getBuiltinModule: name => name === "node:fs" ? { appendFileSync: (url, line) => { globalThis.wrote = (globalThis.wrote || "") + line; } } : globalThis.utilMod }; __tmtValue_k1(7); __tmtValue_k1(proxyVal);', Object.assign(late, { utilMod: util }));
+  assert.equal(late.wrote, '"7"\nnull\n');
+  assert.equal(lateProxyTraps, 0);
+  // Without `node:util`, objects safely fall back to null so Proxy traps cannot run.
+  let noUtilWrote = '';
+  const noUtil = vm.createContext({ URL, process: { getBuiltinModule: name => name === 'node:fs' ? { appendFileSync: (_url, line) => { noUtilWrote += line; } } : undefined } });
+  vm.runInContext(rewritten.slice(rewritten.indexOf('var __tmtFiles_k1')).replace('import.meta.url', "'file:///t/'") + '; __tmtValue_k1({ a: 1 });', noUtil);
+  assert.equal(noUtilWrote, 'null\n');
   const shown = value => { context.value = value; vm.runInContext(helper + '; var given = __tmtValue_k1(value);', context); return [context.given === value || Number.isNaN(value), JSON.parse(written.pop()[1])]; };
   assert.deepEqual([3, -0, NaN, 'a"b', true, null, undefined, 5n].map(shown), [[true, '3'], [true, '-0'], [true, 'NaN'], [true, '"a\\"b"'], [true, 'true'],
     [true, 'null'], [true, 'undefined'], [true, '5n']]);
-  // Plain bounded objects and arrays format for `toEqual`; functions, class instances, getters and cycles stay null.
-  assert.deepEqual([{ a: 1, 'k-2': [true] }, [1, 'x'], {}].map(shown), [
-    [true, '{ a: 1, "k-2": [true] }'], [true, '[1, "x"]'], [true, '{}'],
+  // Plain bounded objects (canonical key order) and arrays format for `toStrictEqual`; exotic/unsafe values stay null.
+  assert.deepEqual([{ a: 1, 'k-2': [true] }, { b: 2, a: 1 }, [1, 'x'], {}].map(shown), [
+    [true, '{ a: 1, "k-2": [true] }'], [true, '{ a: 1, b: 2 }'], [true, '[1, "x"]'], [true, '{}'],
   ]);
   const cyclic = {}; cyclic.self = cyclic;
   let getterRan = 0;
   const withGetter = { get x() { getterRan++; return 1; } };
-  assert.deepEqual([() => 1, new Date(0), cyclic, withGetter].map(shown), [[true, null], [true, null], [true, null], [true, null]]);
+  let proxyTraps = 0;
+  const proxyTarget = new Proxy({ a: 1 }, new Proxy({}, { get() { proxyTraps++; return () => {}; } }));
+  const proxyProto = Object.create(new Proxy({}, new Proxy({}, { get() { proxyTraps++; return () => {}; } })));
+  class SubArray extends Array {}
+  const trickedArray = [1, 2];
+  Object.defineProperty(trickedArray, 1, { value: 2, enumerable: false });
+  trickedArray.extra = 3;
+  // eslint-disable-next-line no-sparse-arrays
+  const sparse = [1, , 3];
+  const protoKey = Object.defineProperty({}, '__proto__', { value: 1, enumerable: true });
+  assert.deepEqual([() => 1, new Date(0), cyclic, withGetter, Object.create(null), proxyTarget, proxyProto, new SubArray(1, 2), trickedArray, sparse, protoKey].map(shown),
+    Array.from({ length: 11 }, () => [true, null]));
   assert.equal(getterRan, 0);
+  assert.equal(proxyTraps, 0);
   shown(1);
   assert.equal(written.length, 0);
 });
@@ -139,11 +160,11 @@ test('the runs are shared and bounded: one for a call as it is, one per finding,
   await strengthenAssertions(root, report, {}, run);
   assert.deepEqual(seen, [['subject.test.ts', 'as it is', true, true], ['subject.test.ts', ' (cents + rate) ', true, true], ['subject.test.ts', ' (cents / rate) ', true, true]]);
   assert.deepEqual(report.diagnostics.map(entry => entry.suggestedTest), ['expect(fee(200, 3)).toBe(600)', 'expect(fee(200, 3)).toBe(600)', undefined, undefined]);
-  // Plain object/array return values suggest `toEqual`.
+  // Plain object/array return values suggest `toStrictEqual`.
   Object.assign(values, { original: '"{ total: 600 }"', edited: '"{ total: 203 }"' });
   const objReport = { diagnostics: [gap('(cents + rate)')] };
   await strengthenAssertions(root, objReport, {}, run);
-  assert.equal(objReport.diagnostics[0].suggestedTest, 'expect(fee(200, 3)).toEqual({ total: 600 })');
+  assert.equal(objReport.diagnostics[0].suggestedTest, 'expect(fee(200, 3)).toStrictEqual({ total: 600 })');
   // The same values with the edit: the call does not tell them apart. A value without a literal: nothing to suggest.
   for (const [original, edited] of [['"600"', '"600"'], ['null', '"203"'], ['', '"203"']]) {
     Object.assign(values, { original, edited });
@@ -246,23 +267,67 @@ test('the conditions of a taken call, one at a time', () => {
   const imported = line => weakCalls(`import { it } from 'vitest';\n${line}\nit('t', () => { fee(1); s.fee(2); });\n`, 'subject.test.ts', 'subject.ts', ['t']).length;
   assert.deepEqual(["import { fee } from './subject';", "import { fee } from './subject.js';", "import fee from './subject';", "import * as s from './subject';",
     "import { fee } from 'subject';", "import './subject';", "import { fee } from './subject/index';"].map(imported), [1, 1, 1, 1, 0, 0, 0]);
-  // Awaited calls are wrapped as a whole (`await fee(1)`).
+  // Awaited calls are wrapped as a whole (`await fee(1)`), and shadowed locals are skipped.
   assert.deepEqual(calls("await fee(1, 2);\nconst res = await fee(3, 4);\nexpect(await fee(5, 6)).toBeGreaterThan(0);"),
     ['await fee(1, 2)', 'await fee(3, 4)', 'await fee(5, 6)']);
+  assert.deepEqual(calls("const fee = (x: number) => x;\nfee(1);"), []);
+  assert.deepEqual(weakCalls("import { it } from 'vitest';\nimport * as s from './subject';\nit('t', () => {\n  const s = { fee: (x: number) => x };\n  s.fee(1);\n});\n", 'subject.test.ts', 'subject.ts', ['t']), []);
 });
 
+test('strengthenAssertions keeps deterministic budget order under reversed async timing and ignores unformattable edited values', () => project({
+  'subject.ts': 'export function f(n: number) { return n; }\n',
+  'a.test.ts': "import { it } from 'vitest';\nimport { f } from './subject';\nit('t', () => {\n  f(1);\n  f(2);\n  f(3);\n  f(4);\n});\n",
+}, async root => {
+  let originalRuns = 0;
+  const seenEdits = [];
+  const run = {
+    sourceTrialsAsync: () => async settings => {
+      if (!settings.trial) {
+        originalRuns++;
+        return { status: 'passed', collected: '"[undefined]"\n' };
+      }
+      const id = Number(settings.trial.replacement);
+      // Reverse completion speed so later findings resolve faster if run out of order.
+      await new Promise(resolve => setTimeout(resolve, Math.max(0, 30 - id * 3)));
+      seenEdits.push(id);
+      // Unformattable (`null`) edited value (e.g. sparse array or Proxy) must not produce a bogus suggestion.
+      if (id === 0) return { status: 'passed', collected: 'null\n' };
+      return { status: 'passed', collected: '"[undefined]"\n' };
+    },
+  };
+  const report = {
+    diagnostics: Array.from({ length: 8 }, (_, index) => ({
+      kind: 'ASSERTION GAP', location: { file: 'subject.ts' }, tests: [{ file: 'a.test.ts', name: 't' }],
+      mutations: [{ edit: [0, 1], replacement: String(index) }],
+    })),
+  };
+  await strengthenAssertions(root, report, { concurrency: 4 }, run);
+  assert.equal(originalRuns, 4);
+  assert.equal(seenEdits.length, 24);
+  // First 6 findings (indices 0..5, 4 calls each = 24) consumed the budget; findings 6 and 7 never ran.
+  assert.ok(seenEdits.every(id => id < 6));
+  assert.equal(report.diagnostics[0].suggestedTest, undefined);
+}));
+
 test('suggest-assertions works end-to-end for awaited calls, default/namespace imports, and object return values', () => project({
-  'subject.ts': `export default async function quote(cents: number, rate: number) { return { total: cents * rate }; }\n`,
+  'subject.ts': `export default async function quote(cents: number, rate: number) { return { total: cents * rate }; }
+export async function namedQuote(cents: number, rate: number) { return { total: cents * rate }; }
+`,
   'subject.test.ts': `import { expect, it } from 'vitest';
 import quote from './subject';
+import * as subject from './subject';
 it('quotes', async () => { expect((await quote(200, 3))).toBeDefined(); });
+it('namespace quotes', async () => { expect(await subject.namedQuote(100, 4)).toBeDefined(); });
 `,
 }, root => {
   const run = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', root, 'subject.ts', '--suggest-assertions', '--format', 'json'],
     { encoding: 'utf8', timeout: 120_000 });
   assert.equal(run.status, 0, run.stderr);
   const report = JSON.parse(run.stdout);
-  const gap = report.diagnostics.find(entry => entry.mutations[0].replacement === '(cents + rate)');
-  assert.equal(gap.kind, 'ASSERTION GAP');
-  assert.equal(gap.suggestedTest, 'expect(await quote(200, 3)).toEqual({ total: 600 })');
+  const defaultGap = report.diagnostics.find(entry => entry.location.line === 1 && entry.mutations[0].replacement === '(cents + rate)');
+  const nsGap = report.diagnostics.find(entry => entry.location.line === 2 && entry.mutations[0].replacement === '(cents + rate)');
+  assert.equal(defaultGap.kind, 'ASSERTION GAP');
+  assert.equal(defaultGap.suggestedTest, 'expect(await quote(200, 3)).toStrictEqual({ total: 600 })');
+  assert.equal(nsGap.kind, 'ASSERTION GAP');
+  assert.equal(nsGap.suggestedTest, 'expect(await subject.namedQuote(100, 4)).toStrictEqual({ total: 400 })');
 }));

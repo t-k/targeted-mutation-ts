@@ -5,12 +5,15 @@ const primitive = value => ['string', 'number', 'boolean'].includes(typeof value
 
 export function snapshotVitestRun(root, modules, unhandled, reason) {
   const errors = [...unhandled];
+  const moduleErrors = [];
   const tests = [];
   const files = [];
   for (const module of modules) {
     const file = relative(root, module.moduleId);
     files.push(file);
-    errors.push(...module.errors());
+    const loadErrors = module.errors();
+    moduleErrors.push(...loadErrors);
+    errors.push(...loadErrors);
     for (const suite of module.children.allSuites()) errors.push(...suite.errors());
     for (const test of module.children.allTests()) {
       const result = test.result();
@@ -26,7 +29,7 @@ export function snapshotVitestRun(root, modules, unhandled, reason) {
       });
     }
   }
-  return { tests, modules: files, errors: errors.map(error => error.message), reason };
+  return { tests, modules: files, errors: errors.map(error => error.message), moduleErrors: moduleErrors.map(error => error.message), reason };
 }
 
 // How long each test and each test file's collection took, for ordering later work by cost.

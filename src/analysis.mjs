@@ -482,7 +482,7 @@ function analyzePlaywright(root, subjects, report, options, specification) {
   }
 
   report.evaluation = 'evaluated';
-  Object.defineProperty(report, baselineRunSymbol, { value: baseline, enumerable: false });
+  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false });
   report.instrumented = { status: 'unavailable', reason: 'browser-observations-unavailable' };
   for (const subject of subjects) {
     for (const site of subject.sites) {
@@ -562,12 +562,15 @@ export function prepareAnalysis(project, files, options) {
   // Beside a session, which runs the suite on its own, the recording run stands for the baseline when it passes.
   // Otherwise the plain baseline runs first, so a failing suite is reported as before.
   const recorded = options.traceIsBaseline ? attempt({ tracing: true }) : null;
-  const baseline = recorded?.status === 'passed' ? { status: 'passed', tests: recorded.tests } : attempt();
+  const plainBaseline = recorded?.status === 'passed' ? null : attempt();
+  const baseline = plainBaseline ?? { status: 'passed', tests: recorded.tests };
   if (baseline.status !== 'passed') {
     return { report: { ...report, evaluation: 'baseline_error', baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } } };
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
-  Object.defineProperty(report, baselineRunSymbol, { value: baseline, enumerable: false });
+  if (plainBaseline) {
+    Object.defineProperty(report, baselineRunSymbol, { value: { status: plainBaseline.status, tests: plainBaseline.tests, plain: true }, enumerable: false });
+  }
 
   const traced = recorded?.status === 'passed' ? recorded : attempt({ tracing: true });
   const tracedStatus = verdict(traced, baseline);
