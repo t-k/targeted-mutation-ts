@@ -631,4 +631,69 @@ test('non-logical throws are recorded as unsure, string indexOf does not coerce 
   vm.runInContext(`${copyRendered.output}\nf([1, 2], { a: 1 });`, realCtx);
   assert.equal(realCtx.__stryker__.observed[copyArr.id].realCopy, true);
   assert.equal(realCtx.__stryker__.observed[copyObj.id].realCopy, true);
+
+  // Proxy spreads: baseline recording must not throw on getPrototypeOf traps or trigger extra length reads.
+  const proxyObjSource = 'function f(x) { return { ...x }; }\n';
+  const proxyObjRendered = render(proxyObjSource);
+  let protoTraps = 0;
+  const throwingProxy = new Proxy({ a: 1 }, { getPrototypeOf() { protoTraps++; throw new Error('probe'); } });
+  const proxyObjCtx = vm.createContext({ __stryker__: { currentTestId: 't0' }, input: throwingProxy, process });
+  proxyObjCtx[session] = { phase: 'baseline' };
+  vm.runInContext(`${proxyObjRendered.output}\nvar out = f(input);`, proxyObjCtx);
+  assert.deepEqual(JSON.parse(JSON.stringify(proxyObjCtx.out)), { a: 1 });
+  assert.equal(protoTraps, 0);
+  // Even without process.getBuiltinModule (bare VM), a throwing getPrototypeOf trap does not crash baseline.
+  const bareObjCtx = vm.createContext({ __stryker__: { currentTestId: 't0' }, input: throwingProxy });
+  bareObjCtx[session] = { phase: 'baseline' };
+  vm.runInContext(`${proxyObjRendered.output}\nvar out = f(input);`, bareObjCtx);
+  assert.deepEqual(JSON.parse(JSON.stringify(bareObjCtx.out)), { a: 1 });
+
+  const proxyArrSource = 'function f(x) { return [...x]; }\n';
+  const proxyArrRendered = render(proxyArrSource);
+  const countLengths = code => {
+    let reads = 0;
+    const target = [1, 2];
+    const proxy = new Proxy(target, { get(t, k, r) { if (k === 'length') reads++; return Reflect.get(t, k, r); } });
+    const ctx = vm.createContext({ __stryker__: { currentTestId: 't0' }, input: proxy });
+    ctx[session] = { phase: 'baseline' };
+    vm.runInContext(`${code}\nvar out = f(input);`, ctx);
+    return [JSON.parse(JSON.stringify(ctx.out)), reads];
+  };
+  assert.deepEqual(countLengths(proxyArrRendered.output), countLengths(proxyArrSource));
+
+  // Execute every row of probe-safety.tsv to verify no unexpected crash or misclassification.
+  for (const [opKind, outcome, operandKind, ctxKind] of safetyRows) {
+    const expr = {
+      Arithmetic: 'l + r', MathFunc: 'Math.max(l, r)', SequenceIndex: 'l[0]', StringIndexOf: 'l.indexOf(r)',
+      CopyArray: '[...l]', CopyObject: '{ ...l }', Logical: 'l || r()',
+    }[opKind];
+    const src = ctxKind === 'Condition' ? `function f(l, r) { if (${expr}) return 1; return 0; }\n` : `function f(l, r) { return ${expr}; }\n`;
+    const rendered = render(src);
+    assert.ok(rendered.mutants.length > 0, `${opKind} ${outcome} ${operandKind}`);
+    const argL = opKind === 'CopyArray' ? (operandKind === 'NonArrayIterable' ? new Set([1, 2]) : [1, 2])
+      : opKind === 'CopyObject' ? (operandKind === 'NullishOrClass' ? null : { a: 1 })
+        : opKind === 'StringIndexOf' ? (outcome === 'Throws' ? null : 'aba')
+          : opKind === 'SequenceIndex' ? (outcome === 'Throws' ? null : [1, 2])
+            : opKind === 'Arithmetic' ? (outcome === 'Throws' ? 1n : operandKind === 'SideEffectObject' ? { valueOf() { return 2; } } : 2)
+              : opKind === 'MathFunc' ? (outcome === 'Throws' ? 1n : operandKind === 'SideEffectObject' ? { valueOf() { return 2; } } : 2)
+                : (outcome === 'Throws' ? '' : 0);
+    const argR = opKind === 'Logical' ? (outcome === 'Throws' ? () => { throw new Error('boom'); } : () => 3)
+      : opKind === 'StringIndexOf' ? (operandKind === 'SideEffectObject' ? { toString() { return 'a'; } } : 'a')
+        : (operandKind === 'SideEffectObject' ? { valueOf() { return 3; } } : 3);
+    const evalOne = (code, rec) => {
+      const st = { currentTestId: 't0' };
+      const c = vm.createContext({ __stryker__: st, a: argL, b: argR, process });
+      if (rec) c[session] = { phase: 'baseline' };
+      try { return ['ok', vm.runInContext(`${code}\nf(a, b)`, c), st]; }
+      catch (e) { return ['err', e.name, st]; }
+    };
+    const [k0, v0] = evalOne(src, false);
+    const [k1, v1, st] = evalOne(rendered.output, true);
+    assert.equal(k1, k0, `${opKind} ${outcome} ${operandKind} ${ctxKind}`);
+    if (k0 === 'err') assert.equal(v1, v0);
+    if (outcome === 'Throws' && opKind !== 'Logical') {
+      const counts = st.observed[rendered.mutants[0].id].tests.t0;
+      assert.equal(counts[2], 1, `non-logical throw must be unsure: ${opKind} ${outcome} ${operandKind}`);
+    }
+  }
 });

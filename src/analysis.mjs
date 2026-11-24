@@ -300,12 +300,12 @@ export function planFocusedTrials(subjects, trace, baseline, specification, disp
     let thresholdAdjustment;
     if (constant?.gap) {
       const { alternate } = constant.gap;
+      const rhsText = subject.input.subarray(...site.right).toString();
+      const isLiteral = /^-?\s*\d+$/.test(rhsText) && Number(rhsText.replace(/\s+/g, '')) === constant.value;
       if (isBoundaryEquivalentShift(site.operator, constant.value, alternate)) {
-        boundary.equivalentOnSafeIntegers = [`${site.operator} ${alternate}`];
+        if (isLiteral) boundary.equivalentOnSafeIntegers = [`${site.operator} ${alternate}`];
       } else {
         thresholdAdjustment = alternate - constant.value;
-        const rhsText = subject.input.subarray(...site.right).toString();
-        const isLiteral = /^-?\s*\d+$/.test(rhsText) && Number(rhsText.replace(/\s+/g, '')) === constant.value;
         const replacement = isLiteral ? String(alternate) : shiftedReplacement(subject.input, site, thresholdAdjustment);
         trials.push({
           site, edit: site.right, replacement, rule: 'comparison-threshold/v1', observation,

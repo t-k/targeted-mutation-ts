@@ -50,8 +50,12 @@ for (const [text, sites, trace] of matrix) {
       assert.equal(trial.observation.loaded, true);
       assert.deepEqual(trial.observation.rows, rows.filter(row => row.site === trial.site.id));
       const thresholdTrial = planned.find(entry => entry.site.id === trial.site.id &&
-        (trial.site.operator === '>=' ? entry.rule === 'comparison-boundary/v1' : entry.rule === 'comparison-tighten/v1'));
+        (trial.site.operator === '>=' ? entry.rule === 'comparison-boundary/v1'
+          : entry.rule === 'comparison-threshold/v1' || entry.rule === 'comparison-tighten/v1'));
       assert.equal(thresholdTrial?.threshold?.meta.functionName, eligible ? `check${index}` : undefined);
+      // A single shift edit is never duplicated across comparison-threshold/v1 and comparison-tighten/v1.
+      const shiftTrials = planned.filter(entry => entry.site.id === trial.site.id && entry.adjustment !== undefined);
+      assert.ok(shiftTrials.length <= 1);
     }
   });
 }

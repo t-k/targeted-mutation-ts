@@ -160,5 +160,7 @@ test('PICT threshold-operators matrix covers every required seed and matches pla
     }
     const expectCallable = callableKind !== 'Internal' && rhsKind === 'Literal' && obsKind !== 'Empty' && obsKind !== 'Invalid';
     assert.equal(Boolean(boundaryTrial.threshold), expectCallable, `callable ${opName} ${obsKind} ${rhsKind} ${callableKind}`);
+    // Non-literal RHS must never claim literal equivalence on all safe integers.
+    if (rhsKind !== 'Literal') assert.equal(boundaryTrial.equivalentOnSafeIntegers, undefined);
   }
 });

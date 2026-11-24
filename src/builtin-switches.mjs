@@ -33,6 +33,9 @@ function ${table}(i) {
 }
 function ${see}(i, l, r) {
   var site = ${table}(i), op = site[0], edits = site[2], kind = site[6], scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
+  var utilTypes = ${table}.u !== void 0 ? ${table}.u : (${table}.u = typeof scope.process === 'object' && scope.process && typeof scope.process.getBuiltinModule === 'function' ? scope.process.getBuiltinModule('node:util').types : null);
+  var isProxy = utilTypes ? utilTypes.isProxy : null;
+  var strMethods = ${table}.s || (${table}.s = { indexOf: scope.String.prototype.indexOf, lastIndexOf: scope.String.prototype.lastIndexOf });
   var logical = kind === 'l', missing = l === null || l === void 0, k, form;
   var taken = op === '&&' ? !!l : op === '||' ? !l : missing;
   var constant = op === '&&' ? true : op === '||' ? false : void 0;
@@ -86,7 +89,7 @@ function ${see}(i, l, r) {
       return true;
     }
     if (kind === 'a' ? !plain(l) || !plain(r) : kind === 'm' ? typeof l !== 'number' || (site[7] === 2 && typeof r !== 'number')
-      : (!sequence && typeof l !== 'string') || ((op === 'indexOf' || op === 'lastIndexOf') && typeof l === 'string' && !plain(r))) return null;
+      : (!sequence && typeof l !== 'string') || ((op === 'indexOf' || op === 'lastIndexOf') && typeof l === 'string' && (!plain(r) || l[f] !== strMethods[f]))) return null;
     // The callback of a search would run again: with at most one element both ends are the same search.
     if (op.slice(0, 4) === 'find') return sequence && l.length <= 1 ? true : null;
     try {
@@ -141,15 +144,20 @@ function ${see}(i, l, r) {
       } else same = f === 'left' ? taken : missing || !!l;
       var entry = seen[edits[k][0]] || (seen[edits[k][0]] = { tests: {} }), counts = entry.tests[test] || (entry.tests[test] = [0, 0, 0]);
       if (kind === 'c' && !threw) {
-        if (op === 'copyArray') { if (scope.Array.isArray(l)) entry.realCopy = true; else entry.nonArray = true; }
-        else {
-          var proto = l !== null && typeof l === 'object' ? scope.Object.getPrototypeOf(l) : false;
-          if (proto === scope.Object.prototype || proto === null) entry.realCopy = true; else entry.nonPlain = true;
+        if (op === 'copyArray') {
+          try { if (scope.Array.isArray(l)) entry.realCopy = true; else entry.nonArray = true; } catch (error) { /* leave unclassified */ }
+        } else if (l === null || (typeof l !== 'object' && typeof l !== 'function')) {
+          entry.nonPlain = true;
+        } else if (!isProxy || !isProxy(l)) {
+          try {
+            var proto = scope.Object.getPrototypeOf(l);
+            if (proto === scope.Object.prototype || proto === null) entry.realCopy = true; else entry.nonPlain = true;
+          } catch (error) { /* leave unclassified */ }
         }
       }
       var slot = same === null ? 'unsure' : same ? 'agree' : 'differ';
       counts[same === null ? 2 : same ? 0 : 1]++;
-      if (!entry[slot]) entry[slot] = (logical ? !taken || threw : site[7] === 1) ? [show(l)] : [show(l), show(logical ? value : r)];
+      if (kind !== 'c' && !entry[slot]) entry[slot] = (logical ? !taken || threw : site[7] === 1) ? [show(l)] : [show(l), show(logical ? value : r)];
       var type = typeof l;
       if (type === 'number' || type === 'string' || type === 'bigint' || type === 'boolean') entry.typed = true;
     }
