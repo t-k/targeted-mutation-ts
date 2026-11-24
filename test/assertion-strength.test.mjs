@@ -86,25 +86,29 @@ test('a wrapped call gives its value on and writes down what a comparison can be
   assert.deepEqual(['{ a: 1, "k-2": [true] }', '{ b: 2, a: 1 }', '[1, "x"]', '{}'].map(expr => shown(sameRealm(expr))), [
     [true, '{ a: 1, "k-2": [true] }'], [true, '{ a: 1, b: 2 }'], [true, '[1, "x"]'], [true, '{}'],
   ]);
-  const cyclic = {}; cyclic.self = cyclic;
-  let getterRan = 0;
-  const withGetter = { get x() { getterRan++; return 1; } };
-  let proxyTraps = 0;
-  const proxyTarget = new Proxy({ a: 1 }, new Proxy({}, { get() { proxyTraps++; return () => {}; } }));
-  const proxyProto = Object.create(new Proxy({}, new Proxy({}, { get() { proxyTraps++; return () => {}; } })));
-  class SubArray extends Array {}
-  const trickedArray = [1, 2];
-  Object.defineProperty(trickedArray, 1, { value: 2, enumerable: false });
-  trickedArray.extra = 3;
-  // eslint-disable-next-line no-sparse-arrays
-  const sparse = [1, , 3];
-  const protoKey = Object.defineProperty({}, '__proto__', { value: 1, enumerable: true });
+  // Construct negative test cases inside the same realm so each individual guard is genuinely exercised.
+  const negatives = vm.runInContext(`(() => {
+    globalThis.__getterRan = 0;
+    globalThis.__proxyTraps = 0;
+    const cyclic = {}; cyclic.self = cyclic;
+    const withGetter = { get x() { globalThis.__getterRan++; return 1; } };
+    const trap = new Proxy({}, { get() { globalThis.__proxyTraps++; return () => {}; } });
+    const proxyTarget = new Proxy({ a: 1 }, trap);
+    const proxyProto = Object.create(new Proxy({}, trap));
+    class SubArray extends Array {}
+    const trickedArray = [1, 2];
+    Object.defineProperty(trickedArray, 1, { value: 2, enumerable: false });
+    trickedArray.extra = 3;
+    const sparse = [1, , 3];
+    const protoKey = Object.defineProperty({}, '__proto__', { value: 1, enumerable: true });
+    return [() => 1, new Date(0), cyclic, withGetter, Object.create(null), proxyTarget, proxyProto, new SubArray(1, 2), trickedArray, sparse, protoKey];
+  })()`, context);
   const crossRealmObj = { a: 1 };
   const crossRealmArr = [1, 2];
-  assert.deepEqual([() => 1, new Date(0), cyclic, withGetter, Object.create(null), proxyTarget, proxyProto, new SubArray(1, 2), trickedArray, sparse, protoKey, crossRealmObj, crossRealmArr].map(shown),
+  assert.deepEqual([...negatives, crossRealmObj, crossRealmArr].map(shown),
     Array.from({ length: 13 }, () => [true, null]));
-  assert.equal(getterRan, 0);
-  assert.equal(proxyTraps, 0);
+  assert.equal(context.__getterRan, 0);
+  assert.equal(context.__proxyTraps, 0);
   shown(1);
   assert.equal(written.length, 0);
 });
@@ -275,6 +279,7 @@ test('the conditions of a taken call, one at a time', () => {
     ['await fee(1, 2)', 'await fee(3, 4)', 'await fee(5, 6)']);
   assert.deepEqual(calls("const fee = (x: number) => x;\nfee(1);"), []);
   assert.deepEqual(calls("if (true) { var fee = (x: number) => x; }\nfee(2);"), []);
+  assert.deepEqual(weakCalls(`${head}namespace Helpers { var fee = 1; export const v = fee; }\nit('t', () => {\n  fee(2);\n});\n`, 'test/subject.test.ts', 'src/subject.ts', ['t']).map(call => call.text), ['fee(2)']);
   assert.deepEqual(weakCalls("import { it } from 'vitest';\nimport * as s from './subject';\nit('t', () => {\n  const s = { fee: (x: number) => x };\n  s.fee(1);\n});\n", 'subject.test.ts', 'subject.ts', ['t']), []);
 });
 

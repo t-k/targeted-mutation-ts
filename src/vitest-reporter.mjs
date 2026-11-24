@@ -13,9 +13,12 @@ export function snapshotVitestRun(root, modules, unhandled, reason) {
     files.push(file);
     const moduleTests = [...module.children.allTests()];
     const loadErrors = module.errors();
-    // File-level `beforeAll` / `afterAll` failures also appear in `module.errors()`, but only after collection
-    // succeeded (`moduleTests.length > 0`). A genuine import/load failure leaves zero collected tests in the module.
-    if (loadErrors.length && moduleTests.length === 0) moduleErrors.push(...loadErrors);
+    const diag = module.diagnostic?.();
+    // File-level `beforeAll` / `afterAll` failures also appear in `module.errors()`, even in 0-test files,
+    // but only after collection completed (`collectDuration > 0`, `task.result.hooks`, or collected tests).
+    if (loadErrors.length && moduleTests.length === 0 && !module.task?.result?.hooks && !(diag && diag.collectDuration > 0)) {
+      moduleErrors.push(...loadErrors);
+    }
     errors.push(...loadErrors);
     for (const suite of module.children.allSuites()) errors.push(...suite.errors());
     for (const test of moduleTests) {

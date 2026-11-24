@@ -73,7 +73,7 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
       for (const decl of node.declarations) collectBindingNames(decl.name, out);
       return;
     }
-    if (ts.isFunctionLike(node) || ts.isClassLike(node)) return;
+    if (ts.isFunctionLike(node) || ts.isClassLike(node) || ts.isModuleDeclaration(node)) return;
     ts.forEachChild(node, child => collectHoistedVars(child, out));
   }
   function localBindingsIn(container) {
