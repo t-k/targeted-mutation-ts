@@ -1,0 +1,8 @@
+Rule: SpreadDrop, PrefixToSubstring, ReplaceMultiplicity
+Form: SingleProp, MultiProp, Shorthand, StartsWith, EndsWith, Replace, ReplaceAll
+BaseOrReceiver: SameValue, DiffValue, MissingKey, NullishBase, PrefixOnly, MiddleOnly, Absent, ZeroOcc, OneOcc, MultiOcc, NonString
+ArgKind: Plain, NonPlain
+
+IF [Rule] = "SpreadDrop" THEN [Form] IN {"SingleProp", "MultiProp", "Shorthand"} AND [BaseOrReceiver] IN {"SameValue", "DiffValue", "MissingKey", "NullishBase"} AND [ArgKind] = "Plain";
+IF [Rule] = "PrefixToSubstring" THEN [Form] IN {"StartsWith", "EndsWith"} AND [BaseOrReceiver] IN {"PrefixOnly", "MiddleOnly", "Absent", "NonString"};
+IF [Rule] = "ReplaceMultiplicity" THEN [Form] IN {"Replace", "ReplaceAll"} AND [BaseOrReceiver] IN {"ZeroOcc", "OneOcc", "MultiOcc", "NonString"};

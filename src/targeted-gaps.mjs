@@ -8,7 +8,8 @@ const clip = text => {
 };
 
 const rules = { arithmetic: 'arithmetic-swap/v1', extreme: 'extreme-swap/v1', rounding: 'rounding-swap/v1', ends: 'sequence-end/v1',
-  order: 'sort-order/v1', awaited: 'await-dropped/v1', copy: 'copy-dropped/v1' };
+  order: 'sort-order/v1', awaited: 'await-dropped/v1', copy: 'copy-dropped/v1',
+  spreadDrop: 'spread-property-drop/v1', prefixSubstring: 'prefix-to-substring/v1', replaceMultiplicity: 'replace-multiplicity/v1' };
 // What to assert where no recording can say which input is missing.
 const advice = {
   [rules.awaited]: 'the tests pass when this call is not waited for: assert on what it has done before what follows it goes on',
@@ -21,8 +22,13 @@ const roundingDiffers = { 'floor trunc': 'negative and not a whole number (-0.5)
   'floor round': 'a number that rounds up (1.5, -1.5)', 'ceil round': 'a number that rounds down (1.4, -1.6)',
   'round trunc': 'a number that rounds away from zero (1.5, -1.6)', 'ceil floor': 'not a whole number (0.5)' };
 
-function missingInput({ operator, form, boolean, left, differsFor, subject, pureRight }, expression, rule, replacement) {
+function missingInput({ operator, form, boolean, left, differsFor, subject, pureRight, key }, expression, rule, replacement) {
   const side = '`' + clip(left) + '`';
+  if (rule === rules.spreadDrop) return `a test in which \`${clip(left)}.${key}\` is missing or differs from its updated value`;
+  if (rule === rules.prefixSubstring) {
+    return `a test in which ${side} contains the ${operator === 'startsWith' ? 'prefix somewhere other than the start' : 'suffix somewhere other than the end'}`;
+  }
+  if (rule === rules.replaceMultiplicity) return `a test in which ${side} contains the searched text more than once`;
   if (rule === rules.arithmetic) return `a test in which \`${clip(expression)}\` is not \`${clip(replacement)}\``;
   if (rule === rules.order) return `a test in which ${side} holds numbers whose order as text is not their order as numbers (9 and 10)`;
   if (rule === rules.extreme) return `a test in which the two arguments of \`${clip(expression)}\` differ`;

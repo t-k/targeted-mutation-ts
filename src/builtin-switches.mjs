@@ -31,18 +31,18 @@ const probe = (see, table, cover, scope, rows) => `
 function ${table}(i) {
   return (${table}.rows || (${table}.rows = ${JSON.stringify(rows)}))[i];
 }
-function ${see}(i, l, r) {
+function ${see}(i, l, r, r2) {
   var site = ${table}(i), op = site[0], edits = site[2], kind = site[6], scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
   var utilTypes = ${table}.u !== void 0 ? ${table}.u : (${table}.u = typeof scope.process === 'object' && scope.process && typeof scope.process.getBuiltinModule === 'function' ? scope.process.getBuiltinModule('node:util').types : null);
   var isProxy = utilTypes ? utilTypes.isProxy : null;
   var isTypedArray = utilTypes ? utilTypes.isTypedArray : null;
-  var strMethods = ${table}.s || (${table}.s = { indexOf: scope.String.prototype.indexOf, lastIndexOf: scope.String.prototype.lastIndexOf });
+  var strMethods = ${table}.s || (${table}.s = { indexOf: scope.String.prototype.indexOf, lastIndexOf: scope.String.prototype.lastIndexOf, includes: scope.String.prototype.includes, replace: scope.String.prototype.replace, replaceAll: scope.String.prototype.replaceAll });
   var logical = kind === 'l', missing = l === null || l === void 0, k, form;
   var taken = op === '&&' ? !!l : op === '||' ? !l : missing;
   var constant = op === '&&' ? true : op === '||' ? false : void 0;
   function equal(operator, a, b) { return operator === '===' ? a === b : operator === '!==' ? a !== b : operator === '==' ? a == b : a != b; }
   // An operation on values: arithmetic, the functions of Math, and the ends of a sequence.
-  function apply(o, a, b) {
+  function apply(o, a, b, c) {
     switch (o) {
       case '+': return a + b; case '-': return a - b; case '*': return a * b; case '/': return a / b; case '%': return a % b;
       case 'max': return Math.max(a, b); case 'min': return Math.min(a, b);
@@ -50,13 +50,24 @@ function ${see}(i, l, r) {
       case 'idx0': return a[0]; case 'idxLast': return a[a.length - 1]; case 'at0': return a.at(0); case 'at-1': return a.at(-1);
       case 'find': return a.find(b); case 'findLast': return a.findLast(b); case 'findIndex': return a.findIndex(b);
       case 'findLastIndex': return a.findLastIndex(b); case 'indexOf': return a.indexOf(b); case 'lastIndexOf': return a.lastIndexOf(b);
+      case 'startsWith': return a.startsWith(b); case 'endsWith': return a.endsWith(b); case 'includes': return a.includes(b);
+      case 'replace': return a.replace(b, c); case 'replaceAll': return a.replaceAll(b, c);
       case 'copyArray': return [...a]; case 'copyObject': return { ...a };
       case 'sort': return a.sort(b); case 'toSorted': return a.toSorted(b); default: return op === 'sort' ? a.sort() : a.toSorted();
     }
   }
+  function buildSpread(skipIndex) {
+    var keys = site[8], out = { ...l }, m;
+    for (m = 0; m < keys.length; m++) {
+      if (m === skipIndex) continue;
+      scope.Object.defineProperty(out, keys[m], { value: r[m](), enumerable: true, writable: true, configurable: true });
+    }
+    return out;
+  }
   function edited(f) {
     if (kind === 'c') return l;
-    if (kind !== 'e') return apply(f, l, r);
+    if (kind === 'p') return buildSpread(Number(f.slice(5)));
+    if (kind !== 'e') return apply(f, l, r, r2);
     if (f === 'true') return true;
     if (f === 'false') return false;
     if (f === 'loose') return equal(op.slice(0, 2), l, r);
@@ -64,7 +75,7 @@ function ${see}(i, l, r) {
     var subject = site[3] ? l : r, other = (site[3] ? r : l) === null ? void 0 : null;
     return (subject === other) === (op === '==');
   }
-  function original() { return logical ? (taken ? r() : l) : kind === 'e' ? equal(op, l, r) : apply(op, l, r); }
+  function original() { return logical ? (taken ? r() : l) : kind === 'e' ? equal(op, l, r) : kind === 'p' ? buildSpread(-1) : apply(op, l, r, r2); }
   function plain(v) { return v === null || (typeof v !== 'object' && typeof v !== 'function'); }
   // An array of the built-in kind with the same elements: slice would call the constructor of a subclass.
   function copy(a) {
@@ -89,12 +100,20 @@ function ${see}(i, l, r) {
       for (n = 0; n < other.length; n++) if (!is(other[n], value[n])) return false;
       return true;
     }
+    if (op === 'startsWith' || op === 'endsWith') {
+      if (typeof l !== 'string' || !plain(r) || l[f] !== strMethods[f]) return null;
+      try { return is(value, apply(f, l, r)); } catch (error) { return false; }
+    }
+    if (op === 'replace' || op === 'replaceAll') {
+      if (typeof l !== 'string' || !plain(r) || !plain(r2) || l[f] !== strMethods[f]) return null;
+      try { return is(value, apply(f, l, r, r2)); } catch (error) { return false; }
+    }
     if (kind === 'a' ? !plain(l) || !plain(r) : kind === 'm' ? typeof l !== 'number' || (site[7] === 2 && typeof r !== 'number')
       : (!sequence && typeof l !== 'string') || ((op === 'indexOf' || op === 'lastIndexOf') && typeof l === 'string' && (!plain(r) || l[f] !== strMethods[f]))) return null;
     // The callback of a search would run again: with at most one element both ends are the same search.
     if (op.slice(0, 4) === 'find') return sequence && l.length <= 1 ? true : null;
     try {
-      return is(value, apply(f, l, r));
+      return is(value, apply(f, l, r, r2));
     } catch (error) {
       return false;
     }
@@ -118,9 +137,21 @@ function ${see}(i, l, r) {
   if (!state || state.phase !== 'baseline') return original();
   // An operation that throws is observed too: an edit that evaluates the same right side throws as well, and any other differs.
   // A sort in place loses the order it started from.
-  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? copy(l) : void 0;
+  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? copy(l) : void 0, spreadBase, spreadVals;
   try {
-    value = original();
+    if (kind === 'p') {
+      spreadBase = { ...l };
+      spreadVals = [];
+      value = { ...spreadBase };
+      var spreadKeys = site[8], sm;
+      for (sm = 0; sm < spreadKeys.length; sm++) {
+        var sv = r[sm]();
+        spreadVals[sm] = sv;
+        scope.Object.defineProperty(value, spreadKeys[sm], { value: sv, enumerable: true, writable: true, configurable: true });
+      }
+    } else {
+      value = original();
+    }
     threw = false;
   } finally {
     if (threw) note();
@@ -130,10 +161,15 @@ function ${see}(i, l, r) {
   function note() {
     var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '';
     for (k = 0; k < edits.length; k++) {
-      var f = edits[k][1], same, other;
+      var f = edits[k][1], same, other, spreadIdx, spreadKey, spreadHad;
       if (threw) same = logical ? (f !== 'nullish' || missing) : null;
       else if (kind === 'c') same = null;
-      else if (kind === 'e') same = value === edited(f);
+      else if (kind === 'p') {
+        spreadIdx = Number(f.slice(5));
+        spreadKey = site[8][spreadIdx];
+        spreadHad = scope.Object.prototype.hasOwnProperty.call(spreadBase, spreadKey);
+        same = spreadHad && is(spreadBase[spreadKey], spreadVals[spreadIdx]);
+      } else if (kind === 'e') same = value === edited(f);
       else if (!logical) same = alike(f, value);
       else if (site[5] || f === 'right') {
         // A written right side can be evaluated to compare; the constant of an ignored right side needs no evaluation.
@@ -177,7 +213,9 @@ function ${see}(i, l, r) {
       }
       var slot = same === null ? 'unsure' : same ? 'agree' : 'differ';
       counts[same === null ? 2 : same ? 0 : 1]++;
-      if (kind !== 'c' && !entry[slot]) entry[slot] = (logical ? !taken || threw : site[7] === 1) ? [show(l)] : [show(l), show(logical ? value : r)];
+      if (kind === 'p' && !threw && !entry[slot]) {
+        entry[slot] = [spreadHad ? show(spreadBase[spreadKey]) : '(missing)', show(spreadVals[spreadIdx])];
+      } else if (kind !== 'c' && kind !== 'p' && !entry[slot]) entry[slot] = (logical ? !taken || threw : site[7] === 1) ? [show(l)] : [show(l), show(logical ? value : r)];
       var type = typeof l;
       if (type === 'number' || type === 'string' || type === 'bigint' || type === 'boolean') entry.typed = true;
     }
@@ -256,16 +294,27 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         // The operands are rendered in source order; what stands between them is the operation the probe performs.
         // Each in parentheses of its own: a probe inside may begin with `void 0,`, which must stay one argument.
         const operands = group.operands.map(([start, end]) => `(${render(start, end)})`);
-        const { operator, boolean, thunk } = group.targeted;
+        const { operator, boolean, thunk, spreadKeys } = group.targeted;
         // Only the edits beside a written null or undefined say on which side it stands.
         const literalSide = group.mutants.find(mutant => mutant.targeted.literalSide !== undefined)?.targeted.literalSide ?? 0;
         const kind = thunk ? 'l' : ['===', '!==', '==', '!='].includes(operator) ? 'e' : operator.length === 1 ? 'a'
           : ['max', 'min', 'floor', 'ceil', 'round', 'trunc'].includes(operator) ? 'm'
-            : operator === 'copyArray' || operator === 'copyObject' ? 'c' : 's';
-        probed.push([operator, boolean ? 1 : 0, group.mutants.map(mutant => [mutant.id, mutant.targeted.form]), literalSide,
-          group.mutants.map(mutant => mutant.id), group.targeted.pureRight ? 1 : 0, kind, operands.length]);
-        if (thunk) operands[1] = `() => ${operands[1]}`;
-        const call = `${see}(${probed.length - 1}, ${operands.join(', ')})`;
+            : operator === 'copyArray' || operator === 'copyObject' ? 'c'
+              : operator === 'spreadUpdate' ? 'p' : 's';
+        const row = [operator, boolean ? 1 : 0, group.mutants.map(mutant => [mutant.id, mutant.targeted.form]), literalSide,
+          group.mutants.map(mutant => mutant.id), group.targeted.pureRight ? 1 : 0, kind, operands.length];
+        if (spreadKeys) row.push(spreadKeys);
+        probed.push(row);
+        let callArgs;
+        if (thunk) {
+          operands[1] = `() => ${operands[1]}`;
+          callArgs = operands.join(', ');
+        } else if (kind === 'p') {
+          callArgs = `${operands[0]}, [${operands.slice(1).map(opExpr => `() => ${opExpr}`).join(', ')}]`;
+        } else {
+          callArgs = operands.join(', ');
+        }
+        const call = `${see}(${probed.length - 1}, ${callArgs})`;
         // Nothing inside the expression is left to render: an index the probe works out itself has no switch.
         while (index < ordered.length && ordered[index].placement[0] < last) index++;
         out += group.statement ? ` ${call}` : group.leading ? ` void 0, (${call})` : `(${call})`;

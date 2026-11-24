@@ -27,6 +27,7 @@ export const targetedRules = {
   constant: 'equality-constant/v1', nullish: 'nullish-equality/v1', ignored: 'ignored-operand/v1', fallback: 'nullish-fallback/v1',
   arithmetic: 'arithmetic-swap/v1', extreme: 'extreme-swap/v1', rounding: 'rounding-swap/v1', ends: 'sequence-end/v1',
   order: 'sort-order/v1', awaited: 'await-dropped/v1', copy: 'copy-dropped/v1',
+  spreadDrop: 'spread-property-drop/v1', prefixSubstring: 'prefix-to-substring/v1', replaceMultiplicity: 'replace-multiplicity/v1',
 };
 // Two other operators for each arithmetic one: its inverse, and the one the same operands most often agree on.
 // (Maps: a method may be named like a property every object has.)
@@ -352,6 +353,11 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       const first = source(args[0]) === '0';
       probed(node, first ? 'at0' : 'at-1', [callee.expression])(targetedRules.ends, first ? 'at-1' : 'at0',
         text.slice(begin(node), begin(args[0])) + (first ? '-1' : '0') + text.slice(args[0].end, node.end));
+    } else if ((name === 'startsWith' || name === 'endsWith') && args.length === 1) {
+      probed(node, name, [callee.expression, args[0]])(targetedRules.prefixSubstring, 'includes', rename(node, callee.name, 'includes'));
+    } else if ((name === 'replace' || name === 'replaceAll') && args.length === 2 && !ts.isRegularExpressionLiteral(strip(args[0]))) {
+      const swapped = name === 'replace' ? 'replaceAll' : 'replace';
+      probed(node, name, [callee.expression, args[0], args[1]])(targetedRules.replaceMultiplicity, swapped, rename(node, callee.name, swapped));
     }
   }
 
@@ -380,9 +386,37 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     // probing records whether the operand is actually an array or a plain object.
     const isArray = ts.isArrayLiteralExpression(node);
     const only = isArray ? node.elements : ts.isObjectLiteralExpression(node) ? node.properties : undefined;
-    if (only?.length !== 1 || !(ts.isSpreadElement(only[0]) || ts.isSpreadAssignment(only[0])) || isAssignmentTarget(node)) return;
-    const original = source(only[0].expression);
-    probed(node, isArray ? 'copyArray' : 'copyObject', [only[0].expression])(targetedRules.copy, 'dropped', `(${original})`);
+    if (!only || isAssignmentTarget(node)) return;
+    if (only.length === 1 && (ts.isSpreadElement(only[0]) || ts.isSpreadAssignment(only[0]))) {
+      const original = source(only[0].expression);
+      probed(node, isArray ? 'copyArray' : 'copyObject', [only[0].expression])(targetedRules.copy, 'dropped', `(${original})`);
+      return;
+    }
+    // `{ ...base, k1: v1, k2: v2 }`: drop one explicit static property at a time.
+    if (!isArray && only.length >= 2 && ts.isSpreadAssignment(only[0])) {
+      const rest = only.slice(1);
+      const keys = [];
+      const values = [];
+      const seenKeys = new Set();
+      for (const prop of rest) {
+        if (!ts.isPropertyAssignment(prop) && !ts.isShorthandPropertyAssignment(prop)) return;
+        const name = prop.name;
+        let key;
+        if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) key = name.text;
+        else return;
+        if (key === '__proto__' || seenKeys.has(key)) return;
+        const valueNode = ts.isShorthandPropertyAssignment(prop) ? prop.name : prop.initializer;
+        if (staysInPlace(valueNode)) return;
+        seenKeys.add(key);
+        keys.push(key);
+        values.push(valueNode);
+      }
+      const edit = probed(node, 'spreadUpdate', [only[0].expression, ...values], { spreadKeys: keys });
+      for (let j = 0; j < rest.length; j++) {
+        const kept = [only[0], ...rest.filter((_, idx) => idx !== j)];
+        edit(targetedRules.spreadDrop, `drop:${j}`, `{ ${kept.map(prop => source(prop)).join(', ')} }`, { key: keys[j] });
+      }
+    }
   }
 
   // A name or a chain of property names: reading it twice gives the same and does nothing else.
