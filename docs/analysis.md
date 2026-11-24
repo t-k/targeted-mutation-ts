@@ -65,6 +65,41 @@ Two limits come with runtime switches, here as in StrykerJS. A test that reads s
 
 The default profile uses the same session. Its comparison boundaries, `>=` with `>` and `<=` with `<`, are decided in a worker. So are its threshold edits and the tightened comparisons of `--displace-thresholds`: every comparison gets one more switch that moves its right side by an integer chosen at run time, and once the recorded comparisons show which thresholds to try, the session runs them through that switch. `n >= 100` with a shift of 3 behaves as `n >= 103`. The profile starts Vitest once on its own, for the run that records the comparisons; that run also serves as its baseline when it passes, because the session runs the suite beside it. When the recording run does not pass, the plain baseline runs and is reported as before. `--audit` and Playwright run every edit against the rewritten source instead.
 
+### Targeted edits
+
+`--mutators targeted` adds four rules to the focused profile. Each replaces one expression by another that gives the same value for some operands and a different one for others, and still evaluates what the original evaluates.
+
+| Rule | Code | Edit | Differs when |
+|------|------|------|--------------|
+| `equality-constant/v1` | `a === b`, `!==`, `==`, `!=` | `(a, b, true)`, `(a, b, false)` | the comparison gives the other value |
+| `ignored-operand/v1` | `a && b`, `a \|\| b`, `a ?? b` | `(a, b)`: the left side decides nothing | the original would not have evaluated `b` |
+| | | `a && (b, true)`, `a \|\| (b, false)`, `a ?? (b, undefined)`: the right side's value is not used | `b` is evaluated and gives another value |
+| `nullish-fallback/v1` | `a ?? b`, and `a \|\| b` where its value is used | `a \|\| b`, `a ?? b` | `a` is `0`, `''`, `false` or `NaN` |
+| `nullish-equality/v1` | `a === null`, `a !== undefined` | `a == null`, `a != undefined` | `a` is the other of `null` and `undefined` |
+| | `a == null`, `a != null` | `a === null` and `a === undefined` | `a` is the one the edit leaves out |
+
+With Vitest 4 each such expression becomes a probe in the test session. While the baseline runs, the probe notes for every edit of the expression and for every test whether the edit would have given the same value after evaluating the same operands. The edits then run like any other switch, against the tests that reach them. A survivor is reported with what the recording says about it:
+
+```text
+INPUT GAP src/cart.ts:12:10  nullish-fallback/v1
+  `count ?? 10` passes every test as `(count || 10)` (3 tests reach it)
+  add a test in which `count` is 0, '', false or NaN
+ASSERTION GAP src/form.ts:31:20  ignored-operand/v1
+  `!saving && valid` passes every test as `(!saving, valid)`
+  the edit gives another value in: test/form.test.ts > submits (operands false)
+  add an assertion on what this value decides
+```
+
+An `INPUT GAP` means the edit agreed with the original at every evaluation in every passing test: no test has the input that tells them apart, and `missing` names it. An `ASSERTION GAP` lists the tests in which the edit went another way and that passed all the same, with the operands of the first such evaluation. In JSON the entries are in `diagnostics`, with `expression`, `missing`, `reachedBy`, `tests` and `example`.
+
+- Where only the truth of the value is used (a condition, under `!`, or an operand of `&&` or `||` used that way), an ignored right operand counts as agreeing when the truth is the same. Elsewhere the values must be the same.
+- `??` and `||` give the same for `null`, `undefined` and every object. When no test gave the left side a number, a string or a boolean and the two never differed, the edit is listed as `ignored` and not run. `||` is not taken for `??` where only the truth of its value is used.
+- The strict and loose comparison edits are offered only beside a written `null` or `undefined`.
+- A logical expression whose right side contains `await` or `yield` gets no probe and no targeted edit.
+- The proof in `proof/lean/Main.lean` (`Agreement.agreeing_edit_replays`) states the claim behind an input gap: an edit that gives the original's outcome at every probe of a run leaves that run as it is. It assumes what `--deterministic` declares, so every targeted edit is still run and the recording decides only what the report says about a survivor.
+- With Playwright, or when the session cannot start, the edits are source rewrites with one run of the suite each, and nothing is recorded: a survivor is listed without a gap.
+- `// Stryker disable all` and its other forms apply; the rule names contain a slash and cannot be named in such a comment.
+
 ### Built-in operator edits
 
 `--mutators operators` adds fixed operator swaps to the focused profile: `===` and `!==`, `==` and `!=`, `&&` and `||`, `??` to `&&`, `+` and `-`, `*` and `/`, and `%` to `*`. The sites come from the TypeScript syntax tree, so operator spellings in types, strings, comments and JSX text are ignored. `+` with a string or template literal operand, a `??` chained directly with another `??`, and enum member initializers are left alone. A swap replaces the operator of one expression and keeps that expression's grouping: in `a && b && c` the first swap means `(a || b) && c`. The profile needs no extra package.

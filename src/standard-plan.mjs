@@ -33,6 +33,28 @@ export function indexCoverage(records, tests) {
   return id => plans.get(String(id)) ?? { hits: 0, staticActivation: false, covered: new Set(), perTestHits: new Map() };
 }
 
+// What the probes of the targeted rules recorded, per edit: the passing tests in which the edit would have given
+// the same as the original every time, those in which it would not, and whether it would not outside any of them
+// (while a file loads, in a hook, in a test that did not pass).
+export function indexAgreement(records, tests) {
+  const merged = new Map();
+  for (const { observed } of records) {
+    for (const [id, entry] of Object.entries(observed ?? {})) {
+      if (!merged.has(id)) merged.set(id, { agreeing: new Set(), differing: new Set(), outside: false, typed: false });
+      const into = merged.get(id);
+      for (const [test, [, differed]] of Object.entries(entry.tests ?? {})) {
+        if (!tests.has(test)) into.outside ||= differed > 0;
+        else if (differed > 0 || into.differing.has(test)) (into.differing.add(test), into.agreeing.delete(test));
+        else into.agreeing.add(test);
+      }
+      into.differ ??= entry.differ;
+      into.agree ??= entry.agree;
+      into.typed ||= entry.typed === true;
+    }
+  }
+  return merged;
+}
+
 export function coveredTests(id, records, tests) {
   return indexCoverage(records, tests)(id);
 }

@@ -8,7 +8,8 @@ import { resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { byteOffsets } from './extract.mjs';
 import { collectComparisons } from './analysis.mjs';
-import { boundarySwap, prepareBuiltinSwitches } from './builtin-switches.mjs';
+import { boundarySwap, prepareBuiltinSwitches, targetedOrBoundary } from './builtin-switches.mjs';
+import { targetedGap } from './targeted-gaps.mjs';
 import { prepareOperatorSwitches } from './operator-switches.mjs';
 import { selectScope } from './scope.mjs';
 import { inside, resolveOptional, runnerPackage, withCopy } from './vitest.mjs';
@@ -117,7 +118,7 @@ export async function analyzeConventional(project, files, options) {
   const combined = options.mutators === 'all';
   // The built-in switches use the same session and need no instrumenter package.
   // `boundaries` is the internal profile that runs only the swaps the focused analysis asks about.
-  const builtIn = ['operators', 'full', 'boundaries'].includes(options.mutators);
+  const builtIn = ['operators', 'full', 'boundaries', 'targeted'].includes(options.mutators);
   const entry = builtIn ? null : compatibilityEntry(root);
   const prefix = '.tmt-session-' + randomUUID();
   const runtime = prefix + '-focus.mjs';
@@ -134,7 +135,7 @@ export async function analyzeConventional(project, files, options) {
   const prepareBuiltIn = options.mutators === 'operators' ? prepareOperatorSwitches : prepareBuiltinSwitches;
   const awaitsExtras = builtIn && options.mutators !== 'operators' && options.extras !== undefined;
   const { sources, mutants: prepared } = builtIn ? prepareBuiltIn(targets, { dialect: options.dialect, shifts: awaitsExtras,
-    ...(options.mutators === 'boundaries' ? { keep: boundarySwap } : {}) }) : await prepareConventional(targets, focus &&
+    ...(options.mutators === 'boundaries' ? { keep: boundarySwap } : options.mutators === 'targeted' ? { keep: targetedOrBoundary, targeted: true } : {}) }) : await prepareConventional(targets, focus &&
     ((source, { starts, bytes }) => focus.printWithFocusedSwitches(
       source, starts, bytes, byFile.get(source.originFileName) ?? [], runtime, preparedFocused, babel,
     )), entry);
@@ -148,7 +149,7 @@ export async function analyzeConventional(project, files, options) {
   const runnable = prepared.filter(mutant => mutant.status === undefined);
   const focused = focus?.eligibleFocusedSites(runnable, preparedFocused) ?? [];
   if (!mutants.length && !focused.length) return report;
-  if (!runnable.length && !focused.length) return { ...report, evaluation: 'evaluated', mutants };
+  if (!runnable.length && !focused.length) return { ...report, evaluation: 'evaluated', mutants: mutants.map(({ targeted: _rule, ...mutant }) => mutant) };
 
   return withCopy(root, async (workspace, temp) => {
     runnerPackage(workspace, 'vitest');
@@ -166,7 +167,7 @@ export async function analyzeConventional(project, files, options) {
     const output = resolve(temp, 'mutation-session.jsonl');
     writeFileSync(manifest, JSON.stringify({
       workspace, setup, workerRunner, output, temporary: temp, awaitsExtras,
-      mutants: runnable.map(({ id, parametric }) => ({ id, ...(parametric ? { parametric } : {}) })),
+      mutants: runnable.map(({ id, parametric, targeted }) => ({ id, ...(parametric ? { parametric } : {}), ...(targeted?.evidence ? { evidence: true } : {}) })),
       focused: focused.map(({ id }) => ({ id })), isolatedTrials: options['isolated-trials'] === true,
       concurrency: options.concurrency ?? Math.max(1, availableParallelism() - 1), verifyTrials: options['verify-trials'] ?? 0,
       ...(options.timeout ? { runTimeout: options.timeout * 1000 } : {}),
@@ -194,15 +195,18 @@ export async function analyzeConventional(project, files, options) {
     const completed = run.status === 0 && events.at(-1)?.complete === true;
     const trace = events.find(event => event.focusedTrace)?.focusedTrace;
     const targeted = focused.map(entry => focus.focusedResult(entry, trace, results, originals)).filter(Boolean);
+    const observed = events.find(event => event.observed)?.observed ?? {};
+    const judged = mutants.map(mutant => {
+      const result = results.get(mutant.id);
+      if (result) return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
+      return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Mutation session ended early' };
+    });
     return {
       ...report, baseline, evaluation: completed ? 'evaluated' : 'incomplete', trials: events.find(event => event.trials)?.trials,
       ...(awaitsExtras ? { extras: events.filter(event => event.extra !== undefined) } : {}),
-      mutants: [...mutants.map(mutant => {
-        const result = results.get(mutant.id);
-        if (result) return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
-        return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Mutation session ended early' };
-      }), ...targeted.map(entry => entry.mutant)],
-      diagnostics: targeted.flatMap(entry => entry.diagnosis ? [entry.diagnosis] : []),
+      mutants: [...judged.map(({ targeted: _rule, ...mutant }) => mutant), ...targeted.map(entry => entry.mutant)],
+      diagnostics: [...judged.flatMap(mutant => targetedGap(mutant, observed[mutant.id]) ?? []),
+        ...targeted.flatMap(entry => entry.diagnosis ? [entry.diagnosis] : [])],
     };
   }, { exclude: options['copy-exclude'] });
 }

@@ -573,6 +573,38 @@ def decodeGap (input : Wire.Value) : Except String (Option Gap) := do
 
 end Threshold
 
+/-! The targeted rules. A probe gives an outcome for its operands: the value and which operands it evaluated.
+An edit that gives the outcome of the original at every probe of a run leaves that run as it is, whatever the
+values and the outcomes are. -/
+namespace Agreement
+
+inductive Program (ι ο : Type) where
+  | finish (passes : Bool)
+  | probe (site : Nat) (operands : ι) (next : ο → Program ι ο)
+
+def run {ι ο : Type} (rules : Nat → ι → ο) : Program ι ο → Bool × List (Nat × ι)
+  | .finish passes => (passes, [])
+  | .probe site operands next =>
+    ((run rules (next (rules site operands))).1, (site, operands) :: (run rules (next (rules site operands))).2)
+
+theorem agreeing_edit_replays {ι ο : Type} (program : Program ι ο) (rules changed : Nat → ι → ο)
+    (same : ∀ seen ∈ (run rules program).2, changed seen.1 seen.2 = rules seen.1 seen.2) :
+    run changed program = run rules program := by
+  induction program with
+  | finish passes => rfl
+  | probe site operands next ih =>
+    have here : changed site operands = rules site operands := same (site, operands) (by simp [run])
+    have rest := ih (rules site operands) (fun seen found => same seen (by simp [run, found]))
+    simp only [run, here, rest]
+
+/-- An edit that differs somewhere is told from the original by a run that reaches such operands first. -/
+theorem differing_edit_is_seen {ι ο : Type} [DecidableEq ο] (site : Nat) (operands : ι) (rules changed : Nat → ι → ο)
+    (differs : changed site operands ≠ rules site operands) :
+    ∃ program : Program ι ο, run changed program ≠ run rules program :=
+  ⟨.probe site operands (fun outcome => .finish (outcome = rules site operands)), by simp [run, differs]⟩
+
+end Agreement
+
 def main (args : List String) : IO UInt32 := do
   let input ← (← IO.getStdin).readToEnd
   match Wire.parse input >>= Wire.Value.items? with
@@ -596,3 +628,6 @@ def main (args : List String) : IO UInt32 := do
 #print axioms Threshold.choose_correct
 
 #print axioms Threshold.no_gap_iff_unique
+
+#print axioms Agreement.agreeing_edit_replays
+#print axioms Agreement.differing_edit_is_seen

@@ -11,8 +11,11 @@ Scope (analyze):
   --copy-exclude PATH           Leave a project path out of the temporary copies. Repeatable.
 
 Profiles (analyze):
-  --mutators focused|operators|full|standard|all
+  --mutators focused|targeted|operators|full|standard|all
                                 focused (default) edits comparison boundaries and thresholds.
+                                targeted adds edits that the values of the tests can tell apart: an equality
+                                that is always true or false, an operand of && || ?? that never decides,
+                                ?? for ||, and == null for === null. Each survivor names the missing input.
                                 operators adds equality, logical and arithmetic operator swaps.
                                 full adds the complete built-in mutation set (the StrykerJS mutators).
                                 standard and all use @stryker-mutator/instrumenter@10.1.1 instead.
@@ -81,6 +84,19 @@ function describeGap(gap) {
   if (inputs) {
     lines.push(`  ${witness.arguments ? 'arguments' : 'operands'} (${inputs.map(printable).join(', ')}): ` +
       `original ${printable(witness.original)}, edited ${printable(witness.mutant)}`);
+  }
+  if (gap.expression !== undefined) {
+    const edit = gap.mutations?.[0]?.replacement;
+    lines.push(`  \`${firstLine(gap.expression)}\` passes every test as \`${firstLine(edit)}\`` +
+      (gap.reachedBy === undefined ? '' : ` (${gap.reachedBy} ${gap.reachedBy === 1 ? 'test reaches' : 'tests reach'} it)`));
+    if (gap.missing) lines.push(`  add ${printable(gap.missing)}`);
+    else {
+      const shown = (gap.tests ?? []).slice(0, 3).map(test => `${printable(test.file)} > ${printable(test.name)}`);
+      const more = (gap.tests?.length ?? 0) - shown.length;
+      const where = [...shown, ...(more > 0 ? [`${more} more`] : []), ...(gap.outsideTests ? ['code outside the tests'] : [])].join('; ');
+      const operands = gap.example?.operands ? ` (operands ${gap.example.operands.map(printable).join(', ')})` : '';
+      lines.push(`  the edit gives another value in: ${where}${operands}`, '  add an assertion on what this value decides');
+    }
   }
   if (gap.suggestedTest) lines.push(`  suggested test: ${printable(gap.suggestedTest)}`);
   if (gap.seed) lines.push(`  based on: ${printable(gap.seed.file)} > ${printable(gap.seed.test)}`);

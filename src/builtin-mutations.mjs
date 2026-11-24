@@ -20,7 +20,15 @@ for (const [name, other] of [...methods]) if (other && name !== 'setUTCDate') me
 // Stands for the call that reads the active shift. The renderer puts the helper's name in its place.
 export const shiftPlaceholder = '\u0000shift\u0000';
 
-export function collectMutations(text, file, { dialect, selected = () => true, shifts = false, ts = loadTypeScript() } = {}) {
+// The targeted rules: edits whose behaviour on the values a test passes can be told from the operands alone, so a
+// recording run knows in which tests an edit would have gone another way. `ignored-operand` drops what one side
+// of a logical operator decides and still evaluates it.
+export const targetedRules = {
+  constant: 'equality-constant/v1', nullish: 'nullish-equality/v1', ignored: 'ignored-operand/v1', fallback: 'nullish-fallback/v1',
+};
+const ignoredValue = { '&&': 'true', '||': 'false', '??': 'undefined' };
+
+export function collectMutations(text, file, { dialect, selected = () => true, shifts = false, targeted = false, ts = loadTypeScript() } = {}) {
   const kind = dialect === 'tsx' ? ts.ScriptKind.TSX : dialect === 'ts' ? ts.ScriptKind.TS : undefined;
   const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind);
   const K = ts.SyntaxKind;
@@ -126,7 +134,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     for (let line = lineOf(start); line <= lineOf(node.end); line++) if (!selected(line + 1)) return;
     const ignored = ignoreReason(name, lineOf(start), from);
     // A shift switch is not a mutation of the set, so it does not count for the rules about statement removals.
-    if (ignored === undefined && extra?.shift === undefined) live++;
+    if (ignored === undefined && extra?.shift === undefined && extra?.targeted === undefined) live++;
     mutations.push({ name, start, end: node.end, replacement, ...(placement ?? expressionPlacement(node, replacement)), ...extra,
       ...(ignored === undefined ? {} : { ignored }) });
   }
@@ -179,6 +187,71 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       add('LogicalOperator', node, `${operand(node.left)} ${logical.get(operator)} ${operand(node.right)}`);
     } else if (assignment.has(operator) && !(isString(strip(node.right)) && !['&&=', '||=', '??='].includes(operator))) {
       add('AssignmentOperator', node, swapToken(node, token, assignment.get(operator)));
+    }
+  }
+
+  // Whether only the truth of the expression's value is used: as a condition, under `!`, or as an operand of a
+  // logical operator that is itself used that way.
+  function onlyTruthUsed(node) {
+    for (let [parent, child] = up(node); ; [parent, child] = up(parent)) {
+      if (ts.isPrefixUnaryExpression(parent) && parent.operator === K.ExclamationToken) return true;
+      if ((ts.isIfStatement(parent) || ts.isWhileStatement(parent) || ts.isDoStatement(parent)) && parent.expression === child) return true;
+      if ((ts.isForStatement(parent) || ts.isConditionalExpression(parent)) && parent.condition === child) return true;
+      if (!isLogical(parent) || operatorOf(parent) === '??') return false;
+    }
+  }
+
+  // A right operand that awaits or yields cannot be evaluated inside the function a probe wraps it in.
+  function suspends(node) {
+    let found = false;
+    (function look(inner) {
+      if (found) return;
+      if (ts.isAwaitExpression(inner) || ts.isYieldExpression(inner)) found = true;
+      else if (!ts.isFunctionLike(inner)) ts.forEachChild(inner, look);
+    })(node);
+    return found;
+  }
+
+  const nullishLiteral = node => {
+    const inner = strip(node);
+    return inner.kind === K.NullKeyword ? 'null' : ts.isIdentifier(inner) && inner.text === 'undefined' ? 'undefined' : undefined;
+  };
+
+  function targetedEdits(node) {
+    const operator = operatorOf(node);
+    const token = node.operatorToken;
+    const left = source(node.left);
+    const right = source(node.right);
+    const boolean = onlyTruthUsed(node);
+    const operands = [begin(node.left), node.left.end, begin(node.right), node.right.end];
+    const edit = (rule, form, replacement, more) => add(rule, node, replacement, { ...expressionPlacement(node, replacement), kind: 'observed' },
+      { targeted: { operator, form, boolean, left, ...more }, operands });
+    if (isBinary(node) && ['===', '!==', '==', '!='].includes(operator)) {
+      edit(targetedRules.constant, 'true', `(${left}, ${right}, true)`);
+      edit(targetedRules.constant, 'false', `(${left}, ${right}, false)`);
+      const written = [nullishLiteral(node.left), nullishLiteral(node.right)];
+      // Beside a written null or undefined, the strict and the loose comparison differ for the other of the two.
+      if ((written[0] === undefined) === (written[1] === undefined)) return;
+      const literalSide = written[0] === undefined ? 1 : 0;
+      const other = written[literalSide] === 'null' ? 'undefined' : 'null';
+      const subject = literalSide ? left : right;
+      if (operator.length === 3) {
+        edit(targetedRules.nullish, 'loose', swapToken(node, token, operator.slice(0, 2)), { literalSide, differsFor: other, subject });
+      } else {
+        const strict = operator + '=';
+        edit(targetedRules.nullish, 'strict', swapToken(node, token, strict), { literalSide, differsFor: other, subject });
+        edit(targetedRules.nullish, 'other', literalSide ? `${left} ${strict} ${other}` : `${other} ${strict} ${right}`,
+          { literalSide, differsFor: written[literalSide], subject });
+      }
+    } else if (isLogical(node) && !suspends(node.right)) {
+      // A different precedence would regroup an unparenthesized operand, so operands keep their own group.
+      const operand = side => ts.isBinaryExpression(side) ? `(${source(side)})` : source(side);
+      const more = { thunk: true };
+      edit(targetedRules.ignored, 'left', `(${left}, ${right})`, more);
+      edit(targetedRules.ignored, 'right', `(${left} ${operator} (${right}, ${ignoredValue[operator]}))`, more);
+      if (operator === '??') edit(targetedRules.fallback, 'or', `(${operand(node.left)} || ${operand(node.right)})`, { ...more, evidence: true });
+      // Where only the truth of the value is used, nobody writes `??` for `||`.
+      else if (operator === '||' && !boolean) edit(targetedRules.fallback, 'nullish', `(${operand(node.left)} ?? ${operand(node.right)})`, { ...more, evidence: true });
     }
   }
 
@@ -282,6 +355,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     if (ts.isExpressionStatement(node)) statementStart = begin(node.expression);
     const before = mutations.length;
     if (ts.isBinaryExpression(node)) binary(node);
+    if (targeted && ts.isBinaryExpression(node)) targetedEdits(node);
     if (ts.isExpression(node) && !ts.isParenthesizedExpression(node)) condition(node);
     if (ts.isArrayLiteralExpression(node) && !isAssignmentTarget(node)) {
       add('ArrayDeclaration', node, node.elements.length ? '[]' : '["Stryker was here"]');

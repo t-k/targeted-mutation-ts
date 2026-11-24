@@ -23,7 +23,59 @@ function ${cover}() {
   for (var i = 0; i < arguments.length; i++) counts[arguments[i]] = (counts[arguments[i]] || 0) + 1;
 }
 `;
-const outerFirst = { statement: 0, block: 0, case: 0, expression: 1 };
+// The probe of the targeted rules. It takes the operands of one expression, the right one of a logical operator as a
+// function, and returns what the expression gives: with the active edit when one of the site's edits is on. While
+// the baseline is recorded it also notes, for every edit of the site and per test, whether the edit would have
+// given the same value after evaluating the same operands.
+const probe = (see, table, cover, scope, rows) => `
+function ${table}(i) {
+  return (${table}.rows || (${table}.rows = ${JSON.stringify(rows)}))[i];
+}
+function ${see}(i, l, r) {
+  var site = ${table}(i), op = site[0], edits = site[2], scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
+  var logical = op === '&&' || op === '||' || op === '??', missing = l === null || l === void 0, k, form;
+  var taken = op === '&&' ? !!l : op === '||' ? !l : missing;
+  var constant = op === '&&' ? true : op === '||' ? false : void 0;
+  function equal(operator, a, b) { return operator === '===' ? a === b : operator === '!==' ? a !== b : operator === '==' ? a == b : a != b; }
+  function edited(f) {
+    if (f === 'true') return true;
+    if (f === 'false') return false;
+    if (f === 'loose') return equal(op.slice(0, 2), l, r);
+    if (f === 'strict') return equal(op + '=', l, r);
+    var subject = site[3] ? l : r, other = (site[3] ? r : l) === null ? void 0 : null;
+    return (subject === other) === (op === '==');
+  }
+  function show(v) {
+    var t = typeof v;
+    return v === null ? 'null' : t === 'string' ? JSON.stringify(v.length > 40 ? v.slice(0, 40) + '...' : v)
+      : t === 'number' ? (v === 0 && 1 / v < 0 ? '-0' : String(v)) : t === 'boolean' || t === 'undefined' ? String(v) : t === 'bigint' ? v + 'n' : t;
+  }
+  if (ns.activeMutant !== void 0) for (k = 0; k < edits.length; k++) if (edits[k][0] === ns.activeMutant) form = edits[k][1];
+  if (form !== void 0) {
+    if (ns.hitCount !== void 0 && ++ns.hitCount > ns.hitLimit) throw new Error('Mutation hit limit reached (' + ns.hitCount + ')');
+    if (!logical) return edited(form);
+    if (form === 'left') return r();
+    if (form === 'right') return taken ? (r(), constant) : l;
+    return (form === 'or' ? !l : missing) ? r() : l;
+  }
+  ${cover}.apply(null, site[4]);
+  var value = logical ? (taken ? r() : l) : equal(op, l, r);
+  var state = scope[Symbol.for('targeted-mutation-ts/session')];
+  if (!state || state.phase !== 'baseline') return value;
+  var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '';
+  for (k = 0; k < edits.length; k++) {
+    var f = edits[k][1], same = !logical ? value === edited(f) : f === 'left' ? taken
+      : f === 'right' ? !taken || (site[1] ? !value === !constant : value === constant) : missing || !!l;
+    var entry = seen[edits[k][0]] || (seen[edits[k][0]] = { tests: {} }), counts = entry.tests[test] || (entry.tests[test] = [0, 0]);
+    counts[same ? 0 : 1]++;
+    if (!entry[same ? 'agree' : 'differ']) entry[same ? 'agree' : 'differ'] = logical && !taken ? [show(l)] : [show(l), show(logical ? value : r)];
+    var type = typeof l;
+    if (type === 'number' || type === 'string' || type === 'bigint' || (type === 'boolean' && f === 'or')) entry.typed = true;
+  }
+  return value;
+}
+`;
+const outerFirst = { statement: 0, block: 0, case: 0, expression: 1, observed: 2 };
 
 function unusedName(text, base) {
   let name = base;
@@ -55,6 +107,9 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   const on = unusedName(text, '__tmtOn');
   const cover = unusedName(text, '__tmtCover');
   const shift = unusedName(text, '__tmtShift');
+  const see = unusedName(text, '__tmtSee');
+  const table = unusedName(text, '__tmtSite');
+  const probed = [];
   const identified = mutation => ({ ...mutation,
     id: createHash('sha256').update(JSON.stringify([file, mutation.name, mutation.start, mutation.end, mutation.replacement])).digest('hex').slice(0, 16) });
   const mutants = live.map(identified).map(mutant => mutant.shift === undefined ? mutant
@@ -88,6 +143,17 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         // A statement that starts with `(` could continue the previous line as a call.
         // The leading space separates the switch from a keyword such as `do` or `else`.
         out += group.statement ? ` ${choice}` : group.leading ? ` void 0, (${choice})` : `(${choice})`;
+      } else if (group.kind === 'observed') {
+        const [leftStart, leftEnd, rightStart, rightEnd] = group.operands;
+        const left = render(leftStart, leftEnd);
+        const right = render(rightStart, rightEnd);
+        const { operator, boolean, thunk } = group.targeted;
+        // Only the edits beside a written null or undefined say on which side it stands.
+        const literalSide = group.mutants.find(mutant => mutant.targeted.literalSide !== undefined)?.targeted.literalSide ?? 0;
+        probed.push([operator, boolean ? 1 : 0, group.mutants.map(mutant => [mutant.id, mutant.targeted.form]), literalSide,
+          group.mutants.map(mutant => mutant.id)]);
+        const call = `${see}(${probed.length - 1}, ${left}, ${thunk ? `() => (${right})` : right})`;
+        out += group.statement ? ` ${call}` : group.leading ? ` void 0, (${call})` : `(${call})`;
       } else if (group.kind === 'block') {
         // The semicolon ends a directive prologue that relies on a line break.
         // A function body returns early instead of moving into a block, which would change how its declarations are scoped.
@@ -111,7 +177,8 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   // A module that binds its own `globalThis` reaches the real global object through an indirect eval.
   const scope = /\bglobalThis\b/.test(text) ? "(0, eval)('this')" : 'globalThis';
   // A file whose mutations are all ignored keeps its source.
-  const output = mutants.length ? render(0, text.length) + helpers(on, cover, shift, scope) : text;
+  const rendered = mutants.length ? render(0, text.length) : text;
+  const output = mutants.length ? rendered + helpers(on, cover, shift, scope) + (probed.length ? probe(see, table, cover, scope, probed) : '') : text;
   // Ignored mutations are reported in source order with the others and get no switch.
   const reported = [...mutants, ...found.filter(mutation => mutation.ignored !== undefined).map(identified)]
     .sort((a, b) => a.start - b.start || b.end - a.end);
@@ -125,6 +192,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
       // The same mutation as a plain source edit, for runners that cannot use switches.
       source: { edit: [bytes[mutant.placement[0]], bytes[mutant.placement[1]]], replacement: asStatementStart(mutant, text) },
       ...(mutant.operator ? { operatorSwap: [bytes[mutant.operator[0]], mutant.operator[1]] } : {}),
+      ...(mutant.targeted ? { targeted: mutant.targeted } : {}),
       ...(mutant.ignored === undefined ? {} : { status: 'ignored', statusReason: mutant.ignored }),
       // A shift switch is driven by the focused analysis and is not a mutation of its own.
       ...(mutant.shift === undefined ? {} : { parametric: { file, at: bytes[mutant.shift] } }),
@@ -142,6 +210,9 @@ export function ignoredSwaps(input, file, options = {}) {
   return new Set(renderBuiltinSwitches(input, file, () => true, { ...options, keep: boundarySwap }).mutants
     .filter(mutant => mutant.status === 'ignored' && mutant.operatorSwap).map(mutant => mutant.operatorSwap.join(':')));
 }
+
+// The targeted profile: its own rules, and the comparison boundaries the focused analysis asks about.
+export const targetedOrBoundary = (mutation, text) => mutation.targeted !== undefined || boundarySwap(mutation, text);
 
 export function prepareBuiltinSwitches(subjects, options = {}) {
   const sources = [];

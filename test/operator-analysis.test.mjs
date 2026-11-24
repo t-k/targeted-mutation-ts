@@ -84,7 +84,7 @@ test('the operators profile is refused with the witness profile and unknown prof
   assert.equal(witnesses.stderr, '--witnesses runs its own Vitest source trials\n');
   const unknown = analyze('--mutators', 'everything');
   assert.equal(unknown.status, 1);
-  assert.equal(unknown.stderr, 'Expected --mutators focused|operators|full|standard|all\n');
+  assert.equal(unknown.stderr, 'Expected --mutators focused|targeted|operators|full|standard|all\n');
 });
 
 test('the full profile runs the complete built-in mutation set without an extra package', () => {

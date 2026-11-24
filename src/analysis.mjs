@@ -31,9 +31,9 @@ function compare(operator, left, right) {
 // The Playwright extraction reports a logical operator with an operand-dropping edit. The operator swap is a different edit at the same position.
 // The complete built-in set as plain source edits, for runners that cannot use runtime switches.
 // A comparison boundary that the focused analysis already edits is left to it.
-function builtInSites(comparisons, input, file, dialect, selected) {
+function builtInSites(comparisons, input, file, dialect, selected, options = {}) {
   const focused = new Set(comparisons.map(candidate => `${candidate.edit[0]}:${candidate.replacement}`));
-  return renderBuiltinSwitches(input, file, selected, { dialect }).mutants
+  return renderBuiltinSwitches(input, file, selected, { dialect, ...options }).mutants
     .filter(mutant => mutant.status === undefined && !(mutant.operatorSwap && focused.has(mutant.operatorSwap.join(':'))))
     .map(mutant => ({ rule: mutant.mutatorName, original: mutant.original, replacement: mutant.replacement, edit: mutant.edit,
       left: [mutant.edit[0], mutant.edit[0]], right: [mutant.edit[1], mutant.edit[1]], source: mutant.source, unobserved: true }));
@@ -41,7 +41,10 @@ function builtInSites(comparisons, input, file, dialect, selected) {
 
 function withOperatorSites(comparisons, input, file, { mutators, dialect }, selected) {
   const start = candidate => (candidate.operatorEdit ?? candidate.edit)[0];
-  const added = mutators === 'full' ? builtInSites(comparisons, input, file, dialect, selected) : collectOperatorSites(input, file, { dialect });
+  // Without a session nothing is recorded, so the targeted edits run as plain source edits.
+  const added = mutators === 'full' ? builtInSites(comparisons, input, file, dialect, selected)
+    : mutators === 'targeted' ? builtInSites(comparisons, input, file, dialect, selected, { targeted: true, keep: mutation => mutation.targeted !== undefined })
+      : collectOperatorSites(input, file, { dialect });
   return added.length ? [...comparisons, ...added].sort((a, b) => start(a) - start(b)) : comparisons;
 }
 
@@ -57,7 +60,7 @@ export function collectComparisons(root, files, options) {
     const disabled = ignoredSwaps(input, file, { dialect: options.dialect });
     const kept = disabled.size ? comparisons.filter(candidate => !disabled.has(`${candidate.edit[0]}:${candidate.replacement}`)) : comparisons;
     if (kept.length !== comparisons.length) extraction.at(-1).ignored = comparisons.length - kept.length;
-    const candidates = ['operators', 'full'].includes(options.mutators) ? withOperatorSites(kept, input, file, options, selected) : kept;
+    const candidates = ['targeted', 'operators', 'full'].includes(options.mutators) ? withOperatorSites(kept, input, file, options, selected) : kept;
     const positions = byteLocations(input, candidates.map(candidate => (candidate.operatorEdit ?? candidate.edit)[0]));
     // A comparison is in scope when any line from its left operand to its right operand is: a threshold on its
     // own line belongs to the comparison whose operator is on the line above.
@@ -467,7 +470,7 @@ export function prepareAnalysis(project, files, options) {
   const root = realpathSync(project);
   const { subjects, extraction } = collectComparisons(root, files, options);
   const report = { schemaVersion: 1, runner: options.runner ?? 'vitest', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
-  if (['operators', 'full'].includes(options.mutators)) report.mutators = options.mutators;
+  if (['targeted', 'operators', 'full'].includes(options.mutators)) report.mutators = options.mutators;
   if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
     report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
   }

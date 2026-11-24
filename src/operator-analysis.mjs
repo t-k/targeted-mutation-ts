@@ -7,6 +7,8 @@ const order = (a, b) => a.location.file.localeCompare(b.location.file) || a.loca
 function fromSession(mutant, profile) {
   const { source: _source, operatorSwap: _swap, ...reported } = mutant;
   if (profile === 'full') return reported;
+  // A targeted edit replaces a whole expression, so the report keeps the text it replaced.
+  if (profile === 'targeted') return { site: reported.id, rule: reported.mutatorName, ...reported, id: undefined, mutatorName: undefined };
   const { id, mutatorName, original, ...rest } = reported;
   return { site: id, rule: mutatorName, operator: original, ...rest };
 }
@@ -107,6 +109,7 @@ export async function analyzeOperators(project, files, options, run = { analyze,
     baseline: focused.baseline ?? session.baseline,
     evaluation: session.evaluation === 'incomplete' || focused.evaluation === 'incomplete' ? 'incomplete' : 'evaluated',
     mutants: [...focused.mutants, ...added.map(mutant => fromSession(mutant, profile))].sort(order),
+    diagnostics: [...focused.diagnostics, ...(session.diagnostics ?? [])],
   };
 }
 

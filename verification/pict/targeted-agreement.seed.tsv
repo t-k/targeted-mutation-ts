@@ -1,0 +1,14 @@
+Operator	Form	Context	Left	Right	RightWritten
+Nullish	ToOr	Value	Zero	One	Variable
+Nullish	ToOr	Value	Undefined	One	Variable
+Or	ToNullish	Value	EmptyText	Text	Variable
+And	IgnoreRight	Condition	True	False	Variable
+And	IgnoreLeft	Condition	False	True	Variable
+Or	IgnoreRight	Condition	False	True	Variable
+StrictEq	ConstFalse	Condition	One	One	Variable
+StrictEq	ConstTrue	Condition	One	Zero	Variable
+StrictEq	Loose	Condition	Undefined	Null	NullLiteral
+LooseEq	Strict	Condition	Undefined	Null	NullLiteral
+LooseEq	OtherNullish	Condition	Null	Null	NullLiteral
+LooseNe	Strict	Value	Null	Undefined	UndefinedLiteral
+And	IgnoreRight	Value	One	Record	Variable

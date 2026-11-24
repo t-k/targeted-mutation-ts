@@ -47,7 +47,7 @@ try {
     const [project = '.', ...files] = positionals;
     if (values.runner && !['vitest', 'playwright'].includes(values.runner)) throw new Error('Expected --runner vitest|playwright');
     if (values.runner === 'playwright' && values['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
-    if (values.mutators && !['focused', 'operators', 'full', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|operators|full|standard|all');
+    if (values.mutators && !['focused', 'targeted', 'operators', 'full', 'standard', 'all'].includes(values.mutators)) throw new Error('Expected --mutators focused|targeted|operators|full|standard|all');
     const session = values.runner !== 'playwright' && !values.witnesses && !values.audit;
     if ((values['isolated-trials'] || values['verify-trials'] !== undefined) && !session) {
       throw new Error('--isolated-trials and --verify-trials apply to Vitest sessions, which --witnesses, --audit and Playwright do not use');
@@ -71,7 +71,7 @@ try {
     enablePreparedTypeScript();
     let result;
     if (values.witnesses) {
-      if (values.runner === 'playwright' || ['operators', 'full', 'standard', 'all'].includes(values.mutators) ||
+      if (values.runner === 'playwright' || ['targeted', 'operators', 'full', 'standard', 'all'].includes(values.mutators) ||
           values.deterministic || values.project || values.audit || values['displace-thresholds']) throw new Error('--witnesses runs its own Vitest source trials');
       const { analyzeWitnesses } = await import('../src/witness-analysis.mjs');
       result = await analyzeWitnesses(project, files, values);
@@ -82,7 +82,7 @@ try {
       }
       const { analyzeConventional } = await import('../src/conventional.mjs');
       result = await analyzeConventional(project, files, values);
-    } else if (values.mutators === 'operators' || values.mutators === 'full') {
+    } else if (['targeted', 'operators', 'full'].includes(values.mutators)) {
       const { analyzeOperators } = await import('../src/operator-analysis.mjs');
       result = await analyzeOperators(project, files, values);
     } else {
