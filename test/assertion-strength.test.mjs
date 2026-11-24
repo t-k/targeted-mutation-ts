@@ -344,10 +344,12 @@ it('namespace quotes', async () => { expect(await subject.namedQuote(100, 4)).to
   assert.equal(nsGap.suggestedTest, 'expect(await subject.namedQuote(100, 4)).toStrictEqual({ total: 400 })');
 }));
 
-test('weakCalls and suggest-assertions resolve tsconfig paths, precedence, barrel overrides, and warm Vitest session cwd/exitCode', () => project({
-  'tsconfig.json': JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'], '@/fee': ['src/other.ts'] } } }),
+test('weakCalls and suggest-assertions resolve tsconfig paths, precedence, barrel overrides, and warm Vitest session cwd/exitCode/IPC', () => project({
+  'tsconfig.json': JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { '@/*': ['src/*'], '@/fee': ['src/other.ts'], '@/missing': ['src/does-not-exist.ts'] } } }),
   'vitest.config.ts': `import { defineConfig } from 'vitest/config';
 import { resolve } from 'node:path';
+// Noisy stdout in config must not corrupt the warm assertion session's dedicated IPC channel.
+console.log(null);
 export default defineConfig({ resolve: { alias: [
   { find: '@/fee', replacement: resolve(__dirname, 'src/other.ts') },
   { find: '@', replacement: resolve(__dirname, 'src') },
@@ -356,15 +358,18 @@ export default defineConfig({ resolve: { alias: [
   'fixture.json': JSON.stringify({ factor: 3 }),
   'src/other.ts': 'export const other = (n: number) => n + 1;\nexport const fee = (a: number, b: number) => a + b;\n',
   'src/pricing.ts': 'export const fee = (cents: number, rate: number) => cents * rate;\nexport default function discount(cents: number, off: number) { return cents - off; }\n',
+  'src/missing.ts': 'export { fee } from "./pricing";\n',
   'src/index.ts': `export { fee, default as discount } from './pricing';
 export * as pricingNs from './pricing';
 export { other } from './other';
 `,
   'src/star.ts': "export * from './pricing';\nexport { fee } from './other';\n",
+  'src/default-named.ts': "export * from './pricing';\nexport default function fee() { return 0; }\n",
   'test/pricing.test.ts': `import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
 import { discount, fee, other, pricingNs } from '@/index';
 import { fee as exactOtherFee } from '@/fee';
+import { fee as starThroughDefault } from '@/default-named';
 import * as barrel from '@/index';
 import * as star from '@/star';
 import { fee as overriddenStarFee } from '@/star';
@@ -378,6 +383,7 @@ it('barrel calls', () => {
   expect(barrel.other(1)).toBeGreaterThan(0);
   expect(star.fee(30, 2)).toBeGreaterThan(0);
   expect(overriddenStarFee(30, 2)).toBeGreaterThan(0);
+  expect(starThroughDefault(40, 2)).toBeGreaterThan(0);
   expect(exactOtherFee(1, 2)).toBeGreaterThan(0);
   expect(other(1)).toBeGreaterThan(0);
 });
@@ -385,8 +391,12 @@ it('barrel calls', () => {
 }, root => {
   const testText = readFileSync(join(root, 'test/pricing.test.ts'), 'utf8');
   const found = weakCalls(testText, 'test/pricing.test.ts', 'src/pricing.ts', ['barrel calls'], loadTypeScript(), { root });
-  // Exact path `@/fee` -> `src/other.ts` beats wildcard `@/*`; explicit `export { fee } from './other'` overrides `export * from './pricing'`.
-  assert.deepEqual(found.map(c => c.text), ['fee(200, 3)', 'discount(500, 50)', 'pricingNs.fee(10, 4)', 'barrel.fee(20, 5)']);
+  // Exact path `@/fee` -> `src/other.ts` beats wildcard `@/*`; explicit `export { fee } from './other'` overrides `export * from './pricing'`;
+  // `export default function fee()` does NOT shadow the named `export *` re-export `fee`.
+  assert.deepEqual(found.map(c => c.text), ['fee(200, 3)', 'discount(500, 50)', 'pricingNs.fee(10, 4)', 'barrel.fee(20, 5)', 'starThroughDefault(40, 2)']);
+  // An exact `paths` entry whose target is missing must NOT fall through to `@/*` -> `src/missing.ts`.
+  const missingImportTest = "import { it } from 'vitest';\nimport { fee } from '@/missing';\nit('t', () => { fee(1, 2); });\n";
+  assert.deepEqual(weakCalls(missingImportTest, 'test/pricing.test.ts', 'src/pricing.ts', ['t'], loadTypeScript(), { root }), []);
   const run = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', root, 'src/pricing.ts', '--suggest-assertions', '--format', 'json'],
     { encoding: 'utf8', timeout: 120_000 });
   assert.equal(run.status, 0, run.stderr + run.stdout);

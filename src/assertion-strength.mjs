@@ -3,7 +3,6 @@ import { createHash, randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { dirname, posix, relative, resolve, sep } from 'node:path';
-import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { sourceTrialsAsync } from './analysis.mjs';
 import { inParallel } from './in-parallel.mjs';
@@ -65,28 +64,31 @@ function candidatePathsFor(root, fromFile, specifier, ts, cache) {
   const tsPaths = loadTsPaths(root, fromFile, ts, cache);
   if (!tsPaths) return candidates;
   if (tsPaths.paths) {
-    // Follow TypeScript's `paths` precedence: exact matches first, then wildcard patterns by longest prefix (then suffix).
-    const exact = [];
-    const wildcards = [];
+    // Follow TypeScript's `paths` precedence: an exact match wins immediately; otherwise the single wildcard
+    // pattern with the longest prefix (breaking ties by declaration order) wins, without falling back to other
+    // `paths` patterns if its substitutions are missing.
+    let bestExact = null;
+    let bestWildcard = null;
     for (const [pattern, targets] of Object.entries(tsPaths.paths)) {
       if (!Array.isArray(targets)) continue;
       const star = pattern.indexOf('*');
       if (star === -1) {
-        if (specifier === pattern) {
-          for (const target of targets) exact.push(resolve(tsPaths.baseDir, target));
+        if (specifier === pattern && !bestExact) {
+          bestExact = targets.map(target => resolve(tsPaths.baseDir, target));
         }
       } else {
         const prefix = pattern.slice(0, star);
         const suffix = pattern.slice(star + 1);
         if (specifier.startsWith(prefix) && specifier.endsWith(suffix) && specifier.length >= prefix.length + suffix.length) {
-          const matched = specifier.slice(prefix.length, specifier.length - suffix.length);
-          wildcards.push({ prefixLen: prefix.length, suffixLen: suffix.length,
-            paths: targets.map(target => resolve(tsPaths.baseDir, target.replace('*', matched))) });
+          if (!bestWildcard || prefix.length > bestWildcard.prefixLen) {
+            const matched = specifier.slice(prefix.length, specifier.length - suffix.length);
+            bestWildcard = { prefixLen: prefix.length, paths: targets.map(target => resolve(tsPaths.baseDir, target.replace('*', matched))) };
+          }
         }
       }
     }
-    wildcards.sort((a, b) => (b.prefixLen - a.prefixLen) || (b.suffixLen - a.suffixLen));
-    candidates.push(...exact, ...wildcards.flatMap(entry => entry.paths));
+    if (bestExact) candidates.push(...bestExact);
+    else if (bestWildcard) candidates.push(...bestWildcard.paths);
   }
   if (tsPaths.hasBaseUrl) candidates.push(resolve(tsPaths.baseDir, specifier));
   return candidates;
@@ -116,6 +118,7 @@ function resolveModuleInRoot(root, fromFile, specifier, ts, cache) {
 function collectExportedLocalNames(tree, ts) {
   const explicit = new Set();
   const hasExportModifier = node => Boolean(node.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword));
+  const hasDefaultModifier = node => Boolean(node.modifiers?.some(m => m.kind === ts.SyntaxKind.DefaultKeyword));
   const collectBinding = binding => {
     if (!binding) return;
     if (ts.isIdentifier(binding)) explicit.add(binding.text);
@@ -130,7 +133,7 @@ function collectExportedLocalNames(tree, ts) {
       } else if (stmt.exportClause && ts.isNamespaceExport(stmt.exportClause)) {
         explicit.add(stmt.exportClause.name.text);
       }
-    } else if (hasExportModifier(stmt)) {
+    } else if (hasExportModifier(stmt) && !hasDefaultModifier(stmt)) {
       if (ts.isVariableStatement(stmt)) {
         for (const decl of stmt.declarationList.declarations) collectBinding(decl.name);
       } else if ((ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt) || ts.isEnumDeclaration(stmt)) && stmt.name) {
@@ -511,32 +514,33 @@ function ${name}(value) {
 const valuesOf = run => (run.collected ?? '').split('\n').filter(Boolean).map(line => JSON.parse(line));
 const matcherFor = formatted => (formatted.startsWith('[') || formatted.startsWith('{')) ? 'toStrictEqual' : 'toBe';
 
-// Reuses one temporary project copy and one warm Vitest 4 child process (`cwd: workspace`, `isolate: true` per run)
-// across all assertion-strength value recordings, terminating the child process group cleanly on timeout or exit.
+// Reuses one temporary project copy and one warm Vitest 4 child process (`cwd: workspace`, dedicated IPC channel,
+// `isolate: true` per run) across all assertion-strength value recordings, terminating the child process group
+// cleanly on timeout or exit.
 async function withWarmAssertionSession(root, subjectsByFile, options, action) {
   return withCopy(root, async workspace => {
     const configArg = options.config ?? '';
     const child = spawn(process.execPath, [sessionWorker, workspace, configArg], {
       cwd: workspace,
-      stdio: ['pipe', 'pipe', 'ignore'],
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
       detached: process.platform !== 'win32',
     });
-    const exited = new Promise(resolveExit => child.once('close', resolveExit));
+    const exited = new Promise(resolveExit => child.once('exit', resolveExit));
     const killGroup = () => {
-      if (child.exitCode !== null || child.signalCode !== null) return;
+      if (!child.pid) return;
       try {
+        // On POSIX always signal the process group even if the group leader already exited, so surviving
+        // worker descendants are terminated before `withCopy` deletes `workspace`.
         if (process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL');
-        else child.kill('SIGKILL');
-      } catch { /* already exited */ }
+        else if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      } catch { /* group already gone */ }
     };
-    const rl = createInterface({ input: child.stdout, crlfDelay: Infinity });
     const pending = new Map();
     let readyResolve;
     const readyPromise = new Promise(resolveReady => { readyResolve = resolveReady; });
     let broken = false;
-    rl.on('line', line => {
-      let msg;
-      try { msg = JSON.parse(line); } catch { return; }
+    child.on('message', msg => {
+      if (!msg || typeof msg !== 'object') return;
       if ('ready' in msg && readyResolve) {
         const done = readyResolve;
         readyResolve = null;
@@ -549,12 +553,14 @@ async function withWarmAssertionSession(root, subjectsByFile, options, action) {
         waiter(msg);
       }
     });
-    child.once('close', () => {
+    const failPending = () => {
       broken = true;
       if (readyResolve) { const done = readyResolve; readyResolve = null; done(false); }
       for (const waiter of pending.values()) waiter({ closed: true });
       pending.clear();
-    });
+    };
+    child.once('exit', failPending);
+    child.once('disconnect', failPending);
     const timeoutMs = (options.timeout ?? 60) * 1000;
     try {
       let bootTimer;
@@ -566,7 +572,7 @@ async function withWarmAssertionSession(root, subjectsByFile, options, action) {
       if (!ready) return null;
       let nextId = 1;
       const runInSession = async ({ testFile, rewriteContent, collect, trial }) => {
-        if (broken) return null;
+        if (broken || !child.connected) return null;
         const id = nextId++;
         const subject = trial ? subjectsByFile.get(trial.site.location.file) : null;
         let timer;
@@ -576,10 +582,15 @@ async function withWarmAssertionSession(root, subjectsByFile, options, action) {
             pending.delete(id);
             resolveWait({ timedOut: true });
           }, timeoutMs);
-          child.stdin.write(JSON.stringify({
-            id, testFile, rewriteContent, collect,
-            ...(trial ? { trial: { edit: trial.edit, replacement: trial.replacement }, subjectFile: subject.file, subjectDigest: subject.digest } : {}),
-          }) + '\n');
+          try {
+            child.send({
+              id, testFile, rewriteContent, collect,
+              ...(trial ? { trial: { edit: trial.edit, replacement: trial.replacement }, subjectFile: subject.file, subjectDigest: subject.digest } : {}),
+            });
+          } catch {
+            pending.delete(id);
+            resolveWait({ closed: true });
+          }
         });
         clearTimeout(timer);
         if (response.timedOut) {
@@ -595,16 +606,16 @@ async function withWarmAssertionSession(root, subjectsByFile, options, action) {
       };
       return await action(runInSession);
     } finally {
-      rl.close();
-      if (child.exitCode === null && child.signalCode === null) {
-        try { child.stdin.end(JSON.stringify({ close: true }) + '\n'); } catch { /* ignore */ }
-        let closeTimer;
-        await Promise.race([
-          exited,
-          new Promise(resolveWait => { closeTimer = setTimeout(() => { killGroup(); resolveWait(); }, 5_000); }),
-        ]);
-        clearTimeout(closeTimer);
+      if (child.connected) {
+        try { child.send({ close: true }); } catch { /* ignore */ }
       }
+      let closeTimer;
+      await Promise.race([
+        exited,
+        new Promise(resolveWait => { closeTimer = setTimeout(() => { killGroup(); resolveWait(); }, 5_000); }),
+      ]);
+      clearTimeout(closeTimer);
+      killGroup();
       await exited;
     }
   }, { exclude: options['copy-exclude'] });
