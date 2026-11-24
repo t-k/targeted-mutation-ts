@@ -62,7 +62,26 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
     if (!ts.isExpressionStatement(up(parent)[0])) return false;
     return names.includes('not') || !pinning.has(names.at(-1));
   }
-  // The title of the test whose body holds the statement directly.
+  // The titles of the suites around a test, outermost first, or nothing where one of them is not written out.
+  function suitesOf(call) {
+    const titles = [];
+    for (let node = call.parent; node; node = node.parent) {
+      if (!ts.isCallExpression(node) || !(ts.isArrowFunction(node.arguments[1] ?? node) || ts.isFunctionExpression(node.arguments[1] ?? node))) continue;
+      // `describe.skip(...)`, and `describe.each(rows)(...)`, whose title is a pattern filled in per row.
+      let callee = node.expression;
+      let each = false;
+      while (ts.isCallExpression(callee) || ts.isPropertyAccessExpression(callee)) {
+        each ||= ts.isCallExpression(callee);
+        callee = callee.expression;
+      }
+      if (!ts.isIdentifier(callee) || !['describe', 'suite'].includes(callee.text)) continue;
+      if (each || !node.arguments[0] || !ts.isStringLiteralLike(node.arguments[0])) return undefined;
+      titles.unshift(node.arguments[0].text);
+    }
+    return titles;
+  }
+
+  // The title of the test whose body holds the statement directly, with the suites around it.
   function testOf(statement) {
     const body = statement.parent;
     const callback = ts.isBlock(body) ? body.parent : null;
@@ -71,7 +90,7 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
     const title = call.arguments[0];
     if (!ts.isIdentifier(call.expression) || !['it', 'test'].includes(call.expression.text) || call.arguments[1] !== callback ||
         !title || !ts.isStringLiteralLike(title)) return undefined;
-    return title.text;
+    return { title: title.text, suites: suitesOf(call) };
   }
   const found = [];
   (function visit(node) {
@@ -79,20 +98,26 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
         node.arguments.every(written)) {
       const [parent, child] = up(node);
       let statement;
+      let bound;
       if (ts.isExpressionStatement(parent)) statement = parent;
-      else if (ts.isVariableDeclaration(parent) && parent.initializer === child && ts.isVariableStatement(parent.parent.parent)) statement = parent.parent.parent;
+      else if (ts.isVariableDeclaration(parent) && parent.initializer === child && ts.isVariableStatement(parent.parent.parent)) {
+        statement = parent.parent.parent;
+        if (ts.isIdentifier(parent.name)) bound = parent.name.text;
+      }
       else if (ts.isCallExpression(parent) && ts.isIdentifier(parent.expression) && parent.expression.text === 'expect' &&
           parent.arguments.length === 1 && weakExpectation(parent)) {
         let outer = parent;
         while (!ts.isExpressionStatement(outer)) outer = outer.parent;
         statement = outer;
       }
-      const title = statement && testOf(statement);
+      const { title, suites } = (statement && testOf(statement)) ?? {};
       const start = node.getStart(tree);
       const call = text.slice(start, node.end);
-      if (title !== undefined && !/[\n\r]/.test(call) && testNames.some(name => name === title || name.endsWith(' > ' + title))) {
+      // A test is named with its suites. Where a suite's title is not written out, the test's own title must do.
+      const named = name => (suites ? name === [...suites, title].join(' > ') : name === title || name.endsWith(' > ' + title));
+      if (title !== undefined && !/[\n\r]/.test(call) && testNames.some(named)) {
         const { line, character } = tree.getLineAndCharacterOfPosition(start);
-        found.push({ start, end: node.end, text: call, test: title, line: line + 1, column: character + 1 });
+        found.push({ start, end: node.end, text: call, test: title, line: line + 1, column: character + 1, ...(bound ? { bound } : {}) });
       }
     }
     ts.forEachChild(node, visit);
@@ -103,15 +128,15 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
 // The test file with one call wrapped so that every value it gives is written beside the file.
 export function recordingCall(text, call, key) {
   const name = `__tmtValue_${key}`;
+  // The file system is taken from Node itself: the test may have replaced the module with a mock.
   const helper = `
-import { appendFileSync as __tmtAppend_${key} } from 'node:fs';
 function ${name}(value) {
   var type = typeof value, shown = null;
   if (value === null || type === 'boolean' || type === 'undefined') shown = String(value);
   else if (type === 'number') shown = Object.is(value, -0) ? '-0' : String(value);
   else if (type === 'string') shown = JSON.stringify(value);
   else if (type === 'bigint') shown = value + 'n';
-  __tmtAppend_${key}(new URL('./.tmt-values-${key}.jsonl', import.meta.url), JSON.stringify(shown) + '\\n');
+  globalThis.process.getBuiltinModule('node:fs').appendFileSync(new URL('./.tmt-values-${key}.jsonl', import.meta.url), JSON.stringify(shown) + '\\n');
   return value;
 }
 `;
@@ -125,15 +150,19 @@ export function strengthenAssertions(root, report, options, run = { sourceTrials
   let tried = 0;
   for (const gap of report.diagnostics ?? []) {
     const mutation = gap.mutations?.[0];
-    if (!gap.tests?.length || !mutation || gap.suggestedTest || !gap.location?.file || tried >= 24) continue;
+    if (!gap.tests?.length || !mutation || gap.suggestedTest || !gap.location?.file) continue;
     const input = readFileSync(inside(root, gap.location.file));
     const subject = { file: gap.location.file, input, digest: createHash('sha256').update(input).digest('hex'), sites: [] };
     const trial = { site: { location: gap.location }, edit: mutation.source?.edit ?? mutation.edit, replacement: mutation.source?.replacement ?? mutation.replacement };
+    let calls = 0;
     search: for (const testFile of [...new Set(gap.tests.map(test => test.file))].slice(0, 2)) {
       const text = readFileSync(inside(root, testFile), 'utf8');
       const names = gap.tests.filter(test => test.file === testFile).map(test => test.name);
       const attempt = run.sourceTrials(root, [subject], { ...options, test: [testFile] });
-      for (const call of weakCalls(text, testFile, gap.location.file, names).slice(0, 4)) {
+      for (const call of weakCalls(text, testFile, gap.location.file, names)) {
+        // At most four calls for a finding and 24 runs with an edit in all.
+        if (calls >= 4 || tried >= 24) break search;
+        calls++;
         const key = randomUUID().replaceAll('-', '');
         const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
         const witness = { rewrite: { file: testFile, content: recordingCall(text, call, key) } };
@@ -144,12 +173,13 @@ export function strengthenAssertions(root, report, options, run = { sourceTrials
         if (!original.length || original.includes(null)) continue;
         tried++;
         const edited = valuesOf(attempt({ witness, collect, trial }));
-        if (JSON.stringify(edited) === JSON.stringify(original)) continue;
-        const at = edited.findIndex((value, index) => value !== original[index]);
-        const differs = at === -1 ? edited.length : at;
-        gap.suggestedTest = `expect(${call.text}).toBe(${original[Math.min(differs, original.length - 1)]})`;
-        gap.strengthens = { file: testFile, test: call.test, line: call.line, column: call.column, call: call.text,
-          original: original[Math.min(differs, original.length - 1)], edited: edited[differs] ?? 'no value' };
+        // The first time the call gives another value with the edit. Where the edit keeps the test from making
+        // the call at all, an assertion at that place would not run either.
+        const at = original.findIndex((value, index) => index < edited.length && edited[index] !== value);
+        if (at === -1) continue;
+        // A result the test keeps is compared where it is kept: calling again may give another value.
+        gap.suggestedTest = `expect(${call.bound ?? call.text}).toBe(${original[at]})`;
+        gap.strengthens = { file: testFile, test: call.test, line: call.line, column: call.column, call: call.text, original: original[at], edited: edited[at] };
         break search;
       }
     }

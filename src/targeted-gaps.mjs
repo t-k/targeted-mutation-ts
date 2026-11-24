@@ -7,7 +7,13 @@ const clip = text => {
   return line.length > 60 ? line.slice(0, 57) + '...' : line;
 };
 
-const rules = { arithmetic: 'arithmetic-swap/v1', extreme: 'extreme-swap/v1', rounding: 'rounding-swap/v1', ends: 'sequence-end/v1' };
+const rules = { arithmetic: 'arithmetic-swap/v1', extreme: 'extreme-swap/v1', rounding: 'rounding-swap/v1', ends: 'sequence-end/v1',
+  order: 'sort-order/v1', awaited: 'await-dropped/v1', copy: 'copy-dropped/v1' };
+// What to assert where no recording can say which input is missing.
+const advice = {
+  [rules.awaited]: 'the tests pass when this call is not waited for: assert on what it has done by the time the function ends',
+  [rules.copy]: 'the tests pass when this copy is the original itself: assert that the original is unchanged after the copy is changed, or that the two are not the same object',
+};
 // For which numbers two ways of rounding differ.
 const roundingDiffers = { 'floor trunc': 'negative and not a whole number (-0.5)', 'ceil trunc': 'positive and not a whole number (0.5)',
   'floor round': 'a number that rounds up (1.5, -1.5)', 'ceil round': 'a number that rounds down (1.4, -1.6)',
@@ -16,6 +22,7 @@ const roundingDiffers = { 'floor trunc': 'negative and not a whole number (-0.5)
 function missingInput({ operator, form, boolean, left, differsFor, subject, pureRight }, expression, rule, replacement) {
   const side = '`' + clip(left) + '`';
   if (rule === rules.arithmetic) return `a test in which \`${clip(expression)}\` is not \`${clip(replacement)}\``;
+  if (rule === rules.order) return `a test in which ${side} holds numbers whose order as text is not their order as numbers (9 and 10)`;
   if (rule === rules.extreme) return `a test in which the two arguments of \`${clip(expression)}\` differ`;
   if (rule === rules.rounding) return `a test in which ${side} is ${roundingDiffers[[operator, form].sort().join(' ')]}`;
   if (rule === rules.ends) {
@@ -34,12 +41,13 @@ function missingInput({ operator, form, boolean, left, differsFor, subject, pure
 }
 
 export function targetedGap(mutant, seen) {
-  if (!mutant.targeted || mutant.status !== 'survived' || !seen) return null;
+  if (!mutant.targeted || mutant.status !== 'survived' || (!seen && !advice[mutant.mutatorName])) return null;
   const common = {
     site: mutant.id, location: mutant.location, rule: mutant.mutatorName, expression: mutant.original,
     mutations: [{ rule: mutant.mutatorName, edit: mutant.edit, replacement: mutant.replacement, evidence: mutant.evidence,
       ...(mutant.source ? { source: mutant.source } : {}) }],
   };
+  if (!seen) return { kind: 'ASSERTION GAP', ...common, advice: advice[mutant.mutatorName] };
   if (seen.differing.length || seen.outside) {
     return { kind: 'ASSERTION GAP', ...common, tests: seen.differing, ...(seen.outside ? { outsideTests: true } : {}),
       ...(seen.differ ? { example: { operands: seen.differ } } : {}) };

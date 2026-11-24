@@ -236,8 +236,15 @@ test('what a surviving edit changes in the code a test runs is told per test', a
   assert.deepEqual([[...reach.byTest.get('t1')], [...reach.byTest.get('t2')], [...reach.whileLoading.get('["","/w/a.test.ts"]')]], [['x', 'y'], ['x'], ['load']]);
   assert.deepEqual(changedReach(reach, [{ module: '["","/w/a.test.ts"]', reached: { t1: ['x', 'y'], t2: ['x', 'y', 'z'], '': [] } },
     { module: '["","/w/b.test.ts"]', reached: { t3: [], new: ['q'] } }]),
-  { now: [{ test: 't2', id: 'y' }, { test: 't2', id: 'z' }, { test: 'new', id: 'q' }], gone: [{ test: '', id: 'load' }, { test: 't3', id: 'y' }] });
+  // What is missing outside the tests is not told: the hooks of tests that were not chosen did not run.
+  { now: [{ test: 't2', id: 'y' }, { test: 't2', id: 'z' }, { test: 'new', id: 'q' }], gone: [{ test: 't3', id: 'y' }] });
+  assert.deepEqual(changedReach(reach, [{ module: '["","/w/a.test.ts"]', reached: { '': ['load', 'more'] } }]), { now: [{ test: '', id: 'more' }], gone: [] });
   assert.equal(changedReach(reach, [{ module: 'm', reached: { t: ['a', 'b', 'c'] } }], 2).now.length, 2);
+  // A fresh run gives the same per test file, and a test that reached nothing is there with nothing.
+  const { reachOfRecords } = await import('../src/standard-plan.mjs');
+  const fresh = reachOfRecords([{ modules: [['', '/w/a.test.ts']], coverage: { static: { load: 1 }, perTest: { t1: { x: 1, y: 0 } } } }], ['t1', 't2']);
+  assert.deepEqual(fresh, [{ module: '["","/w/a.test.ts"]', reached: { t1: ['x'], '': ['load'] } }, { module: null, reached: { t2: [] } }]);
+  assert.deepEqual(changedReach(reach, fresh).gone, [{ test: 't1', id: 'y' }, { test: 't2', id: 'x' }]);
 });
 
 test('a test that has the input and asserts nothing: the report says what the edit lets it run', () => {
@@ -263,8 +270,49 @@ it('rejects', () => { commit([['b', -5]]); });
   assert.deepEqual(gap.effects, { nowRuns: [{ test: 'rejects', location: { file: 'subject.ts', line: 5, column: 52 }, expression: 'value + 0' }], noLongerRuns: [] });
   assert.equal(gap.suggestedTest, "expect(commit([['b', -5]])).toBe(false)");
   assert.ok(report.mutants.every(mutant => mutant.effects === undefined));
+  // A fresh Vitest run for every edit says the same.
+  const isolated = analyzeProject({ 'subject.ts': store, 'subject.test.ts': suite }, '--isolated-trials');
+  assert.deepEqual(isolated.report.diagnostics.find(entry => entry.mutations[0].replacement === '(invalid, true, false)').effects, gap.effects);
+  // A test that reaches nothing at all with the edit is still compared.
+  const constant = analyzeProject({ 'subject.ts': 'const on = 1 === 1;\nexport function work() { if (on) return 4 + 2; }\n',
+    'subject.test.ts': "import { it } from 'vitest';\nimport { work } from './subject';\nit('works', () => { work(); });\n" });
+  assert.deepEqual(constant.report.diagnostics.find(entry => entry.mutations[0].replacement === '(1, 1, false)').effects.noLongerRuns.map(entry => [entry.test, entry.expression]),
+    [['works', '4 + 2']]);
   const text = renderText(report);
   assert.match(text, /with the edit, `rejects` also evaluates `value \+ 0` \(subject\.ts:5\)\n {2}subject\.test\.ts > rejects calls `commit\(\[\['b', -5\]\]\)` without pinning its result: it gives false, and true with the edit/);
   assert.match(renderText({ runner: 'vitest', evaluation: 'evaluated', mutants: [], diagnostics: [{ kind: 'ASSERTION GAP', location: gap.location,
-    effects: { nowRuns: [], noLongerRuns: [{ location: { file: 'a.ts', line: 2, column: 1 }, expression: 'x\n+ y' }] } }] }), /with the edit, loading the file no longer evaluates `x` \(a\.ts:2\)/);
+    effects: { nowRuns: [{ location: { file: 'a.ts', line: 2, column: 1 }, expression: 'x\n+ y' }], noLongerRuns: [] } }] }), /with the edit, loading the file also evaluates `x` \(a\.ts:2\)/);
+});
+
+test('a sort, an awaited call and a copy: one names its numbers, the others say what to assert', () => {
+  const code = `export const sorted = (list: number[]) => [...list].sort((a, b) => a - b);
+export const log: string[] = [];
+const write = async (line: string) => { log.push(line); };
+export async function record(line: string) {
+  await write(line);
+  return log.length;
+}
+export const options = (given: { size?: number }) => ({ ...given });
+`;
+  const suite = `import { expect, it } from 'vitest';
+import { options, record, sorted } from './subject';
+it('sorts', () => { expect(sorted([3, 1, 2])).toEqual([1, 2, 3]); });
+it('records', async () => { expect(await record('a')).toBe(1); });
+it('options', () => { expect(options({ size: 2 })).toEqual({ size: 2 }); });
+`;
+  const { status, stderr, report } = analyzeProject({ 'subject.ts': code, 'subject.test.ts': suite });
+  assert.equal(status, 0, stderr);
+  const gap = replacement => report.diagnostics.find(entry => entry.mutations[0].replacement === replacement);
+  assert.deepEqual([gap('[...list].sort()').kind, gap('[...list].sort()').missing],
+    ['INPUT GAP', 'a test in which `[...list]` holds numbers whose order as text is not their order as numbers (9 and 10)']);
+  assert.deepEqual([gap('write(line);').kind, gap('write(line);').rule], ['ASSERTION GAP', 'await-dropped/v1']);
+  assert.match(gap('write(line);').advice, /not waited for/);
+  assert.match(gap('(given)').advice, /the original itself/);
+  assert.match(gap('(list)').advice, /the original itself/);
+  assert.match(renderText(report), /ASSERTION GAP subject\.ts:5:3 {2}await-dropped\/v1\n {2}`await write\(line\);` passes every test as `write\(line\);`\n {2}the tests pass when this call is not waited for/);
+  // A test that looks at the caller's list afterwards and one with 9 and 10 close two of them.
+  const closed = analyzeProject({ 'subject.ts': code, 'subject.test.ts': suite +
+    "it('keeps', () => { const given = [10, 9]; expect(sorted(given)).toEqual([9, 10]); expect(given).toEqual([10, 9]); });\n" });
+  const verdict = replacement => closed.report.mutants.find(mutant => mutant.replacement === replacement).status;
+  assert.deepEqual([verdict('[...list].sort()'), verdict('(list)')], ['killed', 'killed']);
 });

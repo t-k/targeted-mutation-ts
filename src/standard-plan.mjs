@@ -89,10 +89,22 @@ export function changedReach({ byTest, whileLoading }, runs, limit = 8) {
       const before = (test === '' ? whileLoading.get(module) : byTest.get(test)) ?? new Set();
       const after = new Set(ids);
       for (const id of after) if (!before.has(id)) now.push({ test, id });
-      for (const id of before) if (!after.has(id)) gone.push({ test, id });
+      // A trial runs only the tests that reach the edit, so the hooks of the others do not run: what is missing
+      // outside the tests says nothing about the edit.
+      if (test !== '') for (const id of before) if (!after.has(id)) gone.push({ test, id });
     }
   }
   return { now: now.slice(0, limit), gone: gone.slice(0, limit) };
+}
+
+// The same from the records of a fresh run of the given tests: per test file, what each test reached.
+export function reachOfRecords(records, tests) {
+  const runs = records.flatMap(({ modules = [], coverage }) => modules.map(module => ({ module: JSON.stringify(module), reached: {
+    ...Object.fromEntries(Object.entries(coverage?.perTest ?? {}).map(([test, counts]) => [test, Object.keys(counts).filter(id => counts[id])])),
+    '': Object.keys(coverage?.static ?? {}).filter(id => coverage.static[id]) } })));
+  const seen = new Set(runs.flatMap(({ reached }) => Object.keys(reached)));
+  // A test that ran and reached no switch at all is listed with none.
+  return [...runs, { module: null, reached: Object.fromEntries([...tests].filter(test => !seen.has(test)).map(test => [test, []])) }];
 }
 
 export function coveredTests(id, records, tests) {

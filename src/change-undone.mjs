@@ -60,8 +60,9 @@ function code(ts, file, text) {
     const children = node.getChildren(tree);
     if (node.kind === ts.SyntaxKind.JsxText) {
       const lines = node.text.split(/\r\n|[\n\r]/);
-      const read = lines.map((line, index) => (index ? line.trimStart() : line)).map((line, index) =>
-        (index < lines.length - 1 ? line.trimEnd() : line)).filter((line, index) => line || lines.length === 1 && !index).join(' ');
+      // Only spaces and tabs are indentation to every JSX transform; a no-break space is text.
+      const read = lines.map((line, index) => (index ? line.replace(/^[ \t]+/, '') : line)).map((line, index) =>
+        (index < lines.length - 1 ? line.replace(/[ \t]+$/, '') : line)).filter((line, index) => line || lines.length === 1 && !index).join(' ');
       // Only spacing with a line end in it: JSX leaves such text out, so tags on lines of their own are no change.
       if (read || lines.length === 1) parts.push(node.kind, JSON.stringify(read));
       return;

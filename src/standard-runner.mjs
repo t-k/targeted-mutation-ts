@@ -87,8 +87,10 @@ export default class StandardMutationRunner extends VitestTestRunner {
           // For an edit whose tests all passed, the switches each test reached say what the edit changed on the way.
           const reachedIds = counts => Object.entries(counts ?? {}).filter(([, count]) => count).map(([id]) => id);
           const coverage = globalThis.__stryker__.mutantCoverage;
-          const reached = plan.effects && !trial.failed.length ? { ...Object.fromEntries(Object.entries(coverage?.perTest ?? {})
-            .map(([test, counts]) => [test, reachedIds(counts)])), '': reachedIds(coverage?.static) } : undefined;
+          // A test that ran and reached no switch at all is listed with none.
+          const reached = plan.effects && !trial.failed.length ? { ...Object.fromEntries(plan.tests.map(test => [test, []])),
+            ...Object.fromEntries(Object.entries(coverage?.perTest ?? {}).map(([test, counts]) => [test, reachedIds(counts)])),
+            '': reachedIds(coverage?.static) } : undefined;
           // From here on a silent worker is a failed control, not a mutation that never returns.
           emit({ control: plan.id });
           // The same tests without the mutation, directly afterwards. They must behave as in the baseline, or the

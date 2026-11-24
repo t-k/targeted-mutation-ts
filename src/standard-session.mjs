@@ -3,7 +3,7 @@ import { createRequire, enableCompileCache } from 'node:module';
 import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { failedTests, snapshotVitestRun, timeVitestRun } from './vitest-reporter.mjs';
-import { changedReach, indexAgreement, indexCoverage, indexReach, agreesWithCoverage, assessTrial, cheapestFirst, openReasons, planInThread, sampleSettled, settleInThread, sharePlans, unanswered, withoutMutations } from './standard-plan.mjs';
+import { changedReach, indexAgreement, indexCoverage, indexReach, reachOfRecords, agreesWithCoverage, assessTrial, cheapestFirst, openReasons, planInThread, sampleSettled, settleInThread, sharePlans, unanswered, withoutMutations } from './standard-plan.mjs';
 import { checkReplay } from './lean-replay.mjs';
 import { inside } from './vitest.mjs';
 
@@ -263,7 +263,6 @@ try {
     const pending = [];
     for (const mutant of [...mutants.filter(candidate => !candidate.parametric), ...qualified]) {
       const { id } = mutant;
-      if (agreement.has(id)) mutant.effects = true;
       if (predicted.has(id)) {
         record({ id, status: 'survived', evidence: 'predicted' });
         continue;
@@ -285,6 +284,12 @@ try {
     let fresh;
     const totals = { inWorker: 0, isolated: 0, sampled: 0, mismatches: [], inWorkerUsed: false };
     // Decides a list of reached trials: inside workers where that holds, in fresh runs for the rest.
+    // What a surviving edit changed in the code its tests run, with the tests by name.
+    const effectsOf = runs => {
+      const named = list => list.map(({ test, id }) => ({ id, ...(tests.has(test) ? { test: tests.get(test).name } : {}) }));
+      const { now, gone } = changedReach(reach, runs);
+      return { now: named(now), gone: named(gone) };
+    };
     const decide = async (pending, report) => {
       const plans = isolatedTrials ? null : planInThread(baseline.records, tests, pending, workspace, baselineTiming);
       let settled = new Map();
@@ -340,11 +345,7 @@ try {
           if (!runs.has(event.id)) runs.set(event.id, []);
           runs.get(event.id).push({ module: event.module, reached: event.reached });
         }
-        const named = list => list.map(({ test, id }) => ({ id, ...(tests.has(test) ? { test: tests.get(test).name } : {}) }));
-        for (const [id, list] of runs) {
-          const { now, gone } = changedReach(reach, list);
-          effects.set(id, { now: named(now), gone: named(gone) });
-        }
+        for (const [id, list] of runs) effects.set(id, effectsOf(list));
       }
       for (const id of sampleSettled(pending.map(({ mutant }) => mutant.id).filter(id => settled.has(id)), verifyTrials)) sampled.add(id);
       for (const { mutant, plan } of pending) {
@@ -366,7 +367,8 @@ try {
           staticActivation: plan.staticActivation }, fresh);
         const assessed = assessTrial(trial, expected, hitLimit);
         if (sampled.has(id) && assessed.status !== settled.get(id).status) totals.mismatches.push({ id, worker: settled.get(id).status, fresh: assessed.status });
-        report(mutant, { ...assessed, ...covering, ...(reasons.has(id) ? { fallback: reasons.get(id) } : {}) });
+        const changed = mutant.effects && assessed.status === 'survived' ? { effects: effectsOf(reachOfRecords(trial.records, expected.keys())) } : {};
+        report(mutant, { ...assessed, ...covering, ...changed, ...(reasons.has(id) ? { fallback: reasons.get(id) } : {}) });
       }
       totals.inWorker += settled.size;
       totals.sampled += sampled.size;

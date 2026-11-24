@@ -45,7 +45,8 @@ function ${see}(i, l, r) {
       case 'floor': return Math.floor(a); case 'ceil': return Math.ceil(a); case 'round': return Math.round(a); case 'trunc': return Math.trunc(a);
       case 'idx0': return a[0]; case 'idxLast': return a[a.length - 1]; case 'at0': return a.at(0); case 'at-1': return a.at(-1);
       case 'find': return a.find(b); case 'findLast': return a.findLast(b); case 'findIndex': return a.findIndex(b);
-      case 'findLastIndex': return a.findLastIndex(b); case 'indexOf': return a.indexOf(b); default: return a.lastIndexOf(b);
+      case 'findLastIndex': return a.findLastIndex(b); case 'indexOf': return a.indexOf(b); case 'lastIndexOf': return a.lastIndexOf(b);
+      case 'sort': return a.sort(b); case 'toSorted': return a.toSorted(b); default: return op === 'sort' ? a.sort() : a.toSorted();
     }
   }
   function edited(f) {
@@ -64,6 +65,16 @@ function ${see}(i, l, r) {
   // values and numbers, and on arrays and text for their ends. Otherwise it is not known (null).
   function alike(f, value) {
     var sequence = scope.Array.isArray(l);
+    if (op === 'sort' || op === 'toSorted') {
+      // The order without the comparison is the order of the elements as text. For numbers and text that can be
+      // worked out on a copy; anything else would be converted by its own code.
+      var from = op === 'sort' ? unsorted : l, n;
+      if (!scope.Array.isArray(from) || !scope.Array.isArray(value) || from.length !== value.length) return null;
+      for (n = 0; n < from.length; n++) if (!(n in from) || (typeof from[n] !== 'number' && typeof from[n] !== 'string')) return null;
+      var other = from.slice().sort();
+      for (n = 0; n < other.length; n++) if (!is(other[n], value[n])) return false;
+      return true;
+    }
     if (kind === 'a' ? !plain(l) || !plain(r) : kind === 'm' ? typeof l !== 'number' || (site[7] === 2 && typeof r !== 'number')
       : !sequence && typeof l !== 'string') return null;
     // The callback of a search would run again: with at most one element both ends are the same search.
@@ -92,7 +103,8 @@ function ${see}(i, l, r) {
   var state = scope[scope.Symbol.for('targeted-mutation-ts/session')];
   if (!state || state.phase !== 'baseline') return original();
   // An operation that throws is observed too: an edit that evaluates the same right side throws as well, and any other differs.
-  var value, threw = true;
+  // A sort in place loses the order it started from.
+  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? l.slice() : void 0;
   try {
     value = original();
     threw = false;

@@ -26,6 +26,7 @@ export const shiftPlaceholder = '\u0000shift\u0000';
 export const targetedRules = {
   constant: 'equality-constant/v1', nullish: 'nullish-equality/v1', ignored: 'ignored-operand/v1', fallback: 'nullish-fallback/v1',
   arithmetic: 'arithmetic-swap/v1', extreme: 'extreme-swap/v1', rounding: 'rounding-swap/v1', ends: 'sequence-end/v1',
+  order: 'sort-order/v1', awaited: 'await-dropped/v1', copy: 'copy-dropped/v1',
 };
 // Two other operators for each arithmetic one: its inverse, and the one the same operands most often agree on.
 // (Maps: a method may be named like a property every object has.)
@@ -235,7 +236,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
   }
   const writtenFalsy = node => {
     const inner = strip(node);
-    return written(node) && (['0', '0n', 'false', 'null', 'undefined'].includes(source(inner)) ||
+    return written(node) && (['0', '0n', 'false', 'null', 'undefined', '-0', '-0n'].includes(source(inner).replace(/\s/g, '')) ||
       ((ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) && inner.text === ''));
   };
 
@@ -305,8 +306,25 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
 
   const rename = (node, name, to) => text.slice(begin(node), begin(name)) + to + text.slice(name.end, node.end);
 
-  // A file that binds the name Math itself (a parameter, a variable, an import) is not calling the built-in one.
-  const ownMath = /\bMath\b(?!\s*(?:\.|\?\.|\[))/.test(text);
+  // A file that binds the name Math itself (a parameter, a variable, a function, an import) is not calling the
+  // built-in one.
+  let bindsMath;
+  function ownMath() {
+    if (bindsMath === undefined) {
+      bindsMath = false;
+      if (/\bMath\b(?!\s*(?:\.|\?\.|\[))/.test(text)) {
+        (function look(inner) {
+          if (bindsMath) return;
+          const name = inner.name;
+          bindsMath = name !== undefined && ts.isIdentifier(name) && name.text === 'Math' && (ts.isParameter(inner) || ts.isVariableDeclaration(inner) ||
+            ts.isBindingElement(inner) || ts.isFunctionDeclaration(inner) || ts.isClassDeclaration(inner) || ts.isImportSpecifier(inner) ||
+            ts.isImportClause(inner) || ts.isNamespaceImport(inner));
+          if (!bindsMath) ts.forEachChild(inner, look);
+        })(tree);
+      }
+    }
+    return bindsMath;
+  }
 
   function targetedCall(node) {
     const callee = node.expression;
@@ -315,13 +333,16 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const name = callee.name.text;
     const args = node.arguments;
     if (ts.isIdentifier(callee.expression) && callee.expression.text === 'Math') {
-      if (ownMath) return;
+      if (ownMath()) return;
       if ((name === 'max' || name === 'min') && args.length === 2) {
         probed(node, name, [args[0], args[1]])(targetedRules.extreme, name === 'max' ? 'min' : 'max', rename(node, callee.name, name === 'max' ? 'min' : 'max'));
       } else if (roundingSwaps.has(name) && args.length === 1) {
         const edit = probed(node, name, [args[0]]);
         for (const swap of roundingSwaps.get(name)) edit(targetedRules.rounding, swap, rename(node, callee.name, swap));
       }
+    } else if ((name === 'sort' || name === 'toSorted') && args.length === 1 && ascending(args[0])) {
+      // Without its comparison a sort orders numbers as text: 10 before 9.
+      probed(node, name, [callee.expression, args[0]])(targetedRules.order, 'default', text.slice(begin(node), begin(args[0])) + text.slice(args[0].end, node.end));
     } else if (endSwaps.has(name) && args.length === 1) {
       probed(node, name, [callee.expression, args[0]])(targetedRules.ends, endSwaps.get(name), rename(node, callee.name, endSwaps.get(name)));
     } else if (name === 'at' && args.length === 1 && ['0', '-1'].includes(source(args[0]).replace(/\s/g, ''))) {
@@ -329,6 +350,33 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       probed(node, first ? 'at0' : 'at-1', [callee.expression])(targetedRules.ends, first ? 'at-1' : 'at0',
         text.slice(begin(node), begin(args[0])) + (first ? '-1' : '0') + text.slice(args[0].end, node.end));
     }
+  }
+
+  // `(a, b) => a - b`: the comparison that puts numbers in ascending order.
+  function ascending(node) {
+    if (!ts.isArrowFunction(node) || node.parameters.length !== 2 || !node.parameters.every(parameter => ts.isIdentifier(parameter.name) && !parameter.initializer)) return false;
+    const body = ts.isBlock(node.body) ? undefined : strip(node.body);
+    return body !== undefined && ts.isBinaryExpression(body) && operatorOf(body) === '-' && ts.isIdentifier(strip(body.left)) && ts.isIdentifier(strip(body.right)) &&
+      strip(body.left).text === node.parameters[0].name.text && strip(body.right).text === node.parameters[1].name.text;
+  }
+
+  // Edits that no recording can judge: they change when something happens or which object is which, not a value.
+  function unobservedEdits(node) {
+    if (ts.isExpressionStatement(node)) {
+      const awaited = strip(node.expression);
+      const call = ts.isAwaitExpression(awaited) ? strip(awaited.expression) : undefined;
+      // The call goes on alone: what follows no longer waits for it.
+      if (call && ts.isCallExpression(call) && !'([`'.includes(source(call)[0])) {
+        add(targetedRules.awaited, node, `${source(call)};`, { kind: 'statement', placement: [begin(node), node.end], mutated: `${source(call)};` },
+          { targeted: { operator: 'await', form: 'dropped', left: source(call) } });
+      }
+      return;
+    }
+    // `[...list]` and `{ ...record }` as the whole literal are copies: the edit gives the original itself.
+    const only = ts.isArrayLiteralExpression(node) ? node.elements : ts.isObjectLiteralExpression(node) ? node.properties : undefined;
+    if (only?.length !== 1 || !(ts.isSpreadElement(only[0]) || ts.isSpreadAssignment(only[0])) || isAssignmentTarget(node)) return;
+    const original = source(only[0].expression);
+    add(targetedRules.copy, node, `(${original})`, undefined, { targeted: { operator: 'copy', form: 'dropped', left: original } });
   }
 
   // A name or a chain of property names: reading it twice gives the same and does nothing else.
@@ -461,6 +509,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     if (targeted && ts.isBinaryExpression(node)) targetedEdits(node);
     else if (targeted && ts.isCallExpression(node)) targetedCall(node);
     else if (targeted && ts.isElementAccessExpression(node)) targetedElement(node);
+    else if (targeted) unobservedEdits(node);
     if (ts.isExpression(node) && !ts.isParenthesizedExpression(node)) condition(node);
     if (ts.isArrayLiteralExpression(node) && !isAssignmentTarget(node)) {
       add('ArrayDeclaration', node, node.elements.length ? '[]' : '["Stryker was here"]');

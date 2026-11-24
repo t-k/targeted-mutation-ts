@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- `--mutators targeted`: edits that the values of the tests can tell apart (an equality that is always true or false, an operand of `&&`, `||` or `??` that never decides, `??` for `||`, `== null` for `=== null`, another arithmetic operator, `Math.min` for `Math.max`, another rounding, the other end of a list). A recording run notes per test whether each edit would have behaved differently, and a survivor is reported as an input gap with the missing input or as an assertion gap with the tests that had it.
+- `--mutators targeted`: edits that the values of the tests can tell apart (an equality that is always true or false, an operand of `&&`, `||` or `??` that never decides, `??` for `||`, `== null` for `=== null`, another arithmetic operator, `Math.min` for `Math.max`, another rounding, the other end of a list, a numeric sort without its comparison, an `await` left out, a spread copy left out). A recording run notes per test whether each edit would have behaved differently, and a survivor is reported as an input gap with the missing input or as an assertion gap with the tests that had it.
 - `--undo-changes` with `--since REV`: each change is put back as it was at `REV` and run against the suite. A change the tests pass without is reported as `UNTESTED CHANGE`.
 - `--suggest-assertions`: for a survivor whose tests had the input, the calls those tests make without pinning the result are run with and without the edit, and the report gives the value to compare with.
 - A surviving targeted edit lists the expressions its tests newly reach or no longer reach with the edit.

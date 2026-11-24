@@ -167,7 +167,8 @@ export async function analyzeConventional(project, files, options) {
     const output = resolve(temp, 'mutation-session.jsonl');
     writeFileSync(manifest, JSON.stringify({
       workspace, setup, workerRunner, output, temporary: temp, awaitsExtras,
-      mutants: runnable.map(({ id, parametric, targeted }) => ({ id, ...(parametric ? { parametric } : {}), ...(targeted?.evidence ? { evidence: true } : {}) })),
+      mutants: runnable.map(({ id, parametric, targeted }) => ({ id, ...(parametric ? { parametric } : {}), ...(targeted?.evidence ? { evidence: true } : {}),
+        ...(targeted ? { effects: true } : {}) })),
       focused: focused.map(({ id }) => ({ id })), isolatedTrials: options['isolated-trials'] === true,
       concurrency: options.concurrency ?? Math.max(1, availableParallelism() - 1), verifyTrials: options['verify-trials'] ?? 0,
       ...(options.timeout ? { runTimeout: options.timeout * 1000 } : {}),

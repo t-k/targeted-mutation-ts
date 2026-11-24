@@ -34,8 +34,16 @@ test('a call is taken only from the tests a finding names, and is located in its
   const text = `${head}describe('fees', () => {\n  it('low', () => { expect(fee(1, 1)).toBeTruthy(); });\n  test('high', () => { expect(fee(9, 9)).toBeTruthy(); });\n});\nit.skip('later', () => { fee(0, 0); });\nit(name, () => { fee(7, 7); });\n`;
   const found = names => weakCalls(text, 'test/subject.test.ts', 'src/subject.ts', names).map(call => [call.text, call.test, call.line, call.column]);
   assert.deepEqual(found(['fees > high']), [['fee(9, 9)', 'high', 6, 31]]);
-  assert.deepEqual(found(['fees > low', 'high']), [['fee(1, 1)', 'low', 5, 28], ['fee(9, 9)', 'high', 6, 31]]);
-  assert.deepEqual(found(['other > higher', 'later']), []);
+  assert.deepEqual(found(['fees > low', 'fees > high']), [['fee(1, 1)', 'low', 5, 28], ['fee(9, 9)', 'high', 6, 31]]);
+  // A test of the same title in another suite is another test.
+  assert.deepEqual(found(['other > higher', 'later', 'refunds > high', 'high']), []);
+  const suites = `${head}describe('refunds', () => { it('works', () => { fee(1, 1); }); });\ndescribe.each([1])('charges', () => { it('works', () => { fee(2, 2); }); });\n` +
+    `describe(name, () => { suite('deep', () => { it('works', () => { fee(3, 3); }); }); });\n`;
+  const inSuites = names => weakCalls(suites, 'test/subject.test.ts', 'src/subject.ts', names).map(call => call.text);
+  // Under a suite whose title is a pattern or not written out, the test's own title has to do.
+  assert.deepEqual(inSuites(['charges > works']), ['fee(2, 2)', 'fee(3, 3)']);
+  assert.deepEqual(inSuites(['refunds > works']), ['fee(1, 1)', 'fee(2, 2)', 'fee(3, 3)']);
+  assert.deepEqual(inSuites(['refunds > other']), []);
 });
 
 test('a wrapped call gives its value on and writes down what a comparison can be written with', () => {
@@ -46,7 +54,9 @@ test('a wrapped call gives its value on and writes down what a comparison can be
   assert.match(rewritten, /out\.push\(pick\(3\), __tmtValue_k1\(pick\('a"b'\)\)\);/);
   const written = [];
   const helper = rewritten.slice(rewritten.indexOf('function __tmtValue_k1')).replace('import.meta.url', "'file:///t/'");
-  const context = vm.createContext({ URL, __tmtAppend_k1: (url, line) => written.push([String(url), line]) });
+  // The file system comes from Node itself, so a test that mocks 'node:fs' does not get in the way.
+  assert.doesNotMatch(rewritten, /import .* from 'node:fs'/);
+  const context = vm.createContext({ URL, process: { getBuiltinModule: name => ({ 'node:fs': { appendFileSync: (url, line) => written.push([String(url), line]) } })[name] } });
   const shown = value => { context.value = value; vm.runInContext(helper + '; var given = __tmtValue_k1(value);', context); return [context.given === value || Number.isNaN(value), JSON.parse(written.pop()[1])]; };
   assert.deepEqual([3, -0, NaN, 'a"b', true, null, undefined, 5n].map(shown), [[true, '3'], [true, '-0'], [true, 'NaN'], [true, '"a\\"b"'], [true, 'true'],
     [true, 'null'], [true, 'undefined'], [true, '5n']]);
@@ -117,12 +127,43 @@ test('the runs are shared and bounded: one for a call as it is, one per finding,
     strengthenAssertions(root, again, {}, run);
     assert.equal(again.diagnostics[0].suggestedTest, undefined, `${original} against ${edited}`);
   }
-  // An edit that keeps the test from reaching the call gives no value.
+  // An edit that keeps the test from reaching the call gives no value, and an assertion there would not run either.
   Object.assign(values, { original: '"600"', edited: '' });
   const crashed = { diagnostics: [gap('(cents + rate)')] };
   strengthenAssertions(root, crashed, {}, run);
-  assert.equal(crashed.diagnostics[0].strengthens.edited, 'no value');
+  assert.equal(crashed.diagnostics[0].suggestedTest, undefined);
+  // A call made twice in a loop of tests: the first value that differs is the one compared.
+  Object.assign(values, { original: '"600"\n"7"', edited: '"600"\n"8"' });
+  const later = { diagnostics: [gap('(cents + rate)')] };
+  strengthenAssertions(root, later, {}, run);
+  assert.deepEqual([later.diagnostics[0].suggestedTest, later.diagnostics[0].strengthens.edited], ['expect(fee(200, 3)).toBe(7)', '8']);
   assert.equal(withoutSourceEdits(crashed).diagnostics[0].mutations[0].source, undefined);
+}));
+
+test('a result the test keeps is compared where it is kept, and the runs stop at four calls for a finding and 24 in all', () => project({
+  'subject.ts': 'let n = 0;\nexport function nextId() { return ++n * 2; }\n',
+  'a.test.ts': "import { expect, it } from 'vitest';\nimport { nextId } from './subject';\nit('ids', () => {\n  const id = nextId();\n  expect(id > 0).toBe(true);\n  nextId(); nextId(); nextId(); nextId(); nextId();\n});\n",
+  'b.test.ts': "import { it } from 'vitest';\nimport { nextId } from './subject';\nit('more', () => {\n  nextId();\n});\n",
+}, root => {
+  let edits = 0;
+  const values = { edited: '"3"' };
+  const run = { sourceTrials: () => settings => { if (settings.trial) edits++; return { status: 'passed', collected: (settings.trial ? values.edited : '"2"') + '\n' }; } };
+  const gap = () => ({ kind: 'ASSERTION GAP', location: { file: 'subject.ts' }, tests: [{ file: 'a.test.ts', name: 'ids' }, { file: 'b.test.ts', name: 'more' }],
+    mutations: [{ edit: [0, 1], replacement: 'x' }] });
+  const kept = { diagnostics: [gap()] };
+  strengthenAssertions(root, kept, {}, run);
+  // Calling again would give the next id.
+  assert.equal(kept.diagnostics[0].suggestedTest, 'expect(id).toBe(2)');
+  // No call tells the edit apart: four calls are tried for each finding, over both test files, and 24 in all.
+  values.edited = '"2"';
+  edits = 0;
+  const many = { diagnostics: Array.from({ length: 8 }, gap) };
+  strengthenAssertions(root, many, {}, run);
+  assert.equal(edits, 24);
+  assert.ok(many.diagnostics.every(entry => entry.suggestedTest === undefined));
+  edits = 0;
+  strengthenAssertions(root, { diagnostics: [gap()] }, {}, run);
+  assert.equal(edits, 4);
 }));
 
 const callRows = readFileSync(new URL('../verification/pict/weak-calls.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1).map(line => line.split('\t'));

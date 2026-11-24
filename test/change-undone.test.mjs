@@ -210,6 +210,8 @@ test('a change of spacing that changes the program is tried, and one that does n
   // Tags put on lines of their own have the same children.
   assert.equal(tried('f.jsx', 'const a = <div><span>Hello</span></div>\n', 'const a = <div>\n  <span>Hello</span>\n</div>\n'), 0);
   assert.equal(tried('f.jsx', 'const a = <div><span>Hello</span> <i/></div>\n', 'const a = <div><span>Hello</span><i/></div>\n'), 1);
+  // A no-break space on a line of its own is text.
+  assert.equal(tried('f.jsx', 'const a = <div>\n  <b/>\n  <i/>\n</div>\n', 'const a = <div>\n  <b/>\n  \u00a0\n  <i/>\n</div>\n'), 1);
   assert.equal(tried('f.ts', 'let n = 1\n', 'const n = 1\n'), 1);
   // A space in a regular expression or a template is code; a comment after a template is not.
   assert.equal(tried('f.js', 'const r = /a +b/\n', 'const r = /a+b/\n'), 1);

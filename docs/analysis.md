@@ -62,6 +62,7 @@ ASSERTION GAP src/fees.ts:1:53  arithmetic-swap/v1
 - A call is taken when it calls a function the test file imports by name from the edited file, all its arguments are written values (numbers, text, `true`, `null`, arrays and objects of those), it stands on one line in a statement of the test itself (not in a loop, a branch or a callback), and its result is unused, bound to a variable, or checked by a matcher other than `toBe`, `toEqual`, `toStrictEqual`, `toBeNull`, `toBeUndefined`, `toBeNaN`, `toBeCloseTo`, `toMatchObject` and the snapshot matchers. A negated matcher pins nothing.
 - The call is wrapped in the test file of a project copy, so it is evaluated where the test makes it, after everything the test did before. Only that test file runs. A value that is a number, text, a boolean, `null`, `undefined` or a bigint can be suggested; for any other value nothing is.
 - The value of a call as it is is taken once and shared by the findings that name it. Each finding then costs one run per call tried, up to four, and at most 24 such runs are made in all.
+- The suggestion stands for the weak assertion or the bare call, at its place. Where the test keeps the result in a variable, the variable is compared (`expect(id).toBe(2)`), since calling again may give another value. Where the edit keeps the test from making the call at all, nothing is suggested: an assertion there would not run either.
 - The option applies to the focused, targeted, operators and full profiles on Vitest. In JSON the finding has `suggestedTest` and `strengthens` (`file`, `test`, `line`, `column`, `call`, `original`, `edited`).
 
 ### A change put back
@@ -106,7 +107,7 @@ The default profile uses the same session. Its comparison boundaries, `>=` with 
 
 ### Targeted edits
 
-`--mutators targeted` adds eight rules to the focused profile. Each replaces one expression by another that gives the same value for some operands and a different one for others, and still evaluates what the original evaluates.
+`--mutators targeted` adds eleven rules to the focused profile. Each replaces one expression by another that gives the same value for some operands and a different one for others, and still evaluates what the original evaluates.
 
 | Rule | Code | Edit | Differs when |
 |------|------|------|--------------|
@@ -121,6 +122,9 @@ The default profile uses the same session. Its comparison boundaries, `>=` with 
 | `rounding-swap/v1` | `Math.floor(x)`, `ceil`, `round`, `trunc` | `floor` to `ceil`, `round` and `trunc`; the others to `floor` and one more | `x` is not whole (for `floor` and `trunc`: negative and not whole) |
 | `sequence-end/v1` | `list[0]`, `list.at(0)`, `list.at(-1)`, `list[list.length - 1]` | the other end | the first element is not the last |
 | | `find` and `findLast`, `findIndex` and `findLastIndex`, `indexOf` and `lastIndexOf` | the other of the two | more than one element matches |
+| `sort-order/v1` | `list.sort((a, b) => a - b)`, `toSorted` | `list.sort()` | numbers are in another order as text (9 and 10) |
+| `await-dropped/v1` | `await save(x);` as a statement | `save(x);` | the tests look at what the call has done when the function ends |
+| `copy-dropped/v1` | `[...list]`, `{ ...record }` as the whole literal | `(list)`, `(record)` | the tests change the copy and look at the original, or compare the two objects |
 
 With Vitest 4 each such expression becomes a probe in the test session. While the baseline runs, the probe notes for every edit of the expression and for every test whether the edit would have given the same value after evaluating the same operands. The edits then run like any other switch, against the tests that reach them. A survivor is reported with what the recording says about it:
 
@@ -141,6 +145,8 @@ For an edit that survived, the session also compares what each of its tests reac
 - Where only the truth of the value is used (a condition, under `!`, or an operand of `&&` or `||` used that way), an ignored right operand counts as agreeing when the truth is the same. Elsewhere the values must be the same, and `0` is not `-0`.
 - Beside a written literal on the right (`retries ?? 0`), an edit that evaluates the literal where the original does not agrees whenever the values are the same. Any other right side is not evaluated to compare.
 - The probe works an edit out again only where that has no effect: arithmetic on numbers, text and other plain values, the functions of `Math` on numbers, and the ends of arrays and of text. With an object among arithmetic operands, with something that is neither an array nor text, and for `find` on more than one element (its callback would run again), the recording cannot tell. A survivor is then an `INPUT GAP` marked `uncertain`, with the tests in which that happened: they may already have the input and only lack the assertion.
+- The last two rules change when something happens and which object is which, not a value, so no recording can judge them. Their edits are run like the others, and a survivor is an `ASSERTION GAP` with `advice` on what to assert in place of a missing input.
+- A sort is edited only where its comparison is written as `(a, b) => a - b`. The probe sorts a copy of its own to compare, where every element is a number or text.
 - `+` beside a string or template literal is left alone. `Math.max` and `Math.min` are edited with exactly two arguments. An element that is assigned, updated, deleted, called, or reached through `?.` is left alone, and `list[list.length - 1]` is taken for a last element only where `list` is a name or a chain of property names.
 - `??` and `||` give the same for `null`, `undefined` and every object. When no test gave the left side a number, a string or a boolean and the two never differed, the edit is listed as `ignored` and not run. `||` is not taken for `??` where only the truth of its value is used.
 - The strict and loose comparison edits are offered only beside a written `null` or `undefined`.

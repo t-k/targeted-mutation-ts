@@ -20,7 +20,8 @@ Profiles (analyze):
                                 targeted adds edits that the values of the tests can tell apart: an equality
                                 that is always true or false, an operand of && || ?? that never decides,
                                 ?? for ||, == null for === null, another arithmetic operator, rounding or
-                                end of a list. Each survivor names the missing input.
+                                end of a list, a sort without its comparison, a dropped await or copy.
+                                Each survivor names the missing input or what to assert.
                                 operators adds equality, logical and arithmetic operator swaps.
                                 full adds the complete built-in mutation set (the StrykerJS mutators).
                                 standard and all use @stryker-mutator/instrumenter@10.1.1 instead.
@@ -95,7 +96,8 @@ function describeGap(gap) {
     const edit = gap.mutations?.[0]?.replacement;
     lines.push(`  \`${firstLine(gap.expression)}\` passes every test as \`${firstLine(edit)}\`` +
       (gap.reachedBy === undefined ? '' : ` (${gap.reachedBy} ${gap.reachedBy === 1 ? 'test reaches' : 'tests reach'} it)`));
-    if (gap.missing && gap.uncertain) {
+    if (gap.advice) lines.push(`  ${printable(gap.advice)}`);
+    else if (gap.missing && gap.uncertain) {
       lines.push(`  add ${printable(gap.missing)}, or an assertion that tells them apart: the recording cannot tell whether a test has such an input`);
     } else if (gap.missing) lines.push(`  add ${printable(gap.missing)}`);
     else {
