@@ -228,7 +228,13 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
   return report;
 }
 
-export async function analyzeUndoneChangesAsync(project, files, options, run = { sourceTrialsAsync }) {
+const defaultUndoAsyncRun = { sourceTrialsAsync };
+
+export async function analyzeUndoneChangesAsync(project, files, options, run = defaultUndoAsyncRun) {
+  // Playwright runs via synchronous `sourceTrials`; never route Playwright undo trials into Vitest's `sourceTrialsAsync`.
+  if (options.runner === 'playwright' && run === defaultUndoAsyncRun) {
+    return analyzeUndoneChanges(project, files, options, { sourceTrials });
+  }
   const { root, revision, subjects, trials, fileHunks } = prepareUndoPlan(project, files, options);
   const report = { mutants: [], diagnostics: [], evaluation: 'no_sites', since: revision };
   if (!trials.length) return report;

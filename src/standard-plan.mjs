@@ -41,7 +41,7 @@ export function indexAgreement(records, tests) {
   const merged = new Map();
   for (const { observed } of records) {
     for (const [id, entry] of Object.entries(observed ?? {})) {
-      if (!merged.has(id)) merged.set(id, { agreeing: new Set(), differing: new Set(), unsure: new Set(), outside: false, outsideUnsure: false, typed: false, realCopy: false, nonArray: false, nonPlain: false, sequence: false, nonSequence: false });
+      if (!merged.has(id)) merged.set(id, { agreeing: new Set(), differing: new Set(), unsure: new Set(), outside: false, outsideUnsure: false, typed: false, realCopy: false, nonArray: false, nonPlain: false, sequence: false, nonSequence: false, threw: false });
       const into = merged.get(id);
       for (const [test, [, differed, unknown = 0]] of Object.entries(entry.tests ?? {})) {
         if (!tests.has(test)) (into.outside ||= differed > 0, into.outsideUnsure ||= unknown > 0);
@@ -58,6 +58,7 @@ export function indexAgreement(records, tests) {
       into.nonPlain ||= entry.nonPlain === true;
       into.sequence ||= entry.sequence === true;
       into.nonSequence ||= entry.nonSequence === true;
+      into.threw ||= entry.threw === true;
     }
   }
   // A test belongs to the strongest of what it saw, over all the files that recorded it.

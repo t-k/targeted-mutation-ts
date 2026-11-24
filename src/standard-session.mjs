@@ -234,9 +234,9 @@ try {
         record({ id, status: 'ignored', statusReason: 'No test gives the left side a number, a string or a boolean, so both operators are taken to behave alike here' });
         continue;
       }
-      // `expr[0]` / `expr[expr.length - 1]` on a plain map or `arguments` object is not a sequence:
-      // mutating to `.at(-1)` would only raise a TypeError noise kill.
-      if (mutant.sequenceIndex && seen && !seen.sequence && seen.nonSequence && !seen.differing.size && !seen.outside) {
+      // `expr[0]` on a plain map or `arguments` object is not a sequence: mutating to `.at(-1)` would only raise
+      // a TypeError noise kill. Never skip if any baseline evaluation threw (exception behavior is unverified).
+      if (mutant.sequenceIndex && seen && !seen.sequence && seen.nonSequence && !seen.threw && !seen.differing.size && !seen.outside) {
         record({ id, status: 'ignored', statusReason: 'No test passes a sequence (array, string, or typed array) to this index expression' });
         continue;
       }

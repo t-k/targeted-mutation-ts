@@ -349,6 +349,11 @@ test('analyzeUndoneChangesAsync runs hunks concurrently in deterministic order w
       [5, 'survived', false],
       [1, 'survived', true],
     ]);
+    // With `--runner playwright` and default runner, `analyzeUndoneChangesAsync` must route to Playwright (not Vitest).
+    await assert.rejects(
+      () => analyzeUndoneChangesAsync(root, ['subject.js'], { since: 'HEAD', runner: 'playwright' }),
+      /Playwright|@playwright\/test|playwright/i,
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -35,6 +35,7 @@ function ${see}(i, l, r) {
   var site = ${table}(i), op = site[0], edits = site[2], kind = site[6], scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
   var utilTypes = ${table}.u !== void 0 ? ${table}.u : (${table}.u = typeof scope.process === 'object' && scope.process && typeof scope.process.getBuiltinModule === 'function' ? scope.process.getBuiltinModule('node:util').types : null);
   var isProxy = utilTypes ? utilTypes.isProxy : null;
+  var isTypedArray = utilTypes ? utilTypes.isTypedArray : null;
   var strMethods = ${table}.s || (${table}.s = { indexOf: scope.String.prototype.indexOf, lastIndexOf: scope.String.prototype.lastIndexOf });
   var logical = kind === 'l', missing = l === null || l === void 0, k, form;
   var taken = op === '&&' ? !!l : op === '||' ? !l : missing;
@@ -155,15 +156,16 @@ function ${see}(i, l, r) {
           } catch (error) { /* leave unclassified */ }
         }
       }
-      if (kind === 's' && !threw && (op === 'idx0' || op === 'idxLast')) {
-        if (scope.Array.isArray(l) || typeof l === 'string' || (scope.ArrayBuffer.isView(l) && !(l instanceof scope.DataView))) entry.sequence = true;
+      if (kind === 's' && op === 'idx0') {
+        if (threw) entry.threw = true;
+        else if (scope.Array.isArray(l) || typeof l === 'string' || (isTypedArray && isTypedArray(l))) entry.sequence = true;
         else if (l != null) {
           var isSeq = false;
           try {
-            if (isProxy && isProxy(l)) isSeq = true;
+            if (!isProxy || !isTypedArray || isProxy(l)) isSeq = true;
             else {
-              for (var cur = l, depth = 0; cur && depth < 16; depth++) {
-                if (isProxy && isProxy(cur)) { isSeq = true; break; }
+              for (var cur = l, depth = 0; cur; depth++) {
+                if (depth >= 16 || isProxy(cur)) { isSeq = true; break; }
                 var atDesc = scope.Object.getOwnPropertyDescriptor(cur, 'at');
                 if (atDesc) { isSeq = 'value' in atDesc ? typeof atDesc.value === 'function' : true; break; }
                 cur = scope.Object.getPrototypeOf(cur);

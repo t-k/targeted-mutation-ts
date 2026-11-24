@@ -349,11 +349,13 @@ it('reads property', () => { expect(safeCopy(new Box(7)).a).toBe(7); });
   assert.match(spreadGap.advice, /object spread is replaced by its source directly/);
 });
 
-test('sequence-end/v1 skips non-sequence index receivers without triggering Proxy or getter traps', () => {
+test('sequence-end/v1 skips non-sequence idx0 receivers while preserving idxLast, throwing mixes, and Proxy-proto typed arrays', () => {
   const code = `export const fromMap = (record: Record<number, string>) => record[0];
 export function fromArgs(..._unused: number[]) { return arguments[0]; }
 export const fromArray = (list: number[]) => list[0];
 export const fromBytes = (bytes: Uint8Array) => bytes[0];
+export const lastOfArrayLike = (like: { [i: number]: string; length: number }) => like[like.length - 1];
+export const mixedThrow = (x: Record<number, string> | null) => (x as any)[0];
 export class CustomSeq {
   constructor(private items: number[]) {}
   0 = 10;
@@ -362,14 +364,21 @@ export class CustomSeq {
 export const fromCustom = (seq: CustomSeq) => seq[0];
 `;
   const suite = `import { expect, it } from 'vitest';
-import { CustomSeq, fromArgs, fromArray, fromBytes, fromCustom, fromMap } from './subject';
+import { CustomSeq, fromArgs, fromArray, fromBytes, fromCustom, fromMap, lastOfArrayLike, mixedThrow } from './subject';
 it('reads map and arguments', () => {
   expect(fromMap({ 0: 'zero', 1: 'one' })).toBe('zero');
   expect(fromArgs(42, 99)).toBe(42);
 });
-it('reads real sequences and custom .at()', () => {
+it('reads real sequences, array-like last, Proxy-proto typed array, mixed throw, and custom .at()', () => {
   expect(fromArray([1, 2])).toBe(1);
-  expect(fromBytes(new Uint8Array([3, 4]))).toBe(3);
+  const bytes = new Uint8Array([3, 4]);
+  Object.setPrototypeOf(bytes, new Proxy(Uint8Array.prototype, {
+    getPrototypeOf() { throw new Error('prototype trap must not run'); },
+  }));
+  expect(fromBytes(bytes)).toBe(3);
+  expect(lastOfArrayLike({ 0: 'first', 1: 'last', length: 2 })).toBe('last');
+  expect(mixedThrow({ 0: 'ok' })).toBe('ok');
+  expect(() => mixedThrow(null)).toThrow();
   expect(fromCustom(new CustomSeq([10, 20]))).toBe(10);
 });
 `;
@@ -381,5 +390,7 @@ it('reads real sequences and custom .at()', () => {
   assert.equal(byReplacement('arguments.at(-1)').status, 'ignored');
   assert.equal(byReplacement('list.at(-1)').status, 'killed');
   assert.equal(byReplacement('bytes.at(-1)').status, 'killed');
+  assert.equal(byReplacement('like[0]').status, 'killed');
+  assert.equal(byReplacement('(x as any).at(-1)').status, 'killed');
   assert.equal(byReplacement('seq.at(-1)').status, 'killed');
 });

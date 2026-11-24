@@ -1,9 +1,10 @@
+import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { dirname, posix, relative, resolve, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { createInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
 import { sourceTrialsAsync } from './analysis.mjs';
 import { inParallel } from './in-parallel.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
@@ -18,6 +19,7 @@ const pinning = new Set(['toBe', 'toEqual', 'toStrictEqual', 'toBeNull', 'toBeUn
 const extension = /\.(?:[cm]?[jt]s|[jt]sx)$/;
 const sourceExtensions = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
 const defaultRun = { sourceTrialsAsync };
+const sessionWorker = fileURLToPath(new URL('./assertion-session.mjs', import.meta.url));
 
 function loadTsPaths(root, fromFile, ts, cache) {
   let dir = dirname(resolve(root, fromFile));
@@ -63,20 +65,28 @@ function candidatePathsFor(root, fromFile, specifier, ts, cache) {
   const tsPaths = loadTsPaths(root, fromFile, ts, cache);
   if (!tsPaths) return candidates;
   if (tsPaths.paths) {
+    // Follow TypeScript's `paths` precedence: exact matches first, then wildcard patterns by longest prefix (then suffix).
+    const exact = [];
+    const wildcards = [];
     for (const [pattern, targets] of Object.entries(tsPaths.paths)) {
       if (!Array.isArray(targets)) continue;
       const star = pattern.indexOf('*');
       if (star === -1) {
-        if (specifier === pattern) for (const target of targets) candidates.push(resolve(tsPaths.baseDir, target));
+        if (specifier === pattern) {
+          for (const target of targets) exact.push(resolve(tsPaths.baseDir, target));
+        }
       } else {
         const prefix = pattern.slice(0, star);
         const suffix = pattern.slice(star + 1);
         if (specifier.startsWith(prefix) && specifier.endsWith(suffix) && specifier.length >= prefix.length + suffix.length) {
           const matched = specifier.slice(prefix.length, specifier.length - suffix.length);
-          for (const target of targets) candidates.push(resolve(tsPaths.baseDir, target.replace('*', matched)));
+          wildcards.push({ prefixLen: prefix.length, suffixLen: suffix.length,
+            paths: targets.map(target => resolve(tsPaths.baseDir, target.replace('*', matched))) });
         }
       }
     }
+    wildcards.sort((a, b) => (b.prefixLen - a.prefixLen) || (b.suffixLen - a.suffixLen));
+    candidates.push(...exact, ...wildcards.flatMap(entry => entry.paths));
   }
   if (tsPaths.hasBaseUrl) candidates.push(resolve(tsPaths.baseDir, specifier));
   return candidates;
@@ -103,12 +113,40 @@ function resolveModuleInRoot(root, fromFile, specifier, ts, cache) {
   return found;
 }
 
+function collectExportedLocalNames(tree, ts) {
+  const explicit = new Set();
+  const hasExportModifier = node => Boolean(node.modifiers?.some(m => m.kind === ts.SyntaxKind.ExportKeyword));
+  const collectBinding = binding => {
+    if (!binding) return;
+    if (ts.isIdentifier(binding)) explicit.add(binding.text);
+    else if (ts.isObjectBindingPattern(binding) || ts.isArrayBindingPattern(binding)) {
+      for (const el of binding.elements) if (ts.isBindingElement(el)) collectBinding(el.name);
+    }
+  };
+  for (const stmt of tree.statements) {
+    if (ts.isExportDeclaration(stmt) && !stmt.isTypeOnly) {
+      if (stmt.exportClause && ts.isNamedExports(stmt.exportClause)) {
+        for (const el of stmt.exportClause.elements) if (!el.isTypeOnly) explicit.add(el.name.text);
+      } else if (stmt.exportClause && ts.isNamespaceExport(stmt.exportClause)) {
+        explicit.add(stmt.exportClause.name.text);
+      }
+    } else if (hasExportModifier(stmt)) {
+      if (ts.isVariableStatement(stmt)) {
+        for (const decl of stmt.declarationList.declarations) collectBinding(decl.name);
+      } else if ((ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt) || ts.isEnumDeclaration(stmt)) && stmt.name) {
+        explicit.add(stmt.name.text);
+      }
+    }
+  }
+  return explicit;
+}
+
 function exportsFromSubject(root, filePosix, subjectPosix, ts, cache, depth = 0, visiting = new Set()) {
   if (filePosix === subjectPosix) {
-    return { all: true, names: new Set(), defaultExport: true, namespaces: new Map() };
+    return { all: true, excluded: new Set(), names: new Set(), defaultExport: true, namespaces: new Map() };
   }
   if (depth >= 4 || visiting.has(filePosix)) {
-    return { all: false, names: new Set(), defaultExport: false, namespaces: new Map() };
+    return { all: false, excluded: new Set(), names: new Set(), defaultExport: false, namespaces: new Map() };
   }
   const key = `${filePosix}\0${subjectPosix}`;
   if (depth === 0 && cache.exports.has(key)) return cache.exports.get(key);
@@ -119,12 +157,15 @@ function exportsFromSubject(root, filePosix, subjectPosix, ts, cache, depth = 0,
       tree = ts.createSourceFile(filePosix, readFileSync(abs, 'utf8'), ts.ScriptTarget.Latest, true);
       cache.asts.set(filePosix, tree);
     } catch {
-      return { all: false, names: new Set(), defaultExport: false, namespaces: new Map() };
+      return { all: false, excluded: new Set(), names: new Set(), defaultExport: false, namespaces: new Map() };
     }
   }
   const nextVisiting = new Set(visiting);
   nextVisiting.add(filePosix);
-  const info = { all: false, names: new Set(), defaultExport: false, namespaces: new Map() };
+  // Explicit exports in this barrel override `export *` re-exports of the same name.
+  const explicitInBarrel = collectExportedLocalNames(tree, ts);
+  const info = { all: false, excluded: new Set(), names: new Set(), defaultExport: false, namespaces: new Map() };
+  const starChildren = [];
   for (const statement of tree.statements) {
     if (!ts.isExportDeclaration(statement) || statement.isTypeOnly || !statement.moduleSpecifier || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
     const target = resolveModuleInRoot(root, filePosix, statement.moduleSpecifier.text, ts, cache);
@@ -133,32 +174,44 @@ function exportsFromSubject(root, filePosix, subjectPosix, ts, cache, depth = 0,
     if (!child.all && !child.defaultExport && !child.names.size && !child.namespaces.size) continue;
     const clause = statement.exportClause;
     if (!clause) {
-      // `export * from '...'` forwards named exports (not `default`).
-      if (child.all) info.all = true;
-      else {
-        for (const name of child.names) info.names.add(name);
-        for (const [ns, members] of child.namespaces) info.namespaces.set(ns, members);
-      }
+      starChildren.push(child);
     } else if (ts.isNamespaceExport(clause)) {
-      if (child.all) info.namespaces.set(clause.name.text, null);
+      if (child.all) info.namespaces.set(clause.name.text, child.excluded.size ? { all: true, excluded: new Set(child.excluded) } : null);
       else if (child.names.size) info.namespaces.set(clause.name.text, new Set(child.names));
     } else if (ts.isNamedExports(clause)) {
       for (const element of clause.elements) {
         if (element.isTypeOnly) continue;
         const orig = (element.propertyName ?? element.name).text;
         const exported = element.name.text;
-        if (orig === 'default') {
-          if (child.defaultExport) {
-            if (exported === 'default') info.defaultExport = true;
-            else info.names.add(exported);
-          }
-        } else if (child.namespaces.has(orig)) {
+        const childHas = orig === 'default'
+          ? child.defaultExport
+          : (child.names.has(orig) || (child.all && !child.excluded.has(orig)));
+        if (orig !== 'default' && child.namespaces.has(orig)) {
           info.namespaces.set(exported, child.namespaces.get(orig));
-        } else if (child.all || child.names.has(orig)) {
+        } else if (childHas) {
           if (exported === 'default') info.defaultExport = true;
           else info.names.add(exported);
         }
       }
+    }
+  }
+  // Apply `export *` only for names not explicitly overridden by another export in this barrel.
+  for (const child of starChildren) {
+    if (child.all) {
+      if (!info.all) {
+        info.all = true;
+        for (const name of child.excluded) info.excluded.add(name);
+      } else {
+        for (const name of [...info.excluded]) if (!child.excluded.has(name)) info.excluded.delete(name);
+      }
+    } else {
+      for (const name of child.names) if (!explicitInBarrel.has(name)) info.names.add(name);
+      for (const [ns, members] of child.namespaces) if (!explicitInBarrel.has(ns)) info.namespaces.set(ns, members);
+    }
+  }
+  if (info.all) {
+    for (const name of explicitInBarrel) {
+      if (!info.names.has(name) && !info.namespaces.has(name)) info.excluded.add(name);
     }
   }
   if (depth === 0) cache.exports.set(key, info);
@@ -182,7 +235,12 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
   const addNamespace = (name, members) => {
     if (!namespaces.has(name) || members === null) { namespaces.set(name, members); return; }
     const existing = namespaces.get(name);
-    if (existing !== null) for (const member of members) existing.add(member);
+    if (existing === null) return;
+    if (existing instanceof Set && members instanceof Set) {
+      for (const member of members) existing.add(member);
+    } else {
+      namespaces.set(name, members);
+    }
   };
   for (const statement of tree.statements) {
     if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier) || statement.importClause?.isTypeOnly) continue;
@@ -195,7 +253,7 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
     if (!info && specifier.startsWith('.')) {
       const target = posix.join(posix.dirname(testPosix), specifier).replace(extension, '');
       if (target === subjectStem || target + '/index' === subjectStem) {
-        info = { all: true, names: new Set(), defaultExport: true, namespaces: new Map() };
+        info = { all: true, excluded: new Set(), names: new Set(), defaultExport: true, namespaces: new Map() };
       }
     }
     if (!info) continue;
@@ -207,10 +265,10 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
         const orig = (element.propertyName ?? element.name).text;
         const local = element.name.text;
         if (info.namespaces.has(orig)) addNamespace(local, info.namespaces.get(orig));
-        else if (orig === 'default' ? info.defaultExport : (info.all || info.names.has(orig))) imported.add(local);
+        else if (orig === 'default' ? info.defaultExport : (info.names.has(orig) || (info.all && !info.excluded.has(orig)))) imported.add(local);
       }
     } else if (bindings && ts.isNamespaceImport(bindings)) {
-      if (info.all) addNamespace(bindings.name.text, null);
+      if (info.all) addNamespace(bindings.name.text, info.excluded.size ? { all: true, excluded: new Set(info.excluded) } : null);
       else if (info.names.size) addNamespace(bindings.name.text, new Set(info.names));
     }
   }
@@ -288,7 +346,10 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
       const ns = node.expression.expression.text;
       if (!namespaces.has(ns) || shadowed.has(ns)) return false;
       const allowed = namespaces.get(ns);
-      return allowed === null || allowed.has(node.expression.name.text);
+      const member = node.expression.name.text;
+      if (allowed === null) return true;
+      if (allowed instanceof Set) return allowed.has(member);
+      return allowed.all && !allowed.excluded.has(member);
     }
     return false;
   }
@@ -449,77 +510,102 @@ function ${name}(value) {
 
 const valuesOf = run => (run.collected ?? '').split('\n').filter(Boolean).map(line => JSON.parse(line));
 const matcherFor = formatted => (formatted.startsWith('[') || formatted.startsWith('{')) ? 'toStrictEqual' : 'toBe';
-const applyEdit = (input, [start, end], replacement) => Buffer.concat([input.subarray(0, start), Buffer.from(replacement), input.subarray(end)]);
 
-// Reuses one temporary project copy and one warm Vitest 4 instance (with `isolate: true` per run) across all
-// assertion-strength value recordings, falling back to `sourceTrialsAsync` if Vitest 4 cannot drive the project.
+// Reuses one temporary project copy and one warm Vitest 4 child process (`cwd: workspace`, `isolate: true` per run)
+// across all assertion-strength value recordings, terminating the child process group cleanly on timeout or exit.
 async function withWarmAssertionSession(root, subjectsByFile, options, action) {
   return withCopy(root, async workspace => {
-    let vitest;
-    try {
-      const req = createRequire(resolve(workspace, 'package.json'));
-      const version = req('vitest/package.json').version;
-      if (!version.startsWith('4.')) return null;
-      const { createVitest } = await import(pathToFileURL(req.resolve('vitest/node')).href);
-      const config = options.config === undefined ? undefined : inside(workspace, options.config);
-      vitest = await createVitest('test', {
-        root: workspace, config, watch: false, api: false, ui: false, cache: false,
-        pool: 'threads', isolate: true, maxConcurrency: 1, maxWorkers: 1, fileParallelism: false,
-        coverage: { enabled: false }, onConsoleLog: () => false,
-        reporters: [{ onInit() {} }],
-      });
-      for (const project of vitest.projects) {
-        if (project.config.browser?.enabled || project.config.typecheck?.enabled || project.config.runner) {
-          return null;
-        }
+    const configArg = options.config ?? '';
+    const child = spawn(process.execPath, [sessionWorker, workspace, configArg], {
+      cwd: workspace,
+      stdio: ['pipe', 'pipe', 'ignore'],
+      detached: process.platform !== 'win32',
+    });
+    const exited = new Promise(resolveExit => child.once('close', resolveExit));
+    const killGroup = () => {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      try {
+        if (process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL');
+        else child.kill('SIGKILL');
+      } catch { /* already exited */ }
+    };
+    const rl = createInterface({ input: child.stdout, crlfDelay: Infinity });
+    const pending = new Map();
+    let readyResolve;
+    const readyPromise = new Promise(resolveReady => { readyResolve = resolveReady; });
+    let broken = false;
+    rl.on('line', line => {
+      let msg;
+      try { msg = JSON.parse(line); } catch { return; }
+      if ('ready' in msg && readyResolve) {
+        const done = readyResolve;
+        readyResolve = null;
+        done(msg.ready === true);
+        return;
       }
-      const specCache = new Map();
-      const timeoutMs = (options.timeout ?? 60) * 1000;
-      let broken = false;
+      const waiter = pending.get(msg.id);
+      if (waiter) {
+        pending.delete(msg.id);
+        waiter(msg);
+      }
+    });
+    child.once('close', () => {
+      broken = true;
+      if (readyResolve) { const done = readyResolve; readyResolve = null; done(false); }
+      for (const waiter of pending.values()) waiter({ closed: true });
+      pending.clear();
+    });
+    const timeoutMs = (options.timeout ?? 60) * 1000;
+    try {
+      let bootTimer;
+      const ready = await Promise.race([
+        readyPromise,
+        new Promise(resolveTimeout => { bootTimer = setTimeout(() => resolveTimeout(false), Math.min(timeoutMs, 30_000)); }),
+      ]);
+      clearTimeout(bootTimer);
+      if (!ready) return null;
+      let nextId = 1;
       const runInSession = async ({ testFile, rewriteContent, collect, trial }) => {
         if (broken) return null;
-        const absTest = inside(workspace, testFile);
-        const origTest = readFileSync(absTest);
+        const id = nextId++;
         const subject = trial ? subjectsByFile.get(trial.site.location.file) : null;
-        const absSubject = subject ? inside(workspace, subject.file) : null;
-        const origSubject = absSubject ? readFileSync(absSubject) : null;
-        const absCollect = resolve(workspace, collect);
-        if (subject && createHash('sha256').update(origSubject).digest('hex') !== subject.digest) {
-          throw new Error(`Source changed during analysis: ${subject.file}`);
+        let timer;
+        const response = await new Promise(resolveWait => {
+          pending.set(id, resolveWait);
+          timer = setTimeout(() => {
+            pending.delete(id);
+            resolveWait({ timedOut: true });
+          }, timeoutMs);
+          child.stdin.write(JSON.stringify({
+            id, testFile, rewriteContent, collect,
+            ...(trial ? { trial: { edit: trial.edit, replacement: trial.replacement }, subjectFile: subject.file, subjectDigest: subject.digest } : {}),
+          }) + '\n');
+        });
+        clearTimeout(timer);
+        if (response.timedOut) {
+          broken = true;
+          killGroup();
+          await exited;
+          return { collected: '' };
         }
-        try {
-          if (!specCache.has(absTest)) {
-            const specs = await vitest.globTestSpecifications([absTest]);
-            if (!specs.length) return null;
-            specCache.set(absTest, specs);
-          }
-          writeFileSync(absTest, rewriteContent);
-          if (absSubject && trial) writeFileSync(absSubject, applyEdit(subject.input, trial.edit, trial.replacement));
-          vitest.vite?.moduleGraph?.invalidateAll();
-          for (const project of vitest.projects) project.vite?.moduleGraph?.invalidateAll();
-          let timer;
-          const timedOut = new Promise(resolveTimeout => { timer = setTimeout(() => resolveTimeout(true), timeoutMs); });
-          const hitTimeout = await Promise.race([
-            vitest.runTestSpecifications(specCache.get(absTest)).then(() => false),
-            timedOut,
-          ]);
-          clearTimeout(timer);
-          if (hitTimeout) {
-            broken = true;
-            return { collected: '' };
-          }
-          return { collected: existsSync(absCollect) ? readFileSync(absCollect, 'utf8') : '' };
-        } finally {
-          rmSync(absCollect, { force: true });
-          writeFileSync(absTest, origTest);
-          if (absSubject && origSubject) writeFileSync(absSubject, origSubject);
+        if (response.closed || response.unsupported || response.error) {
+          return null;
         }
+        return { collected: response.collected ?? '' };
       };
       return await action(runInSession);
-    } catch {
-      return null;
     } finally {
-      if (vitest) await Promise.race([vitest.close().catch(() => {}), new Promise(resolveClose => setTimeout(resolveClose, 5_000))]);
+      rl.close();
+      if (child.exitCode === null && child.signalCode === null) {
+        try { child.stdin.end(JSON.stringify({ close: true }) + '\n'); } catch { /* ignore */ }
+        let closeTimer;
+        await Promise.race([
+          exited,
+          new Promise(resolveWait => { closeTimer = setTimeout(() => { killGroup(); resolveWait(); }, 5_000); }),
+        ]);
+        clearTimeout(closeTimer);
+      }
+      await exited;
     }
   }, { exclude: options['copy-exclude'] });
 }
@@ -568,12 +654,12 @@ export async function strengthenAssertions(root, report, options, run = defaultR
           const key = randomUUID().replaceAll('-', '');
           const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
           const rewriteContent = recordingCall(text, call, key);
-          const outcome = sessionRun
-            ? (await sessionRun({ testFile, rewriteContent, collect })) ?? await attempt({ witness: { rewrite: { file: testFile, content: rewriteContent } }, collect })
-            : await attempt({ witness: { rewrite: { file: testFile, content: rewriteContent } }, collect });
+          const sessionOutcome = sessionRun ? await sessionRun({ testFile, rewriteContent, collect }) : null;
+          const outcome = sessionOutcome ?? await attempt({ witness: { rewrite: { file: testFile, content: rewriteContent } }, collect });
           return valuesOf(outcome);
         })();
         originalPromises.set(id, originalPromise);
+        originalPromise.catch(() => { if (originalPromises.get(id) === originalPromise) originalPromises.delete(id); });
       }
       const original = await originalPromise;
       if (!original?.length || original.includes(null)) continue;
@@ -582,9 +668,8 @@ export async function strengthenAssertions(root, report, options, run = defaultR
       const key = randomUUID().replaceAll('-', '');
       const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
       const rewriteContent = recordingCall(text, call, key);
-      const outcome = sessionRun
-        ? (await sessionRun({ testFile, rewriteContent, collect, trial })) ?? await attempt({ witness: { rewrite: { file: testFile, content: rewriteContent } }, collect, trial })
-        : await attempt({ witness: { rewrite: { file: testFile, content: rewriteContent } }, collect, trial });
+      const sessionOutcome = sessionRun ? await sessionRun({ testFile, rewriteContent, collect, trial }) : null;
+      const outcome = sessionOutcome ?? await attempt({ witness: { rewrite: { file: testFile, content: rewriteContent } }, collect, trial });
       const edited = valuesOf(outcome);
       // The first time the call gives another comparable value with the edit. Where the edit keeps a test from making
       // the call, or returns an unformattable value, nothing is suggested.

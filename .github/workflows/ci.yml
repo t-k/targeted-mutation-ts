@@ -87,7 +87,9 @@ jobs:
       - run: npm ci
 
       - name: Install Vitest ${{ matrix.vitest }}
-        run: npm install --no-save "vitest@^${{ matrix.vitest }}.0"
+        run: |
+          npm install --no-save "vitest@~${{ matrix.vitest }}.0"
+          node -e 'const v = require("vitest/package.json").version; if (!v.startsWith("${{ matrix.vitest }}.")) throw new Error(`Expected Vitest ${{ matrix.vitest }}.x, got ${v}`); console.log("Verified Vitest", v);'
 
       - name: Build native and syntax artifacts
         run: npm run build:native && npm run build:typescript-syntax && npm run build:lean
