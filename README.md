@@ -32,19 +32,20 @@ Requirements:
 
 - Node.js 22.18 or later in the 22 line, or 24.11 or later.
 - [Vitest](https://vitest.dev/) or [Playwright](https://playwright.dev/) installed in the project or its workspace. Releases are tested with Vitest 4.0 and Playwright 1.65.
-- macOS (arm64, x64) or Linux with glibc (arm64, x64). npm installs the matching prebuilt binary package automatically. `analyze` needs it and stops with a message on other platforms, including Windows and Alpine Linux; `extract` still works there through the TypeScript parser.
+- Any platform supported by Node.js, including macOS, Linux (glibc and musl/Alpine), and Windows. On macOS (arm64, x64) and Linux with glibc (arm64, x64), npm installs the matching prebuilt binary package automatically as an accelerator for extraction and Lean-checked replay. On other platforms, `analyze` and `extract` fall back automatically to the bundled TypeScript parser and JavaScript threshold evaluator.
 
 The tool copies the project to a temporary directory and runs the project's own test code and configuration there. Run it only on code you trust, as you would run the test suite.
 
 ## Use
 
 ```sh
-npx targeted-mutation analyze                      # every source file in the current project
+npx targeted-mutation analyze                      # every source file in the current project (default: targeted)
 npx targeted-mutation analyze . src/cart.ts        # selected files
 npx targeted-mutation analyze --lines src/cart.ts:10-40
-npx targeted-mutation analyze --since origin/main  # comparisons on lines changed since a revision
+npx targeted-mutation analyze --since origin/main  # edits on lines changed since a revision
 npx targeted-mutation analyze --since origin/main --undo-changes  # also: which changes do the tests pass without?
-npx targeted-mutation analyze --mutators targeted --suggest-assertions  # more kinds of edits, and the value a weak assertion should compare with
+npx targeted-mutation analyze --suggest-assertions # also: the exact value a weak assertion should compare with
+npx targeted-mutation analyze --mutators full      # full built-in StrykerJS mutation set
 ```
 
 `tmts` is a short alias for the same command. `targeted-mutation --help` lists every option.
@@ -69,18 +70,15 @@ On a terminal the report is text. When the output is piped or redirected it is J
 
 | Option | What it edits |
 |--------|---------------|
-| (default) `--mutators focused` | `<`, `<=`, `>`, `>=` boundaries and integer thresholds, with the missing input for each survivor. |
-| `--mutators targeted` | `focused`, plus edits that the values in your tests can tell apart: an equality that every test leaves true or false, an operand of `&&`, `\|\|` or `??` whose value never decides, `??` written as `\|\|`, `== null` written as `=== null`, another arithmetic operator, `Math.min` for `Math.max`, another rounding, the other end of a list, a numeric sort without its comparison, a call that is no longer awaited, and a copy that is the original. A survivor is reported with the input that is missing, or with the tests that had the input and asserted nothing. Needs no extra package. |
-| `--mutators operators` | `focused`, plus equality (`===` and `!==`, `==` and `!=`), logical (`&&`, `\|\|`, `??`) and arithmetic (`+`, `-`, `*`, `/`, `%`) operator swaps. Needs no extra package. With Vitest 4 all swaps run in one session and each runs only the tests that reach it; with Playwright each swap is a source rewrite and one run of the suite. |
+| (default) `--mutators targeted` | `<`, `<=`, `>`, `>=` boundaries and integer thresholds across constant-RHS comparisons, plus eleven value-aware rules: an equality that every test leaves true or false, an operand of `&&`, `\|\|` or `??` whose value never decides, `??` written as `\|\|`, `== null` written as `=== null`, another arithmetic operator, `Math.min` for `Math.max`, another rounding, the other end of a list, a numeric sort without its comparison, a call that is no longer awaited, and a copy that is the original. Each survivor is reported with the missing input, or with the tests that had the input and asserted nothing. Needs no extra package. |
+| `--mutators full` | Comparison boundaries and integer thresholds, plus the complete built-in mutation set: every StrykerJS mutator (arithmetic, equality, logical, conditional, boolean, string, array, object, block, arrow function, assignment, unary, update, method, optional chaining, regular expression and call removal). Needs no extra package. Runs in one switched session on Vitest 4, or one source rewrite per mutation with Playwright. |
 | `--witnesses` | Value substitutions such as a neighbouring field, the first or last index, or a sort key, each confirmed by a test that tells them apart. Reports `No edit sites` when a file has no such pattern. |
-| `--mutators full` | `focused`, plus the complete built-in mutation set: every StrykerJS mutator (arithmetic, equality, logical, conditional, boolean, string, array, object, block, arrow function, assignment, unary, update, method, optional chaining, regular expression and call removal). Needs no extra package. Runs like `operators`: one switched session on Vitest 4, one source rewrite per mutation with Playwright. |
-| `--mutators standard`, `all` | The same mutators generated by the StrykerJS instrumenter itself (Vitest only), for comparing with a StrykerJS run. Install `@stryker-mutator/instrumenter@10.1.1` in the project first. |
 
-`// Stryker disable` and `// Stryker restore` comments exclude mutations in the default, `full`, `standard` and `all` profiles, with the reason you give after the colon.
+`// Stryker disable` and `// Stryker restore` comments exclude mutations in both the `targeted` and `full` profiles, with the reason you give after the colon.
 
 On Vitest 4 the mutations are decided inside running Vitest workers, several at a time, with a control run after each one. `--concurrency N` sets the number of workers, `--verify-trials N` re-runs a sample of those decisions in fresh Vitest runs, and `--isolated-trials` starts a fresh Vitest run for every mutation instead; see [How mutations run on Vitest](docs/analysis.md#how-mutations-run-on-vitest).
 
-`--deterministic` declares that the suite runs from the same state every time. Recorded comparison values then decide many trials without re-running the tests, and each such decision is checked by an executable extracted from a Lean proof. `--audit` re-runs those trials against the rewritten source and reports any disagreement.
+`--deterministic` declares that the suite runs from the same state every time. Recorded comparison values then decide eligible comparison trials without re-running the tests, and each such decision is checked by `tmt-decide`, an executable extracted from a Lean 4 proof (with JavaScript instrumentation, observation collection, and test identity in the trusted runtime boundary). `--audit` re-runs those trials against the rewritten source and reports any disagreement.
 
 The [analysis guide](docs/analysis.md) covers scope selection, specifications, Playwright projects and the witness profile in detail.
 
