@@ -156,4 +156,18 @@ test('sub-hunk decomposition avoids deleting replaced items, preserves token bou
   const newCom = Buffer.from('export const o = () => ({ a: 1, b: 2 /* , */, c: 3 /* , keep */ });\n');
   const comSubs = planUndo('f.ts', oldCom, newCom, patchOf(oldCom, newCom)).filter(t => t.subhunk);
   assert.equal(comSubs.length, 2);
+
+  // Unicode identifier after `return` keeps a separator space (`return α&&c`, never `returnα&&c`).
+  const oldUni = Buffer.from('export function u(a: boolean, α: boolean, c: boolean) { return α; }\n');
+  const newUni = Buffer.from('export function u(a: boolean, α: boolean, c: boolean) { return(a)&&α&&c; }\n');
+  const uniSubs = planUndo('f.ts', oldUni, newUni, patchOf(oldUni, newUni)).filter(t => t.subhunk);
+  assert.equal(uniSubs.length, 2);
+  assert.ok(uniSubs.some(s => apply(newUni, s) === 'export function u(a: boolean, α: boolean, c: boolean) { return α&&c; }\n'));
+
+  // Multiple logical expressions on the same hunk line match by enclosing declaration and never delete pre-existing `c`.
+  const oldMulti = Buffer.from('export const f = (a: boolean, b: boolean) => a && b; export const g = (a: boolean, b: boolean, c: boolean) => c;\n');
+  const newMulti = Buffer.from('export const f = (a: boolean, b: boolean) => a && b; export const g = (a: boolean, b: boolean, c: boolean) => a && b && c;\n');
+  const multiSubs = planUndo('f.ts', oldMulti, newMulti, patchOf(oldMulti, newMulti)).filter(t => t.subhunk);
+  assert.equal(multiSubs.length, 2);
+  assert.ok(multiSubs.every(s => apply(newMulti, s).includes('&& c')));
 });

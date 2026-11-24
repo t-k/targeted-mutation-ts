@@ -126,19 +126,38 @@ function flattenLogical(ts, node, kind, out = []) {
   return out;
 }
 
+function enclosingKey(ts, node) {
+  const parts = [];
+  for (let cur = node.parent; cur; cur = cur.parent) {
+    if ((ts.isFunctionDeclaration(cur) || ts.isMethodDeclaration(cur) || ts.isClassDeclaration(cur)) && cur.name && ts.isIdentifier(cur.name)) {
+      parts.push(cur.name.text);
+    } else if (ts.isVariableDeclaration(cur) && ts.isIdentifier(cur.name)) {
+      parts.push(cur.name.text);
+    } else if (ts.isPropertyAssignment(cur) && ts.isIdentifier(cur.name)) {
+      parts.push(cur.name.text);
+    }
+  }
+  return parts.join('.');
+}
+
 function oldStructuresInSpan(ts, oldTree, oldText, oldBytes, span) {
-  const logicalExpressions = [];
-  const objectLiterals = [];
+  const logicalExpressions = new Map();
+  const objectLiterals = new Map();
   if (!oldTree || !span || span[0] === span[1]) return { logicalExpressions, objectLiterals };
   const [from, to] = span;
   const overlaps = node => oldBytes[node.getStart(oldTree)] < to && oldBytes[node.end] > from;
+  const pushTo = (map, key, value) => {
+    let list = map.get(key);
+    if (!list) map.set(key, list = []);
+    list.push(value);
+  };
   (function visit(node) {
     if (!overlaps(node)) return;
     if (ts.isBinaryExpression(node) && (node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken ||
         node.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
       const opKind = node.operatorToken.kind;
       if (!ts.isBinaryExpression(node.parent) || node.parent.operatorToken.kind !== opKind) {
-        logicalExpressions.push({ opKind, terms: flattenLogical(ts, node, opKind).map(t => nodeSignature(ts, oldTree, oldText, t)) });
+        pushTo(logicalExpressions, enclosingKey(ts, node), { opKind, terms: flattenLogical(ts, node, opKind).map(t => nodeSignature(ts, oldTree, oldText, t)) });
       }
     } else if (ts.isObjectLiteralExpression(node) && !isObjectAssignmentTarget(ts, node)) {
       const keys = new Set();
@@ -148,7 +167,7 @@ function oldStructuresInSpan(ts, oldTree, oldText, oldBytes, span) {
           if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) keys.add(name.text);
         }
       }
-      objectLiterals.push(keys);
+      pushTo(objectLiterals, enclosingKey(ts, node), keys);
     } else {
       const parent = node.parent;
       const isValueExpr = parent && (
@@ -159,8 +178,8 @@ function oldStructuresInSpan(ts, oldTree, oldText, oldBytes, span) {
         (ts.isVariableDeclaration(parent) && parent.initializer === node) ||
         (ts.isPropertyAssignment(parent) && parent.initializer === node)
       );
-      if (isValueExpr && ts.isExpression(node)) {
-        logicalExpressions.push({ opKind: null, terms: [nodeSignature(ts, oldTree, oldText, node)] });
+      if (isValueExpr && ts.isExpression(node) && !ts.isFunctionLike(node) && !ts.isObjectLiteralExpression(node)) {
+        pushTo(logicalExpressions, enclosingKey(ts, node), { opKind: null, terms: [nodeSignature(ts, oldTree, oldText, node)] });
       }
     }
     ts.forEachChild(node, visit);
@@ -189,7 +208,7 @@ function commaTokensOfObject(ts, tree, objNode) {
 
 function needsSeparatorSpace(beforeChar, afterChar) {
   if (!beforeChar || !afterChar) return false;
-  if (/[A-Za-z0-9_$]/.test(beforeChar) && /[A-Za-z0-9_$]/.test(afterChar)) return true;
+  if (/[\p{ID_Continue}$]/u.test(beforeChar) && /[\p{ID_Continue}$\\]/u.test(afterChar)) return true;
   if ((beforeChar === '+' && afterChar === '+') || (beforeChar === '-' && afterChar === '-')) return true;
   if (beforeChar === '/' && (afterChar === '/' || afterChar === '*')) return true;
   return false;
@@ -227,20 +246,16 @@ function subhunkEdits(ts, file, current, text, tree, curBytes, oldTree, oldText,
         const terms = flattenLogical(ts, node, opKind);
         if (terms.length >= 2) {
           const termSigs = terms.map(t => nodeSignature(ts, tree, text, t));
+          const scopedOld = oldLogicals.get(enclosingKey(ts, node)) ?? [];
           let addedIndices = null;
           if (!hasOld) {
             addedIndices = terms.map((_, idx) => idx);
-          } else {
-            // Find the largest old expression in the hunk whose terms form a strict multiset subset of `termSigs`.
-            let bestOld = null;
-            for (const oldExpr of oldLogicals) {
-              if (oldExpr.opKind !== null && oldExpr.opKind !== opKind) continue;
+          } else if (scopedOld.length === 1) {
+            const oldExpr = scopedOld[0];
+            if (oldExpr.opKind === null || oldExpr.opKind === opKind) {
               const diff = multisetAddedIndices(oldExpr.terms, termSigs);
-              if (diff && diff.length > 0 && (!bestOld || oldExpr.terms.length > bestOld.count)) {
-                bestOld = { count: oldExpr.terms.length, added: diff };
-              }
+              if (diff && diff.length > 0) addedIndices = diff;
             }
-            if (bestOld) addedIndices = bestOld.added;
           }
           if (addedIndices) {
             for (const i of addedIndices) {
@@ -254,10 +269,11 @@ function subhunkEdits(ts, file, current, text, tree, curBytes, oldTree, oldText,
         }
       }
     } else if (ts.isObjectLiteralExpression(node) && !isObjectAssignmentTarget(ts, node)) {
-      // Only decompose added properties when we can match against at most one old object literal in the hunk
+      const scopedOldObjs = oldObjects.get(enclosingKey(ts, node)) ?? [];
+      // Only decompose added properties when we can match against at most one old object literal in the same scope
       // (avoiding cross-object shadowing) or when the hunk is a pure addition.
-      if (!hasOld || oldObjects.length === 1) {
-        const oldKeys = hasOld ? oldObjects[0] : new Set();
+      if (!hasOld || scopedOldObjs.length === 1) {
+        const oldKeys = hasOld ? scopedOldObjs[0] : new Set();
         const props = node.properties;
         const commas = commaTokensOfObject(ts, tree, node);
         for (let i = 0; i < props.length; i++) {

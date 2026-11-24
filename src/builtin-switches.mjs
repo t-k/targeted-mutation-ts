@@ -36,7 +36,11 @@ function ${see}(i, l, r, r2) {
   var utilTypes = ${table}.u !== void 0 ? ${table}.u : (${table}.u = typeof scope.process === 'object' && scope.process && typeof scope.process.getBuiltinModule === 'function' ? scope.process.getBuiltinModule('node:util').types : null);
   var isProxy = utilTypes ? utilTypes.isProxy : null;
   var isTypedArray = utilTypes ? utilTypes.isTypedArray : null;
-  var strMethods = ${table}.s || (${table}.s = { indexOf: scope.String.prototype.indexOf, lastIndexOf: scope.String.prototype.lastIndexOf, includes: scope.String.prototype.includes, replace: scope.String.prototype.replace, replaceAll: scope.String.prototype.replaceAll });
+  function safeStrMethod(name) {
+    var d = scope.Object.getOwnPropertyDescriptor(scope.String.prototype, name);
+    return d && 'value' in d && typeof d.value === 'function' ? d.value : null;
+  }
+  var strMethods = ${table}.s || (${table}.s = { indexOf: safeStrMethod('indexOf'), lastIndexOf: safeStrMethod('lastIndexOf'), includes: safeStrMethod('includes'), replace: safeStrMethod('replace'), replaceAll: safeStrMethod('replaceAll') });
   var logical = kind === 'l', missing = l === null || l === void 0, k, form;
   var taken = op === '&&' ? !!l : op === '||' ? !l : missing;
   var constant = op === '&&' ? true : op === '||' ? false : void 0;
@@ -61,9 +65,9 @@ function ${see}(i, l, r, r2) {
     var a1 = r();
     if (site[7] === 3) {
       var a2 = r2();
-      return fn.call(l, a1, a2);
+      return scope.Reflect.apply(fn, l, [a1, a2]);
     }
-    return fn.call(l, a1);
+    return scope.Reflect.apply(fn, l, [a1]);
   }
   function buildSpread(skipIndex) {
     var keys = site[8], out = { ...l }, m;
@@ -111,12 +115,14 @@ function ${see}(i, l, r, r2) {
       return true;
     }
     if (op === 'startsWith' || op === 'endsWith') {
-      if (typeof l !== 'string' || !plain(arg1) || l[f] !== strMethods[f]) return null;
-      try { return is(value, apply(f, l, arg1)); } catch (error) { return false; }
+      var incFn = safeStrMethod(f);
+      if (typeof l !== 'string' || !plain(arg1) || !incFn || incFn !== strMethods[f]) return null;
+      try { return is(value, scope.Reflect.apply(incFn, l, [arg1])); } catch (error) { return false; }
     }
     if (op === 'replace' || op === 'replaceAll') {
-      if (typeof l !== 'string' || !plain(arg1) || !plain(arg2) || l[f] !== strMethods[f]) return null;
-      try { return is(value, apply(f, l, arg1, arg2)); } catch (error) { return false; }
+      var repFn = safeStrMethod(f);
+      if (typeof l !== 'string' || !plain(arg1) || !plain(arg2) || !repFn || repFn !== strMethods[f]) return null;
+      try { return is(value, scope.Reflect.apply(repFn, l, [arg1, arg2])); } catch (error) { return false; }
     }
     if (kind === 'a' ? !plain(l) || !plain(r) : kind === 'm' ? typeof l !== 'number' || (site[7] === 2 && typeof r !== 'number')
       : (!sequence && typeof l !== 'string') || ((op === 'indexOf' || op === 'lastIndexOf') && typeof l === 'string' && (!plain(r) || l[f] !== strMethods[f]))) return null;
@@ -164,9 +170,9 @@ function ${see}(i, l, r, r2) {
       arg1 = r();
       if (site[7] === 3) {
         arg2 = r2();
-        value = origFn.call(l, arg1, arg2);
+        value = scope.Reflect.apply(origFn, l, [arg1, arg2]);
       } else {
-        value = origFn.call(l, arg1);
+        value = scope.Reflect.apply(origFn, l, [arg1]);
       }
     } else {
       value = original();

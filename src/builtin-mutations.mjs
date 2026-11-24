@@ -409,8 +409,13 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
         if (key === '__proto__' || seenKeys.has(key)) return;
         const valueNode = ts.isShorthandPropertyAssignment(prop) ? prop.name : prop.initializer;
         if (staysInPlace(valueNode)) return;
-        // Anonymous functions and classes receive inferred `.name` from their property key in an object literal.
-        const innerVal = strip(valueNode);
+        // Anonymous functions and classes receive inferred `.name` from their property key in an object literal,
+        // including through erased TypeScript wrappers (`as`, `satisfies`, `<T>x`, `!`).
+        let innerVal = valueNode;
+        while (innerVal && (ts.isParenthesizedExpression(innerVal) || ts.isAsExpression(innerVal) ||
+            ts.isSatisfiesExpression(innerVal) || ts.isTypeAssertionExpression(innerVal) || ts.isNonNullExpression(innerVal))) {
+          innerVal = innerVal.expression;
+        }
         if (ts.isArrowFunction(innerVal) || (ts.isFunctionExpression(innerVal) && !innerVal.name) ||
             (ts.isClassExpression(innerVal) && !innerVal.name)) return;
         seenKeys.add(key);

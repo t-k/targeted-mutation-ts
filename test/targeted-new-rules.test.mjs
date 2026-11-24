@@ -159,8 +159,9 @@ test('spread-property-drop skips unsafe shapes, handles -0/+0 and Proxy safely, 
     'const f = (b) => ({ ...b, handler: () => 1, ok: true });',
     'const f = (b) => ({ ...b, handler: function () { return 1; }, ok: true });',
     'const f = (b) => ({ ...b, Cls: class {}, ok: true });',
+    'const f = (b: any) => ({ ...b, handler: ((() => 1) as () => number), ok: true });',
   ]) {
-    assert.equal(render(namedInit).mutants.filter(x => x.mutatorName === targetedRules.spreadDrop).length, 0, namedInit);
+    assert.equal(render(namedInit, 'p.ts').mutants.filter(x => x.mutatorName === targetedRules.spreadDrop).length, 0, namedInit);
   }
   // Impure same-value initializer records unsure, while written literal same-value records agree.
   const impure = 'let n = 0; const f = (b) => ({ ...b, x: (++n, 1) });';
@@ -202,6 +203,24 @@ function f() { return makeObj().startsWith(arg()); }
   assert.deepEqual(runLog(output), [true, ['get', 'arg', 'call:x']]);
   assert.deepEqual(runLog(output, { activeMutant: m.id }), runLog(edited(src, m)));
   assert.deepEqual(runLog(output, { activeMutant: m.id }), [false, ['getInc', 'arg', 'callInc:x']]);
+
+  // Custom `.call` on a method or non-callable `{ call }` object, and getter on `String.prototype.includes`.
+  const customCallSrc = 'function f(o, p) { return o.startsWith(p); }';
+  const renderedCustom = render(customCallSrc);
+  const ctxCustom = vm.createContext({ __stryker__: {}, [session]: { phase: 'baseline' } });
+  const customRes = vm.runInContext(renderedCustom.output + `
+    var fn = function() { return 42; };
+    fn.call = null;
+    var r1 = f({ startsWith: fn }, 'a');
+    var r2;
+    try { f({ startsWith: { call: function() { return 99; } } }, 'a'); r2 = 'ok'; } catch (e) { r2 = e.name; }
+    var getterHits = 0;
+    Object.defineProperty(String.prototype, 'includes', { configurable: true, get: function() { getterHits++; return function() { return false; }; } });
+    __stryker__.currentTestId = 't0';
+    var r3 = f('abc', 'a');
+    [r1, r2, r3, getterHits];
+  `, ctxCustom);
+  assert.deepEqual([...customRes], [42, 'TypeError', true, 0]);
 });
 
 test('prefix-to-substring and replace-multiplicity skip RegExp literals and unsupported call shapes', () => {
