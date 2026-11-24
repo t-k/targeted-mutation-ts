@@ -22,6 +22,37 @@ INPUT GAP src/cart.ts:15:45
 
 A conventional mutation run replaces `>=` with `>` or `<`. It does not try `age >= 17`, the nearest implementation that the inputs 10 and 20 leave open. The [shipping threshold experiment](docs/development.md#shipping-threshold-experiment) compares both approaches on the same suite.
 
+## How it works (and how it differs from conventional mutation testing)
+
+Conventional mutation tools (such as StrykerJS) generate edits purely from syntax (`>=` to `>`, `+` to `-`, `{ ... }` to `{}`), run the suite, and report a list of surviving mutants. They do not know *what values* your tests passed, *why* a mutant survived (missing test input vs. weak assertion), or *what test* would kill it.
+
+`targeted-mutation` records the actual runtime values flowing through your code during the baseline run, synthesizes the smallest undistinguished edits from those observations, and classifies every survivor into an actionable test gap.
+
+```mermaid
+flowchart TD
+  src["Source + Test Suite"] --> base["Baseline Run with Value Probes"]
+  base --> cmp["Comparison Sites: (lhs, rhs) pairs"]
+  base --> val["20 Value-Aware Rules: per-test agreement"]
+  cmp --> lean["Lean 4 (tmt-decide): feasible threshold & margin intervals"]
+  lean --> synth["Synthesize nearest open edit (threshold +/- 1, rhs +/- 1)"]
+  synth --> session["Vitest Worker Session (runtime switches + per-trial control check)"]
+  val --> session
+  session -->|"Test fails"| killed["killed"]
+  session -->|"All tests pass (agreed everywhere)"| inputGap["INPUT GAP: exact missing input / witness"]
+  session -->|"All tests pass (differed in test T)"| assertGap["ASSERTION GAP: names weak test T"]
+  assertGap -->|"--suggest-assertions"| narrow["Suggest exact assertion (e.g. expect(res.fee).toBe(600))"]
+  src -.->|"--since REV --undo-changes"| undo["Revert Git hunks & AST sub-hunks -> UNTESTED CHANGE"]
+```
+
+| Capability | Conventional mutation testing | `targeted-mutation` |
+|------------|-------------------------------|---------------------|
+| Mutant generation | Fixed syntactic templates only | Observation-guided synthesis (nearest open integer threshold and variable-RHS margin via Lean 4) + 20 value-aware semantic rules (spread property drop, `startsWith`/`endsWith` to `includes`, `replace`/`replaceAll`, clamp bounds, literal-set pruning, `??`/`\|\|`, `finally` cleanup drop, etc.) |
+| Survivor diagnosis | `survived` (developer must investigate manually) | Separates **`INPUT GAP`** (no test passed a distinguishing input, naming the exact missing input) from **`ASSERTION GAP`** (names the exact test that had the input and asserted nothing) |
+| Assertion guidance | None | `--suggest-assertions` wraps weak calls in a warm Vitest session and prints the exact assertion, narrowing multi-key objects to the single changed sibling field (`expect(res.fee).toBe(600)`) |
+| Diff-based testing | Mutate changed lines only | `--since REV --undo-changes` also reverts each changed Git hunk and independent AST sub-hunk (added `&&`/`\|\|` terms, added object properties) to find `UNTESTED CHANGE` |
+| Deterministic replay | Re-executes every mutant | `--deterministic` skips eligible comparison trials whose recorded safe-integer operands prove identical outcomes, verified by `tmt-decide` (extracted from Lean 4 proofs) |
+| Worker isolation | Shared worker or full restart per mutant | In-worker Vitest 4 runtime switches with an immediate post-trial control run; automatically falls back to a fresh run if worker state leaks |
+
 ## Install
 
 ```sh
