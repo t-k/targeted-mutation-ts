@@ -778,3 +778,31 @@ test('interfaces of one name merge, optional tuple operands may be composite, an
     assert.notEqual(compile(Buffer.from(source), { file: 'merge.ts' }).backend, 'pulse', source);
   }
 });
+
+test('abstract classes inside functions and type declarations in module-level blocks are erased', () => {
+  for (const source of [
+    'test("i", async () => { abstract class A { } });\nexport {};',
+    'export function f() { abstract class A { abstract m(): void; n() {} } return A; }',
+    'export function f() { abstract\nclass A { } return A; }',
+    'export function f() { const abstract = 1; abstract; class A {} return abstract; }',
+    'if (x) { type T = 1; interface I { } g(); }\nexport {};',
+    'for (const a of b) { type T = 1; g(a as T); }\nexport {};',
+    'try { interface I { a: 1 } g(); } catch { type E = 1; }\nexport {};',
+    'switch (x) { case 1: type T = 1; break; }\nexport {};',
+    '{ type T = 1; }\nexport {};',
+    'type T = 1;\n{ type T = 2; const a: T = 2; g(a); }\nexport {};',
+    '{ type\nT = 1; }\nexport {};',
+    '{ interface I { a: 1 } interface I { b: 2 } const I = 1; g(I); }\nexport {};',
+    'while (x) { type T = 1; const type = 2; g(type); }\nexport {};',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'block.ts').backend, 'pulse', source);
+  }
+  for (const source of [
+    'export function f() { abstract class A {} abstract class A {} }',
+    'export function f() { if (x) abstract class A {} }',
+    '{ type T = 1; type T = 2; }\nexport {};',
+    'if (x) type T = 1;\nexport {};',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'block.ts' }).backend, 'pulse', source);
+  }
+});

@@ -3706,6 +3706,9 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
   let! first = (fun () -> peek input st.offset) in
   let! class_ = (fun () -> if not root_control && st.module_mode && first = 99uy then class_keyword input st.offset
     else ret input false) in
+  // An abstract class inside a function: the modifier is erased as it is at module level.
+  let! abstract_ = (fun () -> if not root_control && st.module_mode && first = 97uy && input.capture_types then
+    abstract_class_start input st.offset else ret input { at = st.offset; ok = false; newline = false }) in
   let! resource = (fun () -> if not root_control && allow_resource && (first = 117uy || first = 97uy && st.await_allowed) then
     resource_declaration_start input st first else ret input (failed st 1ul)) in
   // Every const declaration passes here, so one byte decides before the keyword is read: `const enum` with a
@@ -3732,6 +3735,7 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       let! after = (fun () -> local_function_group input start st.offset (minus fuel 1ul) (st.offset <> function_head.at)
         head.generator name_span 64ul) in
       ret input ({ decl with state = after })
+  else if abstract_.ok then local_abstract_class input st abstract_.at floor used fuel
   else if class_ then
     if fuel = 0ul then ret input ({ state = failed st 3ul; used })
     else
@@ -3743,7 +3747,7 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       (let! anf_value_2 = (fun () -> class_tail input start (minus fuel 1ul) OrdinaryClass) in ret input ({ decl with state = anf_value_2 }))
   else
     let! type_width =
-      (fun () -> if input.capture_types && not root_control && in_function && strict_locals st &&
+      (fun () -> if input.capture_types && not root_control && strict_locals st &&
         (first = 116uy || first = 105uy) then type_declaration_width input st.offset
       else ret input 0ul) in
     if type_width = 4ul || type_width = 9ul then
@@ -3751,6 +3755,18 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       let! recorded = (fun () -> record_jsx_span input declared.state 19ul st.offset declared.state.offset) in
       ret input { declared with state = recorded }
     else control_statement input st fuel in_function jumps floor used root_control
+
+and local_abstract_class (input:tape) (st:parser_state) (class_at:U32.t) (floor used:names_used) (fuel:U32.t)
+  : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 47; 0]) =
+  if fuel = 0ul then ret input ({ state = failed st 3ul; used })
+  else
+    let! erased = (fun () -> record_jsx_span input st 15ul st.offset (plus st.offset 8ul)) in
+    let declared = record_binding_mode erased LexicalLocals in
+    let! named = (fun () -> skip input { declared with offset = plus class_at 5ul }) in
+    let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
+    let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
+    let start = { tracked with local_names = decl.used } in
+    (let! closed = (fun () -> class_tail input start (minus fuel 1ul) AbstractClass) in ret input ({ decl with state = closed }))
 
 and local_function_group (input:tape) (start:parser_state) (declaration_start fuel:U32.t) (async_ generator:bool) (expected:G.span) (remaining:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 54; U32.v remaining]) =

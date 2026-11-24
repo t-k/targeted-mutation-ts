@@ -985,6 +985,12 @@ TmtPulseParser_cursor TmtPulseParser_function_start(TmtPulseMemory_tape input, u
 
 bool TmtPulseParser_class_keyword(TmtPulseMemory_tape input, uint32_t offset);
 
+TmtPulseParser_cursor
+TmtPulseParser_abstract_modifier(TmtPulseMemory_tape input, uint32_t offset);
+
+TmtPulseParser_cursor
+TmtPulseParser_abstract_class_start(TmtPulseMemory_tape input, uint32_t offset);
+
 TmtPulseParser_parser_state
 TmtPulseParser_resource_declaration_start(
   TmtPulseMemory_tape input,
@@ -1525,9 +1531,6 @@ TmtPulseParser_pending_overload;
 extern TmtPulseParser_pending_overload TmtPulseParser_no_overload;
 
 TmtPulseParser_cursor
-TmtPulseParser_abstract_modifier(TmtPulseMemory_tape input, uint32_t offset);
-
-TmtPulseParser_cursor
 TmtPulseParser_abstract_member_modifier(
   TmtPulseMemory_tape input,
   uint32_t start,
@@ -1997,6 +2000,16 @@ TmtPulseParser_class_tail(
   TmtPulseParser_class_kind kind
 );
 
+TmtPulseParser_named_state
+TmtPulseParser_local_abstract_class(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t class_at,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t fuel
+);
+
 TmtPulseParser_parser_state
 TmtPulseParser_function_var_list(
   TmtPulseMemory_tape input0,
@@ -2254,9 +2267,6 @@ TmtPulseParser_decorators(
   uint32_t fuel0,
   uint32_t remaining0
 );
-
-TmtPulseParser_cursor
-TmtPulseParser_abstract_class_start(TmtPulseMemory_tape input, uint32_t offset);
 
 TmtPulseParser_parser_state
 TmtPulseParser_decorated_class_start(
