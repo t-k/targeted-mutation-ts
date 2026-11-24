@@ -4675,6 +4675,19 @@ let import_bindings (input:tape) (state:parser_state) (used:names_used) (allow_t
 
 // import x = require("m") and import A = B.C. TypeScript writes const x = require("m") and var A = B.C;
 // the emitter replaces the keyword, recorded as kind 40 or 41. The name is a value of the module.
+// The entity name of an alias: names joined by dots, none of them a reserved word.
+let rec alias_path (input:tape) (state:parser_state) (fuel:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v fuel) =
+  let! after = (fun () -> trivia input state.offset) in
+  let! dot = (fun () -> if after.ok then same input after.at 46uy else ret input false) in
+  if not dot then ret input state
+  else if after.newline || fuel = 0ul then ret input (failed state 1ul)
+  else
+    let! property = (fun () -> skip input { state with offset = next after.at }) in
+    let! segment = (fun () -> name input property.offset false false) in
+    if property.status <> 0ul || not segment.ok then ret input (failed property 1ul)
+    else alias_path input { property with offset = segment.at } (minus fuel 1ul)
+
 let import_equals (input:tape) (state st after_name:parser_state) (used:names_used)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! bound = (fun () -> bind_in_namespace input st 0ul 0ul used st.offset BothNames) in
@@ -4692,8 +4705,19 @@ let import_equals (input:tape) (state st after_name:parser_state) (used:names_us
         consume input closing 41uy
     else
       let! first = (fun () -> name input value.offset false false) in
-      qualified_name input (from_cursor value first) 64ul) in
-  let! ended = (fun () -> statement_end input target target.offset false) in
+      if not first.ok then ret input (failed value 1ul) else alias_path input { value with offset = first.at } 64ul) in
+  // The emitter copies the rest as written, and a const or var declaration would continue into a next line
+  // that an import declaration ends before. Only a semicolon, the end of the file or a next line that begins
+  // with a word ends it here; in and instanceof are words that would continue, so no word in i but import.
+  let! gap = (fun () -> trivia input target.offset) in
+  let! semicolon = (fun () -> if gap.ok then same input gap.at 59uy else ret input false) in
+  let! imported = (fun () -> keyword input gap.at 6ul 0x696d706f7274uL) in
+  let! exported = (fun () -> keyword input gap.at 6ul 0x6578706f7274uL) in
+  let! following = (fun () -> peek input gap.at) in
+  let ended = if target.status <> 0ul then target
+    else if semicolon then { target with offset = next gap.at }
+    else if gap.ok && (gap.at = input.size || (gap.newline && (imported || exported || (G.identifier_start following && following <> 105uy)))) then target
+    else failed target 1ul in
   let! recorded = (fun () -> record_jsx_span input ended (if call then 40ul else 41ul) state.offset (plus state.offset 6ul)) in
   ret input ({ bound with state = recorded })
 

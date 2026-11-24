@@ -88,7 +88,11 @@ function compile(input, options) {
       const emit = source === null ? undefined : (pulse ??= nativeAddon('compiler-module.node')).emitTypeScript;
       if (emit !== undefined) {
         const code = emit(source, kind | flags);
-        if (code !== undefined) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
+        if (code !== undefined) {
+          const result = { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
+          // An interpreter line is rare; its line break is normalized where the other routes live.
+          return code.charCodeAt(0) === 35 ? require('./compiler-routes.cjs').unixHashbang(result) : result;
+        }
       }
     }
   }

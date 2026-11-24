@@ -67,13 +67,38 @@ function transformCompatibility(source, options) {
 }
 
 // `a + b as T * c` is `((a + b) as T) * c`. Node's erasure blanks the assertion and leaves `a + b * c`, which
-// groups differently. An assertion followed on its line by an arithmetic or shift operator is therefore not
-// erased here; the reference compiler writes the parentheses.
-const regroupingAssertion = /\b(?:as|satisfies)\s[^;,)\]}\n]*?(?:[*%+-]|\/(?![/*])|<<|>>)/;
+// groups differently. An assertion followed on its line, or at the start of the next, by an arithmetic or shift
+// operator is therefore not erased here; the reference compiler writes the parentheses.
+const regroupingAssertion = /\b(?:as|satisfies)\s[^;,)}\n]*?(?:\r?\n\s*)?(?:[*%+-]|\/(?![/*])|<<|>>)/;
+// `a?.b!\`x\`` is `(a?.b)\`x\``; without the mark the template would tag an optional chain, which is an error.
+const markedTag = /[\w$)\]]!\s*`/;
+
+// TypeScript writes the interpreter line with a line feed. A carriage return left on it becomes part of the
+// interpreter's name when the file is run directly.
+function unixHashbang(result) {
+  const code = result.code;
+  if (typeof code !== 'string' || code.charCodeAt(0) !== 35 || code.charCodeAt(1) !== 33) return result;
+  const end = code.search(/[\r\n]/);
+  if (end < 0 || code.charCodeAt(end) !== 13 || code.charCodeAt(end + 1) !== 10) return result;
+  return { ...result, code: code.slice(0, end) + code.slice(end + 1) };
+}
 
 function strip(source, file) {
   try {
-    if ((source.includes(' as ') || source.includes('satisfies')) && regroupingAssertion.test(source)) {
+    // A hashbang behind a byte order mark is not at the start of the file.
+    if (source.startsWith('\ufeff#!')) {
+      return fail('node-strip', [{
+        file, code: 'MISPLACED_HASHBANG', severity: 'error',
+        message: "'#!' can only be used at the start of a file", start: 1, end: 3,
+      }]);
+    }
+    if (source.includes('`') && markedTag.test(source)) {
+      return fail('node-strip', [{
+        file, code: 'AMBIGUOUS_TYPE_ERASURE', severity: 'error',
+        message: 'Position-preserving erasure of a non-null mark would leave an optional chain as a template tag', start: 0, end: 0,
+      }]);
+    }
+    if ((/\sas\s/.test(source) || source.includes('satisfies')) && regroupingAssertion.test(source)) {
       return fail('node-strip', [{
         file, code: 'AMBIGUOUS_TYPE_ERASURE', severity: 'error',
         message: 'Position-preserving erasure of an assertion would regroup the operators around it', start: 0, end: 0,
@@ -420,4 +445,6 @@ function compile(input, options = {}) {
   return transformCompatibility(source, { file, target, outputModule: format, jsx, sourceMap });
 }
 
-exports.compile = compile;
+// Strip mode keeps every position of its input, the carriage return included.
+exports.compile = (input, options) => options?.mode === 'strip' ? compile(input, options) : unixHashbang(compile(input, options));
+exports.unixHashbang = unixHashbang;

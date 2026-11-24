@@ -1476,3 +1476,43 @@ test('import-equals declarations become const or var', () => {
     assert.equal(result.diagnostics[0].code, 'INCOMPATIBLE_MODULE_SYNTAX');
   }
 });
+
+test('an import-equals declaration ends where TypeScript ends it', () => {
+  // const and var would continue into these next lines; an import declaration does not.
+  for (const source of [
+    'import fs = require("node:fs")\n(async () => { console.log(fs.existsSync(".")); })();',
+    'import Client = SDK.Client\n/ready/.test(status);\nexport { Client };',
+    'import A = B.C\nA();\nexport {};',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'alias.ts').backend, 'typescript', source);
+  }
+  assert.equal(sameAsTypeScript('import A = B.C\nexport const a = A;', 'alias.ts').backend, 'pulse');
+  // A reserved word in the entity name is an error.
+  assert.equal(compile(Buffer.from('import Client = SDK.default; export { Client };'), { file: 'alias.mts' }).code, null);
+});
+
+test('erasure through Node is refused where it would regroup or leave invalid code', () => {
+  for (const source of [
+    'const total = price + tax as number\n  * quantity;\nexport {};',
+    'const cost = (fee: number, tax: number) => fee + tax satisfies number\n  * 2;',
+    'const v = a + b as Invoice["amount"] * 2;',
+    'const v = a + b as\n  number * 2;',
+    'const html = renderer?.html!`<p>Hello</p>`;',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'group.ts').backend, 'typescript', source);
+    const stripped = compile(source, { file: 'group.ts', mode: 'strip' });
+    assert.equal(stripped.code, null, source);
+    assert.equal(stripped.diagnostics[0].code, 'AMBIGUOUS_TYPE_ERASURE', source);
+  }
+  assert.equal(compile('const a = b as T\nconst c = d + e;', { file: 'group.ts', mode: 'strip' }).code, 'const a = b     \nconst c = d + e;');
+  assert.equal(compile('﻿#!/usr/bin/env node\nconsole.log(1);', { file: 'bin.ts', mode: 'strip' }).diagnostics[0].code, 'MISPLACED_HASHBANG');
+});
+
+test('the interpreter line is written with a line feed', () => {
+  for (const source of ['#!/usr/bin/env node\r\nenum Mode { Dev }', '#!/usr/bin/env node\r\nexport const a: number = 1;\r\n']) {
+    for (const input of [source, Buffer.from(source)]) {
+      assert.match(compile(input, { file: 'bin.ts' }).code, /^#!\/usr\/bin\/env node\n/, source);
+    }
+  }
+  assert.match(compile('#!/usr/bin/env node\r\nexport const a: number = 1;\r\n', { file: 'bin.ts', mode: 'strip' }).code, /^#!\/usr\/bin\/env node\r\n/);
+});

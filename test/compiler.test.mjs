@@ -161,9 +161,9 @@ test('review findings: a hashbang behind a byte order mark, a hashbang line endi
     assert.equal(result.code, null);
     assert.equal(result.diagnostics[0].code, 18026);
   }
-  // The strict directive follows the whole line break of the interpreter line.
+  // The strict directive follows the whole line break of the interpreter line, which is written with a line feed.
   const script = compile('#!/usr/bin/env node\r\nfunction main() { var status = "ok"; console.log(status); }\r\nmain();', { file: 'cli.ts' });
-  assert.equal(script.code.startsWith('#!/usr/bin/env node\r\n"use strict";\n'), true);
+  assert.equal(script.code.startsWith('#!/usr/bin/env node\n"use strict";\n'), true);
   // ((a + b) as T) * c: blanking the assertion would leave a + b * c. Node's erasure does that, so it is not used.
   for (const [source, expected] of [
     ['export const v = subtotal + tax as number * quantity;', /\(subtotal \+ tax\) \* quantity/],
