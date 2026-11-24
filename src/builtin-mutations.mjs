@@ -222,7 +222,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     (function look(inner) {
       if (found) return;
       if (ts.isAwaitExpression(inner) || ts.isYieldExpression(inner) ||
-          (ts.isCallExpression(inner) && ts.isIdentifier(inner.expression) && inner.expression.text === 'eval')) found = true;
+          (ts.isCallExpression(inner) && ts.isIdentifier(strip(inner.expression)) && strip(inner.expression).text === 'eval')) found = true;
       else if (!ts.isFunctionLike(inner)) ts.forEachChild(inner, look);
       // A computed name belongs to the code around its method.
       else if (inner.name && ts.isComputedPropertyName(inner.name)) look(inner.name);
@@ -350,6 +350,25 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     try { new RegExp(pattern, flags); return true; } catch { return false; }
   }
 
+  function literalPrimitiveValue(node) {
+    const inner = strip(node);
+    if (ts.isNumericLiteral(inner)) return { ok: true, value: Number(inner.text) };
+    if (ts.isPrefixUnaryExpression(inner) && inner.operator === K.MinusToken && ts.isNumericLiteral(inner.operand)) {
+      return { ok: true, value: -Number(inner.operand.text) };
+    }
+    if (ts.isBigIntLiteral(inner)) return { ok: true, value: BigInt(inner.text.slice(0, -1)) };
+    if (ts.isPrefixUnaryExpression(inner) && inner.operator === K.MinusToken && ts.isBigIntLiteral(inner.operand)) {
+      return { ok: true, value: -BigInt(inner.operand.text.slice(0, -1)) };
+    }
+    if (ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) return { ok: true, value: inner.text };
+    if (inner.kind === K.TrueKeyword) return { ok: true, value: true };
+    if (inner.kind === K.FalseKeyword) return { ok: true, value: false };
+    if (inner.kind === K.NullKeyword) return { ok: true, value: null };
+    return { ok: false };
+  }
+
+  const skippedMathCalls = new Set();
+
   function targetedCall(node) {
     const callee = node.expression;
     if (!ts.isPropertyAccessExpression(callee) || !ts.isIdentifier(callee.name) || ts.isOptionalChain(node) ||
@@ -357,7 +376,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const name = callee.name.text;
     const args = node.arguments;
     if (ts.isIdentifier(callee.expression) && callee.expression.text === 'Math') {
-      if (ownMath()) return;
+      if (ownMath() || skippedMathCalls.has(node)) return;
       if ((name === 'max' || name === 'min') && args.length === 2) {
         const innerName = name === 'max' ? 'min' : 'max';
         const innerPos = isMathCall(strip(args[0]), innerName) ? 0 : isMathCall(strip(args[1]), innerName) ? 1 : -1;
@@ -379,7 +398,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
             edit(targetedRules.clampBound, keepIdx === 0 ? 'dropInnerB' : 'dropInnerA', innerReplacement,
               { boundKind: innerName === 'min' ? 'upper' : 'lower' });
           }
-          unprobed.push([begin(inner), inner.end]);
+          skippedMathCalls.add(inner);
           return;
         }
         probed(node, name, [args[0], args[1]])(targetedRules.extreme, name === 'max' ? 'min' : 'max', rename(node, callee.name, name === 'max' ? 'min' : 'max'));
@@ -407,13 +426,21 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       probed(node, name, [callee.expression, args[0]])(targetedRules.quantifierSwap, swapped, rename(node, callee.name, swapped));
     } else if (name === 'includes' && args.length === 1 && !staysInPlace(args[0])) {
       const recv = strip(callee.expression);
-      if (ts.isArrayLiteralExpression(recv) && recv.elements.length >= 2 && recv.elements.length <= 16 &&
-          recv.elements.every(el => !ts.isSpreadElement(el) && written(el))) {
-        const elems = recv.elements.map(el => source(el));
-        const edit = probed(node, 'literalIncludes', [args[0]], { setElems: elems, argName: source(args[0]) });
-        for (let j = 0; j < elems.length; j++) {
-          const kept = elems.filter((_, idx) => idx !== j);
-          edit(targetedRules.literalSetPrune, `prune:${j}`, `[${kept.join(', ')}].includes(${source(args[0])})`, { pruned: elems[j] });
+      if (ts.isArrayLiteralExpression(recv) && recv.elements.length >= 2 && recv.elements.length <= 16) {
+        const parsed = recv.elements.map(el => ts.isSpreadElement(el) ? { ok: false } : literalPrimitiveValue(el));
+        if (parsed.every(entry => entry.ok)) {
+          const elems = recv.elements.map(el => source(el));
+          // SameValueZero duplicate values cannot change `includes` when only one copy is pruned.
+          const sameValueZero = (a, b) => a === b || (a !== a && b !== b);
+          const counts = parsed.map(a => parsed.filter(b => sameValueZero(a.value, b.value)).length);
+          const prunable = counts.map((count, idx) => count === 1 ? idx : -1).filter(idx => idx >= 0);
+          if (prunable.length) {
+            const edit = probed(node, 'literalIncludes', [args[0]], { setElems: elems, argName: source(args[0]) });
+            for (const j of prunable) {
+              const kept = elems.filter((_, idx) => idx !== j);
+              edit(targetedRules.literalSetPrune, `prune:${j}`, `[${kept.join(', ')}].includes(${source(args[0])})`, { pruned: elems[j] });
+            }
+          }
         }
       }
     } else if (name === 'test' && args.length === 1 && !staysInPlace(args[0])) {

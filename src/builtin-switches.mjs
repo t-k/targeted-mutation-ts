@@ -42,7 +42,17 @@ function ${see}(i, l, r, r2) {
   }
   var strMethods = ${table}.s || (${table}.s = { indexOf: safeProtoMethod(scope.String.prototype, 'indexOf'), lastIndexOf: safeProtoMethod(scope.String.prototype, 'lastIndexOf'), includes: safeProtoMethod(scope.String.prototype, 'includes'), replace: safeProtoMethod(scope.String.prototype, 'replace'), replaceAll: safeProtoMethod(scope.String.prototype, 'replaceAll') });
   var arrMethods = ${table}.a || (${table}.a = { includes: safeProtoMethod(scope.Array.prototype, 'includes'), every: safeProtoMethod(scope.Array.prototype, 'every'), some: safeProtoMethod(scope.Array.prototype, 'some') });
+  var mathMethods = ${table}.m || (${table}.m = { min: safeProtoMethod(scope.Math, 'min'), max: safeProtoMethod(scope.Math, 'max') });
   var reTest = ${table}.x !== void 0 ? ${table}.x : (${table}.x = safeProtoMethod(scope.RegExp.prototype, 'test'));
+  function isolatedRegexTest(pat, flags, text) {
+    if (${table}.v === void 0) {
+      try {
+        var vmMod = typeof scope.process === 'object' && scope.process && typeof scope.process.getBuiltinModule === 'function' ? scope.process.getBuiltinModule('node:vm') : null;
+        ${table}.v = vmMod ? vmMod.runInNewContext('(function(p,f,s){return new RegExp(p,f).test(s);})') : null;
+      } catch (e) { ${table}.v = null; }
+    }
+    return ${table}.v ? ${table}.v(pat, flags, text) : null;
+  }
   var logical = kind === 'l', missing = l === null || l === void 0, k, form;
   var taken = op === '&&' ? !!l : op === '||' ? !l : missing;
   var constant = op === '&&' ? true : op === '||' ? false : void 0;
@@ -72,30 +82,47 @@ function ${see}(i, l, r, r2) {
     return scope.Reflect.apply(fn, l, [a1]);
   }
   function callClamp(mode) {
-    var cm = site[8], oFn = scope.Math[cm.outer], iFn = scope.Math[cm.inner];
+    var cm = site[8], oFn, iFn, v0, v1, v2, iv;
     if (mode === 'orig') {
+      oFn = scope.Math[cm.outer];
       if (cm.innerPos === 0) {
-        var v0 = l[0](), v1 = l[1](), iv = iFn(v0, v1), v2 = l[2]();
-        return oFn(iv, v2);
+        iFn = scope.Math[cm.inner];
+        v0 = l[0](); v1 = l[1]();
+        iv = scope.Reflect.apply(iFn, scope.Math, [v0, v1]);
+        v2 = l[2]();
+        return scope.Reflect.apply(oFn, scope.Math, [iv, v2]);
       }
-      var u0 = l[0](), u1 = l[1](), u2 = l[2]();
-      return oFn(u0, iFn(u1, u2));
+      v0 = l[0]();
+      iFn = scope.Math[cm.inner];
+      v1 = l[1](); v2 = l[2]();
+      iv = scope.Reflect.apply(iFn, scope.Math, [v1, v2]);
+      return scope.Reflect.apply(oFn, scope.Math, [v0, iv]);
     }
     if (mode === 'dropOuter') {
-      return cm.innerPos === 0 ? iFn(l[0](), l[1]()) : iFn(l[1](), l[2]());
+      iFn = scope.Math[cm.inner];
+      return cm.innerPos === 0
+        ? scope.Reflect.apply(iFn, scope.Math, [l[0](), l[1]()])
+        : scope.Reflect.apply(iFn, scope.Math, [l[1](), l[2]()]);
     }
+    oFn = scope.Math[cm.outer];
     var keepA = mode === 'dropInnerB';
-    if (cm.innerPos === 0) return oFn(keepA ? l[0]() : l[1](), l[2]());
-    return oFn(l[0](), keepA ? l[1]() : l[2]());
+    return cm.innerPos === 0
+      ? scope.Reflect.apply(oFn, scope.Math, [keepA ? l[0]() : l[1](), l[2]()])
+      : scope.Reflect.apply(oFn, scope.Math, [l[0](), keepA ? l[1]() : l[2]()]);
+  }
+  function makeArrayWithout(src, skipIdx) {
+    var out = [], idx;
+    for (idx = 0; idx < src.length; idx++) if (idx !== skipIdx) out[out.length] = src[idx];
+    return out;
   }
   function callLiteralIncludes(skipIdx) {
-    var arr = skipIdx < 0 ? l.slice() : l.filter(function (_, idx) { return idx !== skipIdx; });
+    var arr = makeArrayWithout(l, skipIdx);
     var fn = arr.includes;
     var arg = r();
     return scope.Reflect.apply(fn, arr, [arg]);
   }
-  function callRegexTest(pat) {
-    var re = new scope.RegExp(pat, site[8].flags);
+  function callRegexTest(reFactory) {
+    var re = reFactory();
     var fn = re.test;
     var arg = r();
     return scope.Reflect.apply(fn, re, [arg]);
@@ -114,8 +141,8 @@ function ${see}(i, l, r, r2) {
     if (kind === 'r') return callMethod(f);
     if (kind === 'k') return callClamp(f);
     if (kind === 'u') return callLiteralIncludes(Number(f.slice(6)));
-    if (kind === 'g') { var vb = r(), va = l(); return { ...vb, ...va }; }
-    if (kind === 'x') return callRegexTest(site[8].alts[f]);
+    if (kind === 'g') { var cb = { ...r() }; return { ...cb, ...l() }; }
+    if (kind === 'x') return callRegexTest(l[f]);
     if (kind !== 'e') return apply(f, l, r, r2);
     if (f === 'true') return true;
     if (f === 'false') return false;
@@ -131,8 +158,8 @@ function ${see}(i, l, r, r2) {
     if (kind === 'r') return callMethod(op);
     if (kind === 'k') return callClamp('orig');
     if (kind === 'u') return callLiteralIncludes(-1);
-    if (kind === 'g') { var va = l(), vb = r(); return { ...va, ...vb }; }
-    if (kind === 'x') return callRegexTest(site[8].pattern);
+    if (kind === 'g') { var ca = { ...l() }; return { ...ca, ...r() }; }
+    if (kind === 'x') return callRegexTest(l.orig);
     return apply(op, l, r, r2);
   }
   function plain(v) { return v === null || (typeof v !== 'object' && typeof v !== 'function'); }
@@ -170,10 +197,9 @@ function ${see}(i, l, r, r2) {
       try { return is(value, scope.Reflect.apply(repFn, l, [arg1, arg2])); } catch (error) { return false; }
     }
     if (op === 'every' || op === 'some') {
-      var qFn = safeProtoMethod(scope.Array.prototype, f);
-      if (!sequence || !qFn || qFn !== arrMethods[f] || scope.Object.getOwnPropertyDescriptor(l, f)) return null;
-      if (l.length === 0) return false;
-      if (l.length === 1 && (0 in l)) return true;
+      if (!qPreOk) return null;
+      if (qPreLen === 0) return false;
+      if (qPreLen === 1 && qPreDense0) return true;
       return null;
     }
     if (kind === 'a' ? !plain(l) || !plain(r) : kind === 'm' ? typeof l !== 'number' || (site[7] === 2 && typeof r !== 'number')
@@ -205,7 +231,7 @@ function ${see}(i, l, r, r2) {
   if (!state || state.phase !== 'baseline') return original();
   // An operation that throws is observed too: an edit that evaluates the same right side throws as well, and any other differs.
   // A sort in place loses the order it started from.
-  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? copy(l) : void 0, spreadBase, spreadVals, arg1, arg2, clampVals, mergeA, mergeB, litFn, regexFn;
+  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? copy(l) : void 0, spreadBase, spreadVals, arg1, arg2, clampVals, clampBuiltins, mergeA, mergeB, litFn, regexFn, qPreOk = false, qPreLen = -1, qPreDense0 = false;
   try {
     if (kind === 'p') {
       spreadBase = { ...l };
@@ -218,6 +244,20 @@ function ${see}(i, l, r, r2) {
         scope.Object.defineProperty(value, spreadKeys[sm], { value: sv, enumerable: true, writable: true, configurable: true });
       }
     } else if (kind === 'r') {
+      if ((op === 'every' || op === 'some') && l != null && (!isProxy || !isProxy(l)) && scope.Array.isArray(l)) {
+        try {
+          var qAlt = op === 'every' ? 'some' : 'every';
+          var qProto = scope.Object.getPrototypeOf(l);
+          var qOrigCur = safeProtoMethod(scope.Array.prototype, op);
+          var qAltCur = safeProtoMethod(scope.Array.prototype, qAlt);
+          if (qProto === scope.Array.prototype && qOrigCur && qAltCur && qOrigCur === arrMethods[op] && qAltCur === arrMethods[qAlt] &&
+              !scope.Object.getOwnPropertyDescriptor(l, op) && !scope.Object.getOwnPropertyDescriptor(l, qAlt)) {
+            qPreOk = true;
+            qPreLen = l.length;
+            qPreDense0 = qPreLen === 1 && scope.Object.prototype.hasOwnProperty.call(l, 0);
+          }
+        } catch (error) { qPreOk = false; }
+      }
       var origFn = l[op];
       arg1 = r();
       if (site[7] === 3) {
@@ -227,28 +267,31 @@ function ${see}(i, l, r, r2) {
         value = scope.Reflect.apply(origFn, l, [arg1]);
       }
     } else if (kind === 'k') {
-      var cm = site[8], oFn = scope.Math[cm.outer], iFn = scope.Math[cm.inner];
+      var cm = site[8], oFn = scope.Math[cm.outer], iFn;
       if (cm.innerPos === 0) {
-        var cv0 = l[0](), cv1 = l[1](), civ = iFn(cv0, cv1), cv2 = l[2]();
+        iFn = scope.Math[cm.inner];
+        var cv0 = l[0](), cv1 = l[1](), civ = scope.Reflect.apply(iFn, scope.Math, [cv0, cv1]), cv2 = l[2]();
         clampVals = [cv0, cv1, cv2];
-        value = oFn(civ, cv2);
+        value = scope.Reflect.apply(oFn, scope.Math, [civ, cv2]);
       } else {
-        var cu0 = l[0](), cu1 = l[1](), cu2 = l[2]();
+        var cu0 = l[0]();
+        iFn = scope.Math[cm.inner];
+        var cu1 = l[1](), cu2 = l[2](), ciu = scope.Reflect.apply(iFn, scope.Math, [cu1, cu2]);
         clampVals = [cu0, cu1, cu2];
-        value = oFn(cu0, iFn(cu1, cu2));
+        value = scope.Reflect.apply(oFn, scope.Math, [cu0, ciu]);
       }
+      clampBuiltins = oFn === mathMethods[cm.outer] && iFn === mathMethods[cm.inner];
     } else if (kind === 'u') {
-      var litArr = l.slice();
+      var litArr = makeArrayWithout(l, -1);
       litFn = litArr.includes;
       arg1 = r();
       value = scope.Reflect.apply(litFn, litArr, [arg1]);
     } else if (kind === 'g') {
-      var ma = l(), mb = r();
-      mergeA = { ...ma };
-      mergeB = { ...mb };
+      mergeA = { ...l() };
+      mergeB = { ...r() };
       value = { ...mergeA, ...mergeB };
     } else if (kind === 'x') {
-      var origRe = new scope.RegExp(site[8].pattern, site[8].flags);
+      var origRe = l.orig();
       regexFn = origRe.test;
       arg1 = r();
       value = scope.Reflect.apply(regexFn, origRe, [arg1]);
@@ -276,9 +319,9 @@ function ${see}(i, l, r, r2) {
           : false;
       } else if (kind === 'k') {
         var cmeta = site[8];
-        if (typeof clampVals[0] !== 'number' || typeof clampVals[1] !== 'number' || typeof clampVals[2] !== 'number') same = null;
+        if (!clampBuiltins || typeof clampVals[0] !== 'number' || typeof clampVals[1] !== 'number' || typeof clampVals[2] !== 'number') same = null;
         else {
-          var oF = scope.Math[cmeta.outer], iF = scope.Math[cmeta.inner], altV, droppedIdx;
+          var oF = mathMethods[cmeta.outer], iF = mathMethods[cmeta.inner], altV, droppedIdx;
           if (f === 'dropOuter') {
             altV = cmeta.innerPos === 0 ? iF(clampVals[0], clampVals[1]) : iF(clampVals[1], clampVals[2]);
             droppedIdx = cmeta.innerPos === 0 ? 2 : 0;
@@ -294,26 +337,25 @@ function ${see}(i, l, r, r2) {
         if (!curInc || litFn !== curInc || curInc !== arrMethods.includes) same = null;
         else {
           var skipU = Number(f.slice(6));
-          var prunedArr = l.filter(function (_, idx) { return idx !== skipU; });
+          var prunedArr = makeArrayWithout(l, skipU);
           same = is(value, scope.Reflect.apply(curInc, prunedArr, [arg1]));
         }
       } else if (kind === 'g') {
-        var bKeys = scope.Object.keys(mergeB), bk, collision = false;
-        for (bk = 0; bk < bKeys.length; bk++) {
-          var keyName = bKeys[bk];
-          if (scope.Object.prototype.hasOwnProperty.call(mergeA, keyName) && !is(mergeA[keyName], mergeB[keyName])) {
-            collision = true;
-            break;
-          }
+        var swappedObj = { ...mergeB, ...mergeA };
+        var origKeys = scope.Reflect.ownKeys(value), swapKeys = scope.Reflect.ownKeys(swappedObj);
+        var ki, valDiff = false, orderDiff = origKeys.length !== swapKeys.length;
+        for (ki = 0; ki < origKeys.length; ki++) {
+          var keyName = origKeys[ki];
+          if (!is(value[keyName], swappedObj[keyName])) { valDiff = true; break; }
+          if (!orderDiff && swapKeys[ki] !== keyName) orderDiff = true;
         }
-        same = !collision;
+        same = valDiff ? false : orderDiff ? null : true;
       } else if (kind === 'x') {
         var curTest = safeProtoMethod(scope.RegExp.prototype, 'test');
         if (typeof arg1 !== 'string' || !curTest || regexFn !== curTest || curTest !== reTest) same = null;
         else {
-          try {
-            same = is(value, scope.Reflect.apply(curTest, new scope.RegExp(site[8].alts[f], site[8].flags), [arg1]));
-          } catch (error) { same = false; }
+          var iso = isolatedRegexTest(site[8].alts[f], site[8].flags, arg1);
+          same = iso === null ? null : is(value, iso);
         }
       } else if (kind === 'e') same = value === edited(f);
       else if (!logical) same = alike(f, value);
@@ -479,7 +521,11 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         } else if (kind === 'g') {
           callArgs = `() => ${operands[0]}, () => ${operands[1]}`;
         } else if (kind === 'x') {
-          callArgs = `null, () => ${operands[0]}`;
+          const litEntries = [`orig: () => /${regexMeta.pattern || '(?:)'}/${regexMeta.flags}`];
+          for (const [fKey, altPat] of Object.entries(regexMeta.alts)) {
+            litEntries.push(`${fKey}: () => /${altPat || '(?:)'}/${regexMeta.flags}`);
+          }
+          callArgs = `{ ${litEntries.join(', ')} }, () => ${operands[0]}`;
         } else if (kind === 'r') {
           callArgs = `${operands[0]}, ${operands.slice(1).map(opExpr => `() => ${opExpr}`).join(', ')}`;
         } else {

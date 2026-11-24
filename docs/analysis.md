@@ -128,6 +128,12 @@ The default profile uses the same session. Its comparison boundaries, `>=` with 
 | `spread-property-drop/v1` | `{ ...base, k1: v1, k2: v2 }` (single leading spread, static non-`__proto__` keys) | drop one explicit property at a time | `base[k]` is missing or differs from `v` under `Object.is` (impure same-value initializers are reported as uncertain) |
 | `prefix-to-substring/v1` | `s.startsWith(p)`, `s.endsWith(p)` | `s.includes(p)` | `s` contains `p` somewhere other than the start or end |
 | `replace-multiplicity/v1` | `s.replace(a, b)`, `s.replaceAll(a, b)` (non-RegExp-literal first arg) | the other of the two | `s` contains the searched text more than once |
+| `clamp-bound/v1` | `Math.min(Math.max(x, lo), hi)`, `Math.max(Math.min(x, hi), lo)` | drop the outer (or literal inner) clamp bound | `x` exceeds the dropped upper or lower clamp bound |
+| `literal-set-prune/v1` | `[v1, v2, ...].includes(x)` (2–16 primitive literals, unique under SameValueZero) | remove one literal element | `x` matches the removed element |
+| `merge-precedence/v1` | `{ ...a, ...b }` | `{ ...b, ...a }` | `a` and `b` share an own key (string or Symbol) with different values |
+| `quantifier-swap/v1` | `arr.every(fn)`, `arr.some(fn)` | the other of the two | `arr` is empty or has elements where `fn` gives both true and false |
+| `regex-anchor-slack/v1` | `/^...$/.test(s)` | drop leading `^` or trailing `$` | `s` matches without the removed anchor |
+| `cleanup-dropped/v1` | expression-statement call directly inside `try { ... } finally { ... }` | `;` | the tests assert on the cleanup side effect after `try` finishes or throws |
 
 With Vitest 4 each such expression becomes a probe in the test session. While the baseline runs, the probe notes for every edit of the expression and for every test whether the edit would have given the same value after evaluating the same operands. The edits then run like any other switch, against the tests that reach them. A survivor is reported with what the recording says about it:
 

@@ -18,9 +18,10 @@ const edited = (source, mutant) => {
 const session = Symbol.for('targeted-mutation-ts/session');
 
 function run(code, inputs, state = {}, recording = false) {
-  const context = vm.createContext({ __stryker__: state, inputs, results: [] });
+  const context = vm.createContext({ __stryker__: state, inputsJson: JSON.stringify(inputs), results: [] });
   if (recording) context[session] = { phase: 'baseline' };
   vm.runInContext(`${code}
+var inputs = JSON.parse(inputsJson);
 for (var n = 0; n < inputs.length; n++) {
   __stryker__.currentTestId = ${recording ? "'t' + n" : 'undefined'};
   trace.length = 0;
@@ -72,6 +73,8 @@ for (const [rule, form, inputCase] of rows) {
         DiffVal: [{ x: 1 }, { x: 2 }],
       }[inputCase]];
       pickMutant = mutants => mutants.find(m => m.mutatorName === targetedRules.mergePrecedence);
+      // Disjoint keys change `Object.keys` order without value collision, so agreement is conservatively `unsure`.
+      expectUnsure = inputCase === 'Disjoint';
       compareValueOnly = true;
     } else if (rule === 'QuantifierSwap') {
       const method = form === 'Every' ? 'every' : 'some';
@@ -88,6 +91,10 @@ for (const [rule, form, inputCase] of rows) {
       pickMutant = mutants => mutants.find(m => m.mutatorName === targetedRules.regexAnchor && m.targeted?.form === targetForm);
     }
 
+    if (rule === 'RegexAnchor') {
+      // In a bare vm.createContext without `process`, isolatedRegexTest is unavailable and records `unsure`.
+      expectUnsure = true;
+    }
     const { output, mutants } = render(source);
     const mutant = pickMutant(mutants);
     assert.ok(mutant, `expected mutant for ${rule}/${form}`);
@@ -207,4 +214,62 @@ it('returns fn result without checking lock.released', () => {
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test('Milestone 5 review regressions: spread order & Symbol keys, clamp Math this/inner mutations, quantifier pre-call length, literal-set no slice/filter/dedup, regex literal & lastMatch, parenthesized eval', () => {
+  // 1. Merge spread order: getter on `a` runs before `b()` is called; Symbol collision is `differ`.
+  const mergeSrc = `var log = [];
+function getA() { log.push('a'); return { get x() { log.push('getA'); return 1; } }; }
+function getB() { log.push('b'); return { get y() { log.push('getB'); return 2; } }; }
+function f() { return { ...getA(), ...getB() }; }
+`;
+  const rMerge = render(mergeSrc);
+  const ctxM = vm.createContext({ __stryker__: {}, [session]: { phase: 'baseline' } });
+  vm.runInContext(rMerge.output + '\n__stryker__.currentTestId = "t0"; f();', ctxM);
+  assert.deepEqual([...ctxM.log], ['a', 'getA', 'b', 'getB']);
+
+  const symSrc = 'function f(a, b) { return { ...a, ...b }; }';
+  const rSym = render(symSrc);
+  const mSym = rSym.mutants.find(m => m.mutatorName === targetedRules.mergePrecedence);
+  const stSym = {};
+  vm.runInContext(rSym.output + '\nvar s = Symbol("k"); __stryker__.currentTestId = "t0"; f({ [s]: 1 }, { [s]: 2 });',
+    vm.createContext({ __stryker__: stSym, [session]: { phase: 'baseline' } }));
+  assert.deepEqual([...stSym.observed[mSym.id].tests.t0], [0, 1, 0]);
+
+  // 2. Clamp preserves `this === Math`, inner arithmetic mutations (`x + 1`), and doesn't touch outer Math getter on dropOuter.
+  const clampInnerSrc = 'const f = (x) => Math.min(Math.max(x + 1, 0), 10);';
+  const rClamp = render(clampInnerSrc);
+  assert.ok(rClamp.mutants.some(m => m.mutatorName === targetedRules.clampBound));
+  assert.ok(rClamp.mutants.some(m => m.mutatorName === targetedRules.arithmetic));
+
+  // 3. Quantifier uses pre-call length: shrinking array inside callback does NOT misclassify `[1, -1]` as `agree`.
+  const qSrc = 'function f(arr) { return arr.every((v, i) => { if (i === 1) arr.length = 1; return v > 0; }); }';
+  const rQ = render(qSrc);
+  const mQ = rQ.mutants.find(m => m.mutatorName === targetedRules.quantifierSwap);
+  const stQ = {};
+  vm.runInContext(rQ.output + '\n__stryker__.currentTestId = "t0"; f([1, -1]);',
+    vm.createContext({ __stryker__: stQ, [session]: { phase: 'baseline' } }));
+  assert.deepEqual([...stQ.observed[mQ.id].tests.t0], [0, 0, 1]);
+
+  // 4. Literal-set-prune avoids Array.prototype.slice/filter, skips `undefined` identifier, and skips SameValueZero duplicates.
+  assert.equal(render('const f = (x) => [1, 1.0, 2].includes(x);').mutants.filter(m => m.mutatorName === targetedRules.literalSetPrune).length, 1);
+  assert.equal(render('const f = (x) => [undefined, 1].includes(x);').mutants.filter(m => m.mutatorName === targetedRules.literalSetPrune).length, 0);
+  const litSrc = 'function f(x) { return [1, 2].includes(x); }';
+  const rLit = render(litSrc);
+  const mLit = rLit.mutants.find(m => m.mutatorName === targetedRules.literalSetPrune && m.targeted?.form === 'prune:0');
+  const ctxLit = vm.createContext({ __stryker__: { activeMutant: mLit.id } });
+  const litRes = vm.runInContext('Array.prototype.filter = function() { return []; }; Array.prototype.slice = function() { return []; };\n' + rLit.output + '\nf(2);', ctxLit);
+  assert.equal(litRes, true);
+
+  // 5. Regex-anchor-slack uses literal regex (ignores overridden global RegExp) and preserves RegExp.lastMatch.
+  const reSrc = 'function f(s) { return /^a|b/.test(s); }';
+  const rRe = render(reSrc);
+  const mRe = rRe.mutants.find(m => m.mutatorName === targetedRules.regexAnchor);
+  const stRe = {};
+  const ctxRe = vm.createContext({ __stryker__: stRe, [session]: { phase: 'baseline' }, process });
+  const lastMatch = vm.runInContext('var OrigRegExp = RegExp; globalThis.RegExp = function() { throw new Error("boom"); };\n' + rRe.output + '\n__stryker__.currentTestId = "t0"; f("xab"); OrigRegExp.lastMatch;', ctxRe);
+  assert.equal(lastMatch, 'b');
+
+  // 6. Parenthesized direct `(eval)` is detected by staysInPlace and skipped.
+  assert.equal(render("const f = () => ({ ...(eval)('({x:1})'), ...{y:2} });").mutants.filter(m => m.mutatorName === targetedRules.mergePrecedence).length, 0);
 });
