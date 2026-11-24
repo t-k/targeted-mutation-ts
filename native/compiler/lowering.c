@@ -1985,8 +1985,12 @@ static bool property_anchors(TmtPulseMemory_tape input, uint32_t count, TmtGramm
      * Statements may stand before it: each is read as a whole, and the walk has to arrive at the call exactly.
      */
     uint32_t statement = first.at;
+    /* The walk parses again. It must not write into the records this function is reading. */
+    TmtPulseMemory_tape walk = input;
+    walk.capture_types = true;
+    walk.count_only = true;
     while (statement < entry.left.first) {
-      const uint32_t next = TmtPulseCompiler_next_module_item(input, false, statement);
+      const uint32_t next = TmtPulseCompiler_next_module_item(walk, false, statement);
       if (next <= statement || next > entry.left.first) return false;
       const TmtPulseParser_cursor following = TmtPulseParser_trivia(input, next);
       if (!following.ok) return false;
@@ -2104,11 +2108,8 @@ static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, uint32_t k
   if (span.first >= span.last || span.last > size) return false;
   /* A namespace is lowered only where no other lowering shares the file. */
   if (namespace_record(kind)) return false;
-  if (kind == export_assignment) {
-    put(&lower->output, "module.exports =");
-    lower->at = span.last;
-    return !lower->output.failed;
-  }
+  /* An export assignment is written only by the pass that knows the output may be CommonJS. */
+  if (kind == export_assignment) return false;
   lower->input.size = span.last;
   const TmtPulseCompiler_runtime_head head = TmtPulseCompiler_read_runtime_head(lower->input, span.first, false, true, true);
   lower->at = head.body;
@@ -2175,6 +2176,8 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
     if (tail == records) return false;
     const uint32_t body_last = input.output[tail].left.first;
     if (body_last < span.last || word_count(input, span.last, body_last, name) != 0) return false;
+    /* The search for references reads bytes. A character outside ASCII may be a line separator or part of a name. */
+    for (uint32_t at = span.last; at < body_last; at++) if (input.source[at] >= 128) return false;
     for (uint32_t member = index + 1; member < tail; member++) {
       if (input.output[member].original != namespace_variable) continue;
       const TmtGrammar_span variable = input.output[member].right;
@@ -2252,7 +2255,13 @@ static char *lower_recorded_enums(TmtPulseMemory_tape input, uint32_t records, b
     if (!enum_record(input.output[index].original)) continue;
     const TmtGrammar_span span = input.output[index].left;
     if (span.first < copied || span.first >= span.last || span.last > input.size) goto decline;
-    if (input.output[index].original == export_assignment && !commonjs) goto decline;
+    if (input.output[index].original == export_assignment) {
+      if (!commonjs) goto decline;
+      source_bytes(&lower, copied, span.first);
+      put(&lower.output, "module.exports =");
+      copied = span.last;
+      continue;
+    }
     source_bytes(&lower, copied, span.first);
     if (namespace_record(input.output[index].original)) {
       if (!emit_namespace_record(&lower, records, index, &scope)) goto decline;

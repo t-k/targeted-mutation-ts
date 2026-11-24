@@ -1051,3 +1051,25 @@ test('a JSX file with unicode escapes in strings and a disabled disjunction are 
     assert.notEqual(sameAsTypeScript(source, 'escape.tsx').backend, 'pulse', source);
   }
 });
+
+test('review findings on the super walk, export assignments in JSX files and namespaces with non-ASCII text', () => {
+  // The walk to the super call parses again and must leave the records of the file intact: the enum is still
+  // lowered and both properties are assigned.
+  const walked = sameAsTypeScript('export enum Status { BadRequest = 400 }\nexport class ApiError extends Error {\n' +
+    '  constructor(public status: Status, public details: string) {\n' +
+    '    const describe = (status: Status, details: string): string => `${status}: ${details}`;\n' +
+    '    super(describe(status, details));\n  }\n}', 'walk.ts');
+  assert.equal(walked.backend, 'pulse');
+  assert.match(walked.code, /this\.details = details/);
+  assert.doesNotMatch(walked.code, /\benum\b/);
+  // An ECMAScript output cannot carry an export assignment, on the JSX route as on the others.
+  const assigned = 'const SettingsPanel = () => <button />; export = SettingsPanel;';
+  const esm = compile(Buffer.from(assigned), { file: 'settings.tsx', module: 'esm' });
+  assert.equal(esm.code, null);
+  assert.equal(esm.diagnostics[0].code, 'INCOMPATIBLE_MODULE_SYNTAX');
+  assert.match(sameAsTypeScript(assigned, 'settings.tsx').code, /module\.exports = SettingsPanel/);
+  // A line separator outside ASCII ends a statement, so the next word is a reference the byte search would miss.
+  const separated = 'export namespace Settings { export let mode = "start"; mode = "ready"; }';
+  assert.notEqual(sameAsTypeScript(separated, 'space.ts').backend, 'pulse');
+  assert.notEqual(compile(Buffer.from('export namespace N { export const a = 1; const é = 2; }'), { file: 'space.ts' }).backend, 'pulse');
+});
