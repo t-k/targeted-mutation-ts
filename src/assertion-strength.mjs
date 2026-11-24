@@ -413,9 +413,11 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
     }
     if (isSubjectCall(node, scope) && node.arguments.every(written)) {
       let target = node;
+      let awaited = false;
       let [parent, child] = up(node);
       if (ts.isAwaitExpression(parent) && parent.expression === child) {
         target = parent;
+        awaited = true;
         [parent, child] = up(target);
       }
       let statement;
@@ -436,7 +438,7 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
       if (title !== undefined && !/[\n\r]/.test(call)) {
         const { line, character } = tree.getLineAndCharacterOfPosition(start);
         found.push({ start, end: target.end, text: call, test: title, full: suites && [...suites, title].join(' > '), line: line + 1, column: character + 1,
-          ...(bound ? { bound } : {}) });
+          ...(bound ? { bound } : {}), ...(awaited ? { awaited: true } : {}) });
       }
     }
     ts.forEachChild(node, childNode => visit(childNode, scope));
@@ -546,12 +548,8 @@ export function narrowSiblingPath(originalText, editedText, ts = loadTypeScript(
   }
   if (diffKeys.length !== 1) return null;
   const [key] = diffKeys;
-  if (!origMap.has(key)) return null;
+  if (!origMap.has(key) || !editMap.has(key)) return null;
   const origChild = origMap.get(key);
-  if (!editMap.has(key)) {
-    if (origChild === 'undefined') return null;
-    return { path: [key], original: origChild, edited: 'undefined' };
-  }
   const editChild = editMap.get(key);
   if (origChild.startsWith('{') && editChild.startsWith('{')) {
     const deeper = narrowSiblingPath(origChild, editChild, ts);
@@ -560,8 +558,8 @@ export function narrowSiblingPath(originalText, editedText, ts = loadTypeScript(
   return { path: [key], original: origChild, edited: editChild };
 }
 
-function formatTargetPath(base, path) {
-  let expr = path.length && base.startsWith('await ') ? `(${base})` : base;
+function formatTargetPath(base, path, awaited = false) {
+  let expr = path.length && (awaited || /^\s*await\b/.test(base)) ? `(${base})` : base;
   for (const key of path) {
     expr += /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
   }
@@ -747,7 +745,7 @@ export async function strengthenAssertions(root, report, options, run = defaultR
       // When a multi-key plain object differs along a single sibling field path, narrow the suggestion to that path.
       const narrowed = narrowSiblingPath(original[at], edited[at], ts);
       const baseExpr = call.bound ?? call.text;
-      const targetExpr = narrowed ? formatTargetPath(baseExpr, narrowed.path) : baseExpr;
+      const targetExpr = narrowed ? formatTargetPath(baseExpr, narrowed.path, !call.bound && call.awaited) : baseExpr;
       const expectedText = narrowed ? narrowed.original : original[at];
       const editedText = narrowed ? narrowed.edited : edited[at];
       gap.suggestedTest = `expect(${targetExpr}).${matcherFor(expectedText)}(${expectedText})`;

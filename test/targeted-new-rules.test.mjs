@@ -66,6 +66,9 @@ for (const [rule, form, baseOrReceiver, argKind] of rows) {
       }[baseOrReceiver];
       inputs = [[base, null]];
       pickMutant = mutants => mutants.find(m => m.mutatorName === expectedRule && m.targeted?.key === 'error');
+      // Non-literal initializers (`see('e', err)` or shorthand `error`) may have side effects when skipped,
+      // so same-value agreement is conservatively recorded as `unsure` rather than definite `agree`.
+      expectUnsure = baseOrReceiver === 'SameValue';
     } else if (rule === 'PrefixToSubstring') {
       expectedRule = targetedRules.prefixSubstring;
       const method = form === 'StartsWith' ? 'startsWith' : 'endsWith';
@@ -151,6 +154,54 @@ test('spread-property-drop skips unsafe shapes, handles -0/+0 and Proxy safely, 
   const ctx1 = vm.createContext({ __stryker__: stateOrder, [session]: { phase: 'baseline' } });
   const res1 = vm.runInContext(renderedOrder.output + '\nconst obj = { x: 1 }; f(obj);', ctx1);
   assert.deepEqual({ ...res1 }, { x: 1, a: 1 });
+  // Anonymous functions/classes whose `.name` is inferred from the property key are skipped.
+  for (const namedInit of [
+    'const f = (b) => ({ ...b, handler: () => 1, ok: true });',
+    'const f = (b) => ({ ...b, handler: function () { return 1; }, ok: true });',
+    'const f = (b) => ({ ...b, Cls: class {}, ok: true });',
+  ]) {
+    assert.equal(render(namedInit).mutants.filter(x => x.mutatorName === targetedRules.spreadDrop).length, 0, namedInit);
+  }
+  // Impure same-value initializer records unsure, while written literal same-value records agree.
+  const impure = 'let n = 0; const f = (b) => ({ ...b, x: (++n, 1) });';
+  const rImp = render(impure);
+  const mImp = rImp.mutants.find(x => x.mutatorName === targetedRules.spreadDrop);
+  const sImp = {};
+  vm.runInContext(rImp.output + '\n__stryker__.currentTestId = "t0"; f({ x: 1 });',
+    vm.createContext({ __stryker__: sImp, [session]: { phase: 'baseline' } }));
+  assert.deepEqual([...sImp.observed[mImp.id].tests.t0], [0, 0, 1]);
+  const pureLit = 'const f = (b) => ({ ...b, x: 1 });';
+  const rPure = render(pureLit);
+  const mPure = rPure.mutants.find(x => x.mutatorName === targetedRules.spreadDrop);
+  const sPure = {};
+  vm.runInContext(rPure.output + '\n__stryker__.currentTestId = "t0"; f({ x: 1 });',
+    vm.createContext({ __stryker__: sPure, [session]: { phase: 'baseline' } }));
+  assert.deepEqual([...sPure.observed[mPure.id].tests.t0], [1, 0, 0]);
+});
+
+test('string method probes preserve method-lookup-before-argument evaluation order', () => {
+  const src = `var log = [];
+function makeObj() {
+  return {
+    get startsWith() { log.push('get'); return function(p) { log.push('call:' + p); return true; }; },
+    get includes() { log.push('getInc'); return function(p) { log.push('callInc:' + p); return false; }; },
+  };
+}
+function arg() { log.push('arg'); return 'x'; }
+function f() { return makeObj().startsWith(arg()); }
+`;
+  const { output, mutants } = render(src);
+  const m = mutants.find(x => x.mutatorName === targetedRules.prefixSubstring);
+  assert.ok(m);
+  const runLog = (code, state = {}) => {
+    const ctx = vm.createContext({ __stryker__: state, [session]: { phase: 'baseline' } });
+    const val = vm.runInContext(code + '\n__stryker__.currentTestId = "t0"; f();', ctx);
+    return [val, [...ctx.log]];
+  };
+  assert.deepEqual(runLog(output), runLog(src));
+  assert.deepEqual(runLog(output), [true, ['get', 'arg', 'call:x']]);
+  assert.deepEqual(runLog(output, { activeMutant: m.id }), runLog(edited(src, m)));
+  assert.deepEqual(runLog(output, { activeMutant: m.id }), [false, ['getInc', 'arg', 'callInc:x']]);
 });
 
 test('prefix-to-substring and replace-multiplicity skip RegExp literals and unsupported call shapes', () => {

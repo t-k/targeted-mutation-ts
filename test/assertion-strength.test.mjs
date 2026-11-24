@@ -458,17 +458,28 @@ it('checks only ok on summary', () => {
   assert.equal(bracketField.diagnostics[0].suggestedTest, 'expect(res["net-fee"]).toBe(400)');
   assert.deepEqual(bracketField.diagnostics[0].strengthens.path, ['net-fee']);
 
-  // Dropped non-undefined property in edited object -> narrow to `res.error`.
+  // Dropped own property in edited object falls back to full `toStrictEqual` (safe against inherited Object.prototype keys).
   const droppedProp = { diagnostics: [makeGap('checks only ok on checkout')] };
   await strengthenAssertions(root, droppedProp, {}, makeRun('{ error: null, ok: true }', '{ ok: true }'));
-  assert.equal(droppedProp.diagnostics[0].suggestedTest, 'expect(res.error).toBe(null)');
-  assert.deepEqual(droppedProp.diagnostics[0].strengthens.path, ['error']);
+  assert.equal(droppedProp.diagnostics[0].suggestedTest, 'expect(res).toStrictEqual({ error: null, ok: true })');
+  assert.equal(droppedProp.diagnostics[0].strengthens.path, undefined);
 
-  // Dropped `undefined` property must NOT narrow to `expect(res.error).toBe(undefined)` (falls back to toStrictEqual).
-  const droppedUndef = { diagnostics: [makeGap('checks only ok on checkout')] };
-  await strengthenAssertions(root, droppedUndef, {}, makeRun('{ error: undefined, ok: true }', '{ ok: true }'));
-  assert.equal(droppedUndef.diagnostics[0].suggestedTest, 'expect(res).toStrictEqual({ error: undefined, ok: true })');
-  assert.equal(droppedUndef.diagnostics[0].strengthens.path, undefined);
+  // Unbound `await(fn(...))` without a space after `await` is parenthesized before appending `.fee`.
+  writeFileSync(join(root, 'async.test.ts'), `import { expect, it } from 'vitest';
+import { checkout } from './subject';
+it('awaited without space', async () => {
+  expect(await(checkout(200, 3))).toBeDefined();
+});
+`);
+  const awaitGap = {
+    diagnostics: [{
+      kind: 'ASSERTION GAP', location: { file: 'subject.ts', line: 2, column: 1 },
+      tests: [{ file: 'async.test.ts', name: 'awaited without space' }],
+      mutations: [{ edit: [0, 1], replacement: 'x' }],
+    }],
+  };
+  await strengthenAssertions(root, awaitGap, {}, makeRun('{ fee: 600, ok: true }', '{ fee: 203, ok: true }'));
+  assert.equal(awaitGap.diagnostics[0].suggestedTest, 'expect((await(checkout(200, 3))).fee).toBe(600)');
 
   // Multiple sibling fields differ -> fall back to full `toStrictEqual`.
   const multiDiff = { diagnostics: [makeGap('checks only ok on checkout')] };
@@ -477,7 +488,7 @@ it('checks only ok on summary', () => {
   assert.equal(multiDiff.diagnostics[0].strengthens.path, undefined);
 
   // End-to-end Vitest run with real bound object call checking only `res.ok`.
-  const e2e = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', root, 'subject.ts', '--suggest-assertions', '--format', 'json'],
+  const e2e = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', root, 'subject.ts', '--test', 'subject.test.ts', '--suggest-assertions', '--format', 'json'],
     { encoding: 'utf8', timeout: 120_000 });
   assert.equal(e2e.status, 0, e2e.stderr);
   const e2eReport = JSON.parse(e2e.stdout);

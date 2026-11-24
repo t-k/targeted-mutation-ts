@@ -125,3 +125,35 @@ export const make = (a: number) => ({ a, b: 2, c: 3 });
   const text = renderText(report);
   assert.match(text, /UNTESTED CHANGE/);
 }));
+
+test('sub-hunk decomposition avoids deleting replaced items, preserves token boundaries, and ignores commas in comments', () => {
+  // Replaced object property values must NOT produce deletion sub-hunks.
+  const oldObj = Buffer.from('export const cfg = () => ({ a: 1, b: 2 });\n');
+  const newObj = Buffer.from('export const cfg = () => ({ a: 3, b: 4 });\n');
+  assert.equal(planUndo('f.ts', oldObj, newObj, patchOf(oldObj, newObj)).filter(t => t.subhunk).length, 0);
+
+  // Replaced logical terms must NOT produce deletion sub-hunks.
+  const oldLog = Buffer.from('export const ok = (a: boolean, b: boolean, c: boolean, d: boolean) => a && b;\n');
+  const newLog = Buffer.from('export const ok = (a: boolean, b: boolean, c: boolean, d: boolean) => c && d;\n');
+  assert.equal(planUndo('f.ts', oldLog, newLog, patchOf(oldLog, newLog)).filter(t => t.subhunk).length, 0);
+
+  // `return(a)&&b` removing `(a)&&` must insert a space (`return b`), never `returnb`.
+  const oldRet = Buffer.from('export function f(a: boolean, b: boolean, c: boolean) { return b; }\n');
+  const newRet = Buffer.from('export function f(a: boolean, b: boolean, c: boolean) { return(a)&&b&&c; }\n');
+  const retSubs = planUndo('f.ts', oldRet, newRet, patchOf(oldRet, newRet)).filter(t => t.subhunk);
+  assert.equal(retSubs.length, 2);
+  assert.ok(retSubs.some(s => apply(newRet, s) === 'export function f(a: boolean, b: boolean, c: boolean) { return b&&c; }\n'));
+
+  // Old binary comparison `a === b` is preserved when `&& c && d` are added.
+  const oldCmp = Buffer.from('export const eq = (a: number, b: number, c: boolean, d: boolean) => a === b;\n');
+  const newCmp = Buffer.from('export const eq = (a: number, b: number, c: boolean, d: boolean) => a === b && c && d;\n');
+  const cmpSubs = planUndo('f.ts', oldCmp, newCmp, patchOf(oldCmp, newCmp)).filter(t => t.subhunk);
+  assert.equal(cmpSubs.length, 2);
+  assert.ok(cmpSubs.every(s => apply(newCmp, s).includes('a === b')));
+
+  // Commas inside comments do not corrupt object property removal.
+  const oldCom = Buffer.from('export const o = () => ({ a: 1 });\n');
+  const newCom = Buffer.from('export const o = () => ({ a: 1, b: 2 /* , */, c: 3 /* , keep */ });\n');
+  const comSubs = planUndo('f.ts', oldCom, newCom, patchOf(oldCom, newCom)).filter(t => t.subhunk);
+  assert.equal(comSubs.length, 2);
+});

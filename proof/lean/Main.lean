@@ -414,43 +414,23 @@ def decodeReplayHeader (input : Wire.Value) : Except String ReplayHeader := do
   let encoded ← input.field? "replacement"
   let replacement ← match encoded with
     | .str op => decodeOp op
-    | _ => do
-      match encoded.field? "geLiteral", encoded.field? "gtLiteral", encoded.field? "leLiteral", encoded.field? "ltLiteral" with
-      | .ok v, .error _, .error _, .error _ =>
-        let literal ← v.int?
-        unless original == .ge && safe literal do throw "invalid literal threshold"
-        pure (.geLiteral literal)
-      | .error _, .ok v, .error _, .error _ =>
-        let literal ← v.int?
-        unless original == .gt && safe literal do throw "invalid literal threshold"
-        pure (.gtLiteral literal)
-      | .error _, .error _, .ok v, .error _ =>
-        let literal ← v.int?
-        unless original == .le && safe literal do throw "invalid literal threshold"
-        pure (.leLiteral literal)
-      | .error _, .error _, .error _, .ok v =>
-        let literal ← v.int?
-        unless original == .lt && safe literal do throw "invalid literal threshold"
-        pure (.ltLiteral literal)
-      | _, _, _, _ =>
-        match encoded.field? "geShift", encoded.field? "gtShift", encoded.field? "leShift", encoded.field? "ltShift" with
-        | .ok v, .error _, .error _, .error _ =>
-          let delta ← v.int?
-          unless original == .ge && safe delta do throw "invalid shift threshold"
-          pure (.geShift delta)
-        | .error _, .ok v, .error _, .error _ =>
-          let delta ← v.int?
-          unless original == .gt && safe delta do throw "invalid shift threshold"
-          pure (.gtShift delta)
-        | .error _, .error _, .ok v, .error _ =>
-          let delta ← v.int?
-          unless original == .le && safe delta do throw "invalid shift threshold"
-          pure (.leShift delta)
-        | .error _, .error _, .error _, .ok v =>
-          let delta ← v.int?
-          unless original == .lt && safe delta do throw "invalid shift threshold"
-          pure (.ltShift delta)
-        | _, _, _, _ => throw "invalid literal threshold"
+    | .obj fields => do
+      match fields.toList with
+      | [(tag, v)] =>
+        let n ← v.int?
+        unless safe n do throw "invalid literal threshold"
+        match tag, original with
+        | "geLiteral", .ge => pure (.geLiteral n)
+        | "gtLiteral", .gt => pure (.gtLiteral n)
+        | "leLiteral", .le => pure (.leLiteral n)
+        | "ltLiteral", .lt => pure (.ltLiteral n)
+        | "geShift", .ge => pure (.geShift n)
+        | "gtShift", .gt => pure (.gtShift n)
+        | "leShift", .le => pure (.leShift n)
+        | "ltShift", .lt => pure (.ltShift n)
+        | _, _ => throw "invalid literal threshold"
+      | _ => throw "invalid literal threshold"
+    | _ => throw "invalid literal threshold"
   pure { candidate, traceCandidate, complete, deterministic, original, replacement }
 
 def decideReplay (input : Wire.Value) : Except String Bool := do
@@ -793,6 +773,13 @@ theorem no_gap_iff_unique (op : Threshold.Cmp) (lo hi : Int) (pairs : List (Int 
   refine base.trans ⟨fun h s hs => h s ((feasible_margin_iff_threshold op lo hi s pairs).mp hs),
     fun h s hs => h s ((feasible_margin_iff_threshold op lo hi s pairs).mpr hs)⟩
 
+def safeShiftBounds (lo hi : Int) : List (Int × Int) → Int × Int
+  | [] => (lo, hi)
+  | p :: ps =>
+    let lo' := max lo (-9007199254740991 - p.2)
+    let hi' := min hi (9007199254740991 - p.2)
+    safeShiftBounds lo' hi' ps
+
 def decodeMarginGap (input : Wire.Value) : Except String (Option Threshold.Gap) := do
   let pairs ← (← input.field? "pairs").pairs?
   let lo ← match input.field? "min" with
@@ -806,8 +793,9 @@ def decodeMarginGap (input : Wire.Value) : Except String (Option Threshold.Gap) 
     | .error _ => pure .ge
   if safe lo && safe hi && lo ≤ 0 && 0 ≤ hi && !pairs.isEmpty &&
       pairs.all (fun p => safePair p && lo ≤ p.1 - p.2 && p.1 - p.2 ≤ hi) then
+    let (safeLo, safeHi) := safeShiftBounds lo hi pairs
     let diffs := pairs.map (fun p => p.1 - p.2)
-    match Threshold.choose op 0 (Threshold.bounds op 0 lo hi diffs) with
+    match Threshold.choose op 0 (Threshold.bounds op 0 safeLo safeHi diffs) with
     | some g =>
       if pairs.all (safeShifted g.alternate) then return some g
       else return none

@@ -30,6 +30,10 @@ function oracleMargin(pairs, operator = '>=') {
   let hi = Number.MAX_SAFE_INTEGER;
   for (const [l, r] of pairs) {
     const d = l - r;
+    const loForR = r < 0 ? Number.MIN_SAFE_INTEGER - r : Number.MIN_SAFE_INTEGER;
+    const hiForR = r > 0 ? Number.MAX_SAFE_INTEGER - r : Number.MAX_SAFE_INTEGER;
+    lo = Math.max(lo, loForR);
+    hi = Math.min(hi, hiForR);
     if (upper) {
       if (d <= 0) lo = Math.max(lo, d);
       else hi = Math.min(hi, d - 1);
@@ -115,7 +119,7 @@ for (const [opName, slack, rhsKind] of rows) {
   });
 }
 
-test('Lean replay accepts shift operators only for safe integer pairs that agree', () => {
+test('Lean replay accepts shift operators only for safe integer pairs that agree and rejects ambiguous tags', () => {
   const valid = {
     candidate: 's0', traceCandidate: 's0', complete: true, deterministic: true,
     original: '>=', replacement: { geShift: -1 }, observations: [[100, 50], [20, 50], [80, 60]],
@@ -123,9 +127,19 @@ test('Lean replay accepts shift operators only for safe integer pairs that agree
   const differs = { ...valid, observations: [[49, 50], [100, 50]] };
   const unsafeShift = { ...valid, observations: [[Number.MIN_SAFE_INTEGER, Number.MIN_SAFE_INTEGER]] };
   const wrongOp = { ...valid, original: '<' };
-  const run = spawnSync('build/tmt-decide', [], { encoding: 'utf8', input: JSON.stringify([valid, differs, unsafeShift, wrongOp]) });
+  const ambiguous = { ...valid, replacement: { geLiteral: 0, geShift: 1 }, observations: [[5, 5]] };
+  const run = spawnSync('build/tmt-decide', [], { encoding: 'utf8', input: JSON.stringify([valid, differs, unsafeShift, wrongOp, ambiguous]) });
   assert.equal(run.status, 0, run.stderr);
-  assert.deepEqual(JSON.parse(run.stdout), [true, false, false, false]);
+  assert.deepEqual(JSON.parse(run.stdout), [true, false, false, false, false]);
+});
+
+test('marginGap falls back to the opposite safe direction when the preferred shift overflows safe integers', () => {
+  const M = Number.MIN_SAFE_INTEGER;
+  const pairs = [[M + 2, M], [M + 3, M + 1]];
+  // -1 overflows `M + (-1)`, but +1 is safe and agrees on both pairs (diffs are +2, +2 -> feasible safe interval [0, 2]).
+  const expected = { interval: [0, 2], alternate: 1, witness: 0, expected: true, mutant: false };
+  assert.deepEqual(marginGap(pairs, '>='), expected);
+  assert.deepEqual(checkedMarginGaps([{ operator: '>=', pairs }]), [expected]);
 });
 
 test('end-to-end Vitest reports comparison-margin/v1 INPUT GAP with feasibleMargins for varying-RHS comparison', () => {

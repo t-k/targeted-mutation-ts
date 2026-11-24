@@ -126,10 +126,10 @@ function flattenLogical(ts, node, kind, out = []) {
   return out;
 }
 
-function oldItemsInSpan(ts, oldTree, oldText, oldBytes, span) {
-  const terms = new Set();
-  const props = new Set();
-  if (!oldTree || !span || span[0] === span[1]) return { terms, props };
+function oldStructuresInSpan(ts, oldTree, oldText, oldBytes, span) {
+  const logicalExpressions = [];
+  const objectLiterals = [];
+  if (!oldTree || !span || span[0] === span[1]) return { logicalExpressions, objectLiterals };
   const [from, to] = span;
   const overlaps = node => oldBytes[node.getStart(oldTree)] < to && oldBytes[node.end] > from;
   (function visit(node) {
@@ -138,44 +138,68 @@ function oldItemsInSpan(ts, oldTree, oldText, oldBytes, span) {
         node.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
       const opKind = node.operatorToken.kind;
       if (!ts.isBinaryExpression(node.parent) || node.parent.operatorToken.kind !== opKind) {
-        for (const term of flattenLogical(ts, node, opKind)) {
-          if (overlaps(term)) terms.add(nodeSignature(ts, oldTree, oldText, term));
-        }
+        logicalExpressions.push({ opKind, terms: flattenLogical(ts, node, opKind).map(t => nodeSignature(ts, oldTree, oldText, t)) });
       }
     } else if (ts.isObjectLiteralExpression(node) && !isObjectAssignmentTarget(ts, node)) {
+      const keys = new Set();
       for (const prop of node.properties) {
-        if ((ts.isPropertyAssignment(prop) || ts.isShorthandPropertyAssignment(prop)) && overlaps(prop)) {
-          props.add(nodeSignature(ts, oldTree, oldText, prop));
+        if (ts.isPropertyAssignment(prop) || ts.isShorthandPropertyAssignment(prop)) {
+          const name = prop.name;
+          if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) keys.add(name.text);
         }
+      }
+      objectLiterals.push(keys);
+    } else {
+      const parent = node.parent;
+      const isValueExpr = parent && (
+        (ts.isArrowFunction(parent) && parent.body === node) ||
+        (ts.isReturnStatement(parent) && parent.expression === node) ||
+        ((ts.isIfStatement(parent) || ts.isWhileStatement(parent) || ts.isDoStatement(parent)) && parent.expression === node) ||
+        (ts.isConditionalExpression(parent) && parent.condition === node) ||
+        (ts.isVariableDeclaration(parent) && parent.initializer === node) ||
+        (ts.isPropertyAssignment(parent) && parent.initializer === node)
+      );
+      if (isValueExpr && ts.isExpression(node)) {
+        logicalExpressions.push({ opKind: null, terms: [nodeSignature(ts, oldTree, oldText, node)] });
       }
     }
     ts.forEachChild(node, visit);
   })(oldTree);
-  // Also record single-expression values/conditions from the old hunk (e.g., `=> a` or `if (a)` before `a && b && c`),
-  // without collecting parameter or declaration identifiers.
-  (function collectAtoms(node) {
-    if (!overlaps(node)) return;
-    const parent = node.parent;
-    const isConditionOrValue = parent && (
-      (ts.isArrowFunction(parent) && parent.body === node) ||
-      (ts.isReturnStatement(parent) && parent.expression === node) ||
-      ((ts.isIfStatement(parent) || ts.isWhileStatement(parent) || ts.isDoStatement(parent)) && parent.expression === node) ||
-      (ts.isConditionalExpression(parent) && parent.condition === node) ||
-      (ts.isVariableDeclaration(parent) && parent.initializer === node) ||
-      (ts.isPropertyAssignment(parent) && parent.initializer === node)
-    );
-    if (isConditionOrValue && !ts.isBinaryExpression(node)) {
-      terms.add(nodeSignature(ts, oldTree, oldText, node));
-    }
-    ts.forEachChild(node, collectAtoms);
-  })(oldTree);
-  return { terms, props };
+  return { logicalExpressions, objectLiterals };
+}
+
+function multisetAddedIndices(oldTerms, newTermSigs) {
+  const remaining = new Map();
+  for (const sig of oldTerms) remaining.set(sig, (remaining.get(sig) ?? 0) + 1);
+  const added = [];
+  for (let i = 0; i < newTermSigs.length; i++) {
+    const count = remaining.get(newTermSigs[i]) ?? 0;
+    if (count > 0) remaining.set(newTermSigs[i], count - 1);
+    else added.push(i);
+  }
+  for (const count of remaining.values()) if (count > 0) return null;
+  return added;
+}
+
+function commaTokensOfObject(ts, tree, objNode) {
+  const syntaxList = objNode.getChildren(tree).find(child => child.kind === ts.SyntaxKind.SyntaxList);
+  if (!syntaxList) return [];
+  return syntaxList.getChildren(tree).filter(child => child.kind === ts.SyntaxKind.CommaToken);
+}
+
+function needsSeparatorSpace(beforeChar, afterChar) {
+  if (!beforeChar || !afterChar) return false;
+  if (/[A-Za-z0-9_$]/.test(beforeChar) && /[A-Za-z0-9_$]/.test(afterChar)) return true;
+  if ((beforeChar === '+' && afterChar === '+') || (beforeChar === '-' && afterChar === '-')) return true;
+  if (beforeChar === '/' && (afterChar === '/' || afterChar === '*')) return true;
+  return false;
 }
 
 function subhunkEdits(ts, file, current, text, tree, curBytes, oldTree, oldText, oldBytes, change, now, wholeCode, selected, seenCodes) {
   const [from, to] = change.edit;
   if (from === to) return [];
-  const { terms: oldTerms, props: oldProps } = oldItemsInSpan(ts, oldTree, oldText, oldBytes, change.oldSpan);
+  const hasOld = Boolean(change.oldSpan && change.oldSpan[0] !== change.oldSpan[1]);
+  const { logicalExpressions: oldLogicals, objectLiterals: oldObjects } = oldStructuresInSpan(ts, oldTree, oldText, oldBytes, change.oldSpan);
   const overlaps = node => curBytes[node.getStart(tree)] < to && curBytes[node.end] > from;
   const results = [];
   const tryEmit = (delStartChar, delEndChar, kind, anchorNode) => {
@@ -185,7 +209,8 @@ function subhunkEdits(ts, file, current, text, tree, curBytes, oldTree, oldText,
     for (let line = startLine; line <= endLine && !inScope; line++) inScope = selected(line);
     if (!inScope) return;
     const edit = [curBytes[delStartChar], curBytes[delEndChar]];
-    const replacement = Buffer.alloc(0);
+    const sepSpace = needsSeparatorSpace(text[delStartChar - 1], text[delEndChar]);
+    const replacement = sepSpace ? Buffer.from(' ') : Buffer.alloc(0);
     const undone = apply(current, { edit, replacement }).toString();
     if (!parses(ts, file, undone)) return;
     const undoneCode = code(ts, file, undone);
@@ -201,33 +226,58 @@ function subhunkEdits(ts, file, current, text, tree, curBytes, oldTree, oldText,
       if (!ts.isBinaryExpression(node.parent) || node.parent.operatorToken.kind !== opKind) {
         const terms = flattenLogical(ts, node, opKind);
         if (terms.length >= 2) {
-          for (let i = 0; i < terms.length; i++) {
-            const term = terms[i];
-            if (!overlaps(term) || oldTerms.has(nodeSignature(ts, tree, text, term))) continue;
-            const delStart = i === 0 ? term.getStart(tree) : terms[i - 1].end;
-            const delEnd = i === 0 ? terms[1].getStart(tree) : term.end;
-            tryEmit(delStart, delEnd, 'logical-term', term);
+          const termSigs = terms.map(t => nodeSignature(ts, tree, text, t));
+          let addedIndices = null;
+          if (!hasOld) {
+            addedIndices = terms.map((_, idx) => idx);
+          } else {
+            // Find the largest old expression in the hunk whose terms form a strict multiset subset of `termSigs`.
+            let bestOld = null;
+            for (const oldExpr of oldLogicals) {
+              if (oldExpr.opKind !== null && oldExpr.opKind !== opKind) continue;
+              const diff = multisetAddedIndices(oldExpr.terms, termSigs);
+              if (diff && diff.length > 0 && (!bestOld || oldExpr.terms.length > bestOld.count)) {
+                bestOld = { count: oldExpr.terms.length, added: diff };
+              }
+            }
+            if (bestOld) addedIndices = bestOld.added;
+          }
+          if (addedIndices) {
+            for (const i of addedIndices) {
+              const term = terms[i];
+              if (!overlaps(term)) continue;
+              const delStart = i === 0 ? term.getStart(tree) : terms[i - 1].end;
+              const delEnd = i === 0 ? terms[1].getStart(tree) : term.end;
+              tryEmit(delStart, delEnd, 'logical-term', term);
+            }
           }
         }
       }
     } else if (ts.isObjectLiteralExpression(node) && !isObjectAssignmentTarget(ts, node)) {
-      const props = node.properties;
-      for (let i = 0; i < props.length; i++) {
-        const prop = props[i];
-        if ((!ts.isPropertyAssignment(prop) && !ts.isShorthandPropertyAssignment(prop)) || !overlaps(prop)) continue;
-        if (oldProps.has(nodeSignature(ts, tree, text, prop))) continue;
-        const propStart = prop.getStart(tree);
-        const afterLimit = i + 1 < props.length ? props[i + 1].getStart(tree) : node.end - 1;
-        const trailingComma = text.indexOf(',', prop.end);
-        if (trailingComma !== -1 && trailingComma < afterLimit) {
-          tryEmit(propStart, trailingComma + 1, 'object-property', prop);
-        } else if (i > 0) {
-          const prevComma = text.lastIndexOf(',', propStart - 1);
-          if (prevComma >= props[i - 1].end) {
-            tryEmit(prevComma, prop.end, 'object-property', prop);
+      // Only decompose added properties when we can match against at most one old object literal in the hunk
+      // (avoiding cross-object shadowing) or when the hunk is a pure addition.
+      if (!hasOld || oldObjects.length === 1) {
+        const oldKeys = hasOld ? oldObjects[0] : new Set();
+        const props = node.properties;
+        const commas = commaTokensOfObject(ts, tree, node);
+        for (let i = 0; i < props.length; i++) {
+          const prop = props[i];
+          if ((!ts.isPropertyAssignment(prop) && !ts.isShorthandPropertyAssignment(prop)) || !overlaps(prop)) continue;
+          const name = prop.name;
+          if (!ts.isIdentifier(name) && !ts.isStringLiteral(name) && !ts.isNumericLiteral(name)) continue;
+          if (oldKeys.has(name.text)) continue;
+          const propStart = prop.getStart(tree);
+          const afterLimit = i + 1 < props.length ? props[i + 1].getStart(tree) : node.end - 1;
+          const trailingComma = commas.find(c => c.getStart(tree) >= prop.end && c.end <= afterLimit);
+          if (trailingComma) {
+            tryEmit(propStart, trailingComma.end, 'object-property', prop);
+          } else if (i > 0) {
+            const prevEnd = props[i - 1].end;
+            const prevComma = commas.find(c => c.getStart(tree) >= prevEnd && c.end <= propStart);
+            if (prevComma) tryEmit(prevComma.getStart(tree), prop.end, 'object-property', prop);
+          } else {
+            tryEmit(propStart, prop.end, 'object-property', prop);
           }
-        } else {
-          tryEmit(propStart, prop.end, 'object-property', prop);
         }
       }
     }

@@ -93,6 +93,8 @@ export function marginGap(pairs, operator = '>=', min = Number.MIN_SAFE_INTEGER,
     return null;
   }
   const diffs = [];
+  let safeLo = min;
+  let safeHi = max;
   for (const pair of pairs) {
     if (!Array.isArray(pair) || pair.length !== 2) return null;
     const [lhs, rhs] = pair;
@@ -100,11 +102,43 @@ export function marginGap(pairs, operator = '>=', min = Number.MIN_SAFE_INTEGER,
     const diff = lhs - rhs;
     if (!Number.isSafeInteger(diff) || diff < min || diff > max) return null;
     diffs.push(diff);
+    // Restrict shift domain to shifts where `rhs + shift` remains a safe integer for every observed rhs.
+    const loForRhs = rhs < 0 ? Number.MIN_SAFE_INTEGER - rhs : Number.MIN_SAFE_INTEGER;
+    const hiForRhs = rhs > 0 ? Number.MAX_SAFE_INTEGER - rhs : Number.MAX_SAFE_INTEGER;
+    safeLo = Math.max(safeLo, loForRhs);
+    safeHi = Math.min(safeHi, hiForRhs);
   }
-  const gap = thresholdGap(0, diffs, min, max, operator);
-  if (!gap) return null;
-  if (pairs.some(([, rhs]) => !Number.isSafeInteger(rhs + gap.alternate))) return null;
-  return gap;
+  // Compute bounds over full integer diffs, then intersect with [safeLo, safeHi] before choosing the nearest safe shift.
+  const upper = upperInclusive(operator);
+  let lowerBound = safeLo;
+  let upperBound = safeHi;
+  for (const d of diffs) {
+    if (upper) {
+      if (d <= 0) lowerBound = Math.max(lowerBound, d);
+      else upperBound = Math.min(upperBound, d - 1);
+    } else {
+      if (d < 0) lowerBound = Math.max(lowerBound, d + 1);
+      else upperBound = Math.min(upperBound, d);
+    }
+  }
+  let alternate = null;
+  let witness = null;
+  if (upper) {
+    if (0 < upperBound) (alternate = 1, witness = 1);
+    else if (lowerBound < 0) (alternate = -1, witness = 0);
+  } else {
+    if (lowerBound < 0) (alternate = -1, witness = -1);
+    else if (0 < upperBound) (alternate = 1, witness = 0);
+  }
+  if (alternate === null) return null;
+  if (pairs.some(([, rhs]) => !Number.isSafeInteger(rhs + alternate))) return null;
+  return {
+    interval: [lowerBound, upperBound],
+    alternate,
+    witness,
+    expected: evaluate(operator, witness, 0),
+    mutant: evaluate(operator, witness, alternate),
+  };
 }
 
 function extremalMarginPairs(pairs, min, max, operator = '>=') {

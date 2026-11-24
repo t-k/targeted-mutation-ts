@@ -353,9 +353,10 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       const first = source(args[0]) === '0';
       probed(node, first ? 'at0' : 'at-1', [callee.expression])(targetedRules.ends, first ? 'at-1' : 'at0',
         text.slice(begin(node), begin(args[0])) + (first ? '-1' : '0') + text.slice(args[0].end, node.end));
-    } else if ((name === 'startsWith' || name === 'endsWith') && args.length === 1) {
+    } else if ((name === 'startsWith' || name === 'endsWith') && args.length === 1 && !staysInPlace(args[0])) {
       probed(node, name, [callee.expression, args[0]])(targetedRules.prefixSubstring, 'includes', rename(node, callee.name, 'includes'));
-    } else if ((name === 'replace' || name === 'replaceAll') && args.length === 2 && !ts.isRegularExpressionLiteral(strip(args[0]))) {
+    } else if ((name === 'replace' || name === 'replaceAll') && args.length === 2 && !ts.isRegularExpressionLiteral(strip(args[0])) &&
+        !staysInPlace(args[0]) && !staysInPlace(args[1])) {
       const swapped = name === 'replace' ? 'replaceAll' : 'replace';
       probed(node, name, [callee.expression, args[0], args[1]])(targetedRules.replaceMultiplicity, swapped, rename(node, callee.name, swapped));
     }
@@ -397,6 +398,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       const rest = only.slice(1);
       const keys = [];
       const values = [];
+      const pureProps = [];
       const seenKeys = new Set();
       for (const prop of rest) {
         if (!ts.isPropertyAssignment(prop) && !ts.isShorthandPropertyAssignment(prop)) return;
@@ -407,11 +409,16 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
         if (key === '__proto__' || seenKeys.has(key)) return;
         const valueNode = ts.isShorthandPropertyAssignment(prop) ? prop.name : prop.initializer;
         if (staysInPlace(valueNode)) return;
+        // Anonymous functions and classes receive inferred `.name` from their property key in an object literal.
+        const innerVal = strip(valueNode);
+        if (ts.isArrowFunction(innerVal) || (ts.isFunctionExpression(innerVal) && !innerVal.name) ||
+            (ts.isClassExpression(innerVal) && !innerVal.name)) return;
         seenKeys.add(key);
         keys.push(key);
         values.push(valueNode);
+        pureProps.push(written(valueNode) ? 1 : 0);
       }
-      const edit = probed(node, 'spreadUpdate', [only[0].expression, ...values], { spreadKeys: keys });
+      const edit = probed(node, 'spreadUpdate', [only[0].expression, ...values], { spreadKeys: keys, pureProps });
       for (let j = 0; j < rest.length; j++) {
         const kept = [only[0], ...rest.filter((_, idx) => idx !== j)];
         edit(targetedRules.spreadDrop, `drop:${j}`, `{ ${kept.map(prop => source(prop)).join(', ')} }`, { key: keys[j] });
