@@ -33,6 +33,9 @@ type binding_namespace =
   // A class declares a value and a type like BothNames, and merges with an interface of its name.
   | ClassName
   | AmbientClassName
+  // A namespace that exists at run time. It is a value like any other, and merges with an earlier namespace,
+  // class or function of its name: TypeScript then writes its function without a declaration of the name.
+  | NamespaceName
 
 type binding_name = { span:G.span; namespace:binding_namespace; owner:U8.t }
 
@@ -57,6 +60,9 @@ noeq type tape = {
   // The flag stands behind the capacity, where the C layout has four unused bytes: the tape is passed by
   // value to every parser function, and eight more bytes cost a percent of the parsing time.
   legacy_decorators : bool;
+  // Every name that is read as an expression is recorded, for the emitter of namespaces: a reference to an
+  // exported variable is written as a property of the namespace. The flag shares the unused bytes.
+  capture_references : bool;
   bindings : array binding_name;
   marks : array U8.t
 }

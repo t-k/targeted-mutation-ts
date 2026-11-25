@@ -1,0 +1,5 @@
+First: Namespace, Class, Function
+Exported: Neither, Both
+Member: Const, Function, Class, Enum
+Between: Nothing, CallWithoutSemicolon, Declaration
+Third: None, Namespace

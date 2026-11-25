@@ -343,6 +343,12 @@ let record_jsx_span (input:tape) (state:parser_state) (kind first last:U32.t)
   let span = { G.first = first; G.last = last } in
   record_compiler_span input state kind span span
 
+// Kind 43: a name read as an expression, when the tape asks for references.
+let record_reference (input:tape) (state:parser_state) (start:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  if state.status <> 0ul then ret input state
+  else record_compiler_span input state 43ul { G.first = start; G.last = state.offset } { G.first = 0ul; G.last = 0ul }
+
 let record_contextual_reference (input:tape) (state:parser_state) (start:U32.t) (first:U8.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
   if not input.capture_types || state.status <> 0ul then ret input state
@@ -859,7 +865,10 @@ let is_class_binding (namespace:binding_namespace) : bool =
   namespace = ClassName || namespace = AmbientClassName
 
 let names_overlap (left right:binding_namespace) : bool =
-  if left = RuntimeExport then right = ValueName || right = BothNames || right = FunctionImplementation || right = ClassName
+  if left = RuntimeExport then right = ValueName || right = BothNames || right = FunctionImplementation || right = ClassName ||
+    right = NamespaceName
+  // A run-time namespace merges with a namespace, a class or a function that stands in front of it.
+  else if left = NamespaceName && (right = NamespaceName || right = ClassName || right = FunctionImplementation) then false
   else if is_function_binding left && is_function_binding right then
     left = FunctionImplementation && right = FunctionImplementation
   // Interfaces of one name merge, whatever they extend and whether or not they are exported.
@@ -872,7 +881,7 @@ let names_overlap (left right:binding_namespace) : bool =
     let other = if left = TypeNamespace then right else left in
     other = BothNames || other = TypeOnlyImport || other = AmbientBothNames
   else
-    let effective binding = if is_function_binding binding || binding = AmbientValueName then ValueName
+    let effective binding = if is_function_binding binding || binding = AmbientValueName || binding = NamespaceName then ValueName
       else if is_interface_binding binding then TypeName
       else if binding = TypeOnlyImport || binding = AmbientBothNames || is_class_binding binding then BothNames else binding in
     let left = effective left in
@@ -889,6 +898,18 @@ let rec name_seen (input:tape) (base:names_base) (floor used:names_used) (pos le
       same_bytes input pos saved.span.G.first len else ret input (false)) in
     if equal then ret input (true) else name_seen input base floor previous pos len namespace
 
+// Whether a namespace, a class or a function of this name is bound at module level already.
+let rec name_merges (input:tape) (used:names_used) (pos len:U32.t)
+  : Tot (stt bool (heap input) (fun _ -> heap input)) (decreases U32.v used) =
+  if used = 0ul then ret input false
+  else
+    let previous = U32.sub used 1ul in
+    let! saved = (fun () -> get_binding input (U32.add 0ul previous)) in
+    let! equal = (fun () -> if len = minus saved.span.G.last saved.span.G.first &&
+        (saved.namespace = NamespaceName || saved.namespace = ClassName || saved.namespace = FunctionImplementation) then
+      same_bytes input pos saved.span.G.first len else ret input false) in
+    if equal then ret input true else name_merges input previous pos len
+
 let bind_in_namespace (input:tape) (st:parser_state) (base:names_base) (floor used:names_used)
   (pos:U32.t) (namespace:binding_namespace)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) =
@@ -897,7 +918,7 @@ let bind_in_namespace (input:tape) (st:parser_state) (base:names_base) (floor us
   let length = minus st.offset pos in
   if st.status <> 0ul || used = binding_region_width || U32.(length >^ 256ul) then ret input ({ state = failed st 1ul; used })
   else (let! anf_value_1 = (fun () -> name_seen input base floor used pos length namespace) in if anf_value_1 then
-    ret input (let status = if base = 0ul && (namespace = ValueName || namespace = AmbientValueName) then 5ul else 1ul in
+    ret input (let status = if base = 0ul && (namespace = ValueName || namespace = AmbientValueName || namespace = NamespaceName) then 5ul else 1ul in
     { state = failed st status; used })
   else (let! _ = (fun () -> set_binding input (U32.add base used) { span = { G.first = pos; G.last = st.offset }; namespace; owner = 0uy }) in
     ret input ({ state = st; used = U32.add used 1ul })))
@@ -3012,6 +3033,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
             let named = from_cursor st name_ in
             let! named = (fun () -> if ch = 97uy || ch = 110uy || ch = 115uy || ch = 116uy then
               record_contextual_reference input named start_pos ch else ret input named) in
+            let! named = (fun () -> if input.capture_references then record_reference input named start_pos else ret input named) in
             let! target = (fun () -> identifier_target input start_pos ch) in
             ret input (named, target)) in
       let base = { parser = named; range = { G.first = start_pos; G.last = named.offset };
@@ -5476,12 +5498,14 @@ and nested_namespace (input:tape) (st:parser_state) (keyword_at:U32.t) (floor us
         in_allowed = st.in_allowed; super_context = st.super_context } recorded in
       runtime_namespace_members input after floor decl.used (minus remaining 1ul) depth true
 
-// Kind 34 covers the head of the namespace through its opening brace, kind 38 its closing brace.
-let runtime_namespace (input:tape) (state:parser_state) (declaration_start name_start:U32.t) (body_start:parser_state)
+// Kind 34 covers the head of the namespace through its opening brace, kind 38 its closing brace. Kind 44 is
+// the head of a namespace whose name is declared already, by a namespace, a class or a function.
+let runtime_namespace (input:tape) (state:parser_state) (declaration_start name_start:U32.t) (body_start:parser_state) (merged:bool)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
   let! name_end = (fun () -> name input name_start false true) in
   let name_span = { G.first = name_start; G.last = name_end.at } in
-  let! recorded = (fun () -> record_compiler_span input body_start 34ul { G.first = declaration_start; G.last = body_start.offset } name_span) in
+  let! recorded = (fun () -> record_compiler_span input body_start (if merged then 44ul else 34ul)
+    { G.first = declaration_start; G.last = body_start.offset } name_span) in
   let floor = recorded.local_names in
   let inner = enter_function_locals { recorded with await_allowed = false; yield_allowed = false; in_allowed = true;
     super_context = FunctionBody } in
@@ -5524,10 +5548,14 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) (expo
         else
           // Not a namespace of types alone. Its name is a value: it conflicts with every other value and
           // shares the name with a type alias or an interface.
-          let! value = (fun () -> bind_in_namespace input st 0ul 0ul used namespace_.name_start ValueName) in
+          let! name_end = (fun () -> name input namespace_.name_start false true) in
+          let! merged = (fun () -> if name_end.ok && U32.gte name_end.at namespace_.name_start then
+              name_merges input used namespace_.name_start (minus name_end.at namespace_.name_start)
+            else ret input false) in
+          let! value = (fun () -> bind_in_namespace input st 0ul 0ul used namespace_.name_start NamespaceName) in
           if value.state.status <> 0ul then ret input value
           else
-            let! lowered = (fun () -> runtime_namespace input st state.offset namespace_.name_start namespace_.body_start) in
+            let! lowered = (fun () -> runtime_namespace input st state.offset namespace_.name_start namespace_.body_start merged) in
             ret input { value with state = lowered }
   else
     let! start = (fun () -> skip input { st with offset = plus st.offset width }) in
@@ -5616,8 +5644,13 @@ let rec reserve_direct_exports (input:tape) (state:parser_state) (used previous 
   else
     let index = U32.sub current 1ul in
     let! binding = (fun () -> get_binding input index) in
+    // A namespace that merges with a declaration in front of it is written without a declaration of its own,
+    // exported or not: whether the name is exported is the first declaration's matter.
+    let! merged = (fun () -> if binding.namespace = NamespaceName && U32.gte binding.span.G.last binding.span.G.first then
+        name_merges input index binding.span.G.first (minus binding.span.G.last binding.span.G.first)
+      else ret input false) in
     let! named = (fun () -> if binding.namespace = TypeName || is_interface_binding binding.namespace || binding.namespace = FunctionSignature ||
-        binding.namespace = TypeNamespace then ret input ({ state; used })
+        binding.namespace = TypeNamespace || merged then ret input ({ state; used })
       else reserve_export input state used binding.span.G.first binding.span.G.last) in
     reserve_direct_exports input named.state named.used previous index
 

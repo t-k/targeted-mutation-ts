@@ -50,7 +50,7 @@ export function simdSource(root, original, scratch, scalar) {
 // only where the syntax occurs.
 const rare = ['angle_assertion_head', 'local_enum_declaration', 'local_enum_start', 'enum_body_tokens',
   'simple_less_argument', 'single_less_byte', 'type_arguments_end_at_call_close', 'local_abstract_class', 'class_index_signature', 'runtime_namespace', 'runtime_namespace_members',
-  'bare_greater_between', 'cover_assignment_members', 'first_less_from'];
+  'bare_greater_between', 'cover_assignment_members', 'first_less_from', 'record_reference'];
 // expression_end and declarators_end are not in the list: every list and every declaration ends in them, and
 // only the search they start for an unmatched angle is rare. Out of line they cost about two percent.
 

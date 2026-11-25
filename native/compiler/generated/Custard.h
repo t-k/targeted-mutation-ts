@@ -45,6 +45,7 @@ TmtGrammar_candidate;
 #define TmtPulseMemory_AmbientBothNames 16
 #define TmtPulseMemory_ClassName 17
 #define TmtPulseMemory_AmbientClassName 18
+#define TmtPulseMemory_NamespaceName 19
 
 typedef uint8_t TmtPulseMemory_binding_namespace;
 
@@ -67,6 +68,7 @@ typedef struct TmtPulseMemory_tape_s
   TmtGrammar_candidate *output;
   uint32_t capacity;
   bool legacy_decorators;
+  bool capture_references;
   TmtPulseMemory_binding_name *bindings;
   uint8_t *marks;
 }
@@ -1495,6 +1497,13 @@ TmtPulseParser_regex_pattern(
 
 TmtPulseParser_cursor TmtPulseParser_regex_end(TmtPulseMemory_tape input, uint32_t at);
 
+TmtPulseParser_parser_state
+TmtPulseParser_record_reference(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t start
+);
+
 TmtPulseParser_assignment_target
 TmtPulseParser_identifier_target(TmtPulseMemory_tape input, uint32_t pos, uint8_t ch);
 
@@ -2701,6 +2710,14 @@ TmtPulseParser_enum_declaration(
   bool ambient
 );
 
+bool
+TmtPulseParser_name_merges(
+  TmtPulseMemory_tape input0,
+  uint32_t used0,
+  uint32_t pos0,
+  uint32_t len0
+);
+
 TmtPulseParser_parser_state
 TmtPulseParser_nested_namespace(
   TmtPulseMemory_tape input,
@@ -2729,7 +2746,8 @@ TmtPulseParser_runtime_namespace(
   TmtPulseParser_parser_state state,
   uint32_t declaration_start,
   uint32_t name_start,
-  TmtPulseParser_parser_state body_start
+  TmtPulseParser_parser_state body_start,
+  bool merged
 );
 
 TmtPulseParser_named_state

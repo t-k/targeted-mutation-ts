@@ -1,0 +1,7 @@
+Variable: Const, Let, Var, Bare
+Site: Statement, Function, Arrow, Method, InnerNamespace, Template
+Form: Read, Assign, Update, Argument, PropertyAccess, Shorthand, Key, ShadowedParameter, InString
+Outer: Plain, Exported
+
+IF [Variable] = "Const" THEN [Form] <> "Assign" AND [Form] <> "Update";
+IF [Site] = "Template" THEN [Form] = "Read";

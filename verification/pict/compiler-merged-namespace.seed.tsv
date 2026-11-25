@@ -1,0 +1,7 @@
+First	Exported	Member	Between	Third
+Namespace	Neither	Const	Nothing	None
+Class	Neither	Const	Nothing	None
+Function	Neither	Function	Nothing	None
+Class	Both	Const	CallWithoutSemicolon	None
+Namespace	Both	Function	Declaration	Namespace
+Function	Neither	Enum	CallWithoutSemicolon	Namespace

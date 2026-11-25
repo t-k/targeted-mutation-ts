@@ -975,21 +975,16 @@ test('a namespace with exported variables, functions and classes is lowered as T
   ]) {
     assert.equal(sameAsTypeScript(source, 'space.ts').backend, 'pulse', source);
   }
-  for (const source of ['export class N { }\nexport namespace N { export const a = 1; }',
-    'export enum N { A }\nexport namespace N { export const a = 1; }',
+  for (const source of ['export enum N { A }\nexport namespace N { export const a = 1; }',
     'import { N } from "m";\nexport namespace N { export const a = 1; }',
     'export namespace N { export const a = 1; export const b = { a: 2 }; }',
-    'export namespace N { export const a = 1; export const b = [...a]; }',
     'export namespace N { export enum E { A } export enum E { B } }']) {
     assert.notEqual(compile(Buffer.from(source), { file: 'space.ts' }).backend, 'pulse', source);
   }
   for (const source of [
-    'export namespace N { export const a = 1; export const b = a + 1; }',
     'export namespace N { export const a = () => N; }',
     'export namespace N { export const a = 1, b = 2; }',
     'export namespace N { export const { a } = o; }',
-    'export namespace N { export const a = 1; }\nexport namespace N { export const b = 2; }',
-    'export function N() {}\nexport namespace N { export const a = 1; }',
     'export namespace N { export function f(): void; export function f() {} }',
     'export namespace N { export const a = 1; return 1; }',
     'export namespace N { export const a = 1; export default 1; }',
@@ -1434,8 +1429,7 @@ test('a script lowers enums, namespaces and parameter properties as a module doe
     assert.match(result.code, /^"use strict";\n/, source);
     assert.doesNotThrow(() => new Function(result.code), source);
   }
-  for (const source of ['enum E { A }\nenum E { B = 1 }', 'var E = 1;\nenum E { A }',
-    'namespace N { export var x = 1; }\nnamespace N { export var y = 2; }']) {
+  for (const source of ['enum E { A }\nenum E { B = 1 }', 'var E = 1;\nenum E { A }']) {
     assert.notEqual(compile(Buffer.from(source), { file: 'script.ts' }).backend, 'pulse', source);
   }
 });
@@ -1763,10 +1757,14 @@ test('an exported namespace variable without a value is erased, as TypeScript wr
     assert.equal(result.backend, 'pulse', source);
     assert.doesNotMatch(result.code, /\bx\b|\bc\b/, source);
   }
-  // A use of the name elsewhere in the body would need the namespace object in front of it.
+  // A use of the name elsewhere in the body gets the namespace object in front of it.
   for (const source of [
     'namespace N { export var x: number; x = 1; }\nexport {};',
     'namespace N { export var x: number; export function f() { return x; } }\nexport {};',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'space.ts').backend, 'pulse', source);
+  }
+  for (const source of [
     'namespace N { export const c: number; }\nexport {};',
     'namespace N { export var x: number, y: string; }\nexport {};',
   ]) {
@@ -1946,9 +1944,6 @@ test('the word namespace in a namespace body is an identifier in front of a line
 
 test('what a namespace inside another needs beyond that is left to TypeScript', () => {
   for (const source of [
-    // A reference to an exported variable needs the namespace in front of it.
-    'namespace N { export namespace M { export const v = 1; export const w = v; } }\nexport { N };',
-    'namespace N { export const v = 1; export namespace M { export const w = v; } }\nexport { N };',
     // The namespace's own name as anything but the head of a property access may be a declaration.
     'namespace N { export namespace M { export const v = 1; const M = 2; } }\nexport { N };',
     'namespace N { export namespace N { export const v = 1; } }\nexport { N };',
@@ -1959,7 +1954,6 @@ test('what a namespace inside another needs beyond that is left to TypeScript', 
     // A dotted name written with space around its dots, and one that holds the name of a member.
     'namespace N . M { export const v = 1; }\nexport { N };',
     'namespace N.M { export const N = 1; }\nexport { N };',
-    'namespace N.M { export const v = 1; export const w = v; }\nexport { N };',
   ]) {
     assert.equal(sameAsTypeScript(source, 'nested.ts').backend, 'typescript', source);
   }
@@ -2005,5 +1999,139 @@ test('a dotted namespace name declares one namespace inside another', () => {
     const result = sameAsTypeScript(source, 'dotted.ts');
     assert.equal(result.backend, 'pulse', source);
     assert.doesNotMatch(result.code, /function/);
+  }
+});
+
+// One source per row of the PICT table: a variable that a namespace exports, and one more occurrence of its name.
+function namespaceReference(row) {
+  const declaration = { Const: 'export const v = 1;', Let: 'export let v = 1;', Var: 'export var v = 1;', Bare: 'export var v: number;' }[row.Variable];
+  const occurrence = {
+    Read: 'v + 1', Assign: '(v = 5)', Update: 'v++', Argument: 'String(v)', PropertyAccess: '(o as any).v',
+    Shorthand: '({ v })', Key: '({ v: 2 })', ShadowedParameter: '((v: number) => v)(3)', InString: '"v"',
+  }[row.Form];
+  const [site, read] = {
+    Statement: [`export const r = ${occurrence};`, 'N.r'],
+    Function: [`export function f() { return ${occurrence}; }`, 'N.f()'],
+    Arrow: [`export const f = () => ${occurrence};`, 'N.f()'],
+    Method: [`export class K { m() { return ${occurrence}; } }`, 'new N.K().m()'],
+    InnerNamespace: [`export namespace M { export const r = ${occurrence}; }`, 'N.M.r'],
+    Template: [`export const r = \`a\${${occurrence}}b\`;`, 'N.r'],
+  }[row.Site];
+  return `${row.Outer === 'Exported' ? 'export ' : ''}namespace N { const o: any = Object.create(null); ${declaration} ${site} }\n` +
+    `export const out = JSON.stringify([${read}, (N as any).v]);`;
+}
+
+test('a reference to a variable that a namespace exports is written as a property of the namespace', () => {
+  const [header, ...rows] = readFileSync(new URL('../verification/pict/compiler-namespace-references.tsv', import.meta.url), 'utf8')
+    .trim().split('\n').map(line => line.split('\t'));
+  assert.equal(rows.length, 50);
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))();
+  let native = 0;
+  for (const cells of rows) {
+    const row = Object.fromEntries(header.map((name, index) => [name, cells[index]]));
+    const source = namespaceReference(row);
+    const result = sameAsTypeScript(source, 'reference.ts');
+    assert.equal(run(result.code), run(reference(source, 'reference.ts')), source);
+    // An occurrence that is no reference leaves the namespace to TypeScript.
+    if (['Shorthand', 'Key', 'ShadowedParameter', 'InString'].includes(row.Form)) assert.equal(result.backend, 'typescript', source);
+    else { assert.equal(result.backend, 'pulse', source); native++; }
+  }
+  assert.ok(native >= 25, String(native));
+  // The text itself.
+  assert.equal(compile(Buffer.from('namespace N { export var a = 1; function f() { return a; } export var b; function g() { return b; } }\nexport { N };'), { file: 'reference.ts' }).code,
+    'var N;(function (N) { N.a = 1; function f() { return N.a; }  function g() { return N.b; } })(N||(N={}));\nexport { N };');
+});
+
+test('references to exported variables across namespaces, and what stays with TypeScript', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))();
+  for (const source of [
+    // The owner is the innermost namespace that exports the name itself.
+    'namespace N { export const a = 1; export namespace M { export const b = a + 1; export const c = b + a; } }\nexport const out = JSON.stringify(N);',
+    'namespace A.B { export let n = 1; export function bump() { n += 1; return n; } }\nexport const out = [A.B.bump(), A.B.n].join();',
+    'namespace N { export let n = 1; export const list = [n, n + 1].map(x => x + n); n = list.length; }\nexport const out = JSON.stringify(N);',
+    'namespace N { export var a = 1; var t = [a][a - 1]; export const u = t; }\nexport const out = JSON.stringify(N);',
+    'namespace N { export const a = 1; export class K extends (a ? Object : Array) { v = a; static s = `${a}`; } }\nexport const out = JSON.stringify([new N.K().v, N.K.s]);',
+  ]) {
+    const result = sameAsTypeScript(source, 'reference.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'reference.ts')), source);
+  }
+  for (const source of [
+    // A local of the same name in a namespace inside, a label, a member name, a destructured local.
+    'namespace N { export const a = 1; export namespace M { const a = 2; export const b = a; } }\nexport { N };',
+    'namespace N { export const a = 1; a: for (;;) { break a; } }\nexport { N };',
+    'namespace N { export let n = 1; for (n of [7]) {} }\nexport { N };',
+    'namespace N { export const a = 1; export class K { a = 2; } }\nexport { N };',
+    'namespace N { export const a = 1; export function f() { const { a } = { a: 2 }; return a; } }\nexport { N };',
+    'namespace N { export const a = 1; export const f = function a() { return 1; }; }\nexport { N };',
+    'namespace N { export const a = 1; export function f(x = a, a = 2) { return x; } }\nexport { N };',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'reference.ts').backend, 'typescript', source);
+  }
+});
+
+test('a name that hides an exported namespace variable is never written as a property', () => {
+  const hiding = [
+    '(v) => v', 'v => v', 'async v => v', 'async (v) => v', '(a, v) => v + a', '({ v }) => v', '([v]) => v', '(v = 1) => v', '(...v) => v',
+    '({ a: v }) => v', '({ a: { v } }) => v', '(a, { v } = { v: 1 }) => v',
+    'function (v) { return v; }', 'function* (v) { yield v; }', 'async function (v) { return v; }', 'function v() { return v; }',
+    'class { m(v) { return v; } }', 'class { set s(v) { this.x = v; } }', 'class { constructor(v) { this.x = v; } }', 'class { v = 1; }',
+    'class { static v() { return 1; } }', 'class v {}', 'class { #v = 1; m() { return this.#v; } }',
+    '() => { try { throw 1; } catch (v) { return v; } }', '() => { for (const v of [1]) return v; }', '() => { for (let v = 0; v < 1; v++) return v; }',
+    '() => { for (var v in { a: 1 }) return v; }', '() => { let v = 2; return v; }', '() => { var v = 2; return v; }', '() => { const { v } = { v: 2 }; return v; }',
+    '() => { const [v] = [2]; return v; }', '() => { function v() { return 3; } return v(); }', '() => { class v {} return v; }',
+    '() => { enum v { a } return v.a; }', '() => { v: for (;;) { break v; } return 1; }', '{ v() { return 1; } }', '{ get v() { return 1; } }',
+    '{ v }', '{ v: 1 }', '{ "v": v }', '{ [v]: v }', 'o.v', 'o?.v', 'o.v.v', 'o[v]', '`${v}`', 'v ? v : v', 'typeof v', 'void v', '[v, ...[v]]', 'new (class { x = v; })().x',
+    '(() => { let w: typeof v = 1; return w; })()', '(function f(a = v) { return a; })()', '((a = v, v = 2) => a)()',
+  ];
+  for (const expression of hiding) {
+    for (const declaration of ['export const v = 1;', 'export var v: number;']) {
+      const source = `namespace N { const o: any = Object.create(null); ${declaration} export const r = ${expression.startsWith('{') ? `(${expression})` : expression}; }\nexport { N };`;
+      // Whichever route answers, the syntax is TypeScript's.
+      sameAsTypeScript(source, 'hiding.ts');
+    }
+  }
+});
+
+// One source per row of the PICT table: a namespace behind a declaration of its name.
+function mergedNamespace(row) {
+  const exported = row.Exported === 'Both' ? 'export ' : '';
+  const first = {
+    Namespace: `${exported}namespace M { export const first = 1; }`,
+    Class: `${exported}class M { static first = 1; }`,
+    Function: `${exported}function M() { return 1; }`,
+  }[row.First];
+  const member = { Const: 'export const v = 2;', Function: 'export function v() { return 2; }', Class: 'export class v { static n = 2; }', Enum: 'export enum v { a, b }' }[row.Member];
+  const between = { Nothing: '', CallWithoutSemicolon: 'log.push(1)\n', Declaration: 'const other = 3;\n' }[row.Between];
+  const third = row.Third === 'Namespace' ? `\n${exported}namespace M { export const third = 4; }` : '';
+  return `const log: number[] = [];\n${first}\n${between}${exported}namespace M { ${member} }${third}\n` +
+    `export const out = JSON.stringify([Object.keys(M).sort(), typeof M, typeof (M as any).v, (M as any).first, log]);`;
+}
+
+test('a namespace behind a namespace, a class or a function of its name is written without a declaration', () => {
+  const [header, ...rows] = readFileSync(new URL('../verification/pict/compiler-merged-namespace.tsv', import.meta.url), 'utf8')
+    .trim().split('\n').map(line => line.split('\t'));
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))();
+  for (const cells of rows) {
+    const row = Object.fromEntries(header.map((name, index) => [name, cells[index]]));
+    const source = mergedNamespace(row);
+    const result = sameAsTypeScript(source, 'merged.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'merged.ts')), source);
+  }
+  assert.equal(compile(Buffer.from('class C {}\nnamespace C { export const x = 1; }\nexport { C };'), { file: 'merged.ts' }).code,
+    'class C {}\n;(function (C) { C.x = 1; })(C||(C={}));\nexport { C };');
+  for (const source of [
+    // A member that another declaration of the namespace exports is a property of the namespace there.
+    'namespace N { export const a = 1; }\nnamespace N { export const b = a; }\nexport { N };',
+    'namespace N { export function f() { return 1; } }\nnamespace N { export const g = f; }\nexport { N };',
+    'namespace N { export const b = () => late; }\nnamespace N { export const late = 2; }\nexport { N };',
+    'namespace N { export namespace In { export const a = 1; } }\nnamespace N { export const b = In; }\nexport { N };',
+    // An enum, a declared class, a class behind the namespace, and a merge inside a namespace.
+    'enum E { a }\nnamespace E { export const x = 1; }\nexport { E };',
+    'declare class D {}\nnamespace D { export const x = 1; }\nexport { D };',
+    'namespace Outer { export namespace M { export const a = 1; } export namespace M { export const b = 2; } }\nexport { Outer };',
+  ]) {
+    assert.notEqual(sameAsTypeScript(source, 'merged.ts').backend, 'pulse', source);
   }
 });

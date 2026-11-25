@@ -45,6 +45,7 @@ TmtGrammar_candidate;
 #define TmtPulseMemory_AmbientBothNames 16
 #define TmtPulseMemory_ClassName 17
 #define TmtPulseMemory_AmbientClassName 18
+#define TmtPulseMemory_NamespaceName 19
 
 typedef uint8_t TmtPulseMemory_binding_namespace;
 
@@ -67,6 +68,7 @@ typedef struct TmtPulseMemory_tape_s
   TmtGrammar_candidate *output;
   uint32_t capacity;
   bool legacy_decorators;
+  bool capture_references;
   TmtPulseMemory_binding_name *bindings;
   uint8_t *marks;
 }

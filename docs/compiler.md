@@ -733,6 +733,18 @@ var N;(function (N) { let M;(function (M) { M.v = 1; })(M=N.M||(N.M={})); })(N||
 
 for an exported inner namespace, and `(M||(M={}))` for one that is not exported. A dotted name, `namespace A.B.C { }`, is the same thing written shorter: the parser reads the further names and binds the first, and the emitter opens one namespace per name, each exported from the one before, and closes them all at the one closing brace. TypeScript declares the further names with the keyword of the first, `var` at module level and `let` inside a namespace, and so does the emitter. A dotted namespace that holds types alone is erased like any other. The rule for exported variables holds per namespace over its whole body, the namespaces inside included: a second occurrence of the name would be a reference that needs the namespace in front of it. A namespace's own name may now stand in its body in front of a dot, as in `new N.C()`, which reads a property through the parameter; any other use may be a declaration, for which TypeScript renames the parameter, and is left to TypeScript. The word `namespace` in front of a line break stays the identifier it is. A PICT table of 18 rows (outer export, inner export, member kind, depth, own-name use, sibling) is compared with TypeScript by syntax and by running both outputs.
 
+A reference to a variable that a namespace exports is written as a property of the namespace, as TypeScript writes it:
+
+```ts
+namespace N { export var a = 1; function f() { return a; } }
+```
+
+```js
+var N;(function (N) { N.a = 1; function f() { return N.a; } })(N||(N={}));
+```
+
+Which occurrences of `a` are references takes the parser to say: a parameter, a local variable, a key, a label or a member of the same name is none. The tape has a flag for it, in the bytes its layout leaves unused, and with the flag the parser records every name it reads as an expression. The ordinary reading does not set it. When the name of an exported variable occurs a second time in the body, the emitter reads the source once more with the flag, in a workspace of its own, and counts: the namespace is written natively only if every other occurrence of the name is a recorded reference. Then no occurrence is a declaration that hides the variable, and each reference gets the namespace in front of it; in a namespace inside another, the owner is the innermost namespace that exports the name itself. Any other occurrence, a shorthand property `{ a }` among them, leaves the namespace to TypeScript as before. A PICT table of 50 rows (variable kind, site, form of the occurrence, outer export) is compared with TypeScript by syntax and by running both outputs, and 54 forms that hide or use the name are compared by syntax with either kind of variable.
+
 Looking at namespace bodies showed a wider gap. The emitter finds the end of each module item by reading the item again. That reading used the mode in which a function that declares both a `var` and a `let`, `const` or `class` stops the parser, so that the whole parse can run its second pass and compare the declarations. The emitter took the stop for the end of what it can write. A module that held such a function was therefore left to TypeScript whenever something in it was written item by item: an enum, a namespace, a type annotation, JSX.
 
 ```ts
