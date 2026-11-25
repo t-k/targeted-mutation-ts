@@ -9,7 +9,7 @@ import { inside } from './vitest.mjs';
 // Vitest and Vite are loaded on every run. Node keeps their compiled code between runs when it can.
 try { enableCompileCache?.(); } catch { /* The cache is an optimisation only. */ }
 const input = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-const { workspace, config, files, selectedSpecs, mutants, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1, verifyTrials = 0, awaitsExtras = false, runTimeout = 60_000, baselineTimeout = runTimeout, baselineWorkers } = input;
+const { workspace, config, files, selectedSpecs, mutants, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1, verifyTrials = 0, awaitsExtras = false, runTimeout = 60_000, baselineTimeout = runTimeout, baselineWorkers, progressIntervalMs } = input;
 const destination = resolve(temporary, 'coverage.jsonl');
 const record = event => appendFileSync(output, JSON.stringify(event) + '\n');
 const lanes = [];
@@ -68,7 +68,7 @@ async function openLane(index, serial = false, workerOverride = undefined) {
 
 // Runs a lane's share of the planned mutations inside its worker, one Vitest run per round. A worker that stops
 // answering is replaced, its mutation is a timeout, and the rest continue in the next round.
-async function runInThread(lane, plans, limit, deadline) {
+async function runInThread(lane, plans, limit, deadline, onEvent, onTick) {
   const events = [];
   let remaining = plans;
   while (Object.keys(remaining).length) {
@@ -87,10 +87,12 @@ async function runInThread(lane, plans, limit, deadline) {
       const ended = finished;
       for (const event of read()) {
         round.push(event);
+        onEvent?.(event);
         if (event.start !== undefined) started.set(event.module, { id: event.start, at: Date.now() });
         else if (event.control !== undefined) started.set(event.module, { id: event.control, at: Date.now(), control: true });
         else started.delete(event.module);
       }
+      onTick?.();
       if (ended) break;
       stuck = [...started].find(([, { at }]) => Date.now() - at > limit);
       if (!stuck) await Promise.race([running, new Promise(resolvePoll => setTimeout(resolvePoll, 50))]);
@@ -240,11 +242,13 @@ try {
         unknown: seen.unknown, ...(seen.realCopy ? { realCopy: true } : {}), ...(seen.nonArray ? { nonArray: true } : {}), ...(seen.nonPlain ? { nonPlain: true } : {}) }])) });
     }
     const pending = [];
+    let settledBeforeDecide = 0;
     for (const mutant of mutants.filter(candidate => !candidate.parametric)) {
       const { id } = mutant;
       const plan = baselineCoverage(id);
       if (!plan.hits) {
         record({ id, status: 'unreached' });
+        settledBeforeDecide++;
         continue;
       }
       // `??` and `||` give the same for null, undefined and every object. Where no test gave the left side a value
@@ -252,12 +256,14 @@ try {
       const seen = agreement.get(id);
       if (mutant.evidence && seen && !seen.differing.size && !seen.unsure.size && !seen.outside && !seen.outsideUnsure && !seen.typed) {
         record({ id, status: 'ignored', statusReason: 'No test gives the left side a number, a string or a boolean, so both operators are taken to behave alike here' });
+        settledBeforeDecide++;
         continue;
       }
       // `expr[0]` on a plain map or `arguments` object is not a sequence: mutating to `.at(-1)` would only raise
       // a TypeError noise kill. Never skip if any baseline evaluation threw (exception behavior is unverified).
       if (mutant.sequenceIndex && seen && !seen.sequence && seen.nonSequence && !seen.threw && !seen.differing.size && !seen.outside) {
         record({ id, status: 'ignored', statusReason: 'No test passes a sequence (array, string, or typed array) to this index expression' });
+        settledBeforeDecide++;
         continue;
       }
       pending.push({ mutant, plan });
@@ -271,7 +277,7 @@ try {
       const { now, gone } = changedReach(reach, runs);
       return { now: named(now), gone: named(gone) };
     };
-    const decide = async (pending, report) => {
+    const decide = async (pending, report, trackProgress = false) => {
       const plans = isolatedTrials ? null : planInThread(baseline.records, tests, pending, workspace, baselineTiming);
       let settled = new Map();
       let reasons = new Map();
@@ -281,11 +287,55 @@ try {
       const sampled = new Set();
       if (plans) {
         const limit = 15_000 + 3 * baselineTime;
+        let onTrialEvent = null;
+        let onProgressTick = null;
+        if (trackProgress) {
+          const remainingFiles = new Map();
+          for (const list of Object.values(plans)) {
+            for (const plan of list) {
+              remainingFiles.set(plan.id, (remainingFiles.get(plan.id) ?? 0) + 1);
+            }
+          }
+          const completedInWorker = new Set();
+          const seenModuleAnswer = new Set();
+          const maxProvisional = Math.max(0, pending.length - 1);
+          const emitIntervalMs = Math.min(2_000, Math.max(50, Math.floor((progressIntervalMs ?? 5_000) / 2)));
+          let lastEmitted = 0;
+          let lastEmitAt = Date.now();
+          const flushProgress = () => {
+            const reportedCount = Math.min(completedInWorker.size, maxProvisional);
+            const now = Date.now();
+            if (reportedCount > lastEmitted && now - lastEmitAt >= emitIntervalMs) {
+              lastEmitted = reportedCount;
+              lastEmitAt = now;
+              record({ progress: { completed: settledBeforeDecide + reportedCount } });
+            }
+          };
+          onProgressTick = flushProgress;
+          onTrialEvent = event => {
+            if (event.id === undefined || !remainingFiles.has(event.id)) return;
+            const cleanAnswer = event.elapsed !== undefined && event.hits > 0 && !event.unhandled &&
+              !(event.errors?.length) && !event.foreign && !event.missing;
+            const isKilled = cleanAnswer && Array.isArray(event.failed) && event.failed.length > 0;
+            if (isKilled) {
+              completedInWorker.add(event.id);
+            } else if (cleanAnswer) {
+              const key = JSON.stringify([event.module, event.id]);
+              if (!seenModuleAnswer.has(key)) {
+                seenModuleAnswer.add(key);
+                const left = remainingFiles.get(event.id) - 1;
+                remainingFiles.set(event.id, left);
+                if (left <= 0) completedInWorker.add(event.id);
+              }
+            }
+            flushProgress();
+          };
+        }
         // The first lane starts alone with a deadline. Most plans end within it. What is left is timed by then, and a
         // further lane, which costs a Vitest instance, its transforms and an environment per test file, opens for
         // every six seconds of measured work in the longest test file.
         const inLanes = async step => {
-          const events = await runInThread(lanes[0], step, limit, Date.now() + 2_000);
+          const events = await runInThread(lanes[0], step, limit, Date.now() + 2_000, onTrialEvent, onProgressTick);
           // Each further round takes what is left: entries the deadline cut off, and test files that start again
           // in a new worker after a control run differed.
           for (let round = 0; round < 12; round++) {
@@ -304,7 +354,7 @@ try {
               (_, index) => openLane(lanes.length + index).catch(() => null)));
             lanes.push(...opened.filter(Boolean));
             const shares = sharePlans(left, Math.min(wanted, lanes.length));
-            const answered = (await Promise.all(shares.map((share, index) => runInThread(lanes[index], share, limit)))).flat();
+            const answered = (await Promise.all(shares.map((share, index) => runInThread(lanes[index], share, limit, undefined, onTrialEvent, onProgressTick)))).flat();
             if (!answered.some(event => event.id !== undefined || event.stop !== undefined)) break;
             events.push(...answered);
           }
@@ -353,7 +403,7 @@ try {
       totals.sampled += sampled.size;
       totals.inWorkerUsed ||= plans !== null;
     };
-    await decide(pending, (mutant, result) => record({ id: mutant.id, ...result }));
+    await decide(pending, (mutant, result) => record({ id: mutant.id, ...result }), true);
     if (awaitsExtras) {
       // Threshold edits of the focused analysis: each names a comparison and how far its right side moves.
       const extras = [];

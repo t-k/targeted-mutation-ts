@@ -83,6 +83,8 @@ async function besideSession(project, files, options, run, profile, stopsSession
     ...(options['baseline-timeout'] !== undefined ? { 'baseline-timeout': options['baseline-timeout'] } : {}),
     ...(options['baseline-workers'] !== undefined ? { 'baseline-workers': options['baseline-workers'] } : {}),
     ...(options.testSpecs?.length ? { testSpecs: options.testSpecs } : {}),
+    ...(options.reusableCopy ? { reusableCopy: options.reusableCopy } : {}),
+    ...(options.progressIntervalMs !== undefined ? { progressIntervalMs: options.progressIntervalMs } : {}),
   }).then(report => ({ report }), error => ({ error }));
   let prepared;
   try {

@@ -99,8 +99,12 @@ function collectNonNullishFalsy(ts, checker, type, out = new Set(), seen = new S
   }
   if (flags & ts.TypeFlags.NumberLiteral) {
     // Numeric enum types accept arbitrary numbers (including 0 and NaN) without a TypeScript error.
-    if ((flags & (ts.TypeFlags.Enum | ts.TypeFlags.EnumLiteral)) || type.value === 0 || Object.is(type.value, -0) || Number.isNaN(type.value)) {
+    if (flags & (ts.TypeFlags.Enum | ts.TypeFlags.EnumLiteral)) {
       out.add('number_zero');
+      out.add('number_nan');
+    } else if (type.value === 0 || Object.is(type.value, -0)) {
+      out.add('number_zero');
+    } else if (Number.isNaN(type.value)) {
       out.add('number_nan');
     }
     return out;
@@ -114,20 +118,35 @@ function collectNonNullishFalsy(ts, checker, type, out = new Set(), seen = new S
   return 'any';
 }
 
-function hasLocalUndefinedBinding(ts, checker, node) {
+function falsyLabelsFromSet(falsy) {
+  if (falsy === 'any') return null;
+  const labels = [];
+  if (falsy.has('number_zero')) labels.push('0');
+  if (falsy.has('bigint')) labels.push('0n');
+  if (falsy.has('string')) labels.push("''");
+  if (falsy.has('boolean')) labels.push('false');
+  if (falsy.has('number_nan')) labels.push('NaN');
+  return labels;
+}
+
+function hasLocalValueBinding(ts, checker, node, name) {
   if (typeof checker.resolveName === 'function') {
-    const sym = checker.resolveName('undefined', node, ts.SymbolFlags.Value, false);
+    const sym = checker.resolveName(name, node, ts.SymbolFlags.Value, false);
     if (sym?.declarations?.some(decl => !decl.getSourceFile().isDeclarationFile)) return true;
   }
   if (typeof checker.getSymbolsInScope === 'function') {
     const inScope = checker.getSymbolsInScope(node, ts.SymbolFlags.Value);
     for (const sym of inScope) {
-      if (sym.name === 'undefined' && sym.declarations?.some(decl => !decl.getSourceFile().isDeclarationFile)) {
+      if (sym.name === name && sym.declarations?.some(decl => !decl.getSourceFile().isDeclarationFile)) {
         return true;
       }
     }
   }
   return false;
+}
+
+function hasLocalUndefinedBinding(ts, checker, node) {
+  return hasLocalValueBinding(ts, checker, node, 'undefined');
 }
 
 function isUncheckedIndexedRead(ts, checker, node) {
@@ -315,6 +334,17 @@ function buildGroupContext(ts, info, absTargets) {
           if (falsy.has('bigint') && rightFalsy === '0n') return true;
         }
         return false;
+      },
+      possibleNullishFallbackFalsy(leftStart, leftEnd) {
+        const node = nodes.get(`${leftStart}:${leftEnd}`);
+        if (!node) return null;
+        const type = checker.getTypeAtLocation(node);
+        if (!type) return null;
+        return falsyLabelsFromSet(collectNonNullishFalsy(ts, checker, type));
+      },
+      hasLocalNaNBinding(nodeStart, nodeEnd) {
+        const node = nodes.get(`${nodeStart}:${nodeEnd}`);
+        return node ? hasLocalValueBinding(ts, checker, node, 'NaN') : false;
       },
     };
     fileCache.set(absFile, helper);

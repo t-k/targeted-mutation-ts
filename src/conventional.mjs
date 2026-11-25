@@ -136,6 +136,7 @@ export async function analyzeConventional(project, files, options) {
       runTimeout: runTimeoutMs,
       baselineTimeout: baselineTimeoutMs,
       ...(options['baseline-workers'] !== undefined ? { baselineWorkers: options['baseline-workers'] } : {}),
+      ...(options.progressIntervalMs !== undefined ? { progressIntervalMs: options.progressIntervalMs } : {}),
       config: options.config === undefined ? undefined : inside(workspace, options.config),
       files: [...new Set((options.test ?? []).map(file => inside(workspace, file)))],
       ...(options.testSpecs?.length ? { selectedSpecs: options.testSpecs.map(({ project, file }) => ({ project, file: inside(workspace, file) })) } : {}),
@@ -167,27 +168,53 @@ export async function analyzeConventional(project, files, options) {
     }
     let progressTimer = null;
     if (options.onProgress) {
+      const progressIntervalMs = options.progressIntervalMs ?? 5_000;
+      const pollIntervalMs = Math.min(1_000, Math.max(50, Math.floor(progressIntervalMs / 2)));
+      const baselineStartedAt = Date.now();
+      let baselineDoneAt = baselineStartedAt;
+      let lastReportAt = baselineStartedAt;
       options.onProgress('Running baseline tests...');
       let baselineReported = false;
       let lastDone = -1;
       const pollProgress = () => {
+        const now = Date.now();
         const current = readEvents(output);
         if (!baselineReported) {
           const base = current.find(event => event.baseline)?.baseline;
           if (base?.status === 'passed') {
             baselineReported = true;
+            baselineDoneAt = now;
+            lastReportAt = now;
             options.onProgress(`Baseline passed (${base.tests} tests). Running ${totalRunnable} mutant(s)...`);
+          } else if (now - lastReportAt >= progressIntervalMs) {
+            lastReportAt = now;
+            const elapsed = Math.max(1, Math.round((now - baselineStartedAt) / 1000));
+            options.onProgress(`Running baseline tests... (${elapsed}s elapsed)`);
           }
         }
         if (baselineReported && totalRunnable > 0) {
-          const done = current.filter(event => event.id !== undefined).length;
-          if (done !== lastDone && done > 0) {
+          const sessionComplete = current.some(event => event.complete === true);
+          const recordedDone = current.filter(event => event.id !== undefined).length;
+          let latestProgress = 0;
+          for (const event of current) {
+            if (typeof event.progress?.completed === 'number' && event.progress.completed > latestProgress) {
+              latestProgress = event.progress.completed;
+            }
+          }
+          const provisionalCap = Math.max(0, totalRunnable - 1);
+          const done = Math.min(totalRunnable, Math.max(recordedDone, Math.min(latestProgress, provisionalCap)));
+          if (done > lastDone && done > 0) {
             lastDone = done;
-            options.onProgress(`Mutants: ${Math.min(done, totalRunnable)}/${totalRunnable} completed`);
+            lastReportAt = now;
+            options.onProgress(`Mutants: ${done}/${totalRunnable} completed`);
+          } else if (!sessionComplete && now - lastReportAt >= progressIntervalMs) {
+            lastReportAt = now;
+            const elapsed = Math.max(1, Math.round((now - baselineDoneAt) / 1000));
+            options.onProgress(`Mutants: ${Math.max(0, done)}/${totalRunnable} completed (${elapsed}s elapsed)`);
           }
         }
       };
-      progressTimer = setInterval(pollProgress, 1_000);
+      progressTimer = setInterval(pollProgress, pollIntervalMs);
       progressTimer.unref?.();
     }
     let run;
@@ -256,5 +283,5 @@ export async function analyzeConventional(project, files, options) {
       mutants: judged.map(({ targeted: _rule, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),
       diagnostics,
     };
-  }, { exclude: options['copy-exclude'], onProgress: options.onProgress });
+  }, { exclude: options['copy-exclude'], onProgress: options.onProgress, reuseCopy: options.reusableCopy });
 }

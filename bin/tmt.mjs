@@ -181,54 +181,76 @@ try {
     };
     runValues.onTypeCheckWarning = onTypeCheckWarning;
     if (runValues.progress) runValues.onProgress = logProgress;
-    if (runValues.related && !runValues.list) {
-      const { selectScope } = await import('../src/scope.mjs');
-      const relatedTargets = selectScope(validated.root, files, runValues).map(subject => subject.file);
-      if (relatedTargets.length) {
-        const { inside, resolveRelatedVitestSpecs } = await import('../src/vitest.mjs');
-        const relatedTimeoutSeconds = runValues['baseline-timeout'] ?? runValues.timeout;
-        const resolved = await resolveRelatedVitestSpecs(validated.root, relatedTargets, {
-          config: runValues.config,
-          copyExclude: runValues['copy-exclude'],
-          onProgress: runValues.onProgress,
-          ...(relatedTimeoutSeconds ? { timeout: relatedTimeoutSeconds * 1000 } : {}),
-        });
-        let selectedTests = resolved.tests;
-        let selectedSpecs = resolved.specs;
-        if (runValues.test?.length) {
-          const allowedTests = new Set(runValues.test.map(file => relative(validated.root, inside(validated.root, file))));
-          selectedTests = resolved.tests.filter(file => allowedTests.has(file));
-          selectedSpecs = resolved.specs.filter(spec => allowedTests.has(spec.file));
-          if (!selectedTests.length) {
-            throw new Error(`No Vitest test files matched both --related (${resolved.tests.length} related) and --test. Widen --test <file|glob> or omit --related.`);
+    let relatedCopy = null;
+    let result;
+    try {
+      if (runValues.related && !runValues.list) {
+        const { selectScope } = await import('../src/scope.mjs');
+        const relatedTargets = selectScope(validated.root, files, runValues).map(subject => subject.file);
+        if (relatedTargets.length) {
+          const { createCopy, inside, resolveRelatedVitestSpecs, runnerPackage } = await import('../src/vitest.mjs');
+          const relatedTimeoutSeconds = runValues['baseline-timeout'] ?? runValues.timeout;
+          runnerPackage(validated.root, 'vitest');
+          relatedCopy = createCopy(validated.root, {
+            exclude: runValues['copy-exclude'],
+            onProgress: runValues.onProgress,
+          });
+          const resolved = await resolveRelatedVitestSpecs(validated.root, relatedTargets, {
+            config: runValues.config,
+            copyExclude: runValues['copy-exclude'],
+            onProgress: runValues.onProgress,
+            copy: relatedCopy,
+            ...(relatedTimeoutSeconds ? { timeout: relatedTimeoutSeconds * 1000 } : {}),
+          });
+          let selectedTests = resolved.tests;
+          let selectedSpecs = resolved.specs;
+          if (runValues.test?.length) {
+            const allowedTests = new Set(runValues.test.map(file => relative(validated.root, inside(validated.root, file))));
+            selectedTests = resolved.tests.filter(file => allowedTests.has(file));
+            selectedSpecs = resolved.specs.filter(spec => allowedTests.has(spec.file));
+            if (!selectedTests.length) {
+              throw new Error(`No Vitest test files matched both --related (${resolved.tests.length} related) and --test. Widen --test <file|glob> or omit --related.`);
+            }
+          }
+          runValues.test = selectedTests;
+          runValues.testSpecs = selectedSpecs;
+          const allNamedProjects = selectedSpecs.length > 0 && selectedSpecs.every(spec => Boolean(spec.project));
+          if (allNamedProjects) {
+            runValues.testProjects = [...new Set(selectedSpecs.map(spec => spec.project))];
+          }
+          logProgress(`Selected ${selectedTests.length} related test ${selectedTests.length === 1 ? 'file' : 'files'}.`);
+          if (selectedTests.length > 20) {
+            const tuningHint = runValues.witnesses
+              ? 'or tuning --timeout <seconds>'
+              : runValues.audit
+                ? 'or tuning --baseline-timeout <seconds>'
+                : 'or tuning --baseline-timeout <seconds> and --baseline-workers <N>';
+            process.stderr.write(`Warning: --related selected ${selectedTests.length} test files. Consider narrowing with --test <glob>, ${tuningHint}.\n`);
           }
         }
-        runValues.test = selectedTests;
-        runValues.testSpecs = selectedSpecs;
-        const allNamedProjects = selectedSpecs.length > 0 && selectedSpecs.every(spec => Boolean(spec.project));
-        if (allNamedProjects) {
-          runValues.testProjects = [...new Set(selectedSpecs.map(spec => spec.project))];
-        }
-        logProgress(`Selected ${selectedTests.length} related test ${selectedTests.length === 1 ? 'file' : 'files'}.`);
-        if (selectedTests.length > 20) {
-          process.stderr.write(`Warning: --related selected ${selectedTests.length} test files. Consider narrowing with --test <glob>, or tuning --baseline-timeout <seconds> and --baseline-workers <N>.\n`);
-        }
       }
-    }
-    enablePreparedTypeScript();
-    let result;
-    if (runValues.list) {
-      result = listCandidates(project, files, { ...runValues, mutators: runValues.mutators ?? 'targeted', shard: runValues.shard, sharding });
-    } else if (runValues.witnesses) {
-      if (runValues.runner === 'playwright' || runValues.mutators !== undefined ||
-          runValues.deterministic || runValues.project || runValues.audit || runValues['displace-thresholds']) throw new Error('--witnesses runs its own Vitest source trials');
-      logProgress('Running witness analysis...');
-      const { analyzeWitnesses } = await import('../src/witness-analysis.mjs');
-      result = await analyzeWitnesses(project, files, runValues);
-    } else {
-      logProgress(`Analyzing ${files.length ? `${files.length} file(s)` : 'project'} (${runValues.mutators ?? 'targeted'})...`);
-      const { analyzeOperators } = await import('../src/operator-analysis.mjs');
-      result = await analyzeOperators(project, files, { ...runValues, mutators: runValues.mutators ?? 'targeted', shard, sharding });
+      enablePreparedTypeScript();
+      if (runValues.list) {
+        result = listCandidates(project, files, { ...runValues, mutators: runValues.mutators ?? 'targeted', shard: runValues.shard, sharding });
+      } else if (runValues.witnesses) {
+        if (runValues.runner === 'playwright' || runValues.mutators !== undefined ||
+            runValues.deterministic || runValues.project || runValues.audit || runValues['displace-thresholds']) throw new Error('--witnesses runs its own Vitest source trials');
+        logProgress('Running witness analysis...');
+        const { analyzeWitnesses } = await import('../src/witness-analysis.mjs');
+        result = await analyzeWitnesses(project, files, runValues);
+      } else {
+        logProgress(`Analyzing ${files.length ? `${files.length} file(s)` : 'project'} (${runValues.mutators ?? 'targeted'})...`);
+        const { analyzeOperators } = await import('../src/operator-analysis.mjs');
+        result = await analyzeOperators(project, files, {
+          ...runValues,
+          ...(relatedCopy ? { reusableCopy: relatedCopy } : {}),
+          mutators: runValues.mutators ?? 'targeted',
+          shard,
+          sharding,
+        });
+      }
+    } finally {
+      relatedCopy?.dispose();
     }
     if (!runValues.witnesses && !runValues.list) {
       const { strengthenAssertions, withoutSourceEdits } = await import('../src/assertion-strength.mjs');

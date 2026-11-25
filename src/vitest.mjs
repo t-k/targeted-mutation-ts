@@ -264,7 +264,39 @@ function formatBytes(bytes) {
 export const DEFAULT_LARGE_COPY_BYTES = 500 * 1024 * 1024;
 export const DEFAULT_LARGE_COPY_FILES = 10_000;
 
-export function withCopy(project, action, {
+function snapshotWorkspaceTree(root) {
+  const entries = new Map();
+  const walk = (dir, insideNodeModules = false) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = resolve(dir, entry.name);
+      const rel = relative(root, full);
+      const st = lstatSync(full, { bigint: true });
+      const kind = st.isSymbolicLink() ? 'l' : st.isDirectory() ? 'd' : 'f';
+      entries.set(rel, kind === 'd' ? `d:${st.mode}` : `${kind}:${st.mode}:${st.size}:${st.mtimeNs}`);
+      if (kind === 'd') {
+        if (entry.name === 'node_modules') {
+          // Only inspect real (copied/synthesized) node_modules entries without following symlinks into shared installs.
+          walk(full, true);
+        } else if (!insideNodeModules || entry.name.startsWith('@') || entry.name === '.bin') {
+          walk(full, insideNodeModules);
+        }
+      }
+    }
+  };
+  walk(root);
+  return entries;
+}
+
+function workspaceTreeChanged(before, root) {
+  const after = snapshotWorkspaceTree(root);
+  if (after.size !== before.size) return true;
+  for (const [rel, sig] of before) {
+    if (after.get(rel) !== sig) return true;
+  }
+  return false;
+}
+
+export function createCopy(project, {
   exclude = [],
   onProgress,
   onLargeCopy,
@@ -276,13 +308,28 @@ export function withCopy(project, action, {
   const temp = realpathSync(mkdtempSync(resolve(tmpdir(), 'tmt-')));
   registerActiveCopy(temp);
   let removed = false;
-  const remove = () => {
+  let claimed = false;
+  let busy = false;
+  const dispose = () => {
     if (removed) return;
     removed = true;
+    busy = false;
     unregisterActiveCopy(temp);
     rmSync(temp, { recursive: true, force: true });
   };
-  let pending = false;
+  const claim = () => {
+    if (claimed || removed || busy) return false;
+    claimed = true;
+    return true;
+  };
+  const beginUse = () => {
+    if (claimed || removed || busy) return false;
+    busy = true;
+    return true;
+  };
+  const endUse = () => {
+    busy = false;
+  };
   try {
     const root = resolve(temp, 'project');
     const moduleTrees = [];
@@ -336,12 +383,32 @@ export function withCopy(project, action, {
       linkInstalledModules(source, root, modules, resolve(root, relative(source, modules)), modules === projectModules ? tools : []);
     }
     if (!hasLocalModules) linkModules(resolve(root, 'node_modules'), tools);
-    const result = action(root, temp);
+    return { root, temp, dispose, claim, beginUse, endUse };
+  } catch (error) {
+    dispose();
+    throw error;
+  }
+}
+
+export function withCopy(project, action, {
+  reuseCopy,
+  exclude = [],
+  onProgress,
+  onLargeCopy,
+  largeCopyBytes = DEFAULT_LARGE_COPY_BYTES,
+  largeCopyFiles = DEFAULT_LARGE_COPY_FILES,
+} = {}) {
+  const copy = reuseCopy?.claim?.()
+    ? reuseCopy
+    : createCopy(project, { exclude, onProgress, onLargeCopy, largeCopyBytes, largeCopyFiles });
+  let pending = false;
+  try {
+    const result = action(copy.root, copy.temp);
     // An action that is still running keeps its copy until it settles.
     pending = typeof result?.then === 'function';
-    return pending ? result.finally(remove) : result;
+    return pending ? result.finally(copy.dispose) : result;
   } finally {
-    if (!pending) remove();
+    if (!pending) copy.dispose();
   }
 }
 
@@ -416,18 +483,19 @@ function vitestOutcome(root, { report, testsToRun, product }, result) {
   return { status, tests, output: result.stderr + result.stdout };
 }
 
-export async function resolveRelatedVitestSpecs(project, targetFiles = [], { config, copyExclude = [], timeout = 60_000, onProgress, onLargeCopy } = {}) {
+export async function resolveRelatedVitestSpecs(project, targetFiles = [], { config, copyExclude = [], timeout = 60_000, onProgress, onLargeCopy, copy } = {}) {
   const root = realpathSync(project);
   const relTargets = [...new Set(targetFiles.map(file => relative(root, inside(root, file))))];
   if (!relTargets.length) return { tests: [], specs: [] };
   // Validate Vitest availability up front before copying.
   runnerPackage(root, 'vitest');
-  return withCopy(root, async (workspace, temp) => {
+  const resolveInWorkspace = async (workspace, temp) => {
     onProgress?.('Resolving related Vitest test files...');
     const cache = resolve(temp, 'vite-cache');
     mkdirSync(cache, { recursive: true });
     const manifestPath = resolve(temp, 'related-request.json');
     const outputPath = resolve(temp, 'related-output.json');
+    const pidPath = resolve(temp, 'related.pid');
     writeFileSync(manifestPath, JSON.stringify({
       workspace,
       config,
@@ -435,36 +503,42 @@ export async function resolveRelatedVitestSpecs(project, targetFiles = [], { con
       output: outputPath,
     }), 'utf8');
     const maxBuffer = 4 * 1024 * 1024;
-    const run = await new Promise(settle => {
-      const child = spawn(process.execPath, [
-        supervisor, resolve(temp, 'related.pid'), String(timeout),
-        relatedWorker, manifestPath,
-      ], {
-        cwd: workspace,
-        env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test', VITE_CACHE_DIR: cache },
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      const out = { stdout: '', stderr: '' };
-      for (const stream of ['stdout', 'stderr']) {
-        child[stream].setEncoding('utf8');
-        child[stream].on('data', chunk => { if (out[stream].length < maxBuffer) out[stream] += chunk; });
-      }
-      const killTimer = setTimeout(() => {
-        try { child.kill('SIGKILL'); } catch { /* ignore */ }
-      }, timeout + 5_000);
-      killTimer.unref?.();
-      let failure;
-      child.once('error', error => { failure = error; });
-      child.once('close', (status, signal) => {
-        clearTimeout(killTimer);
-        settle({
-          status,
-          signal,
-          ...out,
-          error: failure ?? (signal && status === null ? Object.assign(new Error('Vitest related discovery did not finish in time'), { code: 'ETIMEDOUT' }) : undefined),
+    let run;
+    try {
+      run = await new Promise(settle => {
+        const child = spawn(process.execPath, [
+          supervisor, pidPath, String(timeout),
+          relatedWorker, manifestPath,
+        ], {
+          cwd: workspace,
+          env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test', VITE_CACHE_DIR: cache },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        const out = { stdout: '', stderr: '' };
+        for (const stream of ['stdout', 'stderr']) {
+          child[stream].setEncoding('utf8');
+          child[stream].on('data', chunk => { if (out[stream].length < maxBuffer) out[stream] += chunk; });
+        }
+        const killTimer = setTimeout(() => {
+          try { child.kill('SIGKILL'); } catch { /* ignore */ }
+        }, timeout + 5_000);
+        killTimer.unref?.();
+        let failure;
+        child.once('error', error => { failure = error; });
+        child.once('close', (status, signal) => {
+          clearTimeout(killTimer);
+          settle({
+            status,
+            signal,
+            ...out,
+            error: failure ?? (signal && status === null ? Object.assign(new Error('Vitest related discovery did not finish in time'), { code: 'ETIMEDOUT' }) : undefined),
+          });
         });
       });
-    });
+    } finally {
+      // Remove the finished worker PID file so a reused copy's signal handler never targets a recycled PID.
+      rmSync(pidPath, { force: true });
+    }
     if (run.status === 124 || run.error?.code === 'ETIMEDOUT') {
       throw new Error(`Vitest related test discovery timed out after ${Math.round(timeout / 1000)}s. Try increasing --timeout or specifying --test <FILE>.`);
     }
@@ -479,7 +553,21 @@ export async function resolveRelatedVitestSpecs(project, targetFiles = [], { con
       throw new Error(`No Vitest test files are related to ${shown}. Specify test files explicitly with --test <FILE>.`);
     }
     return { tests, specs };
-  }, { exclude: copyExclude, onProgress, onLargeCopy });
+  };
+  if (copy?.beginUse?.()) {
+    try {
+      const before = snapshotWorkspaceTree(copy.root);
+      const result = await resolveInWorkspace(copy.root, copy.temp);
+      if (workspaceTreeChanged(before, copy.root)) {
+        // Vitest config or plugins modified the workspace during discovery; discard so analysis gets a clean copy.
+        copy.dispose();
+      }
+      return result;
+    } finally {
+      copy.endUse();
+    }
+  }
+  return withCopy(root, resolveInWorkspace, { exclude: copyExclude, onProgress, onLargeCopy });
 }
 
 export async function resolveRelatedVitestTests(project, targetFiles = [], options = {}) {
