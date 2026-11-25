@@ -5366,6 +5366,33 @@ let rec type_namespace_members (input:tape) (state:parser_state) (floor used loc
         else type_alias_tail input named.state true) in
       type_namespace_members input body floor named.used locals depth (minus remaining 1ul) ambient
 
+// `import B = A.x` in the body of a namespace, from the place behind the name: the equals sign, the entity
+// name, and the end of the statement. TypeScript writes `var B = A.x;`, and `N.B = A.x;` for an exported alias.
+// A call of require is no entity name. The statement ends at a semicolon, at the closing brace, or at a line
+// break in front of a word that cannot continue it.
+let namespace_alias_tail (input:tape) (state:parser_state)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  let! after = (fun () -> skip input state) in
+  let! equals = (fun () -> same input after.offset 61uy) in
+  let! doubled = (fun () -> if equals then same input (next after.offset) 61uy else ret input false) in
+  if after.status <> 0ul || not equals || doubled then ret input (failed after 1ul)
+  else
+    let! value = (fun () -> skip input { after with offset = next after.offset }) in
+    let! first = (fun () -> name input value.offset false false) in
+    if value.status <> 0ul || not first.ok then ret input (failed value 1ul)
+    else
+      let! target = (fun () -> alias_path input { value with offset = first.at } 64ul) in
+      let! gap = (fun () -> trivia input target.offset) in
+      let! semicolon = (fun () -> if gap.ok then same input gap.at 59uy else ret input false) in
+      let! imported = (fun () -> keyword input gap.at 6ul 0x696d706f7274uL) in
+      let! exported = (fun () -> keyword input gap.at 6ul 0x6578706f7274uL) in
+      let! following = (fun () -> peek input gap.at) in
+      if target.status <> 0ul then ret input target
+      else if semicolon then ret input { target with offset = next gap.at }
+      else if gap.ok && (following = 125uy || (gap.newline && (imported || exported || (G.identifier_start following && following <> 105uy)))) then
+        ret input target
+      else ret input (failed target 1ul)
+
 // The members of a namespace that exists at run time. TypeScript lowers it to a function that fills an object:
 // `export const a = 1` becomes `N.a = 1`, and an exported function or class is followed by `N.f = f`.
 // The emitter writes that text from these records:
@@ -5398,7 +5425,17 @@ let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:
       let! inner = (fun () -> if first = 110uy || first = 109uy then namespace_width input st.offset else ret input 0ul) in
       let! inner_head = (fun () -> if inner <> 0ul then named_namespace_start input st
         else ret input { body_start = failed st 1ul; name_start = st.offset }) in
+      let! alias = (fun () -> if first = 105uy && input.capture_types then keyword input st.offset 6ul 0x696d706f7274uL else ret input false) in
       if inner_head.body_start.status = 0ul then nested_namespace input st st.offset floor used remaining depth
+      else if alias then
+        // Kind 41: the keyword, which the emitter writes as var. The alias alone does not make the namespace exist.
+        let declared = record_binding_mode st LexicalLocals in
+        let! named = (fun () -> skip input { declared with offset = plus st.offset 6ul }) in
+        let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
+        let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
+        let! ended = (fun () -> namespace_alias_tail input tracked) in
+        let! recorded = (fun () -> record_jsx_span input ended 41ul st.offset (plus st.offset 6ul)) in
+        runtime_namespace_members input { recorded with local_names = decl.used } floor decl.used (minus remaining 1ul) depth instantiated
       else if var_ then
         let! declared = (fun () -> local_var_declaration input st 64ul) in
         runtime_namespace_members input declared floor used (minus remaining 1ul) depth true
@@ -5417,8 +5454,19 @@ let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:
       let! inner = (fun () -> if after.ok then namespace_width input after.at else ret input 0ul) in
       let! inner_head = (fun () -> if inner <> 0ul then named_namespace_start input { st with offset = after.at }
         else ret input { body_start = failed st 1ul; name_start = st.offset }) in
+      let! alias = (fun () -> if after.ok then keyword input after.at 6ul 0x696d706f7274uL else ret input false) in
       if not after.ok then ret input (failed st 1ul)
       else if inner_head.body_start.status = 0ul then nested_namespace input st after.at floor used remaining depth
+      else if alias then
+        // An exported alias is an exported variable: kind 35 from `export` up to the name.
+        let declared = record_binding_mode st LexicalLocals in
+        let! named = (fun () -> skip input { declared with offset = plus after.at 6ul }) in
+        let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
+        let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
+        let! recorded = (fun () -> record_compiler_span input tracked 35ul { G.first = st.offset; G.last = named.offset }
+          { G.first = named.offset; G.last = decl.state.offset }) in
+        let! ended = (fun () -> namespace_alias_tail input recorded) in
+        runtime_namespace_members input { ended with local_names = decl.used } floor decl.used (minus remaining 1ul) depth true
       else if enumeration.ok then
         // Kind 39: the emitter writes the enum as inside a block and stores it in the namespace object.
         let declared = record_binding_mode st LexicalLocals in

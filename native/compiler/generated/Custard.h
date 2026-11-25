@@ -2719,6 +2719,12 @@ TmtPulseParser_name_merges(
 );
 
 TmtPulseParser_parser_state
+TmtPulseParser_namespace_alias_tail(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+TmtPulseParser_parser_state
 TmtPulseParser_nested_namespace(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state st,

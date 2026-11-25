@@ -745,6 +745,20 @@ var N;(function (N) { N.a = 1; function f() { return N.a; } })(N||(N={}));
 
 Which occurrences of `a` are references takes the parser to say: a parameter, a local variable, a key, a label or a member of the same name is none. The tape has a flag for it, in the bytes its layout leaves unused, and with the flag the parser records every name it reads as an expression. The ordinary reading does not set it. When the name of an exported variable occurs a second time in the body, the emitter reads the source once more with the flag, in a workspace of its own, and counts: the namespace is written natively only if every other occurrence of the name is a recorded reference. Then no occurrence is a declaration that hides the variable, and each reference gets the namespace in front of it; in a namespace inside another, the owner is the innermost namespace that exports the name itself. Any other occurrence, a shorthand property `{ a }` among them, leaves the namespace to TypeScript as before. A PICT table of 50 rows (variable kind, site, form of the occurrence, outer export) is compared with TypeScript by syntax and by running both outputs, and 54 forms that hide or use the name are compared by syntax with either kind of variable.
 
+A namespace may follow a namespace, a class or a function of its name. TypeScript then writes its function without a declaration of the name, whatever the second head says about `export`: whether the name is exported is the first declaration's matter.
+
+```ts
+class C {}
+namespace C { export const x = 1; }
+```
+
+```js
+class C {}
+;(function (C) { C.x = 1; })(C||(C={}));
+```
+
+The binding table has a kind of its own for a run-time namespace, which does not conflict with such an earlier declaration, and the parser marks the head of the merging namespace (kind 44). The emitter writes a semicolon in front of the function, so that it is never read as the arguments of the statement before it. Two declarations of one namespace share their exported members, and TypeScript writes a reference from one body to a member of the other as a property; that is not done here, so a body that names a member exported by another declaration of the namespace is left to TypeScript. A PICT table of 14 rows (first declaration, export, member kind, what stands between, a third declaration) is compared with TypeScript by syntax and by running both.
+
 Looking at namespace bodies showed a wider gap. The emitter finds the end of each module item by reading the item again. That reading used the mode in which a function that declares both a `var` and a `let`, `const` or `class` stops the parser, so that the whole parse can run its second pass and compare the declarations. The emitter took the stop for the end of what it can write. A module that held such a function was therefore left to TypeScript whenever something in it was written item by item: an enum, a namespace, a type annotation, JSX.
 
 ```ts

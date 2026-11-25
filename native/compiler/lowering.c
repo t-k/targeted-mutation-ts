@@ -2343,9 +2343,22 @@ static TmtGrammar_span declared_name(TmtPulseMemory_tape input, uint32_t at) {
   return name;
 }
 
+/* Whether one of the further names of a dotted head is a word of the range. */
+static bool dotted_part_named(TmtPulseMemory_tape input, TmtGrammar_candidate head, uint32_t first, uint32_t last) {
+  uint32_t at = head.right.last;
+  while (at < head.left.last && input.source[at] == '.') {
+    TmtGrammar_span part = { at + 1, at + 1 };
+    while (part.last < head.left.last && input.source[part.last] < 128 && TmtGrammar_identifier_continue(input.source[part.last])) part.last++;
+    if (!plain_name(input, part) || word_count(input, first, last, part) != 0) return true;
+    at = part.last;
+  }
+  return false;
+}
+
 /*
- * Whether no member that another declaration of this namespace exports is named in the body. The other
- * declarations are the heads of the same name at the top of the file.
+ * Whether nothing that another declaration of this namespace declares for others is named in the body. The
+ * other declarations are the heads of the same name at the top of the file. Their members at any depth count:
+ * the namespaces inside two declarations merge as well, down to the names of a dotted head.
  */
 static bool siblings_unnamed(TmtPulseMemory_tape input, uint32_t records, uint32_t self, uint32_t body_first, uint32_t body_last, TmtGrammar_span name) {
   uint32_t depth = 0;
@@ -2354,12 +2367,13 @@ static bool siblings_unnamed(TmtPulseMemory_tape input, uint32_t records, uint32
     const TmtGrammar_candidate event = input.output[index];
     if (opens_namespace(event.original)) {
       if (depth == 0) sibling = index != self && same_name(input, event.right, name);
-      else if (depth == 1 && sibling && word_count(input, body_first, body_last, event.right) != 0) return false;
+      else if (sibling && word_count(input, body_first, body_last, event.right) != 0) return false;
+      if (sibling && dotted_part_named(input, event, body_first, body_last)) return false;
       depth++;
       continue;
     }
     if (event.original == namespace_end) { if (depth != 0) depth--; continue; }
-    if (depth != 1 || !sibling) continue;
+    if (depth == 0 || !sibling) continue;
     TmtGrammar_span member;
     if (event.original == namespace_variable || event.original == namespace_bare_variable) member = event.right;
     else if (event.original == namespace_declaration_end) member = declared_name(input, event.right.first);
@@ -2436,7 +2450,7 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
      * writes a reference to such a member as a property. That is not done here: no member that another
      * declaration of the namespace exports may be named in this body.
      */
-    if (!siblings_unnamed(input, records, index, span.last, body_last, name)) return false;
+    if (scope->depth == 0 && !siblings_unnamed(input, records, index, span.last, body_last, name)) return false;
     if (merged) {
       /* The name is declared already. A semicolon keeps the function from being read as arguments of what precedes it. */
       put(&lower->output, ";(function (");

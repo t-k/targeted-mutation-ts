@@ -988,7 +988,6 @@ test('a namespace with exported variables, functions and classes is lowered as T
     'export namespace N { export function f(): void; export function f() {} }',
     'export namespace N { export const a = 1; return 1; }',
     'export namespace N { export const a = 1; export default 1; }',
-    'export namespace N { import X = Y.Z; export const a = 1; }',
     'export namespace N { export declare const z: number; export const a = 1; }',
   ]) {
     assert.notEqual(compile(Buffer.from(source), { file: 'space.ts' }).backend, 'pulse', source);
@@ -2119,6 +2118,15 @@ test('a namespace behind a namespace, a class or a function of its name is writt
     assert.equal(result.backend, 'pulse', source);
     assert.equal(run(result.code), run(reference(source, 'merged.ts')), source);
   }
+  // A namespace inside another may bear the name of a namespace at the top of the file.
+  for (const source of [
+    'namespace Top { export const a = 1; }\nnamespace Other { export namespace Top { export const a = 2; } export const b = Top.a; }\nexport const out = JSON.stringify([Top, Other]);',
+    'namespace A.B { export const x = 1; }\nnamespace A.C { export const y = 2; }\nexport const out = JSON.stringify(A);',
+  ]) {
+    const result = sameAsTypeScript(source, 'merged.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'merged.ts')), source);
+  }
   assert.equal(compile(Buffer.from('class C {}\nnamespace C { export const x = 1; }\nexport { C };'), { file: 'merged.ts' }).code,
     'class C {}\n;(function (C) { C.x = 1; })(C||(C={}));\nexport { C };');
   for (const source of [
@@ -2127,11 +2135,46 @@ test('a namespace behind a namespace, a class or a function of its name is writt
     'namespace N { export function f() { return 1; } }\nnamespace N { export const g = f; }\nexport { N };',
     'namespace N { export const b = () => late; }\nnamespace N { export const late = 2; }\nexport { N };',
     'namespace N { export namespace In { export const a = 1; } }\nnamespace N { export const b = In; }\nexport { N };',
+    // The names of a dotted head are members too, and the namespaces inside two declarations merge.
+    'function foo() {}\nnamespace foo.Bar { export function f() { return 1; } }\nnamespace foo.Baz { export function g() { return Bar.f(); } }\nexport { foo };',
+    'namespace A.B { export const x = 1; }\nnamespace A.B { export const y = x; }\nexport { A };',
+    'namespace A { export namespace B { export function f() { return 1; } } }\nnamespace A { export namespace C { export const y = B.f(); } }\nexport { A };',
     // An enum, a declared class, a class behind the namespace, and a merge inside a namespace.
     'enum E { a }\nnamespace E { export const x = 1; }\nexport { E };',
     'declare class D {}\nnamespace D { export const x = 1; }\nexport { D };',
     'namespace Outer { export namespace M { export const a = 1; } export namespace M { export const b = 2; } }\nexport { Outer };',
   ]) {
     assert.notEqual(sameAsTypeScript(source, 'merged.ts').backend, 'pulse', source);
+  }
+});
+
+test('an import alias in a namespace body is a variable of the body, or a member when it is exported', () => {
+  const run = code => new Function('A', code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))({ x: { y: 7 }, q: 3 });
+  for (const source of [
+    'declare const A: any;\nnamespace M { import B = A.x; export const z = B.y; }\nexport const out = JSON.stringify(M);',
+    'declare const A: any;\nnamespace M { import B = A; import C = B.q; export const z = C; }\nexport const out = JSON.stringify(M);',
+    'declare const A: any;\nnamespace M { export import B = A.x; }\nexport const out = JSON.stringify(M);',
+    'declare const A: any;\nnamespace M { export import B = A.x; export const c = B.y; export function f() { return B; } }\nexport const out = JSON.stringify([M, M.f()]);',
+    'declare const A: any;\nnamespace M { import B = A.x\n  export const z = B }\nexport const out = JSON.stringify(M);',
+    'declare const A: any;\nnamespace M { export const x = 1; import B = M.x; export const z = B; }\nexport const out = JSON.stringify(M);',
+    'declare const A: any;\nnamespace M { import B = A.x; var c: B; export const z = 1; }\nexport const out = JSON.stringify(M);',
+    'declare const A: any;\nnamespace M.N { import B = A.q; export const z = B + 1; }\nexport const out = JSON.stringify(M);',
+  ]) {
+    const result = sameAsTypeScript(source, 'alias.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'alias.ts')), source);
+  }
+  assert.equal(compile(Buffer.from('namespace M { export import B = A.x; import C = A; export const c = B; }\nexport { M };'), { file: 'alias.ts' }).code,
+    'var M;(function (M) { M.B = A.x; var C = A; M.c = M.B; })(M||(M={}));\nexport { M };');
+  // An alias alone does not make the namespace exist, and TypeScript writes nothing.
+  assert.doesNotMatch(sameAsTypeScript('namespace M { import B = A.x; }\nexport const y = 1;', 'alias.ts').code, /function/);
+  for (const source of [
+    // A call of require, a type-only alias, an alias to a member the namespace exports, a statement that goes on.
+    'namespace M { import B = require("m"); export const z = B; }\nexport { M };',
+    'namespace M { import type B = A.x; export const z = 1; }\nexport { M };',
+    'namespace M { export const A = { x: 1 }; import B = A.x; export const z = B; }\nexport { M };',
+    'namespace M { import B = A.x\n  (1); export const z = B; }\nexport { M };',
+  ]) {
+    assert.notEqual(sameAsTypeScript(source, 'alias.ts').backend, 'pulse', source);
   }
 });
