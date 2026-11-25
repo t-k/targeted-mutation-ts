@@ -2413,3 +2413,15 @@ test('second review of the namespace work', () => {
     assert.equal(compile(Buffer.from(source), { file: 'review.ts' }).code, null, source);
   }
 });
+
+test('a class without a name may begin with its implements clause', () => {
+  for (const source of [
+    'const c: I = new (class implements I { x = 1 })();\nexport { c };',
+    'export const C = class implements I, J<number> { m() { return 1; } };',
+    'export default class implements I { x = 1 }',
+    'export const D = class implements_ {};\nexport const E = class implement { };',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'head.ts').backend, 'pulse', source);
+  }
+  assert.notEqual(compile(Buffer.from('export const C = class implements I {};'), { file: 'head.js' }).backend, 'pulse');
+});

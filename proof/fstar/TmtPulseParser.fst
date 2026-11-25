@@ -3072,8 +3072,12 @@ and class_expression (input:tape) (st:parser_state) (fuel:U32.t)
     let! body = (fun () -> skip input { st with offset = plus st.offset 5ul }) in
     let! next_ = (fun () -> peek input body.offset) in
     let! inherited = (fun () -> if next_ = 101uy then keyword input body.offset 7ul 0x657874656e6473uL else ret input (false)) in
+    // A class without a name may begin with its implements clause.
+    let! implements_head = (fun () -> if next_ = 105uy && input.capture_types then word input body.offset 8ul 0uL else ret input 0uL) in
+    let! implemented = (fun () -> if implements_head = 0x696d706c656d656euL then keyword input (plus body.offset 8ul) 2ul 0x7473uL
+      else ret input false) in
     let! named =
-      (fun () -> if inherited || next_ = 60uy || next_ = 123uy then ret input (body)
+      (fun () -> if inherited || implemented || next_ = 60uy || next_ = 123uy then ret input (body)
       else (let! anf_value_1 = (fun () -> (name input body.offset false true)) in ret input (from_cursor body anf_value_1))) in
     class_tail input named (minus fuel 1ul) OrdinaryClass
 and super_expression (input:tape) (st:parser_state) (fuel:U32.t)
@@ -5976,7 +5980,10 @@ let default_declaration (input:tape) (state:parser_state) (declaration_start:U32
     let! start = (fun () -> skip input { state with offset = plus head 5ul }) in
     let! byte = (fun () -> peek input start.offset) in
     let! derives = (fun () -> keyword input start.offset 7ul 0x657874656e6473uL) in
-    let! named = (fun () -> if byte = 123uy || byte = 60uy || derives then ret input ({ state = start; used })
+    let! implements_head = (fun () -> if byte = 105uy && input.capture_types then word input start.offset 8ul 0uL else ret input 0uL) in
+    let! implemented = (fun () -> if implements_head = 0x696d706c656d656euL then keyword input (plus start.offset 8ul) 2ul 0x7473uL
+      else ret input false) in
+    let! named = (fun () -> if byte = 123uy || byte = 60uy || derives || implemented then ret input ({ state = start; used })
       else bind_at input start 0ul used start.offset) in
     let kind = if abstract_.ok then AbstractClass else OrdinaryClass in
     // Kinds 51 and 54 for the default class. Its head runs from `export`; the name may be empty.

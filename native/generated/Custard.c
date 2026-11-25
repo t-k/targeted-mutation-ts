@@ -12542,17 +12542,27 @@ TmtPulseParser_class_expression(
       value2 = TmtPulseParser_keyword(input, value.offset, 7U, 0x657874656e6473ULL);
     else
       value2 = false;
-    TmtPulseParser_parser_state value30;
-    if (value2 || value1 == 60U || value1 == 123U)
-      value30 = value;
+    uint64_t value3;
+    if (value1 == 105U && input.capture_types)
+      value3 = TmtPulseParser_word(input, value.offset, 8U, 0ULL);
+    else
+      value3 = 0ULL;
+    bool value4;
+    if (value3 == 0x696d706c656d656eULL)
+      value4 = TmtPulseParser_keyword(input, TmtPulseParser_plus(value.offset, 8U), 2U, 0x7473ULL);
+    else
+      value4 = false;
+    TmtPulseParser_parser_state value50;
+    if (value2 || value4 || value1 == 60U || value1 == 123U)
+      value50 = value;
     else
     {
-      TmtPulseParser_cursor value3 = TmtPulseParser_name(input, value.offset, false, true);
-      value30 = TmtPulseParser_from_cursor(value, value3);
+      TmtPulseParser_cursor value5 = TmtPulseParser_name(input, value.offset, false, true);
+      value50 = TmtPulseParser_from_cursor(value, value5);
     }
     return
       TmtPulseParser_class_tail(input,
-        value30,
+        value50,
         TmtPulseParser_minus(fuel, 1U),
         TmtPulseParser_OrdinaryClass);
   }
@@ -21172,41 +21182,51 @@ TmtPulseParser_default_declaration(
         ));
     uint8_t value5 = TmtPulseMemory_peek(input, value4.offset);
     bool value6 = TmtPulseParser_keyword(input, value4.offset, 7U, 0x657874656e6473ULL);
-    TmtPulseParser_named_state value7;
-    if (value5 == 123U || value5 == 60U || value6)
-      value7 = ((TmtPulseParser_named_state){ .state = value4, .used = used });
+    uint64_t value7;
+    if (value5 == 105U && input.capture_types)
+      value7 = TmtPulseParser_word(input, value4.offset, 8U, 0ULL);
     else
-      value7 = TmtPulseParser_bind_at(input, value4, 0U, used, value4.offset);
+      value7 = 0ULL;
+    bool value8;
+    if (value7 == 0x696d706c656d656eULL)
+      value8 = TmtPulseParser_keyword(input, TmtPulseParser_plus(value4.offset, 8U), 2U, 0x7473ULL);
+    else
+      value8 = false;
+    TmtPulseParser_named_state value9;
+    if (value5 == 123U || value5 == 60U || value6 || value8)
+      value9 = ((TmtPulseParser_named_state){ .state = value4, .used = used });
+    else
+      value9 = TmtPulseParser_bind_at(input, value4, 0U, used, value4.offset);
     TmtPulseParser_class_kind
     kind = value1.ok ? TmtPulseParser_AbstractClass : TmtPulseParser_OrdinaryClass;
-    TmtGrammar_span name_span = { .first = value4.offset, .last = value7.state.offset };
-    TmtPulseParser_parser_state value8;
+    TmtGrammar_span name_span = { .first = value4.offset, .last = value9.state.offset };
+    TmtPulseParser_parser_state value10;
     if (input.legacy_decorators)
-      value8 =
+      value10 =
         TmtPulseParser_record_compiler_span(input,
-          value7.state,
+          value9.state,
           51U,
           ((TmtGrammar_span){ .first = declaration_start, .last = value4.offset }),
           name_span);
     else
-      value8 = value7.state;
-    TmtPulseParser_parser_state value9 = TmtPulseParser_class_tail(input, value8, 64U, kind);
-    TmtPulseParser_parser_state value10;
-    if (input.legacy_decorators && value9.status == 0U && value9.offset > 0U)
-      value10 =
+      value10 = value9.state;
+    TmtPulseParser_parser_state value11 = TmtPulseParser_class_tail(input, value10, 64U, kind);
+    TmtPulseParser_parser_state value12;
+    if (input.legacy_decorators && value11.status == 0U && value11.offset > 0U)
+      value12 =
         TmtPulseParser_record_compiler_span(input,
-          value9,
+          value11,
           54U,
           (
             (TmtGrammar_span){
-              .first = TmtPulseParser_minus(value9.offset, 1U),
-              .last = value9.offset
+              .first = TmtPulseParser_minus(value11.offset, 1U),
+              .last = value11.offset
             }
           ),
           name_span);
     else
-      value10 = value9;
-    return ((TmtPulseParser_named_state){ .state = value10, .used = value7.used });
+      value12 = value11;
+    return ((TmtPulseParser_named_state){ .state = value12, .used = value9.used });
   }
   else if (value.ok)
   {
