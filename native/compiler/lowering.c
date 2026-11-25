@@ -2413,7 +2413,17 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   const uint32_t marker = find_marker(input, first.at, false);
   const bool module = marker < size;
   /* A script is read as strict code and published with the directive, so its enums are lowered like a module's. */
-  if (!module && (!allow_script || first.at == size || source[first.at] == '"' || source[first.at] == '\'')) return NULL;
+  if (!module && (!allow_script || first.at == size)) return NULL;
+  if (!module && (source[first.at] == '"' || source[first.at] == '\'')) {
+    /*
+     * A leading string decides the mode of the script. Only the strict directive itself, closed by a semicolon,
+     * is taken: the script is then published as written.
+     */
+    uint32_t at = first.at + 11;
+    if (size - first.at < 13 || memcmp(source + first.at + 1, "use strict", 10) || source[first.at + 11] != source[first.at]) return NULL;
+    for (at++; at < size && (source[at] == ' ' || source[at] == '\t'); at++) {}
+    if (at >= size || source[at] != ';') return NULL;
+  }
   TmtGrammar_candidate *records = NULL;
   uint8_t *marks = NULL;
   if (size >= 4096) {

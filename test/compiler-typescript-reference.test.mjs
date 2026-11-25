@@ -1735,3 +1735,22 @@ test('declared namespaces and modules may hold declarations of values', () => {
     assert.notEqual(compile(Buffer.from(source), { file: 'ambient.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a script that begins with the strict directive is published as written', () => {
+  for (const source of [
+    '"use strict"; var x: number = 1;',
+    "'use strict';\nfunction f(a: string) { return a; }",
+    '// c\n"use strict";\nenum E { A }',
+    '"use strict" ;\nvar x: number = 1;',
+    '"use strict";\n"use foo";\nvar x: number = 1;',
+  ]) {
+    const result = sameAsTypeScript(source, 'script.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(result.code.match(/use strict/g).length, 1, source);
+  }
+  // Another leading string decides the mode differently, or depends on what is erased.
+  for (const source of ['"use strict"\nvar x: number = 1;', '"use strict" as string;\nvar x: number = 1;',
+    '"use stricter";\nvar x: number = 1;', '"use asm";\nvar x: number = 1;', '"use strict";\nwith (a) {}']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'script.ts' }).backend, 'pulse', source);
+  }
+});
