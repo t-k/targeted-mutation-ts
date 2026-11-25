@@ -34,7 +34,7 @@
   <!-- Row 1: Source -> Baseline -> Optional Diff Track -->
   <rect x="28" y="34" width="196" height="62" rx="10" fill="#f8f9fa" stroke="#adb5bd" stroke-width="1.5"/>
   <text x="126" y="59" text-anchor="middle" class="heading" fill="#212529">Source + Tests</text>
-  <text x="126" y="79" text-anchor="middle" class="small" fill="#495057">Vitest 4 or Playwright</text>
+  <text x="126" y="79" text-anchor="middle" class="small" fill="#495057">Vitest 4/5 or Playwright</text>
 
   <line x1="224" y1="65" x2="270" y2="65" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow-gray)"/>
 
@@ -71,9 +71,9 @@
   <path d="M 230 224 L 356 260" fill="none" stroke="#6741d9" stroke-width="1.6" marker-end="url(#arrow-purple)"/>
   <path d="M 694 224 L 568 260" fill="none" stroke="#0ca678" stroke-width="1.6" marker-end="url(#arrow-teal)"/>
 
-  <!-- Row 3: Switched Vitest 4 Workers -->
+  <!-- Row 3: Switched Vitest 4/5 Workers -->
   <rect x="210" y="264" width="540" height="60" rx="10" fill="#fff9db" stroke="#e67700" stroke-width="1.6"/>
-  <text x="480" y="289" text-anchor="middle" class="heading" fill="#d9480f">3. Switched Vitest 4 Worker Session</text>
+  <text x="480" y="289" text-anchor="middle" class="heading" fill="#d9480f">3. Switched Vitest 4 &amp; 5 Worker Session</text>
   <text x="480" y="309" text-anchor="middle" class="body" fill="#6c4200">In-worker runtime switches + post-trial control run (auto-fallback on state leak)</text>
 
   <!-- Arrows: Session -> 3 Outcomes -->

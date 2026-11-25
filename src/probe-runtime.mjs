@@ -1,6 +1,6 @@
 import { createRequire } from 'node:module';
-import { relative } from 'node:path';
-import { getCurrentTest } from 'vitest/suite';
+import { relative, resolve } from 'node:path';
+import * as vitestApi from 'vitest';
 
 const trace = process.env.TMT_TRACE;
 // Use the native module cache even when Vite evaluates or resets this module.
@@ -8,6 +8,8 @@ const writer = trace && createRequire(import.meta.url)('./trace-buffer.mjs').wor
   trace, (test, finish) => test.context.onTestFinished(finish), process.env.TMT_TRACE_SYNC === '1');
 const active = process.env.TMT_ACTIVE_SITE;
 const workspace = process.env.TMT_WORKSPACE;
+const getCurrentTest = vitestApi.TestRunner?.getCurrentTest ??
+  createRequire(workspace ? resolve(workspace, 'package.json') : import.meta.url)('vitest/suite').getCurrentTest;
 const isSafeInteger = Number.isSafeInteger;
 
 export function loaded(ids) {

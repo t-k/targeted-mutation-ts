@@ -217,6 +217,15 @@ registerHooks({ load(url, context, next) {
   const olderAnalysis = JSON.parse(run(process.execPath, [entry, 'analyze', ...profiles.Targeted]));
   assert.equal(olderAnalysis.mutants[0].evidence, portable ? 'reexecuted' : 'predicted');
   assert.equal(olderAnalysis.mutants[0].audit.status, 'agreed');
+  // Verify the packed runtime also works end-to-end with Vitest 5.
+  install('vitest@5.1.2');
+  const vitest5BuiltIn = JSON.parse(run(process.execPath, [entry, 'analyze', 'fixture', 'src/eligibility.ts', '--mutators', 'full', '--test', 'test/eligibility.test.ts']));
+  assert.deepEqual([vitest5BuiltIn.evaluation, vitest5BuiltIn.operatorExecution], ['evaluated', 'session']);
+  const vitest5Targeted = JSON.parse(run(process.execPath, [entry, 'analyze', 'fixture', 'src/eligibility.ts', '--suggest-assertions', '--test', 'test/eligibility.test.ts']));
+  assert.deepEqual([vitest5Targeted.evaluation, vitest5Targeted.operatorExecution, vitest5Targeted.mutators], ['evaluated', 'session', 'targeted']);
+  const vitest5Audit = JSON.parse(run(process.execPath, [entry, 'analyze', ...profiles.Targeted]));
+  assert.equal(vitest5Audit.mutants[0].evidence, portable ? 'reexecuted' : 'predicted');
+  assert.equal(vitest5Audit.mutants[0].audit.status, 'agreed');
   console.log(portable
     ? 'Installed portable runtime used the TypeScript fallback and Vitest runner'
     : 'Installed runtime used the native extractor, compiled Lean decision and Vitest audit');

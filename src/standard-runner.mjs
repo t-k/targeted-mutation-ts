@@ -1,6 +1,9 @@
 import { appendFileSync } from 'node:fs';
-import { vi } from 'vitest';
-import { VitestTestRunner } from 'vitest/runners';
+import * as vitestApi from 'vitest';
+
+const { vi } = vitestApi;
+const legacyRunnersId = 'vitest/' + 'runners';
+const VitestTestRunner = vitestApi.TestRunner ?? (await import(/* @vite-ignore */ legacyRunnersId)).VitestTestRunner;
 
 const sessionKey = Symbol.for('targeted-mutation-ts/session');
 const trialKey = Symbol.for('targeted-mutation-ts/trial');
@@ -8,7 +11,7 @@ const unhandledKey = Symbol.for('targeted-mutation-ts/unhandled');
 const immediate = setImmediate;
 const base = VitestTestRunner.prototype;
 const runs = task => task.mode === 'run' || task.mode === 'queued';
-const timeoutMessage = /^(?:Hook|Test) timed out in \d+ms\./;
+const timeoutMessage = /^(?:(?:Hook|Test) timed out in \d+ms(?: while waiting for [^\n]+)?\.|The (?:setup|teardown) phase of "around(?:Each|All)" hook timed out after \d+ms\.)/;
 const vitestModule = /\/vitest\/dist\/|vitest-virtual-\w+\/dist|@vitest\/dist/;
 const timedOut = error => timeoutMessage.test(error?.message ?? '');
 
@@ -37,7 +40,10 @@ function choose(suite, selected) {
 // `expected` holds the tests the baseline ran for this entry. A test outside it that ran, or one of them that is
 // no longer registered, means the file now holds different tests, which only a fresh run can judge.
 function summarize(suite, summary, expected) {
-  for (const error of suite.result?.errors ?? []) summary.errors.push(String(error.message ?? error));
+  for (const error of suite.result?.errors ?? []) {
+    if (timedOut(error)) summary.timeout = true;
+    else summary.errors.push(String(error.message ?? error));
+  }
   for (const task of suite.tasks) {
     if (task.type !== 'test') summarize(task, summary, expected);
     else if (expected.has(task.id)) summary.missing--;
@@ -97,7 +103,7 @@ export default class StandardMutationRunner extends VitestTestRunner {
           // trial ran in an environment that an earlier run, or the trial itself, had changed.
           const control = await inner({ phase: 'control' }, selected, plan.tests);
           const controlHits = globalThis.__stryker__.mutantCoverage?.static?.[active] ?? 0;
-          if (control.unhandled || control.errors.length || control.failed.length || control.foreign || control.missing || control.passed !== expected ||
+          if (control.timeout || control.unhandled || control.errors.length || control.failed.length || control.foreign || control.missing || control.passed !== expected ||
               controlHits !== plan.hits) {
             emit({ stop: plan.id, reason: 'control' });
             break;
@@ -143,7 +149,7 @@ export default class StandardMutationRunner extends VitestTestRunner {
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
       vi.resetConfig();
-      this.moduleRunner.mocker.reset();
+      this.moduleRunner.mocker?.reset();
       for (const [id, node] of this.workerState.evaluatedModules.idToModuleMap) {
         if (vitestModule.test(id)) continue;
         node.promise = undefined;

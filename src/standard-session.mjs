@@ -1,10 +1,10 @@
-import { appendFileSync, closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, rmSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, openSync, readFileSync, readSync, rmSync } from 'node:fs';
 import { createRequire, enableCompileCache } from 'node:module';
 import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { failedTests, snapshotVitestRun, timeVitestRun } from './vitest-reporter.mjs';
 import { changedReach, indexAgreement, indexCoverage, indexReach, reachOfRecords, assessTrial, cheapestFirst, openReasons, planInThread, sampleSettled, settleInThread, sharePlans, unanswered, withoutMutations } from './standard-plan.mjs';
-import { inside } from './vitest.mjs';
+import { classifyVitestSessionSupport, disableProjectFsModuleCache, inside, resolveVitestRunnerEntry, vitestDisableFsCachePlugin, vitestServerCacheOptions } from './vitest.mjs';
 
 // Vitest and Vite are loaded on every run. Node keeps their compiled code between runs when it can.
 try { enableCompileCache?.(); } catch { /* The cache is an optimisation only. */ }
@@ -180,10 +180,13 @@ let exitStatus = 1;
 try {
   const require = createRequire(resolve(workspace, 'package.json'));
   const { createVitest } = await import(pathToFileURL(require.resolve('vitest/node')).href);
+  const vitestPkgPath = require.resolve('vitest/package.json');
   const version = require('vitest/package.json').version;
-  if (!version.startsWith('4.')) throw new Error(`The Vitest session requires Vitest 4, found ${version}`);
-  supportsIds = !version.startsWith('4.0.');
-  runnerEntry = pathToFileURL(realpathSync(createRequire(require.resolve('vitest/package.json')).resolve('@vitest/runner'))).href;
+  const versionSupport = classifyVitestSessionSupport(version);
+  if (!versionSupport.supported) throw new Error(versionSupport.reason);
+  const fsModuleCacheDir = resolve(temporary, 'vitest-fs-cache');
+  supportsIds = versionSupport.supportsIds;
+  runnerEntry = resolveVitestRunnerEntry(vitestPkgPath);
   // Test files run beside each other when the project allows it: each has its own worker, and its coverage and
   // its mutations are kept per file.
   const oneByOne = { maxWorkers: 1, fileParallelism: false };
@@ -197,7 +200,8 @@ try {
   createContext = async lane => {
     const workers = resolveWorkers(lane);
     const created = await createVitest('test', {
-      root: workspace, config, watch: false, api: false, ui: false, cache: false,
+      root: workspace, config, watch: false, api: false, ui: false,
+      ...vitestServerCacheOptions(version, fsModuleCacheDir),
       pool: 'threads', isolate: true, maxConcurrency: 1, ...workers,
       coverage: { enabled: false }, onConsoleLog: () => false, bail: 1,
       reporters: [{ onTestRunEnd(modules, errors, reason) {
@@ -206,13 +210,17 @@ try {
         lane.unhandled = errors.length;
         lane.failedModules = modules.filter(module => module.errors().length).map(module => JSON.stringify([module.project.name, module.moduleId]));
       } }],
-    });
+    }, { plugins: [vitestDisableFsCachePlugin(version, fsModuleCacheDir)] });
+    disableProjectFsModuleCache(version, null, created);
+    const configSupport = classifyVitestSessionSupport(version, created.projects.map(project => project.config));
+    if (!configSupport.supported) {
+      await created.close();
+      throw new Error(configSupport.reason);
+    }
     for (const project of created.projects) {
-      if (project.config.browser?.enabled || project.config.typecheck?.enabled || project.config.runner) {
-        throw new Error('The Vitest session requires the default Vitest runner without browser mode or type checking');
-      }
       Object.assign(project.config, { setupFiles: [setup, ...project.config.setupFiles],
         runner: workerRunner, pool: 'threads', isolate: true, maxConcurrency: 1, ...workers, bail: 1 });
+      disableProjectFsModuleCache(version, project.config, created);
     }
     return created;
   };

@@ -133,7 +133,7 @@ export function assessTrial(trial, expectedTests, hitLimit) {
   const registered = new Set(trial.snapshot.tests.map(test => test.id));
   const collectedModules = new Set(trial.snapshot.tests.map(moduleKey));
   const hitCount = trial.records.reduce((sum, row) => sum + row.hits, 0);
-  if (hitCount > hitLimit || failed.some(test => test.timeout)) {
+  if (hitCount > hitLimit || (hitCount > 0 && trial.snapshot.timeout) || failed.some(test => test.timeout)) {
     return { status: 'timeout', statusReason: hitCount > hitLimit ? 'Mutation hit limit reached' : 'Vitest test timeout' };
   }
   if (errors.length) {
@@ -191,7 +191,7 @@ function classify(plan, event) {
   if (event.stuck) return 'timeout';
   if (event.stuckControl) return 'open';
   if (event.unhandled || event.errors?.length || event.foreign || event.missing) return 'open';
-  if (event.hits > plan.hitLimit || event.timeout) return 'timeout';
+  if (event.hits > plan.hitLimit || (event.hits > 0 && event.timeout)) return 'timeout';
   if (event.hits > 0 && event.failed.length) return 'killed';
   if (event.hits > 0 && event.passed === event.expected) return 'survived';
   return 'open';

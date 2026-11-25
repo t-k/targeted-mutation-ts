@@ -412,28 +412,176 @@ export function withCopy(project, action, {
   }
 }
 
+export function vitestVersionString(manifestPath) {
+  return JSON.parse(readFileSync(manifestPath, 'utf8')).version ?? '';
+}
+
+export function vitestMajorVersion(manifestPath) {
+  return Number.parseInt(vitestVersionString(manifestPath).split('.')[0], 10);
+}
+
+function parseVitestVersion(versionOrMajor) {
+  if (typeof versionOrMajor === 'number') {
+    return { major: versionOrMajor, minor: versionOrMajor === 4 ? 1 : 0, patch: 0 };
+  }
+  const [major = NaN, minor = 0, patch = 0] = String(versionOrMajor ?? '')
+    .split('-')[0]
+    .split('.')
+    .map(part => Number.parseInt(part, 10));
+  return { major, minor, patch };
+}
+
+function hasExperimentalFsModuleCache(major, minor, patch) {
+  return major === 4 && (minor > 0 || patch >= 11);
+}
+
+export function vitestCacheCliArgs(versionOrMajor, fsModuleCacheDir) {
+  const { major, minor, patch } = parseVitestVersion(versionOrMajor);
+  if (major >= 5) {
+    return [
+      '--no-cache',
+      '--no-fsModuleCache',
+      ...(fsModuleCacheDir ? [`--fsModuleCachePath=${fsModuleCacheDir}`] : []),
+    ];
+  }
+  if (hasExperimentalFsModuleCache(major, minor, patch)) {
+    return [
+      '--no-cache',
+      '--experimental.fsModuleCache=false',
+      ...(fsModuleCacheDir ? [`--experimental.fsModuleCachePath=${fsModuleCacheDir}`] : []),
+    ];
+  }
+  return ['--no-cache'];
+}
+
+export function vitestServerCacheOptions(versionOrMajor, fsModuleCacheDir) {
+  const { major, minor, patch } = parseVitestVersion(versionOrMajor);
+  if (major >= 5) {
+    return {
+      cache: false,
+      fsModuleCache: false,
+      ...(fsModuleCacheDir ? { fsModuleCachePath: fsModuleCacheDir } : {}),
+    };
+  }
+  if (hasExperimentalFsModuleCache(major, minor, patch)) {
+    return {
+      cache: false,
+      experimental: {
+        fsModuleCache: false,
+        ...(fsModuleCacheDir ? { fsModuleCachePath: fsModuleCacheDir } : {}),
+      },
+    };
+  }
+  return { cache: false };
+}
+
+function sanitizeInlineTestConfig(major, minor, patch, testConfig, fsModuleCacheDir) {
+  if (!testConfig || typeof testConfig !== 'object') return;
+  if (major >= 5) {
+    testConfig.fsModuleCache = false;
+    if (fsModuleCacheDir) testConfig.fsModuleCachePath = fsModuleCacheDir;
+  } else if (hasExperimentalFsModuleCache(major, minor, patch)) {
+    testConfig.experimental = {
+      ...testConfig.experimental,
+      fsModuleCache: false,
+      ...(fsModuleCacheDir ? { fsModuleCachePath: fsModuleCacheDir } : {}),
+    };
+  }
+}
+
+export function vitestDisableFsCachePlugin(versionOrMajor, fsModuleCacheDir) {
+  const { major, minor, patch } = parseVitestVersion(versionOrMajor);
+  return {
+    name: 'tmt:disable-fs-module-cache',
+    enforce: 'post',
+    config(userConfig) {
+      if (!userConfig || typeof userConfig !== 'object') return;
+      sanitizeInlineTestConfig(major, minor, patch, userConfig.test, fsModuleCacheDir);
+      if (Array.isArray(userConfig.test?.projects)) {
+        for (const entry of userConfig.test.projects) {
+          if (entry && typeof entry === 'object') {
+            sanitizeInlineTestConfig(major, minor, patch, entry.test, fsModuleCacheDir);
+          }
+        }
+      }
+    },
+  };
+}
+
+export function disableProjectFsModuleCache(versionOrMajor, projectConfig, vitestInstance) {
+  const { major, minor, patch } = parseVitestVersion(versionOrMajor);
+  if (projectConfig) {
+    if (major >= 5) projectConfig.fsModuleCache = false;
+    else if (hasExperimentalFsModuleCache(major, minor, patch) && projectConfig.experimental) {
+      projectConfig.experimental.fsModuleCache = false;
+    }
+  }
+  if (vitestInstance?._fsCache) vitestInstance._fsCache.getMemoryCachePath = () => null;
+  if (vitestInstance?.cache?._modules) vitestInstance.cache._modules.getMemoryCachePath = () => null;
+}
+
+export function resolveVitestRunnerEntry(vitestManifestPath) {
+  const version = vitestVersionString(vitestManifestPath);
+  const vitestRequire = createRequire(vitestManifestPath);
+  const resolved = version.startsWith('4.')
+    ? vitestRequire.resolve('@vitest/runner')
+    : vitestRequire.resolve('vitest/internal/browser');
+  return pathToFileURL(realpathSync(resolved)).href;
+}
+
+export function classifyVitestSessionSupport(version, projectConfigs = [], { allowGlobalSetup = true, rootGlobalSetup } = {}) {
+  if (typeof version !== 'string' || !/^[45]\./.test(version)) {
+    return { supported: false, supportsIds: false, reason: `The Vitest session requires Vitest 4 or 5, found ${version}` };
+  }
+  const supportsIds = !version.startsWith('4.0.');
+  if (!allowGlobalSetup && (rootGlobalSetup?.length || projectConfigs.some(config => config?.globalSetup?.length))) {
+    return {
+      supported: false,
+      supportsIds,
+      reason: 'Warm Vitest session does not support globalSetup',
+    };
+  }
+  for (const config of projectConfigs) {
+    if (config?.browser?.enabled || config?.typecheck?.enabled || config?.runner ||
+        config?.experimental?.viteModuleRunner === false) {
+      return {
+        supported: false,
+        supportsIds,
+        reason: 'The Vitest session requires the default Vitest runner with the Vite module runner and without browser mode or type checking',
+      };
+    }
+  }
+  return { supported: true, supportsIds, reason: null };
+}
+
 // How one Vitest run is started, shared by the blocking and the concurrent form.
 function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects = [], product = false, active, probePreload, synchronousTrace, timeout = 60_000, workers = 1 } = {}) {
-  const vitest = resolve(dirname(runnerPackage(root, 'vitest')), 'vitest.mjs');
+  const manifestPath = runnerPackage(root, 'vitest');
+  const vitest = resolve(dirname(manifestPath), 'vitest.mjs');
+  const vitestVersion = vitestVersionString(manifestPath);
   const testsToRun = [...new Set(testFiles.map(file => inside(root, file)))];
   const projectArgs = [...new Set(testProjects.filter(Boolean))].flatMap(name => ['--project', name]);
   const configuration = config === undefined ? [] : ['--config', inside(root, config)];
   const report = resolve(temp, 'vitest.json');
   rmSync(report, { force: true });
   const cache = resolve(temp, 'vite-cache');
+  const fsModuleCacheDir = resolve(temp, 'vitest-fs-cache');
   mkdirSync(cache, { recursive: true });
   const workerArgs = workers > 1
     ? [`--maxWorkers=${workers}`, '--maxConcurrency=1']
     : ['--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism'];
+  const cacheArgs = vitestCacheCliArgs(vitestVersion, fsModuleCacheDir);
   return { report, testsToRun, product, args: [
     supervisor, resolve(temp, 'vitest.pid'), String(timeout),
-    vitest, 'run', ...workerArgs, '--no-cache',
+    vitest, 'run', ...workerArgs, ...cacheArgs,
     ...configuration, ...projectArgs, ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]),
     ...testsToRun,
   ], options: {
     cwd: root,
     env: {
-      ...process.env, CI: 'true', VITE_CACHE_DIR: cache, TMT_WORKSPACE: root, TMT_REPORT: report,
+      ...process.env, CI: 'true', VITE_CACHE_DIR: cache,
+      VITEST_FS_MODULE_CACHE: 'false', VITEST_FS_MODULE_CACHE_PATH: fsModuleCacheDir,
+      TMT_WORKSPACE: root, TMT_REPORT: report,
       TMT_TRACE: trace ?? '', TMT_ACTIVE_SITE: active ?? '', TMT_TRACE_SYNC: synchronousTrace ? '1' : '',
       ...(probePreload ? { NODE_OPTIONS: [process.env.NODE_OPTIONS, '--require=' + JSON.stringify(probePreload)]
         .filter(Boolean).join(' ') } : {}),
@@ -463,7 +611,7 @@ function vitestOutcome(root, { report, testsToRun, product }, result) {
     }
     const failed = data.tests.filter(test => test.status === 'failed');
     const complete = data.reason === 'passed' || data.reason === 'failed';
-    const status = failed.some(test => test.timeout) ? 'timeout'
+    const status = (data.timeout || failed.some(test => test.timeout)) ? 'timeout'
       : !complete || data.errors.length ? 'error'
         : result.status === 1 && failed.length ? 'failed'
           : result.status === 0 && data.tests.some(test => test.status === 'passed') && !failed.length ? 'passed' : 'error';
@@ -511,7 +659,10 @@ export async function resolveRelatedVitestSpecs(project, targetFiles = [], { con
           relatedWorker, manifestPath,
         ], {
           cwd: workspace,
-          env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test', VITE_CACHE_DIR: cache },
+          env: {
+            ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test', VITE_CACHE_DIR: cache,
+            VITEST_FS_MODULE_CACHE: 'false', VITEST_FS_MODULE_CACHE_PATH: resolve(temp, 'vitest-fs-cache'),
+          },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
         const out = { stdout: '', stderr: '' };
