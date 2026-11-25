@@ -2931,7 +2931,10 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
                   consume input { after with in_allowed = target.in_allowed } 41uy
                 else
                   let! this_ = (fun () -> if head = 116uy then keyword input target.offset 4ul 0x74686973uL else ret input false) in
+                  // new class { ... }: the class expression is what is constructed.
+                  let! anonymous = (fun () -> if head = 99uy then class_keyword input target.offset else ret input false) in
                   if this_ then ret input { target with offset = plus target.offset 4ul }
+                  else if anonymous then class_expression input target inner
                   else (let! anf_value_5 = (fun () -> forbidden_field_arguments input target) in if anf_value_5 then ret input (failed target 1ul)
                   else (let! anf_value_6 = (fun () -> (name input target.offset false false)) in ret input (from_cursor target anf_value_6)))) in
               let! named = (fun () -> qualified_name input named 64ul) in
@@ -2957,9 +2960,22 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
                     skip input recorded)
                 else ret input tail) in
               let! typed = (fun () -> same input tail.offset 60uy) in
+              let before_arguments = tail in
               let! tail = (fun () -> if typed && tail.offset = named.offset then call_type_arguments input tail else ret input (tail)) in
+              // new Name<T> without an argument list: the type arguments are erased, and the expression has
+              // to end behind them.
+              let! bare = (fun () -> if typed && tail.status <> 0ul && input.capture_types && before_arguments.offset = named.offset then
+                  let! arguments = (fun () -> expression_type_arguments input before_arguments) in
+                  if arguments.status <> 0ul then ret input arguments
+                  else
+                    let! recorded = (fun () -> record_jsx_span input arguments 10ul before_arguments.offset arguments.offset) in
+                    skip input recorded
+                else ret input (failed before_arguments 1ul)) in
+              let! bare_end = (fun () -> if bare.status = 0ul then peek input bare.offset else ret input 0uy) in
               let! next_token = (fun () -> peek input tail.offset) in
-              if next_token = 40uy then
+              if bare.status = 0ul && (bare_end = 59uy || bare_end = 41uy || bare_end = 44uy || bare_end = 125uy || bare_end = 93uy) then
+                ret input (bare, NotAssignable)
+              else if next_token = 40uy then
                 let! args = (fun () -> consume input tail 40uy) in
                 let! list = (fun () -> expression_list input args inner input.size 41uy false) in
                 ret input (list.list_end, NotAssignable)
@@ -4532,7 +4548,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         let ambient_constructor = kind = AmbientClass && constructor && not member_head.ok && next_byte = 40uy in
         let! closed =
           // An accessor is declared with its parameter list: get value: number is an error.
-          (fun () -> if awaiting_body || (constructor_name && not ambient_constructor) || (accessor && (kind <> AmbientClass || not method)) ||
+          (fun () -> if awaiting_body || (constructor_name && not ambient_constructor) || (accessor && not method) ||
             key.private_ || key.quoted_ || key.computed || key.async_ || key.generator_ || prototype ||
             // A declared class is erased whole, so its members may be static or carry an access modifier.
             // An abstract member is erased whole, so it may also be marked override.

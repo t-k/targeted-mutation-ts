@@ -14236,6 +14236,11 @@ TmtPulseParser_atom(
                   value6 = TmtPulseParser_keyword(input, value4.offset, 4U, 0x74686973ULL);
                 else
                   value6 = false;
+                bool value7;
+                if (value5 == 99U)
+                  value7 = TmtPulseParser_class_keyword(input, value4.offset);
+                else
+                  value7 = false;
                 if (value6)
                   value60 =
                     (
@@ -14261,16 +14266,18 @@ TmtPulseParser_atom(
                         .local_log_used = value4.local_log_used
                       }
                     );
+                else if (value7)
+                  value60 = TmtPulseParser_class_expression(input, value4, inner);
                 else
                 {
-                  bool value7 = TmtPulseParser_forbidden_field_arguments(input, value4);
-                  if (value7)
+                  bool value8 = TmtPulseParser_forbidden_field_arguments(input, value4);
+                  if (value8)
                     value60 = TmtPulseParser_failed(value4, 1U);
                   else
                   {
                     TmtPulseParser_cursor
-                    value8 = TmtPulseParser_name(input, value4.offset, false, false);
-                    value60 = TmtPulseParser_from_cursor(value4, value8);
+                    value9 = TmtPulseParser_name(input, value4.offset, false, false);
+                    value60 = TmtPulseParser_from_cursor(value4, value9);
                   }
                 }
               }
@@ -14413,14 +14420,57 @@ TmtPulseParser_atom(
                 value15 = TmtPulseParser_call_type_arguments(input, value130);
               else
                 value15 = value130;
-              uint8_t value16 = TmtPulseMemory_peek(input, value15.offset);
-              if (value16 == 40U)
+              TmtPulseParser_parser_state value160;
+              if
+              (
+                value14 && value15.status != 0U && input.capture_types &&
+                  value130.offset == named.offset
+              )
               {
-                TmtPulseParser_parser_state value17 = TmtPulseParser_consume(input, value15, 40U);
+                TmtPulseParser_parser_state
+                value16 = TmtPulseParser_expression_type_arguments(input, value130);
+                if (value16.status != 0U)
+                  value160 = value16;
+                else
+                {
+                  TmtPulseParser_parser_state
+                  value17 =
+                    TmtPulseParser_record_jsx_span(input,
+                      value16,
+                      10U,
+                      value130.offset,
+                      value16.offset);
+                  value160 = TmtPulseParser_skip(input, value17);
+                }
+              }
+              else
+                value160 = TmtPulseParser_failed(value130, 1U);
+              uint8_t value17;
+              if (value160.status == 0U)
+                value17 = TmtPulseMemory_peek(input, value160.offset);
+              else
+                value17 = 0U;
+              uint8_t value18 = TmtPulseMemory_peek(input, value15.offset);
+              if
+              (
+                value160.status == 0U &&
+                  (value17 == 59U || value17 == 41U || value17 == 44U || value17 == 125U ||
+                    value17 == 93U)
+              )
+                value40 =
+                  (
+                    (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_assignment_target){
+                      ._1 = value160,
+                      ._2 = TmtPulseParser_NotAssignable
+                    }
+                  );
+              else if (value18 == 40U)
+              {
+                TmtPulseParser_parser_state value19 = TmtPulseParser_consume(input, value15, 40U);
                 TmtPulseParser_expression_items
-                value18 =
+                value20 =
                   TmtPulseParser_expression_list(input,
-                    value17,
+                    value19,
                     inner,
                     input.size,
                     41U,
@@ -14428,7 +14478,7 @@ TmtPulseParser_atom(
                 value40 =
                   (
                     (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_assignment_target){
-                      ._1 = value18.list_end,
+                      ._1 = value20.list_end,
                       ._2 = TmtPulseParser_NotAssignable
                     }
                   );
@@ -14443,38 +14493,38 @@ TmtPulseParser_atom(
                   );
               else
               {
-                bool value170;
+                bool value190;
                 if (!boundary.newline)
-                  value170 = false;
-                else if (value16 == 108U)
-                  value170 = TmtPulseParser_keyword(input, value15.offset, 3U, 0x6c6574ULL);
-                else if (value16 == 99U)
-                  value170 = TmtPulseParser_keyword(input, value15.offset, 5U, 0x636f6e7374ULL);
-                else if (value16 == 118U)
-                  value170 = TmtPulseParser_keyword(input, value15.offset, 3U, 0x766172ULL);
-                else if (value16 == 102U)
+                  value190 = false;
+                else if (value18 == 108U)
+                  value190 = TmtPulseParser_keyword(input, value15.offset, 3U, 0x6c6574ULL);
+                else if (value18 == 99U)
+                  value190 = TmtPulseParser_keyword(input, value15.offset, 5U, 0x636f6e7374ULL);
+                else if (value18 == 118U)
+                  value190 = TmtPulseParser_keyword(input, value15.offset, 3U, 0x766172ULL);
+                else if (value18 == 102U)
                 {
                   bool
-                  value17 = TmtPulseParser_keyword(input, value15.offset, 8U, 0x66756e6374696f6eULL);
-                  if (value17)
-                    value170 = true;
+                  value19 = TmtPulseParser_keyword(input, value15.offset, 8U, 0x66756e6374696f6eULL);
+                  if (value19)
+                    value190 = true;
                   else
-                    value170 = TmtPulseParser_keyword(input, value15.offset, 3U, 0x666f72ULL);
+                    value190 = TmtPulseParser_keyword(input, value15.offset, 3U, 0x666f72ULL);
                 }
-                else if (TmtGrammar_identifier_start(value16))
+                else if (TmtGrammar_identifier_start(value18))
                 {
                   uint32_t
-                  value17 = TmtPulseParser_scan_class(input, value15.offset, TmtGrammar_Identifier);
-                  value170 = TmtPulseParser_same(input, value17, 46U);
+                  value19 = TmtPulseParser_scan_class(input, value15.offset, TmtGrammar_Identifier);
+                  value190 = TmtPulseParser_same(input, value19, 46U);
                 }
                 else
-                  value170 = false;
+                  value190 = false;
                 bool
                 closed =
-                  value15.offset == input.size || value16 == 59U || value16 == 44U || value16 == 41U
-                  || value16 == 93U
-                  || value16 == 125U;
-                if (closed || value170)
+                  value15.offset == input.size || value18 == 59U || value18 == 44U || value18 == 41U
+                  || value18 == 93U
+                  || value18 == 125U;
+                if (closed || value190)
                   value40 =
                     (
                       (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_assignment_target){
@@ -15595,9 +15645,8 @@ TmtPulseParser_class_members(
               TmtPulseParser_parser_state value160;
               if
               (
-                awaiting_body || constructor_name && !ambient_constructor ||
-                  accessor && (kind != TmtPulseParser_AmbientClass || !method)
-                || value90.private_
+                awaiting_body || constructor_name && !ambient_constructor || accessor && !method ||
+                  value90.private_
                 || value90.quoted_
                 || value90.computed
                 || value90.async_

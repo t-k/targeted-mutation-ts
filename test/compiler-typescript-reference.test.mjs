@@ -2441,3 +2441,27 @@ test('names outside ASCII are put back in lowered text', () => {
     assert.equal(run(result.code), run(reference(source, 'names.ts')), source);
   }
 });
+
+test('a class expression may be constructed where it stands, and new takes bare type arguments', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))();
+  for (const source of [
+    'interface I { x: number }\nconst a = new class implements I { x = 1 };\nconst b = new class { y = 2 }();\nexport const out = JSON.stringify([a, b]);',
+    'class B<T> { constructor(public v?: T) {} }\nconst c = new class extends B<number> { w = 3 }(4);\nconst d = new class Named extends B<string> {};\nexport const out = JSON.stringify([c, d, d.constructor.name]);',
+    'function mock<T>(): any { return class {}; }\nfunction f(o: object) { return Object.keys(o); }\nexport const out = JSON.stringify([f(new class extends mock<Date>() { k = 1 }), f(new class { private p = 2; m() {} })]);',
+    'class Emitter<T> { fired: T[] = []; }\nconst e = new Emitter<void>;\nconst list = [new Emitter<string>, new Emitter<number[]>];\nexport const out = JSON.stringify([e, list, (new Emitter<Map<string, number>>).fired]);',
+  ]) {
+    const result = sameAsTypeScript(source, 'construct.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'construct.ts')), source);
+  }
+  for (const source of [
+    'export abstract class F { abstract get count(): number; abstract set size(v: number); protected abstract get name(): string; }',
+    'export abstract class G { public abstract get debugName(): string; abstract m(): void; get x() { return 1; } }',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'construct.ts').backend, 'pulse', source);
+  }
+  // Type arguments without an argument list end the expression.
+  for (const source of ['const a = new A<B>.c;\nexport { a };', 'const a = new A<B> + 1;\nexport { a };']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'construct.ts' }).backend, 'pulse', source);
+  }
+});
