@@ -2,6 +2,7 @@ import { writeFileSync } from 'node:fs';
 import { relative } from 'node:path';
 
 const primitive = value => ['string', 'number', 'boolean'].includes(typeof value) || value === null ? value : undefined;
+const vitestTimeoutMessage = /^(?:(?:Hook|Test) timed out in \d+ms(?: while waiting for [^\n]+)?\.\nIf this is a long-running|The (?:setup|teardown) phase of "around(?:Each|All)" hook timed out after \d+ms\.)/;
 
 export function snapshotVitestRun(root, modules, unhandled, reason) {
   const errors = [...unhandled];
@@ -29,7 +30,7 @@ export function snapshotVitestRun(root, modules, unhandled, reason) {
         failures: result.errors?.map(error => error.message) ?? [],
         assertions: result.errors?.filter(error => error.name === 'AssertionError')
           .map(({ actual, expected, message }) => ({ actual: primitive(actual), expected: primitive(expected), message })),
-        timeout: result.errors?.some(error => /^(?:Hook|Test) timed out in \d+ms\.\nIf this is a long-running/.test(error.message ?? '')) ?? false,
+        timeout: result.errors?.some(error => vitestTimeoutMessage.test(error.message ?? '')) ?? false,
         retry: test.options.retry ?? 0, repeats: test.options.repeats ?? 0,
         concurrent: test.options.concurrent ?? false,
       });

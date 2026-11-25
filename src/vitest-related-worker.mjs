@@ -18,8 +18,12 @@ const vitest = await createVitest('test', {
   api: false,
   ui: false,
   cache: false,
+  fsModuleCache: false,
   related: targets.map(file => inside(workspace, file)),
 });
+for (const project of vitest.projects ?? []) {
+  project.config.fsModuleCache = false;
+}
 
 let specs;
 try {

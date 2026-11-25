@@ -30,7 +30,12 @@ function superviseSession(workspace, temp, manifest, limit, signal) {
   return new Promise(settle => {
     const child = spawn(process.execPath, [supervisor, resolve(temp, 'mutation-session.pid'), String(limit), session, manifest], {
       cwd: workspace, stdio: ['ignore', 'ignore', descriptor], timeout: limit + 5_000, signal,
-      env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test' },
+      env: {
+        ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test',
+        VITE_CACHE_DIR: resolve(temp, 'vite-cache'),
+        VITEST_FS_MODULE_CACHE: 'false',
+        VITEST_FS_MODULE_CACHE_PATH: resolve(temp, 'vitest-fs-cache'),
+      },
     });
     const finish = result => {
       closeSync(descriptor);

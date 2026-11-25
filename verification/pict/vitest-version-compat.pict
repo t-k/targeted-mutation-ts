@@ -1,0 +1,8 @@
+VitestVersion: v4_0, v4_1, v5_1, v3_2
+ExecutionMode: Session, IsolatedTrials, AuditSourceRewrite, SuggestAssertionsWarm, Related
+ProjectConfig: Default, FsModuleCacheTrue, CustomRunner, ViteModuleRunnerFalse, BrowserEnabled
+ModuleFormat: ESM, CommonJS
+
+IF [VitestVersion] <> "v5_1" THEN [ProjectConfig] <> "ViteModuleRunnerFalse";
+IF [VitestVersion] = "v4_0" OR [VitestVersion] = "v3_2" THEN [ProjectConfig] <> "FsModuleCacheTrue";
+IF [ExecutionMode] = "Related" THEN [ModuleFormat] = "ESM";

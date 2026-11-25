@@ -412,28 +412,60 @@ export function withCopy(project, action, {
   }
 }
 
+export function vitestMajorVersion(manifestPath) {
+  const version = JSON.parse(readFileSync(manifestPath, 'utf8')).version ?? '';
+  return Number.parseInt(version.split('.')[0], 10);
+}
+
+export function vitestCacheCliArgs(major) {
+  return major >= 5 ? ['--no-cache', '--no-fsModuleCache'] : ['--no-cache'];
+}
+
+export function classifyVitestSessionSupport(version, projectConfigs = []) {
+  if (typeof version !== 'string' || !/^[45]\./.test(version)) {
+    return { supported: false, supportsIds: false, reason: `The Vitest session requires Vitest 4 or 5, found ${version}` };
+  }
+  for (const config of projectConfigs) {
+    if (config?.browser?.enabled || config?.typecheck?.enabled || config?.runner ||
+        config?.experimental?.viteModuleRunner === false) {
+      return {
+        supported: false,
+        supportsIds: !version.startsWith('4.0.'),
+        reason: 'The Vitest session requires the default Vitest runner with the Vite module runner and without browser mode or type checking',
+      };
+    }
+  }
+  return { supported: true, supportsIds: !version.startsWith('4.0.'), reason: null };
+}
+
 // How one Vitest run is started, shared by the blocking and the concurrent form.
 function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects = [], product = false, active, probePreload, synchronousTrace, timeout = 60_000, workers = 1 } = {}) {
-  const vitest = resolve(dirname(runnerPackage(root, 'vitest')), 'vitest.mjs');
+  const manifestPath = runnerPackage(root, 'vitest');
+  const vitest = resolve(dirname(manifestPath), 'vitest.mjs');
+  const vitestMajor = vitestMajorVersion(manifestPath);
   const testsToRun = [...new Set(testFiles.map(file => inside(root, file)))];
   const projectArgs = [...new Set(testProjects.filter(Boolean))].flatMap(name => ['--project', name]);
   const configuration = config === undefined ? [] : ['--config', inside(root, config)];
   const report = resolve(temp, 'vitest.json');
   rmSync(report, { force: true });
   const cache = resolve(temp, 'vite-cache');
+  const fsModuleCacheDir = resolve(temp, 'vitest-fs-cache');
   mkdirSync(cache, { recursive: true });
   const workerArgs = workers > 1
     ? [`--maxWorkers=${workers}`, '--maxConcurrency=1']
     : ['--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism'];
+  const cacheArgs = vitestCacheCliArgs(vitestMajor);
   return { report, testsToRun, product, args: [
     supervisor, resolve(temp, 'vitest.pid'), String(timeout),
-    vitest, 'run', ...workerArgs, '--no-cache',
+    vitest, 'run', ...workerArgs, ...cacheArgs,
     ...configuration, ...projectArgs, ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]),
     ...testsToRun,
   ], options: {
     cwd: root,
     env: {
-      ...process.env, CI: 'true', VITE_CACHE_DIR: cache, TMT_WORKSPACE: root, TMT_REPORT: report,
+      ...process.env, CI: 'true', VITE_CACHE_DIR: cache,
+      VITEST_FS_MODULE_CACHE: 'false', VITEST_FS_MODULE_CACHE_PATH: fsModuleCacheDir,
+      TMT_WORKSPACE: root, TMT_REPORT: report,
       TMT_TRACE: trace ?? '', TMT_ACTIVE_SITE: active ?? '', TMT_TRACE_SYNC: synchronousTrace ? '1' : '',
       ...(probePreload ? { NODE_OPTIONS: [process.env.NODE_OPTIONS, '--require=' + JSON.stringify(probePreload)]
         .filter(Boolean).join(' ') } : {}),
@@ -511,7 +543,10 @@ export async function resolveRelatedVitestSpecs(project, targetFiles = [], { con
           relatedWorker, manifestPath,
         ], {
           cwd: workspace,
-          env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test', VITE_CACHE_DIR: cache },
+          env: {
+            ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test', VITE_CACHE_DIR: cache,
+            VITEST_FS_MODULE_CACHE: 'false', VITEST_FS_MODULE_CACHE_PATH: resolve(temp, 'vitest-fs-cache'),
+          },
           stdio: ['ignore', 'pipe', 'pipe'],
         });
         const out = { stdout: '', stderr: '' };

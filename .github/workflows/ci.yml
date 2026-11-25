@@ -64,7 +64,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        vitest: ['4.1']
+        vitest: ['4.1', '5.1']
 
     steps:
       - uses: actions/checkout@v7.0.1
@@ -92,18 +92,23 @@ jobs:
           node -e 'const v = require("vitest/package.json").version; if (!v.startsWith("${{ matrix.vitest }}.")) throw new Error(`Expected Vitest ${{ matrix.vitest }}.x, got ${v}`); console.log("Verified Vitest", v);'
 
       - name: Build native and syntax artifacts
-        run: npm run build:native && npm run build:typescript-syntax && npm run build:lean
+        run: npm run build:native && npm run build:compiler && npm run build:typescript-syntax && npm run build:lean
 
       - name: Run Vitest session and runner compatibility tests
         run: |
           node --test \
-            test/vitest.test.mjs \
+            test/vitest-5-compat.test.mjs \
+            test/vitest-scope.test.mjs \
+            test/vitest-copy.test.mjs \
+            test/vitest-related.test.mjs \
+            test/commonjs-probe.test.mjs \
             test/in-worker-trials.test.mjs \
             test/standard-plan.test.mjs \
             test/operator-analysis.test.mjs \
             test/operator-profile.test.mjs \
             test/targeted-run.test.mjs \
             test/assertion-strength.test.mjs \
+            test/assertion-side-effects.test.mjs \
             test/change-undone.test.mjs
 
   windows-portable:

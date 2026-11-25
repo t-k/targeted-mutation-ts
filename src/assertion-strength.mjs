@@ -1048,16 +1048,22 @@ function formatTargetPath(base, path, awaited = false) {
   return expr;
 }
 
-// Reuses one temporary project copy and one warm Vitest 4 child process (`cwd: workspace`, dedicated IPC channel,
+// Reuses one temporary project copy and one warm Vitest 4/5 child process (`cwd: workspace`, dedicated IPC channel,
 // `isolate: true` per run) across all assertion-strength value recordings, terminating the child process group
 // cleanly on timeout or exit.
 async function withWarmAssertionSession(root, subjectsByFile, options, action) {
-  return withCopy(root, async workspace => {
+  return withCopy(root, async (workspace, temp) => {
     const configArg = options.config ?? '';
     const child = spawn(process.execPath, [sessionWorker, workspace, configArg], {
       cwd: workspace,
       stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
       detached: process.platform !== 'win32',
+      env: {
+        ...process.env,
+        VITE_CACHE_DIR: resolve(temp, 'vite-cache'),
+        VITEST_FS_MODULE_CACHE: 'false',
+        VITEST_FS_MODULE_CACHE_PATH: resolve(temp, 'vitest-fs-cache'),
+      },
     });
     const exited = new Promise(resolveExit => child.once('exit', resolveExit));
     const killGroup = () => {

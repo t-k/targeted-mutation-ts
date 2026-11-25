@@ -1,6 +1,9 @@
 import { appendFileSync } from 'node:fs';
-import { vi } from 'vitest';
-import { VitestTestRunner } from 'vitest/runners';
+import * as vitestApi from 'vitest';
+
+const { vi } = vitestApi;
+const legacyRunnersId = 'vitest/' + 'runners';
+const VitestTestRunner = vitestApi.TestRunner ?? (await import(/* @vite-ignore */ legacyRunnersId)).VitestTestRunner;
 
 const sessionKey = Symbol.for('targeted-mutation-ts/session');
 const trialKey = Symbol.for('targeted-mutation-ts/trial');
@@ -8,7 +11,7 @@ const unhandledKey = Symbol.for('targeted-mutation-ts/unhandled');
 const immediate = setImmediate;
 const base = VitestTestRunner.prototype;
 const runs = task => task.mode === 'run' || task.mode === 'queued';
-const timeoutMessage = /^(?:Hook|Test) timed out in \d+ms\./;
+const timeoutMessage = /^(?:(?:Hook|Test) timed out in \d+ms(?: while waiting for [^\n]+)?\.|The (?:setup|teardown) phase of "around(?:Each|All)" hook timed out after \d+ms\.)/;
 const vitestModule = /\/vitest\/dist\/|vitest-virtual-\w+\/dist|@vitest\/dist/;
 const timedOut = error => timeoutMessage.test(error?.message ?? '');
 
@@ -143,7 +146,7 @@ export default class StandardMutationRunner extends VitestTestRunner {
       vi.unstubAllGlobals();
       vi.unstubAllEnvs();
       vi.resetConfig();
-      this.moduleRunner.mocker.reset();
+      this.moduleRunner.mocker?.reset();
       for (const [id, node] of this.workerState.evaluatedModules.idToModuleMap) {
         if (vitestModule.test(id)) continue;
         node.promise = undefined;
