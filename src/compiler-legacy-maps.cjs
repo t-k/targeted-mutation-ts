@@ -64,10 +64,19 @@ function composeLegacyMappings(source, rewritten, spans, mappings, code) {
   // The pieces in UTF-16 units of the two texts.
   const pieces = [];
   let written = 0, writtenBytes = 0;
+  // The copied pieces come in the order of the source, so each place is counted on from the one before.
+  let counted = 0, countedBytes = 0;
   for (const [length, at] of spans) {
     if (length === 0) continue;
     const width = rewritten.toString('utf8', writtenBytes, writtenBytes + length).length;
-    pieces.push({ first: written, last: written + width, from: at < 0 ? -1 : source.toString('utf8', 0, at).length });
+    let from = -1;
+    if (at >= 0) {
+      if (at < countedBytes) { counted = 0; countedBytes = 0; }
+      counted += source.toString('utf8', countedBytes, at).length;
+      countedBytes = at;
+      from = counted;
+    }
+    pieces.push({ first: written, last: written + width, from });
     written += width;
     writtenBytes += length;
   }
