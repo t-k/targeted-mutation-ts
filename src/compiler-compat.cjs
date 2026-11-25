@@ -55,8 +55,10 @@ function transform(source, { file, target, outputModule, jsx, sourceMap, experim
   } catch (error) {
     // TypeScript's printer fails on some inputs it should reject, such as `return o?.c.#f`. That is an error
     // in the source for this compiler, not an exception for its caller.
-    // Its recursive parser can also run out of stack on very long lists.
-    if (!(error instanceof Error) || !(error instanceof RangeError || /^Debug Failure/.test(error.message))) throw error;
+    // Its recursive parser can also run out of stack on very long lists, and with CommonJS output it fails
+    // inside its own code on an import declaration that it means to report (a TypeError from typescript.js).
+    const internal = error instanceof TypeError && /[\\/]typescript[\\/]lib[\\/]/.test(String(error.stack).split('\n')[1] ?? '');
+    if (!(error instanceof Error) || !(error instanceof RangeError || /^Debug Failure/.test(error.message) || internal)) throw error;
     return fail('typescript', [{ file, code: 'TYPESCRIPT_FAILURE', severity: 'error',
       message: `TypeScript could not print this source: ${error.message.split('\n')[0]}`, start: 0, end: 0 }]);
   }
