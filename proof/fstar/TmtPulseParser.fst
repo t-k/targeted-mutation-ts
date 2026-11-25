@@ -2537,7 +2537,16 @@ let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (st
   let method_start = if async_ then after_async else start in
   let! generator = (fun () -> read_generator_head input #frame method_start) in
   let! accessor = (fun () -> accessor_modifier input #frame generator.after_star) in
-  let key_start = accessor.key_start in
+  // `accessor` in front of a key on its line declares a field with a getter and a setter. The word stays in
+  // the output; the member behind it is read as the field it is.
+  let! auto_word = (fun () -> if accessor.arity = OrdinaryParameters && not async_ && not generator.generator then
+      keyword input #frame accessor.key_start.offset 8ul 0x6163636573736f72uL else read_ret input #frame false) in
+  let! auto_gap = (fun () -> if auto_word then trivia input #frame (plus accessor.key_start.offset 8ul)
+    else read_ret input #frame { at = accessor.key_start.offset; ok = false; newline = false }) in
+  let! auto_byte = (fun () -> if auto_gap.ok then peek input #frame auto_gap.at else read_ret input #frame 0uy) in
+  let auto = auto_gap.ok && not auto_gap.newline &&
+    (G.identifier_start auto_byte || auto_byte = 34uy || auto_byte = 39uy || auto_byte = 91uy || auto_byte = 35uy) in
+  let key_start = if auto then { accessor.key_start with offset = auto_gap.at } else accessor.key_start in
   let! byte = (fun () -> peek input #frame key_start.offset) in
   let quoted = byte = 34uy || byte = 39uy in
   let private_ = byte = 35uy in
@@ -2546,7 +2555,11 @@ let class_member_key (input:tape) (#frame:slprop) (state:parser_state) : Tot (st
     else if computed then computed_property_name input #frame key_start
     else if G.decimal_digit byte then decimal_property_name input #frame key_start.offset byte
     else property_name input #frame key_start) in
-  read_ret input #frame (let key_end = if private_ && U32.logand prefix.flags (U32.logor class_access_flags 8ul) <> 0ul then failed key_start 1ul
+  // An accessor field is no method.
+  let! auto_tail = (fun () -> if auto && key.ok then trivia input #frame key.at else read_ret input #frame { at = key.at; ok = false; newline = false }) in
+  let! auto_next = (fun () -> if auto_tail.ok then peek input #frame auto_tail.at else read_ret input #frame 0uy) in
+  let auto_method = auto && (auto_next = 40uy || auto_next = 60uy) in
+  read_ret input #frame (let key_end = if auto_method || (private_ && U32.logand prefix.flags (U32.logor class_access_flags 8ul) <> 0ul) then failed key_start 1ul
     else from_cursor key_start key in
   let first = if quoted then next key_start.offset else key_start.offset in
   let last = if quoted then minus key.at 1ul else key.at in
@@ -4466,7 +4479,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
       let constructor = constructor_name && not key.static_ in
       let! prototype = (fun () -> if key.static_ && not key.computed then wide_key_matches input key 1ul 0x70726f746f747970uL 0x65uL else ret input (false)) in
       let! next_byte = (fun () -> peek input tail.offset) in
-      let! optional_method = (fun () -> if st.module_mode && next_byte = 63uy then
+      let! optional_method = (fun () -> if (st.module_mode || (st.strict_script && input.capture_types)) && next_byte = 63uy then
           let! marker = (fun () -> trivia input key.after_key.offset) in
           let! following = (fun () -> trivia input (next tail.offset)) in
           let! open_ = (fun () -> peek input following.at) in
@@ -4535,10 +4548,12 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         let! closed = (fun () -> if awaiting_body || fuel = 0ul || constructor_name || prototype ||
           accessor || key.private_ || key.async_ || key.generator_ || key.readonly_ then ret input (failed tail 1ul)
           else
-            let! result = (fun () -> function_form input optional_method (minus fuel 1ul) false MethodSuper true OrdinaryParameters false false) in
+            // The question mark is erased (kind 12); a method that is declared without a body goes whole.
+            let! marked = (fun () -> record_jsx_span input optional_method 12ul tail.offset (next tail.offset)) in
+            let! result = (fun () -> function_form input marked (minus fuel 1ul) false MethodSuper true OrdinaryParameters false false) in
             let after = result.after_function in
             if result.signature_only then record_jsx_span input { after with count = st.count } 21ul st.offset after.offset
-            else ret input (failed after 1ul)) in
+            else ret input after) in
         class_members input closed fuel (minus remaining 1ul) derived seen_constructor kind no_overload
       else if not compatible || (key.private_ && constructor_spelling) || prototype || (constructor_name && not method) || (key.readonly_ && method) ||
         (accessor && (key.async_ || key.generator_ || constructor || next_byte <> 40uy)) ||

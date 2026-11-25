@@ -294,11 +294,11 @@ function strictScript(source, file, wellFormedDirectives = false) {
   }
 }
 
-// V8 does not parse decorators yet, so it refuses a script that holds one. The certified parse reads
+// V8 does not parse decorators and accessor fields yet, so it refuses a script that holds one. The certified parse reads
 // modules. A strict script is a module without the syntax that only a module has, so the script is given to
 // that parse with an empty export behind it: what it accepts there, and what holds no import, is a script.
 function decoratedScript(code) {
-  if (!code.includes('@') || /\bimport\b/.test(code) || /\bexport\b/.test(code)) return null;
+  if ((!code.includes('@') && !/\baccessor\b/.test(code)) || /\bimport\b/.test(code) || /\bexport\b/.test(code)) return null;
   const emit = loadModuleAddon()?.emitJavaScriptModule;
   return emit !== undefined && emit(Buffer.from(code + '\nexport {};'), true) !== undefined ? code : null;
 }

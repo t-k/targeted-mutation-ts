@@ -558,7 +558,6 @@ test('decorators that the native grammar does not take are left to TypeScript', 
     '@d<T>()\nclass C {}\nexport { C };',
     'export @d class C {}',
     'const K = @d class {};\nexport { K };',
-    'class C { @d accessor x = 1 }\nexport { C };',
     '@d\nfunction f() {}\nexport { f };',
     '@d\nexport const x = 1;',
     '@d\ndeclare class C {}\nexport {};',
@@ -2269,5 +2268,23 @@ test('a computed class key may be any assignment expression', () => {
   assert.doesNotMatch(sameAsTypeScript('class C { [key: string]: number; a = 1; }\nexport { C };', 'computed.ts').code, /key/);
   for (const source of ['class C { []() {} }\nexport { C };', 'class C { [a, b]() {} }\nexport { C };']) {
     assert.equal(compile(Buffer.from(source), { file: 'computed.ts' }).code, null, source);
+  }
+});
+
+test('accessor fields keep their word, and an optional method with a body loses its question mark', () => {
+  for (const [source, file] of [
+    ['export class C { accessor x = 1; static accessor y: number; accessor #z = 2; accessor "q": string = "s"; accessor [k] = 3; }', 'accessor.ts'],
+    ['export class C { private accessor a = 1; public static readonly accessor b = 2; @d accessor c = 3; protected accessor d!: number; }', 'accessor.ts'],
+    ['export class C { accessor = 1; accessor\n  x = 2; static accessor: number; accessor() { return 1; } }', 'accessor.ts'],
+    ['class C { accessor x = 1; }', 'accessor.ts'],
+    ['export class C { foo?() { return 1; } bar?<T>(x: T): T { return x; } baz?(): void; }', 'optional.ts'],
+    ['class C { foo?() { return 1; } }\nvar c = new C();', 'optional.ts'],
+  ]) {
+    const result = sameAsTypeScript(source, file);
+    assert.equal(result.backend, 'pulse', source);
+  }
+  // An accessor field is no method, and an accessor of another kind takes no question mark.
+  for (const source of ['export class C { accessor m() {} }', 'export class C { accessor get x() { return 1; } }', 'export class C { get x?() { return 1; } }']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'accessor.ts' }).backend, 'pulse', source);
   }
 });

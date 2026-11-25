@@ -259,6 +259,8 @@ function lowerLegacyDecorators(addon, source, metadata = false) {
       const member = { flags, key: flags & 16 ? slice(rightFirst - 1, rightLast + 1) : slice(rightFirst, rightLast), decorators: pending, parameters: [],
         spelled: slice(rightFirst, rightLast), start: leftFirst, keyFirst: rightFirst, keyLast: flags & 16 ? rightLast + 1 : rightLast, all: [], listEnd: -1 };
       if (pending.length !== 0) {
+        // A decorator on an accessor field receives a descriptor that this lowering does not write.
+        if (/\baccessor\b/.test(text.slice(pending[pending.length - 1].last, rightFirst).replace(comments, ' '))) return null;
         if (flags & (32 | 4)) return null;
         for (const decorator of pending) edits.push([decorator.first, decorator.last, '']);
       }
