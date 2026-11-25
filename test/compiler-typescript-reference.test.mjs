@@ -2037,7 +2037,8 @@ test('a reference to a variable that a namespace exports is written as a propert
     assert.equal(run(result.code), run(reference(source, 'reference.ts')), source);
     // An occurrence that is no reference leaves the namespace to TypeScript.
     // A string that is the name and nothing else is no occurrence of it.
-    if (['Shorthand', 'Key', 'ShadowedParameter'].includes(row.Form)) assert.equal(result.backend, 'typescript', source);
+    // A shorthand property is a reference: `{ a }` is written `{ a: N.a }`.
+    if (['Key', 'ShadowedParameter'].includes(row.Form)) assert.equal(result.backend, 'typescript', source);
     else { assert.equal(result.backend, 'pulse', source); native++; }
   }
   assert.ok(native >= 25, String(native));
@@ -2617,5 +2618,35 @@ test('an angle-bracket assertion in parentheses is an assignment target', () => 
   // Without parentheses, and on what is no target, TypeScript reports it.
   for (const bad of ['let t: any;\n<any>t = 1;\nexport {};', 'declare function f(): any;\n(<any>f()) = 1;\nexport {};']) {
     assert.notEqual(compile(Buffer.from(bad), { file: 'angle.ts' }).backend, 'pulse', bad);
+  }
+});
+
+test('a shorthand property that names an exported namespace variable is written with the namespace', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))();
+  for (const source of [
+    'export namespace C { export const scheme = "s"; export function generate() { return { scheme, }; } export const both = [{ scheme }, { a: 1, scheme }]; }\nexport const out = JSON.stringify([C.generate(), C.both]);',
+    'namespace N { export const k = 1; const local = 2; export const o = { k, local, m() { return { k }; } }; }\nexport const out = JSON.stringify([N.o, N.o.m()]);',
+  ]) {
+    const result = sameAsTypeScript(source, 'shorthand.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'shorthand.ts')), source);
+  }
+  assert.equal(compile(Buffer.from('namespace N { export const k = 1; export const o = { k }; }\nexport { N };'), { file: 'shorthand.ts' }).code,
+    'var N;(function (N) { N.k = 1; N.o = { k:N.k }; })(N||(N={}));\nexport { N };');
+  // A destructuring assignment is read another way; whichever route answers, the meaning is TypeScript's.
+  const defaults = 'namespace N { export let a = 1; export function reset() { ({ a = 5 } = {} as any); return a; } }\nexport const out = JSON.stringify([N.reset(), N.a]);';
+  assert.equal(run(sameAsTypeScript(defaults, 'shorthand.ts').code), '[5,5]');
+  const swap = 'namespace N { export let a = 1; export let b = 2; export function swap(o: any) { ({ a, b } = o); return { a, b }; } }\nexport const out = JSON.stringify([N.swap({ a: 3, b: 4 }), N.a, N.b]);';
+  assert.equal(run(sameAsTypeScript(swap, 'shorthand.ts').code), '[{"a":3,"b":4},3,4]');
+  // A pattern that declares the name is no reference to the variable.
+  for (const member of [
+    'export const f = ({ k }: any) => k;', 'export function f({ k }: any) { return k; }', 'export const f = async ({ k }: any) => k;',
+    'export function f(o: any) { const { k } = o; return k; }', 'export function f(o: any) { let { k = 2 } = o; return k; }',
+    'export function f(o: any) { try { throw o; } catch ({ k }) { return k; } }', 'export function f(o: any[]) { for (const { k } of o) return k; }',
+    'export const f = ({ a: { k } }: any) => k;', 'export const f = ([{ k }]: any) => k;', 'export function f(o: any) { var { k } = o; return k; }',
+  ]) {
+    const source = `namespace N { export const k = 1; ${member} }\nexport const out = JSON.stringify(N.f.length);`;
+    const result = sameAsTypeScript(source, 'shorthand.ts');
+    assert.notEqual(result.backend, 'pulse', source);
   }
 });

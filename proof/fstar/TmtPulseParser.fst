@@ -3602,6 +3602,11 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required se
         else
           let! shorthand = (fun () -> name input st.offset false false) in
           let! forbidden = (fun () -> forbidden_field_arguments input st) in
+          // Kind 62: a shorthand property reads the name as an expression. The emitter writes `name: N.name`
+          // where a namespace exports the name.
+          let! after_key = (fun () -> if input.capture_references && shorthand.ok && not forbidden && after_key.status = 0ul then
+              record_compiler_span input after_key 62ul { G.first = st.offset; G.last = shorthand.at } { G.first = 0ul; G.last = 0ul }
+            else ret input after_key) in
           ret input (if shorthand.ok && not forbidden then empty_range after_key else empty_range (failed st 1ul))) in
     ret input { value; prototype_setter }
 // The members of an assignment pattern with defaults: names, renamed names, a default behind either, and a

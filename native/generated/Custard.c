@@ -13665,8 +13665,18 @@ TmtPulseParser_object_member(
       {
         TmtPulseParser_cursor value10 = TmtPulseParser_name(input, st.offset, false, false);
         bool value11 = TmtPulseParser_forbidden_field_arguments(input, st);
+        TmtPulseParser_parser_state value12;
+        if (input.capture_references && value10.ok && !value11 && value7.status == 0U)
+          value12 =
+            TmtPulseParser_record_compiler_span(input,
+              value7,
+              62U,
+              ((TmtGrammar_span){ .first = st.offset, .last = value10.at }),
+              ((TmtGrammar_span){ .first = 0U, .last = 0U }));
+        else
+          value12 = value7;
         if (value10.ok && !value11)
-          value90 = TmtPulseParser_empty_range(value7);
+          value90 = TmtPulseParser_empty_range(value12);
         else
           value90 = TmtPulseParser_empty_range(TmtPulseParser_failed(st, 1U));
       }

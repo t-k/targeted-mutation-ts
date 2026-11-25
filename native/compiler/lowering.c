@@ -2463,6 +2463,9 @@ struct namespace_scope {
    */
   TmtGrammar_span *references;
   uint32_t reference_count, next_reference;
+  /* Where a reference is a shorthand property (kind 62): `{ name }` is written `{ name: N.name }`. */
+  uint32_t *shorthands;
+  uint32_t shorthand_count;
   bool references_read;
   uint8_t *original;
   bool module;
@@ -2498,11 +2501,26 @@ static bool read_references(namespace_scope *scope, uint32_t size) {
     const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(again, false, scope->module);
     if (parsed.status == 0 && parsed.count <= capacity) {
       uint32_t kept = 0;
-      for (uint32_t index = 0; index < parsed.count; index++) kept += records[index].original == 43;
+      uint32_t marked = 0;
+      for (uint32_t index = 0; index < parsed.count; index++) {
+        kept += records[index].original == 43 || records[index].original == 62;
+        marked += records[index].original == 62;
+      }
       TmtGrammar_span *spans = malloc(((size_t)kept + 1) * sizeof(*spans));
+      uint32_t *shorthands = malloc(((size_t)marked + 1) * sizeof(*shorthands));
+      if (!spans || !shorthands) {
+        free(spans);
+        free(shorthands);
+        spans = NULL;
+      }
       if (spans) {
         uint32_t count = 0;
-        for (uint32_t index = 0; index < parsed.count; index++) if (records[index].original == 43) spans[count++] = records[index].left;
+        scope->shorthands = shorthands;
+        for (uint32_t index = 0; index < parsed.count; index++) {
+          if (records[index].original != 43 && records[index].original != 62) continue;
+          spans[count++] = records[index].left;
+          if (records[index].original == 62) shorthands[scope->shorthand_count++] = records[index].left.first;
+        }
         qsort(spans, count, sizeof(*spans), by_position);
         /* A part of the source that was read twice gives its names twice. */
         uint32_t unique = 0;
@@ -2571,6 +2589,12 @@ static void namespace_bytes(lowering *lower, namespace_scope *scope, uint32_t fi
       const TmtGrammar_span *owner = exporting_namespace(scope, lower->input, reference);
       if (!owner) continue;
       source_bytes(lower, first, reference.first);
+      for (uint32_t index = 0; index < scope->shorthand_count; index++) {
+        if (scope->shorthands[index] != reference.first) continue;
+        write_bytes(&lower->output, lower->input.source + reference.first, reference.last - reference.first);
+        put(&lower->output, ":");
+        break;
+      }
       put_name(lower, *owner);
       put(&lower->output, ".");
       first = reference.first;
@@ -2594,6 +2618,7 @@ static namespace_scope *new_namespace_scope(uint8_t *original, bool module) {
 static bool close_namespace_scope(namespace_scope *scope) {
   const bool closed = scope->depth == 0;
   free(scope->references);
+  free(scope->shorthands);
   free(scope);
   return closed;
 }
