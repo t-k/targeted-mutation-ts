@@ -504,6 +504,11 @@ test('a self-naming class that evaluates text is left to TypeScript, and types l
   const left = compile(Buffer.from(evaluated), options);
   assert.notEqual(left.backend, 'pulse');
   assert.deepEqual(run(left.code), [1, true]);
+  // Behind the dots of a spread the call is direct as well.
+  const spread = upgrade + '@upgrade\nclass Job {\n  static version = 1;\n  static create() { return new Job(); }\n  static entries(expression: string) { return [...eval(expression)]; }\n}\nexport const out = Job.entries("[Job.version]");';
+  const spreadResult = compile(Buffer.from(spread), options);
+  assert.notEqual(spreadResult.backend, 'pulse');
+  assert.deepEqual(run(spreadResult.code), [1]);
   // A type argument between a tag and an attribute: the words on both sides stay apart.
   const element = 'const React = { createElement(type: any) { return { type }; } };\nfunction withPreview(render: () => any) { return class { static preview = render; }; }\n' + upgrade +
     '@upgrade\nclass Job<T> extends withPreview(() => <Job<"<">title="Preview" />) {\n  static version = 1;\n}\nexport const out = (Job as any).preview().type.version;';

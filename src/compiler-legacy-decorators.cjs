@@ -453,7 +453,8 @@ function closeClass(found, text, end, context) {
     found.computed.some(([first, last]) => awaits.test(text.slice(first, last))));
   // A direct eval in the body can read the name by its spelling, which no rewriting follows: in TypeScript's
   // text it finds the class's own name, here it would find the variable that holds the decorated class.
-  const evaluated = /(?<![\w$.])eval(?![\w$])/.test(within);
+  // The word is looked for wherever it stands, also behind a dot: `...eval(text)` is a direct call as well.
+  const evaluated = /(?<![\w$])eval(?![\w$])/.test(within);
   if (named && ((found.local && !found.once) || found.bodyFirst === undefined || text[found.bodyFirst] !== '{' || outside || unrenamed || evaluated ||
       new RegExp('(?<![\\w$])' + escaped + '_1(?![\\w$])').test(text))) return null;
   const list = found.decorators.map(decorator => decorator.expression);
