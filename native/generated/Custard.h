@@ -2730,7 +2730,8 @@ TmtPulseParser_named_state
 TmtPulseParser_module_declaration(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
-  uint32_t used
+  uint32_t used,
+  bool exported
 );
 
 TmtPulseParser_named_state

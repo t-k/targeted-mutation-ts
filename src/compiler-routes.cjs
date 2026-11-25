@@ -125,8 +125,9 @@ function unixHashbang(result) {
   const code = result.code;
   if (typeof code !== 'string' || code.charCodeAt(0) !== 35 || code.charCodeAt(1) !== 33) return result;
   const end = code.search(/[\r\n]/);
-  if (end < 0 || code.charCodeAt(end) !== 13 || code.charCodeAt(end + 1) !== 10) return result;
-  return { ...result, code: code.slice(0, end) + code.slice(end + 1) };
+  if (end < 0 || code.charCodeAt(end) !== 13) return result;
+  // A carriage return alone ends the line for the compiler but not for the reader of the interpreter line.
+  return { ...result, code: code.slice(0, end) + (code.charCodeAt(end + 1) === 10 ? '' : '\n') + code.slice(end + 1) };
 }
 
 function strip(source, file) {

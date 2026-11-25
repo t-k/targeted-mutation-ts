@@ -23265,7 +23265,8 @@ TmtPulseParser_named_state
 TmtPulseParser_module_declaration(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
-  uint32_t used
+  uint32_t used,
+  bool exported
 )
 {
   TmtPulseParser_declaration_head value = TmtPulseParser_declaration_start(input, state);
@@ -23465,7 +23466,7 @@ TmtPulseParser_module_declaration(
       else
       {
         bool value5;
-        if (width == 3U)
+        if (width == 3U && !exported)
           value5 = TmtPulseParser_keyword(input, value10.offset, 3U, 0x766172ULL);
         else
           value5 = false;
@@ -23683,7 +23684,8 @@ static TmtPulseParser_named_state
 module_plain_declaration(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state st,
-  uint32_t used
+  uint32_t used,
+  bool exported
 )
 {
   uint8_t value = TmtPulseMemory_peek(input, st.offset);
@@ -23784,7 +23786,7 @@ module_plain_declaration(
     return ((TmtPulseParser_named_state){ .state = value6, .used = used });
   }
   else if (value30)
-    return TmtPulseParser_module_declaration(input, st, used);
+    return TmtPulseParser_module_declaration(input, st, used, exported);
   else
   {
     TmtPulseParser_named_state
@@ -24122,7 +24124,8 @@ TmtPulseParser_module_sequence(
             }
             else
             {
-              TmtPulseParser_named_state value7 = module_plain_declaration(input, value1, used);
+              TmtPulseParser_named_state
+              value7 = module_plain_declaration(input, value1, used, value5.direct);
               value60 =
                 (
                   (FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t){

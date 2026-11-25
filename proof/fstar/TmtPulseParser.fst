@@ -5241,7 +5241,7 @@ let runtime_namespace (input:tape) (state:parser_state) (declaration_start name_
   ret input (leave_function_locals { tail with await_allowed = state.await_allowed; yield_allowed = state.yield_allowed;
     in_allowed = state.in_allowed; super_context = state.super_context } recorded)
 
-let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
+let module_declaration (input:tape) (state:parser_state) (used:names_used) (exported:bool) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! head = (fun () -> declaration_start input state) in
   let! st = (fun () -> if input.capture_types && head.abstract_class && not head.ambient_declaration then
     let! exported = (fun () -> keyword input state.offset 6ul 0x6578706f7274uL) in
@@ -5286,7 +5286,9 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
         let! recorded = (fun () -> record_jsx_span input declared.state 13ul state.offset declared.state.offset) in
         ret input { declared with state = recorded }
       else
-        let! hoisted = (fun () -> if width = 3ul then keyword input st.offset 3ul 0x766172uL else ret input false) in
+        // An exported var is entered like any other declaration, so that its export is reserved once and a
+        // second declaration of the name refuses the file.
+        let! hoisted = (fun () -> if width = 3ul && not exported then keyword input st.offset 3ul 0x766172uL else ret input false) in
         module_lexical_list input start used (width = 5ul) false hoisted input.size 0ul
     else if (width = 3ul || width = 5ul) && head.ambient_declaration && not head.class_declaration then
       let! first = (fun () -> bind_in_namespace input start 0ul 0ul used start.offset AmbientValueName) in
@@ -5572,7 +5574,7 @@ let default_declaration (input:tape) (state:parser_state) (declaration_start:U32
         statement_end input value.parser value.range.G.last false) in
     ret input ({ state = completed; used }))
 
-private let module_plain_declaration (input:tape) (st:parser_state) (used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
+private let module_plain_declaration (input:tape) (st:parser_state) (used:names_used) (exported:bool) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! first = (fun () -> peek input st.offset) in
   let! resource = (fun () -> if st.module_mode && (first = 117uy || first = 97uy && st.await_allowed) then
     resource_declaration_start input st first else ret input (failed st 1ul)) in
@@ -5606,7 +5608,7 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
       else type_namespace_members input ambient_module 0ul used used 8ul input.size true) in
     let! recorded = (fun () -> record_jsx_span input body 8ul st.offset body.offset) in
     ret input ({ state = recorded; used })
-  else if declared then module_declaration input st used
+  else if declared then module_declaration input st used exported
   else (let! anf_value_6 = (fun () -> (let! anf_value_7 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_7.state))) in ret input ({ state = anf_value_6; used }))
 
 // Decorators before a class declaration: the words export, default and abstract may stand between them and class.
@@ -5703,7 +5705,7 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
             (let! anf_value_10 = (fun () -> import_declaration input st used) in ret input (anf_value_10, exports, pending))
           else ret input ({ state = failed st 1ul; used }, exports, pending))
         else
-          (let! anf_value_11 = (fun () -> module_plain_declaration input st used) in ret input (anf_value_11, exports, pending)))) in
+          (let! anf_value_11 = (fun () -> module_plain_declaration input st used exported.direct) in ret input (anf_value_11, exports, pending)))) in
       let! reserved = (fun () -> if exported.direct then reserve_direct_exports input decl.state exports used decl.used
         else ret input ({ state = decl.state; used = exports })) in
       module_sequence input reserved.state decl.used (minus fuel 1ul) reserved.used pending family)

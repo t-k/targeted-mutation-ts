@@ -1552,6 +1552,9 @@ test('the interpreter line is written with a line feed', () => {
     }
   }
   assert.match(compile('#!/usr/bin/env node\r\nexport const a: number = 1;\r\n', { file: 'bin.ts', mode: 'strip' }).code, /^#!\/usr\/bin\/env node\r\n/);
+  // A carriage return alone ends the interpreter line for the compiler, not for the system that reads it.
+  assert.match(compile('#!/usr/bin/env node\r/// <reference types="node" />\nconsole.log("ready");', { file: 'bin.ts' }).code,
+    /^#!\/usr\/bin\/env node\n"use strict";\n/);
   for (const options of [{ file: 'bin.ts', module: 'esm' }, { file: 'bin.ts', sourceMap: true }, { file: 'bin.mjs' }]) {
     for (const input of ['#!/usr/bin/env node\r\nexport const n = 1;', Buffer.from('#!/usr/bin/env node\r\nexport const n = 1;')]) {
       assert.match(compile(input, options).code, /^#!\/usr\/bin\/env node\n/, JSON.stringify(options));
@@ -1598,8 +1601,9 @@ test('a module-level var may be declared again by another var, and by nothing el
     'var a;\ninterface a {}\nvar a;\nexport {};',
     'var a;\n{ var a; }\nvar a;\nexport { a };',
     '{ var a; }\nvar a;\nexport {};',
-    'export var a = 1;\nvar a;',
     'var a;\nexport { a };\nvar a;',
+    'var a = 1, a = 2;\nexport { a as b, a as c };',
+    'var a;\nexport default a;\nvar a;',
     'for (var i = 0; i < 1; i++) {}\nvar i;\nexport {};',
   ]) {
     assert.equal(sameAsTypeScript(source, 'again.ts').backend, 'pulse', source);
@@ -1616,6 +1620,14 @@ test('a module-level var may be declared again by another var, and by nothing el
     'var a;\nconst a = 1;\nexport {};',
     'var a;\nenum a { X }\nexport {};',
     'var a;\nnamespace a { export const b = 1; }\nexport {};',
+    // An exported var is declared once: a second one would export the name twice.
+    'var retries = 0;\nexport var retries = 1;\nexport { retries };',
+    'export var a = 1;\nexport var a = 2;',
+    'export var a = 1, a = 2;',
+    'export var a = 1;\nvar a;',
+    'var a;\nexport var a = 1;',
+    '{ var a; }\nexport var a = 1;',
+    'var a;\nvar a;\nexport { a };\nexport { a };',
   ]) {
     assert.notEqual(compile(Buffer.from(source), { file: 'again.ts' }).backend, 'pulse', source);
   }

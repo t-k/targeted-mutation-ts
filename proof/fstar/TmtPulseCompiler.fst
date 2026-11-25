@@ -558,7 +558,8 @@ let ordinary_module_item_end (input:tape) (state:P.parser_state)
       let! item = (fun () -> P.import_declaration input state 0ul) in
       ret input item.state
     else
-      let! declaration = (fun () -> P.module_declaration input state 0ul) in
+      // Only the end of the item is asked here; names start afresh for each item.
+      let! declaration = (fun () -> P.module_declaration input state 0ul true) in
       if declaration.state.status = 0ul then ret input declaration.state
       else
         let! control = (fun () -> P.control_statement input state 64ul false P.NoJump 0ul 0ul false) in
