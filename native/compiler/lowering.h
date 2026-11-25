@@ -26,6 +26,7 @@ bool tmt_module_marker(uint8_t *source, uint32_t size, bool validate);
 typedef enum { TMT_PARAMETER_NONE, TMT_PARAMETER_NODE, TMT_PARAMETER_REFERENCE } tmt_parameter_route;
 /* Whether the source matches \benum\b. An unknown hint is resolved only on the routes that need it. */
 typedef enum { TMT_ENUMS_ABSENT, TMT_ENUMS_PRESENT, TMT_ENUMS_UNKNOWN } tmt_enum_hint;
+uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, uint32_t *count);
 char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint enums, bool esm, bool allow_script,
   size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property, tmt_run_log *runs);
 /*

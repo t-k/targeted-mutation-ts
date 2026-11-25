@@ -204,7 +204,9 @@ type parser_state = {
   offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used;
   await_allowed:bool; yield_allowed:bool; jsx_allowed:bool; module_mode:bool; strict_script:bool; in_allowed:bool; for_initializer:bool;
   arrow_defaults_allowed:bool; binding_mode:binding_mode; super_context:super_context;
-  private_scope:U8.t; private_count:U8.t; local_log_floor:U16.t; local_log_used:local_log_used
+  private_scope:U8.t; private_count:U8.t; local_log_floor:U16.t; local_log_used:local_log_used;
+  // Set for the parameter list of a class member itself when legacy decorators are read.
+  member_parameters:bool
 }
 type assignment_target =
   | NotAssignable
@@ -4185,13 +4187,24 @@ and try_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bo
     else failed st 1ul)
 
 and function_parameters (input:tape) (state:parser_state) (floor used:names_used) (fuel remaining:U32.t)
-  (non_simple constructor:bool)
+  (non_simple constructor decorated:bool)
   : Tot (stt parameter_list (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 46; U32.v remaining]) =
   let! st = (fun () -> skip input state) in
   if st.status <> 0ul then ret input ({ names = { state = st; used }; non_simple })
   else (let! anf_value_1 = (fun () -> same input st.offset 41uy) in if anf_value_1 then (let! anf_value_2 = (fun () -> (let! anf_value_3 = (fun () -> consume input st 41uy) in ret input ({ state = anf_value_3; used }))) in ret input ({ names = anf_value_2; non_simple }))
   else if remaining = 0ul then ret input ({ names = { state = failed st 1ul; used }; non_simple })
   else
+    // Kind 53: the decorators of a parameter of a class member. The left span holds the index of the
+    // parameter and the place where its decorators begin; the right span covers the decorators.
+    let! st = (fun () -> if not decorated || fuel = 0ul then ret input st
+      else
+        let! after = (fun () -> decorators input st (minus fuel 1ul) 16ul) in
+        if after.status <> 0ul || after.offset = st.offset then ret input after
+        else
+          let! named = (fun () -> skip input after) in
+          record_compiler_span input named 53ul { G.first = minus 64ul remaining; G.last = st.offset } { G.first = st.offset; G.last = named.offset }) in
+    if st.status <> 0ul then ret input ({ names = { state = st; used }; non_simple })
+    else
     let! spread = (fun () -> spread_at input st.offset) in
     let! receiver = (fun () -> if remaining = 64ul then keyword input st.offset 4ul 0x74686973uL else ret input (false)) in
     if receiver then
@@ -4207,7 +4220,7 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
         let! after = (fun () -> consume input end_ 44uy) in
         // A constructor keeps its receiver. Kind 29 withholds certification from the projection.
         let! after = (fun () -> record_jsx_span input after (if constructor then 29ul else 14ul) st.offset after.offset) in
-        function_parameters input after floor used fuel (minus remaining 1ul) non_simple constructor
+        function_parameters input after floor used fuel (minus remaining 1ul) non_simple constructor decorated
       else
         let erasure_end = if bare then receiver_end else typed.offset in
         let! end_ = (fun () -> record_jsx_span input end_ (if constructor then 29ul else 14ul) st.offset erasure_end) in
@@ -4240,7 +4253,7 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
         else ret input (st)) in
       let! end_ = (fun () -> skip input st) in
       (let! anf_value_9 = (fun () -> same input end_.offset 44uy) in if anf_value_9 then
-        (let! anf_value_10 = (fun () -> (consume input end_ 44uy)) in function_parameters input anf_value_10 floor prefix.names.used fuel (minus remaining 1ul) non_simple constructor)
+        (let! anf_value_10 = (fun () -> (consume input end_ 44uy)) in function_parameters input anf_value_10 floor prefix.names.used fuel (minus remaining 1ul) non_simple constructor decorated)
       else (let! anf_value_11 = (fun () -> (let! anf_value_12 = (fun () -> consume input end_ 41uy) in ret input ({ prefix.names with state = anf_value_12 }))) in ret input ({ names = anf_value_11; non_simple }))))
 and function_tail (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (super_:super_context)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 54; 0]) =
@@ -4251,7 +4264,8 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
   : Tot (stt function_shape (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 53; 0]) =
   let depth = minus 64ul fuel in
   let start = if U32.(depth >^ state.depth) then { state with depth } else state in
-  let start = { start with super_context = FunctionBody; yield_allowed = false } in
+  let decorated = state.member_parameters in
+  let start = { start with super_context = FunctionBody; yield_allowed = false; member_parameters = false } in
   let! start = (fun () -> capture_type_parameters input start false) in
   let! opening = (fun () -> consume input start 40uy) in
   let! opening, limit =
@@ -4264,7 +4278,7 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
       else ret input ((first, 1ul)))) in
   let floor = state.local_names in
   let constructor = super_ = BaseConstructor || super_ = DerivedConstructor in
-  let! params = (fun () -> function_parameters input opening floor floor fuel limit false constructor) in
+  let! params = (fun () -> function_parameters input opening floor floor fuel limit false constructor decorated) in
   let! annotation = (fun () -> if constructor then ret input (params.names.state) else capture_annotation input params.names.state true) in
   let! st = (fun () -> skip input annotation) in
   let! signature_only = (fun () -> if overload && st.status = 0ul then (let! anf_value_4 = (fun () -> (same input st.offset 123uy)) in ret input (not anf_value_4)) else ret input (false)) in
@@ -4327,6 +4341,11 @@ and decorators (input:tape) (state:parser_state) (fuel remaining:U32.t)
       else
         let! arguments = (fun () -> expression_list input { tail with offset = next tail.offset } (minus fuel 1ul) input.size 41uy false) in
         ret input arguments.list_end) in
+    // Kind 50: one decorator, from its at sign through its expression, for the legacy lowering.
+    let! applied = (fun () -> if input.legacy_decorators && applied.status = 0ul then
+        let last = if call && tail.status = 0ul then applied.offset else chain.offset in
+        record_compiler_span input applied 50ul { G.first = st.offset; G.last = last } { G.first = next st.offset; G.last = last }
+      else ret input applied) in
     decorators input applied fuel (minus remaining 1ul)
 
 and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (derived seen_constructor:bool) (kind:class_kind) (pending:pending_overload)
@@ -4454,6 +4473,15 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
           record_jsx_span input tail (if decorated then 30ul else 15ul) st.offset key.modifiers_end else ret input tail) in
         let! tail = (fun () -> if key.private_ then record_private input tail { G.first = key.first; G.last = key.last } PrivateDeclaration
           else ret input tail) in
+        // Kind 52: a member, for the legacy lowering. The left span holds its start and its flags:
+        // 1 static, 2 field, 4 constructor, 8 accessor, 16 quoted key, 32 computed or private key.
+        let! tail = (fun () -> if input.legacy_decorators then
+            let flags = U32.logor (if key.static_ then 1ul else 0ul) (U32.logor (if not method && not accessor then 2ul else 0ul)
+              (U32.logor (if constructor then 4ul else 0ul) (U32.logor (if accessor then 8ul else 0ul)
+              (U32.logor (if key.quoted_ then 16ul else 0ul) (if key.computed || key.private_ then 32ul else 0ul))))) in
+            record_compiler_span input tail 52ul { G.first = st.offset; G.last = flags } { G.first = key.first; G.last = key.last }
+          else ret input tail) in
+        let tail = { tail with member_parameters = input.legacy_decorators } in
         let! after, pending =
           (fun () -> if method then
             if fuel = 0ul then ret input (failed tail 3ul, no_overload)
@@ -4468,7 +4496,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
                 record_jsx_span input { after with count = st.count } 21ul st.offset after.offset else ret input after) in
               ret input (after, pending)
           else if key.async_ || key.generator_ then ret input (failed tail 1ul, no_overload)
-          else let! field = (fun () -> class_field_tail input { tail with offset = key.after_key.offset } fuel) in ret input (field, no_overload)) in
+          else let! field = (fun () -> class_field_tail input { tail with offset = key.after_key.offset; member_parameters = false } fuel) in ret input (field, no_overload)) in
         class_members input after fuel (minus remaining 1ul) derived (seen_constructor || (constructor && pending.key_span.G.first = pending.key_span.G.last)) kind pending
 and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (kind:class_kind)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 57; 0]) =
@@ -4506,12 +4534,20 @@ and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (kind:class_kind)
   let! ready = (fun () -> if implements then record_jsx_span input ready 18ul inherited.offset ready.offset else ret input ready) in
   let depth = minus 65ul fuel in
   let ready = if U32.(depth >^ ready.depth) then { ready with depth } else ready in
+  // Kinds 55 and 56: the body of any class, so that the legacy lowering can tell the members of a nested class
+  // from those of the class around it.
+  let! ready = (fun () -> if input.legacy_decorators && ready.status = 0ul then
+      record_compiler_span input ready 55ul { G.first = ready.offset; G.last = ready.offset } { G.first = 0ul; G.last = 0ul }
+    else ret input ready) in
   let! start = (fun () -> consume input ready 123uy) in
   let! start = (fun () -> if input.private_possible then record_private input start (start_range ready.offset) PrivateScope
     else ret input start) in
   let! closed = (fun () -> class_members input start fuel input.size derived false kind no_overload) in
   let! closed = (fun () -> if input.capture_types && closed.count <> start.count then
     record_jsx_span input closed 24ul ready.offset closed.offset else ret input closed) in
+  let! closed = (fun () -> if input.legacy_decorators && closed.status = 0ul then
+      record_compiler_span input closed 56ul { G.first = closed.offset; G.last = closed.offset } { G.first = 0ul; G.last = 0ul }
+    else ret input closed) in
   ret input { closed with private_scope = state.private_scope }
 
 and pattern_names (input:tape) (state:parser_state) (base:names_base) (floor used:names_used)
@@ -5442,7 +5478,17 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) (expo
       let! result =
         (fun () -> if head.class_declaration then
           let kind = if head.ambient_declaration then AmbientClass else if head.abstract_class then AbstractClass else OrdinaryClass in
-          class_tail input st 64ul kind
+          // Kinds 51 and 54: the head and the closing brace of a class at module level, for the legacy lowering.
+          // The head runs from the first modifier to the name.
+          let legacy = input.legacy_decorators && not head.ambient_declaration in
+          let name_span = { G.first = start.offset; G.last = decl.state.offset } in
+          let! opened = (fun () -> if legacy then
+              record_compiler_span input st 51ul { G.first = state.offset; G.last = start.offset } name_span
+            else ret input st) in
+          let! closed = (fun () -> class_tail input opened 64ul kind) in
+          if legacy && closed.status = 0ul && U32.gt closed.offset 0ul then
+            record_compiler_span input closed 54ul { G.first = minus closed.offset 1ul; G.last = closed.offset } name_span
+          else ret input closed
         else if type_only then
           let! valid = (fun () -> admissible_type_binding input start.offset decl.state.offset) in
           if not valid then ret input (failed st 1ul)
@@ -5862,7 +5908,7 @@ let initial_state (jsx module_mode:bool) (local_log_floor:U16.t) : parser_state 
   offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
   await_allowed = module_mode; yield_allowed = false; jsx_allowed = jsx; module_mode; strict_script = false; in_allowed = true; for_initializer = false;
   arrow_defaults_allowed = true; binding_mode = NoLocals; super_context = NoSuper; private_scope = 0uy; private_count = 0uy;
-  local_log_floor; local_log_used = 0us
+  local_log_floor; local_log_used = 0us; member_parameters = false
 }
 
 // Successful results consume the buffer and expose a bounded candidate count.

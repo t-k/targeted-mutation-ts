@@ -54,7 +54,9 @@ noeq type tape = {
   output : array G.candidate;
   capacity : U32.t;
   bindings : array binding_name;
-  marks : array U8.t
+  marks : array U8.t;
+  // Decorators of TypeScript's earlier design: parameters may carry them, and their places are recorded.
+  legacy_decorators : bool
 }
 
 let owned (_:nat) : prop = True

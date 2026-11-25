@@ -68,6 +68,7 @@ typedef struct TmtPulseMemory_tape_s
   uint32_t capacity;
   TmtPulseMemory_binding_name *bindings;
   uint8_t *marks;
+  bool legacy_decorators;
 }
 TmtPulseMemory_tape;
 
@@ -108,6 +109,7 @@ typedef struct TmtPulseParser_parser_state_s
   uint8_t private_count;
   uint16_t local_log_floor;
   uint16_t local_log_used;
+  bool member_parameters;
 }
 TmtPulseParser_parser_state;
 
@@ -1810,7 +1812,8 @@ TmtPulseParser_function_parameters(
   uint32_t fuel0,
   uint32_t remaining0,
   bool non_simple0,
-  bool constructor0
+  bool constructor0,
+  bool decorated0
 );
 
 TmtPulseParser_function_shape
