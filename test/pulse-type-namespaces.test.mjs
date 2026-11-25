@@ -38,7 +38,11 @@ test('namespace scope does not leak members to outer exports or sibling scopes',
   compare('namespace One { type Entry = number; } export { Entry };', false);
   // A namespace of types merges with a value of its name and emits nothing.
   compare('const One = age < limit; export namespace One { interface Entry {} }', true);
-  compare('namespace One { namespace Other { type Entry = 1; } }', false);
+  // A namespace inside that is not exported is read as well.
+  compare('namespace One { namespace Other { type Entry = 1; } }', true);
+  // An alias is read by the compiler's reading only.
+  compare('namespace One { import Y = A.b; namespace Other { type Entry = Y; } }', false);
+  compare('namespace One { export import Y = A.b; }', false);
 });
 
 test('global augmentations keep the supported mergeable interfaces', () => {
