@@ -124,8 +124,11 @@ function markedOptionalTag(source, code) {
 function unixHashbang(result) {
   const code = result.code;
   if (typeof code !== 'string' || code.charCodeAt(0) !== 35 || code.charCodeAt(1) !== 33) return result;
-  const end = code.search(/[\r\n]/);
-  if (end < 0 || code.charCodeAt(end) !== 13) return result;
+  const end = code.search(lineBreak);
+  const unit = end < 0 ? 10 : code.charCodeAt(end);
+  if (unit === 10) return result;
+  // A line or paragraph separator ends the line for the compiler as well.
+  if (unit !== 13) return { ...result, code: code.slice(0, end) + '\n' + code.slice(end + 1) };
   // A carriage return alone ends the line for the compiler but not for the reader of the interpreter line.
   return { ...result, code: code.slice(0, end) + (code.charCodeAt(end + 1) === 10 ? '' : '\n') + code.slice(end + 1) };
 }
@@ -185,7 +188,7 @@ function hasModuleMarker(addon, code, bytes = Buffer.from(code)) {
 function strictScript(source, file, wellFormedDirectives = false) {
   if (source.includes('<!--') || (source.includes('-->') && /(?:^|\*\/)[^\S\r\n\u2028\u2029]*-->/m.test(source))) return null;
   // The interpreter line ends with its whole line break, so that a carriage return does not stay on it.
-  const hashbang = source.startsWith('#!') ? (match => match === null ? source.length : match.index + match[0].length)(/\r\n|[\r\n]/.exec(source)) : 0;
+  const hashbang = source.startsWith('#!') ? (match => match === null ? source.length : match.index + match[0].length)(/\r\n|[\r\n\u2028\u2029]/.exec(source)) : 0;
   const trivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[\s\S]*?\*\/)*/y;
   trivia.lastIndex = hashbang;
   trivia.exec(source);

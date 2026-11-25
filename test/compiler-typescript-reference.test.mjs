@@ -1693,3 +1693,13 @@ test('a script behind well-formed triple-slash comments is published natively', 
     assert.notEqual(compile(Buffer.from(source), { file: 'script.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a line or paragraph separator ends the interpreter line as well', () => {
+  for (const separator of [' ', ' ']) {
+    for (const input of [`#!/usr/bin/env node${separator}export {};`, Buffer.from(`#!/usr/bin/env node${separator}export {};`)]) {
+      assert.equal(compile(input, { file: 'bin.ts' }).code, '#!/usr/bin/env node\nexport {};');
+    }
+    // The strict directive belongs behind the interpreter line, in front of the first statement.
+    assert.equal(compile(`#!/usr/bin/env node${separator}a=1;`, { file: 'bin.ts' }).code, '#!/usr/bin/env node\n"use strict";\na=1;');
+  }
+});
