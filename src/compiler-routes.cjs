@@ -559,9 +559,12 @@ const newerForms = [
 const comment = '(?:[ \\t]|/\\*(?:[^*]|\\*(?!/))*\\*/)';
 // `using name =`, `using name:` and the head of a loop. English text with these words in this order is
 // taken for a declaration too, and such a file goes to TypeScript.
-const usingDeclaration = new RegExp('(?<![\\w$.])using' + comment + '+[A-Za-z_$][\\w$]*(?:\\s|' + comment + ')*(?:[=:,;\\/]|of\\b)|\\bfor\\b[^\\n]{0,60}?\\(\\s*(?:await\\s+)?using\\b');
+// A name as the patterns read it: the text is a byte string, so the bytes of a character outside ASCII
+// count as letters, and so do the signs of a unicode escape.
+const wordStart = '[A-Za-z_$\\\\\\x80-\\xff]', wordRest = '[\\w$\\\\{}\\x80-\\xff]*';
+const usingDeclaration = new RegExp('(?<![\\w$.])using' + comment + '+' + wordStart + wordRest + '(?:\\s|' + comment + ')*(?:[=:,;\\/]|of\\b)|\\bfor\\b[^\\n]{0,60}?\\(\\s*(?:await\\s+)?using\\b');
 // `accessor name` with what can stand behind the name of a field (in English text another word follows).
-const accessorField = new RegExp('(?<![\\w$.])accessor' + comment + '+(?:[\\[\\"\\\'0-9]|#?[A-Za-z_$][\\w$]*' + comment + '*(?:[;=:!?}\\r\\n\\/]|$))');
+const accessorField = new RegExp('(?<![\\w$.])accessor' + comment + '+(?:[\\[\\"\\\'0-9]|#?' + wordStart + wordRest + comment + '*(?:[;=:!?}\\r\\n\\/]|$))');
 // A private name that is not read through a dot: a member being declared (or `#name in value`). It stands
 // behind white space, a brace, a semicolon, the star of a generator, the end of a comment, or a modifier
 // that touches it (`static#name`). A line comment such as `// #region` is not one. Whether a member's body names its class is not looked at. One character

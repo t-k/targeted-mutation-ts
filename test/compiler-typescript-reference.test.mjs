@@ -3151,7 +3151,11 @@ test('each target compiles natively up to the forms of its year', () => {
   assert.match(lowered.code, /Math\.pow/);
   // Members whose modifier touches the private name, and a loop head or a field with a comment in it.
   for (const source of ['export class A { static#x = 1; get#y() { return A; } }', 'export class A { async#y() { return A; } }',
-    'export function f(l: Disposable[]) { for (/* c */ using x of l) void x; }', 'export class A { accessor x // c\n}']) {
+    'export function f(l: Disposable[]) { for (/* c */ using x of l) void x; }', 'export class A { accessor x // c\n}',
+    // Names outside ASCII and names written with an escape.
+    'export class C { accessor café = 1 }', 'export class C { accessor \\u0063af = 1 }', 'export class C { static accessor 名; }',
+    'export function f(g: () => Disposable) { using café = g(); return café; }', 'export function f(g: () => Disposable) { using \\u{63}af = g(); }',
+    'export class Café { #é() { return Café; } }']) {
     assert.equal(compile(Buffer.from(source), { file: 'year.ts', target: 'es2022' }).backend, 'typescript', source);
   }
   // A word of a newer form in a comment or a string is enough to leave the file with TypeScript.
