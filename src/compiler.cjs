@@ -83,10 +83,7 @@ function compile(input, options) {
           const emit = (v8 ??= nativeAddon('compiler-js.node')).emitJavaScript;
           if (emit !== undefined) code = emit(input, kind >> 1 & 1);
         }
-        if (code !== undefined) {
-          const result = { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
-          return code.charCodeAt(0) === 35 ? require('./compiler-routes.cjs').unixHashbang(result) : result;
-        }
+        if (code !== undefined) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
       }
     } else if (kind >= 0) {
       const source = Buffer.isBuffer(input) ? input :

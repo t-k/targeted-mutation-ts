@@ -1552,10 +1552,12 @@ test('the interpreter line is written with a line feed', () => {
     }
   }
   assert.match(compile('#!/usr/bin/env node\r\nexport const a: number = 1;\r\n', { file: 'bin.ts', mode: 'strip' }).code, /^#!\/usr\/bin\/env node\r\n/);
+  // JavaScript that needs no change is returned as the same text, its line ends included.
+  assert.equal(compile(Buffer.from('#!/usr/bin/env node\r\nexport const n = 1;'), { file: 'bin.mjs' }).code, '#!/usr/bin/env node\r\nexport const n = 1;');
   // A carriage return alone ends the interpreter line for the compiler, not for the system that reads it.
   assert.match(compile('#!/usr/bin/env node\r/// <reference types="node" />\nconsole.log("ready");', { file: 'bin.ts' }).code,
     /^#!\/usr\/bin\/env node\n"use strict";\n/);
-  for (const options of [{ file: 'bin.ts', module: 'esm' }, { file: 'bin.ts', sourceMap: true }, { file: 'bin.mjs' }]) {
+  for (const options of [{ file: 'bin.ts', module: 'esm' }, { file: 'bin.ts', sourceMap: true }]) {
     for (const input of ['#!/usr/bin/env node\r\nexport const n = 1;', Buffer.from('#!/usr/bin/env node\r\nexport const n = 1;')]) {
       assert.match(compile(input, options).code, /^#!\/usr\/bin\/env node\n/, JSON.stringify(options));
     }

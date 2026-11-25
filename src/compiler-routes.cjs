@@ -123,7 +123,8 @@ function markedOptionalTag(source, code) {
 // interpreter's name when the file is run directly.
 function unixHashbang(result) {
   const code = result.code;
-  if (typeof code !== 'string' || code.charCodeAt(0) !== 35 || code.charCodeAt(1) !== 33) return result;
+  // JavaScript that needs no change is returned as the same text.
+  if (result.backend === 'javascript' || typeof code !== 'string' || code.charCodeAt(0) !== 35 || code.charCodeAt(1) !== 33) return result;
   const end = code.search(lineBreak);
   const unit = end < 0 ? 10 : code.charCodeAt(end);
   if (unit === 10) return result;
