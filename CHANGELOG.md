@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0
+
+- Add Vitest 5 (tested with Vitest 5.1.2) compatibility alongside Vitest 4 across in-worker switched sessions, comparison tracing probes, warm `--suggest-assertions` sessions, and `--related` discovery:
+  - Resolve `TestRunner.getCurrentTest` from `vitest` on Vitest 5 while preserving synchronous `vitest/suite` resolution for Vitest 4 and native CommonJS `require(esm)` preloads.
+  - Support Vitest 5's `TestRunner` and `vitest/internal/browser` `startTests` entry via major-version dispatch (ignoring any foreign hoisted `@vitest/runner` 4.x in monorepo dependency trees), fall back cleanly to `source-rewrite` when `experimental.viteModuleRunner` is `false`, and classify `aroundEach`/`aroundAll` (setup, teardown, and post-trial control run) and `while waiting for ...` timeouts accurately.
+  - Invalidate Vite 6/7 per-environment module graphs and `vitest.invalidateFile(...)` across warm `--suggest-assertions` trials (and after restoring original sources), while falling back to fresh runs when `globalSetup` is configured.
+  - Isolate and disable Vitest 5's default `fsModuleCache` (`node_modules/.vitest-cache`) and Vitest 4.0.11+'s `experimental.fsModuleCache` (`node_modules/.experimental-vitest-cache`) across CLI and programmatic runs (including subprojects) so temporary copies never pollute shared `node_modules` directories.
+- Expand the CI compatibility matrix and `scripts/test-package.mjs` to test Vitest 5.1 alongside Vitest 4.0 and 4.1, and update documentation and `docs/how-it-works.svg` for Vitest 4 & 5.
+
 ## 0.5.0
 
 - Enable `--type-check` automatically when a nearest or Project References `tsconfig.json` has `strictNullChecks` enabled, lazily creating the TypeScript program only when a file actually queries `nullish-fallback/v1` or `nullish-equality/v1` (skipping `&&`-only files) and falling back silently when inactive. Add `--no-type-check` (`"typeCheck": false`) and `--no-copy-exclude-gitignore` (`"copyExcludeGitignore": false`) to opt out or override project configuration.
