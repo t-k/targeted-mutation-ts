@@ -2251,3 +2251,23 @@ test('a script with decorators is published natively', () => {
     assert.notEqual(compile(Buffer.from(source), { file: 'script.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a computed class key may be any assignment expression', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))();
+  for (const source of [
+    'class C { [0 + 1]() { return 1; } static ["a" + "b"] = 2; [`t`]: number = 3; }\nexport const out = JSON.stringify([new C()[1](), (C as any).ab, (new C() as any).t]);',
+    'const f = () => "k";\nclass C { [f()]() { return 1; } get [f() + "g"]() { return 2; } static [f() as string]: number = 3; }\nexport const out = JSON.stringify([(new C() as any).k(), (new C() as any).kg, (C as any).k]);',
+    'const log: number[] = [];\nconst k = (n: number) => { log.push(n); return "k" + n; };\nclass C { [k(1)]: number; static [k(2)] = 1; [k(3)]() {} declare [k(4)]: number; }\nexport const out = JSON.stringify(log);',
+    'class C { async [1 ? "a" : "b"]() { return 1; } *[[1, 2].join("")]() { yield 1; } [(0, "p")]<T>(x: T): T { return x; } }\nexport const out = Object.getOwnPropertyNames(C.prototype).join();',
+    'let i = 0;\nclass C { [i++] = "a"; [i++] = "b"; static [i = 5] = "c"; }\nexport const out = JSON.stringify([new C(), (C as any)[5], i]);',
+  ]) {
+    const result = sameAsTypeScript(source, 'computed.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'computed.ts')), source);
+  }
+  // An index signature is no computed key, and a key without an expression is none either.
+  assert.doesNotMatch(sameAsTypeScript('class C { [key: string]: number; a = 1; }\nexport { C };', 'computed.ts').code, /key/);
+  for (const source of ['class C { []() {} }\nexport { C };', 'class C { [a, b]() {} }\nexport { C };']) {
+    assert.equal(compile(Buffer.from(source), { file: 'computed.ts' }).code, null, source);
+  }
+});

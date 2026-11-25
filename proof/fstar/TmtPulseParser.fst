@@ -4448,6 +4448,15 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         ret input (if has_key then { modifier with ok = true } else { modifier with at = st.offset; ok = false })
       else ret input { at = st.offset; ok = false; newline = false }) in
     let! key = (fun () -> class_member_key input { st with offset = member_head.at }) in
+    // A computed key that is neither a name nor a string is an assignment expression in brackets. It is
+    // evaluated where the class stands, so it is read in the state of the class body.
+    let! key = (fun () -> if key.computed && key.after_key.status <> 0ul && st.status = 0ul && fuel <> 0ul then
+        let! inside = (fun () -> skip input { st with offset = next key.first; in_allowed = true }) in
+        let! value = (fun () -> comparison input inside (minus fuel 1ul)) in
+        let! close = (fun () -> skip input value.parser) in
+        let! closed = (fun () -> consume input close 93uy) in
+        ret input { key with after_key = { closed with in_allowed = st.in_allowed }; last = closed.offset }
+      else ret input key) in
     let! tail = (fun () -> skip input key.after_key) in
     if tail.status <> 0ul then ret input (tail)
     else
