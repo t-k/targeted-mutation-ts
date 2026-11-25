@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.3
 
 - Warn once on `stderr` and skip missing `--copy-exclude` (and `copyExclude` config) paths instead of failing with `Copy exclusion does not exist`, so scripts excluding optional build/test outputs work on clean checkouts. Paths escaping the project, targeting `node_modules`, or traversing symbolic links (including missing targets under a symlink) are still rejected.
 
