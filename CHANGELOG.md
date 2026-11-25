@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.0
+
+- Render full details for comparison-derived `ASSERTION GAP` findings in text output, including the surviving comparison edit, affected test names, witness operands, and assertion advice.
+- Resolve nearest and TypeScript Project References `tsconfig.json` files per target file under `--type-check`, add `--tsconfig <FILE>` (and `tsconfig` config), and warn on `stderr` whenever `--type-check` is inactive instead of silently skipping type-based suppression.
+- Register active temporary project copies for `SIGINT`/`SIGTERM` cleanup (stopping spawned worker process groups and removing `tmt-*` directories before exit, verified with TLA+ `CopyCleanupLifecycle.tla`), warn on large copies with `--copy-exclude` / `targeted-mutation.config.json` guidance, and emit incremental `--progress` updates for copying, baseline execution, and mutant completion.
+- Allow combining `--related` with `--test <file|glob>` to intersect related Vitest specs, add `--baseline-timeout <SECONDS>` and `--baseline-workers <N>` (plus `baselineTimeout` / `baselineWorkers` config) independent of mutant trial concurrency, and warn when `--related` selects a large number of test files.
+- Make text output compact by hiding `killed` rows by default, add `--verbose` and `--only-gaps`, clarify multiline `switch` `case`/`default` body-removal edits (`(empty)`), and add `--fail-on-gaps` (and `failOnGaps: true` config) to exit with code `2` when test gaps are reported.
+
 ## 0.3.0
 
 - Add `--related` (and `related: true` config) for Vitest to automatically select only test files (and Vitest projects) related to the scoped source files inside a supervised temporary copy, failing with a clear `--test <FILE>` hint when no related tests match.
