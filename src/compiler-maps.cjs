@@ -35,6 +35,8 @@ function compileExplicit(input, options, compile, sourceKind, moduleAddon) {
   const jsx = options.jsx;
   const format = options.module;
   const map = options.sourceMap;
+  // The decorator options are the router's to read.
+  if (options.experimentalDecorators !== undefined || options.emitDecoratorMetadata !== undefined) return undefined;
   if (options.mode !== undefined && options.mode !== 'transform' || options.target !== undefined && options.target !== 'esnext' ||
       map !== undefined && typeof map !== 'boolean' || name !== undefined && typeof name !== 'string' ||
       jsx !== undefined && jsx !== 'automatic' && jsx !== 'classic' ||

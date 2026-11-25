@@ -908,6 +908,7 @@ TmtPulseParser_function_body(
 #define TmtPulseParser_LoopJump 2
 #define TmtPulseParser_NamedLoop 3
 #define TmtPulseParser_NestedNamedLoops 4
+#define TmtPulseParser_BlockLabel 5
 
 typedef uint8_t TmtPulseParser_jump_context_tags;
 
@@ -922,6 +923,12 @@ typedef struct TmtPulseParser_jump_context_s
       uint32_t _1;
     }
     case_NestedNamedLoops;
+    struct
+    {
+      uint32_t _0;
+      uint8_t _1;
+    }
+    case_BlockLabel;
   }
   ;
 }
@@ -1599,6 +1606,12 @@ TmtPulseParser_jump_statement(
 TmtPulseParser_parser_state
 TmtPulseParser_labeled_loop_start(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
 
+TmtPulseParser_parser_state
+TmtPulseParser_labeled_block_start(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
 TmtPulseParser_jump_context TmtPulseParser_loop_jumps(TmtPulseParser_jump_context jumps);
 
 bool
@@ -1631,6 +1644,8 @@ TmtPulseParser_finish_local_scope(
   TmtPulseParser_parser_state state,
   uint16_t first
 );
+
+TmtPulseParser_jump_context TmtPulseParser_switch_jumps(TmtPulseParser_jump_context jumps);
 
 bool
 TmtPulseParser_ambiguous_assertion_update(

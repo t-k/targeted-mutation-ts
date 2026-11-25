@@ -14,11 +14,13 @@ try {
       jsx: { type: 'string' },
       'source-map': { type: 'boolean' },
       strip: { type: 'boolean' },
+      'experimental-decorators': { type: 'boolean' },
+      'emit-decorator-metadata': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
     },
   });
   if (values.help) {
-    console.log('Usage: tmt-compile [--target esnext|es2018|...] [--module preserve|esm|cjs] [--jsx automatic|classic|preserve] [--source-map] [--strip] [--file NAME] <file|->');
+    console.log('Usage: tmt-compile [--target esnext|es2018|...] [--module preserve|esm|cjs] [--jsx automatic|classic|preserve] [--source-map] [--strip] [--experimental-decorators [--emit-decorator-metadata]] [--file NAME] <file|->');
   } else {
     if (positionals.length !== 1) throw new Error('Expected one source filename or - for stdin');
     const [input] = positionals;
@@ -26,6 +28,7 @@ try {
     const result = compile(readFileSync(input === '-' ? 0 : input), {
       file, target: values.target, module: values.module, jsx: values.jsx,
       mode: values.strip ? 'strip' : 'transform', sourceMap: values['source-map'],
+      experimentalDecorators: values['experimental-decorators'], emitDecoratorMetadata: values['emit-decorator-metadata'],
     });
     if (result.code === null) {
       for (const diagnostic of result.diagnostics) {

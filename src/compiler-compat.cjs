@@ -29,7 +29,7 @@ function commonJsError(code, file) {
   }
 }
 
-function transform(source, { file, target, outputModule, jsx, sourceMap }, verifyRuntimeExports, fail) {
+function transform(source, { file, target, outputModule, jsx, sourceMap, experimentalDecorators = false, emitDecoratorMetadata = false }, verifyRuntimeExports, fail) {
   const ts = require('typescript');
   const extraDiagnostics = [];
   const compilerFile = file.replace(/\.[cm]([jt]s)$/i, '.$1');
@@ -47,6 +47,7 @@ function transform(source, { file, target, outputModule, jsx, sourceMap }, verif
       // The file is handed over under a plain extension, so a module extension has to be stated: an .mts file
       // without imports or exports is still a module and receives no "use strict".
       ...(/\.m[jt]s$/i.test(file) ? { moduleDetection: ts.ModuleDetectionKind.Force } : {}),
+      ...(experimentalDecorators ? { experimentalDecorators: true, emitDecoratorMetadata } : {}),
       sourceMap,
       inlineSources: sourceMap,
     },

@@ -1840,3 +1840,34 @@ test('a decorated class inside a function or a block is written as it stands', (
     assert.notEqual(compile(Buffer.from(source), { file: 'local.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a label on a block, an if, a try or a switch is taken, and only break may name it', () => {
+  for (const source of [
+    'a: { break a; }\nexport {};',
+    'a: if (x) { break a; }\nexport {};',
+    'export function f() { a: { if (x) break a; y(); } }',
+    'export function f() { a: switch (x) { case 1: break a; case 2: break; } }',
+    'export function f() { a: try { break a; } finally {} }',
+    'export function f() { for (;;) { a: { if (x) break a; if (y) continue; break; } } }',
+    'export function f() { a: { for (;;) { if (x) break a; continue; } } }',
+    'export function f() { a: { switch (x) { case 1: break a; default: break; } } }',
+    'export function f() { a: if (x) { for (const y of z) { if (y) break a; } } else { break a; } }',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'label.ts').backend, 'pulse', source);
+  }
+  // Each of these is an error in JavaScript, or names a label across a function.
+  for (const source of [
+    'a: { a: {} }\nexport {};',
+    'a: { continue a; }\nexport {};',
+    'a: { break b; }\nexport {};',
+    'a: { break; }\nexport {};',
+    'a: { continue; }\nexport {};',
+    'a: { function g() { break a; } }\nexport {};',
+    'a: { (() => { break a; })(); }\nexport {};',
+    'export function f() { a: { class C { m() { break a; } } } }',
+    'a: { while (x) { continue a; } }\nexport {};',
+    'yield: { break yield; }\nexport {};',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'label.ts' }).backend, 'pulse', source);
+  }
+});

@@ -54,7 +54,8 @@ function compile(input, options) {
   let flags = 0;
   let defaults = options === undefined;
   if (!defaults && options !== null && typeof options === 'object') {
-    if (options.mode === undefined && options.target === undefined && options.module === undefined && options.sourceMap === undefined) {
+    if (options.mode === undefined && options.target === undefined && options.module === undefined && options.sourceMap === undefined &&
+        options.experimentalDecorators === undefined && options.emitDecoratorMetadata === undefined) {
       const name = options.file;
       const jsx = options.jsx;
       if ((name === undefined || typeof name === 'string') && (jsx === undefined || jsx === 'automatic' || jsx === 'classic')) {

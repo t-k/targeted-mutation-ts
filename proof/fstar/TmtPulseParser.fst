@@ -222,11 +222,21 @@ type jump_context =
   | LoopJump
   | NamedLoop : U32.t -> jump_context
   | NestedNamedLoops : U32.t -> U32.t -> jump_context
+  // A label on a block, an if, a try or a switch: `break name` leaves it. The second field is what a jump
+  // without a name may do inside: 0 nothing, 1 break, 2 break and continue.
+  | BlockLabel : U32.t -> U8.t -> jump_context
 
 let loop_jumps (jumps:jump_context) : jump_context =
   match jumps with
   | NamedLoop _ | NestedNamedLoops _ _ -> jumps
+  | BlockLabel start _ -> BlockLabel start 2uy
   | _ -> LoopJump
+
+let switch_jumps (jumps:jump_context) : jump_context =
+  match jumps with
+  | NoJump -> BreakOnly
+  | BlockLabel start 0uy -> BlockLabel start 1uy
+  | _ -> jumps
 
 let can_assign (target:assignment_target) : bool = target = Assignable || target = MemberTarget || target = PrivateTarget
 let can_assign_expression (target:assignment_target) : bool = can_assign target || target = AssertedTarget
@@ -2146,6 +2156,19 @@ let jump_statement (input:tape) (#frame:slprop) (state:parser_state) (jumps:jump
         | _ -> read_ret input #frame false) in
       if equal then statement_end input #frame state target.at true
       else read_ret input #frame (failed state 1ul)
+  | BlockLabel start plain ->
+    let! after = (fun () -> trivia input #frame end_at) in
+    let! target = (fun () -> if after.ok && not after.newline then name input #frame after.at false false
+      else read_ret input #frame { at = after.at; ok = false; newline = after.newline }) in
+    if not target.ok then
+      if plain = 2uy || (plain = 1uy && width = 5ul) then statement_end input #frame state end_at true
+      else read_ret input #frame (failed state 1ul)
+    else
+      // Only break may name the label of a statement that is no loop.
+      let! equal = (fun () -> if width = 5ul then same_label_name input #frame start after.at target.at
+        else read_ret input #frame false) in
+      if equal then statement_end input #frame state target.at true
+      else read_ret input #frame (failed state 1ul)
 
 let labeled_loop_start (input:tape) (#frame:slprop) (state:parser_state)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
@@ -2156,6 +2179,17 @@ let labeled_loop_start (input:tape) (#frame:slprop) (state:parser_state)
   else
     let! kind = (fun () -> statement_kind input #frame start.offset) in
     read_ret input #frame (if kind = 2ul || kind = 3ul || kind = 4ul then start else failed start 1ul)
+
+// A label in front of a block, an if, a try or a switch.
+let labeled_block_start (input:tape) (#frame:slprop) (state:parser_state)
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! named = (fun () -> name input #frame state.offset false false) in
+  let! colon = (fun () -> skip input #frame (from_cursor state named)) in
+  let! start = (fun () -> (let! consumed = (fun () -> consume input #frame colon 58uy) in skip input #frame consumed)) in
+  if start.status <> 0ul then read_ret input #frame start
+  else
+    let! kind = (fun () -> statement_kind input #frame start.offset) in
+    read_ret input #frame (if kind = 1ul || kind = 5ul || kind = 6ul || kind = 7ul then start else failed start 1ul)
 
 let local_width (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt U32.t (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! first = (fun () -> peek input #frame start) in
@@ -4056,11 +4090,16 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
     else if var then (let! anf_value_2 = (fun () -> local_var_declaration input state fuel) in ret input ({ state = anf_value_2; used }))
     else
       let! ordinary = (fun () -> simple_statement input state in_function jumps fuel) in
-      let full = match jumps with | NestedNamedLoops _ _ -> true | _ -> false in
+      // No label inside a labelled block: its name would have to be compared with the outer one.
+      let full = match jumps with | NestedNamedLoops _ _ | BlockLabel _ _ -> true | _ -> false in
       if ordinary.status <> 1ul || fuel = 0ul || full then ret input { state = ordinary; used }
       else
         let! opening = (fun () -> labeled_loop_start input state) in
-        if opening.status <> 0ul then ret input { state = ordinary; used }
+        let plain = match jumps with | NoJump -> 0uy | BreakOnly -> 1uy | LoopJump -> 2uy | _ -> 3uy in
+        let! block = (fun () -> if opening.status <> 0ul && plain <> 3uy && input.capture_types then labeled_block_start input state
+          else ret input (failed state 1ul)) in
+        if block.status = 0ul then control_statement input block (minus fuel 1ul) in_function (BlockLabel state.offset plain) floor used allow_var
+        else if opening.status <> 0ul then ret input { state = ordinary; used }
         else
           let! context, valid = (fun () -> match jumps with
             | NamedLoop outer ->
@@ -4106,7 +4145,7 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
         else
           let! tested = (fun () -> condition input { state with offset = plus state.offset 6ul } fuel) in
           let! start = (fun () -> (let! anf_value_6 = (fun () -> (skip input tested)) in consume input anf_value_6 123uy)) in
-          let case_jumps = match jumps with | NoJump -> BreakOnly | _ -> jumps in
+          let case_jumps = switch_jumps jumps in
           let! st = (fun () -> switch_sequence input start inner input.size in_function case_jumps used used false false) in
           let! closed = (fun () -> consume input { st with local_names = state.local_names } 125uy) in
           finish_local_scope input closed state.local_log_used) in

@@ -439,13 +439,17 @@ function mappedScript(input, options) {
 
 function compile(input, options = {}) {
   const { file = 'input.ts', mode = 'transform', target = 'esnext', module = 'preserve', jsx = 'automatic',
-    sourceMap = false } = options;
+    sourceMap = false, experimentalDecorators = false, emitDecoratorMetadata = false } = options;
   if (typeof file !== 'string' || !extensions.test(file)) throw new TypeError('Expected a JS, TS, JSX or TSX filename');
+  if (typeof experimentalDecorators !== 'boolean' || typeof emitDecoratorMetadata !== 'boolean' ||
+      (emitDecoratorMetadata && !experimentalDecorators)) {
+    throw new TypeError('Expected boolean decorator options, and emitDecoratorMetadata only with experimentalDecorators');
+  }
   if (!targets.has(target) || !modules.has(module) || !jsxModes.has(jsx) || typeof sourceMap !== 'boolean') {
     throw new TypeError('Invalid compiler target, module, JSX or source-map option');
   }
   if (mode !== 'transform' && mode !== 'strip') throw new TypeError('Expected transform or strip compilation mode');
-  if (mode === 'strip' && (target !== 'esnext' || module !== 'preserve' || sourceMap || options.jsx !== undefined)) {
+  if (mode === 'strip' && (target !== 'esnext' || module !== 'preserve' || sourceMap || options.jsx !== undefined || experimentalDecorators)) {
     throw new TypeError('strip mode only supports position-preserving type erasure');
   }
   if (declarations.test(file)) return inputError(file, 'DECLARATION_INPUT', 'A declaration file cannot emit JavaScript');
@@ -455,6 +459,15 @@ function compile(input, options = {}) {
   const format = outputFormat(file, module);
   const typed = /\.(?:m?ts|tsx)$/i.test(file);
   const jsxFile = /\.[jt]sx$/i.test(file);
+  // Decorators of TypeScript's earlier design are lowered to helper calls. A source without an at sign holds
+  // none, and compiles as without the option; any other is lowered by TypeScript.
+  if (experimentalDecorators && typed) {
+    const text = compilerSource(snapshot(input));
+    if (text === null) return inputError(file, 'INVALID_ENCODING', 'Expected well-formed UTF-8');
+    if (text.includes('@')) {
+      return transformCompatibility(text, { file, target, outputModule: format, jsx, sourceMap, experimentalDecorators, emitDecoratorMetadata });
+    }
+  }
   // TypeScript drops a byte order mark, and the rest compiles as the same source without one. A result with
   // diagnostics or from TypeScript itself is produced again from the unchanged input, so that positions hold.
   if (!sourceMap && mode === 'transform' && typed) {

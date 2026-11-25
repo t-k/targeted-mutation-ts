@@ -181,3 +181,27 @@ test('review findings: a hashbang behind a byte order mark, a hashbang line endi
   // An assertion with nothing arithmetic behind it is erased as before.
   assert.equal(compile('export const v = x as number;', { file: 'a.ts', mode: 'strip' }).code, 'export const v = x          ;');
 });
+
+test('the legacy decorator options lower decorators as TypeScript does', async () => {
+  const ts = (await import('typescript')).default;
+  const source = '@Injectable()\nexport class A {\n  constructor(@Inject(T) private t: T) {}\n  @Input() x = 1;\n}';
+  for (const flags of [{ experimentalDecorators: true }, { experimentalDecorators: true, emitDecoratorMetadata: true }]) {
+    for (const input of [source, Buffer.from(source)]) {
+      const result = compile(input, { file: 'a.ts', ...flags });
+      const reference = ts.transpileModule(source, { fileName: 'a.ts',
+        compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true, ...flags } });
+      assert.equal(result.code, reference.outputText);
+      assert.match(result.code, /__decorate\(\[/);
+      assert.match(result.code, /__param\(0, Inject\(T\)\)/);
+      assert.equal(/__metadata\("design:paramtypes"/.test(result.code), flags.emitDecoratorMetadata === true);
+    }
+  }
+  // Without the option, and with it spelled out as false, nothing changes.
+  assert.doesNotMatch(compile(source, { file: 'a.ts' }).code, /__decorate/);
+  assert.doesNotMatch(compile(source, { file: 'a.ts', experimentalDecorators: false }).code, /__decorate/);
+  // A source without an at sign holds no decorator and keeps its native route.
+  assert.equal(compile('export const a: number = 1;', { file: 'a.ts', experimentalDecorators: true }).backend, 'pulse');
+  assert.throws(() => compile('x', { file: 'a.ts', emitDecoratorMetadata: true }), TypeError);
+  assert.throws(() => compile('x', { file: 'a.ts', experimentalDecorators: 1 }), TypeError);
+  assert.throws(() => compile('x', { file: 'a.ts', mode: 'strip', experimentalDecorators: true }), TypeError);
+});
