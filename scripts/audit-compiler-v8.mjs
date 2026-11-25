@@ -95,8 +95,24 @@ async function runWorker(cases, instrumented) {
     return next(specifier, context);
   } });
   const { compile } = await import(compilerEntry.href);
+  const sleepBuf = new Int32Array(new SharedArrayBuffer(4));
+  const writeStderrSync = text => {
+    const buf = Buffer.from(text, 'utf8');
+    let offset = 0;
+    while (offset < buf.length) {
+      try {
+        offset += writeSync(2, buf, offset, buf.length - offset);
+      } catch (error) {
+        if (error.code === 'EAGAIN' || error.code === 'EWOULDBLOCK') {
+          Atomics.wait(sleepBuf, 0, 0, 1);
+          continue;
+        }
+        throw error;
+      }
+    }
+  };
   return cases.map(({ file, source, options }, index) => {
-    if (instrumented) writeSync(2, 'TMT_V8_CASE\t' + index + '\n');
+    if (instrumented) writeStderrSync('TMT_V8_CASE\t' + index + '\n');
     try {
       const result = compile(Buffer.from(source, 'base64'), { file, ...options });
       return { backend: result.backend, codeHash: result.code === null ? null :
