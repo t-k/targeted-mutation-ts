@@ -560,9 +560,10 @@ function compile(input, options = {}) {
         if (rewritten !== null) {
           const result = compile(rewritten, { ...options, experimentalDecorators: false, emitDecoratorMetadata: false });
           if (rewritten === bytes || (result.code !== null && result.backend !== 'typescript')) return result;
-        } else if (addon) {
+        } else if (addon && !jsxFile) {
           // Names outside ASCII: the decorators are lowered on the copy spelled in ASCII, the copy is compiled,
-          // and the names are put back in the result.
+          // and the names are put back in the result. Not for JSX: the emitter writes escapes into the text of
+          // an element, and an escape next to a spelled word reads as one word with it.
           let copy = asciiSpelling(bytes, text);
           // The lowering derives a second name from a class's name. A word of that spelling in the source
           // could not be told from it when the names are put back.

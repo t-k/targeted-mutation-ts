@@ -217,6 +217,9 @@ type assignment_target =
   | ArrayTarget
   // An operand under an angle-bracket assertion: a target once parentheses stand around it.
   | AngleTarget
+  // An asserted operand in parentheses, `(name as T)`: the parentheses stay in the output, and a function
+  // assigned to a name in parentheses gets no name. Such an assignment is refused; others are taken.
+  | ParenAsserted
 
 type jump_context =
   | NoJump
@@ -241,7 +244,7 @@ let switch_jumps (jumps:jump_context) : jump_context =
   | _ -> jumps
 
 let can_assign (target:assignment_target) : bool = target = Assignable || target = MemberTarget || target = PrivateTarget
-let can_assign_expression (target:assignment_target) : bool = can_assign target || target = AssertedTarget
+let can_assign_expression (target:assignment_target) : bool = can_assign target || target = AssertedTarget || target = ParenAsserted
 type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:bool; right_shift:bool; shortcut:U32.t; target:assignment_target }
 type expression_items = { list_end:parser_state; valid_array_target:bool }
 type object_item = { value:parsed; prototype_setter:bool }
@@ -2134,6 +2137,25 @@ let assignment_width (input:tape) (#frame:slprop) (at:U32.t) (byte follower:U8.t
     byte = 38uy || byte = 124uy || byte = 94uy then 2ul
   else 0ul)
 
+// Whether a function, a class or an arrow may begin here: what takes its name from the target of an assignment.
+// An opening parenthesis is taken for the parameters of an arrow.
+let function_like_start (input:tape) (#frame:slprop) (at:U32.t) : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! gap = (fun () -> trivia input #frame at) in
+  let! byte = (fun () -> peek input #frame gap.at) in
+  if byte = 40uy then read_ret input #frame true
+  else if not (G.identifier_start byte) then read_ret input #frame false
+  else
+    let! function_ = (fun () -> keyword input #frame gap.at 8ul 0x66756e6374696f6euL) in
+    let! class_ = (fun () -> keyword input #frame gap.at 5ul 0x636c617373uL) in
+    let! async_ = (fun () -> keyword input #frame gap.at 5ul 0x6173796e63uL) in
+    if function_ || class_ || async_ then read_ret input #frame true
+    else
+      let! word_end = (fun () -> scan_class input #frame gap.at G.Identifier) in
+      let! after = (fun () -> trivia input #frame word_end) in
+      let! equals = (fun () -> same input #frame after.at 61uy) in
+      let! greater = (fun () -> same input #frame (next after.at) 62uy) in
+      read_ret input #frame (equals && greater)
+
 let identifier_target (input:tape) (#frame:slprop) (pos:U32.t) (ch:U8.t) : Tot (stt assignment_target (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! restricted =
     (fun () -> if ch = 101uy then keyword input #frame pos 4ul 0x6576616cuL
@@ -2649,13 +2671,14 @@ let exponent_base (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt b
   let! head = (fun () -> read_atom_head input #frame state) in
   read_ret input #frame (head.token_ <> 60uy && (head.prefix_ = 0ul || head.increment_ <> 0ul))
 
-// Whether the word `export` stands in front of a place, with only white space between.
+// Whether the word `export` stands in front of a place, with only spaces and tabs between. Across a line
+// break the word may be the end of a line comment (`// TODO: export`).
 let rec export_before (input:tape) (#frame:slprop) (at fuel:U32.t)
   : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
   if U32.lt at 6ul || fuel = 0ul then read_ret input #frame false
   else
     let! byte = (fun () -> peek input #frame (minus at 1ul)) in
-    if byte = 32uy || byte = 10uy || byte = 13uy || byte = 9uy then export_before input #frame (minus at 1ul) (minus fuel 1ul)
+    if byte = 32uy || byte = 9uy then export_before input #frame (minus at 1ul) (minus fuel 1ul)
     else
       let! word = (fun () -> keyword input #frame (minus at 6ul) 6ul 0x6578706f7274uL) in
       let! before = (fun () -> if word && U32.gt at 6ul then peek input #frame (minus at 7ul) else read_ret input #frame 32uy) in
@@ -3089,7 +3112,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           else (let! anf_value_12 = (fun () -> (consume input consumed 44uy)) in grouped_tail input anf_value_12 (minus fuel 1ul) input.size)) in
         let done_ = { done_ with in_allowed = st.in_allowed } in
         let target = if assignment.status = 0ul || comma then NotAssignable
-          else if inner.target = AngleTarget then AssertedTarget
+          else if inner.target = AngleTarget || inner.target = AssertedTarget then ParenAsserted
           else if can_assign_expression inner.target then inner.target else NotAssignable in
         postfix input { parser = done_; range = { G.first = start_pos; G.last = done_.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target }
           fuel input.size
@@ -3322,7 +3345,10 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
       (fun () -> if can_assign_expression lhs.target then assignment_width input st.offset byte follower
       else ret input (if lhs.target = ArrayTarget && byte = 61uy && follower <> 61uy && follower <> 62uy then 1ul
       else 0ul)) in
-    if assignment <> 0ul then
+    let naming = lhs.target = ParenAsserted && (assignment = 1ul || (assignment = 3ul && (byte = 38uy || byte = 124uy || byte = 63uy))) in
+    let! anonymous = (fun () -> if naming then function_like_start input (plus st.offset assignment) else ret input false) in
+    if anonymous then ret input (empty_range (failed st 1ul))
+    else if assignment <> 0ul then
       if fuel = 0ul then ret input (empty_range (failed st 3ul))
       else
         let! rhs = (fun () -> comparison input { st with offset = plus st.offset assignment } (minus fuel 1ul)) in
@@ -4126,9 +4152,15 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
       let start = { tracked with local_names = decl.used } in
       // Kinds 60 and 54 for a class inside a function or a block: as kinds 51 and 54 at module level.
+      // Kind 64 in place of 60 when no loop of the function stands around the class: the declaration then
+      // runs at most once in each run of the function.
       let name_span = { G.first = named.offset; G.last = decl.state.offset } in
+      let once = (match jumps with
+        | NoJump | BreakOnly -> true
+        | BlockLabel _ inside -> inside <> 2uy
+        | _ -> false) in
       let! start = (fun () -> if input.legacy_decorators then
-          record_compiler_span input start 60ul { G.first = st.offset; G.last = named.offset } name_span
+          record_compiler_span input start (if once then 64ul else 60ul) { G.first = st.offset; G.last = named.offset } name_span
         else ret input start) in
       let! closed = (fun () -> class_tail input start (minus fuel 1ul) OrdinaryClass) in
       let! closed = (fun () -> if input.legacy_decorators && closed.status = 0ul && U32.gt closed.offset 0ul then

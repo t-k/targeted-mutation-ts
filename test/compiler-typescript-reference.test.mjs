@@ -2822,3 +2822,25 @@ test('a declared module without a body is erased', () => {
   sameAsTypeScript('declare module "jquery";\nconst n: number = 1;', 'ambient.ts');
   assert.notEqual(compile(Buffer.from('declare module "jquery" const n = 1;\nexport {};'), { file: 'ambient.ts' }).backend, 'pulse');
 });
+
+test('findings of the second review of the namespace and assertion round', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let|namespace)/g, ''))();
+  // `export` at the end of a line comment is no modifier of the overload below it.
+  const commented = 'namespace N {\n  // TODO: export\n  function format(value: string): string;\n  export function format(value: string) { return value.trim(); }\n}\nexport const out = N.format(" x ");';
+  assert.equal(run(sameAsTypeScript(commented, 'second.ts').code), 'x');
+  // A function assigned to a name in parentheses gets no name, so such an assignment is left to TypeScript,
+  // which writes it without the parentheses.
+  for (const target of ['(<() => void>handler)', '(handler as any)', '(handler!)', '((handler as any))']) {
+    for (const [operator, value] of [['=', '() => {}'], ['=', 'function () {}'], ['=', 'class {}'], ['=', 'async () => {}'], ['=', 'x => x'], ['??=', '() => {}'], ['||=', '(() => {})']]) {
+      const source = `let handler: any;\n${target} ${operator} ${value};\nexport const out = handler.name;`;
+      const result = sameAsTypeScript(source, 'second.ts');
+      assert.notEqual(result.backend, 'pulse', source);
+      assert.equal(run(result.code), run(reference(source, 'second.ts')), source);
+    }
+  }
+  // Other values and operators keep the native route.
+  for (const statement of ['(handler as any) = other;', '(<number>handler) += 1;', '(handler as any) = [1].map(x => x);', '(handler as any) &&= 2;']) {
+    const source = `let handler: any = 1, other = 2;\n${statement}\nexport const out = handler;`;
+    assert.equal(sameAsTypeScript(source, 'second.ts').backend, 'pulse', source);
+  }
+});

@@ -169,9 +169,10 @@ test('a decorated class is lowered wherever its declaration stands', () => {
     }
     assert.deepEqual(run(result.code), run(reference.outputText), source);
     const any = whole || row.Member !== 'None';
-    // A self-naming class inside a function is left to TypeScript, whose second variable belongs to the function.
-    const shared = row.SelfName === 'Yes' && whole && ['Function', 'Block', 'Method'].includes(row.Place);
-    if (shared) assert.equal(result.backend, 'typescript', source);
+    // A self-naming class inside a function is lowered too: no loop stands around it in these places, so its
+    // declaration runs once in each run of the function. An abstract one is still left to TypeScript.
+    const abstractLocal = row.SelfName === 'Yes' && whole && ['Function', 'Block', 'Method'].includes(row.Place) && /abstract class/.test(source);
+    if (abstractLocal) assert.equal(result.backend, 'typescript', source);
     else if (any) { assert.equal(result.backend, 'pulse', source); native++; }
   }
   assert.ok(native >= 25, String(native));
@@ -186,8 +187,8 @@ test('the variable a self-naming class sees is its own, as in TypeScript\'s lowe
   const prelude = 'const D = (target: any) => target;\nconst customize = (Base: any) => class extends Base { static extra = true; };\n';
   for (const [body, expected] of [
     // An assignment to the class's variable does not reach the body.
-    ['@D class Service { static create() { return new Service(); } }\nconst Original = Service;\n(Service as any) = class extends Service {};\nexport const out = Original.create() instanceof Service;', ['value', false]],
-    ['@D class A { static get() { return A; } }\nconst saved = A;\n(A as any) = class Other {};\nexport const out = (saved as any).get() === saved;', ['value', true]],
+    ['@D class Service { static create() { return new Service(); } }\nconst Original = Service;\nconst Sub = class extends Service {};\n(Service as any) = Sub;\nexport const out = Original.create() instanceof Service;', ['value', false]],
+    ['@D class A { static get() { return A; } }\nconst saved = A;\nconst Other = class {};\n(A as any) = Other;\nexport const out = (saved as any).get() === saved;', ['value', true]],
     // A function outside reads the outer variable, which is not initialized while the static members run.
     ['function read() { return Service; }\n@D class Service { static self = Service; static registered = read(); }\nexport const out = 1;', ['throws', 'ReferenceError']],
     // A class of any name: the function that stores the decorated class does not hide it.
@@ -205,12 +206,12 @@ test('the variable a self-naming class sees is its own, as in TypeScript\'s lowe
     assert.deepEqual(outcome(reference), expected, source);
     assert.deepEqual(outcome(result.code), expected, source);
   }
-  // Inside a function TypeScript's second variable is shared by every run of the function: in its output the
-  // body of the first class of a loop sees the second class. Such a class is left to TypeScript, as is one
-  // that awaits inside its own text, or whose second name is taken.
+  // TypeScript's second variable belongs to the function or the module, so the runs of a loop share it: in its
+  // output the body of the first class of a loop sees the second class. A class in a loop is left to
+  // TypeScript, as is one that awaits inside its own text, or whose second name is taken.
   for (const source of [
     'const all: any[] = [];\nfor (const n of [1, 2]) { @d class K { static me() { return K; } } all.push(K); }\nexport { all };',
-    'export function f() { @d class K { static me() { return K; } } return K; }',
+    'export function f() { for (;;) { @d class K { static me() { return K; } } return K; } }',
     '@d class K { static v = K; [await 1]() {} }\nexport { K };',
     '@d class K extends (await base) { static v = K; }\nexport { K };',
     // In the heritage clause and as a shorthand property TypeScript leaves the name, which is the undecorated class.
@@ -342,4 +343,66 @@ test('a computed key that names the class leaves a self-naming class to TypeScri
   const lowered = compile(Buffer.from(other), options);
   assert.equal(lowered.backend, 'pulse');
   assert.equal(run(lowered.code), 'Cafe');
+});
+
+test('a decorated class inside a function may name itself when no loop stands around it', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export \{[^}]*\};?/g, '').replace(/export (?=class|const|let|function)/g, ''))();
+  const helpers = 'const replace = (target: any) => class Replaced extends target { static tag = "replaced"; };\nconst keep = (target: any) => { target.kept = true; };\n';
+  for (const body of [
+    // In a function body, an arrow body, a block, a try and a switch.
+    'function make() { @replace class G { static self = G; static value = 1; can() { return [G.value, (G as any).tag, this instanceof G]; } } return [new G().can(), (G as any).self === G]; }\nexport const out = JSON.stringify([make(), make()]);',
+    'const make = () => { @keep class S { static inst = new S(); static of() { return S.inst; } } return [(S as any).kept, S.of() instanceof S]; };\nexport const out = JSON.stringify(make());',
+    'function make(flag: boolean) { if (flag) { try { @keep class T { static again() { return new T(); } } return T.again() instanceof T; } finally { } } switch (1) { case 1: { @replace class U { static me = U; } return (U as any).me === U; } } }\nexport const out = JSON.stringify([make(true), make(false)]);',
+  ]) {
+    const source = helpers + body;
+    const result = compile(Buffer.from(source), options);
+    assert.equal(result.backend, 'pulse', body);
+    const expected = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, experimentalDecorators: true, verbatimModuleSyntax: true } }).outputText;
+    assert.equal(run(result.code), run(expected), body);
+  }
+  // Inside a loop TypeScript's second variable is shared by the runs of the loop: left to TypeScript.
+  for (const body of [
+    'function make() { const all: any[] = []; for (let i = 0; i < 2; i++) { @keep class L { static n = i; static who() { return L.n; } } all.push(L); } return all.map(c => c.who()); }\nexport const out = JSON.stringify(make());',
+    'function make() { let i = 0; const all: any[] = []; while (i++ < 2) { switch (i) { default: { @keep class W { static n = i; static who() { return W.n; } } all.push(W); } } } return all.map(c => c.who()); }\nexport const out = JSON.stringify(make());',
+    'const all: any[] = [];\nfor (const i of [1, 2]) { @keep class M { static n = i; static who() { return M.n; } } all.push(M); }\nexport const out = JSON.stringify(all.map(c => c.who()));',
+  ]) {
+    const source = helpers + body;
+    const result = compile(Buffer.from(source), options);
+    assert.notEqual(result.backend, 'pulse', body);
+    const expected = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, experimentalDecorators: true, verbatimModuleSyntax: true } }).outputText;
+    assert.equal(run(result.code), run(expected), body);
+  }
+  // A function inside a loop starts anew: its class runs once in each run of the function.
+  const nested = helpers + 'const all: any[] = [];\nfor (const i of [1, 2]) { all.push((() => { @keep class N { static n = i; static who() { return N.n; } } return N.who(); })()); }\nexport const out = JSON.stringify(all);';
+  const result = compile(Buffer.from(nested), options);
+  assert.equal(result.backend, 'pulse');
+  assert.equal(run(result.code), '[1,2]');
+});
+
+test('findings of the second review of the namespace and assertion round, with decorators', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export \{[^}]*\};?/g, '').replace(/export (?=class|const|let|enum|namespace|var)/g, ''))();
+  const reference = source => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, experimentalDecorators: true, verbatimModuleSyntax: true } }).outputText;
+  // A computed key over several lines that names the class.
+  const key = 'let owner: () => Function;\nfunction register(getOwner: () => Function) { owner = getOwner; return "save"; }\nconst wrap = (Base: any) => class extends Base {};\n' +
+    '@wrap\nexport class Cafe {\n  [register(\n    () => Cafe,\n  )]() {}\n}\nexport const out = owner!() === Cafe;';
+  const keyed = compile(Buffer.from(key), options);
+  assert.notEqual(keyed.backend, 'pulse');
+  assert.equal(run(keyed.code), false);
+  for (const member of ['[items[0], () => Cafe][1]', 'static [register(() => Cafe)] = 1;', '[(x => "]")(Cafe)]() {}']) {
+    const source = `declare const items: any[];\nconst wrap = (Base: any) => Base;\ndeclare function register(f: any): string;\n@wrap\nexport class Cafe {\n  static self = Cafe;\n  ${member.startsWith('[items') ? member + '() {}' : member}\n}`;
+    assert.notEqual(compile(Buffer.from(source), options).backend, 'pulse', member);
+  }
+  // A class that a namespace exports is assigned to the namespace behind the calls of its decorators.
+  const exported = 'export const registered: string[][] = [];\nfunction record(owner: object) { registered.push(Object.keys(owner)); return (_target: object, _key: string) => {}; }\n' +
+    'export enum Status { Ready }\nexport namespace Status {\n  export class View { @record(Status) value = 1; }\n}\nexport const out = JSON.stringify(registered);';
+  const assigned = compile(Buffer.from(exported), options);
+  assert.equal(run(assigned.code), run(reference(exported)));
+  assert.equal(run(assigned.code), '[["0","Ready"]]');
+  const plain = 'function mark(c: any) { c.marked = true; return class extends c {}; }\nexport namespace N {\n  @mark export class A {}\n  export abstract class B { @((t: any, k: string) => {}) m() {} }\n}\nexport const out = JSON.stringify([(N.A as any).marked, Object.getPrototypeOf(N.A) !== Function.prototype]);';
+  assert.equal(run(compile(Buffer.from(plain), options).code), run(reference(plain)));
+  // In a JSX file with names outside ASCII the copy is not used: the text of an element keeps its words.
+  const element = 'function register(c: any) {}\n@register\nexport class Café {}\nexport const label = <span>Note:&nbsp;don’t close this tab.</span>;';
+  const jsx = compile(Buffer.from(element), { file: 'legacy.tsx', experimentalDecorators: true, jsx: 'classic' });
+  assert.doesNotMatch(jsx.code, /9on/);
+  assert.match(jsx.code, /don(\\u2019|’)t close this tab/);
 });

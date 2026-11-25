@@ -274,6 +274,7 @@ bool TmtPulseParser_spread_at(TmtPulseMemory_tape input, uint32_t at);
 #define TmtPulseParser_AssertedTarget 6
 #define TmtPulseParser_ArrayTarget 7
 #define TmtPulseParser_AngleTarget 8
+#define TmtPulseParser_ParenAsserted 9
 
 typedef uint8_t TmtPulseParser_assignment_target;
 
@@ -1723,6 +1724,8 @@ TmtPulseParser_assignment_width(
   uint8_t byte,
   uint8_t follower
 );
+
+bool TmtPulseParser_function_like_start(TmtPulseMemory_tape input, uint32_t at);
 
 TmtPulseParser_named_state
 TmtPulseParser_pattern_names(

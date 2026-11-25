@@ -214,7 +214,7 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false) {
     } else if (kind === 21) {
       // A member that is erased whole: an abstract member, an overload signature, a declared field.
       if (current !== null && depth > current.depth) current.erased.push([leftFirst, leftLast]);
-    } else if (kind === 51 || kind === 60) {
+    } else if (kind === 51 || kind === 60 || kind === 64) {
       // A class declaration: at module level, inside a function or a block, or the default export.
       // Decorators in front of it are its own.
       const head = text.slice(leftFirst, leftLast).replace(comments, ' ');
@@ -226,7 +226,7 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false) {
         name = 'default_1';
       }
       if (!plainName.test(name)) return null;
-      open.push({ local: kind === 60, headFirst: leftFirst, headLast: leftLast, nameFirst: rightFirst, nameLast: rightLast, name, depth,
+      open.push({ local: kind !== 51, once: kind === 64, headFirst: leftFirst, headLast: leftLast, nameFirst: rightFirst, nameLast: rightLast, name, depth,
         exported: /^export\b/.test(head), isDefault, decorators: pending, members: [], constructor: [], member: null, erased: [] });
       // A decorator behind `export default` goes with the head when the head is rewritten.
       for (const decorator of pending) if (decorator.first < leftFirst) edits.push([decorator.first, decorator.last, '']);
@@ -319,8 +319,28 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false) {
   return Buffer.concat(parts);
 }
 
+// Whether a bracket that may begin a member holds the name, up to the bracket that closes it. A quotation
+// mark, a backtick or a slash inside could hide a closing bracket, so a key with one counts as holding the name.
+function computedKeyNames(body, gap, reference) {
+  const opening = new RegExp('(?:[{};*]|\\b(?:static|async|get|set|readonly|public|private|protected|override|accessor|declare))' + gap + '\\[', 'g');
+  for (let match; (match = opening.exec(body)) !== null;) {
+    let depth = 1, at = opening.lastIndex;
+    for (; at < body.length && depth !== 0; at++) {
+      const unit = body.charCodeAt(at);
+      if (unit === 91) depth++;
+      else if (unit === 93) depth--;
+      else if (unit === 34 || unit === 39 || unit === 96 || unit === 47) return true;
+    }
+    if (reference.test(body.slice(opening.lastIndex, at))) return true;
+  }
+  return false;
+}
+
 // The statements behind a class: one __decorate call per decorated member, then the class itself.
 function closeClass(found, text, end, context) {
+  // A class that a namespace exports: the namespace takes the class right behind its closing brace, in front
+  // of the statements written here, while TypeScript assigns it behind them.
+  if (found.local && /\bexport\s*(?:abstract\s*)?$/.test(text.slice(Math.max(0, found.headFirst - 40), found.headFirst))) return null;
   const statements = [];
   const seen = new Set();
   const whole = found.decorators.length !== 0 || found.constructor.length !== 0;
@@ -405,13 +425,12 @@ function closeClass(found, text, end, context) {
   // may begin a member is taken for one (a computed key of an object literal in a method is declined with it).
   const unrenamed = found.bodyFirst !== undefined && (new RegExp(reference).test(heritage) ||
     new RegExp('[{,]' + gap + reference + gap + '[,}]').test(text.slice(found.bodyFirst, end)) ||
-    new RegExp('(?:[{};*]|\\b(?:static|async|get|set|readonly|public|private|protected|override|accessor|declare))' + gap +
-      '\\[[^\\]\\n\\r]*' + reference).test(text.slice(found.bodyFirst, end)));
+    computedKeyNames(text.slice(found.bodyFirst, end), gap, new RegExp(reference)));
   // An await belongs to the function around the class when it stands in the heritage clause or in a computed key.
   const awaits = /\b(?:await|yield)\b/;
   const outside = found.bodyFirst !== undefined && (awaits.test(text.slice(found.nameLast, found.bodyFirst)) ||
     found.members.some(member => (member.flags & 32) && awaits.test(member.key)));
-  if (named && (found.local || found.bodyFirst === undefined || text[found.bodyFirst] !== '{' || outside || unrenamed ||
+  if (named && ((found.local && !found.once) || found.bodyFirst === undefined || text[found.bodyFirst] !== '{' || outside || unrenamed ||
       new RegExp('(?<![\\w$])' + escaped + '_1(?![\\w$])').test(text))) return null;
   const list = found.decorators.map(decorator => decorator.expression);
   for (const parameter of found.constructor) {
