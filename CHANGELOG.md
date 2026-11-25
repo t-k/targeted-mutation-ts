@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.2
+
+- Fix Vitest 4.1 `bail: 1` compatibility in `assessTrial`: allow uncollected sibling test modules when `reason` is `'failed'` as well as `'interrupted'`, preventing false `unstable` verdicts on killed static-activation mutants.
+- Add npm, CI, and Apache-2.0 badges plus the "Targeted mutation testing for JavaScript and TypeScript" tagline to `README.md`.
+
 ## 0.2.1
 
 - Populate `tests` on mutants classified as `killed` via `killedBy: "unhandled-error"` in `assessTrial`, ensuring downstream consumers always receive a non-empty `tests` array for killed mutants.
