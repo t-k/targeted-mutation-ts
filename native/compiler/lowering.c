@@ -1542,10 +1542,19 @@ static char *lower_one(uint8_t *source, uint32_t size, bool jsx, bool typescript
 
 #ifndef TMT_DIRECT
 typedef struct {
-  TmtPulseMemory_binding_name bindings[2367];
+  TmtPulseMemory_binding_name bindings[6975];
   TmtGrammar_candidate comparisons[128];
   uint8_t marks[128];
 } module_workspace;
+
+/*
+ * The table of names is large and is not cleared: the parser reads only entries below the counts it keeps.
+ * The marks say which candidates are written and have to start at zero.
+ */
+static void fresh_workspace(module_workspace *memory) {
+  memset(memory->comparisons, 0, sizeof(memory->comparisons));
+  memset(memory->marks, 0, sizeof(memory->marks));
+}
 
 static TmtPulseMemory_tape with_workspace(uint8_t *source, uint32_t size, module_workspace *memory) {
   return (TmtPulseMemory_tape){
@@ -1579,7 +1588,8 @@ static uint32_t find_marker(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
 }
 
 static bool module_after_prelude(uint8_t *source, uint32_t size, uint32_t at, bool first, bool validate) {
-  module_workspace memory = {0};
+  module_workspace memory;
+  fresh_workspace(&memory);
   const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   return (!validate || TmtPulseCompiler_supported_module(input, false)) && (first || find_marker(input, at, false) < input.size);
 }
@@ -2119,7 +2129,7 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     if (event.original == local_enum) facts->local_enums = true;
     if (event.original == export_assignment) facts->export_assigned = true;
     if (event.original == parameter_property) {
-      if (!allow_properties || facts->properties == 512) goto decline;
+      if (!allow_properties || facts->properties == 8192) goto decline;
       facts->properties++;
     }
     const bool member = event.original == erased_list_member || event.original == erased_overload;
@@ -2537,7 +2547,8 @@ static bool read_references(namespace_scope *scope, uint32_t size) {
   if (scope->references_read) return scope->references != NULL;
   scope->references_read = true;
 #ifndef TMT_DIRECT
-  module_workspace *memory = calloc(1, sizeof(*memory));
+  module_workspace *memory = malloc(sizeof(*memory));
+  if (memory) fresh_workspace(memory);
   const uint32_t capacity = size / 2 + 64;
   TmtGrammar_candidate *records = malloc((size_t)capacity * sizeof(*records));
   uint8_t *marks = calloc(capacity, sizeof(*marks));
@@ -3325,7 +3336,10 @@ static bool legacy_record(uint32_t kind) {
 uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all, bool jsx, uint32_t *count) {
   *count = 0;
 #ifdef TMT_V8_VALIDATOR
-  module_workspace memory = {0};
+  module_workspace memory;
+  fresh_workspace(&memory);
+  /* The first region is read whole below, so here it starts empty. */
+  memset(memory.bindings, 0, 2048 * sizeof(*memory.bindings));
   TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   input.capacity = size / 2 + 64;
   TmtGrammar_candidate *records = malloc(input.capacity * sizeof(*records));
@@ -3340,7 +3354,7 @@ uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all,
     const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(input, jsx, true);
     if (parsed.status == 0 && parsed.count <= input.capacity) {
       /* The names bound at module level stand in the first region of the binding table. */
-      const uint32_t region = 512;
+      const uint32_t region = 2048;
       uint32_t kept = 0;
       for (uint32_t index = 0; index < parsed.count; index++) kept += all || legacy_record(records[index].original);
       found = malloc((kept + (all ? region : 0) + 1) * 5 * sizeof(*found));
@@ -3395,7 +3409,8 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   }
   *property = TMT_PARAMETER_NONE;
 #ifdef TMT_V8_VALIDATOR
-  module_workspace memory = {0};
+  module_workspace memory;
+  fresh_workspace(&memory);
   TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok) return NULL;
@@ -3468,14 +3483,16 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
 }
 
 bool tmt_unbound_export(uint8_t *source, uint32_t size) {
-  module_workspace memory = {0};
+  module_workspace memory;
+  fresh_workspace(&memory);
   TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   input.capture_jsx = true;
   return TmtPulseCompiler_unbound_runtime_export(input);
 }
 
 bool tmt_plain_script(uint8_t *source, uint32_t size) {
-  module_workspace memory = {0};
+  module_workspace memory;
+  fresh_workspace(&memory);
   const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   return first.ok && first.at < size && source[first.at] != '"' && source[first.at] != '\'' &&
@@ -3662,7 +3679,8 @@ static bool directives_depend_on_erasure(TmtPulseMemory_tape input, uint32_t fir
 }
 
 static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic, size_t *length, tmt_run_log *runs) {
-  module_workspace memory = {0};
+  module_workspace memory;
+  fresh_workspace(&memory);
   const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok || !TmtPulseCompiler_supported_module(input, jsx)) return NULL;
@@ -3909,7 +3927,8 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
 static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, bool classic, size_t *length, bool *complete,
   tmt_run_log *runs)
 {
-  module_workspace memory = {0};
+  module_workspace memory;
+  fresh_workspace(&memory);
   TmtPulseMemory_tape input = with_workspace(source, size, &memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok) return NULL;

@@ -305,7 +305,7 @@ static void check_assertion_cursors(const char *path)
     assert(size > 0 && (size_t)size < sizeof(source));
     TmtGrammar_candidate output[16];
     uint8_t marks[16] = {0};
-    TmtPulseMemory_binding_name bindings[2367] = {0};
+    TmtPulseMemory_binding_name bindings[6975] = {0};
     TmtPulseMemory_tape input = {
       .source = source, .size = (uint32_t)size, .output = output, .capacity = 16,
       .bindings = bindings, .marks = marks, .capture_types = true,

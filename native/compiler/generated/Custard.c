@@ -1022,7 +1022,7 @@ TmtPulseParser_arrow_token(TmtPulseMemory_tape input, TmtPulseParser_parser_stat
   }
 }
 
-uint32_t TmtPulseMemory_binding_region_width = 512U;
+uint32_t TmtPulseMemory_binding_region_width = 2048U;
 
 TmtPulseMemory_binding_name
 TmtPulseMemory_get_binding(TmtPulseMemory_tape input, uint32_t offset)
@@ -5844,7 +5844,7 @@ TmtPulseParser_record_binding_mode(
 
 uint16_t TmtPulseParser_local_log_capacity = 512U;
 
-uint32_t TmtPulseMemory_local_region_base = 1791U;
+uint32_t TmtPulseMemory_local_region_base = 6399U;
 
 uint32_t TmtPulseParser_local_slot(uint16_t index)
 {
@@ -6871,7 +6871,7 @@ TmtPulseParser_private_identifier(TmtPulseMemory_tape input, uint32_t start)
     return ((TmtPulseParser_cursor){ .at = start, .ok = false, .newline = false });
 }
 
-uint32_t TmtPulseMemory_private_region_base = 1536U;
+uint32_t TmtPulseMemory_private_region_base = 6144U;
 
 uint32_t TmtPulseParser_private_slot(uint8_t index)
 {
@@ -20122,7 +20122,7 @@ TmtPulseParser_hoist_root_vars(
   KRML_HOST_EXIT(255U);
 }
 
-uint32_t TmtPulseMemory_deferred_export_base = 2303U;
+uint32_t TmtPulseMemory_deferred_export_base = 6911U;
 
 uint32_t TmtPulseParser_deferred_export_slot(uint32_t index)
 {
@@ -20214,7 +20214,7 @@ TmtPulseParser_export_string_name(
   KRML_HOST_EXIT(255U);
 }
 
-uint32_t TmtPulseMemory_export_region_base = 1024U;
+uint32_t TmtPulseMemory_export_region_base = 4096U;
 
 TmtPulseParser_named_state
 TmtPulseParser_reserve_export(

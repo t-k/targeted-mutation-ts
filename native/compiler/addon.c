@@ -7,7 +7,7 @@
 #include "source-map.h"
 
 #define NAPI(call) do { if ((call) != napi_ok) goto error; } while (0)
-enum { source_limit = 1048576, binding_capacity = 2367 };
+enum { source_limit = 1048576, binding_capacity = 6975 };
 
 static bool ordered(TmtGrammar_span span, uint32_t size, uint32_t *previous) {
   if (span.first == span.last) return span.last <= size;
@@ -133,7 +133,8 @@ static uint8_t *copy_type_only_trivia(TmtPulseMemory_tape input, bool esm, size_
 }
 
 static uint8_t *type_only_module(uint8_t *source, uint32_t size, bool esm, size_t *length) {
-  TmtPulseMemory_binding_name bindings[binding_capacity] = {0};
+  /* Only entries that the parser has written are read, so the table is not cleared. */
+  TmtPulseMemory_binding_name bindings[binding_capacity];
   TmtGrammar_candidate output;
   uint8_t mark;
   const TmtPulseMemory_tape input = {

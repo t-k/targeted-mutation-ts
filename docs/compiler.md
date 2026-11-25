@@ -913,3 +913,13 @@ A review of the last rounds found two defects, both in checks of the decorator l
 - The second review of that round found a third check of the same kind. The heritage clause of a self-naming class was searched for the class's name after taking out what looked like type arguments, a pair of angle brackets; two comparisons in a callback (`extends pick(() => n < 1 || Job.version > 1)`) look like one, and the name between them was not seen. The parser's records of type arguments, type parameter lists and implements clauses are passed to the lowering, which takes out exactly those.
 
 A corpus variant was added for checks that go by the text: real files with block comments put between tokens at random places (a comment without a line break changes nothing for TypeScript). The native outputs of the 1,241 plain and 1,771 decorated files agree with TypeScript's.
+
+### Large files: the table of names, and three costs that grew with the square of a count
+
+A file with more than 512 top-level names was handed to TypeScript: the parser keeps the names of the module, of the open function and of the exports in regions of a fixed table. On the fourteen code bases that was four files, protocol and schema definitions, but they held 13 percent of the bytes that still took TypeScript's emitter. The regions are now 2,048 names wide. The C code used to clear the whole table for every file. Filled with a fixed pattern instead of zeros, every test passed and 71,090 compiled outputs stayed the same byte for byte: the parser reads only entries below the counts it keeps. The table is no longer cleared, so the larger table costs nothing for a small file; the benchmark rows are one to three percent faster than before. The cap of 512 parameter properties in one file went the same way.
+
+Timing files with many declarations of one kind showed three costs that grew with the square of a count, each from a search that was repeated for every item:
+
+- An enum with values from other names searched the whole source twice for every such member (2,000 members in a 670 KB file: about a second). The result is kept for the last root and for the enum's own name (4.5 ms).
+- A namespace read its whole body once for every variable it exports, and its list of members once for every reference (500 exported constants: 17 ms). The body is read once with the variables in a hash table (1.0 ms).
+- Leading a source map on decoded the source from its start for every decorator (1,000 decorated members: 53 ms). The places are counted on from the piece before (12 ms).

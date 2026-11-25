@@ -42,13 +42,17 @@ type binding_namespace =
 
 type binding_name = { span:G.span; namespace:binding_namespace; owner:U8.t }
 
-let binding_region_width : U32.t = 512ul
-let export_region_base : U32.t = 1024ul
-let private_region_base : U32.t = 1536ul
-let local_region_base : U32.t = 1791ul
-let deferred_export_base : U32.t = 2303ul
+// The regions of the binding table: names of the module, names of the open function, exports (each of the
+// width below), private names (255), the log of local names (512) and deferred exports (64). A file with more
+// top-level names than the width is handed to TypeScript; generated files hold well over a thousand, so the
+// width is 2048. The table is not cleared between files: only entries below a region's count are read.
+let binding_region_width : U32.t = 2048ul
+let export_region_base : U32.t = 4096ul
+let private_region_base : U32.t = 6144ul
+let local_region_base : U32.t = 6399ul
+let deferred_export_base : U32.t = 6911ul
 let deferred_export_limit : U32.t = 64ul
-let binding_capacity : U32.t = 2367ul
+let binding_capacity : U32.t = 6975ul
 
 noeq type tape = {
   source : array U8.t;

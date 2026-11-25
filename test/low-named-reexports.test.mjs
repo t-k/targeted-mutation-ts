@@ -54,9 +54,9 @@ test('the per-list and total re-export limits preserve complete candidates', () 
   // One list may use the whole export table.
   compare(list(64) + 'const ok = a < b;', 'fast');
   compare(list(65) + 'const ok = a < b;', 'fast');
-  compare(list(512) + 'const ok = a < b;', 'fast');
-  compare(list(513) + 'const ok = a < b;', 'fallback');
-  const full = Array.from({ length: 8 }, (_, i) => list(64, i * 64)).join('\n');
+  compare(list(2048) + 'const ok = a < b;', 'fast');
+  compare(list(2049) + 'const ok = a < b;', 'fallback');
+  const full = Array.from({ length: 32 }, (_, i) => list(64, i * 64)).join('\n');
   compare(full + 'const ok = a < b;', 'fast');
-  compare(full + list(1, 512) + 'const ok = a < b;', 'fallback');
+  compare(full + list(1, 2048) + 'const ok = a < b;', 'fallback');
 });

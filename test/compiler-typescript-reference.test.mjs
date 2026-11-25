@@ -2952,3 +2952,25 @@ test('a namespace with many exported variables counts their occurrences in one r
     assert.notEqual(compile(Buffer.from(declined), { file: 'many.ts' }).backend, 'pulse', extra);
   }
 });
+
+test('a file with well over a thousand top-level names is compiled natively', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let|namespace|enum)/g, ''))();
+  const count = 1500;
+  for (const [name, source, expected] of [
+    ['constants', Array.from({ length: count }, (_, i) => `export const v${i}: number = ${i};`).join('\n') + `\nexport const out = v${count - 1} + v0;`, count - 1],
+    ['types and functions', Array.from({ length: 900 }, (_, i) => `export type T${i} = { n: ${i} };\nexport function f${i}(x: T${i}): number { return x.n; }`).join('\n') + '\nexport const out = f7({ n: 7 });', 7],
+    ['enums', Array.from({ length: count }, (_, i) => `export enum E${i} { A = ${i}, B }`).join('\n') + `\nexport const out = E${count - 1}.B;`, count],
+    ['classes with properties', Array.from({ length: count }, (_, i) => `export class C${i} { constructor(public a: number, private b = ${i}) {} }`).join('\n') + '\nexport const out = new C5(1).a;', 1],
+    ['an export list', Array.from({ length: count }, (_, i) => `const w${i}: number = ${i};`).join('\n') + `\nexport { ${Array.from({ length: count }, (_, i) => `w${i}`).join(', ')} };\nexport const out = w3;`, 3],
+  ]) {
+    const result = compile(Buffer.from(source), { file: 'large.ts' });
+    assert.equal(result.backend, 'pulse', name);
+    assert.equal(run(result.code.replace(/export \{[^}]*\};/, '')), expected, name);
+  }
+  // A name declared twice far apart is still found.
+  const twice = Array.from({ length: count }, (_, i) => `export const v${i}: number = ${i};`).join('\n') + '\nexport const v3: number = 0;';
+  assert.notEqual(compile(Buffer.from(twice), { file: 'large.ts' }).backend, 'pulse');
+  // Beyond the table the file is handed to TypeScript.
+  const beyond = Array.from({ length: 2100 }, (_, i) => `export const v${i}: number = ${i};`).join('\n');
+  assert.equal(compile(Buffer.from(beyond), { file: 'large.ts' }).backend, 'typescript');
+});
