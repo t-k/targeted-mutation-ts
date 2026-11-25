@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.2
+
+- Canonicalize Windows 8.3 short paths (such as `RUNNER~1` under `%TEMP%`) with `realpathSync.native` across project roots, temporary workspace copies, probes, and reporters so path comparisons match Vite and Vitest 5's native realpath resolution, and pass workspace-relative slash-normalized test filters to Vitest CLI runs.
+
 ## 0.6.1
 
 - Fix Vitest 4 in-worker session fallback on Windows: resolve legacy `vitest/runners` as a `file://` URL in `src/standard-runner.mjs` so Vitest's Windows `VitestModuleEvaluator.convertIdToImportUrl` does not treat a bare dynamic import specifier as a relative path, and normalize Windows backslashes before calling `vitest.invalidateFile(...)` in warm `--suggest-assertions` sessions.
