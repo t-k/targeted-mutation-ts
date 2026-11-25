@@ -148,8 +148,11 @@ test('a TypeScript file of comments and white space alone is a strict script', (
     assert.equal(result.code, '"use strict";\n' + source);
     assert.deepEqual(compile(Buffer.from(source), { file }), result);
   }
-  // A hashbang, a reference directive, an unterminated comment and a module extension take other routes.
-  for (const [source, file] of [['#!/usr/bin/env node\n// a', 'a.ts'], ['/// <reference path="a" />\n', 'a.ts'], ['/* open', 'a.ts'], ['// a', 'a.mts']]) {
+  // A well-formed reference directive is a comment like any other.
+  assert.deepEqual(compile('/// <reference path="a" />\n', { file: 'a.ts' }),
+    { backend: 'pulse', code: '"use strict";\n/// <reference path="a" />\n', sourceMap: null, diagnostics: [] });
+  // A hashbang, a malformed reference, an unterminated comment and a module extension take other routes.
+  for (const [source, file] of [['#!/usr/bin/env node\n// a', 'a.ts'], ['/// <reference />\n', 'a.ts'], ['/* open', 'a.ts'], ['// a', 'a.mts']]) {
     assert.notEqual(compile(source, { file }).backend, 'pulse', JSON.stringify(source));
   }
 });

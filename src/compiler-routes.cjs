@@ -179,14 +179,16 @@ function hasModuleMarker(addon, code, bytes = Buffer.from(code)) {
     (code.includes('\u2002') && addon.moduleMarker(Buffer.from(code.replaceAll('\u2002', ' ')), false));
 }
 
-function strictScript(source, file) {
+// wellFormedDirectives: the caller has seen that leading triple-slash comments are notes or well-formed
+// references. TypeScript writes the strict directive in front of them as in front of any comment.
+function strictScript(source, file, wellFormedDirectives = false) {
   if (source.includes('<!--') || (source.includes('-->') && /(?:^|\*\/)[^\S\r\n\u2028\u2029]*-->/m.test(source))) return null;
   // The interpreter line ends with its whole line break, so that a carriage return does not stay on it.
   const hashbang = source.startsWith('#!') ? (match => match === null ? source.length : match.index + match[0].length)(/\r\n|[\r\n]/.exec(source)) : 0;
   const trivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[\s\S]*?\*\/)*/y;
   trivia.lastIndex = hashbang;
   trivia.exec(source);
-  if (source.slice(0, trivia.lastIndex).includes('///')) return null;
+  if (!wellFormedDirectives && source.slice(0, trivia.lastIndex).includes('///')) return null;
   const first = source[trivia.lastIndex];
   const directive = /(["'])use strict\1[ \t]*;/y;
   directive.lastIndex = trivia.lastIndex;
@@ -410,7 +412,7 @@ function compile(input, options = {}) {
     const slashes = wellFormed && !skipsDirectAddon && mode !== 'strip' ? native.leadingTripleSlash(source) : 0;
     // A file of comments and white space alone is a script with nothing in it. TypeScript writes the strict
     // directive in front of its text.
-    if (wellFormed && slashes === 0 && typed && mode === 'transform' && format === 'preserve' &&
+    if (wellFormed && slashes !== 2 && typed && mode === 'transform' && format === 'preserve' &&
         source[0] !== 0x23 && source[0] !== 0xef && source.length <= 1048576 && loadModuleAddon()?.triviaOnly?.(source) === true) {
       return { backend: 'pulse', code: '"use strict";\n' + source.toString(), sourceMap: null, diagnostics: [] };
     }
@@ -443,8 +445,8 @@ function compile(input, options = {}) {
           if (typeof annotated === 'string') {
             return { backend: 'pulse', code: annotated, sourceMap: null, diagnostics: [] };
           }
-          if (!directive && typeof annotated?.script === 'string') {
-            const code = strictScript(annotated.script, file);
+          if (typeof annotated?.script === 'string') {
+            const code = strictScript(annotated.script, file, directive);
             if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
           }
           if (!directive && annotated?.reference === true) {

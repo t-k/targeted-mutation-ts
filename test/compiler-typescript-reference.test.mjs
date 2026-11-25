@@ -1663,3 +1663,21 @@ test('a namespace body is a function body for var, and published scripts take cl
     assert.notEqual(compile(Buffer.from(source), { file: 'space.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a script behind well-formed triple-slash comments is published natively', () => {
+  for (const source of [
+    '/// <reference path="x.ts"/>\nvar x: number = 1;',
+    '// c\n/// <reference types="node"/>\n/* d */\nvar x: number = 1;',
+    '/// plain triple\nvar x: number = 1;',
+    '#!/usr/bin/env node\n/// <reference path="x.ts"/>\nvar x: number = 1;',
+    '/// <reference path="x.ts"/>\nenum E { A }',
+  ]) {
+    const result = sameAsTypeScript(source, 'script.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.match(result.code, /^(?:#![^\n]*\n)?"use strict";\n/, source);
+  }
+  // A malformed reference is reported by TypeScript, and the module-format directives keep its route.
+  for (const source of ['/// <reference />\nvar x: number = 1;', '/// <amd-module name="a"/>\nvar x: number = 1;']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'script.ts' }).backend, 'pulse', source);
+  }
+});
