@@ -1705,3 +1705,33 @@ test('a line or paragraph separator ends the interpreter line as well', () => {
     assert.equal(compile(`#!/usr/bin/env node${separator}a=1;`, { file: 'bin.ts' }).code, '#!/usr/bin/env node\n"use strict";\na=1;');
   }
 });
+
+test('declared namespaces and modules may hold declarations of values', () => {
+  for (const source of [
+    'declare namespace N { var x: number; }\nexport {};',
+    'declare namespace N { export var x: number, y: string; let z; const c: 1; }\nexport {};',
+    'declare namespace N { function f(): void; function f(x: number): string; export function g<T>(a: T): T; }\nexport {};',
+    'declare namespace N { class C { m(): void; static s: number; constructor(x: number); } abstract class D extends C {} }\nexport {};',
+    'declare namespace N { enum E { A, B = 2 } const enum F { X } }\nexport {};',
+    'declare namespace N { namespace M { var a: number; } export module K { interface I {} } }\nexport {};',
+    'declare module "m" { class C {} export function f(): void; export const v: number; }\nexport {};',
+    'declare namespace N { function f(): void; }\nfunction f() {}\nexport { f };',
+    'declare namespace N { var x: number; }\nconst a = 1;',
+  ]) {
+    const result = sameAsTypeScript(source, 'ambient.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.doesNotMatch(result.code, /\bN\b|"m"/, source);
+  }
+  // A value, a body or a statement has no place in a declaration, and a declared name is no binding to export.
+  for (const source of [
+    'declare namespace N { var x = 1; }\nexport {};',
+    'declare namespace N { function f() {} }\nexport {};',
+    'declare namespace N { class C { m() {} } }\nexport {};',
+    'declare namespace N { x = 1; }\nexport {};',
+    'declare namespace N { let [a]: number[]; }\nexport {};',
+    'declare namespace N { var x: number; }\nexport { x };',
+    'namespace N { var x: number; function f(): void; }\nexport {};',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'ambient.ts' }).backend, 'pulse', source);
+  }
+});

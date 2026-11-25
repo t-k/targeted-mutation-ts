@@ -2600,6 +2600,30 @@ TmtPulseParser_module_lexical_list(
   uint32_t angled0
 );
 
+TmtPulseParser_parser_state
+TmtPulseParser_ambient_value_names(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t remaining0
+);
+
+TmtPulseParser_named_state
+TmtPulseParser_module_function(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t used,
+  uint32_t declaration_start,
+  bool async_,
+  bool ambient
+);
+
+TmtPulseParser_parser_state
+TmtPulseParser_ambient_value_member(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state member,
+  uint32_t locals
+);
+
 TmtPulseParser_named_state
 TmtPulseParser_ambient_namespace_exports(
   TmtPulseMemory_tape input0,
@@ -2669,16 +2693,6 @@ TmtPulseParser_runtime_namespace(
   uint32_t declaration_start,
   uint32_t name_start,
   TmtPulseParser_parser_state body_start
-);
-
-TmtPulseParser_named_state
-TmtPulseParser_module_function(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t used,
-  uint32_t declaration_start,
-  bool async_,
-  bool ambient
 );
 
 TmtPulseParser_named_state

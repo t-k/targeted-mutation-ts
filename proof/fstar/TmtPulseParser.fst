@@ -5102,6 +5102,62 @@ let rec ambient_namespace_exports (input:tape) (state:parser_state) (floor used 
         let! closed = (fun () -> consume input tail 125uy) in
         ret input { named with state = closed }
 
+// The names of `var a: T, b;` inside a declared namespace: no initializers, and nothing is bound, since the
+// whole namespace is erased.
+let rec ambient_value_names (input:tape) (state:parser_state) (remaining:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
+  let! named = (fun () -> name input state.offset false true) in
+  if not named.ok then ret input (failed state 1ul)
+  else
+    let declared = from_cursor state named in
+    let! st = (fun () -> skip input declared) in
+    let! colon = (fun () -> same input st.offset 58uy) in
+    let! annotation = (fun () -> if colon then
+        (let! opened = (fun () -> consume input st 58uy) in annotation_type input opened 16ul 64ul)
+      else ret input declared) in
+    let! tail = (fun () -> skip input annotation) in
+    let! comma = (fun () -> same input tail.offset 44uy) in
+    if tail.status <> 0ul || not comma then ret input annotation
+    else if remaining = 0ul then ret input (failed tail 3ul)
+    else
+      let! following = (fun () -> skip input { tail with offset = next tail.offset }) in
+      ambient_value_names input following (minus remaining 1ul)
+
+// A member of a declared namespace or module that would be a value outside it: a variable without an
+// initializer, a function signature, a class, an enum. It is erased with the namespace, so the records made
+// while reading it are dropped. `locals` counts the module's names; a function signature is checked against
+// them like a declared function of the module, and nothing stays bound.
+let ambient_value_member (input:tape) (member:parser_state) (locals:names_used)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
+  let! first = (fun () -> peek input member.offset) in
+  let! width = (fun () -> local_width input member.offset) in
+  let! var_ = (fun () -> if first = 118uy then keyword input member.offset 3ul 0x766172uL else ret input false) in
+  let! function_ = (fun () -> if first = 102uy then keyword input member.offset 8ul 0x66756e6374696f6euL else ret input false) in
+  let! class_ = (fun () -> class_keyword input member.offset) in
+  let! abstract_ = (fun () -> abstract_class_start input member.offset) in
+  let! enumeration = (fun () -> local_enum_start input member.offset) in
+  let! parsed = (fun () -> if enumeration.ok then
+      let! named = (fun () -> skip input { member with offset = plus enumeration.at 4ul }) in
+      let! name_end = (fun () -> name input named.offset false true) in
+      let! opening = (fun () -> (let! body = (fun () -> skip input (from_cursor named name_end)) in consume input body 123uy)) in
+      enum_body_tokens input opening input.size
+    else if width <> 0ul || var_ then
+      let! start = (fun () -> skip input { member with offset = plus member.offset (if var_ then 3ul else width) }) in
+      let! all = (fun () -> ambient_value_names input start 64ul) in
+      statement_end input all all.offset false
+    else if function_ then
+      let! start = (fun () -> skip input { member with offset = plus member.offset 8ul }) in
+      let! declared = (fun () -> module_function input start locals member.offset false true) in
+      ret input declared.state
+    else if class_ || abstract_.ok then
+      let at = if class_ then member.offset else abstract_.at in
+      let! named = (fun () -> skip input { member with offset = plus at 5ul }) in
+      let! name_end = (fun () -> name input named.offset false true) in
+      let! st = (fun () -> skip input (from_cursor named name_end)) in
+      class_tail input st 64ul AmbientClass
+    else ret input (failed member 1ul)) in
+  ret input { parsed with count = member.count }
+
 let rec type_namespace_members (input:tape) (state:parser_state) (floor used locals:names_used) (depth remaining:U32.t) (ambient:bool)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v depth; U32.v remaining]) =
   let! st = (fun () -> skip input state) in
@@ -5121,12 +5177,17 @@ let rec type_namespace_members (input:tape) (state:parser_state) (floor used loc
     let! width = (fun () -> type_declaration_width input member.offset) in
     if width = 0ul then
       let! export_list = (fun () -> if ambient && exported then same input member.offset 123uy else ret input false) in
-      if export_list then
+      let! value = (fun () -> if ambient && not export_list && input.capture_types then ambient_value_member input member locals
+        else ret input (failed member 1ul)) in
+      if value.status = 0ul then
+        type_namespace_members input value floor used locals depth (minus remaining 1ul) ambient
+      else if export_list then
         let! opening = (fun () -> consume input member 123uy) in
         let! members = (fun () -> ambient_namespace_exports input opening floor used locals 64ul) in
         let! end_ = (fun () -> statement_end input members.state members.state.offset true) in
         type_namespace_members input end_ floor members.used locals depth (minus remaining 1ul) ambient
-      else if not exported || depth = 0ul || byte <> 101uy then ret input (failed member 1ul)
+      // Inside a declared namespace a nested one needs no export.
+      else if (not exported && not ambient) || depth = 0ul || (byte <> 101uy && not ambient) then ret input (failed member 1ul)
       else
         let! namespace_ = (fun () -> named_namespace_start input member) in
         if namespace_.body_start.status <> 0ul then ret input (failed member 1ul)
