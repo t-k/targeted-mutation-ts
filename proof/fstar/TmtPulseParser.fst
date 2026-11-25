@@ -5318,54 +5318,6 @@ let ambient_value_member (input:tape) (member:parser_state) (locals:names_used)
     else ret input (failed member 1ul)) in
   ret input { parsed with count = member.count }
 
-let rec type_namespace_members (input:tape) (state:parser_state) (floor used locals:names_used) (depth remaining:U32.t) (ambient:bool)
-  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v depth; U32.v remaining]) =
-  let! st = (fun () -> skip input state) in
-  let! byte = (fun () -> peek input st.offset) in
-  if st.status <> 0ul then ret input st
-  else if byte = 125uy then consume input st 125uy
-  else if remaining = 0ul then ret input (failed st 1ul)
-  else if byte = 59uy then
-    // A standalone empty statement instantiates a nonambient namespace.
-    if not ambient then ret input (failed st 1ul)
-    else
-      let! next_member = (fun () -> consume input st 59uy) in
-      type_namespace_members input next_member floor used locals depth (minus remaining 1ul) ambient
-  else
-    let! exported = (fun () -> keyword input st.offset 6ul 0x6578706f7274uL) in
-    let! member = (fun () -> if exported then skip input { st with offset = plus st.offset 6ul } else ret input st) in
-    let! width = (fun () -> type_declaration_width input member.offset) in
-    if width = 0ul then
-      let! export_list = (fun () -> if ambient && exported then same input member.offset 123uy else ret input false) in
-      let! value = (fun () -> if ambient && not export_list && input.capture_types then ambient_value_member input member locals
-        else ret input (failed member 1ul)) in
-      if value.status = 0ul then
-        type_namespace_members input value floor used locals depth (minus remaining 1ul) ambient
-      else if export_list then
-        let! opening = (fun () -> consume input member 123uy) in
-        let! members = (fun () -> ambient_namespace_exports input opening floor used locals 64ul) in
-        let! end_ = (fun () -> statement_end input members.state members.state.offset true) in
-        type_namespace_members input end_ floor members.used locals depth (minus remaining 1ul) ambient
-      // Inside a declared namespace a nested one needs no export.
-      else if (not exported && not ambient) || depth = 0ul || (byte <> 101uy && not ambient) then ret input (failed member 1ul)
-      else
-        let! namespace_ = (fun () -> named_namespace_start input member) in
-        if namespace_.body_start.status <> 0ul then ret input (failed member 1ul)
-        else
-          let! named = (fun () -> bind_in_namespace input member binding_region_width floor used namespace_.name_start TypeNamespace) in
-          if named.state.status <> 0ul then ret input named.state
-          else
-            let! body = (fun () -> type_namespace_members input namespace_.body_start named.used named.used locals (minus depth 1ul) remaining ambient) in
-            type_namespace_members input body floor named.used locals depth (minus remaining 1ul) ambient
-    else
-      let! start = (fun () -> skip input { member with offset = plus member.offset width }) in
-      let! named = (fun () -> bind_in_namespace input start binding_region_width floor used start.offset TypeName) in
-      let! valid = (fun () -> admissible_type_binding input start.offset named.state.offset) in
-      let! body = (fun () -> if not valid then ret input (failed named.state 1ul)
-        else if width = 9ul then interface_tail input named.state
-        else type_alias_tail input named.state true) in
-      type_namespace_members input body floor named.used locals depth (minus remaining 1ul) ambient
-
 // `import B = A.x` in the body of a namespace, from the place behind the name: the equals sign, the entity
 // name, and the end of the statement. TypeScript writes `var B = A.x;`, and `N.B = A.x;` for an exported alias.
 // A call of require is no entity name. The statement ends at a semicolon, at the closing brace, or at a line
@@ -5392,6 +5344,62 @@ let namespace_alias_tail (input:tape) (state:parser_state)
       else if gap.ok && (following = 125uy || (gap.newline && (imported || exported || (G.identifier_start following && following <> 105uy)))) then
         ret input target
       else ret input (failed target 1ul)
+
+let rec type_namespace_members (input:tape) (state:parser_state) (floor used locals:names_used) (depth remaining:U32.t) (ambient:bool)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v depth; U32.v remaining]) =
+  let! st = (fun () -> skip input state) in
+  let! byte = (fun () -> peek input st.offset) in
+  if st.status <> 0ul then ret input st
+  else if byte = 125uy then consume input st 125uy
+  else if remaining = 0ul then ret input (failed st 1ul)
+  else if byte = 59uy then
+    // A standalone empty statement instantiates a nonambient namespace.
+    if not ambient then ret input (failed st 1ul)
+    else
+      let! next_member = (fun () -> consume input st 59uy) in
+      type_namespace_members input next_member floor used locals depth (minus remaining 1ul) ambient
+  else
+    let! exported = (fun () -> keyword input st.offset 6ul 0x6578706f7274uL) in
+    let! member = (fun () -> if exported then skip input { st with offset = plus st.offset 6ul } else ret input st) in
+    let! width = (fun () -> type_declaration_width input member.offset) in
+    if width = 0ul then
+      let! export_list = (fun () -> if ambient && exported then same input member.offset 123uy else ret input false) in
+      let! value = (fun () -> if ambient && not export_list && input.capture_types then ambient_value_member input member locals
+        else ret input (failed member 1ul)) in
+      let! alias = (fun () -> if not exported && not ambient && input.capture_types && byte = 105uy then
+        keyword input member.offset 6ul 0x696d706f7274uL else ret input false) in
+      if value.status = 0ul then
+        type_namespace_members input value floor used locals depth (minus remaining 1ul) ambient
+      else if export_list then
+        let! opening = (fun () -> consume input member 123uy) in
+        let! members = (fun () -> ambient_namespace_exports input opening floor used locals 64ul) in
+        let! end_ = (fun () -> statement_end input members.state members.state.offset true) in
+        type_namespace_members input end_ floor members.used locals depth (minus remaining 1ul) ambient
+      else if alias then
+        // An alias that is not exported does not make the namespace exist, and nothing is written for it.
+        let! start = (fun () -> skip input { member with offset = plus member.offset 6ul }) in
+        let! named = (fun () -> bind_in_namespace input start binding_region_width floor used start.offset BothNames) in
+        let! ended = (fun () -> namespace_alias_tail input named.state) in
+        type_namespace_members input ended floor named.used locals depth (minus remaining 1ul) ambient
+      // A namespace inside needs no export: one that holds types alone is erased with the one around it.
+      else if depth = 0ul then ret input (failed member 1ul)
+      else
+        let! namespace_ = (fun () -> named_namespace_start input member) in
+        if namespace_.body_start.status <> 0ul then ret input (failed member 1ul)
+        else
+          let! named = (fun () -> bind_in_namespace input member binding_region_width floor used namespace_.name_start TypeNamespace) in
+          if named.state.status <> 0ul then ret input named.state
+          else
+            let! body = (fun () -> type_namespace_members input namespace_.body_start named.used named.used locals (minus depth 1ul) remaining ambient) in
+            type_namespace_members input body floor named.used locals depth (minus remaining 1ul) ambient
+    else
+      let! start = (fun () -> skip input { member with offset = plus member.offset width }) in
+      let! named = (fun () -> bind_in_namespace input start binding_region_width floor used start.offset TypeName) in
+      let! valid = (fun () -> admissible_type_binding input start.offset named.state.offset) in
+      let! body = (fun () -> if not valid then ret input (failed named.state 1ul)
+        else if width = 9ul then interface_tail input named.state
+        else type_alias_tail input named.state true) in
+      type_namespace_members input body floor named.used locals depth (minus remaining 1ul) ambient
 
 // The members of a namespace that exists at run time. TypeScript lowers it to a function that fills an object:
 // `export const a = 1` becomes `N.a = 1`, and an exported function or class is followed by `N.f = f`.

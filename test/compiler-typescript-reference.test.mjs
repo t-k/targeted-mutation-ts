@@ -2197,3 +2197,27 @@ test('a namespace and parameter properties are lowered in one pass', () => {
   // A parameter that bears the name of an exported variable hides it.
   assert.notEqual(sameAsTypeScript('namespace N { export var x = 1; export class C { constructor(public x: number) {} } }\nexport { N };', 'properties.ts').backend, 'pulse');
 });
+
+test('a namespace that holds only aliases, types and such namespaces is erased', () => {
+  for (const source of [
+    'module B { import Y = A; }\nexport const v = 1;',
+    'module Foo2 { module Bar { } }\nexport const v = 1;',
+    'namespace T { namespace w { interface I {} } type X = w.I; }\nexport const v = 1;',
+    'namespace A.M { import M = Z.M; import N = M.q }\nexport const v = 1;',
+    'namespace N { import B = A.x; export interface I { b: B } }\nexport const v: N.I = null as any;',
+    'module Outer { module Inner { import X = Y.Z; } export type T = 1; }\nvar o: Outer.T = 1;',
+  ]) {
+    const result = sameAsTypeScript(source, 'erased.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.doesNotMatch(result.code, /function|var Y|var B|var M/, source);
+  }
+  // An exported alias, a value beside the alias, and a statement in a namespace inside make it exist.
+  for (const source of [
+    'namespace M { export import B = A.x; }\nexport { M };',
+    'declare const A: any;\nnamespace M { import B = A.x; export const z = B; }\nexport { M };',
+    'namespace Outer { namespace Inner { export const v = 1; } }\nexport { Outer };',
+  ]) {
+    const result = sameAsTypeScript(source, 'erased.ts');
+    assert.match(result.code, /function/, source);
+  }
+});

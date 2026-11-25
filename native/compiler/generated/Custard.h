@@ -2669,6 +2669,12 @@ TmtPulseParser_ambient_namespace_exports(
 );
 
 TmtPulseParser_parser_state
+TmtPulseParser_namespace_alias_tail(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
+TmtPulseParser_parser_state
 TmtPulseParser_type_namespace_members(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
@@ -2716,12 +2722,6 @@ TmtPulseParser_name_merges(
   uint32_t used0,
   uint32_t pos0,
   uint32_t len0
-);
-
-TmtPulseParser_parser_state
-TmtPulseParser_namespace_alias_tail(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state
 );
 
 TmtPulseParser_parser_state
