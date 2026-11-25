@@ -2589,3 +2589,33 @@ test('the overloads of a function that a namespace exports are erased with their
     assert.notEqual(compile(Buffer.from(source), { file: 'overloads.ts' }).backend, 'pulse', source);
   }
 });
+
+test('an assertion without parentheses is no assignment target on any route', () => {
+  for (const operator of ['=', '+=', '-=', '^=', '&&=', '||=', '??=']) {
+    for (const word of ['as', 'satisfies']) {
+      const source = `let t: any;\nt ${word} any ${operator} 1;\nexport {};`;
+      const result = compile(Buffer.from(source), { file: 'target.ts' });
+      assert.notEqual(result.diagnostics.length, 0, source);
+      assert.notEqual(result.backend, 'node-strip', source);
+      const expected = ts.transpileModule(source, { fileName: 'target.ts', reportDiagnostics: true, compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true } });
+      assert.equal(result.diagnostics.length, expected.diagnostics.length, source);
+    }
+  }
+  // Comparisons and other operators behind an assertion are no assignment.
+  for (const source of ['let t: any, x;\nx = t as any == 1;\nx = t as any === 1;\nx = t as any ?? 1;\nx = t as any || 2;\nexport {};']) {
+    const result = sameAsTypeScript(source, 'target.ts');
+    assert.equal(result.diagnostics.length, 0, source);
+  }
+});
+
+test('an angle-bracket assertion in parentheses is an assignment target', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return'))();
+  const source = 'let t: unknown = 1, o: any = { x: 1 }, n: any = 1;\n(<any>t) = 2;\n(<any>o.x) = 3;\n(<number>n) += 4;\n(<number>n)++;\nexport const out = JSON.stringify([t, o, n]);';
+  const result = sameAsTypeScript(source, 'angle.ts');
+  assert.equal(result.backend, 'pulse');
+  assert.equal(run(result.code), '[2,{"x":3},6]');
+  // Without parentheses, and on what is no target, TypeScript reports it.
+  for (const bad of ['let t: any;\n<any>t = 1;\nexport {};', 'declare function f(): any;\n(<any>f()) = 1;\nexport {};']) {
+    assert.notEqual(compile(Buffer.from(bad), { file: 'angle.ts' }).backend, 'pulse', bad);
+  }
+});

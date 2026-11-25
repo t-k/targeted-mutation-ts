@@ -6694,6 +6694,11 @@ TmtPulseParser_angle_assertion_head(TmtPulseMemory_tape input, TmtPulseParser_pa
     return TmtPulseParser_record_jsx_span(input, value2, 31U, start_pos, value2.offset);
 }
 
+bool TmtPulseParser_can_assign_expression(TmtPulseParser_assignment_target target)
+{
+  return TmtPulseParser_can_assign(target) || target == TmtPulseParser_AssertedTarget;
+}
+
 TmtPulseParser_parser_state
 TmtPulseParser_expression_type_arguments(
   TmtPulseMemory_tape input,
@@ -6817,11 +6822,6 @@ TmtPulseParser_postfix_start(TmtPulseMemory_tape input, TmtPulseParser_parsed ba
         .non_null = value60
       }
     );
-}
-
-bool TmtPulseParser_can_assign_expression(TmtPulseParser_assignment_target target)
-{
-  return TmtPulseParser_can_assign(target) || target == TmtPulseParser_AssertedTarget;
 }
 
 TmtPulseParser_parser_state
@@ -13686,6 +13686,12 @@ TmtPulseParser_atom(
           )
             return TmtPulseParser_empty_range(TmtPulseParser_failed(value4.parser, 1U));
           else
+          {
+            TmtPulseParser_assignment_target ite;
+            if (asserted && TmtPulseParser_can_assign_expression(value4.target))
+              ite = TmtPulseParser_AngleTarget;
+            else
+              ite = TmtPulseParser_NotAssignable;
             return
               (
                 (TmtPulseParser_parsed){
@@ -13695,9 +13701,10 @@ TmtPulseParser_atom(
                   .outer_or = value4.outer_or,
                   .right_shift = value4.right_shift,
                   .shortcut = value4.shortcut,
-                  .target = TmtPulseParser_NotAssignable
+                  .target = ite
                 }
               );
+          }
         }
       }
       else if (function_head.ok)
@@ -14583,8 +14590,11 @@ TmtPulseParser_atom(
               .local_log_floor = value90.local_log_floor, .local_log_used = value90.local_log_used
             };
           TmtPulseParser_assignment_target target;
-          if
-          (value50.status != 0U && !value8 && TmtPulseParser_can_assign_expression(value6.target))
+          if (value50.status == 0U || value8)
+            target = TmtPulseParser_NotAssignable;
+          else if (value6.target == TmtPulseParser_AngleTarget)
+            target = TmtPulseParser_AssertedTarget;
+          else if (TmtPulseParser_can_assign_expression(value6.target))
             target = value6.target;
           else
             target = TmtPulseParser_NotAssignable;

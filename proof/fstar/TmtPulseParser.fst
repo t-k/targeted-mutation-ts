@@ -215,6 +215,8 @@ type assignment_target =
   | OptionalChain
   | AssertedTarget
   | ArrayTarget
+  // An operand under an angle-bracket assertion: a target once parentheses stand around it.
+  | AngleTarget
 
 type jump_context =
   | NoJump
@@ -2897,7 +2899,9 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
         ret input (if (increment <> 0ul && not (can_assign child.target)) ||
            (deleting && child.target <> MemberTarget && child.target <> OptionalChain) then
           empty_range (failed child.parser 1ul)
-        else { child with range = { child.range with G.first = start_pos }; target = NotAssignable })
+        // (<T>name) = value: an asserted operand stays a target inside parentheses, as with `as`.
+        else { child with range = { child.range with G.first = start_pos };
+          target = if asserted && can_assign_expression child.target then AngleTarget else NotAssignable })
     else if function_head.ok then
       let! closed = (fun () -> function_expression input st fuel function_head.at) in
       postfix input { parser = closed; range = { G.first = start_pos; G.last = closed.offset };
@@ -3077,7 +3081,9 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
           else if inner.open_angle then ret input (failed consumed 1ul)
           else (let! anf_value_12 = (fun () -> (consume input consumed 44uy)) in grouped_tail input anf_value_12 (minus fuel 1ul) input.size)) in
         let done_ = { done_ with in_allowed = st.in_allowed } in
-        let target = if assignment.status <> 0ul && not comma && can_assign_expression inner.target then inner.target else NotAssignable in
+        let target = if assignment.status = 0ul || comma then NotAssignable
+          else if inner.target = AngleTarget then AssertedTarget
+          else if can_assign_expression inner.target then inner.target else NotAssignable in
         postfix input { parser = done_; range = { G.first = start_pos; G.last = done_.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target }
           fuel input.size
     else if G.decimal_digit ch || ch = 46uy then

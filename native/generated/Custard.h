@@ -391,6 +391,7 @@ bool TmtPulseParser_spread_at(TmtPulseMemory_tape input, uint32_t at);
 #define TmtPulseParser_OptionalChain 5
 #define TmtPulseParser_AssertedTarget 6
 #define TmtPulseParser_ArrayTarget 7
+#define TmtPulseParser_AngleTarget 8
 
 typedef uint8_t TmtPulseParser_assignment_target;
 
@@ -1248,6 +1249,8 @@ TmtPulseParser_read_atom_head(TmtPulseMemory_tape input, TmtPulseParser_parser_s
 TmtPulseParser_parser_state
 TmtPulseParser_angle_assertion_head(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
 
+bool TmtPulseParser_can_assign_expression(TmtPulseParser_assignment_target target);
+
 typedef struct TmtPulseParser_postfix_head_s
 {
   TmtPulseParser_parser_state after_trivia;
@@ -1291,8 +1294,6 @@ TmtPulseParser_read_generic_postfix(
 
 TmtPulseParser_postfix_head
 TmtPulseParser_postfix_start(TmtPulseMemory_tape input, TmtPulseParser_parsed base);
-
-bool TmtPulseParser_can_assign_expression(TmtPulseParser_assignment_target target);
 
 TmtPulseParser_parser_state
 TmtPulseParser_call_type_arguments(

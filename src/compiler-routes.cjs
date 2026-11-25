@@ -105,6 +105,9 @@ function regroupingAssertion(source, code) {
       if (operand.includes('<<') || operand.includes('>>')) return true;
     }
     if ((unit === 60 || unit === 62) && following === unit) return true;
+    // An assertion without parentheses is no assignment target: TypeScript ends the statement in front of the
+    // operator and reports it, while the erased text would assign.
+    if (/^(?:=(?![=>])|(?:[-+^]|&&|\|\||\?\?)=(?!=))/.test(code.slice(next.at, next.at + 4))) return true;
   }
   return false;
 }
