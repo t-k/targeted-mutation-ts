@@ -42,7 +42,7 @@ test('argumentless construction leaves optional and other ambiguous continuation
   compare('const value = (new C) < limit;', true);
   // A parenthesized operand ends at its closing parenthesis.
   compare('const value = new (C);', true);
-  compare('const value = [x < new (a.b), y > 1];', true);
+  compare('const value = f(new (a.b), x < 1);', true);
   compare('const value = new C[flag > limit];', true);
   compare('const value = new C\n(1 < limit);', true);
 });
