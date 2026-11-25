@@ -13308,7 +13308,22 @@ TmtPulseParser_object_member(
     else if (assigning)
     {
       TmtPulseParser_parser_state value9 = TmtPulseParser_consume(input, value7, 58U);
-      value90 = TmtPulseParser_comparison(input, value9, fuel);
+      uint8_t value10;
+      if (input.capture_types && value9.status == 0U)
+        value10 = TmtPulseMemory_peek(input, value9.offset);
+      else
+        value10 = 0U;
+      uint8_t value11;
+      if (value10 == 32U)
+        value11 = TmtPulseMemory_peek(input, TmtPulseParser_next(value9.offset));
+      else
+        value11 = value10;
+      TmtPulseParser_parser_state value12;
+      if (value11 == 60U && !value9.jsx_allowed)
+        value12 = TmtPulseParser_record_jsx_span(input, value9, 63U, value7.offset, value9.offset);
+      else
+        value12 = value9;
+      value90 = TmtPulseParser_comparison(input, value12, fuel);
     }
     else
     {
@@ -15556,10 +15571,33 @@ TmtPulseParser_class_members(
                     value160 = TmtPulseParser_failed(value16.after_function, 1U);
                 }
               }
+              else if (value70.ok && value140.status == 0U)
+              {
+                if (fuel == 0U || value90.readonly_ || value70.newline || accessor)
+                  value160 = TmtPulseParser_failed(value10, 1U);
+                else
+                {
+                  TmtPulseParser_function_shape
+                  value16 =
+                    TmtPulseParser_function_form(input,
+                      value140,
+                      TmtPulseParser_minus(fuel, 1U),
+                      false,
+                      TmtPulseParser_MethodSuper,
+                      true,
+                      value90.arity,
+                      false,
+                      false);
+                  if (value16.signature_only)
+                    value160 = value16.after_function;
+                  else
+                    value160 = TmtPulseParser_failed(value16.after_function, 1U);
+                }
+              }
               else
               {
                 bool value16;
-                if (kind == TmtPulseParser_AmbientClass)
+                if (kind == TmtPulseParser_AmbientClass || value70.ok)
                   value16 = TmtPulseParser_same(input, value10.offset, 63U);
                 else
                   value16 = false;

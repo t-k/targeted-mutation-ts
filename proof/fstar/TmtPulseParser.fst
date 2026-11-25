@@ -3595,7 +3595,16 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required se
     let! value = (fun () ->
       if after_key.status <> 0ul then ret input (empty_range after_key)
       else if prototype_setter && seen_prototype then ret input (empty_range (failed st 1ul))
-      else if assigning then (let! anf_value_2 = (fun () -> consume input after_key 58uy) in comparison input anf_value_2 fuel)
+      else if assigning then
+        let! anf_value_2 = (fun () -> consume input after_key 58uy) in
+        // Kind 63 marks the colon of a property whose value begins with an angle-bracket assertion: erasing
+        // the assertion in front of a brace there leaves an object literal, not a block.
+        let! direct = (fun () -> if input.capture_types && anf_value_2.status = 0ul then peek input anf_value_2.offset else ret input 0uy) in
+        let! spaced = (fun () -> if direct = 32uy then peek input (next anf_value_2.offset) else ret input direct) in
+        let! marked = (fun () -> if spaced = 60uy && not anf_value_2.jsx_allowed then
+            record_jsx_span input anf_value_2 63ul after_key.offset anf_value_2.offset
+          else ret input anf_value_2) in
+        comparison input marked fuel
       else
         let! next_token = (fun () -> peek input after_key.offset) in
         if not colon_required && (next_token = 40uy || next_token = 60uy) then
@@ -4629,9 +4638,15 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
               // A declared class may declare a getter: get name(): T;
               let! result = (fun () -> function_form input tail (minus fuel 1ul) false mode true key.arity false false) in
               ret input (if result.signature_only then result.after_function else failed result.after_function 1ul)
+          else if member_head.ok && optional_method.status = 0ul then
+            // abstract name?(): T; The whole member is erased, its question mark with it.
+            if fuel = 0ul || key.readonly_ || member_head.newline || accessor then ret input (failed tail 1ul)
+            else
+              let! result = (fun () -> function_form input optional_method (minus fuel 1ul) false MethodSuper true key.arity false false) in
+              ret input (if result.signature_only then result.after_function else failed result.after_function 1ul)
           else
-            // A declared class may mark a property optional.
-            let! optional = (fun () -> if kind = AmbientClass then same input tail.offset 63uy else ret input false) in
+            // A declared class, and an abstract member, may mark a property optional.
+            let! optional = (fun () -> if kind = AmbientClass || member_head.ok then same input tail.offset 63uy else ret input false) in
             let! tail = (fun () -> if optional then (let! mark = (fun () -> consume input tail 63uy) in skip input mark) else ret input tail) in
             let! annotation = (fun () -> consume input tail 58uy) in
             let! typed = (fun () -> annotation_type input annotation 16ul 64ul) in

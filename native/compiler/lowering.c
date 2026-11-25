@@ -2108,7 +2108,10 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     const bool local_type = event.original == erased_local_type;
     const bool field = event.original == terminated_class_field;
     const bool prefix = event.original == prefix_assertion;
-    if (prefix && assertion_exposes_statement(input, event.left)) goto decline;
+    /* Behind the colon of a property (kind 63, recorded by the parser) an assertion begins a value. */
+    const bool property_value = prefix && index > 0 && input.output[index - 1].original == 63 &&
+      input.output[index - 1].left.last <= event.left.first && event.left.first - input.output[index - 1].left.last <= 1;
+    if (prefix && !property_value && assertion_exposes_statement(input, event.left)) goto decline;
     if (!member && !modifiers && !arrow && !result && !heritage && !local_type && !field && !prefix &&
         (event.original < type_annotation || event.original > type_marker)) continue;
     const TmtGrammar_span span = event.left;

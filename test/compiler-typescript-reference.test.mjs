@@ -2748,3 +2748,24 @@ test('a type-only import alias is erased', () => {
   // The alias alone leaves a file that TypeScript writes as a script; whichever route answers, the text is TypeScript's.
   sameAsTypeScript('import type T = require("m");\nconst x: T = 1;', 'typed.ts');
 });
+
+test('an abstract member may be optional, and an angle assertion may begin the value of a property', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return'))();
+  for (const source of [
+    'export abstract class Driver { abstract validate?: () => boolean; abstract begin?(): void; protected abstract end?(flag: boolean): void; kept = 1; }',
+    'export abstract class Driver { abstract readonly size?: number; abstract m?<T>(x: T): T; }',
+  ]) {
+    const result = sameAsTypeScript(source, 'optional.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.doesNotMatch(result.code, /validate|begin|end\b|size/, source);
+  }
+  const values = 'interface G { name: string; nested?: G }\nconst list = [1];\nexport const out = JSON.stringify({ github: <G>{ name: "a", nested: <G>{ name: "b" } }, fn: <any>function () {}, plain: <number>list[0], [list[0]]:<G>{ name: "c" } });';
+  const result = sameAsTypeScript(values, 'value.ts');
+  assert.equal(result.backend, 'pulse');
+  assert.equal(run(result.code), '{"1":{"name":"c"},"github":{"name":"a","nested":{"name":"b"}},"plain":1}');
+  // At the start of a statement, of a labelled statement or of an arrow body the brace would open a block.
+  for (const source of ['<any>{ a: 1 };\nexport {};', 'label: <any>{ a: 1, b: 2 };\nexport {};', 'export const f = () => <any>{ a: 1 };',
+    'switch (x) { case 1: <any>{ a: 1, b: 2 }; }\nexport {};', 'if (x) <any>{ a: 1 };\nexport {};']) {
+    assert.notEqual(sameAsTypeScript(source, 'value.ts').backend, 'pulse', source);
+  }
+});
