@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
 import { registerHooks } from 'node:module';
-import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const entry = fileURLToPath(import.meta.url);
@@ -125,11 +126,28 @@ async function runWorker(cases, instrumented) {
 }
 
 function worker(cases, mode) {
-  const child = spawnSync(process.execPath, ['--no-compilation-cache', entry, mode], {
-    encoding: 'utf8', input: JSON.stringify(cases), timeout: 300_000, maxBuffer: 256 * 1024 * 1024,
-  });
-  assert.equal(child.status, 0, child.error?.message ?? child.stderr);
-  return { output: JSON.parse(child.stdout), trace: child.stderr };
+  const dir = mkdtempSync(join(tmpdir(), 'tmt-v8-audit-'));
+  const tracePath = join(dir, 'trace.log');
+  const fd = openSync(tracePath, 'w');
+  let child;
+  try {
+    child = spawnSync(process.execPath, ['--no-compilation-cache', entry, mode], {
+      encoding: 'utf8',
+      input: JSON.stringify(cases),
+      stdio: ['pipe', 'pipe', fd],
+      timeout: 300_000,
+      maxBuffer: 256 * 1024 * 1024,
+    });
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    const trace = readFileSync(tracePath, 'utf8');
+    assert.equal(child.status, 0, child.error?.message ?? trace);
+    return { output: JSON.parse(child.stdout), trace };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // Compare the audit build with the ordinary build and summarize every validation event.

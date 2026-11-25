@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { extract } from '../src/extract.mjs';
+import { supportsPortableCompileCache } from '../src/typescript-compiler.mjs';
 
 const require = createRequire(import.meta.url);
 const matrix = readFileSync(new URL('../verification/pict/prepared-typescript.tsv', import.meta.url), 'utf8')
@@ -22,7 +23,7 @@ function isolatedEnvironment() {
 }
 
 test('prepared CLI code uses ordinary CommonJS loading for every cache variant',
-  { skip: nodeMajor === 24 && nodeMinor < 12 }, async t => {
+  { skip: !supportsPortableCompileCache }, async t => {
   const root = mkdtempSync(join(tmpdir(), 'tmt-prepared-typescript-'));
   try {
     cpSync(resolve('src'), join(root, 'src'), { recursive: true });

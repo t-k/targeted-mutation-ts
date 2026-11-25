@@ -147,7 +147,7 @@ export function assessTrial(trial, expectedTests, hitLimit) {
   }
   if (hitCount > 0 && ['failed', 'interrupted'].includes(reason) && failed.length &&
       failed.every(test => expectedTests.has(test.id)) && [...expectedTests].every(([id, test]) =>
-        registered.has(id) || reason === 'interrupted' && !collectedModules.has(moduleKey(test)))) {
+        registered.has(id) || !collectedModules.has(moduleKey(test)))) {
     return { status: 'killed', tests: failed.map(({ id, name, file, project }) => ({ id, name, file, project })) };
   }
   if (hitCount > 0 && reason === 'passed' && !failed.length && [...expectedTests.keys()].every(id => actualPassed.has(id))) {
