@@ -3108,6 +3108,17 @@ test('each target compiles natively up to the forms of its year', () => {
     ['export function f(...rest: number[]) { return rest; }', 2018],
     ['export async function f(s: AsyncIterable<number>) { for await (const x of s) void x; }', 2018],
     ['export const o = { async /* c */ *g() { yield 1; } };', 2018],
+    ['declare const tag: any;\nexport const a = tag`\\u bad \\x1 \\1`;', 2018],
+    ['declare const tag: any;\nexport const a = tag`\\u{110000}`;', 2018],
+    ['export const o = { async /* { */ *g() { yield 1; } };', 2018],
+    ['export const f = async function\n* () { yield 1; };', 2018],
+    ['export /* c */ * as parts from "./parts";', 2020],
+    ['export // c\n * as parts from "./parts";', 2020],
+    ['declare const b: number;\nexport const a = b /* c */** 2;', 2016],
+    ['declare const b: number;\nexport const a = 2 **/* c */ b;', 2016],
+    ['let a = 2;\na **= 2;\nexport { a };', 2016],
+    ['export * from "./parts";\nexport { a } from "./a";\nexport default 1;', 2015],
+    ['  /*****\n * banner\n */\nexport const a: string = `t${1}` + "\\u0041\\x41";', 2015],
     ['export function f(g: () => void) { try { g(); } catch { g(); } }', 2019],
     ['export function f(g: () => void) { try { g(); } catch /* none */ { g(); } }', 2019],
     ['declare const b: { c?: number } | undefined;\nexport const a = b?.c;', 2020],
@@ -3133,6 +3144,16 @@ test('each target compiles natively up to the forms of its year', () => {
   }
   // A doc comment is no exponentiation, but two stars inside one are taken for it.
   assert.equal(compile(Buffer.from('/** a ** b */\nexport const a: number = 1;'), { file: 'year.ts', target: 'es2015' }).backend, 'typescript');
+  // Two stars behind the slash that closes a regular expression are the operator.
+  const regex = 'var r = /**// /**/asdf /;';
+  const lowered = compile(Buffer.from(regex), { file: 'year.js', target: 'es2015' });
+  assert.equal(lowered.backend, 'typescript');
+  assert.match(lowered.code, /Math\.pow/);
+  // Members whose modifier touches the private name, and a loop head or a field with a comment in it.
+  for (const source of ['export class A { static#x = 1; get#y() { return A; } }', 'export class A { async#y() { return A; } }',
+    'export function f(l: Disposable[]) { for (/* c */ using x of l) void x; }', 'export class A { accessor x // c\n}']) {
+    assert.equal(compile(Buffer.from(source), { file: 'year.ts', target: 'es2022' }).backend, 'typescript', source);
+  }
   // A word of a newer form in a comment or a string is enough to leave the file with TypeScript.
   assert.equal(compile(Buffer.from('// no class here\nexport const a: number = 1;'), { file: 'year.ts', target: 'es2020' }).backend, 'typescript');
   assert.equal(compile(Buffer.from('export const a: string = "x ?? y";'), { file: 'year.ts', target: 'es2019' }).backend, 'typescript');

@@ -536,32 +536,40 @@ function mappedScript(input, options) {
 //   below ES2021  `||=`, `&&=`, `??=` and a numeric separator
 //   below ES2020  `?.`, `??` and `export * as`
 //   below ES2019  a `catch` without a binding
-//   below ES2018  `...` (an object may spread or collect), `for await`, an async generator, and JSX,
-//                 whose attributes become an object that may spread
+//   below ES2018  `...` (an object may spread or collect), `for await`, an async generator, JSX (whose
+//                 attributes become an object that may spread), and a template next to a doubtful escape
 //   below ES2017  `async` and `await`
 //   below ES2016  `**`
 const targetYears = new Map([['es6', 2015], ['es2015', 2015], ['es2016', 2016], ['es2017', 2017], ['es2018', 2018], ['es2019', 2019],
   ['es2020', 2020], ['es2021', 2021], ['es2022', 2022], ['es2023', 2023], ['es2024', 2024], ['es2025', 2025]]);
+// A comment may stand between the words of a form, so each pattern asks for what must follow directly and
+// takes everything else for the form: an `export` that is followed by neither a brace, a word nor `* from`;
+// a `catch` or a `for` without its parenthesis; an `async` (with or without `function`) in front of a star
+// or a comment. Two stars are an operator unless they open a comment at the start of a line: behind other
+// text the slash in front of them may close a regular expression.
 const newerForms = [
-  [2022, /\bclass\b|\.#/],
+  [2022, /\bclass\b|\.\s*#/],
   [2021, /\|\|=|&&=|\?\?=|(?<![\w$])\d[\w.]*_/],
-  [2020, /\?\.|\?\?|\bexport\s*\*\s*as\b/],
+  [2020, /\?\.|\?\?|\bexport\b(?!\s*(?:[{A-Za-z_$]|\*\s*from\b))/],
   [2019, /\bcatch\b(?!\s*\()/],
-  [2018, /\.\.\.|\bfor\b(?!\s*\()|\basync\b[^;{]{0,200}\*/],
+  [2018, /\.\.\.|\bfor\b(?!\s*\()|\basync\b(?:\s*function\b)?\s*[*\/]/],
   [2017, /\basync\b|\bawait\b/],
-  [2016, /(?<!\/)\*\*(?!\/)/],
+  [2016, /(?<!^[ \t]*\/\**)\*\*/m],
 ];
 const comment = '(?:[ \\t]|/\\*(?:[^*]|\\*(?!/))*\\*/)';
 // `using name =`, `using name:` and the head of a loop. English text with these words in this order is
 // taken for a declaration too, and such a file goes to TypeScript.
-const usingDeclaration = new RegExp('(?<![\\w$.])using' + comment + '+[A-Za-z_$][\\w$]*' + comment + '*[=:,;]|\\bfor\\b[^\\n]{0,60}?\\(\\s*(?:await\\s+)?using\\b');
+const usingDeclaration = new RegExp('(?<![\\w$.])using' + comment + '+[A-Za-z_$][\\w$]*(?:\\s|' + comment + ')*(?:[=:,;\\/]|of\\b)|\\bfor\\b[^\\n]{0,60}?\\(\\s*(?:await\\s+)?using\\b');
 // `accessor name` with what can stand behind the name of a field (in English text another word follows).
-const accessorField = new RegExp('(?<![\\w$.])accessor' + comment + '+(?:[\\[\\"\\\'0-9]|#?[A-Za-z_$][\\w$]*' + comment + '*(?:[;=:!?}\\r\\n]|$))');
+const accessorField = new RegExp('(?<![\\w$.])accessor' + comment + '+(?:[\\[\\"\\\'0-9]|#?[A-Za-z_$][\\w$]*' + comment + '*(?:[;=:!?}\\r\\n\\/]|$))');
 // A private name that is not read through a dot: a member being declared (or `#name in value`). It stands
-// behind white space, a brace, a semicolon, the star of a generator or the end of a comment. A line comment
-// such as `// #region` is not one. Whether a member's body names its class is not looked at. One character
+// behind white space, a brace, a semicolon, the star of a generator, the end of a comment, or a modifier
+// that touches it (`static#name`). A line comment such as `// #region` is not one. Whether a member's body names its class is not looked at. One character
 // before the name decides, so the search takes time in proportion to the source.
-const privateMember = /(?<!\/\/[ \t]{0,8})(?<=[\s{;}*\/])#[A-Za-z_$\\\u0080-\uffff]/;
+const privateMember = /(?<!\/\/[ \t]{0,8})(?<=[\s{;}*\/]|\b(?:static|get|set|async|readonly|declare|override|public|private|protected|accessor))#[A-Za-z_$\\\u0080-\uffff]/;
+
+// A backslash in front of a digit, of an `x` without two hexadecimal digits, or of a `u` without four.
+const doubtfulEscape = /\\(?:[0-9]|x(?![0-9a-fA-F]{2})|u(?![0-9a-fA-F]{4}))/;
 
 // Whether a source holds none of the forms that TypeScript writes differently for a target of that year.
 function writtenAsNewest(input, jsxFile, year) {
@@ -572,6 +580,9 @@ function writtenAsNewest(input, jsxFile, year) {
   const text = bytes.latin1Slice();
   if ((using && usingDeclaration.test(text)) || (accessor && accessorField.test(text)) || (hash && privateMember.test(text))) return false;
   if (year < 2018 && jsxFile && bytes.includes(60)) return false;
+  // Below ES2018 a tagged template may not hold an escape that is no escape; TypeScript then writes the
+  // strings through a helper. Any such escape in a file with a template sends it there.
+  if (year < 2018 && bytes.includes(96) && doubtfulEscape.test(text)) return false;
   for (const [since, form] of newerForms) if (year < since && form.test(text)) return false;
   if (at) {
     // An at sign may stand in a comment or a string: the parser says whether one of them is a decorator.
