@@ -263,3 +263,19 @@ test('a TSX file is lowered under the legacy option, with or without decorators'
     }
   }
 });
+
+test('decorators are lowered in a file with names outside ASCII', () => {
+  const source = 'import { ɵɵdefineInjectable as def } from "@angular/core";\n' +
+    '@Injectable() export class ɵSvc { constructor(@Inject(ɵT) private ɵdep: ɵDep) {} @Input() ɵname = "ɵ"; static ɵmake() { return new ɵSvc(null as any); } }\nexport const ɵx = def;';
+  for (const extra of [{}, { emitDecoratorMetadata: true }]) {
+    const result = compile(Buffer.from(source), { ...options, ...extra });
+    assert.equal(result.backend, 'pulse');
+    assert.match(result.code, /__decorate\(\[Input\(\)[^\]]*\], ɵSvc\.prototype, "ɵname", void 0\);/);
+    assert.match(result.code, /__param\(0, Inject\(ɵT\)\)/);
+    assert.equal(/typeof ɵDep !== "undefined" && ɵDep/.test(result.code), extra.emitDecoratorMetadata === true);
+    assert.doesNotMatch(result.code, /[A-Z]{2}Svc|TZ/);
+  }
+  // Without a decorator such a file compiles as without the option.
+  const plain = 'export const ɵa: number = 1; // mail @home';
+  assert.deepEqual(compile(Buffer.from(plain), options), compile(Buffer.from(plain), { file: 'legacy.ts' }));
+});

@@ -145,7 +145,9 @@ const identifierWord = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*$/u;
 // The pattern is built at its first use: few sources reach it.
 let newerLetterPattern = null;
 const newerLetter = text => (newerLetterPattern ??= new RegExp('[\u{88f}\u{897}\u{c5c}\u{cdc}\u{1acf}-\u{1add}\u{1ae0}-\u{1aeb}\u{1c89}-\u{1c8a}\u{a7cb}-\u{a7cf}\u{a7d2}\u{a7d4}\u{a7da}-\u{a7dc}\u{a7f1}\u{105c0}-\u{105f3}\u{10940}-\u{10959}\u{10d40}-\u{10d65}\u{10d69}-\u{10d6d}\u{10d6f}-\u{10d85}\u{10ec2}-\u{10ec7}\u{10efa}-\u{10efc}\u{11380}-\u{11389}\u{1138b}\u{1138e}\u{11390}-\u{113b5}\u{113b7}-\u{113c0}\u{113c2}\u{113c5}\u{113c7}-\u{113ca}\u{113cc}-\u{113d3}\u{113e1}-\u{113e2}\u{116d0}-\u{116e3}\u{11b60}-\u{11b67}\u{11bc0}-\u{11be0}\u{11bf0}-\u{11bf9}\u{11db0}-\u{11ddb}\u{11de0}-\u{11de9}\u{11f5a}\u{13460}-\u{143fa}\u{16100}-\u{16139}\u{16d40}-\u{16d6c}\u{16d70}-\u{16d79}\u{16ea0}-\u{16eb8}\u{16ebb}-\u{16ed3}\u{16ff2}-\u{16ff6}\u{187f8}-\u{187ff}\u{18cff}\u{18d09}-\u{18d1e}\u{18d80}-\u{18df2}\u{1ccf0}-\u{1ccf9}\u{1e5d0}-\u{1e5fa}\u{1e6c0}-\u{1e6de}\u{1e6e0}-\u{1e6f5}\u{1e6fe}-\u{1e6ff}\u{2b73a}-\u{2b73f}\u{2cea2}-\u{2cead}\u{323b0}-\u{33479}]', 'u')).test(text);
-function highByteNames(addon, source, text, file, format) {
+// The copy of a source in which every word with a byte outside ASCII is spelled in capital letters, with the
+// spellings by word. Null when the source has no such byte or the renaming is not sound.
+function asciiSpelling(source, text) {
   let high = false;
   for (let at = 0; at < source.length; at++) if (source[at] >= 128) { high = true; break; }
   // An escape may spell the same name a second way, and a space outside ASCII is no part of a word.
@@ -180,6 +182,20 @@ function highByteNames(addon, source, text, file, format) {
     at = end;
   }
   for (const spelling of taken) if (plain.has(spelling)) return null;
+  return { renamed, spellings, wellFormed };
+}
+
+// Puts the names back in a text that was produced from the copy. The text holds no byte outside ASCII.
+function restoreNames(code, spellings) {
+  const originals = new Map();
+  for (const [word, spelling] of spellings) originals.set(spelling, Buffer.from(word, 'latin1').toString());
+  return code.replace(/[A-Za-z0-9_$]+/g, word => originals.get(word) ?? word);
+}
+
+function highByteNames(addon, source, text, file, format) {
+  const copy = asciiSpelling(source, text);
+  if (copy === null) return null;
+  const { renamed, spellings, wellFormed } = copy;
   const emitted = addon.emitAnnotatedModule(renamed, undefined, format === 'esm', false);
   if (emitted === null) return null;
   if (typeof emitted === 'string' && wellFormed && emitted.length === renamed.length) {
@@ -196,10 +212,7 @@ function highByteNames(addon, source, text, file, format) {
   // no word the emitter writes of its own does, and the copy holds no byte outside ASCII, so neither does
   // the text.
   if (typeof emitted === 'string' && wellFormed && !/[^\x00-\x7f]/.test(emitted)) {
-    const originals = new Map();
-    for (const [word, spelling] of spellings) originals.set(spelling, Buffer.from(word, 'latin1').toString());
-    const code = emitted.replace(/[A-Za-z0-9_$]+/g, word => originals.get(word) ?? word);
-    return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
+    return { backend: 'pulse', code: restoreNames(emitted, spellings), sourceMap: null, diagnostics: [] };
   }
   if (emitted !== true && typeof emitted !== 'string' && emitted.parameterProperty !== true) return null;
   return eraseModule(addon, text, file, format, emitted.parameterProperty === true);
@@ -494,10 +507,25 @@ function compile(input, options = {}) {
       if (!sourceMap && mode === 'transform' && format !== 'cjs' && target === 'esnext') {
         const bytes = Buffer.from(text);
         const addon = bytes.length <= 1048576 ? loadModuleAddon() : null;
-        const rewritten = addon ? require('./compiler-legacy-decorators.cjs').lowerLegacyDecorators(addon, bytes, emitDecoratorMetadata, jsxFile) : null;
+        const lower = source => require('./compiler-legacy-decorators.cjs').lowerLegacyDecorators(addon, source, emitDecoratorMetadata, jsxFile);
+        const rewritten = addon ? lower(bytes) : null;
         if (rewritten !== null) {
           const result = compile(rewritten, { ...options, experimentalDecorators: false, emitDecoratorMetadata: false });
           if (rewritten === bytes || (result.code !== null && result.backend !== 'typescript')) return result;
+        } else if (addon) {
+          // Names outside ASCII: the decorators are lowered on the copy spelled in ASCII, the copy is compiled,
+          // and the names are put back in the result.
+          const copy = asciiSpelling(bytes, text);
+          const lowered = copy !== null && copy.wellFormed ? lower(copy.renamed) : null;
+          if (lowered !== null && lowered === copy.renamed) {
+            return compile(bytes, { ...options, experimentalDecorators: false, emitDecoratorMetadata: false });
+          }
+          if (lowered !== null) {
+            const result = compile(lowered, { ...options, experimentalDecorators: false, emitDecoratorMetadata: false });
+            if (result.code !== null && result.backend === 'pulse' && !/[^\x00-\x7f]/.test(result.code)) {
+              return { ...result, code: restoreNames(result.code, copy.spellings) };
+            }
+          }
         }
       }
       return transformCompatibility(text, { file, target, outputModule: format, jsx, sourceMap, experimentalDecorators, emitDecoratorMetadata });
