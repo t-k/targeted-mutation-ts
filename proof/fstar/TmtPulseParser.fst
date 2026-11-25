@@ -5983,7 +5983,8 @@ let decorated_class_start (input:tape) (state:parser_state) : Tot (stt parser_st
     let! after_default = (fun () -> if default_ then trivia input (plus after_export.at 7ul) else ret input after_export) in
     let! abstract_ = (fun () -> if after_default.ok then abstract_class_start input after_default.at else ret input { at = st.offset; ok = false; newline = false }) in
     let! class_ = (fun () -> if after_default.ok && not abstract_.ok then class_keyword input after_default.at else ret input false) in
-    ret input (if st.module_mode && (abstract_.ok || class_) then st else failed st 1ul)
+    // A script that the compiler publishes is strict code, where a decorated class stands as in a module.
+    ret input (if (st.module_mode || (st.strict_script && input.capture_types)) && (abstract_.ok || class_) then st else failed st 1ul)
 
 // A var inside a block, a loop or a loop head at the top level belongs to the module. Such names stay in the
 // local log; at the end of the module each one is entered among the module's names, so that an export list

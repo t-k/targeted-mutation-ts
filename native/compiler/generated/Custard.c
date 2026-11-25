@@ -19275,7 +19275,7 @@ TmtPulseParser_decorated_class_start(
       value6 = TmtPulseParser_class_keyword(input, value4.at);
     else
       value6 = false;
-    if (value.module_mode && (value5.ok || value6))
+    if ((value.module_mode || value.strict_script && input.capture_types) && (value5.ok || value6))
       return value;
     else
       return TmtPulseParser_failed(value, 1U);

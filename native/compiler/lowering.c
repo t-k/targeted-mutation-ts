@@ -2234,6 +2234,8 @@ struct namespace_scope {
   bool references_read;
   uint8_t *original;
   bool module;
+  /* The count of records, and the head at the top of the file that is open. */
+  uint32_t records, top;
 };
 
 static int by_position(const void *left, const void *right) {
@@ -2304,7 +2306,10 @@ static uint32_t reference_count(const namespace_scope *scope, TmtPulseMemory_tap
   return count;
 }
 
-/* The innermost open namespace that exports a variable of this name itself, or NULL. */
+static bool walk_siblings(namespace_scope *scope, TmtPulseMemory_tape input, uint32_t self, TmtGrammar_span name,
+  uint32_t body_first, uint32_t body_last, TmtGrammar_span wanted);
+
+/* The innermost open namespace that exports the name itself, or the outermost when another declaration of it does; else NULL. */
 static const TmtGrammar_span *exporting_namespace(const namespace_scope *scope, TmtPulseMemory_tape input, TmtGrammar_span name) {
   for (uint32_t depth = scope->depth; depth-- > 0;) {
     /* The later names of a dotted head share the members of the last one. */
@@ -2317,6 +2322,9 @@ static const TmtGrammar_span *exporting_namespace(const namespace_scope *scope, 
       if (same_name(input, input.output[member].right, name)) return &scope->names[depth];
     }
   }
+  /* A member that another declaration of the outermost namespace exports. */
+  if (scope->depth != 0 && scope->records != 0 &&
+      walk_siblings((namespace_scope *)scope, input, scope->top, scope->names[0], 0, 0, name)) return &scope->names[0];
   return NULL;
 }
 
@@ -2387,45 +2395,91 @@ static TmtGrammar_span declared_name(TmtPulseMemory_tape input, uint32_t at) {
   return name;
 }
 
-/* Whether one of the further names of a dotted head is a word of the range. */
-static bool dotted_part_named(TmtPulseMemory_tape input, TmtGrammar_candidate head, uint32_t first, uint32_t last) {
-  uint32_t at = head.right.last;
-  while (at < head.left.last && input.source[at] == '.') {
-    TmtGrammar_span part = { at + 1, at + 1 };
-    while (part.last < head.left.last && input.source[part.last] < 128 && TmtGrammar_identifier_continue(input.source[part.last])) part.last++;
-    if (!plain_name(input, part) || word_count(input, first, last, part) != 0) return true;
-    at = part.last;
-  }
-  return false;
+/* The further name of a dotted head at a position: the name behind the dot there, or an empty span. */
+static TmtGrammar_span dotted_part(TmtPulseMemory_tape input, TmtGrammar_candidate head, uint32_t at) {
+  TmtGrammar_span part = { at, at };
+  if (at >= head.left.last || input.source[at] != '.') return part;
+  part.first = part.last = at + 1;
+  while (part.last < head.left.last && input.source[part.last] < 128 && TmtGrammar_identifier_continue(input.source[part.last])) part.last++;
+  return part;
 }
 
 /*
- * Whether nothing that another declaration of this namespace declares for others is named in the body. The
- * other declarations are the heads of the same name at the top of the file. Their members at any depth count:
- * the namespaces inside two declarations merge as well, down to the names of a dotted head.
+ * What a record of another declaration of the namespace gives the namespace: a member that every declaration
+ * sees (1), a name that only a namespace inside shares (2), or nothing (0). `depth` counts the namespaces open
+ * around the record inside that declaration, the dotted names of its head included.
  */
-static bool siblings_unnamed(TmtPulseMemory_tape input, uint32_t records, uint32_t self, uint32_t body_first, uint32_t body_last, TmtGrammar_span name) {
-  uint32_t depth = 0;
+static int sibling_member(TmtPulseMemory_tape input, TmtGrammar_candidate event, uint32_t depth, TmtGrammar_span *member) {
+  if (opens_namespace(event.original)) {
+    *member = event.right;
+    const bool exported = input.size - event.left.first > 6 && !memcmp(input.source + event.left.first, "export", 6);
+    return depth == 1 && exported ? 1 : 2;
+  }
+  if (event.original == namespace_variable || event.original == namespace_bare_variable) *member = event.right;
+  else if (event.original == namespace_declaration_end || event.original == namespace_enum) *member = declared_name(input, event.right.first);
+  else return 0;
+  return depth == 1 ? 1 : 2;
+}
+
+/* Whether every occurrence of a name in a range is a reference that the parser read as an expression. */
+static bool only_references(namespace_scope *scope, TmtPulseMemory_tape input, uint32_t first, uint32_t last, TmtGrammar_span name) {
+  const uint32_t words = word_count(input, first, last, name);
+  return words == 0 || (read_references(scope, input.size) && words == reference_count(scope, input, first, last, name));
+}
+
+/*
+ * Walks the other declarations of a namespace: the heads of its name at the top of the file. Two declarations
+ * share the members they export, and TypeScript writes a reference from one body to a member of the other as
+ * a property of the namespace. With `body_last` set, this checks a body: a member may be named in it only by
+ * references, and a name that only a namespace inside shares, down to the names of a dotted head, not at all.
+ * Otherwise it looks for a member of the name `wanted` and says whether there is one.
+ */
+static bool walk_siblings(namespace_scope *scope, TmtPulseMemory_tape input, uint32_t self, TmtGrammar_span name,
+  uint32_t body_first, uint32_t body_last, TmtGrammar_span wanted)
+{
+  const bool checking = body_last != 0;
+  uint32_t depth = 0, joined = 0;
   bool sibling = false;
-  for (uint32_t index = 0; index < records; index++) {
+  for (uint32_t index = 0; index < scope->records; index++) {
     const TmtGrammar_candidate event = input.output[index];
-    if (opens_namespace(event.original)) {
-      if (depth == 0) sibling = index != self && same_name(input, event.right, name);
-      else if (sibling && word_count(input, body_first, body_last, event.right) != 0) return false;
-      if (sibling && dotted_part_named(input, event, body_first, body_last)) return false;
-      depth++;
+    if (event.original == namespace_end) {
+      if (depth != 0 && --depth == 0) joined = 0;
       continue;
     }
-    if (event.original == namespace_end) { if (depth != 0) depth--; continue; }
-    if (depth == 0 || !sibling) continue;
+    const bool head = opens_namespace(event.original);
+    if (head && depth == 0) {
+      sibling = index != self && same_name(input, event.right, name);
+      depth = 1;
+      if (!sibling) continue;
+      /* The names behind the first of a dotted head: the second is a member, the others lie deeper. */
+      for (TmtGrammar_span part = dotted_part(input, event, event.right.last); part.first != part.last; part = dotted_part(input, event, part.last)) {
+        if (!plain_name(input, part)) { if (checking) return false; break; }
+        if (checking) {
+          if (joined == 0 ? !only_references(scope, input, body_first, body_last, part) : word_count(input, body_first, body_last, part) != 0) return false;
+        } else if (joined == 0 && same_name(input, part, wanted)) return true;
+        joined++;
+      }
+      continue;
+    }
+    if (depth == 0 || !sibling) { if (head) depth++; continue; }
     TmtGrammar_span member;
-    if (event.original == namespace_variable || event.original == namespace_bare_variable) member = event.right;
-    else if (event.original == namespace_declaration_end) member = declared_name(input, event.right.first);
-    else if (event.original == namespace_enum) member = declared_name(input, event.right.first);
-    else continue;
-    if (!plain_name(input, member) || word_count(input, body_first, body_last, member) != 0) return false;
+    const int kind = sibling_member(input, event, depth + joined, &member);
+    if (head) {
+      /* The further names of a dotted head inside lie deeper still. */
+      if (checking) {
+        for (TmtGrammar_span part = dotted_part(input, event, event.right.last); part.first != part.last; part = dotted_part(input, event, part.last)) {
+          if (!plain_name(input, part) || word_count(input, body_first, body_last, part) != 0) return false;
+        }
+      }
+      depth++;
+    }
+    if (kind == 0) continue;
+    if (!plain_name(input, member)) { if (checking) return false; continue; }
+    if (checking) {
+      if (kind == 1 ? !only_references(scope, input, body_first, body_last, member) : word_count(input, body_first, body_last, member) != 0) return false;
+    } else if (kind == 1 && same_name(input, member, wanted)) return true;
   }
-  return true;
+  return checking;
 }
 
 /*
@@ -2494,7 +2548,11 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
      * writes a reference to such a member as a property. That is not done here: no member that another
      * declaration of the namespace exports may be named in this body.
      */
-    if (scope->depth == 0 && !siblings_unnamed(input, records, index, span.last, body_last, name)) return false;
+    if (scope->depth == 0) {
+      scope->records = records;
+      scope->top = index;
+      if (!walk_siblings(scope, input, index, name, span.last, body_last, name)) return false;
+    }
     if (merged) {
       /* The name is declared already. A semicolon keeps the function from being read as arguments of what precedes it. */
       put(&lower->output, ";(function (");

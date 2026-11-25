@@ -2127,18 +2127,28 @@ test('a namespace behind a namespace, a class or a function of its name is writt
     assert.equal(result.backend, 'pulse', source);
     assert.equal(run(result.code), run(reference(source, 'merged.ts')), source);
   }
+  // A member that another declaration of the namespace exports is written as a property of the namespace.
+  for (const source of [
+    'namespace N { export const a = 1; }\nnamespace N { export const b = a + 1; }\nexport const out = JSON.stringify(N);',
+    'namespace N { export function f() { return 1; } }\nnamespace N { export const g = f; export const h = f(); }\nexport const out = JSON.stringify([N.h, N.g === N.f]);',
+    'namespace N { export const b = () => late; }\nnamespace N { export const late = 2; }\nexport const out = JSON.stringify(N.b());',
+    'function foo() {}\nnamespace foo.Bar { export function f() { return 1; } }\nnamespace foo.Baz { export function g() { return Bar.f(); } }\nexport const out = (foo as any).Baz.g();',
+    'namespace N { export namespace In { export const a = 1; } }\nnamespace N { export const b = In; export namespace M { export const c = In.a; } }\nexport const out = JSON.stringify(N);',
+    'namespace N { export enum E { x = 3 } }\nnamespace N { export const v = E.x; }\nnamespace N { export const w = v + E.x; }\nexport const out = JSON.stringify(N);',
+  ]) {
+    const result = sameAsTypeScript(source, 'merged.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'merged.ts')), source);
+  }
   assert.equal(compile(Buffer.from('class C {}\nnamespace C { export const x = 1; }\nexport { C };'), { file: 'merged.ts' }).code,
     'class C {}\n;(function (C) { C.x = 1; })(C||(C={}));\nexport { C };');
   for (const source of [
-    // A member that another declaration of the namespace exports is a property of the namespace there.
-    'namespace N { export const a = 1; }\nnamespace N { export const b = a; }\nexport { N };',
-    'namespace N { export function f() { return 1; } }\nnamespace N { export const g = f; }\nexport { N };',
-    'namespace N { export const b = () => late; }\nnamespace N { export const late = 2; }\nexport { N };',
-    'namespace N { export namespace In { export const a = 1; } }\nnamespace N { export const b = In; }\nexport { N };',
-    // The names of a dotted head are members too, and the namespaces inside two declarations merge.
-    'function foo() {}\nnamespace foo.Bar { export function f() { return 1; } }\nnamespace foo.Baz { export function g() { return Bar.f(); } }\nexport { foo };',
+    // A name that only the namespaces inside two declarations share, a member that a parameter hides, and a
+    // member that is constructed.
     'namespace A.B { export const x = 1; }\nnamespace A.B { export const y = x; }\nexport { A };',
-    'namespace A { export namespace B { export function f() { return 1; } } }\nnamespace A { export namespace C { export const y = B.f(); } }\nexport { A };',
+    'namespace N { export const a = 1; }\nnamespace N { export function f(a: number) { return a; } }\nexport { N };',
+    'namespace N { export class K {} }\nnamespace N { export const v = new K(); }\nexport { N };',
+    'namespace A { export namespace B { export function f() { return 1; } } }\nnamespace A { export namespace B { export const y = f(); } }\nexport { A };',
     // An enum, a declared class, a class behind the namespace, and a merge inside a namespace.
     'enum E { a }\nnamespace E { export const x = 1; }\nexport { E };',
     'declare class D {}\nnamespace D { export const x = 1; }\nexport { D };',
@@ -2219,5 +2229,25 @@ test('a namespace that holds only aliases, types and such namespaces is erased',
   ]) {
     const result = sameAsTypeScript(source, 'erased.ts');
     assert.match(result.code, /function/, source);
+  }
+});
+
+test('a script with decorators is published natively', () => {
+  for (const source of [
+    'class Foo { @decorator foo() { } }',
+    'class A { @dec() foo: string }',
+    '@dec class D { }',
+    'declare var dec: any;\n@dec class D { }\nvar x: number = 1;',
+    '@dec abstract class D { abstract m(): void; }',
+    '@a @b() class D { @c m(x: number) { return x; } @c static s = 1; }\nnew D();',
+    'function f() { @d class L { @e v = 1; } return L; }',
+  ]) {
+    const result = sameAsTypeScript(source, 'script.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.match(result.code, /^"use strict";\n/, source);
+  }
+  // What only a module may hold, and what the certified parse refuses, stays with TypeScript.
+  for (const source of ['var await = 1; class A { @d m() {} }', 'class A { @d m() { with (a) {} } }']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'script.ts' }).backend, 'pulse', source);
   }
 });

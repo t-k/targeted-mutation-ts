@@ -284,14 +284,23 @@ function strictScript(source, file, wellFormedDirectives = false) {
   const code = strict ? source : source.slice(0, hashbang) + '"use strict";\n' + source.slice(hashbang);
   // Node can abort while decorating a syntax error from vm.Script. The addon asks V8 directly.
   const valid = javascriptValidators().validScript;
-  if (valid) return valid(code) ? code : null;
+  if (valid) return valid(code) ? code : decoratedScript(code);
   try {
     new (require('node:vm').Script)(code, { filename: file });
     return code;
   } catch (error) {
     if (!(error instanceof SyntaxError)) throw error;
-    return null;
+    return decoratedScript(code);
   }
+}
+
+// V8 does not parse decorators yet, so it refuses a script that holds one. The certified parse reads
+// modules. A strict script is a module without the syntax that only a module has, so the script is given to
+// that parse with an empty export behind it: what it accepts there, and what holds no import, is a script.
+function decoratedScript(code) {
+  if (!code.includes('@') || /\bimport\b/.test(code) || /\bexport\b/.test(code)) return null;
+  const emit = loadModuleAddon()?.emitJavaScriptModule;
+  return emit !== undefined && emit(Buffer.from(code + '\nexport {};'), true) !== undefined ? code : null;
 }
 
 function eraseScript(addon, source, bytes, file) {
