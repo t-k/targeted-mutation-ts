@@ -1855,12 +1855,14 @@ TmtPulseParser_names_overlap(
       right == TmtPulseMemory_ValueName || right == TmtPulseMemory_BothNames ||
         right == TmtPulseMemory_FunctionImplementation
       || right == TmtPulseMemory_ClassName
-      || right == TmtPulseMemory_NamespaceName;
+      || right == TmtPulseMemory_NamespaceName
+      || right == TmtPulseMemory_EnumName;
   else if
   (
     left == TmtPulseMemory_NamespaceName &&
       (right == TmtPulseMemory_NamespaceName || right == TmtPulseMemory_ClassName ||
-        right == TmtPulseMemory_FunctionImplementation)
+        right == TmtPulseMemory_FunctionImplementation
+      || right == TmtPulseMemory_EnumName)
   )
     return false;
   else if (TmtPulseParser_is_function_binding(left) && TmtPulseParser_is_function_binding(right))
@@ -1897,7 +1899,8 @@ TmtPulseParser_names_overlap(
     else if
     (
       left == TmtPulseMemory_TypeOnlyImport || left == TmtPulseMemory_AmbientBothNames ||
-        TmtPulseParser_is_class_binding(left)
+        left == TmtPulseMemory_EnumName
+      || TmtPulseParser_is_class_binding(left)
     )
       left1 = TmtPulseMemory_BothNames;
     else
@@ -1914,7 +1917,8 @@ TmtPulseParser_names_overlap(
     else if
     (
       right == TmtPulseMemory_TypeOnlyImport || right == TmtPulseMemory_AmbientBothNames ||
-        TmtPulseParser_is_class_binding(right)
+        right == TmtPulseMemory_EnumName
+      || TmtPulseParser_is_class_binding(right)
     )
       right1 = TmtPulseMemory_BothNames;
     else
@@ -24554,7 +24558,7 @@ TmtPulseParser_enum_declaration(
       0U,
       used,
       value.offset,
-      ambient ? TmtPulseMemory_AmbientBothNames : TmtPulseMemory_BothNames);
+      ambient ? TmtPulseMemory_AmbientBothNames : TmtPulseMemory_EnumName);
   TmtPulseParser_parser_state value2 = TmtPulseParser_skip(input, value1.state);
   TmtPulseParser_parser_state value3 = TmtPulseParser_consume(input, value2, 123U);
   TmtPulseParser_parser_state
@@ -24587,7 +24591,8 @@ TmtPulseParser_name_merges(
         len == TmtPulseParser_minus(value.span.last, value.span.first) &&
           (value.namespace0 == TmtPulseMemory_NamespaceName ||
             value.namespace0 == TmtPulseMemory_ClassName
-          || value.namespace0 == TmtPulseMemory_FunctionImplementation)
+          || value.namespace0 == TmtPulseMemory_FunctionImplementation
+          || value.namespace0 == TmtPulseMemory_EnumName)
       )
         value1 = TmtPulseParser_same_bytes(input, pos, value.span.first, len);
       else

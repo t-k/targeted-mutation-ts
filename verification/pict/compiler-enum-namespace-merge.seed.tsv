@@ -1,0 +1,8 @@
+Enum	Space	Order	Body	Between
+Plain	Plain	EnumFirst	Function	Nothing
+Exported	Exported	EnumFirst	Function	Nothing
+Const	Plain	EnumFirst	Variable	Statement
+Plain	Plain	SpaceFirst	Function	Nothing
+Declared	Plain	EnumFirst	Function	Nothing
+Plain	Plain	EnumFirst	Empty	Nothing
+ExportedConst	Exported	EnumFirst	Variable	Nothing

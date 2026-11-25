@@ -1,0 +1,5 @@
+Enum: Plain, Const, Exported, ExportedConst, Declared
+Space: Plain, Exported
+Order: EnumFirst, SpaceFirst
+Body: Empty, Function, Variable, TypeOnly
+Between: Nothing, Statement

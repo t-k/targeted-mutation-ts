@@ -311,10 +311,11 @@ test('declarations that TypeScript does not merge stay off the native route', ()
     'export type X = number;\nexport class X {}',
     'class X {}\nclass X {}\nexport {};',
     'import { B } from "./b.js";\ndeclare namespace B { type S = 1 }\nexport const y = B;',
-    'enum B { A }\ndeclare namespace B { type S = 1 }\nexport const y = B;',
   ]) {
     assert.notEqual(compile(Buffer.from(source), { file: 'merge.ts' }).backend, 'pulse', source);
   }
+  // A namespace of types shares its name with an enum that exists at run time.
+  assert.equal(sameAsTypeScript('enum B { A }\ndeclare namespace B { type S = 1 }\nexport const y = B;', 'merge.ts').backend, 'pulse');
 });
 
 test('parameter properties take override, need no type, and lower beside enums', () => {
@@ -978,7 +979,7 @@ test('a namespace with exported variables, functions and classes is lowered as T
   ]) {
     assert.equal(sameAsTypeScript(source, 'space.ts').backend, 'pulse', source);
   }
-  for (const source of ['export enum N { A }\nexport namespace N { export const a = 1; }',
+  for (const source of ['export namespace N { export const a = 1; }\nexport enum N { A }',
     'import { N } from "m";\nexport namespace N { export const a = 1; }',
     'export namespace N { export const a = 1; export const b = { a: 2 }; }',
     'export namespace N { export enum E { A } export enum E { B } }']) {
@@ -2155,8 +2156,8 @@ test('a namespace behind a namespace, a class or a function of its name is writt
     'namespace N { export const a = 1; }\nnamespace N { export function f(a: number) { return a; } }\nexport { N };',
     'namespace N { export class K {} }\nnamespace N { export const v = new K(); }\nexport { N };',
     'namespace A { export namespace B { export function f() { return 1; } } }\nnamespace A { export namespace B { export const y = f(); } }\nexport { A };',
-    // An enum, a declared class, a class behind the namespace, and a merge inside a namespace.
-    'enum E { a }\nnamespace E { export const x = 1; }\nexport { E };',
+    // An enum behind the namespace, a declared class, a class behind the namespace, and a merge inside a namespace.
+    'namespace E { export const x = 1; }\nenum E { a }\nexport { E };',
     'declare class D {}\nnamespace D { export const x = 1; }\nexport { D };',
     'namespace Outer { export namespace M { export const a = 1; } export namespace M { export const b = 2; } }\nexport { Outer };',
   ]) {
@@ -2648,5 +2649,41 @@ test('a shorthand property that names an exported namespace variable is written 
     const source = `namespace N { export const k = 1; ${member} }\nexport const out = JSON.stringify(N.f.length);`;
     const result = sameAsTypeScript(source, 'shorthand.ts');
     assert.notEqual(result.backend, 'pulse', source);
+  }
+});
+
+test('a namespace behind an enum of its name merges with it', () => {
+  const [header, ...rows] = readFileSync(new URL('../verification/pict/compiler-enum-namespace-merge.tsv', import.meta.url), 'utf8')
+    .trim().split('\n').map(line => line.split('\t'));
+  assert.equal(rows.length, 21);
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let|enum|namespace)/g, ''))();
+  let native = 0;
+  for (const cells of rows) {
+    const row = Object.fromEntries(header.map((name, index) => [name, cells[index]]));
+    const enumeration = { Plain: 'enum', Const: 'const enum', Exported: 'export enum', ExportedConst: 'export const enum', Declared: 'declare enum' }[row.Enum] + ' E { A = 1, B }';
+    const body = { Empty: '', Function: 'export function parse(s: string) { return s === "A" ? E.A : E.B; }', Variable: 'export const all = [E.A, E.B];', TypeOnly: 'export type T = number;' }[row.Body];
+    const space = (row.Space === 'Exported' ? 'export ' : '') + `namespace E { ${body} }`;
+    const between = row.Between === 'Statement' ? 'const mid = 1;\n' : '';
+    const source = (row.Order === 'EnumFirst' ? enumeration + '\n' + between + space : space + '\n' + between + enumeration) +
+      '\nexport const out = (() => { try { return JSON.stringify(E, (k, v) => typeof v === "function" ? "fn" : v); } catch { return "none"; } })();';
+    const result = sameAsTypeScript(source, 'merge.ts');
+    assert.equal(run(result.code), run(reference(source, 'merge.ts')), source);
+    if (result.backend === 'pulse') native++;
+    // An enum that exists at run time, then a namespace with members of its own.
+    if (row.Order === 'EnumFirst' && row.Enum !== 'Declared' && (row.Body === 'Function' || row.Body === 'Variable')) {
+      assert.equal(result.backend, 'pulse', source);
+    }
+    // The other order would need the enum written without a declaration of its own.
+    if (row.Order === 'SpaceFirst' && (row.Body === 'Function' || row.Body === 'Variable') && row.Enum !== 'Declared') {
+      assert.notEqual(result.backend, 'pulse', source);
+    }
+  }
+  assert.ok(native >= 5, String(native));
+  assert.equal(compile(Buffer.from('enum E { A }\nnamespace E { export const first = E.A; }\nexport { E };'), { file: 'merge.ts' }).code,
+    'var E; (function (E) {E[E["A"]=0]="A";})(E||(E={}));\n;(function (E) { E.first = E.A; })(E||(E={}));\nexport { E };');
+  // Other declarations of the name still conflict with the enum.
+  for (const source of ['enum E { A }\nconst E = 1;\nexport {};', 'enum E { A }\nclass E {}\nexport {};', 'enum E { A }\nfunction E() {}\nexport {};',
+    'import { E } from "e";\nnamespace E { export const a = 1; }\nexport {};']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'merge.ts' }).backend, 'pulse', source);
   }
 });

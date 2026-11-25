@@ -3157,7 +3157,7 @@ uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all,
             case TmtPulseMemory_ClassName: row[3] = 1; break;
             case TmtPulseMemory_InterfaceName: case TmtPulseMemory_ExportedInterfaceName: row[3] = 2; break;
             case TmtPulseMemory_TypeOnlyImport: row[3] = 3; break;
-            case TmtPulseMemory_BothNames: row[3] = 4; break;
+            case TmtPulseMemory_BothNames: case TmtPulseMemory_EnumName: row[3] = 4; break;
             case TmtPulseMemory_ValueName: case TmtPulseMemory_LocalVarName: case TmtPulseMemory_FunctionImplementation: row[3] = 5; break;
             default: row[3] = 9; break;
           }

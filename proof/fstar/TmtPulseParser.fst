@@ -868,9 +868,9 @@ let is_class_binding (namespace:binding_namespace) : bool =
 
 let names_overlap (left right:binding_namespace) : bool =
   if left = RuntimeExport then right = ValueName || right = BothNames || right = FunctionImplementation || right = ClassName ||
-    right = NamespaceName
+    right = NamespaceName || right = EnumName
   // A run-time namespace merges with a namespace, a class or a function that stands in front of it.
-  else if left = NamespaceName && (right = NamespaceName || right = ClassName || right = FunctionImplementation) then false
+  else if left = NamespaceName && (right = NamespaceName || right = ClassName || right = FunctionImplementation || right = EnumName) then false
   else if is_function_binding left && is_function_binding right then
     left = FunctionImplementation && right = FunctionImplementation
   // Interfaces of one name merge, whatever they extend and whether or not they are exported.
@@ -879,13 +879,14 @@ let names_overlap (left right:binding_namespace) : bool =
   else if (is_interface_binding left && is_class_binding right) || (is_class_binding left && is_interface_binding right) then false
   else if left = TypeNamespace || right = TypeNamespace then
     // A namespace of types emits nothing and merges with any local declaration of its name.
-    // An import or an enum of that name still conflicts, and a lookup by BothNames still finds it.
+    // An import or a declared enum of that name still conflicts, and a lookup by BothNames still finds it.
+    // An enum that exists at run time shares its name with a namespace of types, as a class does.
     let other = if left = TypeNamespace then right else left in
     other = BothNames || other = TypeOnlyImport || other = AmbientBothNames
   else
     let effective binding = if is_function_binding binding || binding = AmbientValueName || binding = NamespaceName then ValueName
       else if is_interface_binding binding then TypeName
-      else if binding = TypeOnlyImport || binding = AmbientBothNames || is_class_binding binding then BothNames else binding in
+      else if binding = TypeOnlyImport || binding = AmbientBothNames || binding = EnumName || is_class_binding binding then BothNames else binding in
     let left = effective left in
     let right = effective right in
     left = BothNames || right = BothNames || left = right
@@ -908,7 +909,8 @@ let rec name_merges (input:tape) (used:names_used) (pos len:U32.t)
     let previous = U32.sub used 1ul in
     let! saved = (fun () -> get_binding input (U32.add 0ul previous)) in
     let! equal = (fun () -> if len = minus saved.span.G.last saved.span.G.first &&
-        (saved.namespace = NamespaceName || saved.namespace = ClassName || saved.namespace = FunctionImplementation) then
+        (saved.namespace = NamespaceName || saved.namespace = ClassName || saved.namespace = FunctionImplementation ||
+          saved.namespace = EnumName) then
       same_bytes input pos saved.span.G.first len else ret input false) in
     if equal then ret input true else name_merges input previous pos len
 
@@ -5230,7 +5232,7 @@ let rec enum_members (input:tape) (state:parser_state) (remaining:U32.t) (ambien
 
 let enum_declaration (input:tape) (state:parser_state) (used:names_used) (ambient:bool) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! start = (fun () -> skip input { state with offset = plus state.offset 4ul }) in
-  let! named = (fun () -> bind_in_namespace input start 0ul 0ul used start.offset (if ambient then AmbientBothNames else BothNames)) in
+  let! named = (fun () -> bind_in_namespace input start 0ul 0ul used start.offset (if ambient then AmbientBothNames else EnumName)) in
   let! opening = (fun () -> (let! anf_value_1 = (fun () -> (skip input named.state)) in consume input anf_value_1 123uy)) in
   (let! anf_value_2 = (fun () -> enum_members input opening input.size ambient) in ret input ({ named with state = anf_value_2 }))
 

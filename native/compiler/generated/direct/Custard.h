@@ -46,6 +46,7 @@ TmtGrammar_candidate;
 #define TmtPulseMemory_ClassName 17
 #define TmtPulseMemory_AmbientClassName 18
 #define TmtPulseMemory_NamespaceName 19
+#define TmtPulseMemory_EnumName 20
 
 typedef uint8_t TmtPulseMemory_binding_namespace;
 

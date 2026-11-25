@@ -36,6 +36,9 @@ type binding_namespace =
   // A namespace that exists at run time. It is a value like any other, and merges with an earlier namespace,
   // class or function of its name: TypeScript then writes its function without a declaration of the name.
   | NamespaceName
+  // An enum that exists at run time: a value and a type like BothNames. A run-time namespace of its name
+  // behind it merges with it.
+  | EnumName
 
 type binding_name = { span:G.span; namespace:binding_namespace; owner:U8.t }
 
