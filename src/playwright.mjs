@@ -21,7 +21,14 @@ const config = imported.default ?? imported;
 const root = process.env.TMT_WORKSPACE;
 const configDirectory = dirname(fileURLToPath(import.meta.url));
 const own = directory => {
-  const resolved = realpathSync(resolve(configDirectory, directory ?? '.'));
+  const raw = realpathSync(resolve(configDirectory, directory ?? '.'));
+  let resolved = raw;
+  if (process.platform === 'win32') {
+    try {
+      const native = realpathSync.native(raw);
+      if (raw.startsWith('\\\\\\\\') || !native.startsWith('\\\\\\\\')) resolved = native;
+    } catch {}
+  }
   const target = relative(root, resolved);
   if (isAbsolute(target) || target === '..' || target.startsWith('..' + sep)) {
     throw new Error('Managed webServer cwd escapes the trial workspace');

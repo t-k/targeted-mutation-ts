@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { verdict } from './analysis.mjs';
 import { inParallel } from './in-parallel.mjs';
 import { rewrite } from './probe.mjs';
-import { copyPathIsExcluded, inside, resolveCopyExclusions, runVitestAsync, withCopy } from './vitest.mjs';
+import { canonicalPath, copyPathIsExcluded, inside, resolveCopyExclusions, runVitestAsync, withCopy } from './vitest.mjs';
 
 const TEST_FILE_RE = /\.(?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/;
 const MAX_WEAKENED_TRIALS = 32;
@@ -72,7 +72,7 @@ export async function detectWeakenedTests(project, report, options = {}) {
   if (!options.since || report?.evaluation !== 'evaluated' || report?.runner !== 'vitest') {
     return report;
   }
-  const root = realpathSync(project);
+  const root = canonicalPath(project);
   const { revision, files: rawOldTests } = changedTestFiles(root, options.since);
   const exclusions = resolveCopyExclusions(root, options['copy-exclude'] ?? []);
   const oldTests = rawOldTests.filter(entry => !copyPathIsExcluded(root, resolve(root, entry.file), exclusions));
@@ -82,7 +82,7 @@ export async function detectWeakenedTests(project, report, options = {}) {
   if (!survivors.length) return report;
 
   const safeWorkspaceTarget = (workspace, relFile) => {
-    const realWorkspace = realpathSync(workspace);
+    const realWorkspace = canonicalPath(workspace);
     const target = resolve(realWorkspace, relFile);
     const fromRoot = relative(realWorkspace, target);
     if (!fromRoot || isAbsolute(fromRoot) || fromRoot === '..' || fromRoot.startsWith('..' + sep)) {
@@ -98,7 +98,7 @@ export async function detectWeakenedTests(project, report, options = {}) {
         if (st.isSymbolicLink()) {
           throw new Error(`Refusing to write through symbolic link in workspace: ${relFile}`);
         }
-        const realCursor = realpathSync(cursor);
+        const realCursor = canonicalPath(cursor);
         const relCheck = relative(realWorkspace, realCursor);
         if (relCheck === '..' || relCheck.startsWith('..' + sep) || isAbsolute(relCheck)) {
           throw new Error(`Path escapes the workspace: ${relFile}`);

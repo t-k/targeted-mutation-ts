@@ -57,7 +57,8 @@ export function inside(root, path) {
 
 const normalizeExclusionKey = value => (process.platform === 'win32' ? value.toLowerCase() : value);
 
-export function resolveCopyExclusions(source, exclude = [], { onMissing } = {}) {
+export function resolveCopyExclusions(rawSource, exclude = [], { onMissing } = {}) {
+  const source = canonicalPath(rawSource);
   const resolved = [];
   const seenResolved = new Set();
   const seenMissing = new Set();
@@ -83,7 +84,7 @@ export function resolveCopyExclusions(source, exclude = [], { onMissing } = {}) 
         parentMissing = true;
         break;
       }
-      if (stat.isSymbolicLink() || realpathSync(cursor) !== cursor) {
+      if (stat.isSymbolicLink() || normalizeExclusionKey(canonicalPath(cursor)) !== normalizeExclusionKey(cursor)) {
         throw new Error(`Copy exclusion must not traverse a symbolic link: ${path}`);
       }
       if (!stat.isDirectory()) {
@@ -125,7 +126,7 @@ function linkInstalledModules(source, root, projectModules, installed, tools) {
       : [{ entry, name: entry.name }]);
   const modules = entries.map(({ entry, name }) => {
     const original = resolve(projectModules, name);
-    const target = entry.isSymbolicLink() && existsSync(original) ? realpathSync(original) : null;
+    const target = entry.isSymbolicLink() && existsSync(original) ? canonicalPath(original) : null;
     const within = target === null ? '..' : relative(source, target);
     const local = within !== '..' && !within.startsWith('..' + sep) && !isAbsolute(within) &&
       !within.split(sep).includes('node_modules');
@@ -176,7 +177,7 @@ function rebaseCopiedLinks(source, workspace) {
     const target = resolve(entry.parentPath, readlinkSync(path));
     let within = relative(source, target);
     const outside = value => isAbsolute(value) || value === '..' || value.startsWith('..' + sep);
-    if (outside(within) && existsSync(target)) within = relative(source, realpathSync(target));
+    if (outside(within) && existsSync(target)) within = relative(source, canonicalPath(target));
     if (outside(within)) continue;
     unlinkSync(path);
     symlinkSync(resolve(workspace, within), path);

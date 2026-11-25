@@ -1,6 +1,7 @@
-import { existsSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { loadTypeScript } from './typescript-compiler.mjs';
+import { canonicalPath } from './vitest.mjs';
 
 const PRIMITIVE_PROTOTYPE_KEYS = new Set([
   '__proto__',
@@ -188,7 +189,7 @@ function isWithinRoot(realRoot, candidate) {
 }
 
 function normalizePath(filePath) {
-  return existsSync(filePath) ? realpathSync(filePath) : resolve(filePath);
+  return existsSync(filePath) ? canonicalPath(filePath) : resolve(filePath);
 }
 
 function readParsedConfig(ts, configPath, cache) {
@@ -403,7 +404,7 @@ function buildGroupContext(ts, info, absTargets) {
 }
 
 export function createTypeContext(root, targetFiles = [], { tsconfig, onWarning, silent = false, ts = loadTypeScript() } = {}) {
-  const realRoot = existsSync(root) ? realpathSync(root) : resolve(root);
+  const realRoot = existsSync(root) ? canonicalPath(root) : resolve(root);
   const configCache = new Map();
   const warnings = [];
   const seenWarnings = new Set();

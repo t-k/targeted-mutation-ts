@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, globSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, globSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { inside } from './vitest.mjs';
+import { canonicalPath, inside } from './vitest.mjs';
 
 const GLOB_CHARS = /[*?[\]{]/;
 const CONFIG_JSON = 'targeted-mutation.config.json';
@@ -34,7 +34,7 @@ export function validateAndExpandInputs(project, files = [], options = {}) {
   if (!existsSync(project)) {
     throw new Error(`Project directory not found: ${project}`);
   }
-  const root = realpathSync(project);
+  const root = canonicalPath(project);
 
   const hintDash = p => (String(p).startsWith('-') ? ' (did an extra "--" treat an option as a file path?)' : '');
 
@@ -134,7 +134,7 @@ export function gitignoredCopyExclusions(root) {
 // When `allowCodeConfig` is false (e.g. `--list`), only data-only JSON configs are loaded.
 export async function loadProjectConfig(project, { allowCodeConfig = true } = {}) {
   if (!existsSync(project)) return null;
-  const root = realpathSync(project);
+  const root = canonicalPath(project);
   const jsonPath = resolve(root, CONFIG_JSON);
   if (existsSync(jsonPath)) {
     const data = JSON.parse(readFileSync(jsonPath, 'utf8'));

@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { sep } from 'node:path';
 import { sourceTrials, sourceTrialsAsync, verdict } from './analysis.mjs';
@@ -9,7 +9,7 @@ import { failedTests } from './vitest-reporter.mjs';
 import { selectScope } from './scope.mjs';
 import { byteOffsets } from './source-text.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
-import { inside } from './vitest.mjs';
+import { canonicalPath, inside } from './vitest.mjs';
 
 // With `--since REV`, the code as it was is an edit too: each change is put back alone and the suite runs
 // against it. When every test passes, no test tells the change from what was there before.
@@ -346,7 +346,7 @@ function locate(current, offset) {
 }
 
 function prepareUndoPlan(project, files, options) {
-  const root = realpathSync(project);
+  const root = canonicalPath(project);
   if (options.since === undefined) throw new Error('--undo-changes requires --since REV');
   let revision;
   try {

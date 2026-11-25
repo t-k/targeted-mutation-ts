@@ -1,9 +1,9 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { collectComparisons } from './analysis.mjs';
 import { prepareBuiltinSwitches, targetedOrBoundary } from './builtin-switches.mjs';
 import { selectScope } from './scope.mjs';
 import { createTypeContext } from './type-equivalence.mjs';
-import { inside } from './vitest.mjs';
+import { canonicalPath, inside } from './vitest.mjs';
 
 export function parseShard(spec) {
   if (spec === undefined) return undefined;
@@ -69,7 +69,7 @@ export function candidateOrder(a, b) {
 
 // Preview all scoped mutation candidates without executing any test runner.
 export function listCandidates(project, files, options = {}) {
-  const root = realpathSync(project);
+  const root = canonicalPath(project);
   const profile = options.mutators ?? 'targeted';
   const shard = parseShard(options.shard);
   const strategy = parseShardingStrategy(options.sharding);

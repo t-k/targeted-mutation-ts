@@ -1,6 +1,7 @@
-import { realpathSync, statSync } from 'node:fs';
+import { statSync } from 'node:fs';
 import { dirname, extname, resolve } from 'node:path';
 import { loadTypeScript } from './typescript-compiler.mjs';
+import { canonicalPath } from './vitest.mjs';
 import { bare, integer } from './witness-rules.mjs';
 import { orderProjection } from './witness-order.mjs';
 
@@ -55,8 +56,8 @@ export function importMatches(file, specifier, subject, project) {
   const root = project ?? '.';
   const path = resolve(root, dirname(file), specifier);
   const source = resolve(root, subject);
-  const canonicalSource = project && statSync(source, { throwIfNoEntry: false })?.isFile() ? realpathSync(source) : source;
-  if (project && statSync(path, { throwIfNoEntry: false })?.isFile()) return realpathSync(path) === canonicalSource;
+  const canonicalSource = project && statSync(source, { throwIfNoEntry: false })?.isFile() ? canonicalPath(source) : source;
+  if (project && statSync(path, { throwIfNoEntry: false })?.isFile()) return canonicalPath(path) === canonicalSource;
   const extension = extname(path);
   const substitutes = { '.js': ['.ts', '.tsx'], '.jsx': ['.tsx'], '.mjs': ['.mts'], '.cjs': ['.cts'] };
   const candidates = Object.hasOwn(substitutes, extension)
@@ -65,7 +66,7 @@ export function importMatches(file, specifier, subject, project) {
       : [...moduleExtensions.map(ext => path + ext), ...moduleExtensions.map(ext => resolve(path, 'index' + ext))];
   if (!project) return canonicalSource === path || candidates.includes(canonicalSource);
   const existing = new Set(candidates.filter(candidate => statSync(candidate, { throwIfNoEntry: false })?.isFile())
-    .map(candidate => realpathSync(candidate)));
+    .map(candidate => canonicalPath(candidate)));
   return existing.size === 1 && existing.has(canonicalSource);
 }
 

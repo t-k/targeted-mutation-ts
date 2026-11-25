@@ -1,13 +1,13 @@
 import { isUtf8 } from 'node:buffer';
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { verdict } from './analysis.mjs';
 import { selectScope } from './scope.mjs';
 import { failedTests } from './vitest-reporter.mjs';
 import { availableParallelism } from 'node:os';
 import { inParallel } from './in-parallel.mjs';
-import { inside, runVitestAsync, withCopy } from './vitest.mjs';
+import { canonicalPath, inside, runVitestAsync, withCopy } from './vitest.mjs';
 import { parseSource, discoverWitnessRules } from './witness-rules.mjs';
 import { fixtureCalls, witnessProposals } from './witness-fixtures.mjs';
 import { prepareContracts, evaluateContracts } from './witness-contracts.mjs';
@@ -108,7 +108,7 @@ async function verifyAppend(attempt, baseline, edits, append, marker, original, 
 }
 
 export async function analyzeWitnesses(project, files, options) {
-  const root = realpathSync(project);
+  const root = canonicalPath(project);
   const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
   if (!specification || typeof specification !== 'object' || Array.isArray(specification)) throw new Error('Expected a witness specification object');
   const constraints = parseSortConstraints(specification).map(entry => {

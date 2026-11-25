@@ -3,7 +3,7 @@ import { isUtf8 } from 'node:buffer';
 import { closeSync, mkdtempSync, openSync, readSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { relative, resolve, sep } from 'node:path';
-import { copyPathIsExcluded, inside, resolveCopyExclusions } from './vitest.mjs';
+import { canonicalPath, copyPathIsExcluded, inside, resolveCopyExclusions } from './vitest.mjs';
 
 const sourceName = /(?<!\.d|\.test|\.spec)\.(?:[cm]?[jt]s|[jt]sx)$/;
 const runnerConfig = /^(?:vite|vitest|playwright)(?:\.[^.]+)*\.config\.[cm]?[jt]s$/;
@@ -149,7 +149,8 @@ function changedRanges(root, revision, files) {
   return ranges;
 }
 
-export function selectScope(root, files, { lines = [], since, 'copy-exclude': copyExclude } = {}) {
+export function selectScope(rawRoot, files, { lines = [], since, 'copy-exclude': copyExclude } = {}) {
+  const root = canonicalPath(rawRoot);
   const exclusions = resolveCopyExclusions(root, copyExclude);
   function sourceFile(file) {
     const path = inside(root, file);
