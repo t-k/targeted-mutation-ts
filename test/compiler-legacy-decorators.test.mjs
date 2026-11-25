@@ -80,9 +80,14 @@ test('a source whose at signs are no decorators compiles as without the option',
   assert.equal(compile(Buffer.from(source), options).backend, 'pulse');
 });
 
-test('source maps keep the TypeScript route', () => {
+test('a source map does not change the route or the code', () => {
   const source = 'export class A { constructor(@IFoo foo: IFoo) {} }';
-  assert.equal(compile(source, { ...options, sourceMap: true }).backend, 'typescript');
+  const mapped = compile(source, { ...options, sourceMap: true });
+  assert.equal(mapped.backend, 'pulse');
+  assert.equal(mapped.code, compile(source, options).code);
+  assert.equal(typeof mapped.sourceMap.mappings, 'string');
+  // A file with names outside ASCII still takes TypeScript's map.
+  assert.equal(compile('export class \u00c0 { constructor(@IFoo foo: IFoo) {} }', { ...options, sourceMap: true }).backend, 'typescript');
 });
 
 // A class that names itself in its body. TypeScript writes a second name for the decorated class and uses it for

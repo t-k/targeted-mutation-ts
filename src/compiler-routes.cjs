@@ -583,6 +583,22 @@ function compile(input, options = {}) {
           }
         }
       }
+      // With a map: the rewritten text is compiled with a map of its own, which is led on to the source. Text
+      // that the rewriting wrote is marked as generated.
+      if (sourceMap && mode === 'transform' && format !== 'cjs' && target === 'esnext' && jsx !== 'preserve') {
+        const bytes = Buffer.from(text);
+        const addon = bytes.length <= 1048576 ? loadModuleAddon() : null;
+        const spans = [];
+        const rewritten = addon ? require('./compiler-legacy-decorators.cjs').lowerLegacyDecorators(addon, bytes, emitDecoratorMetadata, jsxFile, spans) : null;
+        if (rewritten === bytes) return compile(bytes, { ...options, experimentalDecorators: false, emitDecoratorMetadata: false });
+        if (rewritten !== null) {
+          const result = compile(rewritten, { ...options, experimentalDecorators: false, emitDecoratorMetadata: false });
+          if (result.code !== null && result.backend === 'pulse' && result.sourceMap) {
+            const mappings = require('./compiler-legacy-maps.cjs').composeLegacyMappings(bytes, rewritten, spans, result.sourceMap.mappings, result.code);
+            if (mappings !== null) return { ...result, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, mappings, text) };
+          }
+        }
+      }
       return transformCompatibility(text, { file, target, outputModule: format, jsx, sourceMap, experimentalDecorators, emitDecoratorMetadata });
     }
   }

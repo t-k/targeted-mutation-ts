@@ -1,0 +1,135 @@
+'use strict';
+
+// The source map of a file whose legacy decorators were lowered in two steps: the decorators were rewritten
+// in the source, and the rewritten text was compiled with a map of its own. That map leads to the rewritten
+// text; here it is led on to the source. Text that the rewriting wrote has no place in the source and is
+// marked as generated, as the emitter marks its own.
+
+const digits = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+const values = new Map(Array.from(digits, (digit, index) => [digit, index]));
+
+function decodeLine(line, state) {
+  const segments = [];
+  let column = 0, at = 0;
+  while (at < line.length) {
+    const fields = [];
+    for (; at < line.length && line[at] !== ','; ) {
+      let value = 0, shift = 0, digit;
+      do {
+        digit = values.get(line[at++]);
+        if (digit === undefined) return null;
+        value += (digit & 31) * 2 ** shift;
+        shift += 5;
+      } while (digit >= 32 && at < line.length);
+      if (digit >= 32) return null;
+      fields.push(value % 2 ? -(value - 1) / 2 : value / 2);
+    }
+    at++;
+    column += fields[0];
+    if (fields.length === 1) segments.push([column]);
+    else if (fields.length === 4 && fields[1] === 0) {
+      state.line += fields[2];
+      state.column += fields[3];
+      segments.push([column, state.line, state.column]);
+    } else return null;
+  }
+  return segments;
+}
+
+function encode(value) {
+  let rest = value < 0 ? (-value << 1) | 1 : value << 1, text = '';
+  do {
+    const digit = rest & 31;
+    rest >>>= 5;
+    text += digits[rest ? digit | 32 : digit];
+  } while (rest);
+  return text;
+}
+
+const lineStarts = text => {
+  const starts = [0];
+  for (let at = 0; at < text.length; at++) {
+    const unit = text.charCodeAt(at);
+    if (unit === 10 || unit === 0x2028 || unit === 0x2029) starts.push(at + 1);
+    else if (unit === 13) { if (text.charCodeAt(at + 1) === 10) at++; starts.push(at + 1); }
+  }
+  return starts;
+};
+
+// `spans` are the pieces of the rewritten text in bytes, as lowerLegacyDecorators reports them, and `code` is
+// the output that `mappings` describes. Returns the mappings from the output to `source`, or null when the
+// map cannot be led on.
+function composeLegacyMappings(source, rewritten, spans, mappings, code) {
+  const original = source.toString(), text = rewritten.toString();
+  // The pieces in UTF-16 units of the two texts.
+  const pieces = [];
+  let written = 0, writtenBytes = 0;
+  for (const [length, at] of spans) {
+    if (length === 0) continue;
+    const width = rewritten.toString('utf8', writtenBytes, writtenBytes + length).length;
+    pieces.push({ first: written, last: written + width, from: at < 0 ? -1 : source.toString('utf8', 0, at).length });
+    written += width;
+    writtenBytes += length;
+  }
+  if (written !== text.length) return null;
+  const rewrittenStarts = lineStarts(text), originalStarts = lineStarts(original);
+  const generated = mappings.split(';');
+  const rows = code.split(/\r\n|[\n\r\u2028\u2029]/);
+  if (generated.length > rows.length) return null;
+  const state = { line: 0, column: 0 };
+  let piece = 0, sourceLine = 0, previousLine = 0, previousColumn = 0;
+  // Generated text is marked once, where it first follows a mapped copy, on the same line or a later one.
+  let unmapped = true;
+  const out = [];
+  for (const [row, line] of generated.entries()) {
+    const segments = decodeLine(line, state);
+    if (segments === null) return null;
+    let text_ = '', column = 0, first = true;
+    const put = (at, place) => {
+      if (place < 0) {
+        if (unmapped) return;
+        unmapped = true;
+        text_ += (first ? '' : ',') + encode(at - column);
+      } else {
+        while (sourceLine + 1 < originalStarts.length && originalStarts[sourceLine + 1] <= place) sourceLine++;
+        while (originalStarts[sourceLine] > place) sourceLine--;
+        const sourceColumn = place - originalStarts[sourceLine];
+        text_ += (first ? '' : ',') + encode(at - column) + 'A' + encode(sourceLine - previousLine) + encode(sourceColumn - previousColumn);
+        previousLine = sourceLine;
+        previousColumn = sourceColumn;
+        unmapped = false;
+      }
+      column = at;
+      first = false;
+    };
+    for (let index = 0; index < segments.length; index++) {
+      const segment = segments[index];
+      if (segment.length === 1) { put(segment[0], -1); continue; }
+      if (segment[1] >= rewrittenStarts.length) return null;
+      // The copy runs to the next segment of the line, or to the end of the line of the output: generated
+      // text behind a copy has a segment of its own.
+      const start = rewrittenStarts[segment[1]] + segment[2];
+      const end = start + ((index + 1 < segments.length ? segments[index + 1][0] : rows[row].length) - segment[0]);
+      if (start > text.length || end > text.length || end < start) return null;
+      while (piece > 0 && pieces[piece].first > start) piece--;
+      while (piece + 1 < pieces.length && pieces[piece].last <= start) piece++;
+      for (let at = start, current = piece; at < Math.max(end, start + 1) && current < pieces.length; current++) {
+        const part = pieces[current];
+        if (part.last <= at) continue;
+        // A segment that this splitting adds sits on a token, as the emitter's own do: blanks at the start
+        // of a piece are passed over.
+        let token = at;
+        if (at !== start && part.from >= 0) {
+          // (The output is looked at, not the rewritten text: where a type was erased it holds blanks.)
+          for (let unit; token < part.last && token < end && ((unit = rows[row].charCodeAt(segment[0] + (token - start))) === 32 || unit === 9); ) token++;
+        }
+        if (token < Math.min(part.last, Math.max(end, start + 1))) put(segment[0] + (token - start), part.from < 0 ? -1 : part.from + (token - part.first));
+        at = part.last;
+      }
+    }
+    out.push(text_);
+  }
+  return out.join(';');
+}
+
+exports.composeLegacyMappings = composeLegacyMappings;

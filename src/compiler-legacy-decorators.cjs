@@ -70,7 +70,9 @@ function wholeCall(text, at) {
 
 const listedName = /(?:^<|,)\s*(?:(?:const|in|out)\s+)*([A-Za-z_$][\w$]*)/g;
 
-function lowerLegacyDecorators(addon, source, metadata = false, jsx = false) {
+// `spans`, when given, receives the pieces of the result in order: [length, at], where `at` is the place in
+// the source that a copied piece was taken from, or -1 for text that the lowering wrote.
+function lowerLegacyDecorators(addon, source, metadata = false, jsx = false, spans = null) {
   const records = addon.legacyDecoratorRecords?.(source, metadata, jsx);
   if (!records) return null;
   const text = source.latin1Slice();
@@ -312,10 +314,13 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false) {
   let copied = 0;
   for (const [first, last, replacement] of edits) {
     if (first < copied) return null;
-    parts.push(source.subarray(copied, first), Buffer.from(replacement));
+    const written = Buffer.from(replacement);
+    parts.push(source.subarray(copied, first), written);
+    if (spans !== null) spans.push([first - copied, copied], [written.length, -1]);
     copied = last;
   }
   parts.push(source.subarray(copied));
+  if (spans !== null) spans.push([source.length - copied, copied]);
   return Buffer.concat(parts);
 }
 

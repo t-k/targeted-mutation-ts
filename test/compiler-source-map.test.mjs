@@ -438,3 +438,110 @@ test('the command line writes the native map inline', () => {
   assert.equal(code, expected.code);
   assert.deepEqual(JSON.parse(Buffer.from(comment.trim(), 'base64').toString()), expected.sourceMap);
 });
+
+test('a file with legacy decorators gets a map that leads to the source', () => {
+  const options = { file: 'legacy.ts', experimentalDecorators: true };
+  for (const [source, metadata] of [
+    ['function d(c: any) {}\n@d export class A { x: number = 1; m(): void {} }\nexport const n: number = 2;', false],
+    ['const dec = (...a: any[]): any => () => {};\nexport class S {\n  @dec() name: string = "a";\n  constructor(@dec() private readonly dep: Dep, public other = 1) {}\n  @dec() run(@dec() p: number): number { return p; }\n}\nexport enum E { A }\n', false],
+    ['const dec = (c: any) => c;\n@dec\nexport class Self {\n  static make() { return new Self(); }\n}\n// a comment\nexport const after: string = "x";\n', false],
+    ['const dec = (...a: any[]): any => () => {};\r\nclass Dep {}\r\n@dec()\r\nexport class M {\r\n  @dec() field: Dep;\r\n  constructor(private d: Dep, n: number) {}\r\n}\r\n', true],
+    ['const dec = (c: any) => c;\nnamespace N { export const a: number = 1; }\n@dec export default class extends Object { static n: number = N.a; }\nfunction tail(x: string): string { return x; }\nexport { tail };', false],
+  ]) {
+    const plain = compile(Buffer.from(source), { ...options, emitDecoratorMetadata: metadata });
+    const result = compile(Buffer.from(source), { ...options, emitDecoratorMetadata: metadata, sourceMap: true });
+    assert.equal(result.backend, 'pulse', source);
+    // The code is the same with and without a map.
+    assert.equal(result.code, plain.code, source);
+    assert.deepEqual({ ...result.sourceMap, mappings: '' }, { version: 3, file: 'legacy.js', sourceRoot: '', sources: ['legacy.ts'], names: [], mappings: '', sourcesContent: [source] });
+    assert.ok(assertSegmentsFaithful(source, result) >= 10, source);
+    // What the lowering wrote has no place in the source: the helper in front of the first statement has no segment.
+    assert.match(result.sourceMap.mappings, /^;+/);
+  }
+  // A token behind the class still leads to its place in the source.
+  const source = 'function d(c: any) {}\n@d export class A { x: number = 1; }\nexport const marker: number = 2;';
+  const result = compile(Buffer.from(source), { ...options, sourceMap: true });
+  const table = decode(result.sourceMap.mappings);
+  const row = lines(result.code).findIndex(line => line.includes('marker'));
+  const column = lines(result.code)[row].indexOf('marker');
+  const segment = table[row].findLast(entry => entry[0] <= column && entry.length === 3);
+  assert.deepEqual([segment[1], segment[2] + (column - segment[0])], [2, source.split('\n')[2].indexOf('marker')]);
+  // Without a decorator the option changes nothing, and a file that the lowering leaves to TypeScript still gets TypeScript's map.
+  const none = 'export const a: number = 1; // mail @home';
+  assert.deepEqual(compile(Buffer.from(none), { ...options, sourceMap: true }), compile(Buffer.from(none), { file: 'legacy.ts', sourceMap: true }));
+  const refused = compile(Buffer.from('function d(c: any) {}\nfor (const i of [1]) { @d class K { static me() { return K; } } }\nexport {};'), { ...options, sourceMap: true });
+  assert.equal(refused.backend, 'typescript');
+  assert.equal(typeof refused.sourceMap.mappings, 'string');
+});
+
+test('leading a map on through an unchanged text gives the map itself', () => {
+  const { composeLegacyMappings } = require('../src/compiler-legacy-maps.cjs');
+  for (const source of [
+    'export enum E { A = 1, B }\nnamespace N { export const a: number = E.A; export function f(x: string): string { return x; } }\nexport class C { constructor(public x: number, private y = 2) {} }\nexport const out: number = N.a;\n',
+    'export const a: number = 1;\r\nexport function f(x: string): string {\r\n  return x as string;\r\n}\r\nexport enum Color { Red = "red", Blue = "blue" }\r\n',
+    'const s: string = "café → x"; // été\nexport enum U { A }\nexport const t: string = s;\n',
+  ]) {
+    const result = compile(Buffer.from(source), { file: 'same.ts', sourceMap: true });
+    assert.equal(result.backend, 'pulse', source);
+    const bytes = Buffer.from(source);
+    assert.equal(composeLegacyMappings(bytes, bytes, [[bytes.length, 0]], result.sourceMap.mappings, result.code), result.sourceMap.mappings, source);
+    // The same text in three pieces, one of them empty.
+    const cut = bytes.indexOf(10) + 1;
+    assert.equal(composeLegacyMappings(bytes, bytes, [[cut, 0], [0, -1], [bytes.length - cut, cut]], result.sourceMap.mappings, result.code), result.sourceMap.mappings, source);
+  }
+  // A text with a line written in front: every place moves down by a line, and nothing leads into the new line.
+  const source = 'export enum E { A }\nexport const a: number = E.A;\n';
+  const front = Buffer.from('const added = 0;\n'), bytes = Buffer.from(source), rewritten = Buffer.concat([front, bytes]);
+  const result = compile(rewritten, { file: 'same.ts', sourceMap: true });
+  const led = composeLegacyMappings(bytes, rewritten, [[front.length, -1], [bytes.length, 0]], result.sourceMap.mappings, result.code);
+  const direct = compile(bytes, { file: 'same.ts', sourceMap: true });
+  assert.equal(led, ';' + direct.sourceMap.mappings);
+  // A map that is no map, or that does not fit the text, is not led on.
+  const good = direct.sourceMap.mappings;
+  for (const [mappings, spans, code] of [
+    ['AAAA,!', [[bytes.length, 0]], direct.code], ['AAAA,g', [[bytes.length, 0]], direct.code], ['AAA', [[bytes.length, 0]], direct.code], ['ACAA', [[bytes.length, 0]], direct.code],
+    [good, [[bytes.length - 1, 0]], direct.code], [good, [[bytes.length, 0]], 'x'], ['AAoGA', [[bytes.length, 0]], direct.code], ['AAAoG,oG', [[bytes.length, 0]], direct.code],
+  ]) {
+    assert.equal(composeLegacyMappings(bytes, bytes, spans, mappings, code), null, mappings);
+  }
+});
+
+test('what the decorator lowering wrote is marked as generated behind a copy', () => {
+  const source = 'function d(c: any) {}\n@d export class A { x: number = 1; }\nexport const marker: number = 2;';
+  const result = compile(Buffer.from(source), { file: 'legacy.ts', experimentalDecorators: true, sourceMap: true });
+  const table = decode(result.sourceMap.mappings);
+  const rows = lines(result.code);
+  const row = rows.findIndex(line => line.includes('__decorate(['));
+  const column = rows[row].indexOf('__decorate([');
+  // The call of the helper is generated text: the segment that covers it has one field.
+  const covering = table.slice(0, row + 1).flat().length === 0 ? undefined : (table[row].findLast(entry => entry[0] <= column) ?? table.slice(0, row).flat().at(-1));
+  assert.equal(covering.length, 1, JSON.stringify(table[row]));
+  // A line with generated text and a copy behind it keeps both.
+  const mixed = 'const dec = (...a: any[]): any => () => {};\nexport class S {\n  constructor(@dec() private readonly dep: object, public other = 1) {}\n  m(): number { return 1; }\n}\nexport const tail: number = 3;\n';
+  const lowered = compile(Buffer.from(mixed), { file: 'legacy.ts', experimentalDecorators: true, sourceMap: true });
+  assert.equal(lowered.backend, 'pulse');
+  const segments = decode(lowered.sourceMap.mappings);
+  assert.ok(segments.some(line => line.some((entry, index) => entry.length === 1 && line.slice(index + 1).some(later => later.length === 3))), lowered.sourceMap.mappings);
+  assert.ok(assertSegmentsFaithful(mixed, lowered) >= 20);
+});
+
+test('a token behind a lowered decorator on the same line leads to its own place', () => {
+  const source = 'const dec = (...a: any[]): any => () => {};\nexport class S { @dec() first() { return 1; } @dec() second() { return [2, 3]; } third() { return this; } }\nexport const end = 0;\n';
+  const result = compile(Buffer.from(source), { file: 'legacy.ts', experimentalDecorators: true, sourceMap: true });
+  assert.equal(result.backend, 'pulse');
+  const table = decode(result.sourceMap.mappings);
+  const rows = lines(result.code), original = lines(source);
+  let checked = 0;
+  for (const word of ['first', 'second', 'third', 'return 1', 'return [2, 3]', 'return this', 'end']) {
+    const row = rows.findIndex(line => line.includes(word));
+    const column = rows[row].indexOf(word);
+    const segment = table[row].findLast(entry => entry[0] <= column);
+    assert.equal(segment.length, 3, word);
+    const place = [segment[1], segment[2] + (column - segment[0])];
+    const expected = original.findIndex(line => line.includes(word));
+    assert.deepEqual(place, [expected, original[expected].indexOf(word)], word);
+    checked++;
+  }
+  assert.equal(checked, 7);
+  assert.ok(assertSegmentsFaithful(source, result) >= 10);
+});
