@@ -2480,3 +2480,30 @@ test('a string that spells the name of an exported namespace variable is no occu
   // A longer string and a template with a hole still count: the name may be a reference there.
   assert.notEqual(sameAsTypeScript('namespace N { export const a = 1; export const b = `${a}`; export const c = "x a"; }\nexport { N };', 'quoted.ts').backend, 'pulse');
 });
+
+test('an enum member may take its value from a member of something the file does not declare', () => {
+  for (const source of [
+    'import { L } from "l";\nexport const enum W { A = L.Starting, B = L.Ready, C = 5, D }',
+    'export enum W { A = 1, B = W.A, C = Other.q }',
+    'import * as t from "t";\nnamespace N { export enum K { x = t.SyntaxKind.A, y = 2 } }\nexport { N };',
+    'function f() { enum Local { a = Outside.kind.a } return Local.a; }\nexport { f };',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'foreign.ts').backend, 'pulse', source);
+  }
+  assert.equal(compile(Buffer.from('import { L } from "l";\nexport enum W { A = L.a }'), { file: 'foreign.ts' }).code,
+    'import { L } from "l";\nexport var W; (function (W) {W[W["A"]=L.a]="A";})(W||(W={}));');
+  for (const source of [
+    // The next member needs a value, and no member can compute with one that is not known.
+    'import { L } from "l";\nexport enum W { A = L.x.y, B }',
+    'import { L } from "l";\nenum W { A = L.a, B = A }\nexport { W };',
+    // A member of an enum, a namespace or an alias of the file may be a constant, and so may the result of an operator.
+    'enum O { a = 1 }\nexport enum W { A = O.a }',
+    'namespace N { export enum O { a = 1 } }\nexport enum W { A = N.O.a }',
+    'import O = Q.R;\nexport enum W { A = O.a }',
+    'import * as t from "t";\nexport enum K { y = t.B | 1 }',
+    'export enum W { A = this.a }',
+    'export enum W { A = someConst }',
+  ]) {
+    assert.notEqual(sameAsTypeScript(source, 'foreign.ts').backend, 'pulse', source);
+  }
+});

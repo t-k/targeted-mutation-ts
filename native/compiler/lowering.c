@@ -523,6 +523,57 @@ static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported, b
   return emitted;
 }
 
+/*
+ * Whether the file itself declares a name as an enum, a namespace or an import alias. A member of such a name
+ * may be a constant that TypeScript writes as its value.
+ */
+static bool declares_constants(TmtPulseMemory_tape input, uint32_t first, uint32_t last) {
+  const uint32_t width = last - first;
+  for (uint32_t at = 0; at + width <= input.size; at++) {
+    if (memcmp(input.source + at, input.source + first, width)) continue;
+    if (at > 0 && (input.source[at - 1] >= 128 || TmtGrammar_identifier_continue(input.source[at - 1]))) continue;
+    if (at + width < input.size && (input.source[at + width] >= 128 || TmtGrammar_identifier_continue(input.source[at + width]))) continue;
+    uint32_t back = at;
+    while (back > 0 && (input.source[back - 1] == ' ' || input.source[back - 1] == '\t' || input.source[back - 1] == '\n' || input.source[back - 1] == '\r')) back--;
+    uint32_t word = back;
+    while (word > 0 && TmtGrammar_identifier_continue(input.source[word - 1])) word--;
+    const uint32_t length = back - word;
+    if ((length == 4 && !memcmp(input.source + word, "enum", 4)) || (length == 9 && !memcmp(input.source + word, "namespace", 9)) ||
+        (length == 6 && (!memcmp(input.source + word, "module", 6) || !memcmp(input.source + word, "import", 6)))) return true;
+    /* A comment between the keyword and the name is not followed. */
+    if (back >= 2 && input.source[back - 1] == '/' && input.source[back - 2] == '*') return true;
+  }
+  return false;
+}
+
+/*
+ * An initializer that is a member of something the file does not declare, `Other.Member`: TypeScript cannot
+ * know its value in one file and writes the expression, with the reverse mapping of a number. The reference
+ * ends the initializer.
+ */
+static bool enum_foreign_member(lowering *lower, TmtGrammar_span binding) {
+  const TmtPulseMemory_tape input = lower->input;
+  const uint32_t first = lower->at;
+  const TmtPulseParser_cursor root = TmtPulseParser_name(input, first, false, false);
+  if (!root.ok || root.at <= first || root.at >= input.size || input.source[root.at] != '.') return false;
+  for (uint32_t at = first; at < root.at; at++) if (input.source[at] >= 128) return false;
+  /* The enum's own name would name its members, which are constants. */
+  if (root.at - first == binding.last - binding.first && !memcmp(input.source + first, input.source + binding.first, root.at - first)) return false;
+  if (declares_constants(input, first, root.at)) return false;
+  uint32_t at = root.at;
+  while (at < input.size && input.source[at] == '.') {
+    at++;
+    if (at >= input.size || !TmtGrammar_identifier_start(input.source[at])) return false;
+    while (at < input.size && input.source[at] < 128 && TmtGrammar_identifier_continue(input.source[at])) at++;
+    if (at < input.size && input.source[at] >= 128) return false;
+  }
+  lower->at = at;
+  const uint32_t end = at;
+  if (!trivia(lower) || (peek(lower) != ',' && peek(lower) != '}')) return false;
+  lower->at = end;
+  return true;
+}
+
 static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exported, bool local, enum_scope *scope) {
   writer *out = &lower->output;
   /* TypeScript declares an enum inside a block with let, so it is scoped to the block like the source. */
@@ -533,6 +584,8 @@ static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exp
   put(out, ") {");
   int64_t next = 0;
   bool numeric = true;
+  /* Set behind a member whose value is not known here: the next member needs a value of its own. */
+  bool unknown = false;
   for (uint32_t index = 0; ; index++) {
     if (!trivia(lower)) return false;
     if (consume(lower, '}')) break;
@@ -559,16 +612,21 @@ static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exp
     if (same_bytes(lower, key, "__proto__") || !trivia(lower)) return false;
 
     uint32_t value_start = 0, value_end = 0;
-    bool folded = false;
+    bool folded = false, foreign = false;
     if (consume(lower, '=')) {
       if (!trivia(lower)) return false;
       value_start = lower->at;
       numeric = peek(lower) != '"' && peek(lower) != '\'';
       if (numeric) {
-        if (!enum_numeric(lower, scope, &next, &folded)) return false;
+        if (!enum_numeric(lower, scope, &next, &folded)) {
+          lower->at = value_start;
+          if (!enum_foreign_member(lower, binding)) return false;
+          foreign = true;
+        }
       } else if (!literal_string(lower, &lower->at)) return false;
       value_end = lower->at;
-    } else if (!numeric || next > INT64_C(9007199254740991)) return false;
+      unknown = foreign;
+    } else if (!numeric || unknown || next > INT64_C(9007199254740991)) return false;
 
     source_bytes(lower, binding.first, binding.last);
     put(out, "[");
@@ -578,13 +636,14 @@ static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exp
     }
     if (!quote(lower, key, false)) return false;
     put(out, "]=");
-    if (value_end && (!numeric || (next != 0 && !folded))) source_bytes(lower, value_start, value_end);
+    if (value_end && (foreign || !numeric || (next != 0 && !folded))) source_bytes(lower, value_start, value_end);
     else {
       char value[32];
       snprintf(value, sizeof(value), "%" PRId64, next);
       put(out, value);
     }
-    if (enum_declared(lower, scope, key) || !enum_remember(scope, key, next, numeric)) return false;
+    /* A member without a known value is remembered as a string is: a later member cannot compute with it. */
+    if (enum_declared(lower, scope, key) || !enum_remember(scope, key, next, numeric && !foreign)) return false;
     if (numeric) {
       put(out, "]=");
       if (!quote(lower, key, false)) return false;
