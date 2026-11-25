@@ -228,3 +228,17 @@ test('the global object is no foreign root of an enum value', () => {
     assert.notEqual(compile(Buffer.from(`export enum Status { Active = ${root}.x }`), { file: 'e.ts' }).backend, 'pulse', root);
   }
 });
+
+test('an enum with many values from other names is written member by member, whatever the order of the roots', () => {
+  const members = Array.from({ length: 300 }, (_, i) => `M${i} = ${i % 3 === 0 ? 'First' : i % 3 === 1 ? 'Second.inner' : 'First'}.K${i}`);
+  const source = `import { First, Second } from "o";\nexport enum Big { ${members.join(', ')} }`;
+  const result = compile(Buffer.from(source), { file: 'e.ts' });
+  assert.equal(result.backend, 'pulse');
+  for (const i of [0, 1, 2, 149, 299]) {
+    const root = i % 3 === 1 ? 'Second.inner' : 'First';
+    assert.ok(result.code.includes(`Big[Big["M${i}"]=${root}.K${i}]="M${i}";`), String(i));
+  }
+  // A root that the enum itself declares further down still declines, behind many members of another root.
+  const late = `import { First } from "o";\nexport enum Big { ${Array.from({ length: 50 }, (_, i) => `M${i} = First.K${i}`).join(', ')}, Last = Own.length, Own = "x" }`;
+  assert.notEqual(compile(Buffer.from(late), { file: 'e.ts' }).backend, 'pulse');
+});

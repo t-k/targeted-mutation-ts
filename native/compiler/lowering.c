@@ -612,7 +612,16 @@ static uint32_t enum_body_end(TmtPulseMemory_tape input, uint32_t at) {
  * once, and the file declares the root neither as an enum, a namespace nor an import alias. In a namespace
  * body the root may be a member of the namespace, so nothing is taken there.
  */
-static bool enum_foreign_member(lowering *lower, TmtGrammar_span binding, uint32_t body) {
+/*
+ * What the search of the whole source found for the last root, and for the enum's own name. An enum often
+ * takes many values from one name, and the search reads the whole file.
+ */
+typedef struct {
+  TmtGrammar_span root;
+  bool root_known, single, single_known;
+} foreign_roots;
+
+static bool enum_foreign_member(lowering *lower, TmtGrammar_span binding, uint32_t body, foreign_roots *known) {
   const TmtPulseMemory_tape input = lower->input;
   const uint32_t first = lower->at;
   if (!lower->whole || lower->in_namespace || lower->owner.first != lower->owner.last) return false;
@@ -627,15 +636,25 @@ static bool enum_foreign_member(lowering *lower, TmtGrammar_span binding, uint32
   for (size_t index = 0; index < sizeof(globals) / sizeof(*globals); index++) {
     if (width == strlen(globals[index]) && !memcmp(input.source + first, globals[index], width)) return false;
   }
-  if (keyword_declarations(lower, input.source + first, width, false) != 0) return false;
-  if (keyword_declarations(lower, input.source + binding.first, binding.last - binding.first, true) != 1) return false;
-  /* Every other occurrence of the word in the body may be a member's name; a reference is followed by a dot. */
-  const uint32_t closing = enum_body_end(input, body);
-  for (uint32_t at = body; at + width <= closing; at++) {
-    if (memcmp(input.source + at, input.source + first, width)) continue;
-    if (at > 0 && (input.source[at - 1] >= 128 || TmtGrammar_identifier_continue(input.source[at - 1]))) continue;
-    if (at + width < closing && (input.source[at + width] >= 128 || TmtGrammar_identifier_continue(input.source[at + width]))) continue;
-    if (at + width >= closing || input.source[at + width] != '.') return false;
+  const bool same_root = known->root_known && known->root.last - known->root.first == width &&
+    !memcmp(input.source + known->root.first, input.source + first, width);
+  if (!known->single_known) {
+    known->single = keyword_declarations(lower, input.source + binding.first, binding.last - binding.first, true) == 1;
+    known->single_known = true;
+  }
+  if (!known->single) return false;
+  if (!same_root) {
+    if (keyword_declarations(lower, input.source + first, width, false) != 0) return false;
+    /* Every other occurrence of the word in the body may be a member's name; a reference is followed by a dot. */
+    const uint32_t closing = enum_body_end(input, body);
+    for (uint32_t at = body; at + width <= closing; at++) {
+      if (memcmp(input.source + at, input.source + first, width)) continue;
+      if (at > 0 && (input.source[at - 1] >= 128 || TmtGrammar_identifier_continue(input.source[at - 1]))) continue;
+      if (at + width < closing && (input.source[at + width] >= 128 || TmtGrammar_identifier_continue(input.source[at + width]))) continue;
+      if (at + width >= closing || input.source[at + width] != '.') return false;
+    }
+    known->root = (TmtGrammar_span){ first, first + width };
+    known->root_known = true;
   }
   uint32_t at = root.at;
   while (at < input.size && input.source[at] == '.') {
@@ -702,6 +721,7 @@ static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exp
   int64_t next = 0;
   bool numeric = true;
   const uint32_t body = lower->at;
+  foreign_roots known = { 0 };
   /* Set behind a member whose value is not known here: the next member needs a value of its own. */
   bool unknown = false;
   for (uint32_t index = 0; ; index++) {
@@ -739,7 +759,7 @@ static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exp
         if (enum_fraction(lower)) foreign = true;
         else if (!enum_numeric(lower, scope, &next, &folded)) {
           lower->at = value_start;
-          if (!enum_foreign_member(lower, binding, body)) return false;
+          if (!enum_foreign_member(lower, binding, body, &known)) return false;
           foreign = true;
         }
       } else if (peek(lower) == '`') {
