@@ -722,3 +722,24 @@ Of the files that hold decorators, the rewriting succeeds for 1,338 of vscode's 
 On the files of these four projects that hold an at sign, 9,254 of 9,256 native outputs have the syntax of TypeScript's lowering once both forms of the self-naming class are folded into one, and 9,072 of 9,074 with metadata; the two others are of the known parenthesis kind in both runs.
 
 Left to TypeScript for now: a decorator between `export default` and `class`, class expressions with decorated members, classes in namespaces, computed and private keys, decorators on both accessors of one name, a leading directive or interpreter line, and source maps.
+
+### Namespaces inside namespaces, and functions that mix var with lexical names
+
+A namespace inside a namespace that exists at run time is lowered as TypeScript lowers it. The parser reads the inner body as a function body of its own and binds the inner name as a variable of the body around it; the emitter keeps the namespaces that are open and writes
+
+```js
+var N;(function (N) { let M;(function (M) { M.v = 1; })(M=N.M||(N.M={})); })(N||(N={}));
+```
+
+for an exported inner namespace, and `(M||(M={}))` for one that is not exported. A dotted name, `namespace A.B.C { }`, is the same thing written shorter: the parser reads the further names and binds the first, and the emitter opens one namespace per name, each exported from the one before, and closes them all at the one closing brace. TypeScript declares the further names with the keyword of the first, `var` at module level and `let` inside a namespace, and so does the emitter. A dotted namespace that holds types alone is erased like any other. The rule for exported variables holds per namespace over its whole body, the namespaces inside included: a second occurrence of the name would be a reference that needs the namespace in front of it. A namespace's own name may now stand in its body in front of a dot, as in `new N.C()`, which reads a property through the parameter; any other use may be a declaration, for which TypeScript renames the parameter, and is left to TypeScript. The word `namespace` in front of a line break stays the identifier it is. A PICT table of 18 rows (outer export, inner export, member kind, depth, own-name use, sibling) is compared with TypeScript by syntax and by running both outputs.
+
+Looking at namespace bodies showed a wider gap. The emitter finds the end of each module item by reading the item again. That reading used the mode in which a function that declares both a `var` and a `let`, `const` or `class` stops the parser, so that the whole parse can run its second pass and compare the declarations. The emitter took the stop for the end of what it can write. A module that held such a function was therefore left to TypeScript whenever something in it was written item by item: an enum, a namespace, a type annotation, JSX.
+
+```ts
+function f() { var b = 1; const c = 2; return b + c; }
+export const x: number = f();
+```
+
+The readings that only find boundaries now keep the log of local names inactive. The comparison of declarations stays with the whole parse, which has accepted the source before the emitter runs, so `var b; let b;` in one function is still reported through TypeScript.
+
+Together these changes move NEW_NATIVE files of the wide corpora and TypeScript's own suites to the native routes, with no difference to TypeScript's output among them (NATIVE_TOTAL native outputs compared, NATIVE_MATCH equal, the others of the known kinds).

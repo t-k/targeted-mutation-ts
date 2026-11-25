@@ -581,9 +581,12 @@ let module_item_end (input:tape) (state:P.parser_state)
       else P.type_namespace_members input ambient_module 0ul 0ul 0ul 8ul input.size true
     else ordinary_module_item_end input state
 
+// The readings below find where an item or an expression ends in a source that the parser has accepted as a
+// whole. A function that declares both vars and lexical names is checked in that whole reading, by a second
+// pass; here its declarations are not compared again, so the log of local names stays inactive.
 let next_module_boundary (input:tape) (jsx:bool) (at:U32.t)
   : Tot (stt U32.t (heap input) (fun _ -> heap input)) =
-  let initial = P.initial_state jsx true P.primary_locals in
+  let initial = P.initial_state jsx true P.inactive_locals in
   let! undecorated = (fun () -> P.skip input { initial with offset = at }) in
   // Decorators belong to the class declaration that follows them.
   let! st = (fun () -> P.decorated_class_start input undecorated) in
@@ -597,7 +600,7 @@ let next_module_boundary (input:tape) (jsx:bool) (at:U32.t)
 // An exported class may stand behind decorators. The item then marks a module like a plain export.
 let decorated_export (input:tape) (jsx:bool) (at:U32.t)
   : Tot (stt bool (heap input) (fun _ -> heap input)) =
-  let initial = P.initial_state jsx true P.primary_locals in
+  let initial = P.initial_state jsx true P.inactive_locals in
   let! undecorated = (fun () -> P.skip input { initial with offset = at }) in
   let! st = (fun () -> P.decorated_class_start input undecorated) in
   if st.status <> 0ul || st.offset = undecorated.offset then ret input false
@@ -625,7 +628,7 @@ fn jsx_operand_end (input:tape) (at:U32.t)
   returns end_:P.cursor
   ensures heap input
 {
-  let initial = P.initial_state true true P.primary_locals;
+  let initial = P.initial_state true true P.inactive_locals;
   let value = P.atom input { initial with P.offset = at } 64ul;
   unfold heap;
   let end_ = P.skip input #(workspace_ready input) value.P.parser;
@@ -639,7 +642,7 @@ fn jsx_expression_end (input:tape) (at:U32.t)
   returns end_:P.cursor
   ensures heap input
 {
-  let initial = P.initial_state true true P.primary_locals;
+  let initial = P.initial_state true true P.inactive_locals;
   let value = P.comparison input { initial with P.offset = at } 64ul;
   unfold heap;
   let end_ = P.skip input #(workspace_ready input) value.P.parser;

@@ -1,0 +1,7 @@
+Outer	Inner	Member	Depth	OwnName	Sibling
+Plain	Exported	Const	Two	Unused	None
+Exported	Exported	Function	Two	Unused	ConstBefore
+Plain	Plain	Const	Two	QualifiedInner	None
+Plain	Exported	Class	Three	QualifiedOuter	FunctionAfter
+Exported	Plain	Enum	Two	Unused	None
+Plain	Exported	Statement	Three	Unused	ConstBefore

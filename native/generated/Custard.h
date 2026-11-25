@@ -2467,6 +2467,13 @@ bool TmtPulseParser_namespace_keyword(TmtPulseMemory_tape input, uint32_t at);
 
 uint32_t TmtPulseParser_namespace_width(TmtPulseMemory_tape input, uint32_t at);
 
+TmtPulseParser_cursor
+TmtPulseParser_dotted_namespace_name(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_cursor named0,
+  uint32_t fuel0
+);
+
 TmtPulseParser_namespace_head
 TmtPulseParser_named_namespace_start(
   TmtPulseMemory_tape input,
@@ -2733,12 +2740,24 @@ TmtPulseParser_enum_declaration(
 );
 
 TmtPulseParser_parser_state
+TmtPulseParser_nested_namespace(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t keyword_at,
+  uint32_t floor,
+  uint32_t used,
+  uint32_t remaining,
+  uint32_t depth
+);
+
+TmtPulseParser_parser_state
 TmtPulseParser_runtime_namespace_members(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state state0,
   uint32_t floor0,
   uint32_t used0,
   uint32_t remaining0,
+  uint32_t depth0,
   bool instantiated0
 );
 

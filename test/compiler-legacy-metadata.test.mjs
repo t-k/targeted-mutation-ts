@@ -89,6 +89,7 @@ test('the shapes of real services and entities are lowered natively', () => {
     'export class A { @E "quoted-key": string; @E \'k\'?: number; @E s!: bigint; @E "m"(a: string): void {} @E static "t" = 1; }',
     'export abstract class A { abstract n(): void; @E m(a: any): any { return a; } }',
     'import { dec } from "d";\ninterface I {}\nexport interface J { a: 1 }\nexport const J = dec<J>("j");\nclass A { @E a: I; @E b: J; constructor(@J c: J) {} }\nexport { A };',
+    'import { dec } from "d";\nexport interface J { a: 1 }\nexport const J = dec<Map<string, J>>({ id: "j", list: [1, 2] }, "x")\nexport class A { @E b: J; }',
     'import /* model */ type { User } from "./user";\nimport { type Other, Kept } from "./o";\nexport class C { @E a: User; @E b: Other; @E c: Kept; }',
     'export class C { @E get value(): number { return 0; } @E format() : string { return "ok"; } @E field !: string; @E opt ?: number; @E limit: 1_000n; @E async *values() { yield 1; } @E async one() {} @E(async () => 1) plain() {} }',
     'class A { @E a: Later; @E b: Later[]; }\nclass Later {}\nexport { A, Later };',
@@ -118,6 +119,9 @@ test('what the reading of types is not certain of is left to TypeScript, with th
     'class A { @E get g(): string { return ""; } set g(v: string) {} }\nexport { A };',
     'const _a = 1;\nclass A { @E a: S; }\nexport { A };',
     // A value of the interface's name may be a constructor.
+    'import { makeToken } from "./factory.js";\ninterface Token {}\nconst Token = makeToken() as new () => Token;\n@D export class Service { constructor(token: Token) {} }',
+    'import { makeToken } from "./factory.js";\ninterface Token {}\nconst Token = makeToken<Token>("t").ctor;\n@D export class Service { constructor(token: Token) {} }',
+    'import { makeToken } from "./factory.js";\ninterface Token {}\nconst Token = makeToken(() => 1);\n@D export class Service { constructor(token: Token) {} }',
     'interface Token {}\nconst Token = class {};\n@D export class Service { constructor(value: Token) {} }',
     'interface J {}\nconst J = dec<J>("j");\nclass A { @E b: J; }\nexport { A };',
     'import { dec } from "d";\ninterface J {}\nconst J = dec<J>("j");\n// const J = dec("k")\nclass A { @E b: J; }\nexport { A };',
@@ -126,6 +130,7 @@ test('what the reading of types is not certain of is left to TypeScript, with th
     'class Foo {}\nexport function f(Foo: any) { class A { @E x: Foo; } return A; }',
     // The accessors of one name, however the name is spelled.
     'export class C { @E get value(): number { return 0; } set "value"(v: number) {} }',
+    'export class C { @E get value() { return 0; } set ["value"](v: number) {} }',
     // Comments where an annotation may stand.
     'export class C { @E format() /* result */ : string { return "ok"; } }',
     'export class C { @E setAll(...values: readonly number[]) {} }',

@@ -190,6 +190,8 @@ test('the variable a self-naming class sees is its own, as in TypeScript\'s lowe
     ['@D class A { static get() { return A; } }\nconst saved = A;\n(A as any) = class Other {};\nexport const out = (saved as any).get() === saved;', ['value', true]],
     // A function outside reads the outer variable, which is not initialized while the static members run.
     ['function read() { return Service; }\n@D class Service { static self = Service; static registered = read(); }\nexport const out = 1;', ['throws', 'ReferenceError']],
+    // A class of any name: the function that stores the decorated class does not hide it.
+    ['@customize class value { static make() { return new value(); } }\nexport const out = [(value as any).make() instanceof value, (value as any).extra];', ['value', [true, true]]],
     // A spread of the class is a reference to it.
     ['@customize class Settings { static snapshot() { return { ...Settings }; } }\nexport const out = Settings.snapshot();', ['value', { extra: true }]],
     // The class of a heritage clause has a body of its own in front of the class's body.
@@ -211,6 +213,10 @@ test('the variable a self-naming class sees is its own, as in TypeScript\'s lowe
     'export function f() { @d class K { static me() { return K; } } return K; }',
     '@d class K { static v = K; [await 1]() {} }\nexport { K };',
     '@d class K extends (await base) { static v = K; }\nexport { K };',
+    // In the heritage clause and as a shorthand property TypeScript leaves the name, which is the undecorated class.
+    '@d class Service extends base(() => Service) {}\nexport { Service };',
+    '@d class A { static get() { return { A }; } }\nexport { A };',
+    '@d class A { static get() { return { x: 1, A }; } }\nexport { A };',
     'const K_1 = 1;\n@d class K { static v = K; }\nexport { K, K_1 };',
   ]) assert.equal(lowered(source).backend, 'typescript', source);
 });
@@ -230,7 +236,10 @@ test('comments and white space do not change what is read', () => {
     assert.equal(lowered(source).backend, 'pulse', source);
   }
   assert.match(compile(Buffer.from('@d export /* default settings */ class Settings {}'), options).code, /export \{ Settings \};/);
-  // A line separator ends a line comment; the helpers stand in front of the class whichever route answers.
-  const separated = lowered('// license\u2028@d export class C {}\nfunction d(...args: any[]) {}');
-  assert.ok(separated.code.indexOf('var __decorate') < separated.code.search(/__decorate\(\[\s*d\b/));
+  // A line separator ends a line comment and is white space. A source that holds one is left to TypeScript.
+  for (const source of ['// license\u2028@d export class C {}\nfunction d(...args: any[]) {}',
+    'function register() {}\n@register\nexport // Public entry point\u2028default class Service {}',
+    'function record() {}\nexport class Config { @record value\u2028: string; }', '@d export class C { m() { return "\u2029"; } }']) {
+    assert.equal(lowered(source).backend, 'typescript', source);
+  }
 });

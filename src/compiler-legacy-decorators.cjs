@@ -36,6 +36,38 @@ const importAlias = /\bimport\s+(?:type\s+)?([A-Za-z_$][\w$]*)\s*=/g;
 // A variable whose value is the result of a call: `const IFoo = createDecorator<IFoo>('foo')`.
 const calledValue = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*[<(]/g;
 const callable = /\bextends\b|[{;,\n\r/]\s*(?:\(|<|new\b)/;
+
+// Whether the call whose type arguments or arguments begin at `at` ends the statement it stands in.
+function wholeCall(text, at) {
+  const closing = { '(': ')', '[': ']', '{': '}', '<': '>' };
+  for (let round = 0; round < 2; round++) {
+    if (round === 0 && text[at] !== '<') continue;
+    if (round === 1 && text[at] !== '(') return false;
+    const stack = [];
+    for (; at < text.length; at++) {
+      const unit = text[at];
+      // A string, a comment or an arrow inside the call is not followed here.
+      if (unit === '"' || unit === "'" || unit === '`' || unit === '/' || (unit === '=' && text[at + 1] === '>')) {
+        if (unit === '"' || unit === "'") {
+          const end = text.indexOf(unit, at + 1);
+          if (end < 0 || /[\\\r\n]/.test(text.slice(at + 1, end))) return false;
+          at = end;
+          continue;
+        }
+        return false;
+      }
+      if (closing[unit] !== undefined && (unit !== '<' || round === 0)) stack.push(closing[unit]);
+      else if (unit === ')' || unit === ']' || unit === '}' || (unit === '>' && round === 0)) {
+        if (stack.pop() !== unit) return false;
+        if (stack.length === 0) { at++; break; }
+      }
+    }
+    if (round === 0) while (text[at] === ' ' || text[at] === '\t') at++;
+  }
+  const rest = /^[ \t]*(.?)/.exec(text.slice(at, at + 64))[1];
+  return rest === ';' || rest === '' || rest === '\r' || rest === '\n';
+}
+
 const listedName = /(?:^<|,)\s*(?:(?:const|in|out)\s+)*([A-Za-z_$][\w$]*)/g;
 
 function lowerLegacyDecorators(addon, source, metadata = false) {
@@ -43,6 +75,9 @@ function lowerLegacyDecorators(addon, source, metadata = false) {
   if (!records) return null;
   const text = source.latin1Slice();
   const slice = (first, last) => source.utf8Slice(first, last);
+  // The line and paragraph separators end a line comment and count as white space. The text is read here as
+  // bytes, where they are three bytes each; a source that holds one is left to TypeScript.
+  if (/\xE2\x80[\xA8\xA9]/.test(text)) return null;
   // For metadata: where annotations end, by the place of their colon; and the names of the file.
   const annotations = new Map();
   // Type parameters, wherever they are declared.
@@ -109,7 +144,8 @@ function lowerLegacyDecorators(addon, source, metadata = false) {
     }
     for (const found of text.matchAll(calledValue)) {
       const entry = calledValues.get(found[1]) ?? calledValues.set(found[1], { count: 0, callee: found[2] }).get(found[1]);
-      entry.count++;
+      // The call has to be the whole value: an assertion behind it may name a constructor type.
+      entry.count += wholeCall(text, found.index + found[0].length - 1) ? 1 : 2;
     }
     // A second variable of the name, however it gets its value, leaves the name uncertain.
     for (const [name, entry] of calledValues) {
@@ -338,7 +374,7 @@ function closeClass(found, text, end, context) {
   // reference in the body, which takes scope analysis. Here the class expression loses its name and stands in
   // a scope of its own that declares the name again:
   //
-  //   let [A, A_1] = (() => { let A; A = class { static { A = this; } ... }; return [A, value => A = value]; })();
+  //   let [A, A_1] = (() => { let A; A = class { static { A = this; } ... }; return [A, A_1 => A = A_1]; })();
   //   A = A_1(__decorate([D], A));
   //
   // The body sees the inner variable, which is TypeScript's `A_1`: it holds the class while the static members
@@ -353,11 +389,20 @@ function closeClass(found, text, end, context) {
   const setter = found.name + '_1';
   // Inside a function TypeScript's second variable belongs to the function, so every run of the function
   // shares it, and the body of an earlier class sees a later one. That is left to TypeScript.
+  // TypeScript writes its second name only for references in the body that are expressions of their own. In
+  // the heritage clause, and as a shorthand property `{ A }`, the name stays and means the undecorated class.
+  // Both are left to TypeScript; a name between a comma or a brace and a comma or a brace may be a shorthand.
+  const reference = '(?<![\\w$])(?<!(?<!\\.)\\.)' + escaped + '(?![\\w$])';
+  // Type parameters, type arguments and the implements clause of the head are types, which are erased.
+  let heritage = found.bodyFirst !== undefined ? text.slice(found.nameLast, found.bodyFirst).replace(/\bimplements\b[\s\S]*$/, '') : '';
+  for (let before = ''; before !== heritage;) { before = heritage; heritage = heritage.replace(/<[^<>]*>/g, ''); }
+  const unrenamed = found.bodyFirst !== undefined && (new RegExp(reference).test(heritage) ||
+    new RegExp('[{,]\\s*' + reference + '\\s*[,}]').test(text.slice(found.bodyFirst, end)));
   // An await belongs to the function around the class when it stands in the heritage clause or in a computed key.
   const awaits = /\b(?:await|yield)\b/;
   const outside = found.bodyFirst !== undefined && (awaits.test(text.slice(found.nameLast, found.bodyFirst)) ||
     found.members.some(member => (member.flags & 32) && awaits.test(member.key)));
-  if (named && (found.local || found.bodyFirst === undefined || text[found.bodyFirst] !== '{' || outside ||
+  if (named && (found.local || found.bodyFirst === undefined || text[found.bodyFirst] !== '{' || outside || unrenamed ||
       new RegExp('(?<![\\w$])' + escaped + '_1(?![\\w$])').test(text))) return null;
   const list = found.decorators.map(decorator => decorator.expression);
   for (const parameter of found.constructor) {
@@ -375,7 +420,7 @@ function closeClass(found, text, end, context) {
       [found.bodyFirst + 1, found.bodyFirst + 1, ` static { ${found.name} = this; }`]] :
       [[found.headFirst, found.headLast, `let ${found.name} = class `]]),
     ...found.erased.map(([first, last]) => [first, last, '']),
-    [end, end, (named ? `; return [${found.name}, value => ${found.name} = value]; })();\n` : ';\n') + statements.join('\n') + '\n'],
+    [end, end, (named ? `; return [${found.name}, ${setter} => ${found.name} = ${setter}]; })();\n` : ';\n') + statements.join('\n') + '\n'],
   ];
 }
 
@@ -411,6 +456,8 @@ function memberMetadata(member, found, context) {
     // TypeScript reads the type of an accessor from both of its declarations.
     const same = found.members.filter(other => (other.flags & 8) && (other.flags & 1) === (member.flags & 1) && other.spelled === member.spelled);
     if (same.length !== 1) return null;
+    // A computed key may spell the same name: `set ["value"](v)`.
+    if (found.members.some(other => (other.flags & 8) && (other.flags & 32) && !other.key.startsWith('#'))) return null;
     // TypeScript serializes the type of a setter's parameter twice: as the type of the member, then in the list.
     const first = member.all.length === 1 ? parameterTypes(member, context) : member.all.length === 0 ? [context.typeAt(member.listEnd, false)] : null;
     if (first === null || first[0] === null) return null;

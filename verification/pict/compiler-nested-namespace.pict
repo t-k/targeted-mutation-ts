@@ -1,0 +1,6 @@
+Outer: Plain, Exported
+Inner: Plain, Exported
+Member: Const, Function, Class, Enum, Statement
+Depth: Two, Three
+OwnName: Unused, QualifiedInner, QualifiedOuter
+Sibling: None, ConstBefore, FunctionAfter

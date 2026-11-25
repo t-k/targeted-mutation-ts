@@ -5118,6 +5118,16 @@ let ambient_module_start (input:tape) (#frame:slprop) (state:parser_state) : Tot
 
 type namespace_head = { body_start:parser_state; name_start:U32.t }
 
+// The further names of a dotted namespace name, `A.B.C`: each a dot and a name, with nothing between.
+let rec dotted_namespace_name (input:tape) (#frame:slprop) (named:cursor) (fuel:U32.t)
+  : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
+  let! dot = (fun () -> if named.ok then same input #frame named.at 46uy else read_ret input #frame false) in
+  if not dot then read_ret input #frame named
+  else if fuel = 0ul then read_ret input #frame { named with ok = false }
+  else
+    let! next_name = (fun () -> name input #frame (next named.at) false true) in
+    dotted_namespace_name input #frame next_name (minus fuel 1ul)
+
 let named_namespace_start (input:tape) (#frame:slprop) (state:parser_state)
   : Tot (stt namespace_head (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! width = (fun () -> namespace_width input #frame state.offset) in
@@ -5125,7 +5135,9 @@ let named_namespace_start (input:tape) (#frame:slprop) (state:parser_state)
   else
     let! gap = (fun () -> trivia input #frame (plus state.offset width)) in
     let st = from_cursor state gap in
-    let! named = (fun () -> name input #frame st.offset false true) in
+    let! first_name = (fun () -> name input #frame st.offset false true) in
+    // A dotted name declares one namespace inside another. The name that is bound is the first.
+    let! named = (fun () -> dotted_namespace_name input #frame first_name 6ul) in
     let! tail = (fun () -> skip input #frame (from_cursor st named)) in
     let! body = (fun () -> if gap.newline then read_ret input #frame (failed tail 1ul) else consume input #frame tail 123uy) in
     read_ret input #frame { body_start = body; name_start = st.offset }
@@ -5338,11 +5350,13 @@ let rec type_namespace_members (input:tape) (state:parser_state) (floor used loc
 //   35  `export const ` up to the name, replaced by `N.`
 //   36  `export ` in front of a function or a class, removed
 //   37  the closing brace of that declaration, followed by `N.f = f;`
-// One declarator per exported variable, no exported enum, no nested namespace and no overloads: the rest is
-// left to TypeScript. A reference to an exported variable elsewhere in the body would need `N.` in front of
-// it, so the emitter declines when the name occurs twice.
-let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:names_used) (remaining:U32.t) (instantiated:bool)
-  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
+// One declarator per exported variable and no overloads: the rest is left to TypeScript. A reference to an
+// exported variable elsewhere in the body would need `N.` in front of it, so the emitter declines when the
+// name occurs twice.
+// A namespace inside is read the same way, with kinds 34 and 38 around it: the emitter keeps the namespaces
+// that are open and writes `let M;(function (M) { ... })(M = N.M || (N.M = {}));` for an exported one.
+let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:names_used) (remaining depth:U32.t) (instantiated:bool)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v depth; U32.v remaining; 1]) =
   let! st = (fun () -> skip input { state with local_names = used }) in
   let! closed = (fun () -> same input st.offset 125uy) in
   // A namespace that holds types alone does not exist at run time, and TypeScript writes nothing for it.
@@ -5358,12 +5372,17 @@ let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:
       // The body becomes a function body, so a var that is a statement of it belongs to it. Other statements
       // are read as outside a function: a return has no place here.
       let! var_ = (fun () -> if first = 118uy then keyword input st.offset 3ul 0x766172uL else ret input false) in
-      if var_ then
+      // `namespace` in front of a line break, or of anything but a name and a brace, is an identifier.
+      let! inner = (fun () -> if first = 110uy || first = 109uy then namespace_width input st.offset else ret input 0ul) in
+      let! inner_head = (fun () -> if inner <> 0ul then named_namespace_start input st
+        else ret input { body_start = failed st 1ul; name_start = st.offset }) in
+      if inner_head.body_start.status = 0ul then nested_namespace input st st.offset floor used remaining depth
+      else if var_ then
         let! declared = (fun () -> local_var_declaration input st 64ul) in
-        runtime_namespace_members input declared floor used (minus remaining 1ul) true
+        runtime_namespace_members input declared floor used (minus remaining 1ul) depth true
       else
         let! statement = (fun () -> scope_statement input st 64ul false NoJump floor used false true) in
-        runtime_namespace_members input statement.state floor statement.used (minus remaining 1ul) (instantiated || local_type = 0ul)
+        runtime_namespace_members input statement.state floor statement.used (minus remaining 1ul) depth (instantiated || local_type = 0ul)
     else
       let! after = (fun () -> trivia input (plus st.offset 6ul)) in
       let! lexical = (fun () -> local_width input after.at) in
@@ -5373,7 +5392,11 @@ let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:
       let! abstract_ = (fun () -> abstract_class_start input after.at) in
       let! type_width = (fun () -> type_declaration_width input after.at) in
       let! enumeration = (fun () -> local_enum_start input after.at) in
+      let! inner = (fun () -> if after.ok then namespace_width input after.at else ret input 0ul) in
+      let! inner_head = (fun () -> if inner <> 0ul then named_namespace_start input { st with offset = after.at }
+        else ret input { body_start = failed st 1ul; name_start = st.offset }) in
       if not after.ok then ret input (failed st 1ul)
+      else if inner_head.body_start.status = 0ul then nested_namespace input st after.at floor used remaining depth
       else if enumeration.ok then
         // Kind 39: the emitter writes the enum as inside a block and stores it in the namespace object.
         let declared = record_binding_mode st LexicalLocals in
@@ -5384,7 +5407,7 @@ let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:
         let! closed = (fun () -> enum_body_tokens input opening input.size) in
         let! recorded = (fun () -> record_compiler_span input closed 39ul { G.first = st.offset; G.last = closed.offset }
           { G.first = after.at; G.last = closed.offset }) in
-        runtime_namespace_members input { recorded with local_names = decl.used } floor decl.used (minus remaining 1ul) true
+        runtime_namespace_members input { recorded with local_names = decl.used } floor decl.used (minus remaining 1ul) depth true
       else if lexical <> 0ul || var_ then
         let width = if var_ then 3ul else lexical in
         let! named = (fun () -> skip input { st with offset = plus after.at width }) in
@@ -5403,14 +5426,14 @@ let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:
           let! closed = (fun () -> consume input bare_end 59uy) in
           let! recorded = (fun () -> record_compiler_span input { closed with count = st.count } 42ul
             { G.first = st.offset; G.last = closed.offset } { G.first = named.offset; G.last = name_end.at }) in
-          runtime_namespace_members input recorded floor used (minus remaining 1ul) true
+          runtime_namespace_members input recorded floor used (minus remaining 1ul) depth true
         else
         let! recorded = (fun () -> record_compiler_span input named 35ul { G.first = st.offset; G.last = named.offset }
           { G.first = named.offset; G.last = name_end.at }) in
         let declared = record_binding_mode recorded LexicalLocals in
         let! decl = (fun () -> if name_end.ok then local_declarators input declared (lexical = 5ul) true floor used 64ul 1ul 0ul
           else ret input ({ state = failed named 1ul; used })) in
-        runtime_namespace_members input decl.state floor decl.used (minus remaining 1ul) true
+        runtime_namespace_members input decl.state floor decl.used (minus remaining 1ul) depth true
       else if function_head.ok || class_ || abstract_.ok then
         let! recorded = (fun () -> record_jsx_span input st 36ul st.offset after.at) in
         let! statement = (fun () -> scope_statement input { recorded with offset = after.at } 64ul false NoJump floor used false true) in
@@ -5419,12 +5442,39 @@ let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:
             record_compiler_span input ended 37ul { G.first = minus ended.offset 1ul; G.last = ended.offset }
               { G.first = after.at; G.last = ended.offset }
           else ret input (failed ended 1ul)) in
-        runtime_namespace_members input tail floor statement.used (minus remaining 1ul) true
+        runtime_namespace_members input tail floor statement.used (minus remaining 1ul) depth true
       else if type_width = 4ul || type_width = 9ul then
         let! declared = (fun () -> local_type_declaration input { st with offset = after.at } type_width floor used) in
         let! recorded = (fun () -> record_jsx_span input declared.state 19ul st.offset declared.state.offset) in
-        runtime_namespace_members input recorded floor declared.used (minus remaining 1ul) instantiated
+        runtime_namespace_members input recorded floor declared.used (minus remaining 1ul) depth instantiated
       else ret input (failed st 1ul)
+
+// A namespace inside a namespace that exists at run time. Its name is a variable of the body around it.
+and nested_namespace (input:tape) (st:parser_state) (keyword_at:U32.t) (floor used:names_used) (remaining depth:U32.t)
+  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v depth; U32.v remaining; 0]) =
+  if depth = 0ul || remaining = 0ul then ret input (failed st 1ul)
+  else
+    let! head = (fun () -> named_namespace_start input { st with offset = keyword_at }) in
+    if head.body_start.status <> 0ul then ret input (failed st 1ul)
+    else
+      let declared = record_binding_mode st LexicalLocals in
+      let! decl = (fun () -> bind_since input { declared with offset = head.name_start } binding_region_width floor used head.name_start) in
+      let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
+      let name_span = { G.first = head.name_start; G.last = decl.state.offset } in
+      let! recorded = (fun () -> record_compiler_span input { tracked with offset = head.body_start.offset; local_names = decl.used } 34ul
+        { G.first = st.offset; G.last = head.body_start.offset } name_span) in
+      let inner_floor = recorded.local_names in
+      let inner = enter_function_locals { recorded with await_allowed = false; yield_allowed = false; in_allowed = true;
+        super_context = FunctionBody } in
+      let! body = (fun () -> runtime_namespace_members input inner inner_floor inner_floor input.size (minus depth 1ul) false) in
+      let! closed = (fun () -> consume input { body with local_names = recorded.local_names } 125uy) in
+      let! finished = (fun () -> finish_local_scope input closed recorded.local_log_used) in
+      let! tail = (fun () -> if finished.status = 0ul && U32.gt finished.offset 0ul then
+          record_compiler_span input finished 38ul { G.first = minus finished.offset 1ul; G.last = finished.offset } name_span
+        else ret input (failed finished 1ul)) in
+      let after = leave_function_locals { tail with await_allowed = st.await_allowed; yield_allowed = st.yield_allowed;
+        in_allowed = st.in_allowed; super_context = st.super_context } recorded in
+      runtime_namespace_members input after floor decl.used (minus remaining 1ul) depth true
 
 // Kind 34 covers the head of the namespace through its opening brace, kind 38 its closing brace.
 let runtime_namespace (input:tape) (state:parser_state) (declaration_start name_start:U32.t) (body_start:parser_state)
@@ -5435,7 +5485,7 @@ let runtime_namespace (input:tape) (state:parser_state) (declaration_start name_
   let floor = recorded.local_names in
   let inner = enter_function_locals { recorded with await_allowed = false; yield_allowed = false; in_allowed = true;
     super_context = FunctionBody } in
-  let! body = (fun () -> runtime_namespace_members input inner floor floor input.size false) in
+  let! body = (fun () -> runtime_namespace_members input inner floor floor input.size 8ul false) in
   let! closed = (fun () -> consume input { body with local_names = recorded.local_names } 125uy) in
   let! finished = (fun () -> finish_local_scope input closed recorded.local_log_used) in
   let! tail = (fun () -> if finished.status = 0ul && name_end.ok then
