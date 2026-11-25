@@ -2454,7 +2454,13 @@ static bool plain_name(TmtPulseMemory_tape input, TmtGrammar_span name) {
 static uint32_t word_count(TmtPulseMemory_tape input, uint32_t first, uint32_t last, TmtGrammar_span name) {
   const uint32_t width = name.last - name.first;
   uint32_t count = 0;
+  if (width == 0 || last < first || last - first < width) return 0;
+  const uint8_t initial = input.source[name.first];
   for (uint32_t at = first; at + width <= last; at++) {
+    /* The search for the first byte is the library's: a namespace with many exported variables reads its body once for each. */
+    const uint8_t *found = memchr(input.source + at, initial, last - width - at + 1);
+    if (!found) break;
+    at = (uint32_t)(found - input.source);
     if (memcmp(input.source + at, input.source + name.first, width)) continue;
     /* A name behind a single dot is a property, not a reference. */
     const bool property = at > first + 1 && input.source[at - 1] == '.' && input.source[at - 2] != '.';
@@ -2495,6 +2501,12 @@ struct namespace_scope {
   bool joined[8];
   /* The records of the namespace's members: behind its head, up to its end. */
   uint32_t first_member[8], last_member[8];
+  /*
+   * For a namespace with many members: the variables it exports, by a hash of their names. Each entry is one
+   * more than the index of the member's record, or zero. The table belongs to the range it was built for.
+   */
+  uint32_t *variable_table[8];
+  uint32_t variable_mask[8], variable_first[8], variable_last[8];
   uint32_t depth;
   /*
    * The names that are read as expressions, in source order, once a namespace needs them: a reference to a
@@ -2598,20 +2610,182 @@ static uint32_t reference_count(const namespace_scope *scope, TmtPulseMemory_tap
 static bool walk_siblings(namespace_scope *scope, TmtPulseMemory_tape input, uint32_t self, TmtGrammar_span name,
   uint32_t body_first, uint32_t body_last, TmtGrammar_span wanted);
 
+static uint32_t name_hash(const uint8_t *bytes, uint32_t width) {
+  uint32_t hash = UINT32_C(2166136261);
+  for (uint32_t index = 0; index < width; index++) hash = (hash ^ bytes[index]) * UINT32_C(16777619);
+  return hash;
+}
+
+/* Whether the namespace open at a depth exports a variable of the name itself. */
+static bool exports_variable(namespace_scope *scope, TmtPulseMemory_tape input, uint32_t depth, TmtGrammar_span name) {
+  const uint32_t first = scope->first_member[depth], last = scope->last_member[depth];
+  /* Every reference in the body asks, so a long list of members is entered into a table once. */
+  if (last - first >= 64 && (!scope->variable_table[depth] || scope->variable_first[depth] != first || scope->variable_last[depth] != last)) {
+    free(scope->variable_table[depth]);
+    uint32_t capacity = 64;
+    while (capacity < (last - first) * 2) capacity *= 2;
+    scope->variable_table[depth] = calloc(capacity, sizeof(uint32_t));
+    scope->variable_mask[depth] = capacity - 1;
+    scope->variable_first[depth] = first;
+    scope->variable_last[depth] = last;
+    uint32_t inner = 0;
+    for (uint32_t member = first; scope->variable_table[depth] && member < last; member++) {
+      const uint32_t kind = input.output[member].original;
+      if (opens_namespace(kind)) { inner++; continue; }
+      if (kind == namespace_end) { inner--; continue; }
+      if (inner != 0 || (kind != namespace_variable && kind != namespace_bare_variable)) continue;
+      const TmtGrammar_span variable = input.output[member].right;
+      if (variable.last < variable.first || variable.last > input.size) continue;
+      uint32_t slot = name_hash(input.source + variable.first, variable.last - variable.first) & (capacity - 1);
+      while (scope->variable_table[depth][slot]) slot = (slot + 1) & (capacity - 1);
+      scope->variable_table[depth][slot] = member + 1;
+    }
+  }
+  if (last - first >= 64 && scope->variable_table[depth]) {
+    const uint32_t mask = scope->variable_mask[depth];
+    for (uint32_t slot = name_hash(input.source + name.first, name.last - name.first) & mask; scope->variable_table[depth][slot]; slot = (slot + 1) & mask) {
+      if (same_name(input, input.output[scope->variable_table[depth][slot] - 1].right, name)) return true;
+    }
+    return false;
+  }
+  /* The later names of a dotted head share the members of the last one. */
+  uint32_t inner = 0;
+  for (uint32_t member = first; member < last; member++) {
+    const uint32_t kind = input.output[member].original;
+    if (opens_namespace(kind)) { inner++; continue; }
+    if (kind == namespace_end) { inner--; continue; }
+    if (inner != 0 || (kind != namespace_variable && kind != namespace_bare_variable)) continue;
+    if (same_name(input, input.output[member].right, name)) return true;
+  }
+  return false;
+}
+
+static void release_namespace_tables(namespace_scope *scope) {
+  for (uint32_t depth = 0; depth < 8; depth++) {
+    free(scope->variable_table[depth]);
+    scope->variable_table[depth] = NULL;
+  }
+  free(scope->references);
+  free(scope->shorthands);
+  scope->references = NULL;
+  scope->shorthands = NULL;
+}
+
+/*
+ * Whether every occurrence of the variables that a namespace exports, besides their declarations, is a
+ * reference that the parser read as an expression: then none of them is a declaration that hides the variable,
+ * a key, a label or a word of a string, and each is written with the namespace in front of it.
+ *
+ * The body is read once, word by word, and each word is looked up among the variables: a namespace may export
+ * thousands of them. A word behind a single dot is a property; a word with the same quotation mark directly
+ * on both sides is the whole of a string or stands in a longer one; the name of an enum member (a word behind
+ * the opening brace or a comma of an enum's body) is no occurrence either, while a value in the enum that
+ * names the variable counts and declines the namespace.
+ */
+static bool exported_variables_only_read(namespace_scope *scope, TmtPulseMemory_tape input, uint32_t index, uint32_t tail,
+  uint32_t body_first, uint32_t body_last)
+{
+  uint32_t variables = 0, inner = 0;
+  for (uint32_t member = index + 1; member < tail; member++) {
+    const uint32_t kind = input.output[member].original;
+    if (opens_namespace(kind)) { inner++; continue; }
+    if (kind == namespace_end) { inner--; continue; }
+    if (inner != 0 || (kind != namespace_variable && kind != namespace_bare_variable)) continue;
+    if (!plain_name(input, input.output[member].right)) return false;
+    variables++;
+  }
+  if (variables == 0) return true;
+  uint32_t capacity = 16;
+  while (capacity < variables * 2) capacity *= 2;
+  /* slots: one more than the ordinal of a variable; names, words and reads by ordinal. */
+  uint32_t *slots = calloc(capacity, sizeof(*slots));
+  TmtGrammar_span *names = malloc(variables * sizeof(*names));
+  uint32_t *words = calloc(variables, sizeof(*words)), *reads = calloc(variables, sizeof(*reads));
+  bool accepted = slots && names && words && reads;
+  uint32_t count = 0;
+  inner = 0;
+  for (uint32_t member = index + 1; accepted && member < tail; member++) {
+    const uint32_t kind = input.output[member].original;
+    if (opens_namespace(kind)) { inner++; continue; }
+    if (kind == namespace_end) { inner--; continue; }
+    if (inner != 0 || (kind != namespace_variable && kind != namespace_bare_variable)) continue;
+    const TmtGrammar_span variable = input.output[member].right;
+    uint32_t slot = name_hash(input.source + variable.first, variable.last - variable.first) & (capacity - 1);
+    /* A name that is exported twice is entered once; its declarations are counted as words. */
+    while (slots[slot] && !same_name(input, names[slots[slot] - 1], variable)) slot = (slot + 1) & (capacity - 1);
+    if (!slots[slot]) {
+      names[count] = variable;
+      slots[slot] = ++count;
+    }
+  }
+  /* The enum bodies inside, in order: from the opening brace to the end of the declaration. */
+  uint32_t enum_member = index + 1;
+  TmtGrammar_span enum_body = { 0, 0 };
+  for (uint32_t at = body_first; accepted && at < body_last;) {
+    const uint8_t byte = input.source[at];
+    if (byte < 128 && !TmtGrammar_identifier_continue(byte)) { at++; continue; }
+    uint32_t end = at;
+    bool plain = true;
+    while (end < body_last && (input.source[end] >= 128 || TmtGrammar_identifier_continue(input.source[end]))) {
+      if (input.source[end] >= 128) plain = false;
+      end++;
+    }
+    const uint32_t first = at;
+    at = end;
+    if (!plain) continue;
+    uint32_t slot = name_hash(input.source + first, end - first) & (capacity - 1);
+    const TmtGrammar_span word = { first, end };
+    while (slots[slot] && !same_name(input, names[slots[slot] - 1], word)) slot = (slot + 1) & (capacity - 1);
+    if (!slots[slot]) continue;
+    /* A name behind a single dot is a property, not a reference. */
+    if (first > body_first + 1 && input.source[first - 1] == '.' && input.source[first - 2] != '.') continue;
+    const uint8_t quote = first > body_first ? input.source[first - 1] : 0;
+    if ((quote == '\'' || quote == '"' || quote == '`') && end < body_last && input.source[end] == quote) continue;
+    /* The enum whose body holds the word, if any. */
+    while (enum_body.last <= first && enum_member < tail) {
+      const TmtGrammar_candidate inside = input.output[enum_member++];
+      if (inside.original != namespace_enum && inside.original != local_enum) continue;
+      if (inside.left.first < body_first || inside.left.last > body_last || inside.left.last <= first) continue;
+      uint32_t brace = inside.left.first;
+      while (brace < inside.left.last && input.source[brace] != '{') brace++;
+      enum_body = (TmtGrammar_span){ brace, inside.left.last };
+    }
+    if (first > enum_body.first && first < enum_body.last) {
+      uint32_t before = first;
+      while (before > enum_body.first && (input.source[before - 1] == ' ' || input.source[before - 1] == '\t' ||
+          input.source[before - 1] == '\n' || input.source[before - 1] == '\r')) before--;
+      if (input.source[before - 1] == '{' || input.source[before - 1] == ',') continue;
+    }
+    words[slots[slot] - 1]++;
+  }
+  bool reading = false;
+  for (uint32_t ordinal = 0; accepted && ordinal < count; ordinal++) if (words[ordinal] != 1) reading = true;
+  if (accepted && reading) {
+    accepted = read_references(scope, input.size);
+    for (uint32_t reference = 0; accepted && reference < scope->reference_count; reference++) {
+      const TmtGrammar_span read = scope->references[reference];
+      if (read.first < body_first || read.last > body_last) continue;
+      uint32_t slot = name_hash(input.source + read.first, read.last - read.first) & (capacity - 1);
+      while (slots[slot] && !same_name(input, names[slots[slot] - 1], read)) slot = (slot + 1) & (capacity - 1);
+      if (slots[slot]) reads[slots[slot] - 1]++;
+    }
+    for (uint32_t ordinal = 0; accepted && ordinal < count; ordinal++) {
+      if (words[ordinal] != 1 && words[ordinal] != 1 + reads[ordinal]) accepted = false;
+    }
+  }
+  free(slots);
+  free(names);
+  free(words);
+  free(reads);
+  return accepted;
+}
+
 /* The innermost open namespace that exports the name itself, or the outermost when another declaration of it does; else NULL. */
 static const TmtGrammar_span *exporting_namespace(const namespace_scope *scope, TmtPulseMemory_tape input, TmtGrammar_span name) {
   /* The name of an open namespace is its parameter. */
   for (uint32_t depth = 0; depth < scope->depth; depth++) if (same_name(input, scope->names[depth], name)) return NULL;
   for (uint32_t depth = scope->depth; depth-- > 0;) {
-    /* The later names of a dotted head share the members of the last one. */
-    uint32_t inner = 0;
-    for (uint32_t member = scope->first_member[depth]; member < scope->last_member[depth]; member++) {
-      const uint32_t kind = input.output[member].original;
-      if (opens_namespace(kind)) { inner++; continue; }
-      if (kind == namespace_end) { inner--; continue; }
-      if (inner != 0 || (kind != namespace_variable && kind != namespace_bare_variable)) continue;
-      if (same_name(input, input.output[member].right, name)) return &scope->names[depth];
-    }
+    if (exports_variable((namespace_scope *)scope, input, depth, name)) return &scope->names[depth];
   }
   /* A member that another declaration of the outermost namespace exports. */
   if (scope->depth != 0 && scope->records != 0 &&
@@ -2656,8 +2830,7 @@ static namespace_scope *new_namespace_scope(uint8_t *original, bool module) {
 /* Frees the scope. False when a namespace is still open. */
 static bool close_namespace_scope(namespace_scope *scope) {
   const bool closed = scope->depth == 0;
-  free(scope->references);
-  free(scope->shorthands);
+  release_namespace_tables(scope);
   free(scope);
   return closed;
 }
@@ -2887,44 +3060,7 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
     /* The search for references reads bytes. A character outside ASCII may be a line separator or part of a name. */
     for (uint32_t at = span.last; at < body_last; at++) if (input.source[at] >= 128) return false;
     /* The variables this namespace exports itself; those of a namespace inside are checked with that one. */
-    inner = 0;
-    for (uint32_t member = index + 1; member < tail; member++) {
-      const uint32_t kind = input.output[member].original;
-      if (opens_namespace(kind)) { inner++; continue; }
-      if (kind == namespace_end) { inner--; continue; }
-      if (inner != 0 || (kind != namespace_variable && kind != namespace_bare_variable)) continue;
-      const TmtGrammar_span variable = input.output[member].right;
-      if (!plain_name(input, variable)) return false;
-      /*
-       * Every other occurrence of the name has to be a reference that the parser read as an expression: then
-       * none of them is a declaration that hides the variable, a key, a label or a word of a string, and each
-       * is written with the namespace in front of it.
-       */
-      uint32_t words = word_count(input, span.last, body_last, variable);
-      /*
-       * The name of an enum member is no occurrence of the variable: `Ready` as a member of `Type` beside
-       * `export const Ready` is the common form. Only a word where a member's name stands is left out, behind
-       * the opening brace or a comma; a value that names the variable still counts and declines the namespace.
-       */
-      for (uint32_t other = index + 1; other < tail && words > 1; other++) {
-        const TmtGrammar_candidate inside = input.output[other];
-        if (inside.original != namespace_enum && inside.original != local_enum) continue;
-        if (inside.left.first < span.last || inside.left.last > body_last) continue;
-        uint32_t brace = inside.left.first;
-        while (brace < inside.left.last && input.source[brace] != '{') brace++;
-        const uint32_t width = variable.last - variable.first;
-        for (uint32_t at = brace + 1; at + width <= inside.left.last && words > 1; at++) {
-          if (memcmp(input.source + at, input.source + variable.first, width)) continue;
-          if (input.source[at - 1] >= 128 || TmtGrammar_identifier_continue(input.source[at - 1]) || input.source[at - 1] == '.') continue;
-          if (at + width < inside.left.last && (input.source[at + width] >= 128 || TmtGrammar_identifier_continue(input.source[at + width]))) continue;
-          uint32_t before = at;
-          while (before > brace && (input.source[before - 1] == ' ' || input.source[before - 1] == '\t' || input.source[before - 1] == '\n' || input.source[before - 1] == '\r')) before--;
-          if (input.source[before - 1] == '{' || input.source[before - 1] == ',') words--;
-        }
-      }
-      if (words != 1 && (!read_references(scope, input.size) ||
-          words != 1 + reference_count(scope, input, span.last, body_last, variable))) return false;
-    }
+    if (!exported_variables_only_read(scope, input, index, tail, span.last, body_last)) return false;
     const bool exported = input.size - span.first > 6 && !memcmp(input.source + span.first, "export", 6);
     /*
      * A namespace of this name elsewhere in the file shares its exported members with this one, and TypeScript
@@ -3082,8 +3218,7 @@ static char *lower_recorded_enums(TmtPulseMemory_tape input, uint8_t *original, 
     if (!emit_recorded_enum(&lower, span, input.output[index].original)) goto decline;
     copied = span.last;
   }
-  free(scope.references);
-  scope.references = NULL;
+  release_namespace_tables(&scope);
   if (!copied) return NULL;
   lower.input.size = input.size;
   source_bytes(&lower, copied, input.size);
@@ -3093,7 +3228,7 @@ static char *lower_recorded_enums(TmtPulseMemory_tape input, uint8_t *original, 
 decline:
   /* A log without its output would describe another buffer. */
   if (runs) runs->failed = true;
-  free(scope.references);
+  release_namespace_tables(&scope);
   free(lower.output.code);
   return NULL;
 }

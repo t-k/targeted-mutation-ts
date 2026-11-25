@@ -2935,3 +2935,20 @@ test('array and object targets of an assignment, nested, with defaults and with 
   assert.equal(looped.backend, 'javascript');
   assert.equal(run(looped.code), '[{"p":2,"q":["y"]},5]');
 });
+
+test('a namespace with many exported variables counts their occurrences in one reading', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let|namespace)/g, ''))();
+  // Names that share their first letters, each read by the next; a string, a property and an enum member of a name.
+  const variables = Array.from({ length: 400 }, (_, i) => `export const value${i}: number = ${i > 0 ? `value${i - 1} + ` : ''}1;`);
+  const source = `export namespace Big {\n${variables.join('\n')}\nexport const text = 'value7'; export const o = [{ other: 0 }][0].other; export const p = Math.value9; export enum E { value3, last }\n` +
+    'export const sum = [value0, value199, value399, E.value3, o].join(); }\nexport const out = [Big.sum, Big.text].join("|");';
+  const result = sameAsTypeScript(source, 'many.ts');
+  assert.equal(result.backend, 'pulse');
+  assert.equal(run(result.code), '1,200,400,0,0|value7');
+  assert.match(result.code, /Big\.value399\s*= Big\.value398 \+ 1;/);
+  // One occurrence among them that is no read declines the whole namespace.
+  for (const extra of ['export function f(value200: number) { return value200; }', 'export const k = { value200: 1 };', 'label: { const value200 = 1; }']) {
+    const declined = `export namespace Big {\n${variables.join('\n')}\n${extra}\n}`;
+    assert.notEqual(compile(Buffer.from(declined), { file: 'many.ts' }).backend, 'pulse', extra);
+  }
+});
