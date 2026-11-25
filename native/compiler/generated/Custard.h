@@ -1158,6 +1158,8 @@ TmtPulseParser_leave_function_locals(
   TmtPulseParser_parser_state outer
 );
 
+bool TmtPulseParser_export_before(TmtPulseMemory_tape input0, uint32_t at0, uint32_t fuel0);
+
 #define TmtPulseParser_OrdinaryClass 0
 #define TmtPulseParser_AbstractClass 1
 #define TmtPulseParser_AmbientClass 2

@@ -2644,6 +2644,18 @@ let exponent_base (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt b
   let! head = (fun () -> read_atom_head input #frame state) in
   read_ret input #frame (head.token_ <> 60uy && (head.prefix_ = 0ul || head.increment_ <> 0ul))
 
+// Whether the word `export` stands in front of a place, with only white space between.
+let rec export_before (input:tape) (#frame:slprop) (at fuel:U32.t)
+  : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
+  if U32.lt at 6ul || fuel = 0ul then read_ret input #frame false
+  else
+    let! byte = (fun () -> peek input #frame (minus at 1ul)) in
+    if byte = 32uy || byte = 10uy || byte = 13uy || byte = 9uy then export_before input #frame (minus at 1ul) (minus fuel 1ul)
+    else
+      let! word = (fun () -> keyword input #frame (minus at 6ul) 6ul 0x6578706f7274uL) in
+      let! before = (fun () -> if word && U32.gt at 6ul then peek input #frame (minus at 7ul) else read_ret input #frame 32uy) in
+      read_ret input #frame (word && before <> 46uy && U8.lt before 128uy && not (G.identifier_continue before))
+
 // Whether the bytes are names, numbers, dots, | and & on one line.
 let rec plain_operands (input:tape) (#frame:slprop) (at last fuel:U32.t)
   : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
@@ -4134,8 +4146,17 @@ and local_function_group (input:tape) (start:parser_state) (declaration_start fu
   else
     let! after = (fun () -> record_jsx_span input { after with count = start.count } 21ul declaration_start after.offset) in
     let! following = (fun () -> skip input after) in
+    // In a namespace the overloads of an exported function are exported one by one. Kind 36 covers each
+    // further `export`, which the emitter leaves out; the implementation at the end is what is exported.
+    let! exported = (fun () -> if input.capture_types then export_before input declaration_start 64ul else ret input false) in
+    let! export_word = (fun () -> if exported then keyword input following.offset 6ul 0x6578706f7274uL else ret input false) in
+    let! following = (fun () -> if export_word then
+        (let! word_end = (fun () -> skip input { following with offset = plus following.offset 6ul }) in
+          record_jsx_span input word_end 36ul following.offset word_end.offset)
+      else ret input following) in
     let! head = (fun () -> function_start input following.offset) in
-    if not head.ok || (following.offset <> head.at) <> async_ then ret input (failed following 1ul)
+    if exported <> export_word then ret input (failed following 1ul)
+    else if not head.ok || (following.offset <> head.at) <> async_ then ret input (failed following 1ul)
     else
       let! start = (fun () -> skip input { following with offset = plus head.at 8ul }) in
       let! named = (fun () -> name input start.offset false true) in

@@ -988,7 +988,7 @@ test('a namespace with exported variables, functions and classes is lowered as T
     'export namespace N { export const a = () => N; }',
     'export namespace N { export const a = 1, b = 2; }',
     'export namespace N { export const { a } = o; }',
-    'export namespace N { export function f(): void; export function f() {} }',
+    'export namespace N { export function f(): void; function f() {} }',
     'export namespace N { export const a = 1; return 1; }',
     'export namespace N { export const a = 1; export default 1; }',
     'export namespace N { export declare const z: number; export const a = 1; }',
@@ -2566,5 +2566,26 @@ test('an exported import alias is an exported variable, and override alone makes
     'import { a } from "a";\nexport import b = a.b;\nexport { b };',
   ]) {
     assert.notEqual(compile(Buffer.from(source), { file: 'alias.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('the overloads of a function that a namespace exports are erased with their export', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))();
+  for (const source of [
+    'export namespace Event {\n  export function any(): number;\n  export function any(x: number): number;\n  export function any(x?: number) { return x ?? 1; }\n  export const two = any(2);\n}\nexport const out = JSON.stringify([Event.any(), Event.two]);',
+    'namespace N {\n  export function f(a: string): { a: string }\n  export function f(a: number): { a: number }\n  export function f(a: any) { return { a }; }\n  export async function g(): Promise<void>;\n  export async function g(x?: number) { }\n}\nexport const out = JSON.stringify([N.f(1), typeof N.g]);',
+  ]) {
+    const result = sameAsTypeScript(source, 'overloads.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'overloads.ts')), source);
+  }
+  for (const source of [
+    // Overloads that are not all exported, or not all local.
+    'export namespace E { function f(): number; export function f(x?: number) { return 1; } }',
+    'export namespace E { export function f(): number; function f(x?: number) { return 1; } export const a = f(); }',
+    // No implementation.
+    'export namespace E { export function f(): number; export const a = 1; }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'overloads.ts' }).backend, 'pulse', source);
   }
 });
