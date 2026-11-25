@@ -143,3 +143,18 @@ test('slashes that begin no pattern do not rule the copy out', () => {
   assert.notEqual(lowered('// note\nexport const a = /[т-а]/.test("x");').backend, 'pulse');
   assert.notEqual(lowered('/* note */ export const a = /[т-а]/.test("x");').backend, 'pulse');
 });
+
+test('a word that is no identifier keeps its first letter in an erased file', () => {
+  // The copy spells such a word with a digit in front; every byte it changed is put back.
+  for (const source of [
+    "export const café: string = 'don’t';",
+    "export { café } from './don’t';",
+    "export const a: string = 'x→y', b: string = 'd’t d’t', c = `don’t ${a}`; // isn’t",
+  ]) {
+    const result = compile(Buffer.from(source), { file: 'first.ts' });
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(result.code.replace(/ +/g, ' '), source.replace(/: string/g, '').replace(/ +/g, ' '), source);
+  }
+  const lowered = compile(Buffer.from("enum E { A }\nexport const café: string = 'don’t', e = E.A;"), { file: 'first.ts' });
+  assert.match(lowered.code, /const café\s+= 'don’t', e = E\.A;$/);
+});

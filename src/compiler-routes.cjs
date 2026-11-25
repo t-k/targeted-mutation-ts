@@ -248,7 +248,9 @@ function highByteNames(addon, source, text, file, format) {
     const restored = Buffer.from(emitted, 'latin1');
     let erasureOnly = true;
     for (let at = 0; at < restored.length && erasureOnly; at++) {
-      if (restored[at] === renamed[at]) { if (source[at] >= 128) restored[at] = source[at]; }
+      // Every byte that the copy changed is put back: those outside ASCII, and the first byte of a word
+      // that is no identifier, which the copy spells as a digit.
+      if (restored[at] === renamed[at]) { if (source[at] !== renamed[at]) restored[at] = source[at]; }
       else if (restored[at] !== 32) erasureOnly = false;
     }
     if (erasureOnly) return { backend: 'pulse', code: restored.toString(), sourceMap: null, diagnostics: [] };
