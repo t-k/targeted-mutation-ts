@@ -579,7 +579,7 @@ Each of the 57 project files that still took the TypeScript route was reduced to
 | `new W!(u)` | The mark is erased. |
 | `declare module 'name' { }` before the first import, `declare global { let x: T }` | Erased. |
 
-Left to TypeScript by decision: parameter decorators, which need `experimentalDecorators` and are an error in TypeScript's default configuration. Still declined: a reference to an exported namespace variable inside the namespace, nested and merged namespaces, labelled statements other than loops, regular expressions and identifiers with characters outside the Basic Multilingual Plane, more than 512 declarations in one scope, conditional types nested deeper than 16, JSX type arguments, JSX spread children, and a few single forms.
+Parameter decorators need `experimentalDecorators`; see "Legacy decorators" below. Still declined: a reference to an exported namespace variable inside the namespace, nested and merged namespaces, labelled statements other than loops, regular expressions and identifiers with characters outside the Basic Multilingual Plane, more than 512 declarations in one scope, conditional types nested deeper than 16, JSX type arguments, JSX spread children, and a few single forms.
 
 The list parser has to stay a loop. The first version of the rule for comparison items called the list parser from a position that was not its tail, the extraction no longer produced a loop, and an array literal of 30,000 items overflowed the C stack. The parser now carries the offset of the first such item through its iterations and searches once when it reaches the bracket. Lists of 40,000 items are tested, and `build/fable/self-calls.py` compares the generated C with an earlier commit for functions that became self-recursive.
 
@@ -650,3 +650,45 @@ A sample of 400 of the 4,269 files that still take the TypeScript route without 
 | `var` below the top level | 149 | done |
 | `export =` beyond the simple form | 149 | open |
 | `// @jsx` directives, triple-slash directives, decorators in scripts | about 110 each | open |
+
+### Names outside ASCII, labels, static blocks, declared values
+
+The certified parser reads ASCII names only. A module with other names, `ɵ`-prefixed imports in Angular or names in Japanese, is read through a copy in which every word that holds bytes outside ASCII is spelled in capital letters of the same length. The spelling has to rename injectively and must not meet a word of the source, so the copy has the syntax and the bindings of the source. When the parser only erases from the copy and each renamed word is a well-formed identifier, the names are put back and the result is native. Otherwise Node erases the source itself and its parser checks the names. An escape that could spell a name a second way and a space outside ASCII keep TypeScript's route. A first attempt handed every module that begins with `import` or `export` to Node's erasure; the snapshot check refuted it, because Node accepts sources that TypeScript reports, an empty `implements` clause for one.
+
+Identifier characters follow the engine. TypeScript's own tables are older, so it reports three of Test262's identifier tests for Unicode 16 and 17 that the engine and this compiler accept.
+
+Comparing Node's erasure with TypeScript on Angular found a defect of the former: behind a decorator it blanks the `export` of `export abstract class` and keeps `abstract`. Such a source is handed to TypeScript.
+
+Also taken now: a label in front of a block, an `if`, a `try` or a `switch` (`break` may name it, `continue` may not, no further label inside); class static blocks, read like the initializer of a static field; declared namespaces and modules that hold variables, function signatures, classes and enums; an exported namespace variable without a value, which TypeScript writes nothing for; decorated classes inside functions and blocks; scripts that begin with the strict directive or with well-formed triple-slash comments.
+
+### Legacy decorators
+
+`experimentalDecorators` and `emitDecoratorMetadata` are options of `compile` and of the CLI (`--experimental-decorators`, `--emit-decorator-metadata`). vscode, Angular and Nest are written for this design: 1,412, 1,886 and 611 of their files hold decorators, and vscode injects its services through decorators on constructor parameters, which the standard design does not have.
+
+The lowering rewrites the source. The parser reads the module in a mode that takes decorators on the parameters of class members and records where decorators, classes, members and parameters stand (record kinds 50 to 56). From those records the decorators are cut out and the calls TypeScript writes follow each class:
+
+```ts
+@D class A { @E m(@F a) {} }
+```
+
+```js
+let A = class A { m(a) {} };
+__decorate([E, __param(0, F)], A.prototype, "m", null);
+A = __decorate([D], A);
+```
+
+The rewritten text is TypeScript without decorators, and the ordinary routes compile it, so type erasure and parameter properties need nothing new. A source whose at signs stand only in comments and strings compiles as without the option.
+
+A class that names itself in its body is the one place where the text differs from TypeScript's. Inside a named class expression the name means the undecorated class, so TypeScript declares a second name for the decorated class and writes it for every reference in the body, which takes scope analysis. Here the expression loses its name instead:
+
+```js
+let A;
+A = class { static { A = this; } static make() { return new A(); } };
+A = __decorate([D], A);
+```
+
+The body sees the variable, which holds the class while the static members run and the decorated class afterwards. A test runs both lowerings with a decorator that replaces the class and compares what they return.
+
+On the files of vscode, Angular, Nest and typeorm that hold an at sign, 9,026 of 9,028 native outputs have the syntax of TypeScript's lowering once both forms of the self-naming class are folded into one; the two others are of the known parenthesis kind. 1,196 of vscode's 1,412 decorated files are lowered natively, 1,605 of Angular's 1,886 and 514 of Nest's 611.
+
+Left to TypeScript for now: `export default class`, classes inside functions and class expressions, computed and private keys, decorators on both accessors of one name, a leading directive or interpreter line, `emitDecoratorMetadata`, and source maps.
