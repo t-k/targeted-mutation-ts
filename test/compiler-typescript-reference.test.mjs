@@ -2864,3 +2864,24 @@ test('a member of an enum may bear the name of a variable that the namespace exp
     assert.notEqual(sameAsTypeScript(source, 'state.ts').backend, 'pulse', source);
   }
 });
+
+test('the string of a JSX attribute may run over lines', () => {
+  const long = 'Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore';
+  for (const [source, file] of [
+    ['export const a = <T d="a\n   b" />;', 'lines.tsx'],
+    ['export const a = <T d="a\r\n\tb &amp; c" e=\'x\ny\' />;', 'lines.tsx'],
+    ['export const a = <T d="a\rb" />;', 'lines.jsx'],
+    [`export const a = <T d="${long}\n    ${long} &lt; ${long}\n${long}" />;`, 'lines.tsx'],
+    [`export const a = <div><T description="${long}\n      ${long}" /><p title="one\n two">x</p></div>;`, 'lines.tsx'],
+  ]) {
+    const result = sameAsTypeScript(source, file);
+    assert.match(result.backend, /^(pulse|javascript)$/, source);
+    assert.doesNotMatch(result.code.split('\n').slice(1).join('\n'), /^\s+Lorem/m, source);
+  }
+  const value = compile(Buffer.from('export const a = <T d="a\r\n\tb" />;'), { file: 'lines.tsx', jsx: 'classic' });
+  assert.match(value.code, /"d":"a\\r\\n\\tb"/);
+  // Other control characters and the line separator stay with TypeScript.
+  for (const source of ['export const a = <T d="a b" />;', 'export const a = <T d="a\u0001b" />;']) {
+    assert.notEqual(sameAsTypeScript(source, 'lines.tsx').backend, 'pulse', source);
+  }
+});

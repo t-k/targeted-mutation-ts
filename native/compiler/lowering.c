@@ -240,6 +240,9 @@ static bool quote_contents(lowering *lower, TmtGrammar_span span, bool decode) {
     if (byte == '"') replacement = "\\\"";
     else if (byte == '\\') replacement = "\\\\";
     else if (byte == '\t') replacement = "\\t";
+    /* The string of a JSX attribute may run over lines; TypeScript writes the line breaks as escapes. */
+    else if (byte == '\n' && decode) replacement = "\\n";
+    else if (byte == '\r' && decode) replacement = "\\r";
     else if (byte == '&' && decode) {
       consumed = entity(lower->input.source + at, span.last - at, escaped);
       if (!consumed) continue;
