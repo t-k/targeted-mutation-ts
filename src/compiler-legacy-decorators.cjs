@@ -25,12 +25,16 @@ const metadataHelper = 'var __metadata = (this && this.__metadata) || function (
 const { serializer } = require('./compiler-legacy-metadata.cjs');
 
 const plainName = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
-// White space and comments in front of the first statement.
-const leadingTrivia = /^(?:\s+|\/\/[^\r\n]*|\/\*[\s\S]*?\*\/)*/;
+// White space and comments in front of the first statement. The text is read as bytes, so the line and
+// paragraph separators, which end a line comment as well, are their three bytes each.
+const leadingTrivia = /^(?:[ \t\r\n\f\v]+|\/\/(?:(?!\xE2\x80[\xA8\xA9])[^\r\n])*|\/\*[\s\S]*?\*\/)*/;
+const comments = /\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g;
 
 // What the file says about the names its type annotations may mention.
 const declaringWord = /\b(type|interface|enum|namespace|module|function|class)\b(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*)*\*?\s*([A-Za-z_$][\w$]*)/g;
 const importAlias = /\bimport\s+(?:type\s+)?([A-Za-z_$][\w$]*)\s*=/g;
+// A variable whose value is the result of a call: `const IFoo = createDecorator<IFoo>('foo')`.
+const calledValue = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*([A-Za-z_$][\w$]*)\s*[<(]/g;
 const callable = /\bextends\b|[{;,\n\r/]\s*(?:\(|<|new\b)/;
 const listedName = /(?:^<|,)\s*(?:(?:const|in|out)\s+)*([A-Za-z_$][\w$]*)/g;
 
@@ -41,8 +45,16 @@ function lowerLegacyDecorators(addon, source, metadata = false) {
   const slice = (first, last) => source.utf8Slice(first, last);
   // For metadata: where annotations end, by the place of their colon; and the names of the file.
   const annotations = new Map();
-  const names = { classes: new Set(), interfaces: new Set(), typeOnly: new Set(), declared: new Set(), parameters: new Set() };
+  // Type parameters, wherever they are declared.
+  const parameters = new Set();
+  // Per name: the words that declare it anywhere in the text; what binds it at module level (record kind 61:
+  // 1 a class, 2 an interface, 3 a type-only import, 4 an import, 5 a value, 9 anything else); and its
+  // interface declarations at module level.
   const declarations = new Map();
+  const bindings = new Map();
+  const interfaces = new Map();
+  const calledValues = new Map();
+  const scope = { local: false };
   const temps = [];
   const temp = () => {
     // TypeScript's names for temporaries: _a to _z without _i and _n, then _0, _1 and so on.
@@ -50,64 +62,102 @@ function lowerLegacyDecorators(addon, source, metadata = false) {
     temps.push('_' + (temps.length < letters.length ? letters[temps.length] : temps.length - letters.length));
     return temps[temps.length - 1];
   };
-  const serialize = serializer(names, temp);
+  // What a name in a type annotation stands for: 'class' is a class of the module, 'object' a type without a
+  // value, 'unknown' a name whose meaning one file does not show, and 'refused' anything not certain.
+  const classify = (root, qualified) => {
+    // Inside a function a parameter or a variable may hide the name.
+    if (scope.local || parameters.has(root)) return 'refused';
+    const kinds = bindings.get(root) ?? [];
+    const declared = declarations.get(root);
+    // Nothing at module level binds the name, or an import does. A declaration elsewhere in the text may hide it.
+    if (kinds.length === 0 || (kinds.length === 1 && kinds[0] === 4)) return declared === undefined ? 'unknown' : 'refused';
+    if (qualified) return 'refused';
+    if (kinds.length === 1 && kinds[0] === 1) {
+      return declared !== undefined && declared.count === 1 && declared.words.size === 1 && declared.words.has('class') ? 'class' : 'refused';
+    }
+    if (kinds.length === 1 && kinds[0] === 3) {
+      // `import { type T }` reads like the head of a type alias; it is the one declaration the name may have.
+      const inline = declared !== undefined && declared.count === 1 && declared.words.size === 1 && declared.words.has('type') &&
+        new RegExp('[{,]\\s*type\\s+' + root.replace(/\$/g, '\\$') + '\\s*[,}]').test(text);
+      return declared === undefined || inline ? 'object' : 'refused';
+    }
+    // An interface, or several of one name. A value of the same name makes the name a constructor when its
+    // type is one; the result of a call to an imported function is not known to be one.
+    const faces = kinds.filter(kind => kind === 2).length, values = kinds.filter(kind => kind === 5).length;
+    const found = interfaces.get(root);
+    if (faces === 0 || faces + values !== kinds.length || values > 1 || found === undefined || found.callable || found.count !== faces ||
+        declared === undefined || declared.words.size !== 1 || !declared.words.has('interface') || declared.count !== faces) return 'refused';
+    if (values === 1) {
+      const called = calledValues.get(root);
+      if (called === undefined || called.count !== 1) return 'refused';
+      const callee = bindings.get(called.callee) ?? [];
+      if (callee.length !== 1 || callee[0] !== 4 || declarations.has(called.callee)) return 'refused';
+    }
+    return 'object';
+  };
+  const serialize = serializer(classify, temp);
   if (metadata) {
     // A name that looks like a temporary would change the names TypeScript picks.
     if (/(?<![\w$])_(?:[a-z]|\d+)(?![\w$])/.test(text)) return null;
-    // Per name, the words that declare it anywhere in the text, with their count.
     for (const found of text.matchAll(declaringWord)) {
-      names.declared.add(found[2]);
       const entry = declarations.get(found[2]) ?? declarations.set(found[2], { count: 0, words: new Set() }).get(found[2]);
       entry.count++;
       entry.words.add(found[1]);
     }
     for (const found of text.matchAll(importAlias)) {
-      names.declared.add(found[1]);
       (declarations.get(found[1]) ?? declarations.set(found[1], { count: 0, words: new Set() }).get(found[1])).words.add('import');
     }
-    // What stands at module level is known from the records: kind 51 is a class there, kind 8 an erased statement.
-    const interfaces = new Map();
+    for (const found of text.matchAll(calledValue)) {
+      const entry = calledValues.get(found[1]) ?? calledValues.set(found[1], { count: 0, callee: found[2] }).get(found[1]);
+      entry.count++;
+    }
+    // A second variable of the name, however it gets its value, leaves the name uncertain.
+    for (const [name, entry] of calledValues) {
+      const escaped = name.replace(/\$/g, '\\$');
+      if ([...text.matchAll(new RegExp('(?<![\\w$.])' + escaped + '\\s*=(?![=>])', 'g'))].length !== 1) entry.count = 2;
+    }
     for (let at = 0; at < records.length; at += 5) {
       const kind = records[at];
       if (kind === 7 || kind === 22) annotations.set(records[at + 1], records[at + 2]);
-      else if (kind === 59) for (const found of text.slice(records[at + 1], records[at + 2]).matchAll(listedName)) names.parameters.add(found[1]);
-      else if (kind === 51) {
-        const name = slice(records[at + 3], records[at + 4]);
-        const entry = declarations.get(name);
-        if (entry !== undefined && entry.count === 1 && entry.words.size === 1) names.classes.add(name);
+      else if (kind === 59) for (const found of text.slice(records[at + 1], records[at + 2]).matchAll(listedName)) parameters.add(found[1]);
+      else if (kind === 61) {
+        const name = slice(records[at + 1], records[at + 2]);
+        (bindings.get(name) ?? bindings.set(name, []).get(name)).push(records[at + 3]);
       } else if (kind === 8) {
+        // An erased statement at module level. An interface that can be called or constructed is a Function,
+        // and one that extends another may be one.
         const statement = text.slice(records[at + 1], records[at + 2]);
         const found = /^(?:export\s+)?(?:declare\s+)?interface\s+([A-Za-z_$][\w$]*)/.exec(statement);
-        // An interface that can be called or constructed is a Function, and one that extends another may be
-        // one; such a declaration is not counted, so the name stays without a certain meaning.
-        if (found !== null && !callable.test(statement.slice(found[0].length))) interfaces.set(found[1], (interfaces.get(found[1]) ?? 0) + 1);
+        if (found === null) continue;
+        const entry = interfaces.get(found[1]) ?? interfaces.set(found[1], { count: 0, callable: false }).get(found[1]);
+        entry.count++;
+        if (callable.test(statement.slice(found[0].length))) entry.callable = true;
       }
     }
-    // A name that only interfaces at module level declare is a type without a value.
-    for (const [name, count] of interfaces) {
-      const entry = declarations.get(name);
-      if (entry !== undefined && entry.count === count && entry.words.size === 1) names.interfaces.add(name);
-    }
-    if (!typeOnlyImports(text, records, names)) return null;
   }
+  // The place behind white space from `from` on, or -1 where a comment stands there.
+  const behindSpace = from => {
+    let at = from;
+    while (at < text.length && (text[at] === ' ' || text[at] === '\t' || text[at] === '\r' || text[at] === '\n')) at++;
+    return text[at] === '/' ? -1 : at;
+  };
   // The serialized type of the annotation whose colon stands at or behind `from`; Object without one.
   const typeAt = (from, rest) => {
-    const gap = /^[ \t\r\n]*/.exec(text.slice(from, from + 256))[0].length;
-    const mark = text[from + gap];
-    if (mark === '/') return null;
-    if (mark !== ':') return 'Object';
-    const end = annotations.get(from + gap);
+    const colon = behindSpace(from);
+    if (colon < 0) return null;
+    if (text[colon] !== ':') return 'Object';
+    const end = annotations.get(colon);
     if (end === undefined) return null;
-    let type = slice(from + gap + 1, end);
+    let type = slice(colon + 1, end);
     if (rest) {
-      // A rest parameter gives the type of its elements.
+      // A rest parameter gives the type of its elements, when it is written as an array of them.
       const element = /^([\s\S]*\S)\s*\[\s*\]\s*$/.exec(type);
-      if (element === null || /[|&?]|=>/.test(element[1])) return null;
+      if (element === null || /[|&?]|=>|^\s*readonly\b/.test(element[1])) return null;
       type = element[1];
     }
     return serialize(type);
   };
-  const context = { metadata, text, typeAt, used: false };
+  const context = { metadata, text, typeAt, behindSpace, used: false };
   const edits = [];
   let pending = [];
   // The classes that are open and lowered here, innermost last. Each knows how many class bodies were open
@@ -131,7 +181,7 @@ function lowerLegacyDecorators(addon, source, metadata = false) {
     } else if (kind === 51 || kind === 60) {
       // A class declaration: at module level, inside a function or a block, or the default export.
       // Decorators in front of it are its own.
-      const head = text.slice(leftFirst, leftLast);
+      const head = text.slice(leftFirst, leftLast).replace(comments, ' ');
       const isDefault = /^export\b/.test(head) && /\bdefault\b/.test(head);
       let name = slice(rightFirst, rightLast);
       if (name === '' && isDefault) {
@@ -148,7 +198,16 @@ function lowerLegacyDecorators(addon, source, metadata = false) {
     } else if (kind === 55) {
       // A class body. Only the body of a class that is lowered here holds members that are lowered here.
       if (pending.length !== 0) return null;
-      if (current !== null && depth === current.depth && current.bodyFirst === undefined) current.bodyFirst = leftFirst;
+      if (current !== null && depth === current.depth) {
+        // A body opened before this one belonged to a class expression in the heritage clause. Its members
+        // are not this class's; decorators on them are not lowered here.
+        if (current.members.some(member => member.decorators.length !== 0 || member.parameters.length !== 0) ||
+            current.constructor.length !== 0) return null;
+        current.members = [];
+        current.member = null;
+        current.erased = [];
+        current.bodyFirst = leftFirst;
+      }
       depth++;
     } else if (kind === 56) {
       if (pending.length !== 0) return null;
@@ -162,7 +221,7 @@ function lowerLegacyDecorators(addon, source, metadata = false) {
       const flags = leftLast;
       // A quoted key is written with its quotes.
       const member = { flags, key: flags & 16 ? slice(rightFirst - 1, rightLast + 1) : slice(rightFirst, rightLast), decorators: pending, parameters: [],
-        start: leftFirst, keyFirst: rightFirst, keyLast: flags & 16 ? rightLast + 1 : rightLast, all: [], listEnd: -1 };
+        spelled: slice(rightFirst, rightLast), start: leftFirst, keyFirst: rightFirst, keyLast: flags & 16 ? rightLast + 1 : rightLast, all: [], listEnd: -1 };
       if (pending.length !== 0) {
         if (flags & (32 | 4)) return null;
         for (const decorator of pending) edits.push([decorator.first, decorator.last, '']);
@@ -192,6 +251,7 @@ function lowerLegacyDecorators(addon, source, metadata = false) {
     } else if (kind === 54) {
       if (current === null || depth !== current.depth || pending.length !== 0) return null;
       const before = temps.length;
+      scope.local = current.local;
       const lowered = closeClass(current, text, leftLast, context);
       // Temporaries of a class inside a function are declared in that function, which is not done here.
       if (lowered !== null && temps.length !== before && current.local) return null;
@@ -254,7 +314,7 @@ function closeClass(found, text, end, context) {
     const quoted = (member.flags & 16) !== 0;
     if (!quoted && !plainName.test(member.key)) return null;
     // A getter and a setter of one name share their decorators; TypeScript reports decorators on both.
-    const identity = (member.flags & 1) + ':' + member.key;
+    const identity = (member.flags & 1) + ':' + member.spelled;
     if (seen.has(identity)) return null;
     seen.add(identity);
     const list = member.decorators.map(decorator => decorator.expression);
@@ -273,29 +333,49 @@ function closeClass(found, text, end, context) {
     return [...(anonymous ? [[found.headLast, found.headLast, ' ' + found.name + ' ']] : []),
       [end, end, '\n' + statements.join('\n') + '\n']];
   }
-  // Inside the body of a named class expression its name means the undecorated class. TypeScript gives the
-  // decorated one a second name and writes that name for every reference in the body. Here the expression
-  // loses its name instead, so that the body sees the variable: a static block stores the class in it before
-  // any other static member runs, and the decorated class replaces it afterwards.
-  const named = !anonymous &&
-    new RegExp('(?<![\\w$.])' + found.name.replace(/\$/g, '\\$') + '(?![\\w$])').test(text.slice(found.nameLast, end));
-  if (named && (found.bodyFirst === undefined || text[found.bodyFirst] !== '{')) return null;
+  // Inside the body of a named class expression its name means the undecorated class, and nothing can assign
+  // to it. TypeScript gives the decorated class a second variable, `A_1`, and writes that name for every
+  // reference in the body, which takes scope analysis. Here the class expression loses its name and stands in
+  // a scope of its own that declares the name again:
+  //
+  //   let [A, A_1] = (() => { let A; A = class { static { A = this; } ... }; return [A, value => A = value]; })();
+  //   A = A_1(__decorate([D], A));
+  //
+  // The body sees the inner variable, which is TypeScript's `A_1`: it holds the class while the static members
+  // run and the decorated class afterwards, and an assignment to the outer variable does not reach it. The
+  // outer variable is not initialized before the class is, as in TypeScript's text. An arrow function keeps
+  // `this`, `arguments` and `super`; it does not keep `await` and `yield`, which may stand in the heritage
+  // clause and in computed keys.
+  const escaped = found.name.replace(/\$/g, '\\$');
+  const within = text.slice(found.nameLast, end);
+  // A name behind a single dot is a property; behind three it is spread.
+  const named = !anonymous && new RegExp('(?<![\\w$])(?<!(?<!\\.)\\.)' + escaped + '(?![\\w$])').test(within);
+  const setter = found.name + '_1';
+  // Inside a function TypeScript's second variable belongs to the function, so every run of the function
+  // shares it, and the body of an earlier class sees a later one. That is left to TypeScript.
+  // An await belongs to the function around the class when it stands in the heritage clause or in a computed key.
+  const awaits = /\b(?:await|yield)\b/;
+  const outside = found.bodyFirst !== undefined && (awaits.test(text.slice(found.nameLast, found.bodyFirst)) ||
+    found.members.some(member => (member.flags & 32) && awaits.test(member.key)));
+  if (named && (found.local || found.bodyFirst === undefined || text[found.bodyFirst] !== '{' || outside ||
+      new RegExp('(?<![\\w$])' + escaped + '_1(?![\\w$])').test(text))) return null;
   const list = found.decorators.map(decorator => decorator.expression);
   for (const parameter of found.constructor) {
     for (const decorator of parameter.decorators) list.push(`__param(${parameter.index}, ${decorator.expression})`);
   }
   if (constructorTypes !== null) context.used = true;
   if (constructorTypes !== null) list.push(`__metadata("design:paramtypes", [${constructorTypes.join(', ')}])`);
-  statements.push(`${found.name} = __decorate([${list.join(', ')}], ${found.name});`);
+  const decorated = `__decorate([${list.join(', ')}], ${found.name})`;
+  statements.push(named ? `${found.name} = ${setter}(${decorated});` : `${found.name} = ${decorated};`);
   if (found.isDefault) statements.push(`export default ${found.name};`);
   else if (found.exported) statements.push(`export { ${found.name} };`);
   // A class expression cannot be abstract, so the members that are erased anyway go with the modifier.
   return [
-    ...(named ? [[found.headFirst, found.nameLast, `let ${found.name};\n${found.name} = class`],
+    ...(named ? [[found.headFirst, found.nameLast, `let [${found.name}, ${setter}] = (() => { let ${found.name}; ${found.name} = class`],
       [found.bodyFirst + 1, found.bodyFirst + 1, ` static { ${found.name} = this; }`]] :
       [[found.headFirst, found.headLast, `let ${found.name} = class `]]),
     ...found.erased.map(([first, last]) => [first, last, '']),
-    [end, end, ';\n' + statements.join('\n') + '\n'],
+    [end, end, (named ? `; return [${found.name}, value => ${found.name} = value]; })();\n` : ';\n') + statements.join('\n') + '\n'],
   ];
 }
 
@@ -321,14 +401,15 @@ function parameterTypes(member, context) {
 function memberMetadata(member, found, context) {
   const { text } = context;
   if (member.flags & 2) {
-    const mark = text[member.keyLast];
-    const type = context.typeAt(mark === '?' || mark === '!' ? member.keyLast + 1 : member.keyLast, false);
+    // The key may be followed by a question mark or an exclamation mark, then by the annotation.
+    const mark = context.behindSpace(member.keyLast);
+    if (mark < 0) return null;
+    const type = context.typeAt(text[mark] === '?' || text[mark] === '!' ? mark + 1 : mark, false);
     return type === null ? null : [`__metadata("design:type", ${type})`];
   }
-  const modifiers = text.slice(member.start, member.keyFirst);
   if (member.flags & 8) {
     // TypeScript reads the type of an accessor from both of its declarations.
-    const same = found.members.filter(other => (other.flags & 8) && (other.flags & 1) === (member.flags & 1) && other.key === member.key);
+    const same = found.members.filter(other => (other.flags & 8) && (other.flags & 1) === (member.flags & 1) && other.spelled === member.spelled);
     if (same.length !== 1) return null;
     // TypeScript serializes the type of a setter's parameter twice: as the type of the member, then in the list.
     const first = member.all.length === 1 ? parameterTypes(member, context) : member.all.length === 0 ? [context.typeAt(member.listEnd, false)] : null;
@@ -339,33 +420,16 @@ function memberMetadata(member, found, context) {
   }
   const types = parameterTypes(member, context);
   if (types === null) return null;
-  const gap = /^[ \t\r\n]*/.exec(text.slice(member.listEnd, member.listEnd + 256))[0].length;
-  const annotated = text[member.listEnd + gap] === ':';
-  // Without an annotation an async method returns a Promise, and any other method nothing.
-  const result = annotated ? context.typeAt(member.listEnd, false) : /\basync\b/.test(modifiers) ? 'Promise' : 'void 0';
+  const behind = context.behindSpace(member.listEnd);
+  if (behind < 0) return null;
+  // The words in front of the key, behind the member's decorators: an async method that is no generator
+  // returns a Promise when it has no annotation, and any other method nothing.
+  const from = member.decorators.length !== 0 ? member.decorators[member.decorators.length - 1].last : member.start;
+  const modifiers = text.slice(from, member.keyFirst).replace(comments, ' ');
+  const result = text[behind] === ':' ? context.typeAt(member.listEnd, false) :
+    /\basync\b/.test(modifiers) && !modifiers.includes('*') ? 'Promise' : 'void 0';
   if (result === null) return null;
   return ['__metadata("design:type", Function)', `__metadata("design:paramtypes", [${types.join(', ')}])`, `__metadata("design:returntype", ${result})`];
-}
-
-// Enters the names of type-only imports. They are read at the places the parser erased, so that the words of
-// a string or a comment are not taken for an import: kind 8 is an erased statement, kind 14 an erased part
-// such as a specifier. False when such a place is written in a way that is not read here.
-function typeOnlyImports(text, records, names) {
-  for (let at = 0; at < records.length; at += 5) {
-    const erased = text.slice(records[at + 1], records[at + 2]);
-    if (records[at] === 8) {
-      const statement = /^import\s+type\s+([^'"]*?)\s+from\b/.exec(erased);
-      if (statement === null) continue;
-      const clause = statement[1].replace(/\b[A-Za-z_$][\w$]*\s+as\s+/g, '').replace(/\*\s*as\s+/, '');
-      if (/[^\w$\s,{}]/.test(clause)) return false;
-      for (const name of clause.matchAll(/[A-Za-z_$][\w$]*/g)) names.typeOnly.add(name[0]);
-    } else if (records[at] === 14 && /^type\s/.test(erased)) {
-      const specifier = /^type\s+(?:(?:[A-Za-z_$][\w$]*|"[^"]*"|'[^']*')\s+as\s+)?([A-Za-z_$][\w$]*)\s*,?\s*$/.exec(erased);
-      if (specifier === null) return false;
-      names.typeOnly.add(specifier[1]);
-    }
-  }
-  return true;
 }
 
 exports.lowerLegacyDecorators = lowerLegacyDecorators;

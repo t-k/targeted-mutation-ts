@@ -66,9 +66,9 @@ typedef struct TmtPulseMemory_tape_s
   bool count_only;
   TmtGrammar_candidate *output;
   uint32_t capacity;
+  bool legacy_decorators;
   TmtPulseMemory_binding_name *bindings;
   uint8_t *marks;
-  bool legacy_decorators;
 }
 TmtPulseMemory_tape;
 

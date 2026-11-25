@@ -204,9 +204,7 @@ type parser_state = {
   offset:U32.t; count:U32.t; depth:U32.t; status:U32.t; local_names:names_used;
   await_allowed:bool; yield_allowed:bool; jsx_allowed:bool; module_mode:bool; strict_script:bool; in_allowed:bool; for_initializer:bool;
   arrow_defaults_allowed:bool; binding_mode:binding_mode; super_context:super_context;
-  private_scope:U8.t; private_count:U8.t; local_log_floor:U16.t; local_log_used:local_log_used;
-  // Set for the parameter list of a class member itself when legacy decorators are read.
-  member_parameters:bool
+  private_scope:U8.t; private_count:U8.t; local_log_floor:U16.t; local_log_used:local_log_used
 }
 type assignment_target =
   | NotAssignable
@@ -3030,7 +3028,7 @@ and function_expression (input:tape) (st:parser_state) (fuel function_head:U32.t
     let! named =
       (fun () -> if byte = 40uy || byte = 60uy then ret input (first)
       else (let! anf_value_2 = (fun () -> (name input first.offset false true)) in ret input (from_cursor first anf_value_2))) in
-    (let! anf_value_3 = (fun () -> (function_form input named (minus fuel 1ul) (st.offset <> function_head) NoSuper false OrdinaryParameters generator)) in ret input (anf_value_3.after_function))
+    (let! anf_value_3 = (fun () -> (function_form input named (minus fuel 1ul) (st.offset <> function_head) NoSuper false OrdinaryParameters generator false)) in ret input (anf_value_3.after_function))
 and class_expression (input:tape) (st:parser_state) (fuel:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 1; 0]) =
   if fuel = 0ul then ret input (failed st 3ul)
@@ -3492,7 +3490,7 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required se
         if not colon_required && (next_token = 40uy || next_token = 60uy) then
           if fuel = 0ul then ret input (empty_range (failed after_key 3ul))
           else if accessor || generator.generator then
-            let! form = (fun () -> function_form input after_key (minus fuel 1ul) async_method MethodSuper false arity generator.generator) in
+            let! form = (fun () -> function_form input after_key (minus fuel 1ul) async_method MethodSuper false arity generator.generator false) in
             ret input (empty_range form.after_function)
           else (let! anf_value_5 = (fun () -> function_tail input after_key (minus fuel 1ul) async_method NoSuper) in ret input (empty_range anf_value_5))
         else if computed || quoted || numeric || colon_required || async_method || accessor || generator.generator then ret input (empty_range (failed st 1ul))
@@ -4034,7 +4032,7 @@ and local_abstract_class (input:tape) (st:parser_state) (class_at:U32.t) (floor 
 
 and local_function_group (input:tape) (start:parser_state) (declaration_start fuel:U32.t) (async_ generator:bool) (expected:G.span) (remaining:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 54; U32.v remaining]) =
-  let! form = (fun () -> function_form input start fuel async_ NoSuper (start.module_mode && not generator) OrdinaryParameters generator) in
+  let! form = (fun () -> function_form input start fuel async_ NoSuper (start.module_mode && not generator) OrdinaryParameters generator false) in
   let after = form.after_function in
   if after.status <> 0ul || not form.signature_only then ret input after
   else if remaining = 0ul then ret input (failed after 3ul)
@@ -4283,15 +4281,14 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
       else (let! anf_value_11 = (fun () -> (let! anf_value_12 = (fun () -> consume input end_ 41uy) in ret input ({ prefix.names with state = anf_value_12 }))) in ret input ({ names = anf_value_11; non_simple }))))
 and function_tail (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (super_:super_context)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 54; 0]) =
-  (let! anf_value_1 = (fun () -> (function_form input state fuel async_ super_ false OrdinaryParameters false)) in ret input (anf_value_1.after_function))
+  (let! anf_value_1 = (fun () -> (function_form input state fuel async_ super_ false OrdinaryParameters false false)) in ret input (anf_value_1.after_function))
 
 and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (super_:super_context) (overload:bool)
-  (arity:parameter_arity) (generator:bool)
+  (arity:parameter_arity) (generator decorated:bool)
   : Tot (stt function_shape (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 53; 0]) =
   let depth = minus 64ul fuel in
   let start = if U32.(depth >^ state.depth) then { state with depth } else state in
-  let decorated = state.member_parameters in
-  let start = { start with super_context = FunctionBody; yield_allowed = false; member_parameters = false } in
+  let start = { start with super_context = FunctionBody; yield_allowed = false } in
   let! start = (fun () -> capture_type_parameters input start false) in
   let! opening = (fun () -> consume input start 40uy) in
   let! opening, limit =
@@ -4488,7 +4485,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             else
               let mode = if ambient_constructor then BaseConstructor else MethodSuper in
               // A declared class may declare a getter: get name(): T;
-              let! result = (fun () -> function_form input tail (minus fuel 1ul) false mode true key.arity false) in
+              let! result = (fun () -> function_form input tail (minus fuel 1ul) false mode true key.arity false false) in
               ret input (if result.signature_only then result.after_function else failed result.after_function 1ul)
           else
             // A declared class may mark a property optional.
@@ -4507,7 +4504,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         let! closed = (fun () -> if awaiting_body || fuel = 0ul || constructor_name || prototype ||
           accessor || key.private_ || key.async_ || key.generator_ || key.readonly_ then ret input (failed tail 1ul)
           else
-            let! result = (fun () -> function_form input optional_method (minus fuel 1ul) false MethodSuper true OrdinaryParameters false) in
+            let! result = (fun () -> function_form input optional_method (minus fuel 1ul) false MethodSuper true OrdinaryParameters false false) in
             let after = result.after_function in
             if result.signature_only then record_jsx_span input { after with count = st.count } 21ul st.offset after.offset
             else ret input (failed after 1ul)) in
@@ -4529,13 +4526,12 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
               (U32.logor (if key.quoted_ then 16ul else 0ul) (if key.computed || key.private_ then 32ul else 0ul))))) in
             record_compiler_span input tail 52ul { G.first = st.offset; G.last = flags } { G.first = key.first; G.last = key.last }
           else ret input tail) in
-        let tail = { tail with member_parameters = input.legacy_decorators } in
         let! after, pending =
           (fun () -> if method then
             if fuel = 0ul then ret input (failed tail 3ul, no_overload)
             else
               let mode = if not constructor then MethodSuper else if derived then DerivedConstructor else BaseConstructor in
-              let! result = (fun () -> function_form input tail (minus fuel 1ul) key.async_ mode overload key.arity key.generator_) in
+              let! result = (fun () -> function_form input tail (minus fuel 1ul) key.async_ mode overload key.arity key.generator_ input.legacy_decorators) in
               let pending = if result.signature_only then
                 { key_span = { G.first = key.first; G.last = key.last }; key_flags = key.modifier_flags; key_async = key.async_ }
                 else no_overload in
@@ -4544,7 +4540,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
                 record_jsx_span input { after with count = st.count } 21ul st.offset after.offset else ret input after) in
               ret input (after, pending)
           else if key.async_ || key.generator_ then ret input (failed tail 1ul, no_overload)
-          else let! field = (fun () -> class_field_tail input { tail with offset = key.after_key.offset; member_parameters = false } fuel) in ret input (field, no_overload)) in
+          else let! field = (fun () -> class_field_tail input { tail with offset = key.after_key.offset } fuel) in ret input (field, no_overload)) in
         class_members input after fuel (minus remaining 1ul) derived (seen_constructor || (constructor && pending.key_span.G.first = pending.key_span.G.last)) kind pending
 and class_tail (input:tape) (state:parser_state) (fuel:U32.t) (kind:class_kind)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 57; 0]) =
@@ -4978,7 +4974,7 @@ let module_function (input:tape) (state:parser_state) (used:names_used) (declara
   let! head = (fun () -> read_generator_head input state) in
   let state = if ambient && head.generator then failed head.after_star 1ul else head.after_star in
   let! named = (fun () -> (let! anf_value_1 = (fun () -> (name input state.offset false true)) in ret input (from_cursor state anf_value_1))) in
-  let! function_ = (fun () -> function_form input named 64ul async_ NoSuper (not head.generator) OrdinaryParameters head.generator) in
+  let! function_ = (fun () -> function_form input named 64ul async_ NoSuper (not head.generator) OrdinaryParameters head.generator false) in
   let after = function_.after_function in
   if after.status <> 0ul then ret input ({ state = after; used })
   // A declared function has no body.
@@ -5731,7 +5727,7 @@ let rec default_function_body (input:tape) (state:parser_state) (spelling:G.span
           same_bytes input spelling.G.first start.offset length else ret input false) in
         if not matches then ret input (failed start 1ul)
         else
-          let! form = (fun () -> function_form input (from_cursor start name_) 64ul async_ NoSuper true OrdinaryParameters false) in
+          let! form = (fun () -> function_form input (from_cursor start name_) 64ul async_ NoSuper true OrdinaryParameters false false) in
           if form.signature_only then
             let after = form.after_function in
             let! after = (fun () -> record_jsx_span input { after with count = st.count } 21ul st.offset after.offset) in
@@ -5770,7 +5766,7 @@ let default_declaration (input:tape) (state:parser_state) (declaration_start:U32
       else bind_in_namespace input start 0ul 0ul used start.offset ValueName) in
     let async_ = state.offset <> function_head.at in
     let overload = byte <> 40uy && byte <> 60uy && not head.generator in
-    let! form = (fun () -> function_form input name.state 64ul async_ NoSuper overload OrdinaryParameters head.generator) in
+    let! form = (fun () -> function_form input name.state 64ul async_ NoSuper overload OrdinaryParameters head.generator false) in
     let! body = (fun () -> if form.signature_only then
       let after = form.after_function in
       let! after = (fun () -> record_jsx_span input { after with count = state.count } 21ul declaration_start after.offset) in
@@ -5965,7 +5961,7 @@ let initial_state (jsx module_mode:bool) (local_log_floor:U16.t) : parser_state 
   offset = 0ul; count = 0ul; depth = 0ul; status = 0ul; local_names = 0ul;
   await_allowed = module_mode; yield_allowed = false; jsx_allowed = jsx; module_mode; strict_script = false; in_allowed = true; for_initializer = false;
   arrow_defaults_allowed = true; binding_mode = NoLocals; super_context = NoSuper; private_scope = 0uy; private_count = 0uy;
-  local_log_floor; local_log_used = 0us; member_parameters = false
+  local_log_floor; local_log_used = 0us
 }
 
 // Successful results consume the buffer and expose a bounded candidate count.

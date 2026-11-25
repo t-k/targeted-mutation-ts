@@ -86,7 +86,11 @@ test('the shapes of real services and entities are lowered natively', () => {
     'import { S } from "s";\nclass A { @E static a: S; @E b: S; constructor(c: S) {} @E static m(x: S) {} @E n(y: S): S { return y; } }\nexport { A };',
     'class A { @E get g(): bigint { return 1n; } @E set h(v: symbol) {} @E async o() {} @E n() {} @E p; @E q = 1; }\nexport { A };',
     '@D class A {}\nclass B { m() {} }\nexport { A, B };',
-    'interface I {}\nexport interface J { a: 1 }\nconst J = dec<J>("j");\nclass A { @E a: I; @E b: J; constructor(@J c: J) {} }\nexport { A };',
+    'export class A { @E "quoted-key": string; @E \'k\'?: number; @E s!: bigint; @E "m"(a: string): void {} @E static "t" = 1; }',
+    'export abstract class A { abstract n(): void; @E m(a: any): any { return a; } }',
+    'import { dec } from "d";\ninterface I {}\nexport interface J { a: 1 }\nexport const J = dec<J>("j");\nclass A { @E a: I; @E b: J; constructor(@J c: J) {} }\nexport { A };',
+    'import /* model */ type { User } from "./user";\nimport { type Other, Kept } from "./o";\nexport class C { @E a: User; @E b: Other; @E c: Kept; }',
+    'export class C { @E get value(): number { return 0; } @E format() : string { return "ok"; } @E field !: string; @E opt ?: number; @E limit: 1_000n; @E async *values() { yield 1; } @E async one() {} @E(async () => 1) plain() {} }',
     'class A { @E a: Later; @E b: Later[]; }\nclass Later {}\nexport { A, Later };',
     'import { S } from "s";\nclass A { @E m(' + Array.from({ length: 30 }, (unused, index) => `p${index}: S`).join(', ') + ') {} }\nexport { A };',
   ]) {
@@ -113,6 +117,19 @@ test('what the reading of types is not certain of is left to TypeScript, with th
     'class A { @E m({ a }: S) {} }\nexport { A };',
     'class A { @E get g(): string { return ""; } set g(v: string) {} }\nexport { A };',
     'const _a = 1;\nclass A { @E a: S; }\nexport { A };',
+    // A value of the interface's name may be a constructor.
+    'interface Token {}\nconst Token = class {};\n@D export class Service { constructor(value: Token) {} }',
+    'interface J {}\nconst J = dec<J>("j");\nclass A { @E b: J; }\nexport { A };',
+    'import { dec } from "d";\ninterface J {}\nconst J = dec<J>("j");\n// const J = dec("k")\nclass A { @E b: J; }\nexport { A };',
+    // Inside a function a parameter may hide a class of the module.
+    'class Token {}\nexport function create(Token: number) { @D class Service { constructor(value: Token) {} } return Service; }',
+    'class Foo {}\nexport function f(Foo: any) { class A { @E x: Foo; } return A; }',
+    // The accessors of one name, however the name is spelled.
+    'export class C { @E get value(): number { return 0; } set "value"(v: number) {} }',
+    // Comments where an annotation may stand.
+    'export class C { @E format() /* result */ : string { return "ok"; } }',
+    'export class C { @E setAll(...values: readonly number[]) {} }',
+    'export class C { @E mode: string | (never); }',
     'function f() { @D class L { constructor(a: Foo) {} } return L; }\nexport { f };',
     'class B {}\nfunction f() { class B {} }\nclass A { @E a: B; }\nexport { A, f };',
     'import S = require("s");\nclass A { @E a: S; }\nexport { A };',
@@ -141,7 +158,8 @@ test('temporaries are numbered as TypeScript numbers them', () => {
 });
 
 test('the serializer reads a type from its text', () => {
-  const names = { classes: new Set(['Own']), interfaces: new Set(['Face']), typeOnly: new Set(['Typ']), declared: new Set(['Own', 'Ali', 'Face']), parameters: new Set(['Par']) };
+  const meanings = { Own: 'class', Face: 'object', Typ: 'object', Ali: 'refused', Par: 'refused' };
+  const names = (root, qualified) => (qualified && meanings[root] !== undefined ? 'refused' : meanings[root] ?? 'unknown');
   let count = 0;
   const serialize = serializer(names, () => `_t${count++}`);
   const cases = [

@@ -53,10 +53,12 @@ noeq type tape = {
   count_only : bool;
   output : array G.candidate;
   capacity : U32.t;
-  bindings : array binding_name;
-  marks : array U8.t;
   // Decorators of TypeScript's earlier design: parameters may carry them, and their places are recorded.
-  legacy_decorators : bool
+  // The flag stands behind the capacity, where the C layout has four unused bytes: the tape is passed by
+  // value to every parser function, and eight more bytes cost a percent of the parsing time.
+  legacy_decorators : bool;
+  bindings : array binding_name;
+  marks : array U8.t
 }
 
 let owned (_:nat) : prop = True

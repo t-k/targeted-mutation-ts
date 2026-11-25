@@ -1802,6 +1802,12 @@ test('names outside ASCII are read through a copy spelled in ASCII', () => {
     'export const \\u0275a = 1;\nexport const ɵb = 2;', 'export const a = 1;\nexport const é = 1;']) {
     assert.equal(compile(Buffer.from(source), { file: 'names.ts' }).backend, 'typescript', source);
   }
+  // A letter of Unicode 16 or 17 is one for the engine and none for TypeScript, which reports the name.
+  for (const source of ['export const o: Record<string, string> = { \u1C89: "x", \u0410: "a" };', 'export const \u{16D40}a: number = 1;']) {
+    const result = compile(Buffer.from(source), { file: 'names.ts' });
+    assert.equal(result.code, null, source);
+    assert.notEqual(result.diagnostics.length, 0, source);
+  }
 });
 
 test('Node erasure is not used where it drops the export of a decorated abstract class', () => {

@@ -2424,9 +2424,11 @@ uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all,
     input.legacy_decorators = true;
     const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(input, false, true);
     if (parsed.status == 0 && parsed.count <= input.capacity) {
+      /* The names bound at module level stand in the first region of the binding table. */
+      const uint32_t region = 512;
       uint32_t kept = 0;
       for (uint32_t index = 0; index < parsed.count; index++) kept += all || legacy_record(records[index].original);
-      found = malloc((kept ? kept : 1) * 5 * sizeof(*found));
+      found = malloc((kept + (all ? region : 0) + 1) * 5 * sizeof(*found));
       if (found) {
         for (uint32_t index = 0; index < parsed.count; index++) {
           const TmtGrammar_candidate entry = records[index];
@@ -2434,6 +2436,25 @@ uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all,
           uint32_t *row = found + 5 * (*count)++;
           row[0] = entry.original; row[1] = entry.left.first; row[2] = entry.left.last;
           row[3] = entry.right.first; row[4] = entry.right.last;
+        }
+        /*
+         * Kind 61: a name of the module and what declares it, for the metadata of the decorators:
+         * 1 a class, 2 an interface, 3 a type-only import, 4 an import or another name with both meanings,
+         * 5 a value, 9 anything else.
+         */
+        for (uint32_t index = 0; all && index < region; index++) {
+          const TmtPulseMemory_binding_name name = memory.bindings[index];
+          if (name.span.first >= name.span.last || name.span.last > size) continue;
+          uint32_t *row = found + 5 * (*count)++;
+          row[0] = 61; row[1] = name.span.first; row[2] = name.span.last; row[4] = 0;
+          switch (name.namespace0) {
+            case TmtPulseMemory_ClassName: row[3] = 1; break;
+            case TmtPulseMemory_InterfaceName: case TmtPulseMemory_ExportedInterfaceName: row[3] = 2; break;
+            case TmtPulseMemory_TypeOnlyImport: row[3] = 3; break;
+            case TmtPulseMemory_BothNames: row[3] = 4; break;
+            case TmtPulseMemory_ValueName: case TmtPulseMemory_LocalVarName: case TmtPulseMemory_FunctionImplementation: row[3] = 5; break;
+            default: row[3] = 9; break;
+          }
         }
       }
     }

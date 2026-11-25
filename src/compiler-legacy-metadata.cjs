@@ -9,7 +9,7 @@
 // A type is read from its text. Whatever is not read with certainty gives null, and TypeScript lowers the source.
 
 const tokenPattern = new RegExp([
-  '\\s+|//[^\\r\\n]*|/\\*[\\s\\S]*?\\*/', // 1: nothing
+  '\\s+|//[^\\r\\n\\u2028\\u2029]*|/\\*[\\s\\S]*?\\*/', // 1: nothing
   '[A-Za-z_$][\\w$]*', // 2: word
   '\\d[\\w.]*', // 3: number
   '"(?:[^"\\\\\\r\\n]|\\\\.)*"|\'(?:[^\'\\\\\\r\\n]|\\\\.)*\'|`[^`$\\\\]*`', // 4: string
@@ -44,12 +44,11 @@ const keywords = new Map([
 const unread = new Set(['infer', 'import', 'asserts', 'unique', 'abstract', 'is', 'extends']);
 const opening = new Map([['(', ')'], ['[', ']'], ['{', '}'], ['<', '>']]);
 
-// names: what the file says about a name. `classes` are classes at module level that are declared once,
-// `interfaces` are names that only interfaces at module level declare,
-// `typeOnly` are names of type-only imports, `parameters` are type parameters, and `declared` are names with
-// any declaration of a type, a class, a function or a namespace.
-// temp() gives the next temporary name, in the order TypeScript creates them.
-function serializer(names, temp) {
+// classify(root, qualified) says what a name stands for: 'class' is a class of the module, written as itself;
+// 'object' is a type without a value; 'unknown' is a name whose meaning one file does not show, which is
+// guarded; anything else is not certain. temp() gives the next temporary name, in the order TypeScript
+// creates them.
+function serializer(classify, temp) {
   let list, at;
   // Above zero while a part is read that TypeScript does not serialize: no temporary is made for it.
   let dry = 0;
@@ -93,22 +92,17 @@ function serializer(names, temp) {
     if (peek() === '<') { at = matching(at); if (at < 0) return null; }
     if (dry > 0) return object;
     // What a name stands for matters only once the reference is written: an array of it is Array all the same.
-    const refused = { pending: true, refused: true };
-    // A type parameter may hide any other meaning of its name.
-    if (names.parameters.has(root)) return refused;
-    if (path.length === 1 && names.typeOnly.has(root) && !names.declared.has(root)) return object;
-    if (names.declared.has(root) || names.typeOnly.has(root)) {
-      if (path.length !== 1) return refused;
-      return names.classes.has(root) ? named(root) : names.interfaces.has(root) ? object : refused;
-    }
-    if (path.length > 2) return refused;
+    const meaning = classify(root, path.length !== 1);
+    if (meaning === 'class' && path.length === 1) return named(root);
+    if (meaning === 'object' && path.length === 1) return object;
+    if (meaning !== 'unknown' || path.length > 2) return { pending: true, refused: true };
     return { pending: true, root, key: path.join('.') };
   };
   const primary = () => {
     if (at >= list.length) return null;
     const token = list[at];
     if (token.kind === 'string') { at++; return named('String'); }
-    if (token.kind === 'number') { at++; return /^\d+n$/.test(token.text) ? named('BigInt') : named('Number'); }
+    if (token.kind === 'number') { at++; return /n$/.test(token.text) ? named('BigInt') : named('Number'); }
     if (token.kind === 'word') {
       const next = at + 1 < list.length ? list[at + 1].text : '';
       if (token.text === 'new') { at++; return restOfLevel() ? named('Function') : null; }
@@ -135,7 +129,7 @@ function serializer(names, temp) {
     if (token.text === '-') {
       if (at + 1 >= list.length || list[at + 1].kind !== 'number') return null;
       at += 2;
-      return /^\d+n$/.test(list[at - 1].text) ? named('BigInt') : named('Number');
+      return /n$/.test(list[at - 1].text) ? named('BigInt') : named('Number');
     }
     if (token.text === '<') return restOfLevel() ? named('Function') : null;
     if (token.text === '{') { at = matching(at); return at < 0 ? null : object; }
@@ -193,13 +187,9 @@ function serializer(names, temp) {
   return text => {
     list = tokens(text);
     if (list === null || list.length === 0) return null;
-    // never and unknown are told from the other keywords inside unions.
-    for (let index = 0; index < list.length; index++) {
-      if (list[index].kind === 'word' && (list[index].text === 'never' || list[index].text === 'unknown')) {
-        const before = index > 0 ? list[index - 1].text : '', after = index + 1 < list.length ? list[index + 1].text : '';
-        if (before === '|' || before === '&' || after === '|' || after === '&') return null;
-      }
-    }
+    // never and unknown are told from the other keywords inside unions and intersections, which is not done here.
+    if (list.some(token => token.kind === 'word' && (token.text === 'never' || token.text === 'unknown')) &&
+        list.some(token => token.kind === 'sign' && (token.text === '|' || token.text === '&'))) return null;
     at = 0;
     dry = 0;
     const value = union();

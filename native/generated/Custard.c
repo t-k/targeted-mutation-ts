@@ -266,8 +266,7 @@ TmtPulseParser_failed(TmtPulseParser_parser_state state, uint32_t error)
                            .private_scope = state.private_scope,
                            .private_count = state.private_count,
                            .local_log_floor = state.local_log_floor,
-                           .local_log_used = state.local_log_used,
-                           .member_parameters = state.member_parameters
+                           .local_log_used = state.local_log_used
                          }
                        )
                        : state;
@@ -300,8 +299,7 @@ TmtPulseParser_from_cursor(TmtPulseParser_parser_state state, TmtPulseParser_cur
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       );
   else
@@ -676,8 +674,7 @@ TmtPulseParser_consume(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         );
     else
@@ -724,8 +721,7 @@ TmtPulseParser_statement_end(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         );
     else
@@ -970,8 +966,7 @@ TmtPulseParser_lexical_operand(TmtPulseMemory_tape input, TmtPulseParser_parser_
               .private_scope = value.private_scope,
               .private_count = value.private_count,
               .local_log_floor = value.local_log_floor,
-              .local_log_used = value.local_log_used,
-              .member_parameters = value.member_parameters
+              .local_log_used = value.local_log_used
             }
           );
     }
@@ -1214,8 +1209,7 @@ TmtPulseParser_lexical_declarator_end(
               .private_scope = value4.private_scope,
               .private_count = value4.private_count,
               .local_log_floor = value4.local_log_floor,
-              .local_log_used = value4.local_log_used,
-              .member_parameters = value4.member_parameters
+              .local_log_used = value4.local_log_used
             }
           ));
     else
@@ -1382,8 +1376,7 @@ TmtPulseParser_read_lexical_conflict(
                 .private_scope = value.private_scope,
                 .private_count = value.private_count,
                 .local_log_floor = value.local_log_floor,
-                .local_log_used = value.local_log_used,
-                .member_parameters = value.member_parameters
+                .local_log_used = value.local_log_used
               }
             ));
         TmtPulseParser_cursor value3 = TmtPulseParser_name(input, value2.offset, false, true);
@@ -1467,8 +1460,7 @@ TmtPulseParser_initial_state(bool jsx, bool module_mode, uint16_t local_log_floo
         .private_scope = 0U,
         .private_count = 0U,
         .local_log_floor = local_log_floor,
-        .local_log_used = 0U,
-        .member_parameters = false
+        .local_log_used = 0U
       }
     );
 }
@@ -1602,8 +1594,7 @@ TmtPulseParser_qualified_name(
                   .private_scope = st.private_scope,
                   .private_count = st.private_count,
                   .local_log_floor = st.local_log_floor,
-                  .local_log_used = st.local_log_used,
-                  .member_parameters = st.member_parameters
+                  .local_log_used = st.local_log_used
                 }
               ));
           uint8_t value3 = TmtPulseMemory_peek(input, value2.offset);
@@ -1625,8 +1616,7 @@ TmtPulseParser_qualified_name(
                 .arrow_defaults_allowed = value2.arrow_defaults_allowed,
                 .binding_mode = value2.binding_mode, .super_context = value2.super_context,
                 .private_scope = value2.private_scope, .private_count = value2.private_count,
-                .local_log_floor = value2.local_log_floor, .local_log_used = value2.local_log_used,
-                .member_parameters = value2.member_parameters
+                .local_log_floor = value2.local_log_floor, .local_log_used = value2.local_log_used
               };
             uint32_t tmp = TmtPulseParser_minus(fuel, 1U);
             state = tmp0;
@@ -1827,8 +1817,7 @@ TmtPulseParser_arrow_token(TmtPulseMemory_tape input, TmtPulseParser_parser_stat
             .private_scope = st.private_scope,
             .private_count = st.private_count,
             .local_log_floor = st.local_log_floor,
-            .local_log_used = st.local_log_used,
-            .member_parameters = st.member_parameters
+            .local_log_used = st.local_log_used
           }
         );
     else
@@ -2069,8 +2058,7 @@ TmtPulseParser_bare_arrow_parameters(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         ));
   else if (value2 == 61U)
@@ -2098,8 +2086,7 @@ TmtPulseParser_bare_arrow_parameters(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         );
     else
@@ -2138,8 +2125,7 @@ TmtPulseParser_bare_arrow_parameters(
                 .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
                 .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context,
                 .private_scope = uu____0.private_scope, .private_count = uu____0.private_count,
-                .local_log_floor = uu____0.local_log_floor, .local_log_used = uu____0.local_log_used,
-                .member_parameters = uu____0.member_parameters
+                .local_log_floor = uu____0.local_log_floor, .local_log_used = uu____0.local_log_used
               },
               .used = value4.used
             },
@@ -2309,8 +2295,7 @@ TmtPulseParser_read_type_term_head(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         ));
   else
@@ -2390,8 +2375,7 @@ TmtPulseParser_constructor_type_start(
               .private_scope = st.private_scope,
               .private_count = st.private_count,
               .local_log_floor = st.local_log_floor,
-              .local_log_used = st.local_log_used,
-              .member_parameters = st.member_parameters
+              .local_log_used = st.local_log_used
             }
           ));
     else
@@ -2427,8 +2411,7 @@ TmtPulseParser_constructor_type_start(
             .private_scope = value0.private_scope,
             .private_count = value0.private_count,
             .local_log_floor = value0.local_log_floor,
-            .local_log_used = value0.local_log_used,
-            .member_parameters = value0.member_parameters
+            .local_log_used = value0.local_log_used
           }
         ));
   else
@@ -2695,8 +2678,7 @@ TmtPulseParser_import_type(TmtPulseMemory_tape input, TmtPulseParser_parser_stat
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       ));
   TmtPulseParser_parser_state value1 = TmtPulseParser_consume(input, value, 40U);
@@ -2746,8 +2728,7 @@ TmtPulseParser_type_query(TmtPulseMemory_tape input, TmtPulseParser_parser_state
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       ));
   bool value1 = TmtPulseParser_keyword(input, value.offset, 6U, 0x696d706f7274ULL);
@@ -2782,8 +2763,7 @@ TmtPulseParser_type_query(TmtPulseMemory_tape input, TmtPulseParser_parser_state
             .private_scope = value.private_scope,
             .private_count = value.private_count,
             .local_log_floor = value.local_log_floor,
-            .local_log_used = value.local_log_used,
-            .member_parameters = value.member_parameters
+            .local_log_used = value.local_log_used
           }
         );
     else
@@ -2822,8 +2802,7 @@ TmtPulseParser_unique_symbol_type(TmtPulseMemory_tape input, TmtPulseParser_pars
           .private_scope = st.private_scope,
           .private_count = st.private_count,
           .local_log_floor = st.local_log_floor,
-          .local_log_used = st.local_log_used,
-          .member_parameters = st.member_parameters
+          .local_log_used = st.local_log_used
         }
       ));
   bool value1 = TmtPulseParser_keyword(input, value.offset, 6U, 0x73796d626f6cULL);
@@ -2849,8 +2828,7 @@ TmtPulseParser_unique_symbol_type(TmtPulseMemory_tape input, TmtPulseParser_pars
           .private_scope = value.private_scope,
           .private_count = value.private_count,
           .local_log_floor = value.local_log_floor,
-          .local_log_used = value.local_log_used,
-          .member_parameters = value.member_parameters
+          .local_log_used = value.local_log_used
         }
       );
   else
@@ -2952,8 +2930,7 @@ TmtPulseParser_signature_shorthand_names(
                     .private_scope = value2.private_scope,
                     .private_count = value2.private_count,
                     .local_log_floor = value2.local_log_floor,
-                    .local_log_used = value2.local_log_used,
-                    .member_parameters = value2.member_parameters
+                    .local_log_used = value2.local_log_used
                   }
                 ));
           else
@@ -3130,8 +3107,7 @@ TmtPulseParser_mapped_type_start(TmtPulseMemory_tape input, TmtPulseParser_parse
             .private_scope = value10.private_scope,
             .private_count = value10.private_count,
             .local_log_floor = value10.local_log_floor,
-            .local_log_used = value10.local_log_used,
-            .member_parameters = value10.member_parameters
+            .local_log_used = value10.local_log_used
           }
         ));
   else
@@ -3172,8 +3148,7 @@ TmtPulseParser_mapped_type_start(TmtPulseMemory_tape input, TmtPulseParser_parse
               .private_scope = value7.private_scope,
               .private_count = value7.private_count,
               .local_log_floor = value7.local_log_floor,
-              .local_log_used = value7.local_log_used,
-              .member_parameters = value7.member_parameters
+              .local_log_used = value7.local_log_used
             }
           ));
       bool value11 = TmtPulseParser_keyword(input, value10.offset, 2U, 0x696eULL);
@@ -3205,8 +3180,7 @@ TmtPulseParser_mapped_type_start(TmtPulseMemory_tape input, TmtPulseParser_parse
                 .private_scope = value10.private_scope,
                 .private_count = value10.private_count,
                 .local_log_floor = value10.local_log_floor,
-                .local_log_used = value10.local_log_used,
-                .member_parameters = value10.member_parameters
+                .local_log_used = value10.local_log_used
               }
             );
         else
@@ -3292,8 +3266,7 @@ TmtPulseParser_read_bracket_type_key(
               .private_scope = value1.private_scope,
               .private_count = value1.private_count,
               .local_log_floor = value1.local_log_floor,
-              .local_log_used = value1.local_log_used,
-              .member_parameters = value1.member_parameters
+              .local_log_used = value1.local_log_used
             }
           );
       else
@@ -3480,8 +3453,7 @@ TmtPulseParser_type_list(
               .arrow_defaults_allowed = value3.arrow_defaults_allowed,
               .binding_mode = value3.binding_mode, .super_context = value3.super_context,
               .private_scope = value3.private_scope, .private_count = value3.private_count,
-              .local_log_floor = value3.local_log_floor, .local_log_used = value3.local_log_used,
-              .member_parameters = value3.member_parameters
+              .local_log_floor = value3.local_log_floor, .local_log_used = value3.local_log_used
             };
           uint32_t tmp1 = TmtPulseParser_minus(remaining, 1U);
           bool tmp = true;
@@ -3582,8 +3554,7 @@ TmtPulseParser_template_type(
               .private_scope = state.private_scope,
               .private_count = state.private_count,
               .local_log_floor = state.local_log_floor,
-              .local_log_used = state.local_log_used,
-              .member_parameters = state.member_parameters
+              .local_log_used = state.local_log_used
             }
           );
       else
@@ -3619,8 +3590,7 @@ TmtPulseParser_template_type(
                   .private_scope = state.private_scope,
                   .private_count = state.private_count,
                   .local_log_floor = state.local_log_floor,
-                  .local_log_used = state.local_log_used,
-                  .member_parameters = state.member_parameters
+                  .local_log_used = state.local_log_used
                 }
               ),
               fuel);
@@ -3654,8 +3624,7 @@ TmtPulseParser_template_type(
                 .private_scope = state.private_scope,
                 .private_count = state.private_count,
                 .local_log_floor = state.local_log_floor,
-                .local_log_used = state.local_log_used,
-                .member_parameters = state.member_parameters
+                .local_log_used = state.local_log_used
               }
             );
         TmtPulseParser_parser_state tmp0 = value20;
@@ -3726,8 +3695,7 @@ TmtPulseParser_signature_parameters(
                   .private_scope = value.private_scope,
                   .private_count = value.private_count,
                   .local_log_floor = value.local_log_floor,
-                  .local_log_used = value.local_log_used,
-                  .member_parameters = value.member_parameters
+                  .local_log_used = value.local_log_used
                 }
               ));
         else
@@ -3762,8 +3730,7 @@ TmtPulseParser_signature_parameters(
                   .private_scope = value3.private_scope,
                   .private_count = value3.private_count,
                   .local_log_floor = value3.local_log_floor,
-                  .local_log_used = value3.local_log_used,
-                  .member_parameters = value3.member_parameters
+                  .local_log_used = value3.local_log_used
                 }
               ));
           TmtPulseParser_parser_state
@@ -3798,8 +3765,7 @@ TmtPulseParser_signature_parameters(
                     .private_scope = value10.private_scope,
                     .private_count = value10.private_count,
                     .local_log_floor = value10.local_log_floor,
-                    .local_log_used = value10.local_log_used,
-                    .member_parameters = value10.member_parameters
+                    .local_log_used = value10.local_log_used
                   }
                 ));
           else
@@ -3836,8 +3802,7 @@ TmtPulseParser_signature_parameters(
                   .private_scope = value3.private_scope,
                   .private_count = value3.private_count,
                   .local_log_floor = value3.local_log_floor,
-                  .local_log_used = value3.local_log_used,
-                  .member_parameters = value3.member_parameters
+                  .local_log_used = value3.local_log_used
                 }
               );
           else
@@ -3962,8 +3927,7 @@ TmtPulseParser_result_type(
               .private_scope = value.private_scope,
               .private_count = value.private_count,
               .local_log_floor = value.local_log_floor,
-              .local_log_used = value.local_log_used,
-              .member_parameters = value.member_parameters
+              .local_log_used = value.local_log_used
             }
           ),
           fuel,
@@ -3990,8 +3954,7 @@ TmtPulseParser_result_type(
             .private_scope = value.private_scope,
             .private_count = value.private_count,
             .local_log_floor = value.local_log_floor,
-            .local_log_used = value.local_log_used,
-            .member_parameters = value.member_parameters
+            .local_log_used = value.local_log_used
           }
         );
     else
@@ -4163,8 +4126,7 @@ TmtPulseParser_tuple_element(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         ));
   else
@@ -4201,8 +4163,7 @@ TmtPulseParser_tuple_element(
             .private_scope = value1.private_scope,
             .private_count = value1.private_count,
             .local_log_floor = value1.local_log_floor,
-            .local_log_used = value1.local_log_used,
-            .member_parameters = value1.member_parameters
+            .local_log_used = value1.local_log_used
           }
         ));
   bool value5;
@@ -4380,8 +4341,7 @@ TmtPulseParser_mapped_type(
             .private_scope = value1.private_scope,
             .private_count = value1.private_count,
             .local_log_floor = value1.local_log_floor,
-            .local_log_used = value1.local_log_used,
-            .member_parameters = value1.member_parameters
+            .local_log_used = value1.local_log_used
           }
         ),
         fuel,
@@ -4475,8 +4435,7 @@ TmtPulseParser_object_type_member(
             .private_scope = st.private_scope,
             .private_count = st.private_count,
             .local_log_floor = st.local_log_floor,
-            .local_log_used = st.local_log_used,
-            .member_parameters = st.member_parameters
+            .local_log_used = st.local_log_used
           }
         );
     }
@@ -4544,8 +4503,7 @@ TmtPulseParser_object_type_member(
               .private_scope = st.private_scope,
               .private_count = st.private_count,
               .local_log_floor = st.local_log_floor,
-              .local_log_used = st.local_log_used,
-              .member_parameters = st.member_parameters
+              .local_log_used = st.local_log_used
             }
           ));
       uint8_t value6 = TmtPulseMemory_peek(input, value5.offset);
@@ -4785,8 +4743,7 @@ TmtPulseParser_type_term(
                 .private_scope = st.private_scope,
                 .private_count = st.private_count,
                 .local_log_floor = st.local_log_floor,
-                .local_log_used = st.local_log_used,
-                .member_parameters = st.member_parameters
+                .local_log_used = st.local_log_used
               }
             ),
             TmtPulseParser_minus(fuel, 1U),
@@ -4830,8 +4787,7 @@ TmtPulseParser_type_term(
               .private_scope = st.private_scope,
               .private_count = st.private_count,
               .local_log_floor = st.local_log_floor,
-              .local_log_used = st.local_log_used,
-              .member_parameters = st.member_parameters
+              .local_log_used = st.local_log_used
             }
           ));
       TmtPulseParser_cursor value4 = TmtPulseParser_name(input, value3.offset, false, true);
@@ -4872,8 +4828,7 @@ TmtPulseParser_type_term(
                 .private_scope = tail.private_scope,
                 .private_count = tail.private_count,
                 .local_log_floor = tail.local_log_floor,
-                .local_log_used = tail.local_log_used,
-                .member_parameters = tail.member_parameters
+                .local_log_used = tail.local_log_used
               }
             ));
         TmtPulseParser_parser_state start = value8._1;
@@ -4925,8 +4880,7 @@ TmtPulseParser_type_term(
                 .private_scope = st.private_scope,
                 .private_count = st.private_count,
                 .local_log_floor = st.local_log_floor,
-                .local_log_used = st.local_log_used,
-                .member_parameters = st.member_parameters
+                .local_log_used = st.local_log_used
               }
             ),
             TmtPulseParser_minus(fuel, 1U),
@@ -4966,7 +4920,7 @@ TmtPulseParser_type_term(
             .arrow_defaults_allowed = st.arrow_defaults_allowed, .binding_mode = st.binding_mode,
             .super_context = st.super_context, .private_scope = st.private_scope,
             .private_count = st.private_count, .local_log_floor = st.local_log_floor,
-            .local_log_used = st.local_log_used, .member_parameters = st.member_parameters
+            .local_log_used = st.local_log_used
           };
         uint32_t inner = TmtPulseParser_minus(fuel, 1U);
         if (byte == 91U)
@@ -5069,8 +5023,7 @@ TmtPulseParser_type_terms(
               .arrow_defaults_allowed = value1.arrow_defaults_allowed,
               .binding_mode = value1.binding_mode, .super_context = value1.super_context,
               .private_scope = value1.private_scope, .private_count = value1.private_count,
-              .local_log_floor = value1.local_log_floor, .local_log_used = value1.local_log_used,
-              .member_parameters = value1.member_parameters
+              .local_log_floor = value1.local_log_floor, .local_log_used = value1.local_log_used
             };
           uint32_t tmp1 = TmtPulseParser_minus(remaining, 1U);
           bool tmp = false;
@@ -5140,8 +5093,7 @@ TmtPulseParser_annotation_type(
             .private_scope = tail.private_scope,
             .private_count = tail.private_count,
             .local_log_floor = tail.local_log_floor,
-            .local_log_used = tail.local_log_used,
-            .member_parameters = tail.member_parameters
+            .local_log_used = tail.local_log_used
           }
         ));
     TmtPulseParser_parser_state start1 = value4._1;
@@ -5204,8 +5156,7 @@ TmtPulseParser_type_parameters(
                 .private_scope = value.private_scope,
                 .private_count = value.private_count,
                 .local_log_floor = value.local_log_floor,
-                .local_log_used = value.local_log_used,
-                .member_parameters = value.member_parameters
+                .local_log_used = value.local_log_used
               }
             ));
       else
@@ -5248,8 +5199,7 @@ TmtPulseParser_type_parameters(
                   .private_scope = value7.private_scope,
                   .private_count = value7.private_count,
                   .local_log_floor = value7.local_log_floor,
-                  .local_log_used = value7.local_log_used,
-                  .member_parameters = value7.member_parameters
+                  .local_log_used = value7.local_log_used
                 }
               ),
               fuel,
@@ -5474,8 +5424,7 @@ TmtPulseParser_record_compiler_span(
             .private_scope = value.private_scope,
             .private_count = value.private_count,
             .local_log_floor = value.local_log_floor,
-            .local_log_used = value.local_log_used,
-            .member_parameters = value.member_parameters
+            .local_log_used = value.local_log_used
           }
         );
   }
@@ -5540,8 +5489,7 @@ TmtPulseParser_simple_annotation(TmtPulseMemory_tape input, TmtPulseParser_parse
             .private_scope = value.private_scope,
             .private_count = value.private_count,
             .local_log_floor = value.local_log_floor,
-            .local_log_used = value.local_log_used,
-            .member_parameters = value.member_parameters
+            .local_log_used = value.local_log_used
           }
         ),
         16U,
@@ -5615,8 +5563,7 @@ TmtPulseParser_rest_parameter(
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       ));
   TmtPulseParser_named_state
@@ -5760,8 +5707,7 @@ TmtPulseParser_computed_property_name(
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       ));
   bool value1 = TmtPulseParser_forbidden_field_arguments(input, value);
@@ -5800,8 +5746,7 @@ TmtPulseParser_computed_property_name(
               .private_scope = value.private_scope,
               .private_count = value.private_count,
               .local_log_floor = value.local_log_floor,
-              .local_log_used = value.local_log_used,
-              .member_parameters = value.member_parameters
+              .local_log_used = value.local_log_used
             }
           ),
           value2);
@@ -5909,8 +5854,7 @@ TmtPulseParser_simple_default(TmtPulseMemory_tape input, TmtPulseParser_parser_s
               .private_scope = value2.private_scope,
               .private_count = value2.private_count,
               .local_log_floor = value2.local_log_floor,
-              .local_log_used = value2.local_log_used,
-              .member_parameters = value2.member_parameters
+              .local_log_used = value2.local_log_used
             }
           );
     }
@@ -5946,8 +5890,7 @@ TmtPulseParser_enter_function_locals(TmtPulseParser_parser_state state)
         .private_scope = state.private_scope,
         .private_count = state.private_count,
         .local_log_floor = local_log_floor,
-        .local_log_used = state.local_log_used,
-        .member_parameters = state.member_parameters
+        .local_log_used = state.local_log_used
       }
     );
 }
@@ -5999,8 +5942,7 @@ TmtPulseParser_function_body(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         );
     }
@@ -6124,8 +6066,7 @@ TmtPulseParser_simple_less_argument(
             .private_scope = start.private_scope,
             .private_count = start.private_count,
             .local_log_floor = start.local_log_floor,
-            .local_log_used = start.local_log_used,
-            .member_parameters = start.member_parameters
+            .local_log_used = start.local_log_used
           }
         ));
     uint8_t value2 = TmtPulseMemory_peek(input, value1.offset);
@@ -6179,8 +6120,7 @@ TmtPulseParser_type_arguments_end_at_call_close(
             .arrow_defaults_allowed = value3.arrow_defaults_allowed,
             .binding_mode = value3.binding_mode, .super_context = value3.super_context,
             .private_scope = value3.private_scope, .private_count = value3.private_count,
-            .local_log_floor = value3.local_log_floor, .local_log_used = value3.local_log_used,
-            .member_parameters = value3.member_parameters
+            .local_log_floor = value3.local_log_floor, .local_log_used = value3.local_log_used
           };
         uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
         state = tmp0;
@@ -6389,8 +6329,7 @@ TmtPulseParser_record_binding_mode(
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       );
   else if (state.local_log_floor == TmtPulseParser_primary_locals)
@@ -6417,8 +6356,7 @@ TmtPulseParser_record_binding_mode(
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       );
 }
@@ -6474,8 +6412,7 @@ TmtPulseParser_record_local(
           .private_scope = st.private_scope,
           .private_count = st.private_count,
           .local_log_floor = st.local_log_floor,
-          .local_log_used = (uint32_t)st.local_log_used + 1U,
-          .member_parameters = st.member_parameters
+          .local_log_used = (uint32_t)st.local_log_used + 1U
         }
       );
   }
@@ -6597,8 +6534,7 @@ TmtPulseParser_enum_body_tokens(
             .arrow_defaults_allowed = value.arrow_defaults_allowed,
             .binding_mode = value.binding_mode, .super_context = value.super_context,
             .private_scope = value.private_scope, .private_count = value.private_count,
-            .local_log_floor = value.local_log_floor, .local_log_used = value.local_log_used,
-            .member_parameters = value.member_parameters
+            .local_log_floor = value.local_log_floor, .local_log_used = value.local_log_used
           };
         uint32_t tmp = TmtPulseParser_minus(fuel, 1U);
         state = tmp0;
@@ -6649,8 +6585,7 @@ TmtPulseParser_local_enum_declaration(
           .private_scope = declared.private_scope,
           .private_count = declared.private_count,
           .local_log_floor = declared.local_log_floor,
-          .local_log_used = declared.local_log_used,
-          .member_parameters = declared.member_parameters
+          .local_log_used = declared.local_log_used
         }
       ));
   TmtPulseParser_named_state
@@ -6681,8 +6616,7 @@ TmtPulseParser_local_enum_declaration(
           .arrow_defaults_allowed = value6.arrow_defaults_allowed,
           .binding_mode = value6.binding_mode, .super_context = value6.super_context,
           .private_scope = value6.private_scope, .private_count = value6.private_count,
-          .local_log_floor = value6.local_log_floor, .local_log_used = value6.local_log_used,
-          .member_parameters = value6.member_parameters
+          .local_log_floor = value6.local_log_floor, .local_log_used = value6.local_log_used
         },
         .used = value1.used
       }
@@ -6745,8 +6679,7 @@ TmtPulseParser_read_generator_head(
             .private_scope = start.private_scope,
             .private_count = start.private_count,
             .local_log_floor = start.local_log_floor,
-            .local_log_used = start.local_log_used,
-            .member_parameters = start.member_parameters
+            .local_log_used = start.local_log_used
           }
         ));
   else
@@ -7069,8 +7002,7 @@ TmtPulseParser_leave_function_locals(
         .private_scope = state.private_scope,
         .private_count = state.private_count,
         .local_log_floor = outer.local_log_floor,
-        .local_log_used = outer.local_log_used,
-        .member_parameters = state.member_parameters
+        .local_log_used = outer.local_log_used
       }
     );
 }
@@ -7202,8 +7134,7 @@ TmtPulseParser_angle_assertion_head(TmtPulseMemory_tape input, TmtPulseParser_pa
           .private_scope = st.private_scope,
           .private_count = st.private_count,
           .local_log_floor = st.local_log_floor,
-          .local_log_used = st.local_log_used,
-          .member_parameters = st.member_parameters
+          .local_log_used = st.local_log_used
         }
       ),
       16U,
@@ -7433,8 +7364,7 @@ TmtPulseParser_record_private(
                                                                      : st.private_scope,
           .private_count = private_count,
           .local_log_floor = st.local_log_floor,
-          .local_log_used = st.local_log_used,
-          .member_parameters = st.member_parameters
+          .local_log_used = st.local_log_used
         }
       );
   }
@@ -7465,8 +7395,7 @@ TmtPulseParser_tag_space(TmtPulseMemory_tape input, TmtPulseParser_parser_state 
         .private_scope = state.private_scope,
         .private_count = state.private_count,
         .local_log_floor = state.local_log_floor,
-        .local_log_used = state.local_log_used,
-        .member_parameters = state.member_parameters
+        .local_log_used = state.local_log_used
       }
     );
 }
@@ -7679,8 +7608,7 @@ TmtPulseParser_accessor_modifier(TmtPulseMemory_tape input, TmtPulseParser_parse
             .private_scope = st.private_scope,
             .private_count = st.private_count,
             .local_log_floor = st.local_log_floor,
-            .local_log_used = st.local_log_used,
-            .member_parameters = st.member_parameters
+            .local_log_used = st.local_log_used
           }
         ));
     uint8_t value3 = TmtPulseMemory_peek(input, value2.offset);
@@ -7775,8 +7703,7 @@ TmtPulseParser_flat_assignment_members(
               .private_scope = value50.private_scope,
               .private_count = value50.private_count,
               .local_log_floor = value50.local_log_floor,
-              .local_log_used = value50.local_log_used,
-              .member_parameters = value50.member_parameters
+              .local_log_used = value50.local_log_used
             }
           );
       else
@@ -9139,8 +9066,7 @@ TmtPulseParser_class_member_key(TmtPulseMemory_tape input, TmtPulseParser_parser
                   .private_scope = start.private_scope,
                   .private_count = start.private_count,
                   .local_log_floor = start.local_log_floor,
-                  .local_log_used = start.local_log_used,
-                  .member_parameters = start.member_parameters
+                  .local_log_used = start.local_log_used
                 }
               )
               : start;
@@ -9295,8 +9221,7 @@ TmtPulseParser_interface_tail(TmtPulseMemory_tape input, TmtPulseParser_parser_s
             .private_scope = value1.private_scope,
             .private_count = value1.private_count,
             .local_log_floor = value1.local_log_floor,
-            .local_log_used = value1.local_log_used,
-            .member_parameters = value1.member_parameters
+            .local_log_used = value1.local_log_used
           }
         ),
         64U);
@@ -9353,8 +9278,7 @@ TmtPulseParser_local_type_declaration(
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       ));
   TmtPulseParser_named_state
@@ -9389,8 +9313,7 @@ TmtPulseParser_local_type_declaration(
           .arrow_defaults_allowed = value3.arrow_defaults_allowed,
           .binding_mode = value3.binding_mode, .super_context = value3.super_context,
           .private_scope = value3.private_scope, .private_count = value3.private_count,
-          .local_log_floor = value3.local_log_floor, .local_log_used = value3.local_log_used,
-          .member_parameters = value3.member_parameters
+          .local_log_floor = value3.local_log_floor, .local_log_used = value3.local_log_used
         },
         .used = value1.used
       }
@@ -9836,8 +9759,7 @@ TmtPulseParser_finish_local_scope(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = value1,
-            .member_parameters = state.member_parameters
+            .local_log_used = value1
           }
         );
     }
@@ -10080,8 +10002,7 @@ TmtPulseParser_pattern_names(
                     .private_scope = value.private_scope,
                     .private_count = value.private_count,
                     .local_log_floor = value.local_log_floor,
-                    .local_log_used = value.local_log_used,
-                    .member_parameters = value.member_parameters
+                    .local_log_used = value.local_log_used
                   }
                 ));
             TmtPulseParser_named_state
@@ -10184,8 +10105,7 @@ TmtPulseParser_pattern_names(
                         .private_scope = value5.private_scope,
                         .private_count = value5.private_count,
                         .local_log_floor = value5.local_log_floor,
-                        .local_log_used = value5.local_log_used,
-                        .member_parameters = value5.member_parameters
+                        .local_log_used = value5.local_log_used
                       }
                     ),
                     61U);
@@ -10219,8 +10139,7 @@ TmtPulseParser_pattern_names(
                       .private_scope = end_.private_scope,
                       .private_count = end_.private_count,
                       .local_log_floor = end_.local_log_floor,
-                      .local_log_used = end_.local_log_used,
-                      .member_parameters = end_.member_parameters
+                      .local_log_used = end_.local_log_used
                     }
                   );
               }
@@ -10336,8 +10255,7 @@ TmtPulseParser_parameter_prefix(
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       ),
       TmtPulseMemory_binding_region_width,
@@ -10368,8 +10286,7 @@ TmtPulseParser_parameter_prefix(
           .private_scope = uu____0.private_scope,
           .private_count = uu____0.private_count,
           .local_log_floor = uu____0.local_log_floor,
-          .local_log_used = uu____0.local_log_used,
-          .member_parameters = uu____0.member_parameters
+          .local_log_used = uu____0.local_log_used
         }
       ));
   bool value3 = TmtPulseParser_same(input, value2.offset, 63U);
@@ -10477,8 +10394,7 @@ TmtPulseParser_arrow_parameter_list(
                   .private_scope = value.private_scope,
                   .private_count = value.private_count,
                   .local_log_floor = value.local_log_floor,
-                  .local_log_used = value.local_log_used,
-                  .member_parameters = value.member_parameters
+                  .local_log_used = value.local_log_used
                 }
               ));
           uint8_t value4 = TmtPulseMemory_peek(input, value3.offset);
@@ -10517,8 +10433,7 @@ TmtPulseParser_arrow_parameter_list(
                     .private_scope = value3.private_scope,
                     .private_count = value3.private_count,
                     .local_log_floor = value3.local_log_floor,
-                    .local_log_used = value3.local_log_used,
-                    .member_parameters = value3.member_parameters
+                    .local_log_used = value3.local_log_used
                   }
                 ),
                 TmtPulseMemory_binding_region_width,
@@ -10538,8 +10453,7 @@ TmtPulseParser_arrow_parameter_list(
                 .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
                 .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context,
                 .private_scope = uu____0.private_scope, .private_count = uu____0.private_count,
-                .local_log_floor = uu____0.local_log_floor, .local_log_used = uu____0.local_log_used,
-                .member_parameters = uu____0.member_parameters
+                .local_log_floor = uu____0.local_log_floor, .local_log_used = uu____0.local_log_used
               };
             TmtPulseParser_parser_state
             value6 = TmtPulseParser_capture_annotation(input, typed, false);
@@ -10597,8 +10511,7 @@ TmtPulseParser_arrow_parameter_list(
                       .private_scope = equal.private_scope,
                       .private_count = equal.private_count,
                       .local_log_floor = equal.local_log_floor,
-                      .local_log_used = equal.local_log_used,
-                      .member_parameters = equal.member_parameters
+                      .local_log_used = equal.local_log_used
                     }
                   ),
                   61U);
@@ -10632,8 +10545,7 @@ TmtPulseParser_arrow_parameter_list(
                     .private_scope = st.private_scope,
                     .private_count = st.private_count,
                     .local_log_floor = st.local_log_floor,
-                    .local_log_used = st.local_log_used,
-                    .member_parameters = st.member_parameters
+                    .local_log_used = st.local_log_used
                   }
                 );
             }
@@ -10764,7 +10676,7 @@ TmtPulseParser_arrow_parameters(
       .arrow_defaults_allowed = state.arrow_defaults_allowed, .binding_mode = state.binding_mode,
       .super_context = state.super_context, .private_scope = state.private_scope,
       .private_count = state.private_count, .local_log_floor = state.local_log_floor,
-      .local_log_used = state.local_log_used, .member_parameters = state.member_parameters
+      .local_log_used = state.local_log_used
     };
   if (state.status != 0U)
     return TmtPulseParser_missed_arrow(normal);
@@ -10799,8 +10711,7 @@ TmtPulseParser_arrow_parameters(
                 .private_scope = state.private_scope,
                 .private_count = state.private_count,
                 .local_log_floor = state.local_log_floor,
-                .local_log_used = state.local_log_used,
-                .member_parameters = state.member_parameters
+                .local_log_used = state.local_log_used
               }
             ),
             fuel);
@@ -10948,8 +10859,7 @@ TmtPulseParser_local_declarators(
           .arrow_defaults_allowed = value3.arrow_defaults_allowed,
           .binding_mode = value3.binding_mode, .super_context = value3.super_context,
           .private_scope = value3.private_scope, .private_count = value3.private_count,
-          .local_log_floor = value3.local_log_floor, .local_log_used = value3.local_log_used,
-          .member_parameters = value3.member_parameters
+          .local_log_floor = value3.local_log_floor, .local_log_used = value3.local_log_used
         };
       TmtPulseParser_parsed
       value4 =
@@ -11038,8 +10948,7 @@ TmtPulseParser_local_declaration(
           .private_scope = state1.private_scope,
           .private_count = state1.private_count,
           .local_log_floor = state1.local_log_floor,
-          .local_log_used = state1.local_log_used,
-          .member_parameters = state1.member_parameters
+          .local_log_used = state1.local_log_used
         }
       ),
       width != 3U,
@@ -11185,8 +11094,7 @@ TmtPulseParser_function_parameters(
                     .private_scope = value3.private_scope,
                     .private_count = value3.private_count,
                     .local_log_floor = value3.local_log_floor,
-                    .local_log_used = value3.local_log_used,
-                    .member_parameters = value3.member_parameters
+                    .local_log_used = value3.local_log_used
                   }
                 ));
             uint8_t value7 = TmtPulseMemory_peek(input, value6.offset);
@@ -11261,8 +11169,7 @@ TmtPulseParser_function_parameters(
                     .private_scope = value3.private_scope,
                     .private_count = value3.private_count,
                     .local_log_floor = value3.local_log_floor,
-                    .local_log_used = value3.local_log_used,
-                    .member_parameters = value3.member_parameters
+                    .local_log_used = value3.local_log_used
                   }
                 ));
             uint8_t value7 = TmtPulseMemory_peek(input, value6.offset);
@@ -11293,8 +11200,7 @@ TmtPulseParser_function_parameters(
                       .private_scope = value6.private_scope,
                       .private_count = value6.private_count,
                       .local_log_floor = value6.local_log_floor,
-                      .local_log_used = value6.local_log_used,
-                      .member_parameters = value6.member_parameters
+                      .local_log_used = value6.local_log_used
                     }
                   ),
                   TmtPulseMemory_binding_region_width,
@@ -11315,8 +11221,7 @@ TmtPulseParser_function_parameters(
                   .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context,
                   .private_scope = uu____0.private_scope, .private_count = uu____0.private_count,
                   .local_log_floor = uu____0.local_log_floor,
-                  .local_log_used = uu____0.local_log_used,
-                  .member_parameters = uu____0.member_parameters
+                  .local_log_used = uu____0.local_log_used
                 };
               TmtPulseParser_parser_state
               value9 = TmtPulseParser_capture_annotation(input, typed, false);
@@ -11387,8 +11292,7 @@ TmtPulseParser_function_parameters(
                       .private_scope = st.private_scope,
                       .private_count = st.private_count,
                       .local_log_floor = st.local_log_floor,
-                      .local_log_used = st.local_log_used,
-                      .member_parameters = st.member_parameters
+                      .local_log_used = st.local_log_used
                     }
                   ),
                   61U);
@@ -11415,8 +11319,7 @@ TmtPulseParser_function_parameters(
                     .private_scope = uu____1.private_scope,
                     .private_count = uu____1.private_count,
                     .local_log_floor = uu____1.local_log_floor,
-                    .local_log_used = uu____1.local_log_used,
-                    .member_parameters = uu____1.member_parameters
+                    .local_log_used = uu____1.local_log_used
                   }
                 );
             }
@@ -11464,7 +11367,8 @@ TmtPulseParser_function_form(
   TmtPulseParser_super_context super_,
   bool overload,
   TmtPulseParser_parameter_arity arity,
-  bool generator
+  bool generator,
+  bool decorated
 )
 {
   uint32_t depth = TmtPulseParser_minus(64U, fuel);
@@ -11490,12 +11394,10 @@ TmtPulseParser_function_form(
                             .private_scope = state.private_scope,
                             .private_count = state.private_count,
                             .local_log_floor = state.local_log_floor,
-                            .local_log_used = state.local_log_used,
-                            .member_parameters = state.member_parameters
+                            .local_log_used = state.local_log_used
                           }
                         )
                         : state;
-  bool decorated = state.member_parameters;
   TmtPulseParser_parser_state
   start1 =
     {
@@ -11507,7 +11409,7 @@ TmtPulseParser_function_form(
       .arrow_defaults_allowed = start.arrow_defaults_allowed, .binding_mode = start.binding_mode,
       .super_context = TmtPulseParser_FunctionBody, .private_scope = start.private_scope,
       .private_count = start.private_count, .local_log_floor = start.local_log_floor,
-      .local_log_used = start.local_log_used, .member_parameters = false
+      .local_log_used = start.local_log_used
     };
   TmtPulseParser_parser_state
   value = TmtPulseParser_capture_type_parameters(input, start1, false);
@@ -11645,8 +11547,7 @@ TmtPulseParser_function_form(
             .private_scope = value6.private_scope,
             .private_count = value6.private_count,
             .local_log_floor = value6.local_log_floor,
-            .local_log_used = value6.local_log_used,
-            .member_parameters = value6.member_parameters
+            .local_log_used = value6.local_log_used
           }
         ));
     TmtPulseParser_parser_state
@@ -11694,8 +11595,7 @@ TmtPulseParser_function_form(
               .private_scope = value9.private_scope,
               .private_count = value9.private_count,
               .local_log_floor = value9.local_log_floor,
-              .local_log_used = value9.local_log_used,
-              .member_parameters = value9.member_parameters
+              .local_log_used = value9.local_log_used
             }
           ),
           state),
@@ -11735,7 +11635,8 @@ TmtPulseParser_local_function_group(
         TmtPulseParser_NoSuper,
         start.module_mode && !generator,
         TmtPulseParser_OrdinaryParameters,
-        generator);
+        generator,
+        false);
     TmtPulseParser_parser_state after = value.after_function;
     if (after.status != 0U || !value.signature_only)
       return after;
@@ -11766,8 +11667,7 @@ TmtPulseParser_local_function_group(
               .private_scope = after.private_scope,
               .private_count = after.private_count,
               .local_log_floor = after.local_log_floor,
-              .local_log_used = after.local_log_used,
-              .member_parameters = after.member_parameters
+              .local_log_used = after.local_log_used
             }
           ),
           21U,
@@ -11802,8 +11702,7 @@ TmtPulseParser_local_function_group(
                 .private_scope = value2.private_scope,
                 .private_count = value2.private_count,
                 .local_log_floor = value2.local_log_floor,
-                .local_log_used = value2.local_log_used,
-                .member_parameters = value2.member_parameters
+                .local_log_used = value2.local_log_used
               }
             ));
         TmtPulseParser_cursor value5 = TmtPulseParser_name(input, value4.offset, false, true);
@@ -11871,8 +11770,7 @@ TmtPulseParser_function_expression(
             .private_scope = st.private_scope,
             .private_count = st.private_count,
             .local_log_floor = st.local_log_floor,
-            .local_log_used = st.local_log_used,
-            .member_parameters = st.member_parameters
+            .local_log_used = st.local_log_used
           }
         ));
     bool value1 = TmtPulseParser_same(input, value.offset, 42U);
@@ -11902,7 +11800,8 @@ TmtPulseParser_function_expression(
         TmtPulseParser_NoSuper,
         false,
         TmtPulseParser_OrdinaryParameters,
-        value1);
+        value1,
+        false);
     return value5.after_function;
   }
 }
@@ -11958,8 +11857,7 @@ TmtPulseParser_template_body(
                 .private_scope = state.private_scope,
                 .private_count = state.private_count,
                 .local_log_floor = state.local_log_floor,
-                .local_log_used = state.local_log_used,
-                .member_parameters = state.member_parameters
+                .local_log_used = state.local_log_used
               }
             ),
             17U,
@@ -11992,8 +11890,7 @@ TmtPulseParser_template_body(
                 .private_scope = state.private_scope,
                 .private_count = state.private_count,
                 .local_log_floor = state.local_log_floor,
-                .local_log_used = state.local_log_used,
-                .member_parameters = state.member_parameters
+                .local_log_used = state.local_log_used
               }
             ),
             17U,
@@ -12024,8 +11921,7 @@ TmtPulseParser_template_body(
                 .private_scope = uu____0.private_scope,
                 .private_count = uu____0.private_count,
                 .local_log_floor = uu____0.local_log_floor,
-                .local_log_used = uu____0.local_log_used,
-                .member_parameters = uu____0.member_parameters
+                .local_log_used = uu____0.local_log_used
               }
             ),
             125U);
@@ -12063,8 +11959,7 @@ TmtPulseParser_template_body(
                   .private_scope = state.private_scope,
                   .private_count = state.private_count,
                   .local_log_floor = state.local_log_floor,
-                  .local_log_used = state.local_log_used,
-                  .member_parameters = state.member_parameters
+                  .local_log_used = state.local_log_used
                 }
               );
           else
@@ -12095,8 +11990,7 @@ TmtPulseParser_template_body(
                 .private_scope = state.private_scope,
                 .private_count = state.private_count,
                 .local_log_floor = state.local_log_floor,
-                .local_log_used = state.local_log_used,
-                .member_parameters = state.member_parameters
+                .local_log_used = state.local_log_used
               }
             );
         TmtPulseParser_parser_state tmp0 = value20;
@@ -12190,8 +12084,7 @@ TmtPulseParser_postfix(
                   .arrow_defaults_allowed = st.arrow_defaults_allowed,
                   .binding_mode = st.binding_mode, .super_context = st.super_context,
                   .private_scope = st.private_scope, .private_count = st.private_count,
-                  .local_log_floor = st.local_log_floor, .local_log_used = st.local_log_used,
-                  .member_parameters = st.member_parameters
+                  .local_log_floor = st.local_log_floor, .local_log_used = st.local_log_used
                 },
                 .range = { .first = base.range.first, .last = end_at },
                 .open_angle = base.open_angle,
@@ -12258,8 +12151,7 @@ TmtPulseParser_postfix(
                   .private_scope = st.private_scope,
                   .private_count = st.private_count,
                   .local_log_floor = st.local_log_floor,
-                  .local_log_used = st.local_log_used,
-                  .member_parameters = st.member_parameters
+                  .local_log_used = st.local_log_used
                 }
               ));
           bool value2 = TmtPulseParser_same(input, value1.offset, 60U);
@@ -12310,8 +12202,7 @@ TmtPulseParser_postfix(
                 .arrow_defaults_allowed = value10.arrow_defaults_allowed,
                 .binding_mode = value10.binding_mode, .super_context = value10.super_context,
                 .private_scope = value10.private_scope, .private_count = value10.private_count,
-                .local_log_floor = value10.local_log_floor, .local_log_used = value10.local_log_used,
-                .member_parameters = value10.member_parameters
+                .local_log_floor = value10.local_log_floor, .local_log_used = value10.local_log_used
               };
             if (value2 == 40U)
             {
@@ -12393,8 +12284,7 @@ TmtPulseParser_postfix(
                     .private_scope = st.private_scope,
                     .private_count = st.private_count,
                     .local_log_floor = st.local_log_floor,
-                    .local_log_used = st.local_log_used,
-                    .member_parameters = st.member_parameters
+                    .local_log_used = st.local_log_used
                   }
                 ));
           uint8_t value4 = TmtPulseMemory_peek(input, value3.offset);
@@ -12445,8 +12335,7 @@ TmtPulseParser_postfix(
                     .binding_mode = value3.binding_mode, .super_context = value3.super_context,
                     .private_scope = value3.private_scope, .private_count = value3.private_count,
                     .local_log_floor = value3.local_log_floor,
-                    .local_log_used = value3.local_log_used,
-                    .member_parameters = value3.member_parameters
+                    .local_log_used = value3.local_log_used
                   },
                   ._2 = false
                 }
@@ -12466,7 +12355,7 @@ TmtPulseParser_postfix(
               .arrow_defaults_allowed = st.arrow_defaults_allowed, .binding_mode = st.binding_mode,
               .super_context = st.super_context, .private_scope = st.private_scope,
               .private_count = st.private_count, .local_log_floor = st.local_log_floor,
-              .local_log_used = st.local_log_used, .member_parameters = st.member_parameters
+              .local_log_used = st.local_log_used
             };
           TmtPulseParser_parser_state value3;
           if (bang)
@@ -12546,8 +12435,7 @@ TmtPulseParser_class_expression(
             .private_scope = st.private_scope,
             .private_count = st.private_count,
             .local_log_floor = st.local_log_floor,
-            .local_log_used = st.local_log_used,
-            .member_parameters = st.member_parameters
+            .local_log_used = st.local_log_used
           }
         ));
     uint8_t value1 = TmtPulseMemory_peek(input, value.offset);
@@ -12603,8 +12491,7 @@ TmtPulseParser_super_expression(
           .private_scope = st.private_scope,
           .private_count = st.private_count,
           .local_log_floor = st.local_log_floor,
-          .local_log_used = st.local_log_used,
-          .member_parameters = st.member_parameters
+          .local_log_used = st.local_log_used
         }
       ));
   uint8_t value1 = TmtPulseMemory_peek(input, value.offset);
@@ -12638,8 +12525,7 @@ TmtPulseParser_super_expression(
                                 .private_scope = value.private_scope,
                                 .private_count = value.private_count,
                                 .local_log_floor = value.local_log_floor,
-                                .local_log_used = value.local_log_used,
-                                .member_parameters = value.member_parameters
+                                .local_log_used = value.local_log_used
                               }
                             )
                             : value;
@@ -12677,8 +12563,7 @@ TmtPulseParser_super_expression(
           .private_scope = st.private_scope,
           .private_count = st.private_count,
           .local_log_floor = st.local_log_floor,
-          .local_log_used = st.local_log_used,
-          .member_parameters = st.member_parameters
+          .local_log_used = st.local_log_used
         }
       );
   else
@@ -12798,8 +12683,7 @@ TmtPulseParser_jsx_children(
                   .private_scope = state.private_scope,
                   .private_count = state.private_count,
                   .local_log_floor = state.local_log_floor,
-                  .local_log_used = state.local_log_used,
-                  .member_parameters = state.member_parameters
+                  .local_log_used = state.local_log_used
                 }
               ));
           uint32_t length = TmtPulseParser_minus(tag.last, tag.first);
@@ -12870,8 +12754,7 @@ TmtPulseParser_jsx_children(
             .arrow_defaults_allowed = state.arrow_defaults_allowed,
             .binding_mode = state.binding_mode, .super_context = state.super_context,
             .private_scope = state.private_scope, .private_count = state.private_count,
-            .local_log_floor = state.local_log_floor, .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_floor = state.local_log_floor, .local_log_used = state.local_log_used
           };
         uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
         state = tmp0;
@@ -12925,8 +12808,7 @@ TmtPulseParser_jsx_attribute(
               .private_scope = value2.private_scope,
               .private_count = value2.private_count,
               .local_log_floor = value2.local_log_floor,
-              .local_log_used = value2.local_log_used,
-              .member_parameters = value2.member_parameters
+              .local_log_used = value2.local_log_used
             }
           ));
       TmtPulseParser_parsed value5 = TmtPulseParser_comparison(input, value4, fuel);
@@ -12977,8 +12859,7 @@ TmtPulseParser_jsx_attribute(
                 .private_scope = value5.private_scope,
                 .private_count = value5.private_count,
                 .local_log_floor = value5.local_log_floor,
-                .local_log_used = value5.local_log_used,
-                .member_parameters = value5.member_parameters
+                .local_log_used = value5.local_log_used
               }
             ),
             value6);
@@ -13012,8 +12893,7 @@ TmtPulseParser_jsx_attribute(
                   .private_scope = value5.private_scope,
                   .private_count = value5.private_count,
                   .local_log_floor = value5.local_log_floor,
-                  .local_log_used = value5.local_log_used,
-                  .member_parameters = value5.member_parameters
+                  .local_log_used = value5.local_log_used
                 }
               ));
           bool value8 = TmtPulseParser_same(input, value7.offset, 62U);
@@ -13134,8 +13014,7 @@ TmtPulseParser_jsx_element(
                             .private_scope = state.private_scope,
                             .private_count = state.private_count,
                             .local_log_floor = state.local_log_floor,
-                            .local_log_used = state.local_log_used,
-                            .member_parameters = state.member_parameters
+                            .local_log_used = state.local_log_used
                           }
                         )
                         : state;
@@ -13215,8 +13094,7 @@ TmtPulseParser_deep_array_literal(
             .private_scope = uu____0.private_scope,
             .private_count = uu____0.private_count,
             .local_log_floor = uu____0.local_log_floor,
-            .local_log_used = uu____0.local_log_used,
-            .member_parameters = uu____0.member_parameters
+            .local_log_used = uu____0.local_log_used
           }
         ),
         fuel,
@@ -13252,8 +13130,7 @@ TmtPulseParser_deep_array_literal(
             .private_scope = value3.private_scope,
             .private_count = value3.private_count,
             .local_log_floor = value3.local_log_floor,
-            .local_log_used = value3.local_log_used,
-            .member_parameters = value3.member_parameters
+            .local_log_used = value3.local_log_used
           }
         );
   }
@@ -13277,6 +13154,7 @@ TmtPulseParser_function_tail(
       super_,
       false,
       TmtPulseParser_OrdinaryParameters,
+      false,
       false);
   return value.after_function;
 }
@@ -13316,8 +13194,7 @@ TmtPulseParser_object_member(
             .private_scope = st.private_scope,
             .private_count = st.private_count,
             .local_log_floor = st.local_log_floor,
-            .local_log_used = st.local_log_used,
-            .member_parameters = st.member_parameters
+            .local_log_used = st.local_log_used
           }
         ),
         fuel);
@@ -13361,8 +13238,7 @@ TmtPulseParser_object_member(
                        .private_scope = st.private_scope,
                        .private_count = st.private_count,
                        .local_log_floor = st.local_log_floor,
-                       .local_log_used = st.local_log_used,
-                       .member_parameters = st.member_parameters
+                       .local_log_used = st.local_log_used
                      }
                    )
                    : value1.key_start;
@@ -13398,8 +13274,7 @@ TmtPulseParser_object_member(
               .private_scope = key_start.private_scope,
               .private_count = key_start.private_count,
               .local_log_floor = key_start.local_log_floor,
-              .local_log_used = key_start.local_log_used,
-              .member_parameters = key_start.member_parameters
+              .local_log_used = key_start.local_log_used
             }
           ),
           fuel);
@@ -13418,8 +13293,7 @@ TmtPulseParser_object_member(
               .arrow_defaults_allowed = value8.arrow_defaults_allowed,
               .binding_mode = value8.binding_mode, .super_context = value8.super_context,
               .private_scope = value8.private_scope, .private_count = value8.private_count,
-              .local_log_floor = value8.local_log_floor, .local_log_used = value8.local_log_used,
-              .member_parameters = value8.member_parameters
+              .local_log_floor = value8.local_log_floor, .local_log_used = value8.local_log_used
             },
             ._2 = false
           }
@@ -13489,7 +13363,8 @@ TmtPulseParser_object_member(
               TmtPulseParser_MethodSuper,
               false,
               arity,
-              value4.generator);
+              value4.generator,
+              false);
           value90 = TmtPulseParser_empty_range(value10.after_function);
         }
         else
@@ -13629,8 +13504,7 @@ TmtPulseParser_cover_assignment_members(
                 .private_scope = value.private_scope,
                 .private_count = value.private_count,
                 .local_log_floor = value.local_log_floor,
-                .local_log_used = value.local_log_used,
-                .member_parameters = value.member_parameters
+                .local_log_used = value.local_log_used
               }
             ));
         TmtPulseParser_cursor value4 = TmtPulseParser_name(input, value3.offset, false, true);
@@ -13692,8 +13566,7 @@ TmtPulseParser_cover_assignment_members(
                   .private_scope = value60.private_scope,
                   .private_count = value60.private_count,
                   .local_log_floor = value60.local_log_floor,
-                  .local_log_used = value60.local_log_used,
-                  .member_parameters = value60.member_parameters
+                  .local_log_used = value60.local_log_used
                 }
               ),
               fuel);
@@ -13718,8 +13591,7 @@ TmtPulseParser_cover_assignment_members(
               .arrow_defaults_allowed = value90.arrow_defaults_allowed,
               .binding_mode = value90.binding_mode, .super_context = value90.super_context,
               .private_scope = value90.private_scope, .private_count = value90.private_count,
-              .local_log_floor = value90.local_log_floor, .local_log_used = value90.local_log_used,
-              .member_parameters = value90.member_parameters
+              .local_log_floor = value90.local_log_floor, .local_log_used = value90.local_log_used
             };
           uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
           state = tmp0;
@@ -13832,8 +13704,7 @@ TmtPulseParser_atom(
               .private_scope = value.private_scope,
               .private_count = value.private_count,
               .local_log_floor = value.local_log_floor,
-              .local_log_used = value.local_log_used,
-              .member_parameters = value.member_parameters
+              .local_log_used = value.local_log_used
             }
           );
       if (prefix != 0U || asserted)
@@ -13934,8 +13805,7 @@ TmtPulseParser_atom(
                 .private_scope = value.private_scope,
                 .private_count = value.private_count,
                 .local_log_floor = value.local_log_floor,
-                .local_log_used = value.local_log_used,
-                .member_parameters = value.member_parameters
+                .local_log_used = value.local_log_used
               }
             ));
         uint8_t value5 = TmtPulseMemory_peek(input, value4.offset);
@@ -13969,8 +13839,7 @@ TmtPulseParser_atom(
                                        .private_scope = value4.private_scope,
                                        .private_count = value4.private_count,
                                        .local_log_floor = value4.local_log_floor,
-                                       .local_log_used = value4.local_log_used,
-                                       .member_parameters = value4.member_parameters
+                                       .local_log_used = value4.local_log_used
                                      }
                                    )
                                    : value4;
@@ -14005,8 +13874,7 @@ TmtPulseParser_atom(
                   .private_scope = value7.private_scope,
                   .private_count = value7.private_count,
                   .local_log_floor = value7.local_log_floor,
-                  .local_log_used = value7.local_log_used,
-                  .member_parameters = value7.member_parameters
+                  .local_log_used = value7.local_log_used
                 }
               );
           else
@@ -14124,8 +13992,7 @@ TmtPulseParser_atom(
                     .private_scope = value.private_scope,
                     .private_count = value.private_count,
                     .local_log_floor = value.local_log_floor,
-                    .local_log_used = value.local_log_used,
-                    .member_parameters = value.member_parameters
+                    .local_log_used = value.local_log_used
                   }
                 ));
             uint8_t value5 = TmtPulseMemory_peek(input, value4.offset);
@@ -14161,8 +14028,7 @@ TmtPulseParser_atom(
                       .private_scope = value7.private_scope,
                       .private_count = value7.private_count,
                       .local_log_floor = value7.local_log_floor,
-                      .local_log_used = value7.local_log_used,
-                      .member_parameters = value7.member_parameters
+                      .local_log_used = value7.local_log_used
                     }
                   );
               else
@@ -14203,8 +14069,7 @@ TmtPulseParser_atom(
                         .private_scope = value4.private_scope,
                         .private_count = value4.private_count,
                         .local_log_floor = value4.local_log_floor,
-                        .local_log_used = value4.local_log_used,
-                        .member_parameters = value4.member_parameters
+                        .local_log_used = value4.local_log_used
                       }
                     ),
                     40U);
@@ -14232,8 +14097,7 @@ TmtPulseParser_atom(
                         .private_scope = value8.private_scope,
                         .private_count = value8.private_count,
                         .local_log_floor = value8.local_log_floor,
-                        .local_log_used = value8.local_log_used,
-                        .member_parameters = value8.member_parameters
+                        .local_log_used = value8.local_log_used
                       }
                     ),
                     41U);
@@ -14267,8 +14131,7 @@ TmtPulseParser_atom(
                         .private_scope = value4.private_scope,
                         .private_count = value4.private_count,
                         .local_log_floor = value4.local_log_floor,
-                        .local_log_used = value4.local_log_used,
-                        .member_parameters = value4.member_parameters
+                        .local_log_used = value4.local_log_used
                       }
                     );
                 else
@@ -14324,8 +14187,7 @@ TmtPulseParser_atom(
                         .private_scope = after.private_scope,
                         .private_count = after.private_count,
                         .local_log_floor = after.local_log_floor,
-                        .local_log_used = after.local_log_used,
-                        .member_parameters = after.member_parameters
+                        .local_log_used = after.local_log_used
                       }
                     ),
                     91U);
@@ -14354,8 +14216,7 @@ TmtPulseParser_atom(
                         .private_scope = value12.private_scope,
                         .private_count = value12.private_count,
                         .local_log_floor = value12.local_log_floor,
-                        .local_log_used = value12.local_log_used,
-                        .member_parameters = value12.member_parameters
+                        .local_log_used = value12.local_log_used
                       }
                     ),
                     93U);
@@ -14409,8 +14270,7 @@ TmtPulseParser_atom(
                         .private_scope = tail.private_scope,
                         .private_count = tail.private_count,
                         .local_log_floor = tail.local_log_floor,
-                        .local_log_used = tail.local_log_used,
-                        .member_parameters = tail.member_parameters
+                        .local_log_used = tail.local_log_used
                       }
                     ),
                     12U,
@@ -14520,8 +14380,7 @@ TmtPulseParser_atom(
                 .arrow_defaults_allowed = value.arrow_defaults_allowed,
                 .binding_mode = value.binding_mode, .super_context = value.super_context,
                 .private_scope = value.private_scope, .private_count = value.private_count,
-                .local_log_floor = value.local_log_floor, .local_log_used = value.local_log_used,
-                .member_parameters = value.member_parameters
+                .local_log_floor = value.local_log_floor, .local_log_used = value.local_log_used
               };
             if (ch == 96U)
             {
@@ -14621,8 +14480,7 @@ TmtPulseParser_atom(
               .arrow_defaults_allowed = value.arrow_defaults_allowed,
               .binding_mode = value.binding_mode, .super_context = value.super_context,
               .private_scope = value.private_scope, .private_count = value.private_count,
-              .local_log_floor = value.local_log_floor, .local_log_used = value.local_log_used,
-              .member_parameters = value.member_parameters
+              .local_log_floor = value.local_log_floor, .local_log_used = value.local_log_used
             };
           TmtPulseParser_parser_state value4 = TmtPulseParser_flat_assignment_head(input, inside);
           TmtPulseParser_parser_state value50;
@@ -14659,8 +14517,7 @@ TmtPulseParser_atom(
                       .private_scope = value5.private_scope,
                       .private_count = value5.private_count,
                       .local_log_floor = value5.local_log_floor,
-                      .local_log_used = value5.local_log_used,
-                      .member_parameters = value5.member_parameters
+                      .local_log_used = value5.local_log_used
                     }
                   ),
                   TmtPulseParser_minus(fuel, 1U),
@@ -14707,8 +14564,7 @@ TmtPulseParser_atom(
               .arrow_defaults_allowed = value90.arrow_defaults_allowed,
               .binding_mode = value90.binding_mode, .super_context = value90.super_context,
               .private_scope = value90.private_scope, .private_count = value90.private_count,
-              .local_log_floor = value90.local_log_floor, .local_log_used = value90.local_log_used,
-              .member_parameters = value90.member_parameters
+              .local_log_floor = value90.local_log_floor, .local_log_used = value90.local_log_used
             };
           TmtPulseParser_assignment_target target;
           if
@@ -14829,8 +14685,7 @@ TmtPulseParser_atom(
                     .arrow_defaults_allowed = value.arrow_defaults_allowed,
                     .binding_mode = value.binding_mode, .super_context = value.super_context,
                     .private_scope = value.private_scope, .private_count = value.private_count,
-                    .local_log_floor = value.local_log_floor, .local_log_used = value.local_log_used,
-                    .member_parameters = value.member_parameters
+                    .local_log_floor = value.local_log_floor, .local_log_used = value.local_log_used
                   },
                   ._2 = TmtPulseParser_NotAssignable
                 }
@@ -14925,8 +14780,7 @@ TmtPulseParser_class_field_tail(
               .private_scope = value4.private_scope,
               .private_count = value4.private_count,
               .local_log_floor = value4.local_log_floor,
-              .local_log_used = value4.local_log_used,
-              .member_parameters = value4.member_parameters
+              .local_log_used = value4.local_log_used
             }
           ),
           22U,
@@ -14950,8 +14804,7 @@ TmtPulseParser_class_field_tail(
           .arrow_defaults_allowed = value5.arrow_defaults_allowed,
           .binding_mode = value5.binding_mode, .super_context = value5.super_context,
           .private_scope = value5.private_scope, .private_count = value5.private_count,
-          .local_log_floor = value5.local_log_floor, .local_log_used = value5.local_log_used,
-          .member_parameters = value5.member_parameters
+          .local_log_floor = value5.local_log_floor, .local_log_used = value5.local_log_used
         };
       TmtPulseParser_parser_state
       value8 =
@@ -14976,8 +14829,7 @@ TmtPulseParser_class_field_tail(
               .private_scope = after.private_scope,
               .private_count = after.private_count,
               .local_log_floor = after.local_log_floor,
-              .local_log_used = after.local_log_used,
-              .member_parameters = after.member_parameters
+              .local_log_used = after.local_log_used
             }
           ),
           61U);
@@ -15005,8 +14857,7 @@ TmtPulseParser_class_field_tail(
             .private_scope = value10.private_scope,
             .private_count = value10.private_count,
             .local_log_floor = value10.local_log_floor,
-            .local_log_used = value10.local_log_used,
-            .member_parameters = value10.member_parameters
+            .local_log_used = value10.local_log_used
           }
         );
     }
@@ -15107,8 +14958,7 @@ TmtPulseParser_class_members(
                 .private_scope = value1.private_scope,
                 .private_count = value1.private_count,
                 .local_log_floor = value1.local_log_floor,
-                .local_log_used = value1.local_log_used,
-                .member_parameters = value1.member_parameters
+                .local_log_used = value1.local_log_used
               }
             ));
       else
@@ -15146,8 +14996,7 @@ TmtPulseParser_class_members(
                   .private_scope = value4.private_scope,
                   .private_count = value4.private_count,
                   .local_log_floor = value4.local_log_floor,
-                  .local_log_used = value4.local_log_used,
-                  .member_parameters = value4.member_parameters
+                  .local_log_used = value4.local_log_used
                 }
               ));
           TmtPulseParser_parser_state
@@ -15181,8 +15030,7 @@ TmtPulseParser_class_members(
                   .private_scope = value6.private_scope,
                   .private_count = value6.private_count,
                   .local_log_floor = value6.local_log_floor,
-                  .local_log_used = value6.local_log_used,
-                  .member_parameters = value6.member_parameters
+                  .local_log_used = value6.local_log_used
                 }
               ),
               value1);
@@ -15227,8 +15075,7 @@ TmtPulseParser_class_members(
                     .private_scope = value6.private_scope,
                     .private_count = value6.private_count,
                     .local_log_floor = value6.local_log_floor,
-                    .local_log_used = value6.local_log_used,
-                    .member_parameters = value6.member_parameters
+                    .local_log_used = value6.local_log_used
                   }
                 ),
                 21U,
@@ -15274,8 +15121,7 @@ TmtPulseParser_class_members(
                       .private_scope = value1.private_scope,
                       .private_count = value1.private_count,
                       .local_log_floor = value1.local_log_floor,
-                      .local_log_used = value1.local_log_used,
-                      .member_parameters = value1.member_parameters
+                      .local_log_used = value1.local_log_used
                     }
                   ));
             else
@@ -15322,8 +15168,7 @@ TmtPulseParser_class_members(
                   .private_scope = value1.private_scope,
                   .private_count = value1.private_count,
                   .local_log_floor = value1.local_log_floor,
-                  .local_log_used = value1.local_log_used,
-                  .member_parameters = value1.member_parameters
+                  .local_log_used = value1.local_log_used
                 }
               ));
           TmtPulseParser_parser_state value9 = TmtPulseParser_skip(input, value8.after_key);
@@ -15403,8 +15248,7 @@ TmtPulseParser_class_members(
                       .private_scope = value9.private_scope,
                       .private_count = value9.private_count,
                       .local_log_floor = value9.local_log_floor,
-                      .local_log_used = value9.local_log_used,
-                      .member_parameters = value9.member_parameters
+                      .local_log_used = value9.local_log_used
                     }
                   );
               else
@@ -15496,8 +15340,7 @@ TmtPulseParser_class_members(
                             .private_scope = value9.private_scope,
                             .private_count = value9.private_count,
                             .local_log_floor = value9.local_log_floor,
-                            .local_log_used = value9.local_log_used,
-                            .member_parameters = value9.member_parameters
+                            .local_log_used = value9.local_log_used
                           }
                         ));
                 }
@@ -15531,8 +15374,7 @@ TmtPulseParser_class_members(
                       .private_scope = value160.private_scope,
                       .private_count = value160.private_count,
                       .local_log_floor = value160.local_log_floor,
-                      .local_log_used = value160.local_log_used,
-                      .member_parameters = value160.member_parameters
+                      .local_log_used = value160.local_log_used
                     }
                   ),
                   21U,
@@ -15585,6 +15427,7 @@ TmtPulseParser_class_members(
                       mode,
                       true,
                       value8.arity,
+                      false,
                       false);
                   if (value15.signature_only)
                     value150 = value15.after_function;
@@ -15641,8 +15484,7 @@ TmtPulseParser_class_members(
                         .private_scope = value150.private_scope,
                         .private_count = value150.private_count,
                         .local_log_floor = value150.local_log_floor,
-                        .local_log_used = value150.local_log_used,
-                        .member_parameters = value150.member_parameters
+                        .local_log_used = value150.local_log_used
                       }
                     ),
                     21U,
@@ -15680,6 +15522,7 @@ TmtPulseParser_class_members(
                     TmtPulseParser_MethodSuper,
                     true,
                     TmtPulseParser_OrdinaryParameters,
+                    false,
                     false);
                 TmtPulseParser_parser_state after = value15.after_function;
                 if (value15.signature_only)
@@ -15705,8 +15548,7 @@ TmtPulseParser_class_members(
                           .private_scope = after.private_scope,
                           .private_count = after.private_count,
                           .local_log_floor = after.local_log_floor,
-                          .local_log_used = after.local_log_used,
-                          .member_parameters = after.member_parameters
+                          .local_log_used = after.local_log_used
                         }
                       ),
                       21U,
@@ -15773,22 +15615,6 @@ TmtPulseParser_class_members(
               }
               else
                 value17 = value16;
-              TmtPulseParser_parser_state
-              tail =
-                {
-                  .offset = value17.offset, .count = value17.count, .depth = value17.depth,
-                  .status = value17.status, .local_names = value17.local_names,
-                  .await_allowed = value17.await_allowed, .yield_allowed = value17.yield_allowed,
-                  .jsx_allowed = value17.jsx_allowed, .module_mode = value17.module_mode,
-                  .strict_script = value17.strict_script, .in_allowed = value17.in_allowed,
-                  .for_initializer = value17.for_initializer,
-                  .arrow_defaults_allowed = value17.arrow_defaults_allowed,
-                  .binding_mode = value17.binding_mode, .super_context = value17.super_context,
-                  .private_scope = value17.private_scope, .private_count = value17.private_count,
-                  .local_log_floor = value17.local_log_floor,
-                  .local_log_used = value17.local_log_used,
-                  .member_parameters = input.legacy_decorators
-                };
               FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_pending_overload
               value180;
               if (method)
@@ -15797,7 +15623,7 @@ TmtPulseParser_class_members(
                   value180 =
                     (
                       (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_pending_overload){
-                        ._1 = TmtPulseParser_failed(tail, 3U),
+                        ._1 = TmtPulseParser_failed(value17, 3U),
                         ._2 = TmtPulseParser_no_overload
                       }
                     );
@@ -15811,13 +15637,14 @@ TmtPulseParser_class_members(
                   TmtPulseParser_function_shape
                   value18 =
                     TmtPulseParser_function_form(input,
-                      tail,
+                      value17,
                       TmtPulseParser_minus(fuel, 1U),
                       value8.async_,
                       mode,
                       overload,
                       value8.arity,
-                      value8.generator_);
+                      value8.generator_,
+                      input.legacy_decorators);
                   TmtPulseParser_pending_overload
                   pending1 =
                     value18.signature_only ? (
@@ -15860,8 +15687,7 @@ TmtPulseParser_class_members(
                             .private_scope = after.private_scope,
                             .private_count = after.private_count,
                             .local_log_floor = after.local_log_floor,
-                            .local_log_used = after.local_log_used,
-                            .member_parameters = after.member_parameters
+                            .local_log_used = after.local_log_used
                           }
                         ),
                         21U,
@@ -15882,7 +15708,7 @@ TmtPulseParser_class_members(
                 value180 =
                   (
                     (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_pending_overload){
-                      ._1 = TmtPulseParser_failed(tail, 1U),
+                      ._1 = TmtPulseParser_failed(value17, 1U),
                       ._2 = TmtPulseParser_no_overload
                     }
                   );
@@ -15894,25 +15720,24 @@ TmtPulseParser_class_members(
                     (
                       (TmtPulseParser_parser_state){
                         .offset = value8.after_key.offset,
-                        .count = tail.count,
-                        .depth = tail.depth,
-                        .status = tail.status,
-                        .local_names = tail.local_names,
-                        .await_allowed = tail.await_allowed,
-                        .yield_allowed = tail.yield_allowed,
-                        .jsx_allowed = tail.jsx_allowed,
-                        .module_mode = tail.module_mode,
-                        .strict_script = tail.strict_script,
-                        .in_allowed = tail.in_allowed,
-                        .for_initializer = tail.for_initializer,
-                        .arrow_defaults_allowed = tail.arrow_defaults_allowed,
-                        .binding_mode = tail.binding_mode,
-                        .super_context = tail.super_context,
-                        .private_scope = tail.private_scope,
-                        .private_count = tail.private_count,
-                        .local_log_floor = tail.local_log_floor,
-                        .local_log_used = tail.local_log_used,
-                        .member_parameters = false
+                        .count = value17.count,
+                        .depth = value17.depth,
+                        .status = value17.status,
+                        .local_names = value17.local_names,
+                        .await_allowed = value17.await_allowed,
+                        .yield_allowed = value17.yield_allowed,
+                        .jsx_allowed = value17.jsx_allowed,
+                        .module_mode = value17.module_mode,
+                        .strict_script = value17.strict_script,
+                        .in_allowed = value17.in_allowed,
+                        .for_initializer = value17.for_initializer,
+                        .arrow_defaults_allowed = value17.arrow_defaults_allowed,
+                        .binding_mode = value17.binding_mode,
+                        .super_context = value17.super_context,
+                        .private_scope = value17.private_scope,
+                        .private_count = value17.private_count,
+                        .local_log_floor = value17.local_log_floor,
+                        .local_log_used = value17.local_log_used
                       }
                     ),
                     fuel);
@@ -15987,8 +15812,7 @@ TmtPulseParser_class_tail(
             .private_scope = value.private_scope,
             .private_count = value.private_count,
             .local_log_floor = value.local_log_floor,
-            .local_log_used = value.local_log_used,
-            .member_parameters = value.member_parameters
+            .local_log_used = value.local_log_used
           }
         ));
     bool value3 = TmtPulseParser_forbidden_field_arguments(input, value2);
@@ -16062,8 +15886,7 @@ TmtPulseParser_class_tail(
             .private_scope = value20.private_scope,
             .private_count = value20.private_count,
             .local_log_floor = value20.local_log_floor,
-            .local_log_used = value20.local_log_used,
-            .member_parameters = value20.member_parameters
+            .local_log_used = value20.local_log_used
           }
         ),
         64U);
@@ -16097,8 +15920,7 @@ TmtPulseParser_class_tail(
                              .private_scope = value6.private_scope,
                              .private_count = value6.private_count,
                              .local_log_floor = value6.local_log_floor,
-                             .local_log_used = value6.local_log_used,
-                             .member_parameters = value6.member_parameters
+                             .local_log_used = value6.local_log_used
                            }
                          )
                          : value6;
@@ -16168,8 +15990,7 @@ TmtPulseParser_class_tail(
         .private_scope = state.private_scope,
         .private_count = value12.private_count,
         .local_log_floor = value12.local_log_floor,
-        .local_log_used = value12.local_log_used,
-        .member_parameters = value12.member_parameters
+        .local_log_used = value12.local_log_used
       }
     );
 }
@@ -16220,8 +16041,7 @@ TmtPulseParser_local_abstract_class(
             .private_scope = declared.private_scope,
             .private_count = declared.private_count,
             .local_log_floor = declared.local_log_floor,
-            .local_log_used = declared.local_log_used,
-            .member_parameters = declared.member_parameters
+            .local_log_used = declared.local_log_used
           }
         ));
     TmtPulseParser_named_state
@@ -16245,7 +16065,7 @@ TmtPulseParser_local_abstract_class(
         .arrow_defaults_allowed = value3.arrow_defaults_allowed, .binding_mode = value3.binding_mode,
         .super_context = value3.super_context, .private_scope = value3.private_scope,
         .private_count = value3.private_count, .local_log_floor = value3.local_log_floor,
-        .local_log_used = value3.local_log_used, .member_parameters = value3.member_parameters
+        .local_log_used = value3.local_log_used
       };
     TmtGrammar_span name_span = { .first = value1.offset, .last = value2.state.offset };
     TmtPulseParser_parser_state value4;
@@ -16350,8 +16170,7 @@ TmtPulseParser_function_var_list(
               .private_scope = value20.private_scope,
               .private_count = value20.private_count,
               .local_log_floor = value20.local_log_floor,
-              .local_log_used = value20.local_log_used,
-              .member_parameters = value20.member_parameters
+              .local_log_used = value20.local_log_used
             }
           ),
           fuel,
@@ -16369,8 +16188,7 @@ TmtPulseParser_function_var_list(
           .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
           .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context,
           .private_scope = uu____0.private_scope, .private_count = uu____0.private_count,
-          .local_log_floor = uu____0.local_log_floor, .local_log_used = uu____0.local_log_used,
-          .member_parameters = uu____0.member_parameters
+          .local_log_floor = uu____0.local_log_floor, .local_log_used = uu____0.local_log_used
         };
       TmtPulseParser_parser_state value4 = TmtPulseParser_skip(input, restored);
       bool value5 = TmtPulseParser_same(input, value4.offset, 44U);
@@ -16433,8 +16251,7 @@ TmtPulseParser_local_var_declaration(
           .private_scope = st.private_scope,
           .private_count = st.private_count,
           .local_log_floor = st.local_log_floor,
-          .local_log_used = st.local_log_used,
-          .member_parameters = st.member_parameters
+          .local_log_used = st.local_log_used
         }
       ),
       fuel,
@@ -16764,8 +16581,7 @@ TmtPulseParser_collection_head(
               .private_scope = state.private_scope,
               .private_count = state.private_count,
               .local_log_floor = state.local_log_floor,
-              .local_log_used = state.local_log_used,
-              .member_parameters = state.member_parameters
+              .local_log_used = state.local_log_used
             }
           ));
     uint32_t mark = state.local_names;
@@ -16811,8 +16627,7 @@ TmtPulseParser_collection_head(
               .private_scope = value4.private_scope,
               .private_count = value4.private_count,
               .local_log_floor = value4.local_log_floor,
-              .local_log_used = value4.local_log_used,
-              .member_parameters = value4.member_parameters
+              .local_log_used = value4.local_log_used
             }
           ),
           fuel);
@@ -16829,8 +16644,7 @@ TmtPulseParser_collection_head(
           .arrow_defaults_allowed = uu____0.arrow_defaults_allowed,
           .binding_mode = uu____0.binding_mode, .super_context = uu____0.super_context,
           .private_scope = uu____0.private_scope, .private_count = uu____0.private_count,
-          .local_log_floor = uu____0.local_log_floor, .local_log_used = uu____0.local_log_used,
-          .member_parameters = uu____0.member_parameters
+          .local_log_floor = uu____0.local_log_floor, .local_log_used = uu____0.local_log_used
         };
       TmtPulseParser_parser_state ite;
       if (value6.target == TmtPulseParser_ArrayTarget)
@@ -16880,8 +16694,7 @@ TmtPulseParser_collection_head(
           .arrow_defaults_allowed = value7.arrow_defaults_allowed,
           .binding_mode = value7.binding_mode, .super_context = value7.super_context,
           .private_scope = value7.private_scope, .private_count = value7.private_count,
-          .local_log_floor = value7.local_log_floor, .local_log_used = value7.local_log_used,
-          .member_parameters = value7.member_parameters
+          .local_log_floor = value7.local_log_floor, .local_log_used = value7.local_log_used
         };
       TmtPulseParser_parser_state value12;
       if (value50)
@@ -16979,8 +16792,7 @@ TmtPulseParser_for_bindings(
               .private_scope = value3.private_scope,
               .private_count = value3.private_count,
               .local_log_floor = value3.local_log_floor,
-              .local_log_used = value3.local_log_used,
-              .member_parameters = value3.member_parameters
+              .local_log_used = value3.local_log_used
             }
           ),
           false);
@@ -17012,8 +16824,7 @@ TmtPulseParser_for_bindings(
                 .private_scope = value5.private_scope,
                 .private_count = value5.private_count,
                 .local_log_floor = value5.local_log_floor,
-                .local_log_used = value5.local_log_used,
-                .member_parameters = value5.member_parameters
+                .local_log_used = value5.local_log_used
               }
             ),
             61U);
@@ -17040,8 +16851,7 @@ TmtPulseParser_for_bindings(
               .private_scope = uu____0.private_scope,
               .private_count = uu____0.private_count,
               .local_log_floor = uu____0.local_log_floor,
-              .local_log_used = uu____0.local_log_used,
-              .member_parameters = uu____0.member_parameters
+              .local_log_used = uu____0.local_log_used
             }
           );
       }
@@ -17106,8 +16916,7 @@ TmtPulseParser_binding(
           .private_scope = value3.private_scope,
           .private_count = value3.private_count,
           .local_log_floor = value3.local_log_floor,
-          .local_log_used = value3.local_log_used,
-          .member_parameters = value3.member_parameters
+          .local_log_used = value3.local_log_used
         }
       ),
       fuel);
@@ -17133,8 +16942,7 @@ TmtPulseParser_binding(
         .private_scope = uu____0.private_scope,
         .private_count = uu____0.private_count,
         .local_log_floor = uu____0.local_log_floor,
-        .local_log_used = uu____0.local_log_used,
-        .member_parameters = uu____0.member_parameters
+        .local_log_used = uu____0.local_log_used
       }
     );
 }
@@ -17184,8 +16992,7 @@ TmtPulseParser_for_expressions(
               .private_scope = state.private_scope,
               .private_count = state.private_count,
               .local_log_floor = state.local_log_floor,
-              .local_log_used = state.local_log_used,
-              .member_parameters = state.member_parameters
+              .local_log_used = state.local_log_used
             }
           ),
           fuel);
@@ -17213,8 +17020,7 @@ TmtPulseParser_for_expressions(
               .private_scope = uu____0.private_scope,
               .private_count = uu____0.private_count,
               .local_log_floor = uu____0.local_log_floor,
-              .local_log_used = uu____0.local_log_used,
-              .member_parameters = uu____0.member_parameters
+              .local_log_used = uu____0.local_log_used
             }
           ));
       bool value2 = TmtPulseParser_same(input, value1.offset, 44U);
@@ -17284,8 +17090,7 @@ TmtPulseParser_classic_for_header(
             .private_scope = st1.private_scope,
             .private_count = st1.private_count,
             .local_log_floor = st1.local_log_floor,
-            .local_log_used = st1.local_log_used,
-            .member_parameters = st1.member_parameters
+            .local_log_used = st1.local_log_used
           }
         ),
         fuel,
@@ -17321,8 +17126,7 @@ TmtPulseParser_classic_for_header(
               .private_scope = uu____0.private_scope,
               .private_count = uu____0.private_count,
               .local_log_floor = uu____0.local_log_floor,
-              .local_log_used = uu____0.local_log_used,
-              .member_parameters = uu____0.member_parameters
+              .local_log_used = uu____0.local_log_used
             }
           ),
           fuel,
@@ -17352,8 +17156,7 @@ TmtPulseParser_classic_for_header(
               .private_scope = st.private_scope,
               .private_count = st.private_count,
               .local_log_floor = st.local_log_floor,
-              .local_log_used = st.local_log_used,
-              .member_parameters = st.member_parameters
+              .local_log_used = st.local_log_used
             }
           ),
           fuel,
@@ -17422,8 +17225,7 @@ TmtPulseParser_for_header(
             .private_scope = value.private_scope,
             .private_count = value.private_count,
             .local_log_floor = value.local_log_floor,
-            .local_log_used = value.local_log_used,
-            .member_parameters = value.member_parameters
+            .local_log_used = value.local_log_used
           }
         ));
   else
@@ -17536,8 +17338,7 @@ TmtPulseParser_try_statement(
               .private_scope = value1.private_scope,
               .private_count = value1.private_count,
               .local_log_floor = value1.local_log_floor,
-              .local_log_used = value1.local_log_used,
-              .member_parameters = value1.member_parameters
+              .local_log_used = value1.local_log_used
             }
           ),
           fuel,
@@ -17572,8 +17373,7 @@ TmtPulseParser_try_statement(
               .private_scope = value30.private_scope,
               .private_count = value30.private_count,
               .local_log_floor = value30.local_log_floor,
-              .local_log_used = value30.local_log_used,
-              .member_parameters = value30.member_parameters
+              .local_log_used = value30.local_log_used
             }
           ),
           fuel,
@@ -17637,8 +17437,7 @@ TmtPulseParser_switch_sequence(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         ));
     bool value1 = TmtPulseParser_same(input, value.offset, 125U);
@@ -17685,8 +17484,7 @@ TmtPulseParser_switch_sequence(
                 .private_scope = value.private_scope,
                 .private_count = value.private_count,
                 .local_log_floor = value.local_log_floor,
-                .local_log_used = value.local_log_used,
-                .member_parameters = value.member_parameters
+                .local_log_used = value.local_log_used
               }
             ),
             fuel);
@@ -17728,8 +17526,7 @@ TmtPulseParser_switch_sequence(
                   .private_scope = value.private_scope,
                   .private_count = value.private_count,
                   .local_log_floor = value.local_log_floor,
-                  .local_log_used = value.local_log_used,
-                  .member_parameters = value.member_parameters
+                  .local_log_used = value.local_log_used
                 }
               ));
           TmtPulseParser_parser_state value6 = TmtPulseParser_consume(input, value5, 58U);
@@ -17953,8 +17750,7 @@ TmtPulseParser_control_statement(
                                 .private_scope = state.private_scope,
                                 .private_count = state.private_count,
                                 .local_log_floor = state.local_log_floor,
-                                .local_log_used = state.local_log_used,
-                                .member_parameters = state.member_parameters
+                                .local_log_used = state.local_log_used
                               }
                             )
                             : state;
@@ -17984,8 +17780,7 @@ TmtPulseParser_control_statement(
                 .private_scope = state1.private_scope,
                 .private_count = state1.private_count,
                 .local_log_floor = state1.local_log_floor,
-                .local_log_used = state1.local_log_used,
-                .member_parameters = state1.member_parameters
+                .local_log_used = state1.local_log_used
               }
             ),
             fuel);
@@ -18032,8 +17827,7 @@ TmtPulseParser_control_statement(
                   .private_scope = value3.private_scope,
                   .private_count = value3.private_count,
                   .local_log_floor = value3.local_log_floor,
-                  .local_log_used = value3.local_log_used,
-                  .member_parameters = value3.member_parameters
+                  .local_log_used = value3.local_log_used
                 }
               ),
               inner,
@@ -18069,8 +17863,7 @@ TmtPulseParser_control_statement(
                 .private_scope = state1.private_scope,
                 .private_count = state1.private_count,
                 .local_log_floor = state1.local_log_floor,
-                .local_log_used = state1.local_log_used,
-                .member_parameters = state1.member_parameters
+                .local_log_used = state1.local_log_used
               }
             ),
             inner,
@@ -18108,8 +17901,7 @@ TmtPulseParser_control_statement(
                   .private_scope = value2.private_scope,
                   .private_count = value2.private_count,
                   .local_log_floor = value2.local_log_floor,
-                  .local_log_used = value2.local_log_used,
-                  .member_parameters = value2.member_parameters
+                  .local_log_used = value2.local_log_used
                 }
               ),
               fuel);
@@ -18150,8 +17942,7 @@ TmtPulseParser_control_statement(
                   .private_scope = state1.private_scope,
                   .private_count = state1.private_count,
                   .local_log_floor = state1.local_log_floor,
-                  .local_log_used = state1.local_log_used,
-                  .member_parameters = state1.member_parameters
+                  .local_log_used = state1.local_log_used
                 }
               ),
               allow_var,
@@ -18191,8 +17982,7 @@ TmtPulseParser_control_statement(
                   .private_scope = uu____0.private_scope,
                   .private_count = uu____0.private_count,
                   .local_log_floor = uu____0.local_log_floor,
-                  .local_log_used = uu____0.local_log_used,
-                  .member_parameters = uu____0.member_parameters
+                  .local_log_used = uu____0.local_log_used
                 }
               ),
               state1.local_log_used);
@@ -18220,8 +18010,7 @@ TmtPulseParser_control_statement(
                   .private_scope = state1.private_scope,
                   .private_count = state1.private_count,
                   .local_log_floor = state1.local_log_floor,
-                  .local_log_used = state1.local_log_used,
-                  .member_parameters = state1.member_parameters
+                  .local_log_used = state1.local_log_used
                 }
               ),
               inner,
@@ -18262,8 +18051,7 @@ TmtPulseParser_control_statement(
                   .private_scope = state1.private_scope,
                   .private_count = state1.private_count,
                   .local_log_floor = state1.local_log_floor,
-                  .local_log_used = state1.local_log_used,
-                  .member_parameters = state1.member_parameters
+                  .local_log_used = state1.local_log_used
                 }
               ),
               fuel);
@@ -18305,8 +18093,7 @@ TmtPulseParser_control_statement(
                   .private_scope = value4.private_scope,
                   .private_count = value4.private_count,
                   .local_log_floor = value4.local_log_floor,
-                  .local_log_used = value4.local_log_used,
-                  .member_parameters = value4.member_parameters
+                  .local_log_used = value4.local_log_used
                 }
               ),
               125U);
@@ -18442,8 +18229,7 @@ TmtPulseParser_scope_statement(
               .private_scope = declared.private_scope,
               .private_count = declared.private_count,
               .local_log_floor = declared.local_log_floor,
-              .local_log_used = declared.local_log_used,
-              .member_parameters = declared.member_parameters
+              .local_log_used = declared.local_log_used
             }
           ));
       TmtPulseParser_generator_head value11 = TmtPulseParser_read_generator_head(input, value10);
@@ -18470,8 +18256,7 @@ TmtPulseParser_scope_statement(
           .arrow_defaults_allowed = value13.arrow_defaults_allowed,
           .binding_mode = value13.binding_mode, .super_context = value13.super_context,
           .private_scope = value13.private_scope, .private_count = value13.private_count,
-          .local_log_floor = value13.local_log_floor, .local_log_used = value13.local_log_used,
-          .member_parameters = value13.member_parameters
+          .local_log_floor = value13.local_log_floor, .local_log_used = value13.local_log_used
         };
       TmtGrammar_span name_span = { .first = named.offset, .last = value12.state.offset };
       TmtPulseParser_parser_state
@@ -18521,8 +18306,7 @@ TmtPulseParser_scope_statement(
               .private_scope = declared.private_scope,
               .private_count = declared.private_count,
               .local_log_floor = declared.local_log_floor,
-              .local_log_used = declared.local_log_used,
-              .member_parameters = declared.member_parameters
+              .local_log_used = declared.local_log_used
             }
           ));
       TmtPulseParser_named_state
@@ -18547,8 +18331,7 @@ TmtPulseParser_scope_statement(
           .arrow_defaults_allowed = value12.arrow_defaults_allowed,
           .binding_mode = value12.binding_mode, .super_context = value12.super_context,
           .private_scope = value12.private_scope, .private_count = value12.private_count,
-          .local_log_floor = value12.local_log_floor, .local_log_used = value12.local_log_used,
-          .member_parameters = value12.member_parameters
+          .local_log_floor = value12.local_log_floor, .local_log_used = value12.local_log_used
         };
       TmtGrammar_span name_span = { .first = value10.offset, .last = value11.state.offset };
       TmtPulseParser_parser_state value13;
@@ -18669,8 +18452,7 @@ TmtPulseParser_control_sequence(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         ));
     bool value1 = TmtPulseParser_same(input, value.offset, 125U);
@@ -18742,8 +18524,7 @@ TmtPulseParser_control_block(
           .private_scope = value1.private_scope,
           .private_count = value1.private_count,
           .local_log_floor = value1.local_log_floor,
-          .local_log_used = value1.local_log_used,
-          .member_parameters = value1.member_parameters
+          .local_log_used = value1.local_log_used
         }
       ),
       fuel,
@@ -18776,8 +18557,7 @@ TmtPulseParser_control_block(
           .private_scope = value2.private_scope,
           .private_count = value2.private_count,
           .local_log_floor = value2.local_log_floor,
-          .local_log_used = value2.local_log_used,
-          .member_parameters = value2.member_parameters
+          .local_log_used = value2.local_log_used
         }
       ),
       125U);
@@ -18863,8 +18643,7 @@ TmtPulseParser_binary_tail(
                   .private_scope = st.private_scope,
                   .private_count = st.private_count,
                   .local_log_floor = st.local_log_floor,
-                  .local_log_used = st.local_log_used,
-                  .member_parameters = st.member_parameters
+                  .local_log_used = st.local_log_used
                 }
               ),
               16U,
@@ -18939,8 +18718,7 @@ TmtPulseParser_binary_tail(
                   .private_scope = st.private_scope,
                   .private_count = st.private_count,
                   .local_log_floor = st.local_log_floor,
-                  .local_log_used = st.local_log_used,
-                  .member_parameters = st.member_parameters
+                  .local_log_used = st.local_log_used
                 }
               ));
           value40 = !value4;
@@ -18995,7 +18773,7 @@ TmtPulseParser_binary_tail(
               .arrow_defaults_allowed = st.arrow_defaults_allowed, .binding_mode = st.binding_mode,
               .super_context = st.super_context, .private_scope = st.private_scope,
               .private_count = st.private_count, .local_log_floor = st.local_log_floor,
-              .local_log_used = st.local_log_used, .member_parameters = st.member_parameters
+              .local_log_used = st.local_log_used
             };
           TmtPulseParser_parsed value5;
           if (exponent)
@@ -19166,8 +18944,7 @@ TmtPulseParser_comparison(
             .private_scope = value.private_scope,
             .private_count = value.private_count,
             .local_log_floor = value.local_log_floor,
-            .local_log_used = value.local_log_used,
-            .member_parameters = value.member_parameters
+            .local_log_used = value.local_log_used
           }
         ),
         fuel);
@@ -19197,8 +18974,7 @@ TmtPulseParser_comparison(
                 .private_scope = uu____1.private_scope,
                 .private_count = uu____1.private_count,
                 .local_log_floor = uu____1.local_log_floor,
-                .local_log_used = uu____1.local_log_used,
-                .member_parameters = uu____1.member_parameters
+                .local_log_used = uu____1.local_log_used
               }
             )));
       if (fuel == 0U)
@@ -19224,8 +19000,7 @@ TmtPulseParser_comparison(
               .arrow_defaults_allowed = value4.arrow_defaults_allowed,
               .binding_mode = value4.binding_mode, .super_context = value4.super_context,
               .private_scope = value4.private_scope, .private_count = value4.private_count,
-              .local_log_floor = value4.local_log_floor, .local_log_used = value4.local_log_used,
-              .member_parameters = value4.member_parameters
+              .local_log_floor = value4.local_log_floor, .local_log_used = value4.local_log_used
             };
           TmtPulseParser_parser_state
           value60 = TmtPulseParser_function_body(input, block_start, value3.non_simple);
@@ -19265,8 +19040,7 @@ TmtPulseParser_comparison(
                   .private_scope = value4.private_scope,
                   .private_count = value4.private_count,
                   .local_log_floor = value4.local_log_floor,
-                  .local_log_used = value4.local_log_used,
-                  .member_parameters = value4.member_parameters
+                  .local_log_used = value4.local_log_used
                 }
               ),
               inner);
@@ -19295,8 +19069,7 @@ TmtPulseParser_comparison(
                     .private_scope = uu____2.private_scope,
                     .private_count = uu____2.private_count,
                     .local_log_floor = uu____2.local_log_floor,
-                    .local_log_used = uu____2.local_log_used,
-                    .member_parameters = uu____2.member_parameters
+                    .local_log_used = uu____2.local_log_used
                   }
                 ),
                 value),
@@ -19336,8 +19109,7 @@ TmtPulseParser_comparison(
                 .private_scope = st.private_scope,
                 .private_count = st.private_count,
                 .local_log_floor = st.local_log_floor,
-                .local_log_used = st.local_log_used,
-                .member_parameters = st.member_parameters
+                .local_log_used = st.local_log_used
               }
             ));
       else if (st.status != 0U)
@@ -19383,8 +19155,7 @@ TmtPulseParser_comparison(
                     .private_scope = st.private_scope,
                     .private_count = st.private_count,
                     .local_log_floor = st.local_log_floor,
-                    .local_log_used = st.local_log_used,
-                    .member_parameters = st.member_parameters
+                    .local_log_used = st.local_log_used
                   }
                 ),
                 TmtPulseParser_minus(fuel, 1U));
@@ -19432,8 +19203,7 @@ TmtPulseParser_comparison(
                   .private_scope = st.private_scope,
                   .private_count = st.private_count,
                   .local_log_floor = st.local_log_floor,
-                  .local_log_used = st.local_log_used,
-                  .member_parameters = st.member_parameters
+                  .local_log_used = st.local_log_used
                 }
               ),
               inner);
@@ -19461,8 +19231,7 @@ TmtPulseParser_comparison(
                   .private_scope = uu____3.private_scope,
                   .private_count = uu____3.private_count,
                   .local_log_floor = uu____3.local_log_floor,
-                  .local_log_used = uu____3.local_log_used,
-                  .member_parameters = uu____3.member_parameters
+                  .local_log_used = uu____3.local_log_used
                 }
               ));
           TmtPulseParser_parser_state value10 = TmtPulseParser_consume(input, value9, 58U);
@@ -19565,8 +19334,7 @@ TmtPulseParser_expression_run(
                   .private_scope = value.private_scope,
                   .private_count = value.private_count,
                   .local_log_floor = value.local_log_floor,
-                  .local_log_used = value.local_log_used,
-                  .member_parameters = value.member_parameters
+                  .local_log_used = value.local_log_used
                 }
               );
           else
@@ -19710,8 +19478,7 @@ TmtPulseParser_decorators(
                 .private_scope = value4.private_scope,
                 .private_count = value4.private_count,
                 .local_log_floor = value4.local_log_floor,
-                .local_log_used = value4.local_log_used,
-                .member_parameters = value4.member_parameters
+                .local_log_used = value4.local_log_used
               }
             ),
             TmtPulseParser_minus(fuel, 1U),
@@ -19967,8 +19734,7 @@ TmtPulseParser_export_identifier(TmtPulseMemory_tape input, TmtPulseParser_parse
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       );
   }
@@ -20009,7 +19775,7 @@ TmtPulseParser_export_string_name(
           .arrow_defaults_allowed = state.arrow_defaults_allowed, .binding_mode = state.binding_mode,
           .super_context = state.super_context, .private_scope = state.private_scope,
           .private_count = state.private_count, .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used, .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         };
       uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
       state = tmp0;
@@ -20198,8 +19964,7 @@ TmtPulseParser_reexport_members(
                   .private_scope = value9.private_scope,
                   .private_count = value9.private_count,
                   .local_log_floor = value9.local_log_floor,
-                  .local_log_used = value9.local_log_used,
-                  .member_parameters = value9.member_parameters
+                  .local_log_used = value9.local_log_used
                 }
               ));
         else
@@ -20334,8 +20099,7 @@ TmtPulseParser_check_local_exports(
               .private_scope = state.private_scope,
               .private_count = state.private_count,
               .local_log_floor = state.local_log_floor,
-              .local_log_used = state.local_log_used,
-              .member_parameters = state.member_parameters
+              .local_log_used = state.local_log_used
             }
           ),
           0U,
@@ -20408,8 +20172,7 @@ TmtPulseParser_global_augmentation_start(
               .private_scope = global.private_scope,
               .private_count = global.private_count,
               .local_log_floor = global.local_log_floor,
-              .local_log_used = global.local_log_used,
-              .member_parameters = global.member_parameters
+              .local_log_used = global.local_log_used
             }
           ));
       return TmtPulseParser_consume(input, value3, 123U);
@@ -20451,8 +20214,7 @@ TmtPulseParser_ambient_global_var(
           .private_scope = st.private_scope,
           .private_count = st.private_count,
           .local_log_floor = st.local_log_floor,
-          .local_log_used = st.local_log_used,
-          .member_parameters = st.member_parameters
+          .local_log_used = st.local_log_used
         }
       ));
   TmtPulseParser_cursor value1 = TmtPulseParser_name(input, value.offset, false, true);
@@ -20492,8 +20254,7 @@ TmtPulseParser_ambient_global_function(
           .private_scope = st.private_scope,
           .private_count = st.private_count,
           .local_log_floor = st.local_log_floor,
-          .local_log_used = st.local_log_used,
-          .member_parameters = st.member_parameters
+          .local_log_used = st.local_log_used
         }
       ));
   TmtPulseParser_cursor value1 = TmtPulseParser_name(input, value.offset, false, true);
@@ -20622,8 +20383,7 @@ TmtPulseParser_ambient_interface(
             .private_scope = st.private_scope,
             .private_count = st.private_count,
             .local_log_floor = st.local_log_floor,
-            .local_log_used = st.local_log_used,
-            .member_parameters = st.member_parameters
+            .local_log_used = st.local_log_used
           }
         ));
   else
@@ -20656,8 +20416,7 @@ TmtPulseParser_ambient_interface(
             .private_scope = value1.private_scope,
             .private_count = value1.private_count,
             .local_log_floor = value1.local_log_floor,
-            .local_log_used = value1.local_log_used,
-            .member_parameters = value1.member_parameters
+            .local_log_used = value1.local_log_used
           }
         ));
     TmtPulseParser_cursor value4 = TmtPulseParser_name(input, value3.offset, false, true);
@@ -20853,8 +20612,7 @@ TmtPulseParser_module_export(TmtPulseMemory_tape input, TmtPulseParser_parser_st
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         ));
     bool value3 = TmtPulseParser_keyword(input, value2.offset, 7U, 0x64656661756c74ULL);
@@ -20895,8 +20653,7 @@ TmtPulseParser_module_export(TmtPulseMemory_tape input, TmtPulseParser_parser_st
                 .private_scope = value2.private_scope,
                 .private_count = value2.private_count,
                 .local_log_floor = value2.local_log_floor,
-                .local_log_used = value2.local_log_used,
-                .member_parameters = value2.member_parameters
+                .local_log_used = value2.local_log_used
               }
             ));
       else
@@ -21007,8 +20764,7 @@ TmtPulseParser_default_function_body(
                 .private_scope = uu____0.private_scope,
                 .private_count = uu____0.private_count,
                 .local_log_floor = uu____0.local_log_floor,
-                .local_log_used = uu____0.local_log_used,
-                .member_parameters = uu____0.member_parameters
+                .local_log_used = uu____0.local_log_used
               }
             ));
         TmtPulseParser_cursor value3 = TmtPulseParser_function_start(input, value2.offset);
@@ -21039,8 +20795,7 @@ TmtPulseParser_default_function_body(
                   .private_scope = value2.private_scope,
                   .private_count = value2.private_count,
                   .local_log_floor = value2.local_log_floor,
-                  .local_log_used = value2.local_log_used,
-                  .member_parameters = value2.member_parameters
+                  .local_log_used = value2.local_log_used
                 }
               ));
           TmtPulseParser_cursor value5 = TmtPulseParser_name(input, value4.offset, false, true);
@@ -21063,6 +20818,7 @@ TmtPulseParser_default_function_body(
                 TmtPulseParser_NoSuper,
                 true,
                 TmtPulseParser_OrdinaryParameters,
+                false,
                 false);
             if (value7.signature_only)
             {
@@ -21090,8 +20846,7 @@ TmtPulseParser_default_function_body(
                       .private_scope = after.private_scope,
                       .private_count = after.private_count,
                       .local_log_floor = after.local_log_floor,
-                      .local_log_used = after.local_log_used,
-                      .member_parameters = after.member_parameters
+                      .local_log_used = after.local_log_used
                     }
                   ),
                   21U,
@@ -21166,8 +20921,7 @@ TmtPulseParser_default_declaration(
             .private_scope = value3.private_scope,
             .private_count = value3.private_count,
             .local_log_floor = value3.local_log_floor,
-            .local_log_used = value3.local_log_used,
-            .member_parameters = value3.member_parameters
+            .local_log_used = value3.local_log_used
           }
         ));
     uint8_t value5 = TmtPulseMemory_peek(input, value4.offset);
@@ -21233,8 +20987,7 @@ TmtPulseParser_default_declaration(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         ));
     TmtPulseParser_generator_head value4 = TmtPulseParser_read_generator_head(input, value3);
@@ -21263,7 +21016,8 @@ TmtPulseParser_default_declaration(
         TmtPulseParser_NoSuper,
         overload,
         TmtPulseParser_OrdinaryParameters,
-        value4.generator);
+        value4.generator,
+        false);
     TmtPulseParser_parser_state value8;
     if (value7.signature_only)
     {
@@ -21291,8 +21045,7 @@ TmtPulseParser_default_declaration(
               .private_scope = after.private_scope,
               .private_count = after.private_count,
               .local_log_floor = after.local_log_floor,
-              .local_log_used = after.local_log_used,
-              .member_parameters = after.member_parameters
+              .local_log_used = after.local_log_used
             }
           ),
           21U,
@@ -21357,8 +21110,7 @@ TmtPulseParser_default_declaration(
               .private_scope = value40.private_scope,
               .private_count = value40.private_count,
               .local_log_floor = value40.local_log_floor,
-              .local_log_used = value40.local_log_used,
-              .member_parameters = value40.member_parameters
+              .local_log_used = value40.local_log_used
             }
           ),
           63U,
@@ -21409,8 +21161,7 @@ TmtPulseParser_static_import_attributes(
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       ));
   TmtPulseParser_parser_state value1 = TmtPulseParser_consume(input, value, 123U);
@@ -21534,8 +21285,7 @@ TmtPulseParser_star_reexport(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         ));
     TmtPulseParser_parser_state value2 = TmtPulseParser_export_identifier(input, value1);
@@ -21569,8 +21319,7 @@ TmtPulseParser_star_reexport(
             .private_scope = value2.private_scope,
             .private_count = value2.private_count,
             .local_log_floor = value2.local_log_floor,
-            .local_log_used = value2.local_log_used,
-            .member_parameters = value2.member_parameters
+            .local_log_used = value2.local_log_used
           }
         ),
         false);
@@ -21630,8 +21379,7 @@ TmtPulseParser_named_reexport(
             .private_scope = value2.private_scope,
             .private_count = value2.private_count,
             .local_log_floor = value2.local_log_floor,
-            .local_log_used = value2.local_log_used,
-            .member_parameters = value2.member_parameters
+            .local_log_used = value2.local_log_used
           }
         ),
         false);
@@ -21742,8 +21490,7 @@ TmtPulseParser_alias_path(
               .private_scope = state.private_scope,
               .private_count = state.private_count,
               .local_log_floor = state.local_log_floor,
-              .local_log_used = state.local_log_used,
-              .member_parameters = state.member_parameters
+              .local_log_used = state.local_log_used
             }
           ));
       TmtPulseParser_cursor value3 = TmtPulseParser_name(input, value2.offset, false, false);
@@ -21763,8 +21510,7 @@ TmtPulseParser_alias_path(
             .arrow_defaults_allowed = value2.arrow_defaults_allowed,
             .binding_mode = value2.binding_mode, .super_context = value2.super_context,
             .private_scope = value2.private_scope, .private_count = value2.private_count,
-            .local_log_floor = value2.local_log_floor, .local_log_used = value2.local_log_used,
-            .member_parameters = value2.member_parameters
+            .local_log_floor = value2.local_log_floor, .local_log_used = value2.local_log_used
           };
         uint32_t tmp = TmtPulseParser_minus(fuel, 1U);
         state = tmp0;
@@ -21821,8 +21567,7 @@ TmtPulseParser_import_equals(
           .private_scope = uu____0.private_scope,
           .private_count = uu____0.private_count,
           .local_log_floor = uu____0.local_log_floor,
-          .local_log_used = uu____0.local_log_used,
-          .member_parameters = uu____0.member_parameters
+          .local_log_used = uu____0.local_log_used
         }
       ));
   bool value2 = TmtPulseParser_keyword(input, value1.offset, 7U, 0x72657175697265ULL);
@@ -21850,8 +21595,7 @@ TmtPulseParser_import_equals(
             .private_scope = value1.private_scope,
             .private_count = value1.private_count,
             .local_log_floor = value1.local_log_floor,
-            .local_log_used = value1.local_log_used,
-            .member_parameters = value1.member_parameters
+            .local_log_used = value1.local_log_used
           }
         ));
   else
@@ -21911,8 +21655,7 @@ TmtPulseParser_import_equals(
               .private_scope = value1.private_scope,
               .private_count = value1.private_count,
               .local_log_floor = value1.local_log_floor,
-              .local_log_used = value1.local_log_used,
-              .member_parameters = value1.member_parameters
+              .local_log_used = value1.local_log_used
             }
           ),
           64U);
@@ -21951,8 +21694,7 @@ TmtPulseParser_import_equals(
           .private_scope = value50.private_scope,
           .private_count = value50.private_count,
           .local_log_floor = value50.local_log_floor,
-          .local_log_used = value50.local_log_used,
-          .member_parameters = value50.member_parameters
+          .local_log_used = value50.local_log_used
         }
       );
   else if
@@ -22036,8 +21778,7 @@ TmtPulseParser_import_members(
                   .private_scope = value.private_scope,
                   .private_count = value.private_count,
                   .local_log_floor = value.local_log_floor,
-                  .local_log_used = value.local_log_used,
-                  .member_parameters = value.member_parameters
+                  .local_log_used = value.local_log_used
                 }
               ));
           uint8_t value4 = TmtPulseMemory_peek(input, value3.offset);
@@ -22085,8 +21826,7 @@ TmtPulseParser_import_members(
                   .private_scope = value30.private_scope,
                   .private_count = value30.private_count,
                   .local_log_floor = value30.local_log_floor,
-                  .local_log_used = value30.local_log_used,
-                  .member_parameters = value30.member_parameters
+                  .local_log_used = value30.local_log_used
                 }
               ));
           TmtPulseMemory_binding_namespace
@@ -22120,8 +21860,7 @@ TmtPulseParser_import_members(
                     .private_scope = value6.private_scope,
                     .private_count = value6.private_count,
                     .local_log_floor = value6.local_log_floor,
-                    .local_log_used = value6.local_log_used,
-                    .member_parameters = value6.member_parameters
+                    .local_log_used = value6.local_log_used
                   }
                 ));
             value80 =
@@ -22222,8 +21961,7 @@ TmtPulseParser_import_bindings(
             .private_scope = value.private_scope,
             .private_count = value.private_count,
             .local_log_floor = value.local_log_floor,
-            .local_log_used = value.local_log_used,
-            .member_parameters = value.member_parameters
+            .local_log_used = value.local_log_used
           }
         ));
     bool value3 = TmtPulseParser_keyword(input, value2.offset, 2U, 0x6173ULL);
@@ -22252,8 +21990,7 @@ TmtPulseParser_import_bindings(
               .private_scope = value2.private_scope,
               .private_count = value2.private_count,
               .local_log_floor = value2.local_log_floor,
-              .local_log_used = value2.local_log_used,
-              .member_parameters = value2.member_parameters
+              .local_log_used = value2.local_log_used
             }
           ));
       TmtPulseMemory_binding_namespace
@@ -22308,8 +22045,7 @@ TmtPulseParser_import_declaration(
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       ));
   uint8_t value1 = TmtPulseMemory_peek(input, value.offset);
@@ -22369,8 +22105,7 @@ TmtPulseParser_import_declaration(
               .private_scope = value.private_scope,
               .private_count = value.private_count,
               .local_log_floor = value.local_log_floor,
-              .local_log_used = value.local_log_used,
-              .member_parameters = value.member_parameters
+              .local_log_used = value.local_log_used
             }
           ));
     else
@@ -22411,8 +22146,7 @@ TmtPulseParser_import_declaration(
                   .private_scope = value7.private_scope,
                   .private_count = value7.private_count,
                   .local_log_floor = value7.local_log_floor,
-                  .local_log_used = value7.local_log_used,
-                  .member_parameters = value7.member_parameters
+                  .local_log_used = value7.local_log_used
                 }
               ));
           uint8_t value11 = TmtPulseMemory_peek(input, value10.offset);
@@ -22484,8 +22218,7 @@ TmtPulseParser_import_declaration(
               .private_scope = value10.private_scope,
               .private_count = value10.private_count,
               .local_log_floor = value10.local_log_floor,
-              .local_log_used = value10.local_log_used,
-              .member_parameters = value10.member_parameters
+              .local_log_used = value10.local_log_used
             }
           ),
           true);
@@ -22809,8 +22542,7 @@ TmtPulseParser_ambient_value_names(
                 .private_scope = value4.private_scope,
                 .private_count = value4.private_count,
                 .local_log_floor = value4.local_log_floor,
-                .local_log_used = value4.local_log_used,
-                .member_parameters = value4.member_parameters
+                .local_log_used = value4.local_log_used
               }
             ));
         TmtPulseParser_parser_state tmp0 = value6;
@@ -22854,7 +22586,8 @@ TmtPulseParser_module_function(
       TmtPulseParser_NoSuper,
       !value.generator,
       TmtPulseParser_OrdinaryParameters,
-      value.generator);
+      value.generator,
+      false);
   TmtPulseParser_parser_state after = value3.after_function;
   if (after.status != 0U)
     return ((TmtPulseParser_named_state){ .state = after, .used = used });
@@ -22902,8 +22635,7 @@ TmtPulseParser_module_function(
               .private_scope = after.private_scope,
               .private_count = after.private_count,
               .local_log_floor = after.local_log_floor,
-              .local_log_used = after.local_log_used,
-              .member_parameters = after.member_parameters
+              .local_log_used = after.local_log_used
             }
           ),
           8U,
@@ -22963,8 +22695,7 @@ TmtPulseParser_ambient_value_member(
             .private_scope = member.private_scope,
             .private_count = member.private_count,
             .local_log_floor = member.local_log_floor,
-            .local_log_used = member.local_log_used,
-            .member_parameters = member.member_parameters
+            .local_log_used = member.local_log_used
           }
         ));
     TmtPulseParser_cursor value8 = TmtPulseParser_name(input, value7.offset, false, true);
@@ -22998,8 +22729,7 @@ TmtPulseParser_ambient_value_member(
             .private_scope = member.private_scope,
             .private_count = member.private_count,
             .local_log_floor = member.local_log_floor,
-            .local_log_used = member.local_log_used,
-            .member_parameters = member.member_parameters
+            .local_log_used = member.local_log_used
           }
         ));
     TmtPulseParser_parser_state value8 = TmtPulseParser_ambient_value_names(input, value7, 64U);
@@ -23030,8 +22760,7 @@ TmtPulseParser_ambient_value_member(
             .private_scope = member.private_scope,
             .private_count = member.private_count,
             .local_log_floor = member.local_log_floor,
-            .local_log_used = member.local_log_used,
-            .member_parameters = member.member_parameters
+            .local_log_used = member.local_log_used
           }
         ));
     TmtPulseParser_named_state
@@ -23064,8 +22793,7 @@ TmtPulseParser_ambient_value_member(
             .private_scope = member.private_scope,
             .private_count = member.private_count,
             .local_log_floor = member.local_log_floor,
-            .local_log_used = member.local_log_used,
-            .member_parameters = member.member_parameters
+            .local_log_used = member.local_log_used
           }
         ));
     TmtPulseParser_cursor value8 = TmtPulseParser_name(input, value7.offset, false, true);
@@ -23096,8 +22824,7 @@ TmtPulseParser_ambient_value_member(
         .private_scope = value70.private_scope,
         .private_count = value70.private_count,
         .local_log_floor = value70.local_log_floor,
-        .local_log_used = value70.local_log_used,
-        .member_parameters = value70.member_parameters
+        .local_log_used = value70.local_log_used
       }
     );
 }
@@ -23175,8 +22902,7 @@ TmtPulseParser_ambient_namespace_exports(
               .arrow_defaults_allowed = value5.arrow_defaults_allowed,
               .binding_mode = value5.binding_mode, .super_context = value5.super_context,
               .private_scope = value5.private_scope, .private_count = value5.private_count,
-              .local_log_floor = value5.local_log_floor, .local_log_used = value5.local_log_used,
-              .member_parameters = value5.member_parameters
+              .local_log_floor = value5.local_log_floor, .local_log_used = value5.local_log_used
             };
           uint32_t tmp1 = value4.used;
           uint32_t tmp = TmtPulseParser_minus(remaining, 1U);
@@ -23264,8 +22990,7 @@ TmtPulseParser_type_namespace_members(
               .private_scope = value.private_scope,
               .private_count = value.private_count,
               .local_log_floor = value.local_log_floor,
-              .local_log_used = value.local_log_used,
-              .member_parameters = value.member_parameters
+              .local_log_used = value.local_log_used
             }
           ));
     else
@@ -23380,8 +23105,7 @@ TmtPulseParser_type_namespace_members(
               .private_scope = value3.private_scope,
               .private_count = value3.private_count,
               .local_log_floor = value3.local_log_floor,
-              .local_log_used = value3.local_log_used,
-              .member_parameters = value3.member_parameters
+              .local_log_used = value3.local_log_used
             }
           ));
       TmtPulseParser_named_state
@@ -23443,8 +23167,7 @@ TmtPulseParser_declaration_start(TmtPulseMemory_tape input, TmtPulseParser_parse
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         ));
   else
@@ -23472,8 +23195,7 @@ TmtPulseParser_declaration_start(TmtPulseMemory_tape input, TmtPulseParser_parse
                   .private_scope = value1.private_scope,
                   .private_count = value1.private_count,
                   .local_log_floor = value1.local_log_floor,
-                  .local_log_used = value1.local_log_used,
-                  .member_parameters = value1.member_parameters
+                  .local_log_used = value1.local_log_used
                 }
               )
               : value1;
@@ -23500,8 +23222,7 @@ TmtPulseParser_declaration_start(TmtPulseMemory_tape input, TmtPulseParser_parse
                   .private_scope = st.private_scope,
                   .private_count = st.private_count,
                   .local_log_floor = st.local_log_floor,
-                  .local_log_used = st.local_log_used,
-                  .member_parameters = st.member_parameters
+                  .local_log_used = st.local_log_used
                 }
               )
               : st;
@@ -23528,8 +23249,7 @@ TmtPulseParser_declaration_start(TmtPulseMemory_tape input, TmtPulseParser_parse
                   .private_scope = st1.private_scope,
                   .private_count = st1.private_count,
                   .local_log_floor = st1.local_log_floor,
-                  .local_log_used = st1.local_log_used,
-                  .member_parameters = st1.member_parameters
+                  .local_log_used = st1.local_log_used
                 }
               )
               : st1;
@@ -23682,8 +23402,7 @@ TmtPulseParser_enum_declaration(
           .private_scope = state.private_scope,
           .private_count = state.private_count,
           .local_log_floor = state.local_log_floor,
-          .local_log_used = state.local_log_used,
-          .member_parameters = state.member_parameters
+          .local_log_used = state.local_log_used
         }
       ));
   TmtPulseParser_named_state
@@ -23743,8 +23462,7 @@ TmtPulseParser_runtime_namespace_members(
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         ));
     bool value1 = TmtPulseParser_same(input, value.offset, 125U);
@@ -23849,8 +23567,7 @@ TmtPulseParser_runtime_namespace_members(
                   .private_scope = declared.private_scope,
                   .private_count = declared.private_count,
                   .local_log_floor = declared.local_log_floor,
-                  .local_log_used = declared.local_log_used,
-                  .member_parameters = declared.member_parameters
+                  .local_log_used = declared.local_log_used
                 }
               ));
           TmtPulseParser_named_state
@@ -23886,8 +23603,7 @@ TmtPulseParser_runtime_namespace_members(
               .arrow_defaults_allowed = value18.arrow_defaults_allowed,
               .binding_mode = value18.binding_mode, .super_context = value18.super_context,
               .private_scope = value18.private_scope, .private_count = value18.private_count,
-              .local_log_floor = value18.local_log_floor, .local_log_used = value18.local_log_used,
-              .member_parameters = value18.member_parameters
+              .local_log_floor = value18.local_log_floor, .local_log_used = value18.local_log_used
             };
           uint32_t tmp1 = value13.used;
           uint32_t tmp2 = TmtPulseParser_minus(remaining, 1U);
@@ -23923,8 +23639,7 @@ TmtPulseParser_runtime_namespace_members(
                   .private_scope = value.private_scope,
                   .private_count = value.private_count,
                   .local_log_floor = value.local_log_floor,
-                  .local_log_used = value.local_log_used,
-                  .member_parameters = value.member_parameters
+                  .local_log_used = value.local_log_used
                 }
               ));
           TmtPulseParser_cursor value13 = TmtPulseParser_name(input, value12.offset, false, true);
@@ -23982,8 +23697,7 @@ TmtPulseParser_runtime_namespace_members(
                     .private_scope = value19.private_scope,
                     .private_count = value19.private_count,
                     .local_log_floor = value19.local_log_floor,
-                    .local_log_used = value19.local_log_used,
-                    .member_parameters = value19.member_parameters
+                    .local_log_used = value19.local_log_used
                   }
                 ),
                 42U,
@@ -24064,8 +23778,7 @@ TmtPulseParser_runtime_namespace_members(
                   .private_scope = value12.private_scope,
                   .private_count = value12.private_count,
                   .local_log_floor = value12.local_log_floor,
-                  .local_log_used = value12.local_log_used,
-                  .member_parameters = value12.member_parameters
+                  .local_log_used = value12.local_log_used
                 }
               ),
               64U,
@@ -24125,8 +23838,7 @@ TmtPulseParser_runtime_namespace_members(
                   .private_scope = value.private_scope,
                   .private_count = value.private_count,
                   .local_log_floor = value.local_log_floor,
-                  .local_log_used = value.local_log_used,
-                  .member_parameters = value.member_parameters
+                  .local_log_used = value.local_log_used
                 }
               ),
               value10,
@@ -24199,8 +23911,7 @@ TmtPulseParser_runtime_namespace(
           .private_scope = value1.private_scope,
           .private_count = value1.private_count,
           .local_log_floor = value1.local_log_floor,
-          .local_log_used = value1.local_log_used,
-          .member_parameters = value1.member_parameters
+          .local_log_used = value1.local_log_used
         }
       ));
   TmtPulseParser_parser_state
@@ -24234,8 +23945,7 @@ TmtPulseParser_runtime_namespace(
           .private_scope = value2.private_scope,
           .private_count = value2.private_count,
           .local_log_floor = value2.local_log_floor,
-          .local_log_used = value2.local_log_used,
-          .member_parameters = value2.member_parameters
+          .local_log_used = value2.local_log_used
         }
       ),
       125U);
@@ -24277,8 +23987,7 @@ TmtPulseParser_runtime_namespace(
           .private_scope = value5.private_scope,
           .private_count = value5.private_count,
           .local_log_floor = value5.local_log_floor,
-          .local_log_used = value5.local_log_used,
-          .member_parameters = value5.member_parameters
+          .local_log_used = value5.local_log_used
         }
       ),
       value1);
@@ -24343,8 +24052,7 @@ TmtPulseParser_ambient_declarators(
               .private_scope = value3.private_scope,
               .private_count = value3.private_count,
               .local_log_floor = value3.local_log_floor,
-              .local_log_used = value3.local_log_used,
-              .member_parameters = value3.member_parameters
+              .local_log_used = value3.local_log_used
             }
           ));
       TmtPulseParser_named_state
@@ -24406,8 +24114,7 @@ TmtPulseParser_module_declaration(
               .private_scope = state.private_scope,
               .private_count = state.private_count,
               .local_log_floor = state.local_log_floor,
-              .local_log_used = state.local_log_used,
-              .member_parameters = state.member_parameters
+              .local_log_used = state.local_log_used
             }
           ));
     else
@@ -24540,8 +24247,7 @@ TmtPulseParser_module_declaration(
             .private_scope = value10.private_scope,
             .private_count = value10.private_count,
             .local_log_floor = value10.local_log_floor,
-            .local_log_used = value10.local_log_used,
-            .member_parameters = value10.member_parameters
+            .local_log_used = value10.local_log_used
           }
         ));
     if (width == 8U)
@@ -24629,8 +24335,7 @@ TmtPulseParser_module_declaration(
                 .private_scope = value6.private_scope,
                 .private_count = value6.private_count,
                 .local_log_floor = value6.local_log_floor,
-                .local_log_used = value6.local_log_used,
-                .member_parameters = value6.member_parameters
+                .local_log_used = value6.local_log_used
               }
             ),
             8U,
@@ -24651,8 +24356,7 @@ TmtPulseParser_module_declaration(
               .arrow_defaults_allowed = value7.arrow_defaults_allowed,
               .binding_mode = value7.binding_mode, .super_context = value7.super_context,
               .private_scope = value7.private_scope, .private_count = value7.private_count,
-              .local_log_floor = value7.local_log_floor, .local_log_used = value7.local_log_used,
-              .member_parameters = value7.member_parameters
+              .local_log_floor = value7.local_log_floor, .local_log_used = value7.local_log_used
             },
             .used = value5.used
           }
@@ -24786,8 +24490,7 @@ TmtPulseParser_module_declaration(
                 .private_scope = value60.private_scope,
                 .private_count = value60.private_count,
                 .local_log_floor = value60.local_log_floor,
-                .local_log_used = value60.local_log_used,
-                .member_parameters = value60.member_parameters
+                .local_log_used = value60.local_log_used
               }
             ),
             8U,
@@ -24810,8 +24513,7 @@ TmtPulseParser_module_declaration(
               .arrow_defaults_allowed = value7.arrow_defaults_allowed,
               .binding_mode = value7.binding_mode, .super_context = value7.super_context,
               .private_scope = value7.private_scope, .private_count = value7.private_count,
-              .local_log_floor = value7.local_log_floor, .local_log_used = value7.local_log_used,
-              .member_parameters = value7.member_parameters
+              .local_log_floor = value7.local_log_floor, .local_log_used = value7.local_log_used
             },
             .used = value40.used
           }
@@ -25111,8 +24813,7 @@ TmtPulseParser_module_sequence(
                     .private_scope = uu____0.private_scope,
                     .private_count = uu____0.private_count,
                     .local_log_floor = uu____0.local_log_floor,
-                    .local_log_used = uu____0.local_log_used,
-                    .member_parameters = uu____0.member_parameters
+                    .local_log_used = uu____0.local_log_used
                   }
                 ));
             TmtPulseParser_named_state
@@ -25366,8 +25067,7 @@ TmtPulseParser_declaration(TmtPulseMemory_tape input, TmtPulseParser_parser_stat
             .private_scope = state.private_scope,
             .private_count = state.private_count,
             .local_log_floor = state.local_log_floor,
-            .local_log_used = state.local_log_used,
-            .member_parameters = state.member_parameters
+            .local_log_used = state.local_log_used
           }
         ));
     TmtPulseParser_cursor value2 = TmtPulseParser_name(input, value1.offset, false, true);
@@ -25427,8 +25127,7 @@ parse_state(TmtPulseMemory_tape input, TmtPulseParser_parser_state st, bool modu
                 .private_scope = st.private_scope,
                 .private_count = st.private_count,
                 .local_log_floor = st.local_log_floor,
-                .local_log_used = st.local_log_used,
-                .member_parameters = st.member_parameters
+                .local_log_used = st.local_log_used
               }
             ),
             64U,
@@ -25484,8 +25183,7 @@ parse_state(TmtPulseMemory_tape input, TmtPulseParser_parser_state st, bool modu
                   .private_scope = st.private_scope,
                   .private_count = st.private_count,
                   .local_log_floor = st.local_log_floor,
-                  .local_log_used = st.local_log_used,
-                  .member_parameters = st.member_parameters
+                  .local_log_used = st.local_log_used
                 }
               ));
         else
@@ -25519,8 +25217,7 @@ parse_state(TmtPulseMemory_tape input, TmtPulseParser_parser_state st, bool modu
                 .private_scope = value5.private_scope,
                 .private_count = value5.private_count,
                 .local_log_floor = value5.local_log_floor,
-                .local_log_used = value5.local_log_used,
-                .member_parameters = value5.member_parameters
+                .local_log_used = value5.local_log_used
               }
             ));
       else
@@ -25689,7 +25386,7 @@ TmtPulseParser_parse_attempt(
       .arrow_defaults_allowed = uu____0.arrow_defaults_allowed, .binding_mode = uu____0.binding_mode,
       .super_context = uu____0.super_context, .private_scope = uu____0.private_scope,
       .private_count = uu____0.private_count, .local_log_floor = uu____0.local_log_floor,
-      .local_log_used = uu____0.local_log_used, .member_parameters = uu____0.member_parameters
+      .local_log_used = uu____0.local_log_used
     };
   TmtPulseParser_parser_state value2 = TmtPulseParser_skip(input, value1);
   bool value3;
@@ -25710,7 +25407,7 @@ TmtPulseParser_parse_attempt(
       .arrow_defaults_allowed = value2.arrow_defaults_allowed, .binding_mode = value2.binding_mode,
       .super_context = value2.super_context, .private_scope = value2.private_scope,
       .private_count = value2.private_count, .local_log_floor = value2.local_log_floor,
-      .local_log_used = value2.local_log_used, .member_parameters = value2.member_parameters
+      .local_log_used = value2.local_log_used
     };
   bool value4;
   if (module_mode || initial.status != 0U)
@@ -25784,8 +25481,7 @@ TmtPulseParser_parse_attempt(
           .private_scope = uu____1.private_scope,
           .private_count = uu____1.private_count,
           .local_log_floor = uu____1.local_log_floor,
-          .local_log_used = uu____1.local_log_used,
-          .member_parameters = uu____1.member_parameters
+          .local_log_used = uu____1.local_log_used
         }
       );
   }
@@ -25811,8 +25507,7 @@ TmtPulseParser_parse_attempt(
           .private_scope = value50.private_scope,
           .private_count = value50.private_count,
           .local_log_floor = value50.local_log_floor,
-          .local_log_used = value50.local_log_used,
-          .member_parameters = value50.member_parameters
+          .local_log_used = value50.local_log_used
         }
       );
   else if (value50.count > input.capacity)
@@ -25839,8 +25534,7 @@ TmtPulseParser_parse_attempt(
           .private_scope = uu____2.private_scope,
           .private_count = uu____2.private_count,
           .local_log_floor = uu____2.local_log_floor,
-          .local_log_used = uu____2.local_log_used,
-          .member_parameters = uu____2.member_parameters
+          .local_log_used = uu____2.local_log_used
         }
       );
   }
@@ -25929,8 +25623,7 @@ TmtPulseParser_parse(TmtPulseMemory_tape input, bool jsx, bool module_mode)
             .private_scope = uu____0.private_scope,
             .private_count = uu____0.private_count,
             .local_log_floor = uu____0.local_log_floor,
-            .local_log_used = uu____0.local_log_used,
-            .member_parameters = uu____0.member_parameters
+            .local_log_used = uu____0.local_log_used
           }
         );
     }

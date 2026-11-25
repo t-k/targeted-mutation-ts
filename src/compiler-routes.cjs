@@ -140,11 +140,14 @@ function misplacedAbstractErasure(source, code) {
 // source itself, and its parser checks the names.
 const unusualSpace = /[\u0085\u00a0\u1680\u180e\u2000-\u200f\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]/;
 const identifierWord = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*$/u;
+// Letters of Unicode 16 and 17. The engine's tables hold them and those of the TypeScript this compiler is
+// measured against do not, so TypeScript reports a name that uses one. Such a source is left to TypeScript.
+const newerLetter = new RegExp('[\u{88f}\u{897}\u{c5c}\u{cdc}\u{1acf}-\u{1add}\u{1ae0}-\u{1aeb}\u{1c89}-\u{1c8a}\u{a7cb}-\u{a7cf}\u{a7d2}\u{a7d4}\u{a7da}-\u{a7dc}\u{a7f1}\u{105c0}-\u{105f3}\u{10940}-\u{10959}\u{10d40}-\u{10d65}\u{10d69}-\u{10d6d}\u{10d6f}-\u{10d85}\u{10ec2}-\u{10ec7}\u{10efa}-\u{10efc}\u{11380}-\u{11389}\u{1138b}\u{1138e}\u{11390}-\u{113b5}\u{113b7}-\u{113c0}\u{113c2}\u{113c5}\u{113c7}-\u{113ca}\u{113cc}-\u{113d3}\u{113e1}-\u{113e2}\u{116d0}-\u{116e3}\u{11b60}-\u{11b67}\u{11bc0}-\u{11be0}\u{11bf0}-\u{11bf9}\u{11db0}-\u{11ddb}\u{11de0}-\u{11de9}\u{11f5a}\u{13460}-\u{143fa}\u{16100}-\u{16139}\u{16d40}-\u{16d6c}\u{16d70}-\u{16d79}\u{16ea0}-\u{16eb8}\u{16ebb}-\u{16ed3}\u{16ff2}-\u{16ff6}\u{187f8}-\u{187ff}\u{18cff}\u{18d09}-\u{18d1e}\u{18d80}-\u{18df2}\u{1ccf0}-\u{1ccf9}\u{1e5d0}-\u{1e5fa}\u{1e6c0}-\u{1e6de}\u{1e6e0}-\u{1e6f5}\u{1e6fe}-\u{1e6ff}\u{2b73a}-\u{2b73f}\u{2cea2}-\u{2cead}\u{323b0}-\u{33479}]', 'u');
 function highByteNames(addon, source, text, file, format) {
   let high = false;
   for (let at = 0; at < source.length; at++) if (source[at] >= 128) { high = true; break; }
   // An escape may spell the same name a second way, and a space outside ASCII is no part of a word.
-  if (!high || text.includes('\\u') || unusualSpace.test(text)) return null;
+  if (!high || text.includes('\\u') || unusualSpace.test(text) || newerLetter.test(text)) return null;
   const renamed = Buffer.from(source);
   const spellings = new Map();
   const taken = new Set();

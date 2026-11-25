@@ -59,6 +59,9 @@ test('what the first cut does not lower is left to TypeScript, with the same res
     'namespace N { @d export class A {} }\nexport { N };',
     'export class A { @d get v() { return 1; } @d set v(x) {} }',
     'export class A { @d [k]() {} }',
+    'export class A { @d 1() {} }',
+    'export class A { @d #p = 1; }',
+    'const default_1 = 1;\n@d export default class {}\nexport { default_1 };',
     'export class A { set v(@d x: number) {} }',
     '"use strict";\n@d class A {}\nexport { A };',
     'const C = class { constructor(@IFoo foo: IFoo) {} };\nexport { C };',
@@ -83,8 +86,8 @@ test('source maps keep the TypeScript route', () => {
 });
 
 // A class that names itself in its body. TypeScript writes a second name for the decorated class and uses it for
-// every reference in the body; this compiler takes the name off the class expression, so that the body sees the
-// variable. The two texts differ, so they are compared by what they do.
+// every reference in the body; this compiler takes the name off the class expression and declares the name again
+// in a scope around it. The two texts differ, so they are compared by what they do.
 test('a class that names itself in its body behaves as TypeScript\'s lowering does', () => {
   const source = 'const replace = (target: any) => class Replaced extends target { static tag = "replaced"; };\n' +
     'const keep = (target: any) => { target.kept = true; };\n' +
@@ -109,7 +112,7 @@ test('a class that names itself in its body behaves as TypeScript\'s lowering do
   ]) {
     const lowered = compile(Buffer.from(shape), options);
     assert.equal(lowered.backend, 'pulse', shape);
-    assert.match(lowered.code, /let A;\s*A = class[^{]*\{ static \{ A = this; \}/, shape);
+    assert.match(lowered.code, /let \[A, A_1\] = \(\(\) => \{ let A; A = class[^{]*\{ static \{ A = this; \}/, shape);
   }
 });
 
@@ -166,7 +169,68 @@ test('a decorated class is lowered wherever its declaration stands', () => {
     }
     assert.deepEqual(run(result.code), run(reference.outputText), source);
     const any = whole || row.Member !== 'None';
-    if (any) { assert.equal(result.backend, 'pulse', source); native++; }
+    // A self-naming class inside a function is left to TypeScript, whose second variable belongs to the function.
+    const shared = row.SelfName === 'Yes' && whole && ['Function', 'Block', 'Method'].includes(row.Place);
+    if (shared) assert.equal(result.backend, 'typescript', source);
+    else if (any) { assert.equal(result.backend, 'pulse', source); native++; }
   }
-  assert.ok(native >= 30);
+  assert.ok(native >= 25, String(native));
+});
+
+// What a text does: its value, or the error it throws.
+function outcome(code) {
+  try { return ['value', new Function(code.replace(/export const out =/, 'return').replace(/export \{[^}]*\};?/g, ''))()]; } catch (error) { return ['throws', error.constructor.name]; }
+}
+
+test('the variable a self-naming class sees is its own, as in TypeScript\'s lowering', () => {
+  const prelude = 'const D = (target: any) => target;\nconst customize = (Base: any) => class extends Base { static extra = true; };\n';
+  for (const [body, expected] of [
+    // An assignment to the class's variable does not reach the body.
+    ['@D class Service { static create() { return new Service(); } }\nconst Original = Service;\n(Service as any) = class extends Service {};\nexport const out = Original.create() instanceof Service;', ['value', false]],
+    ['@D class A { static get() { return A; } }\nconst saved = A;\n(A as any) = class Other {};\nexport const out = (saved as any).get() === saved;', ['value', true]],
+    // A function outside reads the outer variable, which is not initialized while the static members run.
+    ['function read() { return Service; }\n@D class Service { static self = Service; static registered = read(); }\nexport const out = 1;', ['throws', 'ReferenceError']],
+    // A spread of the class is a reference to it.
+    ['@customize class Settings { static snapshot() { return { ...Settings }; } }\nexport const out = Settings.snapshot();', ['value', { extra: true }]],
+    // The class of a heritage clause has a body of its own in front of the class's body.
+    ['@D class Service extends class {} { static self = Service; }\nexport const out = (Service as any).self === Service;', ['value', true]],
+  ]) {
+    const source = prelude + body;
+    const result = compile(Buffer.from(source), options);
+    assert.equal(result.backend, 'pulse', source);
+    const reference = ts.transpileModule(source, { fileName: 'legacy.ts', compilerOptions: {
+      target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true, experimentalDecorators: true } }).outputText;
+    assert.deepEqual(outcome(reference), expected, source);
+    assert.deepEqual(outcome(result.code), expected, source);
+  }
+  // Inside a function TypeScript's second variable is shared by every run of the function: in its output the
+  // body of the first class of a loop sees the second class. Such a class is left to TypeScript, as is one
+  // that awaits inside its own text, or whose second name is taken.
+  for (const source of [
+    'const all: any[] = [];\nfor (const n of [1, 2]) { @d class K { static me() { return K; } } all.push(K); }\nexport { all };',
+    'export function f() { @d class K { static me() { return K; } } return K; }',
+    '@d class K { static v = K; [await 1]() {} }\nexport { K };',
+    '@d class K extends (await base) { static v = K; }\nexport { K };',
+    'const K_1 = 1;\n@d class K { static v = K; }\nexport { K, K_1 };',
+  ]) assert.equal(lowered(source).backend, 'typescript', source);
+});
+
+test('an await inside a method does not keep a self-naming class from the native lowering', () => {
+  const source = '@d export class K { static of() { return new K(); } async load() { await 1; return K; } *all() { yield K; } #p = 1; }';
+  const result = compile(Buffer.from(source), options);
+  assert.equal(result.backend, 'pulse');
+  assert.match(result.code, /let \[K, K_1\] = /);
+});
+
+test('comments and white space do not change what is read', () => {
+  for (const source of [
+    '@d export /* default settings */ class Settings {}',
+    '/* a */ // b\n@d export class C { @e m() {} }',
+  ]) {
+    assert.equal(lowered(source).backend, 'pulse', source);
+  }
+  assert.match(compile(Buffer.from('@d export /* default settings */ class Settings {}'), options).code, /export \{ Settings \};/);
+  // A line separator ends a line comment; the helpers stand in front of the class whichever route answers.
+  const separated = lowered('// license\u2028@d export class C {}\nfunction d(...args: any[]) {}');
+  assert.ok(separated.code.indexOf('var __decorate') < separated.code.search(/__decorate\(\[\s*d\b/));
 });
