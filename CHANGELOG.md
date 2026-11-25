@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Warn once on `stderr` and skip missing `--copy-exclude` (and `copyExclude` config) paths instead of failing with `Copy exclusion does not exist`, so scripts excluding optional build/test outputs work on clean checkouts. Paths escaping the project, targeting `node_modules`, or traversing symbolic links (including missing targets under a symlink) are still rejected.
+
 ## 0.2.2
 
 - Fix Vitest 4.1 `bail: 1` compatibility in `assessTrial`: allow uncollected sibling test modules when `reason` is `'failed'` as well as `'interrupted'`, preventing false `unstable` verdicts on killed static-activation mutants.

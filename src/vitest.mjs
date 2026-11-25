@@ -42,29 +42,65 @@ export function inside(root, path) {
   return target;
 }
 
-export function resolveCopyExclusions(source, exclude = []) {
-  return exclude.map(path => {
+const normalizeExclusionKey = value => (process.platform === 'win32' ? value.toLowerCase() : value);
+
+export function resolveCopyExclusions(source, exclude = [], { onMissing } = {}) {
+  const resolved = [];
+  const seenResolved = new Set();
+  const seenMissing = new Set();
+  const caseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
+  for (const path of exclude) {
     const candidate = resolve(source, path);
     const fromRoot = relative(source, candidate);
     if (!fromRoot || isAbsolute(path) || isAbsolute(fromRoot) || fromRoot === '..' || fromRoot.startsWith('..' + sep)) {
       throw new Error(`Copy exclusion must be inside the project: ${path}`);
     }
     const components = fromRoot.split(sep);
-    const dependency = components.indexOf('node_modules');
+    const dependency = components.findIndex(part => (caseInsensitive ? part.toLowerCase() : part) === 'node_modules');
     if (dependency === 0) throw new Error(`Copy exclusion cannot target node_modules: ${path}`);
     if (dependency > 0 && dependency !== components.length - 1) {
       throw new Error(`Copy exclusion cannot target node_modules contents: ${path}`);
     }
-    if (!existsSync(candidate)) throw new Error(`Copy exclusion does not exist: ${path}`);
-    const parent = dirname(candidate);
-    if (realpathSync(parent) !== parent) throw new Error(`Copy exclusion must not traverse a symbolic link: ${path}`);
-    return candidate;
-  });
+    let cursor = source;
+    let parentMissing = false;
+    for (let i = 0; i < components.length - 1; i++) {
+      cursor = resolve(cursor, components[i]);
+      const stat = lstatSync(cursor, { throwIfNoEntry: false });
+      if (!stat) {
+        parentMissing = true;
+        break;
+      }
+      if (stat.isSymbolicLink() || realpathSync(cursor) !== cursor) {
+        throw new Error(`Copy exclusion must not traverse a symbolic link: ${path}`);
+      }
+      if (!stat.isDirectory()) {
+        parentMissing = true;
+        break;
+      }
+    }
+    const key = normalizeExclusionKey(candidate);
+    if (parentMissing || !lstatSync(candidate, { throwIfNoEntry: false })) {
+      if (!seenMissing.has(key)) {
+        seenMissing.add(key);
+        onMissing?.(path, candidate);
+      }
+      continue;
+    }
+    if (!seenResolved.has(key)) {
+      seenResolved.add(key);
+      resolved.push(candidate);
+    }
+  }
+  return resolved;
 }
 
 export function copyPathIsExcluded(source, path, exclusions) {
+  const normalizedPath = normalizeExclusionKey(path);
   return relative(source, path).split(sep).some(part => excluded.has(part)) ||
-    exclusions.some(exclusion => path === exclusion || path.startsWith(exclusion + sep));
+    exclusions.some(exclusion => {
+      const normalizedExclusion = normalizeExclusionKey(exclusion);
+      return normalizedPath === normalizedExclusion || normalizedPath.startsWith(normalizedExclusion + sep);
+    });
 }
 
 function linkInstalledModules(source, root, projectModules, installed, tools) {

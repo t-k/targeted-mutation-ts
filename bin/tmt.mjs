@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { readFileSync, realpathSync } from 'node:fs';
+import { relative } from 'node:path';
 import { parseArgs } from 'node:util';
 import { chooseFormat, renderText, usage } from '../src/cli-output.mjs';
 import { enablePreparedTypeScript } from '../src/typescript-compiler.mjs';
@@ -107,6 +108,16 @@ try {
       if (ignoredExclusions.length) {
         runValues['copy-exclude'] = [...new Set([...(runValues['copy-exclude'] ?? []), ...ignoredExclusions])];
       }
+    }
+    if (runValues['copy-exclude']?.length) {
+      const { resolveCopyExclusions } = await import('../src/vitest.mjs');
+      const activeExclusions = resolveCopyExclusions(validated.root, runValues['copy-exclude'], {
+        onMissing: path => {
+          const safePath = /[\x00-\x1f\x7f]/.test(path) ? JSON.stringify(path) : path;
+          process.stderr.write(`Warning: Copy exclusion does not exist, skipping: ${safePath}\n`);
+        },
+      });
+      runValues['copy-exclude'] = activeExclusions.map(entry => relative(validated.root, entry));
     }
     const logProgress = runValues.progress ? message => process.stderr.write(`[tmt] ${message}\n`) : () => {};
     enablePreparedTypeScript();

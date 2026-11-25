@@ -1,13 +1,15 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import test from 'node:test';
-import { runnerPackage, withCopy } from '../src/vitest.mjs';
+import { resolveCopyExclusions, runnerPackage, withCopy } from '../src/vitest.mjs';
 
 const rows = readFileSync(new URL('../verification/pict/copy-links.tsv', import.meta.url), 'utf8')
   .trim().split('\n').slice(1).map(row => row.trim().split('\t'));
+const excludeRows = readFileSync(new URL('../verification/pict/copy-exclude.tsv', import.meta.url), 'utf8')
+  .trim().split(/\r?\n/).slice(1).map(row => row.trim().split('\t'));
 
 function projectFixture(action) {
   const scratch = realpathSync(mkdtempSync(join(tmpdir(), 'tmt-copy-test-')));
@@ -115,4 +117,132 @@ test('honors explicit nested dependency-tree exclusions', () => projectFixture(o
   }, { exclude: ['packages/site/node_modules'] });
   assert.throws(() => withCopy(original, () => assert.fail('projection must be rejected'),
     { exclude: ['packages/site/node_modules/dep'] }), /Copy exclusion cannot target node_modules contents/);
+}));
+
+for (const [pathKind, parentState, targetExistence, duplicate] of excludeRows) {
+  test(`PICT copy-exclude ${pathKind}/${parentState}/${targetExistence}/${duplicate}`, () => projectFixture((original, scratch) => {
+    const setupParent = () => {
+      if (parentState === 'RealDir') {
+        mkdirSync(join(original, 'packages/app'), { recursive: true });
+        return 'packages/app';
+      }
+      if (parentState === 'MissingDir') return 'missing-parent/app';
+      if (parentState === 'SymlinkDir') {
+        mkdirSync(join(original, 'real-dir'), { recursive: true });
+        symlinkSync('real-dir', join(original, 'linked-dir'), 'dir');
+        return 'linked-dir';
+      }
+      if (parentState === 'BrokenSymlinkDir') {
+        symlinkSync('does-not-exist', join(original, 'broken-dir'), 'dir');
+        return 'broken-dir';
+      }
+      writeFileSync(join(original, 'plain-file'), 'not a dir');
+      return 'plain-file';
+    };
+
+    let relPath;
+    if (pathKind === 'Direct') {
+      relPath = 'dist';
+      if (targetExistence === 'Exists') mkdirSync(join(original, relPath));
+    } else if (pathKind === 'Nested') {
+      const parent = setupParent();
+      relPath = `${parent}/dist`;
+      if (targetExistence === 'Exists') mkdirSync(join(original, parent === 'linked-dir' ? 'real-dir/dist' : relPath), { recursive: true });
+    } else if (pathKind === 'NestedNodeModules') {
+      const parent = setupParent();
+      relPath = `${parent}/node_modules`;
+      if (targetExistence === 'Exists') mkdirSync(join(original, parent === 'linked-dir' ? 'real-dir/node_modules' : relPath), { recursive: true });
+    } else if (pathKind === 'SymlinkTarget') {
+      writeFileSync(join(original, 'real.txt'), 'ok');
+      symlinkSync('real.txt', join(original, 'alias'), 'file');
+      relPath = 'alias';
+    } else if (pathKind === 'DanglingSymlink') {
+      symlinkSync('no-such-target', join(original, 'dangling'), 'file');
+      relPath = 'dangling';
+    } else if (pathKind === 'Escape') {
+      relPath = '../outside';
+      if (targetExistence === 'Exists') mkdirSync(join(scratch, 'outside'));
+    } else if (pathKind === 'RootNodeModules') {
+      relPath = 'node_modules';
+      if (targetExistence === 'Exists') mkdirSync(join(original, relPath));
+    } else if (pathKind === 'NodeModulesContent') {
+      relPath = 'packages/app/node_modules/dep';
+      if (targetExistence === 'Exists') mkdirSync(join(original, relPath), { recursive: true });
+    }
+
+    const input = duplicate === 'Repeated' ? [relPath, `./${relPath}`] : [relPath];
+    const missing = [];
+    const expectError =
+      pathKind === 'Escape' ? /Copy exclusion must be inside the project/
+        : pathKind === 'RootNodeModules' ? /Copy exclusion cannot target node_modules/
+          : pathKind === 'NodeModulesContent' ? /Copy exclusion cannot target node_modules contents/
+            : (parentState === 'SymlinkDir' || parentState === 'BrokenSymlinkDir') ? /Copy exclusion must not traverse a symbolic link/
+              : null;
+
+    if (expectError) {
+      assert.throws(() => resolveCopyExclusions(original, input, { onMissing: p => missing.push(p) }), expectError);
+      assert.deepEqual(missing, []);
+      return;
+    }
+
+    const resolved = resolveCopyExclusions(original, input, { onMissing: p => missing.push(p) });
+    if (targetExistence === 'Exists') {
+      assert.deepEqual(resolved, [join(original, relPath)]);
+      assert.deepEqual(missing, []);
+    } else {
+      assert.deepEqual(resolved, []);
+      assert.deepEqual(missing, [relPath]);
+    }
+  }));
+}
+
+test('withCopy skips missing exclusions and omits excluded dangling symlinks', () => projectFixture(original => {
+  writeFileSync(join(original, 'keep.txt'), 'ok');
+  symlinkSync('no-such-target', join(original, 'dangling'), 'file');
+  withCopy(original, workspace => {
+    assert.equal(readFileSync(join(workspace, 'keep.txt'), 'utf8'), 'ok');
+    assert.equal(lstatSync(join(workspace, 'dangling'), { throwIfNoEntry: false }), undefined);
+  }, { exclude: ['dist', 'nested/missing', 'dangling'] });
+  withCopy(original, workspace => {
+    assert.equal(lstatSync(join(workspace, 'dangling'), { throwIfNoEntry: false })?.isSymbolicLink(), true);
+  });
+  assert.throws(() => resolveCopyExclusions(original, ['.']), /Copy exclusion must be inside the project/);
+  assert.throws(() => resolveCopyExclusions(original, [join(original, 'keep.txt')]), /Copy exclusion must be inside the project/);
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    assert.throws(() => resolveCopyExclusions(original, ['NODE_MODULES']), /Copy exclusion cannot target node_modules/);
+    assert.throws(() => resolveCopyExclusions(original, ['NODE_MODULES/missing']), /Copy exclusion cannot target node_modules/);
+    assert.throws(() => resolveCopyExclusions(original, ['packages/app/NODE_MODULES/dep']), /Copy exclusion cannot target node_modules contents/);
+  }
+}));
+
+test('property: resolveCopyExclusions deduplicates existing and missing relative paths', () => projectFixture(original => {
+  const pool = ['a', 'b', 'c/d', 'c/e', 'f/g/h'];
+  let seed = 0x5eed1234;
+  const next = () => {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    return seed / 0x100000000;
+  };
+  const existing = new Set(['a', 'c/d']);
+  for (const rel of existing) mkdirSync(join(original, rel), { recursive: true });
+
+  for (let trial = 0; trial < 40; trial++) {
+    const chosen = [];
+    const expectedExisting = new Set();
+    const expectedMissing = new Set();
+    const count = 1 + Math.floor(next() * 8);
+    for (let i = 0; i < count; i++) {
+      const base = pool[Math.floor(next() * pool.length)];
+      const variant = next() < 0.33 ? `./${base}` : next() < 0.66 ? `${base}/` : base;
+      chosen.push(variant);
+      const full = join(original, base);
+      if (existing.has(base)) expectedExisting.add(full);
+      else expectedMissing.add(full);
+    }
+    const missingCandidates = [];
+    const resolved = resolveCopyExclusions(original, chosen, { onMissing: (_p, candidate) => missingCandidates.push(candidate) });
+    assert.equal(new Set(resolved).size, resolved.length);
+    assert.deepEqual(new Set(resolved), expectedExisting);
+    assert.equal(new Set(missingCandidates).size, missingCandidates.length);
+    assert.deepEqual(new Set(missingCandidates), expectedMissing);
+  }
 }));

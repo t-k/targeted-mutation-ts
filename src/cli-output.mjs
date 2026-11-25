@@ -12,7 +12,7 @@ Scope (analyze):
                                 without pinning the result, and give the value to compare with (Vitest).
   --undo-changes                With --since: also put each change back as it was at REV and run the suite.
                                 A change the tests pass without is reported as UNTESTED CHANGE.
-  --copy-exclude PATH           Leave a project path out of the temporary copies. Repeatable.
+  --copy-exclude PATH           Leave a project path out of the temporary copies (warns and skips if missing). Repeatable.
   --copy-exclude-gitignore      Also exclude gitignored paths (except node_modules) from temporary copies.
   --exclude-rule RULE           Exclude a mutation rule (e.g. nullish-equality/v1). Repeatable.
   --no-config                   Ignore targeted-mutation.config.{json,mjs} and package.json#targetedMutation.
