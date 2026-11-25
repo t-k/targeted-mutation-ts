@@ -1192,12 +1192,15 @@ tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_
   if (size - at >= 2 && source[at] == '#' && source[at + 1] == '!') {
     while (at < size && source[at] != '\n' && source[at] != '\r') at++;
   }
-  bool inside = false;
+  bool inside = false, line = false;
   while (at < size && !inside) {
     const uint8_t byte = source[at];
     if (byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r' || byte == '\v' || byte == '\f') at++;
     else if (byte == '/' && at + 1 < size && source[at + 1] == '/') {
+      const uint32_t start = at;
       while (at < size && source[at] != '\n' && source[at] != '\r') at++;
+      /* TypeScript reads these pragmas from block comments only: in a line comment the text is no pragma. */
+      if (found > start && found < at) line = true;
     } else if (byte == '/' && at + 1 < size && source[at + 1] == '*') {
       uint32_t end = at + 2;
       while (end + 1 < size && !(source[end] == '*' && source[end + 1] == '/')) end++;
@@ -1207,6 +1210,7 @@ tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_
       at = end + 2;
     } else break;
   }
+  if (!inside && line) return factories ? TMT_JSX_PRAGMA_FACTORY : TMT_JSX_PRAGMA_ABSENT;
   if (!inside || !pragma_text(source + found + 1, size - found - 1, "jsximportsource")) return TMT_JSX_PRAGMA_OTHER;
   uint32_t name = found + 16;
   if (name >= size || (source[name] != ' ' && source[name] != '\t')) return TMT_JSX_PRAGMA_OTHER;

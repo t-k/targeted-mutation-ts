@@ -452,7 +452,9 @@ test('conflicting local names and enum member names that need care stay off the 
       assert.deepEqual(compile(source, options), result, source);
       // A factory pragma names the classic factory. Under the automatic runtime TypeScript ignores it wherever
       // it stands.
+      // it stands. In a line comment the text is no pragma at all: TypeScript reads these from block comments.
       const native = pragma === 'Absent' || (pragma === 'Factory' && mode === 'Automatic') ||
+        (place === 'LeadingLine' && (pragma === 'ImportSource' || pragma === 'Runtime')) ||
         (pragma === 'ImportSource' && place === 'LeadingBlock' && mode === 'Automatic' && tail !== 'DirectClose');
       assert.equal(result.backend === 'pulse', native, source);
       if (!native) return;
@@ -463,7 +465,9 @@ test('conflicting local names and enum member names that need care stay off the 
       // The helper imports name the same modules in the same order.
       const modules = code => [...code.matchAll(/^import\s*\{[^}]*\b(?:jsxs?|Fragment|createElement) as _[^}]*\}\s*from\s*"([^"]+)";/gm)].map(match => match[1]);
       assert.deepEqual(modules(result.code), modules(expected), source);
-      if (pragma === 'ImportSource' && mode === 'Automatic') assert.ok(modules(result.code).every(name => name.startsWith('preact')), source);
+      if (pragma === 'ImportSource' && mode === 'Automatic') {
+        assert.ok(modules(result.code).every(name => name.startsWith(place === 'LeadingLine' ? 'react' : 'preact')), source);
+      }
     });
   }
 }
@@ -2287,4 +2291,19 @@ test('accessor fields keep their word, and an optional method with a body loses 
   for (const source of ['export class C { accessor m() {} }', 'export class C { accessor get x() { return 1; } }', 'export class C { get x?() { return 1; } }']) {
     assert.notEqual(compile(Buffer.from(source), { file: 'accessor.ts' }).backend, 'pulse', source);
   }
+});
+
+test('@jsx text in a line comment is no pragma', () => {
+  // TypeScript reads the JSX pragmas from block comments only.
+  for (const source of ['// @jsxImportSource preact\nexport const a = <div/>;', '// @jsx: preserve\ndeclare module JSX { interface Element {} }\nexport const a = <div/>;',
+    '//@jsxRuntime classic\nexport const a = <div/>;']) {
+    const result = compile(Buffer.from(source), { file: 'pragma.tsx', mode: 'transform', jsx: 'automatic' });
+    assert.equal(result.backend, 'pulse', source);
+    assert.match(result.code, /from"react\/jsx-runtime"/, source);
+  }
+  // In a block comment it is one.
+  const block = compile(Buffer.from('/** @jsxImportSource preact */\nexport const a = <div/>;'), { file: 'pragma.tsx', mode: 'transform', jsx: 'automatic' });
+  assert.match(block.code, /from"preact\/jsx-runtime"/);
+  // A factory named in a line comment still keeps the classic runtime with TypeScript.
+  assert.equal(compile(Buffer.from('// @jsx h\nexport const a = <div/>;'), { file: 'pragma.tsx', mode: 'transform', jsx: 'classic' }).backend, 'typescript');
 });
