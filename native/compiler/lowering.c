@@ -3327,9 +3327,13 @@ enum_only:
 /* Kind 21 is a class member that is erased whole; a class rewritten as an expression must lose it in the source. */
 /* Kind 36, the `export` of a declaration in a namespace body, tells the lowering that a namespace takes the class. */
 static bool legacy_record(uint32_t kind) {
-  /* Type arguments, type parameter lists and implements clauses: what of a class's head is erased. */
+  /*
+   * The spans that are types and are erased (annotations, assertions, type arguments and parameters, implements
+   * clauses, local type declarations): the lowering looks for a class's name in what is left.
+   */
   return (kind >= 50 && kind <= 56) || kind == 60 || kind == 64 || kind == 65 || kind == 21 || kind == namespace_declaration ||
-    kind == type_arguments || kind == class_implements || kind == 59;
+    kind == type_arguments || kind == class_implements || kind == 59 || kind == type_annotation || kind == type_assertion ||
+    kind == erased_local_type || kind == arrow_result || kind == terminated_class_field || kind == prefix_assertion;
 }
 
 /* With all set, every record of the reading is returned: the metadata of the decorators is written from type records too. */

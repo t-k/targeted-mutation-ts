@@ -200,7 +200,8 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false, spa
   let pending = [];
   // Where the declaration behind the last `export` of a namespace body begins (kind 36), or -1.
   let namespaceExport = -1;
-  // The type arguments, type parameter lists and implements clauses of the file, in order (kinds 10, 59, 18).
+  // The spans of the file that are types and are erased: annotations, assertions, type arguments and
+  // parameters, implements clauses, local type declarations and members that are erased whole.
   const erasedTypes = [];
   context.erasedTypes = erasedTypes;
   // The classes that are open and lowered here, innermost last. Each knows how many class bodies were open
@@ -218,7 +219,7 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false, spa
     if (kind === 50) {
       decorated = true;
       pending.push({ first: leftFirst, last: leftLast, expression: slice(rightFirst, rightLast) });
-    } else if (kind === 10 || kind === 59 || kind === 18) {
+    } else if (kind === 10 || kind === 59 || kind === 18 || kind === 7 || kind === 11 || kind === 19 || kind === 20 || kind === 22 || kind === 31) {
       erasedTypes.push([leftFirst, leftLast]);
     } else if (kind === 36) {
       namespaceExport = leftLast;
@@ -227,6 +228,7 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false, spa
       if (current !== null && depth === current.depth + 1) current.computed.push([rightFirst, rightLast]);
     } else if (kind === 21) {
       // A member that is erased whole: an abstract member, an overload signature, a declared field.
+      erasedTypes.push([leftFirst, leftLast]);
       if (current !== null && depth > current.depth) current.erased.push([leftFirst, leftLast]);
     } else if (kind === 51 || kind === 60 || kind === 64) {
       // A class declaration: at module level, inside a function or a block, or the default export.
@@ -409,6 +411,20 @@ function closeClass(found, text, end, context) {
   // `this`, `arguments` and `super`; it does not keep `await` and `yield`, which may stand in the heritage
   // clause and in computed keys.
   const escaped = found.name.replace(/\$/g, '\\$');
+  // The text of a range without its types, each replaced by a space so that the words around it stay apart.
+  const values = (from, to) => {
+    // A span may stand inside another, and the records come in the order in which the parser finished them.
+    const spans = context.erasedTypes.filter(([first, last]) => last > from && first < to).sort((a, b) => a[0] - b[0]);
+    let kept = '', at = from;
+    for (const [first, last] of spans) {
+      if (last <= at) continue;
+      kept += text.slice(at, Math.max(at, first)) + ' ';
+      at = Math.max(at, last);
+    }
+    return kept + text.slice(Math.min(at, to), to);
+  };
+  // A name that stands only in types still counts here: TypeScript writes its second name for `typeof A` in a
+  // type as well, and the form used for a self-naming class behaves the same when nothing reads the name.
   const within = text.slice(found.nameLast, end);
   // A name behind a single dot is a property; behind three it is spread.
   const named = !anonymous && new RegExp('(?<![\\w$])(?<!(?<!\\.)\\.)' + escaped + '(?![\\w$])').test(within);
@@ -424,16 +440,7 @@ function closeClass(found, text, end, context) {
   // Type parameters, type arguments and the implements clause of the head are types, which are erased: the
   // parser recorded where they stand, and what is left is the expression that the class extends. (A pair of
   // angle brackets found by its look could be two comparisons: `extends pick(() => n < 1 || A.v > 1)`.)
-  let heritage = '';
-  if (found.bodyFirst !== undefined) {
-    let at = found.nameLast;
-    for (const [first, last] of context.erasedTypes) {
-      if (last <= at || first >= found.bodyFirst) continue;
-      heritage += text.slice(at, Math.max(at, first));
-      at = Math.max(at, last);
-    }
-    heritage += text.slice(Math.min(at, found.bodyFirst), found.bodyFirst);
-  }
+  const heritage = found.bodyFirst !== undefined ? values(found.nameLast, found.bodyFirst) : '';
   // A computed key is evaluated with the heritage clause, where the name means the undecorated class as well.
   // The parser records the place of every computed key of a member (kind 65).
   const unrenamed = found.bodyFirst !== undefined && (new RegExp(reference).test(heritage) ||
@@ -444,7 +451,10 @@ function closeClass(found, text, end, context) {
   const outside = found.bodyFirst !== undefined && (awaits.test(text.slice(found.nameLast, found.bodyFirst)) ||
     found.members.some(member => (member.flags & 32) && awaits.test(member.key)) ||
     found.computed.some(([first, last]) => awaits.test(text.slice(first, last))));
-  if (named && ((found.local && !found.once) || found.bodyFirst === undefined || text[found.bodyFirst] !== '{' || outside || unrenamed ||
+  // A direct eval in the body can read the name by its spelling, which no rewriting follows: in TypeScript's
+  // text it finds the class's own name, here it would find the variable that holds the decorated class.
+  const evaluated = /(?<![\w$.])eval(?![\w$])/.test(within);
+  if (named && ((found.local && !found.once) || found.bodyFirst === undefined || text[found.bodyFirst] !== '{' || outside || unrenamed || evaluated ||
       new RegExp('(?<![\\w$])' + escaped + '_1(?![\\w$])').test(text))) return null;
   const list = found.decorators.map(decorator => decorator.expression);
   for (const parameter of found.constructor) {

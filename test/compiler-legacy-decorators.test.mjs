@@ -483,3 +483,31 @@ test('an await in the computed key of any member keeps a self-naming class with 
   assert.equal(plain.backend, 'pulse');
   assert.match(plain.code, /let K = class K \{ \[await Promise\.resolve\("k"\)\]\(\)/);
 });
+
+test('a self-naming class that evaluates text is left to TypeScript, and types leave no joined words', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export \{[^}]*\};?/g, '').replace(/export (?=class|const|let|namespace|function|var)/g, ''))();
+  const reference = (source, file = 'legacy.ts') => ts.transpileModule(source, { fileName: file, compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, experimentalDecorators: true, verbatimModuleSyntax: true, jsx: ts.JsxEmit.React } }).outputText;
+  const upgrade = 'const upgrade = (Base: any) => class extends Base { static version = 2; };\n';
+  // The name in a constraint, in annotations, in an assertion and in an erased member, beside a direct eval:
+  // whichever route answers, the evaluated text finds the class's own name.
+  for (const body of [
+    'class Job<T extends () => Job<T>> {\n  static version = 1;\n  static evaluate(expression: string) { return eval(expression); }\n}',
+    'class Job {\n  static version = 1;\n  next?: Job;\n  declare owner: Job;\n  static make(): Job | null { return null as unknown as Job; }\n  clone(other: Job = this): Array<Job> { return [<Job>other]; }\n  static evaluate(expression: string) { return eval(expression); }\n}',
+  ]) {
+    const source = upgrade + '@upgrade\n' + body + '\nexport const out = Job.evaluate("Job.version");';
+    const result = compile(Buffer.from(source), options);
+    assert.equal(run(result.code), 1, body);
+    assert.equal(run(result.code), run(reference(source)), body);
+  }
+  // A class that names itself and evaluates text is left to TypeScript: the text could spell the name.
+  const evaluated = upgrade + '@upgrade\nclass Job {\n  static version = 1;\n  static make() { return new Job(); }\n  static evaluate(expression: string) { return eval(expression); }\n}\nexport const out = [Job.evaluate("Job.version"), Job.make() instanceof Job];';
+  const left = compile(Buffer.from(evaluated), options);
+  assert.notEqual(left.backend, 'pulse');
+  assert.deepEqual(run(left.code), [1, true]);
+  // A type argument between a tag and an attribute: the words on both sides stay apart.
+  const element = 'const React = { createElement(type: any) { return { type }; } };\nfunction withPreview(render: () => any) { return class { static preview = render; }; }\n' + upgrade +
+    '@upgrade\nclass Job<T> extends withPreview(() => <Job<"<">title="Preview" />) {\n  static version = 1;\n}\nexport const out = (Job as any).preview().type.version;';
+  const tsx = compile(Buffer.from(element), { file: 'legacy.tsx', experimentalDecorators: true, jsx: 'classic' });
+  assert.notEqual(tsx.backend, 'pulse');
+  assert.equal(run(tsx.code), run(reference(element, 'legacy.tsx')));
+});
