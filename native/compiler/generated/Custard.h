@@ -2586,7 +2586,8 @@ TmtPulseParser_import_equals(
   TmtPulseParser_parser_state state,
   TmtPulseParser_parser_state st,
   TmtPulseParser_parser_state after_name,
-  uint32_t used
+  uint32_t used,
+  bool type_only
 );
 
 TmtPulseParser_named_state

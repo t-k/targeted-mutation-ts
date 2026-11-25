@@ -1467,7 +1467,7 @@ test('import-equals declarations become const or var', () => {
   }
   // An alias alone does not make the file a module, a type-only form is erased by TypeScript, and a name that
   // is declared twice is an error.
-  for (const source of ['import x = require;\nx;', 'import type x = require("x");\nexport {};', 'export import A = require("a");',
+  for (const source of ['import x = require;\nx;', 'export import A = require("a");',
     'import x = require(y);\nx;', 'import x = require("x");\nconst x = 1;']) {
     assert.notEqual(compile(Buffer.from(source), { file: 'alias.ts' }).backend, 'pulse', source);
   }
@@ -2730,4 +2730,21 @@ test('a namespace body may read the name of the namespace, and a constructed nam
     const source = `namespace T { ${member} }\nexport { T };`;
     assert.notEqual(sameAsTypeScript(source, 'self.ts').backend, 'pulse', source);
   }
+});
+
+test('a type-only import alias is erased', () => {
+  for (const source of [
+    'import type Token = require("markdown-it/lib/token");\nexport function f(t: Token) { return t; }',
+    'import type T = A.B.C;\nimport type U = require("u")\nexport const a: T | U = 1;',
+    'import type T = require("m");\nexport {};',
+  ]) {
+    const result = sameAsTypeScript(source, 'typed.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.doesNotMatch(result.code, /require|Token|import/, source);
+  }
+  // `type` may be the alias itself, and the erased name is no value.
+  assert.match(sameAsTypeScript('import type = require("m");\nexport const a = type;', 'typed.ts').code, /const type = require\("m"\)/);
+  assert.notEqual(compile(Buffer.from('import type T = require("m");\nexport const T = 1;'), { file: 'typed.ts' }).backend, 'pulse');
+  // The alias alone leaves a file that TypeScript writes as a script; whichever route answers, the text is TypeScript's.
+  sameAsTypeScript('import type T = require("m");\nconst x: T = 1;', 'typed.ts');
 });

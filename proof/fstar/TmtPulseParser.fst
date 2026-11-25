@@ -4967,9 +4967,9 @@ let rec alias_path (input:tape) (state:parser_state) (fuel:U32.t)
     if property.status <> 0ul || not segment.ok then ret input (failed property 1ul)
     else alias_path input { property with offset = segment.at } (minus fuel 1ul)
 
-let import_equals (input:tape) (state st after_name:parser_state) (used:names_used)
+let import_equals (input:tape) (state st after_name:parser_state) (used:names_used) (type_only:bool)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) =
-  let! bound = (fun () -> bind_in_namespace input st 0ul 0ul used st.offset BothNames) in
+  let! bound = (fun () -> bind_in_namespace input st 0ul 0ul used st.offset (if type_only then TypeOnlyImport else BothNames)) in
   let! value = (fun () -> skip input { bound.state with offset = next after_name.offset }) in
   let! required = (fun () -> keyword input value.offset 7ul 0x72657175697265uL) in
   let! opening = (fun () -> if required then skip input { value with offset = plus value.offset 7ul } else ret input value) in
@@ -4997,7 +4997,9 @@ let import_equals (input:tape) (state st after_name:parser_state) (used:names_us
     else if semicolon then { target with offset = next gap.at }
     else if gap.ok && (gap.at = input.size || (gap.newline && (imported || exported || (G.identifier_start following && following <> 105uy)))) then target
     else failed target 1ul in
-  let! recorded = (fun () -> record_jsx_span input ended (if call then 40ul else 41ul) state.offset (plus state.offset 6ul)) in
+  // import type Name = ...: the statement declares a type and is erased whole.
+  let! recorded = (fun () -> if type_only then record_jsx_span input ended 8ul state.offset ended.offset
+    else record_jsx_span input ended (if call then 40ul else 41ul) state.offset (plus state.offset 6ul)) in
   ret input ({ bound with state = recorded })
 
 let import_declaration (input:tape) (state:parser_state) (used:names_used) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
@@ -5008,7 +5010,14 @@ let import_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
   let! after_alias = (fun () -> if alias_end.ok then skip input (from_cursor st alias_end) else ret input st) in
   let! equals = (fun () -> if alias_end.ok then same input after_alias.offset 61uy else ret input false) in
   let! doubled = (fun () -> if equals then same input (next after_alias.offset) 61uy else ret input false) in
-  if equals && not doubled then import_equals input state st after_alias used
+  // import type Name = require("m"); and import type Name = A.B;
+  let! typed = (fun () -> if alias_end.ok && not equals && minus alias_end.at st.offset = 4ul then keyword input st.offset 4ul 0x74797065uL else ret input false) in
+  let! typed_end = (fun () -> if typed then name input after_alias.offset false true else ret input { at = st.offset; ok = false; newline = false }) in
+  let! after_typed = (fun () -> if typed_end.ok then skip input (from_cursor after_alias typed_end) else ret input st) in
+  let! typed_equals = (fun () -> if typed_end.ok then same input after_typed.offset 61uy else ret input false) in
+  let! typed_doubled = (fun () -> if typed_equals then same input (next after_typed.offset) 61uy else ret input false) in
+  if typed_equals && not typed_doubled then import_equals input state after_alias after_typed used true
+  else if equals && not doubled then import_equals input state st after_alias used false
   else if byte = 34uy || byte = 39uy then
     let! after = (fun () -> import_source input st true) in
     let! after = (fun () -> record_jsx_span input after 9ul state.offset after.offset) in
