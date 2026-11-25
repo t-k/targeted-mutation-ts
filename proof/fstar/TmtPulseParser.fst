@@ -2444,6 +2444,15 @@ let abstract_class_start (input:tape) (#frame:slprop) (offset:U32.t)
 let abstract_member_modifier (input:tape) (#frame:slprop) (start:U32.t) (byte:U8.t)
   : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   if byte = 97uy then abstract_modifier input #frame start
+  else if byte = 114uy then
+    // readonly abstract name: T; The result is marked so that a method behind it is refused.
+    let! readonly_ = (fun () -> keyword input #frame start 8ul 0x726561646f6e6c79uL) in
+    if not readonly_ then read_ret input #frame { at = start; ok = false; newline = false }
+    else
+      let! after = (fun () -> trivia input #frame (plus start 8ul)) in
+      if after.ok && not after.newline then
+        (let! modifier = (fun () -> abstract_modifier input #frame after.at) in read_ret input #frame { modifier with newline = true })
+      else read_ret input #frame { after with ok = false }
   else
     let! public_ = (fun () -> keyword input #frame start 6ul 0x7075626c6963uL) in
     let! protected_ = (fun () -> if public_ then read_ret input #frame false else
@@ -4484,7 +4493,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
       class_members input recorded fuel (minus remaining 1ul) derived seen_constructor kind no_overload
     else
     let! member_head =
-      (fun () -> if kind <> OrdinaryClass && (byte = 97uy || byte = 112uy) then
+      (fun () -> if kind <> OrdinaryClass && (byte = 97uy || byte = 112uy || byte = 114uy) then
         let! modifier = (fun () -> abstract_member_modifier input st.offset byte) in
         let! has_key = (fun () -> if modifier.ok then class_key_start input { st with offset = modifier.at } else ret input false) in
         ret input (if has_key then { modifier with ok = true } else { modifier with at = st.offset; ok = false })
@@ -4529,8 +4538,8 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
       if decorated && (U32.logand key.modifier_flags 16ul <> 0ul || member_head.ok || optional_method.status = 0ul || constructor_name) then
         ret input (failed tail 1ul)
       else if U32.logand key.modifier_flags 16ul <> 0ul then
-        let! declared_first = (fun () -> keyword input st.offset 7ul 0x6465636c617265uL) in
-        let! closed = (fun () -> if awaiting_body || kind = AmbientClass || not declared_first ||
+        // The modifiers stand in any order: protected declare model: T;
+        let! closed = (fun () -> if awaiting_body || kind = AmbientClass ||
           U32.logand key.modifier_flags 8ul <> 0ul || key.private_ || key.async_ || key.generator_ || accessor ||
           constructor_name || prototype then ret input (failed tail 1ul)
           else
@@ -4554,7 +4563,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             // An abstract member is erased whole, so it may also be marked override.
             (kind <> AmbientClass && U32.logand key.modifier_flags (U32.logor class_access_flags 1ul) <> 0ul) then ret input (failed tail 1ul)
           else if method then
-            if fuel = 0ul || key.readonly_ then ret input (failed tail 1ul)
+            if fuel = 0ul || key.readonly_ || member_head.newline then ret input (failed tail 1ul)
             else
               let mode = if ambient_constructor then BaseConstructor else MethodSuper in
               // A declared class may declare a getter: get name(): T;

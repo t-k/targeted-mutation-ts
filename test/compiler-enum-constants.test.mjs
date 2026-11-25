@@ -130,7 +130,9 @@ test('enum initializers outside the constant evaluator match TypeScript or leave
     ['export enum E { A = "a" + "b" }', false],
     ['export enum E { A = "x", B = A }', false],
     ['export enum E { A = B, B = 1 }', false],
-    ['export enum E { A = 1, B = F.A }', false],
+    // A member of something the file does not declare is written as the expression.
+    ['export enum E { A = 1, B = F.A }', true],
+    ['enum F { A = 3 }\nexport enum E { A = 1, B = F.A }', false],
     // A member named like a literal is not what the bare word means, and an update is not constant.
     ['export enum E { false = 7, Default = +false }', false],
     ['export enum E { true = 2, null = 3, A = true | null }', false],

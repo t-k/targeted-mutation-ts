@@ -2507,3 +2507,15 @@ test('an enum member may take its value from a member of something the file does
     assert.notEqual(sameAsTypeScript(source, 'foreign.ts').backend, 'pulse', source);
   }
 });
+
+test('declare stands behind other modifiers, and readonly may precede abstract', () => {
+  for (const source of [
+    'class M {}\nexport class Tree { protected declare model: M; private declare readonly other: M; static declare count: number; kept = 1; }',
+    'export abstract class R { readonly abstract recommendations: readonly string[]; readonly abstract onDidChange: Event; kept = 1; }',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'modifiers.ts').backend, 'pulse', source);
+  }
+  assert.doesNotMatch(compile(Buffer.from('export class Tree { protected declare model: M; kept = 1; }'), { file: 'modifiers.ts' }).code, /model|protected|declare/);
+  // readonly belongs to a property.
+  assert.notEqual(compile(Buffer.from('export abstract class R { readonly abstract m(): void; }'), { file: 'modifiers.ts' }).backend, 'pulse');
+});
