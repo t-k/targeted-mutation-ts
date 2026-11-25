@@ -2041,7 +2041,7 @@ test('a reference to a variable that a namespace exports is written as a propert
   assert.ok(native >= 25, String(native));
   // The text itself.
   assert.equal(compile(Buffer.from('namespace N { export var a = 1; function f() { return a; } export var b; function g() { return b; } }\nexport { N };'), { file: 'reference.ts' }).code,
-    'var N;(function (N) { N.a = 1; function f() { return N.a; }  function g() { return N.b; } })(N||(N={}));\nexport { N };');
+    'var N;(function (N) { N.a = 1; function f() { return N.a; } ; function g() { return N.b; } })(N||(N={}));\nexport { N };');
 });
 
 test('references to exported variables across namespaces, and what stays with TypeScript', () => {
@@ -2358,4 +2358,58 @@ test('review of the namespace work: names that meet their parent, declared sibli
   // A line separator ends a line comment, so the block comment behind it holds a pragma.
   const pragma = compile(Buffer.from('// Copyright /** @jsxImportSource preact */\nexport const view = <div />;'), { file: 'review.tsx', mode: 'transform', jsx: 'automatic' });
   assert.match(pragma.code, /preact\/jsx-runtime/);
+});
+
+test('type arguments behind a JSX tag name are erased', () => {
+  const sources = [
+    'export const a = <Select<string[]> value={v}><option>{name}</option></Select>;',
+    'export const b = <Badge<"a"> />;\nexport const c = <Button<typeof LinkSlot>>Home</Button>;',
+    'export function T() { return <ThemeProvider<Theme> theme={t}><Deep /><Option<number, typeof Custom> x={(a: number) => a > 1} /></ThemeProvider>; }',
+    'export const d = <ns.Item<{ a: () => void; b: Array<string> }> k="1" {...rest} />;',
+    'export const e = <A<B<C>>>text</A>;',
+  ];
+  for (const source of sources) {
+    for (const jsx of ['automatic', 'classic', 'preserve']) {
+      const result = compile(Buffer.from(source), { file: 'typed.tsx', mode: 'transform', jsx });
+      // A typed file whose JSX is kept is not written natively; its syntax is TypeScript's all the same.
+      if (jsx !== 'preserve') assert.equal(result.backend, 'pulse', source + ' ' + jsx);
+      const expected = ts.transpileModule(source, { fileName: 'typed.tsx', compilerOptions: {
+        target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true,
+        jsx: jsx === 'classic' ? ts.JsxEmit.React : jsx === 'preserve' ? ts.JsxEmit.Preserve : ts.JsxEmit.ReactJSX } }).outputText;
+      const file = jsx === 'preserve' ? 'typed.jsx' : 'typed.js';
+      const strip = code => code.replace(/_tmtJsxs?\d*|_jsxs?/g, 'J').replace(/^import[^\n]*\n/gm, '');
+      assert.deepEqual(inspect(ts, strip(result.code), file).shape, inspect(ts, strip(expected), file).shape, source + ' ' + jsx);
+    }
+  }
+  // No type arguments in a .jsx file, and none behind a closing tag.
+  assert.notEqual(compile(Buffer.from('export const a = <A<B> />;'), { file: 'typed.jsx', mode: 'transform', jsx: 'automatic' }).backend, 'pulse');
+  assert.notEqual(compile(Buffer.from('export const a = <A<B>>x</A<B>>;'), { file: 'typed.tsx', mode: 'transform', jsx: 'automatic' }).backend, 'pulse');
+});
+
+test('second review of the namespace work', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))();
+  for (const source of [
+    // A variable without a value is erased; the statement before it keeps its end.
+    'export namespace N.M {\n  export const v = 1\n  export let label: string;\n  [v].map(i => i);\n}\nexport const out = N.M.v;',
+    'namespace N { export const v = [1]\n  export var w: number;\n  (v).length; }\nexport const out = N.v.length;',
+    // A declared namespace with a comment in its head.
+    'declare /* @internal */ namespace Settings { const limit: number; }\nnamespace Settings { export const current = () => limit; }\nexport const out = 1;',
+    // A dotted name that repeats a name further out.
+    'export namespace API { export const version = 3; export namespace V1.API { export const current = version; } }\nexport const out = API.V1.API.current;',
+    'namespace A { export namespace B { export namespace A { export const v = 1; } } }\nexport const out = A.B.A.v;',
+  ]) {
+    const result = sameAsTypeScript(source, 'review.ts');
+    assert.equal(run(result.code), run(reference(source, 'review.ts')), source);
+  }
+  // `get` in front of a private name on the next line begins a getter, which this is not.
+  for (const [source, file] of [['@logged\nclass Store {\n  get\n  #cached = 1\n}', 'review.ts'], ['export class Store {\n  get\n  #cached = 1\n}', 'review.ts'],
+    ['export class Store {\n  static set\n  #cached = 1\n}', 'review.ts']]) {
+    assert.equal(compile(Buffer.from(source), { file }).code, null, source);
+  }
+  assert.equal(sameAsTypeScript('export class Store { get #cached() { return 1; } static set #w(v: number) {} }', 'review.ts').backend, 'pulse');
+  // Behind `export default` in a declared module stands no variable and no type alias.
+  for (const source of ['declare module "*.css" { export default const classes: Record<string, string>; }\nexport const ready = true;',
+    'declare module "m" { export default type T = 1; }\nexport const ready = true;', 'declare module "m" { export default let a: number; }\nexport const ready = true;']) {
+    assert.equal(compile(Buffer.from(source), { file: 'review.ts' }).code, null, source);
+  }
 });

@@ -2044,7 +2044,8 @@ let accessor_modifier (input:tape) (#frame:slprop) (st:parser_state) : Tot (stt 
     let! key = (fun () -> skip input #frame { st with offset = plus st.offset 3ul }) in
     let! byte = (fun () -> peek input #frame key.offset) in
     let! decimal = (fun () -> if byte = 46uy then (let! anf_value_3 = (fun () -> (peek input #frame (next key.offset))) in read_ret input #frame (G.decimal_digit anf_value_3)) else read_ret input #frame (G.decimal_digit byte)) in
-    read_ret input #frame (if G.identifier_start byte || byte = 34uy || byte = 39uy || byte = 91uy || decimal then
+    // A private name is a key too: `get` in front of one, on whatever line, begins a getter.
+    read_ret input #frame (if G.identifier_start byte || byte = 34uy || byte = 39uy || byte = 91uy || byte = 35uy || decimal then
       { arity = kind; key_start = key }
     else ordinary)
 
@@ -3719,7 +3720,15 @@ and jsx_element (input:tape) (state:parser_state) (fuel:U32.t)
       jsx_children input children (start_range opening.offset) fuel input.size
     else
       let! named = (fun () -> jsx_tag_name input opening.offset 64ul) in
-      let! attrs = (fun () -> jsx_attributes input (from_cursor opening named) fuel input.size) in
+      // Type arguments behind the tag name, `<Select<string> value={v} />`, are erased (kind 10).
+      let after_name = from_cursor opening named in
+      let! angle = (fun () -> if input.capture_types && after_name.status = 0ul then same input after_name.offset 60uy else ret input false) in
+      let! typed = (fun () -> if not angle then ret input after_name
+        else
+          let! arguments = (fun () -> expression_type_arguments input after_name) in
+          if arguments.status <> 0ul then ret input arguments
+          else record_jsx_span input arguments 10ul after_name.offset arguments.offset) in
+      let! attrs = (fun () -> jsx_attributes input typed fuel input.size) in
       if attrs.after_tag.status <> 0ul || attrs.self_closing then ret input attrs.after_tag
       else jsx_children input attrs.after_tag { G.first = opening.offset; G.last = named.at } fuel input.size) in
   record_jsx_span input ended 0ul state.offset ended.offset
@@ -5398,7 +5407,15 @@ let rec type_namespace_members (input:tape) (state:parser_state) (floor used loc
     let! importing = (fun () -> if module_body && not exported && member_byte = 105uy then keyword input member.offset 6ul 0x696d706f7274uL
       else ret input false) in
     let! width = (fun () -> if importing then ret input 0ul else type_declaration_width input member.offset) in
-    if importing then
+    // Behind `default` stands a function, a class, an interface or a name: no variable and no type alias.
+    let! default_function = (fun () -> if defaulted then function_start input member.offset
+      else ret input { at = member.offset; ok = false; newline = false }) in
+    let! default_class = (fun () -> if defaulted then class_keyword input member.offset else ret input false) in
+    let! default_abstract = (fun () -> if defaulted then abstract_class_start input member.offset
+      else ret input { at = member.offset; ok = false; newline = false }) in
+    let default_declaration = default_function.ok || default_class || default_abstract.ok in
+    if defaulted && width = 4ul then ret input (failed member 1ul)
+    else if importing then
       // The names an import binds belong to the declared module. They are entered behind the names of the
       // file and forgotten, and what the import records goes with them.
       let! imported = (fun () -> import_declaration input member locals) in
@@ -5432,15 +5449,16 @@ let rec type_namespace_members (input:tape) (state:parser_state) (floor used loc
       type_namespace_members input ended floor used locals depth (minus remaining 1ul) ambient module_body
     else if width = 0ul then
       let! export_list = (fun () -> if ambient && exported then same input member.offset 123uy else ret input false) in
-      let! value = (fun () -> if ambient && not export_list && input.capture_types then ambient_value_member input member locals
+      let! value = (fun () -> if ambient && not export_list && input.capture_types && (not defaulted || default_declaration) then
+          ambient_value_member input member locals
         else ret input (failed member 1ul)) in
       let! alias = (fun () -> if not exported && not ambient && input.capture_types && byte = 105uy then
         keyword input member.offset 6ul 0x696d706f7274uL else ret input false) in
       if value.status = 0ul then
         type_namespace_members input value floor used locals depth (minus remaining 1ul) ambient module_body
-      else if defaulted then
+      else if defaulted && not default_declaration then
         // `export default name;`
-        let! first_name = (fun () -> name input member.offset false false) in
+        let! first_name = (fun () -> name input member.offset false true) in
         let! target = (fun () -> if first_name.ok then alias_path input { member with offset = first_name.at } 64ul
           else ret input (failed member 1ul)) in
         let! ended = (fun () -> statement_end input target target.offset true) in

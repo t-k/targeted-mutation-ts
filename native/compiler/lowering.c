@@ -1006,6 +1006,33 @@ static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, c
   }
 }
 
+/*
+ * Type arguments behind a tag name, `<Select<string> />`. The parser has read them as types; here their
+ * extent is found by their brackets. An arrow's angle closes nothing, and a string is passed over.
+ */
+static bool jsx_type_arguments(lowering *lower) {
+  char stack[32];
+  uint32_t depth = 0;
+  for (uint32_t at = lower->at; at < lower->input.size; at++) {
+    const uint8_t byte = lower->input.source[at];
+    if (byte == '"' || byte == '\'' || byte == '`') {
+      for (at++; at < lower->input.size && lower->input.source[at] != byte; at++) {
+        if (lower->input.source[at] == '\\' || lower->input.source[at] == '\n') return false;
+      }
+    } else if (byte == '<' || byte == '(' || byte == '[' || byte == '{') {
+      if (depth == sizeof(stack)) return false;
+      stack[depth++] = byte == '<' ? '>' : byte == '(' ? ')' : byte == '[' ? ']' : '}';
+    } else if (byte == ')' || byte == ']' || byte == '}' || (byte == '>' && lower->input.source[at - 1] != '=')) {
+      if (depth == 0 || stack[--depth] != (char)byte) return false;
+      if (depth == 0) {
+        lower->at = at + 1;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 static bool jsx_element(lowering *lower, uint32_t depth) {
   if (!depth || !consume(lower, '<')) return false;
   writer *out = &lower->output;
@@ -1013,6 +1040,8 @@ static bool jsx_element(lowering *lower, uint32_t depth) {
   const bool fragment = peek(lower) == '>';
   TmtGrammar_span tag = { lower->at, lower->at };
   if (!fragment && !jsx_name(lower, &tag)) return false;
+  /* Only a TypeScript file has type arguments there. */
+  if (!fragment && peek(lower) == '<' && (!lower->input.capture_types || !jsx_type_arguments(lower))) return false;
   /* A keyword may touch the opening angle. The helper name must not extend it. */
   if (out->length && TmtGrammar_identifier_continue((uint8_t)out->code[out->length - 1])) put(out, " ");
   const size_t helper_offset = out->length;
@@ -2409,6 +2438,20 @@ static bool exported_head(TmtPulseMemory_tape input, TmtGrammar_candidate head) 
   return input.size - head.left.first > 6 && !memcmp(input.source + head.left.first, "export", 6);
 }
 
+/* The place behind white space and comments. */
+static uint32_t behind_trivia(TmtPulseMemory_tape input, uint32_t at, uint32_t last) {
+  for (;;) {
+    while (at < last && (input.source[at] == ' ' || input.source[at] == '\t' || input.source[at] == '\n' || input.source[at] == '\r')) at++;
+    if (at + 1 < last && input.source[at] == '/' && input.source[at + 1] == '/') {
+      while (at < last && input.source[at] != '\n' && input.source[at] != '\r') at++;
+    } else if (at + 1 < last && input.source[at] == '/' && input.source[at + 1] == '*') {
+      at += 2;
+      while (at + 1 < last && !(input.source[at] == '*' && input.source[at + 1] == '/')) at++;
+      at = at + 1 < last ? at + 2 : last;
+    } else return at;
+  }
+}
+
 /* Whether a declared namespace of this name stands among the erased statements. */
 static bool erased_namespace(TmtPulseMemory_tape input, uint32_t records, TmtGrammar_span name) {
   for (uint32_t index = 0; index < records; index++) {
@@ -2417,13 +2460,13 @@ static bool erased_namespace(TmtPulseMemory_tape input, uint32_t records, TmtGra
     uint32_t at = event.left.first;
     bool ambient = false;
     for (;;) {
-      while (at < event.left.last && (input.source[at] == ' ' || input.source[at] == '\t' || input.source[at] == '\n' || input.source[at] == '\r')) at++;
+      at = behind_trivia(input, at, event.left.last);
       if (skip_word(input, &at, "declare")) ambient = true;
       else if (!skip_word(input, &at, "export")) break;
     }
     /* A namespace that is erased without being declared holds types alone, and no member a body could name. */
     if (!ambient || (!skip_word(input, &at, "namespace") && !skip_word(input, &at, "module"))) continue;
-    while (at < event.left.last && (input.source[at] == ' ' || input.source[at] == '\t')) at++;
+    at = behind_trivia(input, at, event.left.last);
     TmtGrammar_span declared = { at, at };
     while (declared.last < event.left.last && input.source[declared.last] < 128 && TmtGrammar_identifier_continue(input.source[declared.last])) declared.last++;
     if (same_name(input, declared, name)) return true;
@@ -2550,12 +2593,17 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
     while (head_at < span.last && (input.source[head_at] == ' ' || input.source[head_at] == '\t' || input.source[head_at] == '\n' || input.source[head_at] == '\r')) head_at++;
     if (head_at + 1 != span.last || input.source[head_at] != '{') return false;
     /*
-     * A namespace is a variable in the body of the one around it, whose parameter bears that one's name. For
-     * a namespace named like the one directly around it TypeScript renames the parameter.
+     * A namespace is a variable in the body of the one around it, whose parameter bears that one's name, and
+     * a reference inside is written with the name of the namespace that owns the member. For a namespace
+     * named like one around it TypeScript renames a parameter.
      */
-    if (scope->depth != 0 && same_name(input, scope->names[scope->depth - 1], name)) return false;
+    for (uint32_t outer = 0; outer < scope->depth; outer++) {
+      if (same_name(input, scope->names[outer], name)) return false;
+      for (uint32_t part = 0; part < dotted; part++) if (same_name(input, scope->names[outer], further[part])) return false;
+    }
     for (uint32_t part = 0; part < dotted; part++) {
-      if (same_name(input, part == 0 ? name : further[part - 1], further[part])) return false;
+      if (same_name(input, name, further[part])) return false;
+      for (uint32_t earlier = 0; earlier < part; earlier++) if (same_name(input, further[earlier], further[part])) return false;
     }
     /* The end of this namespace, behind the namespaces inside it. */
     uint32_t tail = index + 1, inner = 0;
@@ -2649,7 +2697,12 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
     put(&lower->output, ".");
     return !lower->output.failed;
   }
-  if (event.original == namespace_declaration || event.original == namespace_bare_variable) return true;
+  if (event.original == namespace_declaration) return true;
+  if (event.original == namespace_bare_variable) {
+    /* The statement goes, its end stays: the statement before it may have none of its own. */
+    put(&lower->output, ";");
+    return !lower->output.failed;
+  }
   if (event.original == namespace_enum) {
     const uint32_t size = lower->input.size;
     lower->input.size = span.last;
