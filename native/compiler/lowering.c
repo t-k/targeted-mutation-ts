@@ -574,6 +574,46 @@ static bool enum_foreign_member(lowering *lower, TmtGrammar_span binding) {
   return true;
 }
 
+/*
+ * An initializer that is a fraction written the way JavaScript prints it: 0.75, -1.5. TypeScript prints the
+ * value, which is then the text. The member behind it needs a value of its own.
+ */
+static bool enum_fraction(lowering *lower) {
+  const uint8_t *source = lower->input.source;
+  const uint32_t size = lower->input.size, first = lower->at;
+  uint32_t at = first;
+  if (at < size && source[at] == '-') at++;
+  const uint32_t whole = at;
+  while (at < size && TmtGrammar_decimal_digit(source[at])) at++;
+  if (at == whole || (source[whole] == '0' && at - whole > 1) || at >= size || source[at] != '.') return false;
+  const uint32_t point = at++;
+  while (at < size && TmtGrammar_decimal_digit(source[at])) at++;
+  /*
+   * At most fifteen digits, and at most six behind the point (a smaller number is printed with an exponent),
+   * so that the text is what the number prints as.
+   */
+  if (at == point + 1 || source[at - 1] == '0' || at - whole > 16 || at - point > 7) return false;
+  if (at < size && (source[at] >= 128 || source[at] == '.' || TmtGrammar_identifier_continue(source[at]))) return false;
+  lower->at = at;
+  const bool ends = trivia(lower) && (peek(lower) == ',' || peek(lower) == '}');
+  lower->at = ends ? at : first;
+  return ends;
+}
+
+/* A template without a hole whose text can stand between double quotation marks as it is. */
+static bool enum_plain_template(lowering *lower, uint32_t *last) {
+  const uint8_t *source = lower->input.source;
+  if (peek(lower) != '`') return false;
+  uint32_t at = lower->at + 1;
+  while (at < lower->input.size && source[at] != '`') {
+    const uint8_t byte = source[at++];
+    if (byte < 32 || byte >= 127 || byte == '"' || byte == '\\' || byte == '$') return false;
+  }
+  if (at >= lower->input.size) return false;
+  *last = at + 1;
+  return true;
+}
+
 static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exported, bool local, enum_scope *scope) {
   writer *out = &lower->output;
   /* TypeScript declares an enum inside a block with let, so it is scoped to the block like the source. */
@@ -612,17 +652,21 @@ static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exp
     if (same_bytes(lower, key, "__proto__") || !trivia(lower)) return false;
 
     uint32_t value_start = 0, value_end = 0;
-    bool folded = false, foreign = false;
+    bool folded = false, foreign = false, template_ = false;
     if (consume(lower, '=')) {
       if (!trivia(lower)) return false;
       value_start = lower->at;
-      numeric = peek(lower) != '"' && peek(lower) != '\'';
+      numeric = peek(lower) != '"' && peek(lower) != '\'' && peek(lower) != '`';
       if (numeric) {
-        if (!enum_numeric(lower, scope, &next, &folded)) {
+        if (enum_fraction(lower)) foreign = true;
+        else if (!enum_numeric(lower, scope, &next, &folded)) {
           lower->at = value_start;
           if (!enum_foreign_member(lower, binding)) return false;
           foreign = true;
         }
+      } else if (peek(lower) == '`') {
+        if (!enum_plain_template(lower, &lower->at)) return false;
+        template_ = true;
       } else if (!literal_string(lower, &lower->at)) return false;
       value_end = lower->at;
       unknown = foreign;
@@ -636,7 +680,11 @@ static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exp
     }
     if (!quote(lower, key, false)) return false;
     put(out, "]=");
-    if (value_end && (foreign || !numeric || (next != 0 && !folded))) source_bytes(lower, value_start, value_end);
+    if (template_) {
+      put(out, "\"");
+      source_bytes(lower, value_start + 1, value_end - 1);
+      put(out, "\"");
+    } else if (value_end && (foreign || !numeric || (next != 0 && !folded))) source_bytes(lower, value_start, value_end);
     else {
       char value[32];
       snprintf(value, sizeof(value), "%" PRId64, next);

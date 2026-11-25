@@ -126,7 +126,7 @@ test('enum initializers outside the constant evaluator match TypeScript or leave
     ['export enum E { A = 1.5, B = 1e3 }', false],
     ['export enum E { A = 010 }', false],
     ['export enum E { A = 2 ** 3 }', false],
-    ['export enum E { A = `a` }', false],
+    ['export enum E { A = `a` }', true],
     ['export enum E { A = "a" + "b" }', false],
     ['export enum E { A = "x", B = A }', false],
     ['export enum E { A = B, B = 1 }', false],
@@ -156,4 +156,35 @@ test('enum initializers outside the constant evaluator match TypeScript or leave
       assert.deepEqual(evaluate(result.code.replace(/^const k = 2;\n/, '')), evaluate(expected), source + '\n' + result.code);
     }
   }
+});
+
+test('a fraction written as JavaScript prints it and a template without a hole are enum values', () => {
+  for (const [source, native] of [
+    ['export enum E { A = 5000, B = 1.2, C = 1, D }', true],
+    ['export const enum E { Default = 0.75, Min = 0.2, Neg = -1.5 }', true],
+    ['export enum E { A = 0.000001, B = 123456789.123456 }', true],
+    ['export enum E { T = `#terminal`, U = `.a b-c`, V = "v", W = `` }', true],
+    // The member behind a fraction needs a value, and no member computes with one.
+    ['export enum E { A = 0.75, B }', false],
+    ['export enum E { A = 0.75, B = A }', false],
+    ['export enum E { A = 1.5 + 1 }', false],
+    // Spellings that TypeScript prints differently.
+    ['export enum E { A = .2 }', false],
+    ['export enum E { A = 1.50 }', false],
+    ['export enum E { A = 1.0 }', false],
+    ['export enum E { A = 0.0000001 }', false],
+    ['export enum E { A = 1.5e3 }', false],
+    ['export enum E { A = 1234567890.123456 }', false],
+    ['export enum E { T = `a${1}` }', false],
+    ['export enum E { T = `a"b` }', false],
+    ['export enum E { T = `a\\n` }', false],
+    ['export enum E { T = `a\nb` }', false],
+  ]) {
+    const result = compile(Buffer.from(source), { file: 'e.ts' });
+    if (native) assert.equal(result.backend, 'pulse', source);
+    else assert.notEqual(result.backend, 'pulse', source);
+    if (result.backend === 'pulse') assert.deepEqual(evaluate(result.code), evaluate(reference(source)), source + '\n' + result.code);
+  }
+  assert.equal(compile(Buffer.from('export enum E { T = `#t`, F = 0.5 }'), { file: 'e.ts' }).code,
+    'export var E; (function (E) {E["T"]="#t";E[E["F"]=0.5]="F";})(E||(E={}));');
 });
