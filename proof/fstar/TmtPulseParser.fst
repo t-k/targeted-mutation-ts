@@ -1800,17 +1800,21 @@ and type_suffixes (input:tape) (#frame:slprop) (state:parser_state) (fuel remain
       type_suffixes input #frame closed fuel (minus remaining 1ul) indexed
   else read_ret input #frame (state))
 and delimited_type (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t)
-  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 4; 1]) =
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 4; 65]) =
   let! annotated = (fun () -> annotation_type input #frame state fuel 64ul) in
   if annotated.status = 0ul then read_ret input #frame annotated
   else
     let! start = (fun () -> skip input #frame state) in
     let! infer_ = (fun () -> keyword input #frame start.offset 5ul 0x696e666572uL) in
     if infer_ then type_terms input #frame start fuel 64ul false true else read_ret input #frame annotated
+// `fuel` bounds how deep a type nests. `remaining` bounds what stands side by side: the links of a chain of
+// conditional types (`A extends B ? C : D extends E ? ...`, each link one of it) and, sixty-four times as
+// many, the members of a union or an intersection. Both are read in a loop, so neither uses the stack.
 and annotation_type (input:tape) (#frame:slprop) (state:parser_state) (fuel remaining:U32.t)
-  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 4; 0]) =
+  : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 4; U32.v remaining]) =
+  let members = if U32.lt remaining 65536ul then U32.mul remaining 64ul else 4194304ul in
   let! start, allow_signature = (fun () -> type_chain_start input #frame state) in
-  let! check = (fun () -> type_terms input #frame start fuel remaining allow_signature false) in
+  let! check = (fun () -> type_terms input #frame start fuel members allow_signature false) in
   let! boundary = (fun () -> trivia input #frame check.offset) in
   let tail = from_cursor check boundary in
   let! extends = (fun () -> if tail.status = 0ul && not boundary.newline then
@@ -1821,9 +1825,12 @@ and annotation_type (input:tape) (#frame:slprop) (state:parser_state) (fuel rema
   else
     let inner = minus fuel 1ul in
     let! start, allow_signature = (fun () -> type_chain_start input #frame { tail with offset = plus tail.offset 7ul }) in
-    let! constraint = (fun () -> type_terms input #frame start inner remaining allow_signature true) in
+    let! constraint = (fun () -> type_terms input #frame start inner members allow_signature true) in
     let! yes = (fun () -> (let! anf_value_1 = (fun () -> ((let! anf_value_2 = (fun () -> (skip input #frame constraint)) in consume input #frame anf_value_2 63uy))) in annotation_type input #frame anf_value_1 inner remaining)) in
-    (let! anf_value_3 = (fun () -> ((let! anf_value_4 = (fun () -> (skip input #frame yes)) in consume input #frame anf_value_4 58uy))) in annotation_type input #frame anf_value_3 inner remaining)
+    // The type behind the colon continues the chain at the same depth.
+    let! chained = (fun () -> ((let! anf_value_4 = (fun () -> (skip input #frame yes)) in consume input #frame anf_value_4 58uy))) in
+    if remaining = 0ul then read_ret input #frame (failed chained 1ul)
+    else annotation_type input #frame chained fuel (minus remaining 1ul)
 and result_type (input:tape) (#frame:slprop) (state:parser_state) (fuel:U32.t)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases %[U32.v fuel; 5; 0]) =
   let! st = (fun () -> skip input #frame state) in

@@ -2974,3 +2974,26 @@ test('a file with well over a thousand top-level names is compiled natively', ()
   const beyond = Array.from({ length: 2100 }, (_, i) => `export const v${i}: number = ${i};`).join('\n');
   assert.equal(compile(Buffer.from(beyond), { file: 'large.ts' }).backend, 'typescript');
 });
+
+test('a long chain of conditional types and a large union are read without nesting', () => {
+  const chain = links => Array.from({ length: links }, (_, i) => `T extends A${i} ? B${i} : `).join('') + 'never';
+  const union = members => Array.from({ length: members }, (_, i) => `"m${i}"`).join(' | ');
+  for (const [name, source] of [
+    ['a chain of 200 in an alias', `export type Events<T> = ${chain(200)};\nexport const a = 1;`],
+    ['a chain of 50 in an annotation', `export function f<T>(x: ${chain(50)}): void {}\nexport const a = 1;`],
+    ['a union of 3,000 in an alias', `export type Name = ${union(3000)};\nexport const a: Name = "m1";`],
+    ['a union of 1,000 in an annotation', `export const a: ${union(1000)} = "m1";`],
+    ['an intersection of 500', `export type All = ${Array.from({ length: 500 }, (_, i) => `{ k${i}: number }`).join(' & ')};\nexport const a = 1;`],
+    ['a chain whose links hold unions and nested types', `export type X<T> = ${Array.from({ length: 80 }, (_, i) => `T extends Array<Map<string, A${i} | B${i}>> ? { v: ${i} } | null : `).join('')}never;\nexport const a = 1;`],
+  ]) {
+    const result = sameAsTypeScript(source, 'chain.ts');
+    assert.equal(result.backend, 'pulse', name);
+  }
+  // What nests still has its limit, and a chain beyond the budget of an annotation is handed on.
+  for (const source of [`export type X = ${'Array<'.repeat(40)}number${'>'.repeat(40)};\nexport const a = 1;`,
+    `export function f<T>(x: ${chain(100)}): void {}\nexport const a = 1;`, `export type E<T> = ${chain(400)};\nexport const a = 1;`]) {
+    assert.equal(sameAsTypeScript(source, 'chain.ts').backend, 'typescript');
+  }
+  // A chain is no place for a line break in front of `extends`, and each link needs both branches.
+  assert.notEqual(compile(Buffer.from('export type X<T> = T extends A ? B;\nexport const a = 1;'), { file: 'chain.ts' }).backend, 'pulse');
+});

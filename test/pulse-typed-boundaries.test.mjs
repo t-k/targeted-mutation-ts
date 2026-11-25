@@ -41,6 +41,6 @@ test('unannotated receivers and public abstract modifiers remain contextual', ()
     'abstract class Runner { public abstract run(): boolean { return a > b; } }',
     'type Query = this.invalid; const done = a < b;',
     'declare type Name = ; const done = a < b;',
-    `type Union = ${union(257)}; const done = a < b;`,
+    `type Union = ${union(16385)}; const done = a < b;`,
   ]) compare(source, false);
 });

@@ -5071,12 +5071,13 @@ TmtPulseParser_annotation_type(
   uint32_t remaining
 )
 {
+  uint32_t members = remaining < 65536U ? remaining * 64U : 4194304U;
   FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_bool
   value = TmtPulseParser_type_chain_start(input, state);
   TmtPulseParser_parser_state start = value._1;
   bool allow_signature = value._2;
   TmtPulseParser_parser_state
-  value1 = TmtPulseParser_type_terms(input, start, fuel, remaining, allow_signature, false);
+  value1 = TmtPulseParser_type_terms(input, start, fuel, members, allow_signature, false);
   TmtPulseParser_cursor value2 = TmtPulseParser_trivia(input, value1.offset);
   TmtPulseParser_parser_state tail = TmtPulseParser_from_cursor(value1, value2);
   bool value3;
@@ -5120,14 +5121,21 @@ TmtPulseParser_annotation_type(
     TmtPulseParser_parser_state start1 = value4._1;
     bool allow_signature1 = value4._2;
     TmtPulseParser_parser_state
-    value5 = TmtPulseParser_type_terms(input, start1, inner, remaining, allow_signature1, true);
+    value5 = TmtPulseParser_type_terms(input, start1, inner, members, allow_signature1, true);
     TmtPulseParser_parser_state value6 = TmtPulseParser_skip(input, value5);
     TmtPulseParser_parser_state value7 = TmtPulseParser_consume(input, value6, 63U);
     TmtPulseParser_parser_state
     value8 = TmtPulseParser_annotation_type(input, value7, inner, remaining);
     TmtPulseParser_parser_state value9 = TmtPulseParser_skip(input, value8);
     TmtPulseParser_parser_state value10 = TmtPulseParser_consume(input, value9, 58U);
-    return TmtPulseParser_annotation_type(input, value10, inner, remaining);
+    if (remaining == 0U)
+      return TmtPulseParser_failed(value10, 1U);
+    else
+      return
+        TmtPulseParser_annotation_type(input,
+          value10,
+          fuel,
+          TmtPulseParser_minus(remaining, 1U));
   }
 }
 
