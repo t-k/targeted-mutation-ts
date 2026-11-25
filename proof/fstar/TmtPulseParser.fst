@@ -5263,6 +5263,22 @@ let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:
         let width = if var_ then 3ul else lexical in
         let! named = (fun () -> skip input { st with offset = plus after.at width }) in
         let! name_end = (fun () -> name input named.offset false true) in
+        // Kind 42: a variable without a value. TypeScript writes nothing for it, so the statement is erased;
+        // the emitter still asks that the name occurs nowhere else in the body.
+        let! after_name = (fun () -> if name_end.ok && lexical <> 5ul then skip input (from_cursor named name_end)
+          else ret input (failed named 1ul)) in
+        let! colon = (fun () -> if after_name.status = 0ul then same input after_name.offset 58uy else ret input false) in
+        let! annotated = (fun () -> if colon then
+            (let! opened = (fun () -> consume input after_name 58uy) in annotation_type input opened 16ul 64ul)
+          else ret input after_name) in
+        let! bare_end = (fun () -> if annotated.status = 0ul then skip input annotated else ret input annotated) in
+        let! bare = (fun () -> if bare_end.status = 0ul then same input bare_end.offset 59uy else ret input false) in
+        if bare then
+          let! closed = (fun () -> consume input bare_end 59uy) in
+          let! recorded = (fun () -> record_compiler_span input { closed with count = st.count } 42ul
+            { G.first = st.offset; G.last = closed.offset } { G.first = named.offset; G.last = name_end.at }) in
+          runtime_namespace_members input recorded floor used (minus remaining 1ul) true
+        else
         let! recorded = (fun () -> record_compiler_span input named 35ul { G.first = st.offset; G.last = named.offset }
           { G.first = named.offset; G.last = name_end.at }) in
         let declared = record_binding_mode recorded LexicalLocals in

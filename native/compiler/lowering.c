@@ -1433,6 +1433,8 @@ enum {
   /* The keyword of `import x = require("m")`, written as const, and of `import A = B.C`, written as var. */
   import_require = 40,
   import_alias = 41,
+  /* `export var x: T;` in a namespace: no value, so TypeScript writes nothing. The whole statement goes. */
+  namespace_bare_variable = 42,
 };
 
 typedef struct {
@@ -1833,7 +1835,9 @@ static bool assertion_exposes_statement(TmtPulseMemory_tape input, TmtGrammar_sp
 
 /* An enum at module level or inside a block. */
 /* A record whose text is replaced: an enum at module level or inside a block, or the head of an export assignment. */
-static bool namespace_record(uint32_t kind) { return kind >= namespace_head && kind <= namespace_enum; }
+static bool namespace_record(uint32_t kind) {
+  return (kind >= namespace_head && kind <= namespace_enum) || kind == namespace_bare_variable;
+}
 
 static bool enum_record(uint32_t kind) {
   return kind == runtime_enum || kind == local_enum || kind == export_assignment || namespace_record(kind) ||
@@ -2206,7 +2210,7 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
     /* The search for references reads bytes. A character outside ASCII may be a line separator or part of a name. */
     for (uint32_t at = span.last; at < body_last; at++) if (input.source[at] >= 128) return false;
     for (uint32_t member = index + 1; member < tail; member++) {
-      if (input.output[member].original != namespace_variable) continue;
+      if (input.output[member].original != namespace_variable && input.output[member].original != namespace_bare_variable) continue;
       const TmtGrammar_span variable = input.output[member].right;
       if (!plain_name(input, variable) || word_count(input, span.last, body_last, variable) != 1) return false;
     }
@@ -2229,7 +2233,7 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
     put(&lower->output, ".");
     return !lower->output.failed;
   }
-  if (event.original == namespace_declaration) return true;
+  if (event.original == namespace_declaration || event.original == namespace_bare_variable) return true;
   if (event.original == namespace_enum) {
     const uint32_t size = lower->input.size;
     lower->input.size = span.last;

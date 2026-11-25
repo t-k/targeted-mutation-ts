@@ -22855,43 +22855,113 @@ TmtPulseParser_runtime_namespace_members(
                 }
               ));
           TmtPulseParser_cursor value13 = TmtPulseParser_name(input, value12.offset, false, true);
-          TmtPulseParser_parser_state
-          value14 =
-            TmtPulseParser_record_compiler_span(input,
-              value12,
-              35U,
-              ((TmtGrammar_span){ .first = value.offset, .last = value12.offset }),
-              ((TmtGrammar_span){ .first = value12.offset, .last = value13.at }));
-          TmtPulseParser_parser_state
-          declared = TmtPulseParser_record_binding_mode(value14, TmtPulseParser_LexicalLocals);
-          TmtPulseParser_named_state value15;
-          if (value13.ok)
-            value15 =
-              TmtPulseParser_local_declarators(input,
-                declared,
-                value5 == 5U,
-                true,
-                floor,
-                used,
-                64U,
-                1U,
-                0U);
+          TmtPulseParser_parser_state value14;
+          if (value13.ok && value5 != 5U)
+            value14 = TmtPulseParser_skip(input, TmtPulseParser_from_cursor(value12, value13));
           else
-            value15 =
-              (
-                (TmtPulseParser_named_state){
-                  .state = TmtPulseParser_failed(value12, 1U),
-                  .used = used
-                }
-              );
-          TmtPulseParser_parser_state tmp0 = value15.state;
-          uint32_t tmp1 = value15.used;
-          uint32_t tmp2 = TmtPulseParser_minus(remaining, 1U);
-          bool tmp = true;
-          state = tmp0;
-          used = tmp1;
-          remaining = tmp2;
-          instantiated = tmp;
+            value14 = TmtPulseParser_failed(value12, 1U);
+          bool value15;
+          if (value14.status == 0U)
+            value15 = TmtPulseParser_same(input, value14.offset, 58U);
+          else
+            value15 = false;
+          TmtPulseParser_parser_state value160;
+          if (value15)
+          {
+            TmtPulseParser_parser_state value16 = TmtPulseParser_consume(input, value14, 58U);
+            value160 = TmtPulseParser_annotation_type(input, value16, 16U, 64U);
+          }
+          else
+            value160 = value14;
+          TmtPulseParser_parser_state value17;
+          if (value160.status == 0U)
+            value17 = TmtPulseParser_skip(input, value160);
+          else
+            value17 = value160;
+          bool value18;
+          if (value17.status == 0U)
+            value18 = TmtPulseParser_same(input, value17.offset, 59U);
+          else
+            value18 = false;
+          if (value18)
+          {
+            TmtPulseParser_parser_state value19 = TmtPulseParser_consume(input, value17, 59U);
+            TmtPulseParser_parser_state
+            value20 =
+              TmtPulseParser_record_compiler_span(input,
+                (
+                  (TmtPulseParser_parser_state){
+                    .offset = value19.offset,
+                    .count = value.count,
+                    .depth = value19.depth,
+                    .status = value19.status,
+                    .local_names = value19.local_names,
+                    .await_allowed = value19.await_allowed,
+                    .yield_allowed = value19.yield_allowed,
+                    .jsx_allowed = value19.jsx_allowed,
+                    .module_mode = value19.module_mode,
+                    .strict_script = value19.strict_script,
+                    .in_allowed = value19.in_allowed,
+                    .for_initializer = value19.for_initializer,
+                    .arrow_defaults_allowed = value19.arrow_defaults_allowed,
+                    .binding_mode = value19.binding_mode,
+                    .super_context = value19.super_context,
+                    .private_scope = value19.private_scope,
+                    .private_count = value19.private_count,
+                    .local_log_floor = value19.local_log_floor,
+                    .local_log_used = value19.local_log_used
+                  }
+                ),
+                42U,
+                ((TmtGrammar_span){ .first = value.offset, .last = value19.offset }),
+                ((TmtGrammar_span){ .first = value12.offset, .last = value13.at }));
+            TmtPulseParser_parser_state tmp0 = value20;
+            uint32_t tmp1 = TmtPulseParser_minus(remaining, 1U);
+            bool tmp = true;
+            state = tmp0;
+            remaining = tmp1;
+            instantiated = tmp;
+          }
+          else
+          {
+            TmtPulseParser_parser_state
+            value19 =
+              TmtPulseParser_record_compiler_span(input,
+                value12,
+                35U,
+                ((TmtGrammar_span){ .first = value.offset, .last = value12.offset }),
+                ((TmtGrammar_span){ .first = value12.offset, .last = value13.at }));
+            TmtPulseParser_parser_state
+            declared = TmtPulseParser_record_binding_mode(value19, TmtPulseParser_LexicalLocals);
+            TmtPulseParser_named_state value20;
+            if (value13.ok)
+              value20 =
+                TmtPulseParser_local_declarators(input,
+                  declared,
+                  value5 == 5U,
+                  true,
+                  floor,
+                  used,
+                  64U,
+                  1U,
+                  0U);
+            else
+              value20 =
+                (
+                  (TmtPulseParser_named_state){
+                    .state = TmtPulseParser_failed(value12, 1U),
+                    .used = used
+                  }
+                );
+            TmtPulseParser_parser_state tmp0 = value20.state;
+            uint32_t tmp1 = value20.used;
+            uint32_t tmp2 = TmtPulseParser_minus(remaining, 1U);
+            bool tmp = true;
+            state = tmp0;
+            used = tmp1;
+            remaining = tmp2;
+            instantiated = tmp;
+          }
         }
         else if (value7.ok || value8 || value9.ok)
         {

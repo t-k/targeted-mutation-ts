@@ -987,7 +987,6 @@ test('a namespace with exported variables, functions and classes is lowered as T
     'export namespace N { export const a = 1; export const b = a + 1; }',
     'export namespace N { export const a = () => N; }',
     'export namespace N { export const a = 1, b = 2; }',
-    'export namespace N { export let c; }',
     'export namespace N { export const { a } = o; }',
     'export namespace N { export namespace M { export const a = 1; } }',
     'export namespace A.B { export const a = 1; }',
@@ -1752,5 +1751,27 @@ test('a script that begins with the strict directive is published as written', (
   for (const source of ['"use strict"\nvar x: number = 1;', '"use strict" as string;\nvar x: number = 1;',
     '"use stricter";\nvar x: number = 1;', '"use asm";\nvar x: number = 1;', '"use strict";\nwith (a) {}']) {
     assert.notEqual(compile(Buffer.from(source), { file: 'script.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('an exported namespace variable without a value is erased, as TypeScript writes nothing for it', () => {
+  for (const source of [
+    'namespace N { export var x: number; }\nexport {};',
+    'export namespace N { export let c; }',
+    'namespace N { export var x: number; export const y = 1; }',
+    'namespace N { export var x: { a: number; b: string }; export var y = 1; }\nexport {};',
+  ]) {
+    const result = sameAsTypeScript(source, 'space.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.doesNotMatch(result.code, /\bx\b|\bc\b/, source);
+  }
+  // A use of the name elsewhere in the body would need the namespace object in front of it.
+  for (const source of [
+    'namespace N { export var x: number; x = 1; }\nexport {};',
+    'namespace N { export var x: number; export function f() { return x; } }\nexport {};',
+    'namespace N { export const c: number; }\nexport {};',
+    'namespace N { export var x: number, y: string; }\nexport {};',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'space.ts' }).backend, 'pulse', source);
   }
 });
