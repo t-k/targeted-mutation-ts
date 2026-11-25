@@ -4,7 +4,7 @@
 [![CI](https://github.com/t-k/targeted-mutation-ts/actions/workflows/ci.yml/badge.svg)](https://github.com/t-k/targeted-mutation-ts/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
-`targeted-mutation` finds the tests your suite is missing. It watches the values your tests actually pass through comparisons, tries the smallest wrong implementation those values cannot tell apart from yours, and prints the test that would catch it.
+**Targeted mutation testing for JavaScript and TypeScript**: `targeted-mutation` finds the tests your suite is missing. It watches the values your tests actually pass through comparisons, tries the smallest wrong implementation those values cannot tell apart from yours, and prints the test that would catch it.
 
 ```ts
 export const isAdult = (age: number) => age >= 18;
