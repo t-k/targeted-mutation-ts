@@ -759,6 +759,10 @@ class C {}
 
 The binding table has a kind of its own for a run-time namespace, which does not conflict with such an earlier declaration, and the parser marks the head of the merging namespace (kind 44). The emitter writes a semicolon in front of the function, so that it is never read as the arguments of the statement before it. Two declarations of one namespace share their exported members, and TypeScript writes a reference from one body to a member of the other as a property; that is not done here, so a body that names a member exported by another declaration of the namespace is left to TypeScript. A PICT table of 14 rows (first declaration, export, member kind, what stands between, a third declaration) is compared with TypeScript by syntax and by running both.
 
+An import alias in a namespace body, `import B = A.x;`, is a variable of the body: the emitter writes `var` for the keyword. An exported one, `export import B = A.x;`, is a member, written `M.B = A.x;`, and references to it get the namespace like those to any exported variable. An alias alone does not make the namespace exist: a namespace that holds only aliases, types and namespaces of that kind is erased, as TypeScript writes nothing for it.
+
+A namespace and parameter properties used to exclude each other: each lowering had a pass of its own. The pass that inserts the property statements now writes the namespace records between its insertions as well, so a class with parameter properties may stand in a namespace or beside one.
+
 Looking at namespace bodies showed a wider gap. The emitter finds the end of each module item by reading the item again. That reading used the mode in which a function that declares both a `var` and a `let`, `const` or `class` stops the parser, so that the whole parse can run its second pass and compare the declarations. The emitter took the stop for the end of what it can write. A module that held such a function was therefore left to TypeScript whenever something in it was written item by item: an enum, a namespace, a type annotation, JSX.
 
 ```ts
