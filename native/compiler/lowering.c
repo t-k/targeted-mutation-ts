@@ -28,6 +28,14 @@ typedef struct {
   bool classic, mixed;
   /* The namespace whose exported enum is being written, or an empty span. */
   TmtGrammar_span owner;
+  /*
+   * The source as written and its full size, where the context has them: the input may be a projection with
+   * the declared statements blanked, and its size may be cut to the statement being written.
+   */
+  const uint8_t *whole;
+  uint32_t whole_size;
+  /* Set while a namespace body is written: a name there may be a member of the namespace. */
+  bool in_namespace;
   unsigned helpers;
   /* The helper module that TypeScript's transform would request first: none, the JSX runtime or createElement. */
   unsigned first_source;
@@ -523,43 +531,104 @@ static bool emit_enum(lowering *lower, TmtGrammar_span binding, bool exported, b
   return emitted;
 }
 
-/*
- * Whether the file itself declares a name as an enum, a namespace or an import alias. A member of such a name
- * may be a constant that TypeScript writes as its value.
- */
-static bool declares_constants(TmtPulseMemory_tape input, uint32_t first, uint32_t last) {
-  const uint32_t width = last - first;
-  for (uint32_t at = 0; at + width <= input.size; at++) {
-    if (memcmp(input.source + at, input.source + first, width)) continue;
-    if (at > 0 && (input.source[at - 1] >= 128 || TmtGrammar_identifier_continue(input.source[at - 1]))) continue;
-    if (at + width < input.size && (input.source[at + width] >= 128 || TmtGrammar_identifier_continue(input.source[at + width]))) continue;
-    uint32_t back = at;
-    while (back > 0 && (input.source[back - 1] == ' ' || input.source[back - 1] == '\t' || input.source[back - 1] == '\n' || input.source[back - 1] == '\r')) back--;
-    uint32_t word = back;
-    while (word > 0 && TmtGrammar_identifier_continue(input.source[word - 1])) word--;
-    const uint32_t length = back - word;
-    if ((length == 4 && !memcmp(input.source + word, "enum", 4)) || (length == 9 && !memcmp(input.source + word, "namespace", 9)) ||
-        (length == 6 && (!memcmp(input.source + word, "module", 6) || !memcmp(input.source + word, "import", 6)))) return true;
-    /* A comment between the keyword and the name is not followed. */
-    if (back >= 2 && input.source[back - 1] == '/' && input.source[back - 2] == '*') return true;
+/* The place behind white space and comments. */
+static uint32_t past_trivia(TmtPulseMemory_tape input, uint32_t at, uint32_t last) {
+  for (;;) {
+    while (at < last && (input.source[at] == ' ' || input.source[at] == '\t' || input.source[at] == '\n' || input.source[at] == '\r')) at++;
+    if (at + 1 < last && input.source[at] == '/' && input.source[at + 1] == '/') {
+      while (at < last && input.source[at] != '\n' && input.source[at] != '\r') at++;
+    } else if (at + 1 < last && input.source[at] == '/' && input.source[at + 1] == '*') {
+      at += 2;
+      while (at + 1 < last && !(input.source[at] == '*' && input.source[at + 1] == '/')) at++;
+      at = at + 1 < last ? at + 2 : last;
+    } else return at;
   }
-  return false;
+}
+
+/*
+ * How often the source as written declares a name with one of the keywords: enum alone, or also namespace,
+ * module and an import alias. A member of such a name may be a constant that TypeScript writes as its value.
+ * The keyword is found wherever it stands, also in a comment or a string, which only declines more.
+ */
+static uint32_t keyword_declarations(const lowering *lower, const uint8_t *name, uint32_t width, bool enum_only) {
+  const TmtPulseMemory_tape whole = { .source = (uint8_t *)lower->whole, .size = lower->whole_size };
+  uint32_t count = 0;
+  for (uint32_t at = 0; at < whole.size; at++) {
+    if (whole.source[at] >= 128 || !TmtGrammar_identifier_start(whole.source[at])) continue;
+    uint32_t end = at;
+    while (end < whole.size && whole.source[end] < 128 && TmtGrammar_identifier_continue(whole.source[end])) end++;
+    const uint32_t length = end - at;
+    const bool before = at > 0 && whole.source[at - 1] >= 128;
+    const bool after = end < whole.size && whole.source[end] >= 128;
+    const bool enumeration = length == 4 && !memcmp(whole.source + at, "enum", 4);
+    const bool alias = length == 6 && !memcmp(whole.source + at, "import", 6);
+    const bool space = (length == 9 && !memcmp(whole.source + at, "namespace", 9)) || (length == 6 && !memcmp(whole.source + at, "module", 6));
+    if (!before && !after && (enumeration || (!enum_only && (alias || space)))) {
+      uint32_t named = past_trivia(whole, end, whole.size);
+      if (alias && whole.size - named > 4 && !memcmp(whole.source + named, "type", 4) &&
+          (whole.source[named + 4] == ' ' || whole.source[named + 4] == '\t' || whole.source[named + 4] == '\n' || whole.source[named + 4] == '\r' || whole.source[named + 4] == '/')) {
+        const uint32_t typed = past_trivia(whole, named + 4, whole.size);
+        if (typed < whole.size && whole.source[typed] != '=') named = typed;
+      }
+      if (whole.size - named >= width && !memcmp(whole.source + named, name, width) &&
+          (named + width == whole.size || (whole.source[named + width] < 128 && !TmtGrammar_identifier_continue(whole.source[named + width])))) {
+        if (!alias) count++;
+        else {
+          const uint32_t equals = past_trivia(whole, named + width, whole.size);
+          if (equals < whole.size && whole.source[equals] == '=') count++;
+        }
+      }
+    }
+    at = end - 1;
+  }
+  return count;
+}
+
+/* The closing brace of an enum body, or the size of the input. Strings and comments are passed over. */
+static uint32_t enum_body_end(TmtPulseMemory_tape input, uint32_t at) {
+  while (at < input.size && input.source[at] != '}') {
+    const uint8_t byte = input.source[at];
+    if (byte == '"' || byte == '\'' || byte == '`') {
+      at++;
+      while (at < input.size && input.source[at] != byte) at += input.source[at] == '\\' ? 2 : 1;
+      at++;
+    } else if (byte == '/' && at + 1 < input.size && (input.source[at + 1] == '/' || input.source[at + 1] == '*')) {
+      const uint32_t behind = past_trivia(input, at, input.size);
+      at = behind > at ? behind : at + 1;
+    } else at++;
+  }
+  return at < input.size ? at : input.size;
 }
 
 /*
  * An initializer that is a member of something the file does not declare, `Other.Member`: TypeScript cannot
  * know its value in one file and writes the expression, with the reverse mapping of a number. The reference
  * ends the initializer.
+ *
+ * The root is no member of the enum (TypeScript writes that as a property of the enum), the enum is declared
+ * once, and the file declares the root neither as an enum, a namespace nor an import alias. In a namespace
+ * body the root may be a member of the namespace, so nothing is taken there.
  */
-static bool enum_foreign_member(lowering *lower, TmtGrammar_span binding) {
+static bool enum_foreign_member(lowering *lower, TmtGrammar_span binding, uint32_t body) {
   const TmtPulseMemory_tape input = lower->input;
   const uint32_t first = lower->at;
+  if (!lower->whole || lower->in_namespace || lower->owner.first != lower->owner.last) return false;
   const TmtPulseParser_cursor root = TmtPulseParser_name(input, first, false, false);
   if (!root.ok || root.at <= first || root.at >= input.size || input.source[root.at] != '.') return false;
   for (uint32_t at = first; at < root.at; at++) if (input.source[at] >= 128) return false;
+  const uint32_t width = root.at - first;
   /* The enum's own name would name its members, which are constants. */
-  if (root.at - first == binding.last - binding.first && !memcmp(input.source + first, input.source + binding.first, root.at - first)) return false;
-  if (declares_constants(input, first, root.at)) return false;
+  if (width == binding.last - binding.first && !memcmp(input.source + first, input.source + binding.first, width)) return false;
+  if (keyword_declarations(lower, input.source + first, width, false) != 0) return false;
+  if (keyword_declarations(lower, input.source + binding.first, binding.last - binding.first, true) != 1) return false;
+  /* Every other occurrence of the word in the body may be a member's name; a reference is followed by a dot. */
+  const uint32_t closing = enum_body_end(input, body);
+  for (uint32_t at = body; at + width <= closing; at++) {
+    if (memcmp(input.source + at, input.source + first, width)) continue;
+    if (at > 0 && (input.source[at - 1] >= 128 || TmtGrammar_identifier_continue(input.source[at - 1]))) continue;
+    if (at + width < closing && (input.source[at + width] >= 128 || TmtGrammar_identifier_continue(input.source[at + width]))) continue;
+    if (at + width >= closing || input.source[at + width] != '.') return false;
+  }
   uint32_t at = root.at;
   while (at < input.size && input.source[at] == '.') {
     at++;
@@ -624,6 +693,7 @@ static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exp
   put(out, ") {");
   int64_t next = 0;
   bool numeric = true;
+  const uint32_t body = lower->at;
   /* Set behind a member whose value is not known here: the next member needs a value of its own. */
   bool unknown = false;
   for (uint32_t index = 0; ; index++) {
@@ -661,7 +731,7 @@ static bool emit_enum_members(lowering *lower, TmtGrammar_span binding, bool exp
         if (enum_fraction(lower)) foreign = true;
         else if (!enum_numeric(lower, scope, &next, &folded)) {
           lower->at = value_start;
-          if (!enum_foreign_member(lower, binding)) return false;
+          if (!enum_foreign_member(lower, binding, body)) return false;
           foreign = true;
         }
       } else if (peek(lower) == '`') {
@@ -1424,7 +1494,7 @@ static char *lower_one(uint8_t *source, uint32_t size, bool jsx, bool typescript
   const TmtPulseCompiler_runtime_head head = TmtPulseCompiler_read_runtime_head(input, 0, jsx, typescript, false);
   if (!head.kind) return NULL;
   lowering lower = { .input = input, .at = head.body, .classic = classic, .output.limit = (size_t)size * 32 + 1024,
-    .output.runs = runs };
+    .output.runs = runs, .whole = source, .whole_size = size };
   source_bytes(&lower, 0, head.declaration);
   const bool emitted = head.kind == 1 ? emit_enum(&lower, head.name_span, true, false) : emit_jsx(&lower, head);
   const uint32_t suffix = lower.at;
@@ -2226,7 +2296,12 @@ static bool copy_lowering_enums(lowering *lower, namespace_scope *scope, uint32_
     } else if (event.original == import_alias && inside_namespace(scope)) {
       /* An alias in a namespace body is an ordinary variable. */
       put(&lower->output, "var");
-    } else if (!emit_recorded_enum(lower, span, event.original)) return false;
+    } else {
+      lower->in_namespace = scope && inside_namespace(scope);
+      const bool emitted = emit_recorded_enum(lower, span, event.original);
+      lower->in_namespace = false;
+      if (!emitted) return false;
+    }
     first = span.last;
     (*enum_index)++;
   }
@@ -2261,7 +2336,8 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
   qsort(edits, used, sizeof(*edits), compare_insertions);
   // Resolve statement boundaries in the original source. Copy only projected bytes.
   input.source = (uint8_t *)projected;
-  lowering lower = { .input = input, .output.limit = enums ? (size_t)input.size * 32 + 1024 : 1048576, .output.runs = runs };
+  lowering lower = { .input = input, .output.limit = enums ? (size_t)input.size * 32 + 1024 : 1048576, .output.runs = runs,
+    .whole = original, .whole_size = input.size };
   if (reserve > lower.output.limit) {
     free(edits);
     return NULL;
@@ -2875,7 +2951,8 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
 static char *lower_recorded_enums(TmtPulseMemory_tape input, uint8_t *original, bool module, uint32_t records, bool commonjs,
   size_t *length, tmt_run_log *runs)
 {
-  lowering lower = { .input = input, .output.limit = (size_t)input.size * 32 + 1024, .output.runs = runs };
+  lowering lower = { .input = input, .output.limit = (size_t)input.size * 32 + 1024, .output.runs = runs,
+    .whole = original, .whole_size = input.size };
   uint32_t copied = 0;
   namespace_scope scope = { .depth = 0, .original = original, .module = module };
   for (uint32_t index = 0; index < records; index++) {
@@ -3355,7 +3432,7 @@ static char *lower_mixed(uint8_t *source, uint32_t size, bool jsx, bool classic,
   if (jsx && directives_depend_on_erasure(input, first.at)) return NULL;
   if (runs) runs->count = 0;
   lowering lower = { .input = input, .classic = classic, .mixed = true, .output.limit = (size_t)size * 32 + 1024,
-    .output.runs = runs };
+    .output.runs = runs, .whole = source, .whole_size = size };
   uint32_t keep = 0;
   size_t runtime_at = SIZE_MAX;
   for (uint32_t cursor = first.at; cursor < size;) {

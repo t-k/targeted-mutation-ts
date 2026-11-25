@@ -164,6 +164,10 @@ function asciiSpelling(source, text) {
     let end = at, mixed = false;
     while (end < source.length && wordByte(source[end])) { if (source[end] >= 128) mixed = true; end++; }
     const word = source.latin1Slice(at, end);
+    // A word behind a backslash is part of an escape, and one that begins with a digit is part of a number:
+    // spelled in letters either could become well formed where the source is not ("\xA" before a letter
+    // outside ASCII is no escape, before a capital A to F it is).
+    if (mixed && ((source[at] >= 48 && source[at] <= 57) || (at > 0 && source[at - 1] === 92))) return null;
     if (!mixed) plain.add(word);
     else {
       let spelling = spellings.get(word);
@@ -182,17 +186,18 @@ function asciiSpelling(source, text) {
     at = end;
   }
   for (const spelling of taken) if (plain.has(spelling)) return null;
-  return { renamed, spellings, wellFormed };
+  return { renamed, spellings, wellFormed, plain };
 }
 
 // Puts the names back in a text that was produced from the copy. The text holds no byte outside ASCII.
-function restoreNames(code, spellings) {
+// With `derived`, the second name that the decorator lowering gives a class that names itself is put back as
+// well; the caller has made sure that the source holds no word of that spelling.
+function restoreNames(code, spellings, derived = false) {
   const originals = new Map();
   for (const [word, spelling] of spellings) {
     const original = Buffer.from(word, 'latin1').toString();
     originals.set(spelling, original);
-    // The second name the decorator lowering gives a class that names itself.
-    originals.set(spelling + '_1', original + '_1');
+    if (derived) originals.set(spelling + '_1', original + '_1');
   }
   return code.replace(/[A-Za-z0-9_$]+/g, word => originals.get(word) ?? word);
 }
@@ -520,7 +525,10 @@ function compile(input, options = {}) {
         } else if (addon) {
           // Names outside ASCII: the decorators are lowered on the copy spelled in ASCII, the copy is compiled,
           // and the names are put back in the result.
-          const copy = asciiSpelling(bytes, text);
+          let copy = asciiSpelling(bytes, text);
+          // The lowering derives a second name from a class's name. A word of that spelling in the source
+          // could not be told from it when the names are put back.
+          if (copy !== null) for (const spelling of copy.spellings.values()) if (copy.plain.has(spelling + '_1')) { copy = null; break; }
           const lowered = copy !== null && copy.wellFormed ? lower(copy.renamed) : null;
           if (lowered !== null && lowered === copy.renamed) {
             return compile(bytes, { ...options, experimentalDecorators: false, emitDecoratorMetadata: false });
@@ -528,7 +536,7 @@ function compile(input, options = {}) {
           if (lowered !== null) {
             const result = compile(lowered, { ...options, experimentalDecorators: false, emitDecoratorMetadata: false });
             if (result.code !== null && result.backend === 'pulse' && !/[^\x00-\x7f]/.test(result.code)) {
-              return { ...result, code: restoreNames(result.code, copy.spellings) };
+              return { ...result, code: restoreNames(result.code, copy.spellings, true) };
             }
           }
         }

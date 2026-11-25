@@ -280,3 +280,27 @@ test('decorators are lowered in a file with names outside ASCII', () => {
   const plain = 'export const ɵa: number = 1; // mail @home';
   assert.deepEqual(compile(Buffer.from(plain), options), compile(Buffer.from(plain), { file: 'legacy.ts' }));
 });
+
+test('the copy spelled in ASCII is not taken where it could differ from the source', () => {
+  // An escape or a number that the spelling would complete.
+  for (const source of [
+    'function logged(ctor: Function) {}\n@logged\nclass Label { text = "\\xAБилет"; }\nexport { Label };',
+    'function logged(ctor: Function) {}\n@logged\nclass Label { size = 0xБ; }\nexport { Label };',
+  ]) {
+    const result = compile(Buffer.from(source), options);
+    assert.notEqual(result.backend, 'pulse', source);
+    assert.equal(result.diagnostics.length, 1, source);
+  }
+  assert.notEqual(compile(Buffer.from('export const text: string = "\\xAБилет";'), { file: 'legacy.ts' }).backend, 'pulse');
+  // A word of the source that is spelled like the second name of a class.
+  for (const source of [
+    'function logged(ctor: Function) {}\n@logged\nclass é {}\nconst status = "NN_1";\nexport { status };',
+    'function d(x: any) {}\n@d class 名 {}\nconst data = { VOL_1: 42 };\nconsole.log(data.VOL_1, "VOL_1");\nexport {};',
+  ]) {
+    const result = compile(Buffer.from(source), options);
+    assert.match(result.code, /"(NN|VOL)_1"/, source);
+    assert.doesNotMatch(result.code, /"[é名]_1"/, source);
+  }
+  // Without the derived name, a word like it is left alone.
+  assert.match(compile(Buffer.from('export const é: number = 1;\nexport const s: string = "NN_1";'), { file: 'legacy.ts' }).code, /"NN_1"/);
+});

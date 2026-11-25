@@ -2583,9 +2583,10 @@ let constructor_property (input:tape) (#frame:slprop) (state:parser_state)
   if first <> 112uy && first <> 114uy && first <> 111uy then read_ret input #frame (state, state.offset)
   else
     // An accessibility modifier, override and readonly may each appear once. static and declare cannot.
+    // override alone makes a property as well.
     let! prefixes = (fun () -> class_modifiers input #frame state 0ul 3ul) in
     let property = prefixes.key_state in
-    if property.status <> 0ul || prefixes.flags = 0ul || prefixes.flags = 8ul || U32.logand prefixes.flags 17ul <> 0ul then read_ret input #frame (state, state.offset)
+    if property.status <> 0ul || prefixes.flags = 0ul || U32.logand prefixes.flags 17ul <> 0ul then read_ret input #frame (state, state.offset)
     else
       let! binding = (fun () -> name input #frame property.offset false true) in
       let! tail = (fun () -> trivia input #frame binding.at) in
@@ -5990,6 +5991,21 @@ let module_export (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt e
       else read_ret input #frame (if byte = 123uy then { after_export = start; export_kind = 3ul; direct = false; type_only }
       else { after_export = state; export_kind = 0ul; direct = true; type_only = false }))
 
+// export import Name = A.B; The place of `import` when the statement is such an alias, else the start.
+// An alias of a require call is written differently and is not taken.
+let exported_import_alias (input:tape) (#frame:slprop) (st:parser_state) : Tot (stt U32.t (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  let! word = (fun () -> skip input #frame { st with offset = plus st.offset 6ul }) in
+  let! imported = (fun () -> if word.status = 0ul then keyword input #frame word.offset 6ul 0x696d706f7274uL else read_ret input #frame false) in
+  if not imported then read_ret input #frame st.offset
+  else
+    let! named = (fun () -> skip input #frame { word with offset = plus word.offset 6ul }) in
+    let! alias_end = (fun () -> name input #frame named.offset false true) in
+    let! after = (fun () -> if alias_end.ok then skip input #frame (from_cursor named alias_end) else read_ret input #frame (failed named 1ul)) in
+    let! equals = (fun () -> if after.status = 0ul then same input #frame after.offset 61uy else read_ret input #frame false) in
+    let! value = (fun () -> if equals then skip input #frame { after with offset = next after.offset } else read_ret input #frame after) in
+    let! required = (fun () -> if equals then keyword input #frame value.offset 7ul 0x72657175697265uL else read_ret input #frame false) in
+    read_ret input #frame (if equals && not required && value.status = 0ul then word.offset else st.offset)
+
 let rec default_function_body (input:tape) (state:parser_state) (spelling:G.span) (async_:bool) (remaining:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
   if state.status <> 0ul || remaining = 0ul then ret input (failed state 1ul)
@@ -6209,7 +6225,11 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
               let! tail = (fun () -> skip input end_) in
               ret input (if tail.offset = input.size then tail else failed tail 1ul)) in
           ret input ({ state = closed; used }, exports, pending)
-        else (let! anf_value_5 = (fun () -> keyword input st.offset 6ul 0x696d706f7274uL) in if anf_value_5 then
+        else (let! exported_alias = (fun () -> if exported.direct && input.capture_types && st.module_mode then exported_import_alias input st
+            else ret input st.offset) in
+          if exported_alias <> st.offset then
+            (let! aliased = (fun () -> import_declaration input { st with offset = exported_alias } used) in ret input (aliased, exports, pending))
+          else let! anf_value_5 = (fun () -> keyword input st.offset 6ul 0x696d706f7274uL) in if anf_value_5 then
           (let! anf_value_6 = (fun () -> import_expression_start input st) in if anf_value_6 then
             (let! anf_value_7 = (fun () -> (let! anf_value_8 = (fun () -> (let! anf_value_9 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_9.state))) in ret input ({ state = anf_value_8; used }))) in ret input (anf_value_7, exports, pending))
           else if st.module_mode then

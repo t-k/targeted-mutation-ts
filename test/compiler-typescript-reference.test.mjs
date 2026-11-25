@@ -1467,7 +1467,7 @@ test('import-equals declarations become const or var', () => {
   }
   // An alias alone does not make the file a module, a type-only form is erased by TypeScript, and a name that
   // is declared twice is an error.
-  for (const source of ['import x = require;\nx;', 'import type x = require("x");\nexport {};', 'export import A = B.C;',
+  for (const source of ['import x = require;\nx;', 'import type x = require("x");\nexport {};', 'export import A = require("a");',
     'import x = require(y);\nx;', 'import x = require("x");\nconst x = 1;']) {
     assert.notEqual(compile(Buffer.from(source), { file: 'alias.ts' }).backend, 'pulse', source);
   }
@@ -2485,7 +2485,6 @@ test('an enum member may take its value from a member of something the file does
   for (const source of [
     'import { L } from "l";\nexport const enum W { A = L.Starting, B = L.Ready, C = 5, D }',
     'export enum W { A = 1, B = W.A, C = Other.q }',
-    'import * as t from "t";\nnamespace N { export enum K { x = t.SyntaxKind.A, y = 2 } }\nexport { N };',
     'function f() { enum Local { a = Outside.kind.a } return Local.a; }\nexport { f };',
   ]) {
     assert.equal(sameAsTypeScript(source, 'foreign.ts').backend, 'pulse', source);
@@ -2501,6 +2500,8 @@ test('an enum member may take its value from a member of something the file does
     'namespace N { export enum O { a = 1 } }\nexport enum W { A = N.O.a }',
     'import O = Q.R;\nexport enum W { A = O.a }',
     'import * as t from "t";\nexport enum K { y = t.B | 1 }',
+    // In a namespace the root may be a member of the namespace.
+    'import * as t from "t";\nnamespace N { export enum K { x = t.SyntaxKind.A, y = 2 } }\nexport { N };',
     'export enum W { A = this.a }',
     'export enum W { A = someConst }',
   ]) {
@@ -2545,5 +2546,25 @@ test('the operand of new may be parenthesized or asserted without an argument li
     const result = sameAsTypeScript(source, 'operand.ts');
     assert.equal(result.backend, 'pulse', source);
     assert.equal(run(result.code), run(reference(source, 'operand.ts')), source);
+  }
+});
+
+test('an exported import alias is an exported variable, and override alone makes a parameter property', () => {
+  for (const source of [
+    'import * as Base from "./base";\nexport import Severity = Base.Severity;\nexport const worst = Severity.Error;',
+    'import { testUtils } from "./utils";\nexport import flakySuite = testUtils.flakySuite;',
+    'class B { t = 0; }\nclass C extends B { constructor(override t: number, protected override readonly u = 1) { super(); } }\nexport { C };',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'alias.ts').backend, 'pulse', source);
+  }
+  assert.equal(compile(Buffer.from('import { a } from "a";\nexport import b = a.b;'), { file: 'alias.ts' }).code, 'import { a } from "a";\nexport var b = a.b;');
+  for (const source of [
+    // An alias of a require call is written as a constant and an export list.
+    'export import fs = require("fs");',
+    // The name is exported once.
+    'import { a } from "a";\nexport import b = a.b;\nexport const b = 1;',
+    'import { a } from "a";\nexport import b = a.b;\nexport { b };',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'alias.ts' }).backend, 'pulse', source);
   }
 });

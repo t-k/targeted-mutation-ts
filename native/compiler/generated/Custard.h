@@ -2566,11 +2566,8 @@ TmtPulseParser_named_reexport(
   bool type_statement
 );
 
-bool
-TmtPulseParser_import_expression_start(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state
-);
+uint32_t
+TmtPulseParser_exported_import_alias(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
 
 TmtPulseParser_parser_state
 TmtPulseParser_alias_path(
@@ -2610,6 +2607,12 @@ TmtPulseParser_import_declaration(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   uint32_t used
+);
+
+bool
+TmtPulseParser_import_expression_start(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
 );
 
 TmtPulseParser_parser_state

@@ -188,3 +188,35 @@ test('a fraction written as JavaScript prints it and a template without a hole a
   assert.equal(compile(Buffer.from('export enum E { T = `#t`, F = 0.5 }'), { file: 'e.ts' }).code,
     'export var E; (function (E) {E["T"]="#t";E[E["F"]=0.5]="F";})(E||(E={}));');
 });
+
+test('a member of something the file declares, or of the enum itself, is not written as a foreign expression', () => {
+  for (const source of [
+    // A declared enum is erased, and its members are constants.
+    'declare enum Phase { Starting = 7 }\nexport enum Status { Ready = Phase.Starting }',
+    'declare namespace Q { const a = 1; }\nexport enum W { A = Q.a }',
+    // A member of the enum is written as a property of the enum, wherever it is declared.
+    'export enum Label { Text = "hello", Length = Text.length }',
+    'export enum Label { Length = Text.length, Text = "hello" }',
+    'export enum Label { "Text" = "hello", Length = Text.length }',
+    'enum E { A = "x" }\nenum E { B = A.length }\nexport { E };',
+    'enum E { B = A.length }\nenum E { A = "x" }\nexport { E };',
+    // An enum declared behind the one that names it, and one with a comment between keyword and name.
+    'function makeStatus() {\n  enum Status { Ready = Phase.Starting }\n  return Status;\n}\nenum Phase { Starting = "starting" }\nexport { makeStatus };',
+    'enum // API\nPhase { Starting = "starting" }\nexport enum Status { Ready = Phase.Starting }',
+    'enum /* API */ Phase { Starting = "starting" }\nexport enum Status { Ready = Phase.Starting }',
+    // In a namespace the root may be a member of the namespace.
+    'namespace N { export const Text = { length: 3 }; export enum Label { Length = Text.length } }\nexport { N };',
+    'namespace N { export const Text = { length: 3 }; enum Label { Length = Text.length } export const q = Label.Length; }\nexport { N };',
+    'import L = require("l");\nexport enum W { A = L.a }',
+  ]) {
+    const result = compile(Buffer.from(source), { file: 'e.ts' });
+    assert.notEqual(result.backend, 'pulse', source);
+  }
+  for (const source of [
+    'import L from "l";\nexport enum W { A = L.a, B = L.b.c }',
+    'const k = { a: 1 } as const;\nexport enum W { A = k.a, "k" = 2 }'.replace(', "k" = 2', ''),
+    'export enum W { A = globalThis.x, B = Number.MAX_VALUE }',
+  ]) {
+    assert.equal(compile(Buffer.from(source), { file: 'e.ts' }).backend, 'pulse', source);
+  }
+});
