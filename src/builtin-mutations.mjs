@@ -376,23 +376,25 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       }
     } else if (isLogical(node) && !staysInPlace(node.right)) {
       const operand = grouped;
+      const more = { thunk: true, ...(written(node.right) ? { pureRight: true } : {}) };
+      edit(targetedRules.ignored, 'left', `(${left}, ${right})`, more);
+      edit(targetedRules.ignored, 'right', `(${left} ${operator} (${right}, ${ignoredValue[operator]}))`, more);
+      // Only `??` and non-boolean `||` can emit `nullish-fallback/v1`; avoid triggering lazy type-checking for `&&`.
+      const canEmitFallback = operator === '??' || (operator === '||' && !boolean);
+      if (!canEmitFallback) return;
+      // Where only the truth is used, a written falsy fallback makes `??` and `||` the same for every value.
+      if (boolean && writtenFalsy(node.right)) return;
       const rightNode = strip(node.right);
       const rawRightFalsy = falsyLiteralLabel(node.right);
       const rightFalsy = rawRightFalsy === 'NaN' && typeEquivalence?.hasLocalNaNBinding?.(begin(rightNode), rightNode.end)
         ? undefined
         : rawRightFalsy;
-      const more = { thunk: true, ...(written(node.right) ? { pureRight: true } : {}) };
-      edit(targetedRules.ignored, 'left', `(${left}, ${right})`, more);
-      edit(targetedRules.ignored, 'right', `(${left} ${operator} (${right}, ${ignoredValue[operator]}))`, more);
-      // Where only the truth is used, a written falsy fallback makes `??` and `||` the same for every value.
-      if (boolean && writtenFalsy(node.right)) return;
       const leftNode = strip(node.left);
       if (typeEquivalence?.isNullishFallbackEquivalent(begin(leftNode), leftNode.end, rightFalsy)) return;
       const possibleFalsy = typeEquivalence?.possibleNullishFallbackFalsy?.(begin(leftNode), leftNode.end) ?? null;
       const fallbackMore = { ...more, ...(rightFalsy ? { rightFalsy } : {}), ...(possibleFalsy?.length ? { possibleFalsy } : {}), evidence: true };
       if (operator === '??') edit(targetedRules.fallback, 'or', `(${operand(node.left)} || ${operand(node.right)})`, fallbackMore);
-      // Where only the truth of the value is used, nobody writes `??` for `||`.
-      else if (operator === '||' && !boolean) edit(targetedRules.fallback, 'nullish', `(${operand(node.left)} ?? ${operand(node.right)})`, fallbackMore);
+      else edit(targetedRules.fallback, 'nullish', `(${operand(node.left)} ?? ${operand(node.right)})`, fallbackMore);
     }
   }
 

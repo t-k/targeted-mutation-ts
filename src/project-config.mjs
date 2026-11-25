@@ -180,9 +180,13 @@ export function mergeProjectConfig(configObj, cliValues, cliFiles) {
   if (values.related === undefined && !values.test?.length && configObj.related === true) values.related = true;
   if (!values.test?.length && !values.related && Array.isArray(configObj.tests)) values.test = configObj.tests.map(String);
   if (!values['copy-exclude']?.length && Array.isArray(configObj.copyExclude)) values['copy-exclude'] = configObj.copyExclude.map(String);
-  if (values['copy-exclude-gitignore'] === undefined && configObj.copyExcludeGitignore === true) values['copy-exclude-gitignore'] = true;
+  if (values['copy-exclude-gitignore'] === undefined && values['no-copy-exclude-gitignore'] !== true && typeof configObj.copyExcludeGitignore === 'boolean') {
+    values['copy-exclude-gitignore'] = configObj.copyExcludeGitignore;
+  }
   if (!values['exclude-rule']?.length && Array.isArray(configObj.excludeRules)) values['exclude-rule'] = configObj.excludeRules.map(String);
-  if (values['type-check'] === undefined && configObj.typeCheck === true) values['type-check'] = true;
+  if (values['type-check'] === undefined && values['no-type-check'] !== true && typeof configObj.typeCheck === 'boolean') {
+    values['type-check'] = configObj.typeCheck;
+  }
   if (values['fail-on-gaps'] === undefined && configObj.failOnGaps === true) values['fail-on-gaps'] = true;
   if (values.verbose === undefined && values['only-gaps'] !== true && configObj.verbose === true) values.verbose = true;
   if (values['only-gaps'] === undefined && values.verbose !== true && configObj.onlyGaps === true) values['only-gaps'] = true;

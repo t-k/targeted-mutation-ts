@@ -16,9 +16,11 @@ Scope (analyze):
                                 Also configurable via "copyExclude" in targeted-mutation.config.json.
   --copy-exclude-gitignore      Also exclude gitignored paths (except node_modules) from temporary copies.
                                 Also configurable via "copyExcludeGitignore": true in targeted-mutation.config.json.
+  --no-copy-exclude-gitignore   Disable gitignore copy exclusion even when enabled in project configuration.
   --exclude-rule RULE           Exclude a mutation rule (e.g. nullish-equality/v1). Repeatable.
-  --type-check                  Use TypeScript's type checker (when strictNullChecks is enabled) to skip
-                                statically equivalent nullish-fallback/v1 and nullish-equality/v1 edits.
+  --type-check                  Force TypeScript type checking (warns if tsconfig.json or strictNullChecks is missing).
+                                Enabled automatically when strictNullChecks is active; use --no-type-check to disable.
+  --no-type-check               Disable automatic TypeScript type-based nullish suppression (or "typeCheck": false).
   --tsconfig FILE               Explicit tsconfig.json path for --type-check (defaults to nearest per file / references).
   --no-config                   Ignore targeted-mutation.config.{json,mjs} and package.json#targetedMutation.
   --progress                    Print progress updates (copying, baseline, mutant completion) to stderr.
@@ -190,8 +192,13 @@ function describeGap(gap) {
     }
   }
   if (gap.strengthens) {
-    lines.push(`  ${printable(gap.strengthens.file)} > ${printable(gap.strengthens.test)} calls \`${printable(gap.strengthens.call)}\` without pinning its result: ` +
-      `it gives ${printable(gap.strengthens.original)}, and ${printable(gap.strengthens.edited)} with the edit`);
+    if (gap.strengthens.kind === 'state') {
+      lines.push(`  ${printable(gap.strengthens.file)} > ${printable(gap.strengthens.test)} leaves \`${printable(gap.strengthens.expression)}\` unasserted: ` +
+        `it is ${printable(gap.strengthens.original)}, and ${printable(gap.strengthens.edited)} with the edit`);
+    } else {
+      lines.push(`  ${printable(gap.strengthens.file)} > ${printable(gap.strengthens.test)} calls \`${printable(gap.strengthens.call)}\` without pinning its result: ` +
+        `it gives ${printable(gap.strengthens.original)}, and ${printable(gap.strengthens.edited)} with the edit`);
+    }
   }
   if (gap.suggestedTest) lines.push(`  suggested test: ${printable(gap.suggestedTest)}`);
   if (gap.weakened) {

@@ -100,6 +100,7 @@ export function listCandidates(project, files, options = {}) {
     ? createTypeContext(root, targets.map(t => t.file), {
       tsconfig: options.tsconfig,
       onWarning: options.onTypeCheckWarning,
+      silent: options['type-check'] === 'auto',
     })
     : null;
   const { mutants: prepared } = prepareBuiltinSwitches(targets, {

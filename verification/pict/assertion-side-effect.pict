@@ -1,0 +1,9 @@
+Channel: WeakExpect, BoundSubjectCall, ProxyState, DomState, CallbackVar
+DiffShape: Primitive, SiblingField, DomStyleOrAttr, DomChild, Unchanged
+TestOutcome: Pass, Throw
+
+IF [Channel] = "WeakExpect" THEN [DiffShape] IN {"Primitive", "SiblingField", "Unchanged"};
+IF [Channel] = "BoundSubjectCall" THEN [DiffShape] IN {"Primitive", "SiblingField", "Unchanged"};
+IF [Channel] = "ProxyState" THEN [DiffShape] IN {"SiblingField", "Unchanged"};
+IF [Channel] = "DomState" THEN [DiffShape] IN {"Primitive", "DomStyleOrAttr", "DomChild", "Unchanged"};
+IF [Channel] = "CallbackVar" THEN [DiffShape] IN {"Primitive", "Unchanged"};
