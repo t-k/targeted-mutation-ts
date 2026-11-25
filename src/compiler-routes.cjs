@@ -564,12 +564,18 @@ const comment = '(?:[ \\t]|/\\*(?:[^*]|\\*(?!/))*\\*/)';
 const wordStart = '[A-Za-z_$\\\\\\x80-\\xff]', wordRest = '[\\w$\\\\{}\\x80-\\xff]*';
 const usingDeclaration = new RegExp('(?<![\\w$.])using' + comment + '+' + wordStart + wordRest + '(?:\\s|' + comment + ')*(?:[=:,;\\/]|of\\b)|\\bfor\\b[^\\n]{0,60}?\\(\\s*(?:await\\s+)?using\\b');
 // `accessor name` with what can stand behind the name of a field (in English text another word follows).
-const accessorField = new RegExp('(?<![\\w$.])accessor' + comment + '+(?:[\\[\\"\\\'0-9]|#?' + wordStart + wordRest + comment + '*(?:[;=:!?}\\r\\n\\/]|$))');
+const accessorField = new RegExp('(?<![\\w$.])accessor' + comment + '*(?:[\\[\\"\\\'0-9#]|(?<![\\w$])' + wordStart + wordRest + comment + '*(?:[;=:!?}\\r\\n\\/]|$))');
 // A private name that is not read through a dot: a member being declared (or `#name in value`). It stands
 // behind white space, a brace, a semicolon, the star of a generator, the end of a comment, or a modifier
 // that touches it (`static#name`). A line comment such as `// #region` is not one. Whether a member's body names its class is not looked at. One character
 // before the name decides, so the search takes time in proportion to the source.
 const privateMember = /(?<!\/\/[ \t]{0,8})(?<=[\s{;}*\/]|\b(?:static|get|set|async|readonly|declare|override|public|private|protected|accessor))#[A-Za-z_$\\\u0080-\uffff]/;
+
+// The patterns know the white space of ASCII as spaces, tabs and line ends. Any other white space or line end
+// (a vertical tab, a form feed, and the bytes of the spaces and separators outside ASCII, from the no-break
+// space to the byte order mark) could stand where a pattern expects one of those, so a source that holds
+// one is left to TypeScript for every target but ESNext.
+const otherSpace = /[\x0b\x0c]|\xc2[\x85\xa0]|\xe1\x9a\x80|\xe2\x80[\x80-\x8a\xa8\xa9\xaf]|\xe2\x81\x9f|\xe3\x80\x80|\xef\xbb\xbf/;
 
 // A backslash in front of a digit, of an `x` without two hexadecimal digits, or of a `u` without four.
 const doubtfulEscape = /\\(?:[0-9]|x(?![0-9a-fA-F]{2})|u(?![0-9a-fA-F]{4}))/;
@@ -581,6 +587,7 @@ function writtenAsNewest(input, jsxFile, year) {
   const using = bytes.includes('using'), accessor = bytes.includes('accessor'), at = bytes.includes(64), hash = bytes.includes(35);
   if (year >= 2022 && !using && !accessor && !at && !hash) return true;
   const text = bytes.latin1Slice();
+  if (otherSpace.test(text)) return false;
   if ((using && usingDeclaration.test(text)) || (accessor && accessorField.test(text)) || (hash && privateMember.test(text))) return false;
   if (year < 2018 && jsxFile && bytes.includes(60)) return false;
   // Below ES2018 a tagged template may not hold an escape that is no escape; TypeScript then writes the

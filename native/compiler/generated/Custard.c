@@ -26568,21 +26568,26 @@ TmtPulseParser_module_sequence(
       }
       else
       {
-        uint8_t value3 = TmtPulseMemory_peek(input, value1.offset);
-        TmtPulseParser_parser_state value4;
-        if (value3 == 100U)
-          value4 = TmtPulseParser_global_augmentation_start(input, value1);
+        TmtPulseParser_parser_state value3;
+        if (input.capture_references)
+          value3 = TmtPulseParser_record_jsx_span(input, value1, 72U, value.offset, value.offset);
         else
-          value4 = TmtPulseParser_failed(value1, 1U);
-        if (value4.status == 0U)
+          value3 = value1;
+        uint8_t value4 = TmtPulseMemory_peek(input, value3.offset);
+        TmtPulseParser_parser_state value5;
+        if (value4 == 100U)
+          value5 = TmtPulseParser_global_augmentation_start(input, value3);
+        else
+          value5 = TmtPulseParser_failed(value3, 1U);
+        if (value5.status == 0U)
         {
           FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_uint8_t
-          value5 = TmtPulseParser_global_augmentation_members(input, value4, input.size, family);
-          TmtPulseParser_parser_state closed = value5._1;
-          uint8_t family1 = value5._2;
+          value6 = TmtPulseParser_global_augmentation_members(input, value5, input.size, family);
+          TmtPulseParser_parser_state closed = value6._1;
+          uint8_t family1 = value6._2;
           TmtPulseParser_parser_state
-          value6 = TmtPulseParser_record_jsx_span(input, closed, 8U, value1.offset, closed.offset);
-          TmtPulseParser_parser_state tmp0 = value6;
+          value7 = TmtPulseParser_record_jsx_span(input, closed, 8U, value3.offset, closed.offset);
+          TmtPulseParser_parser_state tmp0 = value7;
           uint32_t tmp1 = TmtPulseParser_minus(fuel, 1U);
           uint8_t tmp = family1;
           state = tmp0;
@@ -26591,26 +26596,26 @@ TmtPulseParser_module_sequence(
         }
         else
         {
-          TmtPulseParser_export_prefix value5 = TmtPulseParser_module_export(input, value1);
-          FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t value60;
-          if (!value1.module_mode && (value5.direct || value5.export_kind != 0U))
-            value60 =
+          TmtPulseParser_export_prefix value6 = TmtPulseParser_module_export(input, value3);
+          FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t value70;
+          if (!value3.module_mode && (value6.direct || value6.export_kind != 0U))
+            value70 =
               (
                 (FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t){
-                  ._1 = { .state = TmtPulseParser_failed(value1, 1U), .used = used },
+                  ._1 = { .state = TmtPulseParser_failed(value3, 1U), .used = used },
                   ._2 = exports,
                   ._3 = pending
                 }
               );
-          else if (value5.export_kind == 1U)
+          else if (value6.export_kind == 1U)
           {
-            TmtPulseParser_parser_state name = value5.after_export;
+            TmtPulseParser_parser_state name = value6.after_export;
             uint32_t end_ = TmtPulseParser_plus(name.offset, 7U);
             TmtPulseParser_named_state
-            value6 = TmtPulseParser_reserve_export(input, name, exports, name.offset, end_);
-            TmtPulseParser_parser_state uu____0 = value6.state;
+            value7 = TmtPulseParser_reserve_export(input, name, exports, name.offset, end_);
+            TmtPulseParser_parser_state uu____0 = value7.state;
             TmtPulseParser_parser_state
-            value7 =
+            value8 =
               TmtPulseParser_skip(input,
                 (
                   (TmtPulseParser_parser_state){
@@ -26635,97 +26640,107 @@ TmtPulseParser_module_sequence(
                     .local_log_used = uu____0.local_log_used
                   }
                 ));
+            TmtPulseParser_parser_state value9;
+            if (input.capture_references)
+              value9 =
+                TmtPulseParser_record_jsx_span(input,
+                  value8,
+                  66U,
+                  value3.offset,
+                  value8.offset);
+            else
+              value9 = value8;
             TmtPulseParser_named_state
-            value8 = TmtPulseParser_default_declaration(input, value7, value1.offset, used);
-            value60 =
+            value10 = TmtPulseParser_default_declaration(input, value9, value3.offset, used);
+            value70 =
               (
                 (FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t){
-                  ._1 = value8,
-                  ._2 = value6.used,
+                  ._1 = value10,
+                  ._2 = value7.used,
                   ._3 = pending
                 }
               );
           }
-          else if (value5.export_kind == 2U)
+          else if (value6.export_kind == 2U)
           {
             TmtPulseParser_named_state
-            value6 = TmtPulseParser_star_reexport(input, value5.after_export, exports);
+            value7 = TmtPulseParser_star_reexport(input, value6.after_export, exports);
             TmtPulseParser_parser_state
-            value7 =
+            value8 =
               TmtPulseParser_record_jsx_span(input,
-                value6.state,
-                value5.type_only ? 8U : 9U,
-                value1.offset,
-                value6.state.offset);
-            value60 =
+                value7.state,
+                value6.type_only ? 8U : 9U,
+                value3.offset,
+                value7.state.offset);
+            value70 =
               (
                 (FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t){
-                  ._1 = { .state = value7, .used = used },
-                  ._2 = value6.used,
+                  ._1 = { .state = value8, .used = used },
+                  ._2 = value7.used,
                   ._3 = pending
                 }
               );
           }
-          else if (value5.export_kind == 3U)
+          else if (value6.export_kind == 3U)
           {
             FStar_Pervasives_Native_tuple2__TmtPulseParser_named_state_uint32_t
-            value6 =
+            value7 =
               TmtPulseParser_named_reexport(input,
-                value5.after_export,
+                value6.after_export,
                 exports,
                 used,
                 pending,
-                value5.type_only);
-            TmtPulseParser_named_state reexported = value6._1;
-            uint32_t pending1 = value6._2;
+                value6.type_only);
+            TmtPulseParser_named_state reexported = value7._1;
+            uint32_t pending1 = value7._2;
             TmtPulseParser_parser_state
-            value7 =
+            value8 =
               TmtPulseParser_record_jsx_span(input,
                 reexported.state,
-                value5.type_only ? 8U : 9U,
-                value1.offset,
+                value6.type_only ? 8U : 9U,
+                value3.offset,
                 reexported.state.offset);
-            value60 =
+            value70 =
               (
                 (FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t){
-                  ._1 = { .state = value7, .used = used },
+                  ._1 = { .state = value8, .used = used },
                   ._2 = reexported.used,
                   ._3 = pending1
                 }
               );
           }
-          else if (value5.export_kind == 4U)
+          else if (value6.export_kind == 4U)
           {
-            TmtPulseParser_parser_state value61;
+            TmtPulseParser_parser_state value71;
             if (exports != 0U || pending != 0U)
-              value61 = TmtPulseParser_failed(value1, 1U);
+              value71 = TmtPulseParser_failed(value3, 1U);
             else
             {
               TmtPulseParser_parser_state
-              value6 = TmtPulseParser_consume(input, value5.after_export, 61U);
-              TmtPulseParser_parser_state value7;
+              value7 = TmtPulseParser_consume(input, value6.after_export, 61U);
+              TmtPulseParser_parser_state value8;
               if (input.capture_types)
-                value7 =
+                value8 =
                   TmtPulseParser_record_jsx_span(input,
-                    value6,
+                    value7,
                     33U,
-                    value1.offset,
-                    value6.offset);
+                    value3.offset,
+                    value7.offset);
               else
-                value7 = value6;
-              TmtPulseParser_parsed value8 = TmtPulseParser_comparison(input, value7, 64U);
+                value8 = value7;
+              TmtPulseParser_parsed value9 = TmtPulseParser_comparison(input, value8, 64U);
               TmtPulseParser_parser_state
-              value9 = TmtPulseParser_statement_end(input, value8.parser, value8.range.last, false);
-              TmtPulseParser_parser_state value10 = TmtPulseParser_skip(input, value9);
-              if (value10.offset == input.size)
-                value61 = value10;
+              value10 = TmtPulseParser_statement_end(input, value9.parser, value9.range.last, false);
+              TmtPulseParser_parser_state value11 = TmtPulseParser_skip(input, value10);
+              if (value11.offset == input.size)
+                value71 = value11;
               else
-                value61 = TmtPulseParser_failed(value10, 1U);
+                value71 = TmtPulseParser_failed(value11, 1U);
             }
-            value60 =
+            value70 =
               (
                 (FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t){
-                  ._1 = { .state = value61, .used = used },
+                  ._1 = { .state = value71, .used = used },
                   ._2 = exports,
                   ._3 = pending
                 }
@@ -26733,44 +26748,44 @@ TmtPulseParser_module_sequence(
           }
           else
           {
-            uint32_t value6;
-            if (value5.direct && input.capture_types && value1.module_mode)
-              value6 = TmtPulseParser_exported_import_alias(input, value1);
+            uint32_t value7;
+            if (value6.direct && input.capture_types && value3.module_mode)
+              value7 = TmtPulseParser_exported_import_alias(input, value3);
             else
-              value6 = value1.offset;
-            if (value6 != value1.offset)
+              value7 = value3.offset;
+            if (value7 != value3.offset)
             {
               TmtPulseParser_named_state
-              value7 =
+              value8 =
                 TmtPulseParser_import_declaration(input,
                   (
                     (TmtPulseParser_parser_state){
-                      .offset = value6,
-                      .count = value1.count,
-                      .depth = value1.depth,
-                      .status = value1.status,
-                      .local_names = value1.local_names,
-                      .await_allowed = value1.await_allowed,
-                      .yield_allowed = value1.yield_allowed,
-                      .jsx_allowed = value1.jsx_allowed,
-                      .module_mode = value1.module_mode,
-                      .strict_script = value1.strict_script,
-                      .in_allowed = value1.in_allowed,
-                      .for_initializer = value1.for_initializer,
-                      .arrow_defaults_allowed = value1.arrow_defaults_allowed,
-                      .binding_mode = value1.binding_mode,
-                      .super_context = value1.super_context,
-                      .private_scope = value1.private_scope,
-                      .private_count = value1.private_count,
-                      .local_log_floor = value1.local_log_floor,
-                      .local_log_used = value1.local_log_used
+                      .offset = value7,
+                      .count = value3.count,
+                      .depth = value3.depth,
+                      .status = value3.status,
+                      .local_names = value3.local_names,
+                      .await_allowed = value3.await_allowed,
+                      .yield_allowed = value3.yield_allowed,
+                      .jsx_allowed = value3.jsx_allowed,
+                      .module_mode = value3.module_mode,
+                      .strict_script = value3.strict_script,
+                      .in_allowed = value3.in_allowed,
+                      .for_initializer = value3.for_initializer,
+                      .arrow_defaults_allowed = value3.arrow_defaults_allowed,
+                      .binding_mode = value3.binding_mode,
+                      .super_context = value3.super_context,
+                      .private_scope = value3.private_scope,
+                      .private_count = value3.private_count,
+                      .local_log_floor = value3.local_log_floor,
+                      .local_log_used = value3.local_log_used
                     }
                   ),
                   used);
-              value60 =
+              value70 =
                 (
                   (FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t){
-                    ._1 = value7,
+                    ._1 = value8,
                     ._2 = exports,
                     ._3 = pending
                   }
@@ -26778,51 +26793,51 @@ TmtPulseParser_module_sequence(
             }
             else
             {
-              bool value7 = TmtPulseParser_keyword(input, value1.offset, 6U, 0x696d706f7274ULL);
-              if (value7)
+              bool value8 = TmtPulseParser_keyword(input, value3.offset, 6U, 0x696d706f7274ULL);
+              if (value8)
               {
-                bool value8 = TmtPulseParser_import_expression_start(input, value1);
-                if (value8)
+                bool value9 = TmtPulseParser_import_expression_start(input, value3);
+                if (value9)
                 {
                   TmtPulseParser_named_state
-                  value9 =
+                  value10 =
                     TmtPulseParser_control_statement(input,
-                      value1,
+                      value3,
                       64U,
                       false,
                       ((TmtPulseParser_jump_context){ .tag = TmtPulseParser_NoJump }),
                       0U,
                       0U,
                       false);
-                  TmtPulseParser_parser_state value10 = value9.state;
-                  TmtPulseParser_named_state value11 = { .state = value10, .used = used };
-                  value60 =
+                  TmtPulseParser_parser_state value11 = value10.state;
+                  TmtPulseParser_named_state value12 = { .state = value11, .used = used };
+                  value70 =
                     (
                       (FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t){
-                        ._1 = value11,
+                        ._1 = value12,
                         ._2 = exports,
                         ._3 = pending
                       }
                     );
                 }
-                else if (value1.module_mode)
+                else if (value3.module_mode)
                 {
                   TmtPulseParser_named_state
-                  value9 = TmtPulseParser_import_declaration(input, value1, used);
-                  value60 =
+                  value10 = TmtPulseParser_import_declaration(input, value3, used);
+                  value70 =
                     (
                       (FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t){
-                        ._1 = value9,
+                        ._1 = value10,
                         ._2 = exports,
                         ._3 = pending
                       }
                     );
                 }
                 else
-                  value60 =
+                  value70 =
                     (
                       (FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t){
-                        ._1 = { .state = TmtPulseParser_failed(value1, 1U), .used = used },
+                        ._1 = { .state = TmtPulseParser_failed(value3, 1U), .used = used },
                         ._2 = exports,
                         ._3 = pending
                       }
@@ -26830,12 +26845,22 @@ TmtPulseParser_module_sequence(
               }
               else
               {
+                TmtPulseParser_parser_state value9;
+                if (value6.direct && input.capture_references)
+                  value9 =
+                    TmtPulseParser_record_jsx_span(input,
+                      value3,
+                      67U,
+                      value3.offset,
+                      TmtPulseParser_plus(value3.offset, 6U));
+                else
+                  value9 = value3;
                 TmtPulseParser_named_state
-                value8 = module_plain_declaration(input, value1, used, value5.direct);
-                value60 =
+                value10 = module_plain_declaration(input, value9, used, value6.direct);
+                value70 =
                   (
                     (FStar_Pervasives_Native_tuple3__TmtPulseParser_named_state_uint32_t_uint32_t){
-                      ._1 = value8,
+                      ._1 = value10,
                       ._2 = exports,
                       ._3 = pending
                     }
@@ -26843,23 +26868,23 @@ TmtPulseParser_module_sequence(
               }
             }
           }
-          TmtPulseParser_named_state decl = value60._1;
-          uint32_t exports1 = value60._2;
-          uint32_t pending1 = value60._3;
-          TmtPulseParser_named_state value7;
-          if (value5.direct)
-            value7 =
+          TmtPulseParser_named_state decl = value70._1;
+          uint32_t exports1 = value70._2;
+          uint32_t pending1 = value70._3;
+          TmtPulseParser_named_state value8;
+          if (value6.direct)
+            value8 =
               TmtPulseParser_reserve_direct_exports(input,
                 decl.state,
                 exports1,
                 used,
                 decl.used);
           else
-            value7 = ((TmtPulseParser_named_state){ .state = decl.state, .used = exports1 });
-          TmtPulseParser_parser_state tmp0 = value7.state;
+            value8 = ((TmtPulseParser_named_state){ .state = decl.state, .used = exports1 });
+          TmtPulseParser_parser_state tmp0 = value8.state;
           uint32_t tmp1 = decl.used;
           uint32_t tmp2 = TmtPulseParser_minus(fuel, 1U);
-          uint32_t tmp3 = value7.used;
+          uint32_t tmp3 = value8.used;
           uint32_t tmp = pending1;
           state = tmp0;
           used = tmp1;

@@ -424,6 +424,34 @@ error:
 }
 
 /* legacyDecoratorRecords(source, all, jsx): a Uint32Array of five numbers per record, or null. */
+/* moduleRecords(source): the same for a module, every record with the references and the statement starts. */
+static napi_value module_records(napi_env env, napi_callback_info info) {
+  napi_value args[1], result, buffer;
+  size_t argc = 1, size;
+  void *source, *data;
+  uint32_t count = 0;
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc != 1) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &source, &size));
+  uint32_t *records = size && size <= source_limit ? tmt_legacy_decorator_records(source, (uint32_t)size, 2, false, &count) : NULL;
+  if (!records) {
+    NAPI(napi_get_null(env, &result));
+    return result;
+  }
+  const size_t bytes = (size_t)count * 5 * sizeof(*records);
+  if (napi_create_arraybuffer(env, bytes, &data, &buffer) != napi_ok) {
+    free(records);
+    return NULL;
+  }
+  memcpy(data, records, bytes);
+  free(records);
+  NAPI(napi_create_typedarray(env, napi_uint32_array, (size_t)count * 5, buffer, 0, &result));
+  return result;
+error:
+  napi_throw_type_error(env, NULL, "Expected a source buffer");
+  return NULL;
+}
+
 static napi_value legacy_decorator_records(napi_env env, napi_callback_info info) {
   napi_value args[3], result, buffer;
   size_t argc = 3, size;
@@ -862,6 +890,8 @@ static napi_value init(napi_env env, napi_value exports) {
   NAPI(napi_set_named_property(env, exports, "eraseTypeModule", entry));
   NAPI(napi_create_function(env, "emitAnnotatedModule", NAPI_AUTO_LENGTH, emit_annotated_module, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "emitAnnotatedModule", entry));
+  NAPI(napi_create_function(env, "moduleRecords", NAPI_AUTO_LENGTH, module_records, NULL, &entry));
+  NAPI(napi_set_named_property(env, exports, "moduleRecords", entry));
   NAPI(napi_create_function(env, "legacyDecoratorRecords", NAPI_AUTO_LENGTH, legacy_decorator_records, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "legacyDecoratorRecords", entry));
   NAPI(napi_create_function(env, "moduleMarker", NAPI_AUTO_LENGTH, module_marker, NULL, &entry));

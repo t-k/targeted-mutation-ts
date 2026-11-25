@@ -1191,7 +1191,15 @@ static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, c
     TmtGrammar_span text = {0};
     bool multiline = false, visible = false;
     if (expression) {
+      const uint32_t opened = lower->at;
       if (!trivia(lower)) return false;
+      /* TypeScript drops a container that holds nothing, not even a comment, and the texts on its two sides
+         become one text. Kept JSX would keep them apart, so such an element is not answered here. */
+      if (lower->preserve && peek(lower) == '}') {
+        bool blank = true;
+        for (uint32_t at = opened; at < lower->at; at++) blank = blank && space(lower->input.source[at]);
+        if (blank) return false;
+      }
       if (consume(lower, '}')) continue;
     } else if (!element) {
       if (!jsx_text(lower, &text, &multiline, &visible)) return false;
@@ -3357,7 +3365,7 @@ static bool legacy_record(uint32_t kind) {
 }
 
 /* With all set, every record of the reading is returned: the metadata of the decorators is written from type records too. */
-uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all, bool jsx, uint32_t *count) {
+uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, unsigned all, bool jsx, uint32_t *count) {
   *count = 0;
 #ifdef TMT_V8_VALIDATOR
   module_workspace memory;
@@ -3374,7 +3382,8 @@ uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all,
     input.marks = marks;
     input.capture_types = true;
     input.count_only = false;
-    input.legacy_decorators = true;
+    input.legacy_decorators = all != 2;
+    input.capture_references = all == 2;
     const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(input, jsx, true);
     if (parsed.status == 0 && parsed.count <= input.capacity) {
       /* The names bound at module level stand in the first region of the binding table. */
@@ -3408,6 +3417,8 @@ uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all,
             case TmtPulseMemory_ValueName: case TmtPulseMemory_LocalVarName: case TmtPulseMemory_FunctionImplementation: row[3] = 5; break;
             default: row[3] = 9; break;
           }
+          /* For the module reading: 1 a function, 2 a var. */
+          if (all == 2) row[4] = name.namespace0 == TmtPulseMemory_FunctionImplementation ? 1 : name.namespace0 == TmtPulseMemory_LocalVarName ? 2 : 0;
         }
       }
     }

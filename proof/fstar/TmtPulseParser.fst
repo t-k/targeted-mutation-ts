@@ -6359,6 +6359,10 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
   else (let! anf_value_1 = (fun () -> same input st.offset 59uy) in if anf_value_1 then
     (let! anf_value_2 = (fun () -> consume input st 59uy) in module_sequence input anf_value_2 used (minus fuel 1ul) exports pending family)
   else
+    // Kind 72: the start of a statement of the module, when the tape asks for references. With kinds 66 and 67
+    // (an `export default` up to its value, and the `export` word of a declaration) it lets the CommonJS writer
+    // take a module apart statement by statement.
+    let! st = (fun () -> if input.capture_references then record_jsx_span input st 72ul undecorated.offset undecorated.offset else ret input st) in
     let! first = (fun () -> peek input st.offset) in
     let! augmentation = (fun () -> if first = 100uy then global_augmentation_start input st else ret input (failed st 1ul)) in
     if augmentation.status = 0ul then
@@ -6375,6 +6379,7 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
           let end_ = plus name.offset 7ul in
           let! reserved = (fun () -> reserve_export input name exports name.offset end_) in
           let! body = (fun () -> skip input { reserved.state with offset = end_ }) in
+          let! body = (fun () -> if input.capture_references then record_jsx_span input body 66ul st.offset body.offset else ret input body) in
           (let! anf_value_3 = (fun () -> default_declaration input body st.offset used) in ret input (anf_value_3, reserved.used, pending))
         else if exported.export_kind = 2ul then
           let! reexported = (fun () -> star_reexport input exported.after_export exports) in
@@ -6407,6 +6412,7 @@ let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fue
             (let! anf_value_10 = (fun () -> import_declaration input st used) in ret input (anf_value_10, exports, pending))
           else ret input ({ state = failed st 1ul; used }, exports, pending))
         else
+          let! st = (fun () -> if exported.direct && input.capture_references then record_jsx_span input st 67ul st.offset (plus st.offset 6ul) else ret input st) in
           (let! anf_value_11 = (fun () -> module_plain_declaration input st used exported.direct) in ret input (anf_value_11, exports, pending)))) in
       let! reserved = (fun () -> if exported.direct then reserve_direct_exports input decl.state exports used decl.used
         else ret input ({ state = decl.state; used = exports })) in

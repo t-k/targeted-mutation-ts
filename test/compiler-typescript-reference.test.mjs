@@ -3086,6 +3086,10 @@ test('JSX that is kept: elements as written, with the types around and inside th
   // The text of an element is the source's, byte for byte.
   const text = kept('export const view = <p title="a &amp; b">  don\'t &nbsp; stop — 日本語\n  {1 as number}</p>;\n');
   assert.ok(text.code.includes('<p title="a &amp; b">  don\'t &nbsp; stop — 日本語\n  {1'), text.code);
+  // TypeScript drops a container that holds nothing and joins the texts around it; one with a comment stays.
+  assert.equal(kept('export const view = <p>&{}amp;</p>;\n').backend, 'typescript');
+  assert.equal(kept('export const view = <p>a{ }b{1 as number}</p>;\n').backend, 'typescript');
+  assert.equal(kept('export const view = <p>a{/* note */}b{1 as number}</p>;\n').backend, 'pulse');
   // A file that is left without an import or export gains one from TypeScript, so it is not answered here.
   assert.equal(kept('import type { T } from "./t";\nconst view = <p>export</p>;\nvoid view;\n').backend, 'typescript');
   // A script, a JavaScript file and a request for a map keep the TypeScript route.
@@ -3155,9 +3159,18 @@ test('each target compiles natively up to the forms of its year', () => {
     // Names outside ASCII and names written with an escape.
     'export class C { accessor café = 1 }', 'export class C { accessor \\u0063af = 1 }', 'export class C { static accessor 名; }',
     'export function f(g: () => Disposable) { using café = g(); return café; }', 'export function f(g: () => Disposable) { using \\u{63}af = g(); }',
-    'export class Café { #é() { return Café; } }']) {
+    'export class Café { #é() { return Café; } }',
+    // Tokens that touch the word, and white space that is neither a space, a tab nor a line end of ASCII.
+    'export class A { accessor["x"] = 1; }', 'export class A { accessor#x = 1; }', 'export class A { static accessor\'y\' = 1; }',
+    'export class A {\u2028#f() { return A; } static same = new this().#f() === this; }',
+    'export function f() { using\u000bx = null; }', 'export function f() { using\u00a0x = null; }', 'export class A { accessor\u3000x = 1; }']) {
     assert.equal(compile(Buffer.from(source), { file: 'year.ts', target: 'es2022' }).backend, 'typescript', source);
   }
+  assert.equal(compile(Buffer.from('export async function\u2028*f() { yield 1; }'), { file: 'year.ts', target: 'es2017' }).backend, 'typescript');
+  // Other white space leaves a file with TypeScript wherever a pattern is consulted at all.
+  assert.equal(compile(Buffer.from('export const a: string = "\u00a0";'), { file: 'year.ts', target: 'es2021' }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('export const a: string = "\u00a0";'), { file: 'year.ts', target: 'es2022' }).backend, 'pulse');
+  assert.equal(compile(Buffer.from('export const a: string = "\u00a0";'), { file: 'year.ts' }).backend, 'pulse');
   // A word of a newer form in a comment or a string is enough to leave the file with TypeScript.
   assert.equal(compile(Buffer.from('// no class here\nexport const a: number = 1;'), { file: 'year.ts', target: 'es2020' }).backend, 'typescript');
   assert.equal(compile(Buffer.from('export const a: string = "x ?? y";'), { file: 'year.ts', target: 'es2019' }).backend, 'typescript');
