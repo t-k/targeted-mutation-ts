@@ -557,7 +557,6 @@ test('decorators that the native grammar does not take are left to TypeScript', 
     '@d<T>()\nclass C {}\nexport { C };',
     'export @d class C {}',
     'const K = @d class {};\nexport { K };',
-    'export function f() { @d class L {} return L; }',
     'class C { @d accessor x = 1 }\nexport { C };',
     '@d\nfunction f() {}\nexport { f };',
     '@d\nexport const x = 1;',
@@ -1773,5 +1772,57 @@ test('an exported namespace variable without a value is erased, as TypeScript wr
     'namespace N { export var x: number, y: string; }\nexport {};',
   ]) {
     assert.notEqual(compile(Buffer.from(source), { file: 'space.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('a module whose head the certified parser cannot read is erased through Node', () => {
+  // A name outside ASCII: the module still begins with import or export, and Node's parser checks the text.
+  for (const source of [
+    'export const ɵa: number = 1;',
+    'import { ɵsetCurrentInjector as setCurrentInjector } from "@angular/core";\nsetCurrentInjector(null as any);',
+    '// note\nimport { a as ɵb } from "m";\nɵb();',
+    'export const 日本: number = 1;',
+    'export class ɵC { x: number = 1; }',
+  ]) {
+    const result = sameAsTypeScript(source, 'names.ts');
+    assert.equal(result.backend, 'node-strip', source);
+  }
+});
+
+test('Node erasure is not used where it drops the export of a decorated abstract class', () => {
+  for (const source of [
+    '@Injectable()\nexport abstract class S { x: number = 1; }\nexport const ɵa = 1;',
+    '@d\nexport default abstract class S { x: number = 1; }\nexport const ɵa = 1;',
+  ]) {
+    const result = sameAsTypeScript(source, 'state.ts');
+    assert.equal(result.backend, 'typescript', source);
+    assert.match(result.code, /export (?:default )?class S/);
+    assert.equal(compile(source, { file: 'state.ts', mode: 'strip' }).diagnostics[0].code, 'AMBIGUOUS_TYPE_ERASURE');
+  }
+  // Without a decorator, or with the words in a comment, the erasure is right.
+  for (const source of ['export abstract class S { x: number = 1; }\nexport const ɵa = 1;',
+    '// export abstract class X\n@Injectable()\nexport class S { x: number = 1; }\nexport const ɵa = 1;']) {
+    assert.equal(sameAsTypeScript(source, 'state.ts').backend, 'node-strip', source);
+    assert.notEqual(compile(source, { file: 'state.ts', mode: 'strip' }).code, null);
+  }
+});
+
+test('a decorated class inside a function or a block is written as it stands', () => {
+  for (const source of [
+    'function f() { @Injectable() class Door { } return Door; }\nexport { f };',
+    'it("x", () => { @Module({ imports: [B], providers: [AA] }) class A {} });\nexport {};',
+    'describe("a", () => { it("b", async () => { @Component({ template: `<p>${x}</p>` }) class P { @Input() v = 1; } use(P); }); });\nexport {};',
+    'export function f() { @a abstract class X { abstract m(): void; } return X; }',
+    'export function f() { if (x) { @a class X {} } }',
+    '{ @a class X {} }\nexport {};',
+  ]) {
+    const result = sameAsTypeScript(source, 'local.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.match(result.code, /@\w+/, source);
+  }
+  // A decorator in front of anything but a class is no statement of the native route.
+  for (const source of ['export function f() { @a\n const x = 1; }', 'export function f() { @a function g() {} }',
+    'export function f() { @a export class X {} }']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'local.ts' }).backend, 'pulse', source);
   }
 });

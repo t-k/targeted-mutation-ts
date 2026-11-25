@@ -3903,11 +3903,18 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
   let! first = (fun () -> peek input st.offset) in
   // A script that the compiler publishes is strict code that V8 checks, so a class may stand in its blocks too.
   let block_classes = st.module_mode || (st.strict_script && input.capture_types) in
-  let! class_ = (fun () -> if not root_control && block_classes && first = 99uy then class_keyword input st.offset
+  // Decorators in front of a class inside a function or a block are written as they stand, as at module level.
+  let! decorated = (fun () -> if not root_control && block_classes && first = 64uy && input.capture_types && fuel <> 0ul then
+    decorators input st (minus fuel 1ul) 16ul else ret input st) in
+  let class_at = if decorated.status = 0ul then decorated.offset else st.offset in
+  let! class_first = (fun () -> if class_at = st.offset then ret input first else peek input class_at) in
+  let! class_ = (fun () -> if not root_control && block_classes && class_first = 99uy then class_keyword input class_at
     else ret input false) in
   // An abstract class inside a function: the modifier is erased as it is at module level.
-  let! abstract_ = (fun () -> if not root_control && block_classes && first = 97uy && input.capture_types then
-    abstract_class_start input st.offset else ret input { at = st.offset; ok = false; newline = false }) in
+  let! abstract_ = (fun () -> if not root_control && block_classes && class_first = 97uy && input.capture_types then
+    abstract_class_start input class_at else ret input { at = st.offset; ok = false; newline = false }) in
+  // A decorator that is not followed by a class is no statement.
+  let st = if class_at = st.offset then st else if class_ || abstract_.ok then decorated else failed st 1ul in
   let! resource = (fun () -> if not root_control && allow_resource && (first = 117uy || first = 97uy && st.await_allowed) then
     resource_declaration_start input st first else ret input (failed st 1ul)) in
   // Every const declaration passes here, so one byte decides before the keyword is read: `const enum` with a

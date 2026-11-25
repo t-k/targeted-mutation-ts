@@ -933,6 +933,40 @@ TmtPulseParser_cursor TmtPulseParser_async_function(TmtPulseMemory_tape input, u
 
 TmtPulseParser_cursor TmtPulseParser_function_start(TmtPulseMemory_tape input, uint32_t start);
 
+bool TmtPulseParser_can_assign(TmtPulseParser_assignment_target target);
+
+uint32_t
+TmtPulseParser_single_less_byte(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t stop0,
+  uint32_t found0,
+  uint32_t fuel0
+);
+
+bool
+TmtPulseParser_simple_less_argument(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state start,
+  TmtPulseParser_parser_state comma
+);
+
+bool
+TmtPulseParser_type_arguments_end_at_call_close(
+  TmtPulseMemory_tape input0,
+  TmtPulseParser_parser_state state0,
+  uint32_t remaining0
+);
+
+uint32_t
+TmtPulseParser_first_less_from(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t stop0,
+  uint32_t fallback0,
+  uint32_t fuel0
+);
+
 bool TmtPulseParser_class_keyword(TmtPulseMemory_tape input, uint32_t offset);
 
 TmtPulseParser_cursor
@@ -1019,15 +1053,6 @@ TmtPulseParser_declarators_end(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state ended,
   uint32_t angled
-);
-
-uint32_t
-TmtPulseParser_first_less_from(
-  TmtPulseMemory_tape input0,
-  uint32_t at0,
-  uint32_t stop0,
-  uint32_t fallback0,
-  uint32_t fuel0
 );
 
 typedef struct TmtPulseParser_generator_head_s
@@ -1153,8 +1178,6 @@ TmtPulseParser_read_atom_head(TmtPulseMemory_tape input, TmtPulseParser_parser_s
 TmtPulseParser_parser_state
 TmtPulseParser_angle_assertion_head(TmtPulseMemory_tape input, TmtPulseParser_parser_state st);
 
-bool TmtPulseParser_can_assign(TmtPulseParser_assignment_target target);
-
 typedef struct TmtPulseParser_postfix_head_s
 {
   TmtPulseParser_parser_state after_trivia;
@@ -1205,29 +1228,6 @@ TmtPulseParser_parser_state
 TmtPulseParser_call_type_arguments(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state
-);
-
-uint32_t
-TmtPulseParser_single_less_byte(
-  TmtPulseMemory_tape input0,
-  uint32_t at0,
-  uint32_t stop0,
-  uint32_t found0,
-  uint32_t fuel0
-);
-
-bool
-TmtPulseParser_simple_less_argument(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state start,
-  TmtPulseParser_parser_state comma
-);
-
-bool
-TmtPulseParser_type_arguments_end_at_call_close(
-  TmtPulseMemory_tape input0,
-  TmtPulseParser_parser_state state0,
-  uint32_t remaining0
 );
 
 TmtPulseParser_cursor

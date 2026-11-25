@@ -119,6 +119,18 @@ function markedOptionalTag(source, code) {
   return false;
 }
 
+// Behind a decorator Node's erasure blanks the export keyword of `export abstract class` and keeps `abstract`,
+// which leaves a class that is neither exported nor valid JavaScript. In a comment or a string nothing is
+// blanked, so a blanked export in front of a kept abstract is that case.
+function misplacedAbstractErasure(source, code) {
+  const declaration = /\bexport(?:\s+default)?\s+abstract\s+class\b/g;
+  for (let match; (match = declaration.exec(source)) !== null;) {
+    const modifier = source.indexOf('abstract', match.index);
+    if (code.charCodeAt(match.index) === 32 && code.startsWith('abstract', modifier)) return true;
+  }
+  return false;
+}
+
 // TypeScript writes the interpreter line with a line feed. A carriage return left on it becomes part of the
 // interpreter's name when the file is run directly.
 function unixHashbang(result) {
@@ -148,6 +160,12 @@ function strip(source, file) {
       return fail('node-strip', [{
         file, code: 'AMBIGUOUS_TYPE_ERASURE', severity: 'error',
         message: 'Position-preserving erasure of a non-null mark would leave an optional chain as a template tag', start: 0, end: 0,
+      }]);
+    }
+    if (source.includes('abstract') && misplacedAbstractErasure(source, code)) {
+      return fail('node-strip', [{
+        file, code: 'AMBIGUOUS_TYPE_ERASURE', severity: 'error',
+        message: 'Position-preserving erasure would remove the export of a decorated abstract class', start: 0, end: 0,
       }]);
     }
     if ((source.includes('as') || source.includes('satisfies')) && regroupingAssertion(source, code)) {
@@ -480,7 +498,11 @@ function compile(input, options = {}) {
           if (typed && !jsxFile && !directive) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
             const property = annotated?.parameterProperty === true;
-            const result = (property || annotated === true || addon.moduleMarker(source, true)) ? eraseModule(addon, text, file, format, property) :
+            // The typed marker walks the leading items with the certified parser and so misses a module whose first
+            // items it cannot read, such as an import of a name outside ASCII. A file that begins with import or
+            // export is a module all the same, and Node's parser checks the erased text.
+            const result = (property || annotated === true || addon.moduleMarker(source, true) || addon.moduleMarker(source, false)) ?
+              eraseModule(addon, text, file, format, property) :
               format === 'preserve' ? eraseScript(addon, text, source, file) : null;
             if (result) return result;
           }
