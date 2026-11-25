@@ -1620,3 +1620,22 @@ test('a module-level var may be declared again by another var, and by nothing el
     assert.notEqual(compile(Buffer.from(source), { file: 'again.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a published script takes a var below the top level, and V8 refuses the conflicts', () => {
+  for (const source of [
+    '{ var a = 1; }',
+    'for (var k in o) {}',
+    'for (var i = 0; i < 2; i++) { var j = i; }\nfor (var i = 0; i < 2; i++) {}',
+    'if (x) { var y = 1; }\nvar y;',
+    'try { var a = 1 } catch (e) { }',
+    '{ var a; }\nfunction a() {}',
+    'while (x) { var w = 1; }\nw;',
+  ]) {
+    const result = sameAsTypeScript(source, 'script.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.doesNotThrow(() => new Function(result.code), source);
+  }
+  for (const source of ['{ var a = 1; }\nlet a = 2;', 'let a = 2;\n{ var a = 1; }', '{ let a; { var a; } }', '{ var a; }\nclass a {}']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'script.ts' }).backend, 'pulse', source);
+  }
+});

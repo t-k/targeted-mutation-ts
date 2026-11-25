@@ -17239,7 +17239,10 @@ TmtPulseParser_control_statement(
     {
       bool typed_local = in_function && TmtPulseParser_strict_locals(state);
       bool
-      local_var = typed_local || state.module_mode && state.super_context == TmtPulseParser_NoSuper;
+      local_var =
+        typed_local ||
+          (state.module_mode || state.strict_script && input.capture_types) &&
+            state.super_context == TmtPulseParser_NoSuper;
       uint8_t value1 = TmtPulseMemory_peek(input, state.offset);
       uint32_t value2;
       if (typed_local && (value1 == 116U || value1 == 105U))
@@ -17552,7 +17555,8 @@ TmtPulseParser_control_statement(
               ),
               allow_var,
               in_function && TmtPulseParser_strict_locals(state1) ||
-                state1.module_mode && state1.super_context == TmtPulseParser_NoSuper,
+                (state1.module_mode || state1.strict_script && input.capture_types) &&
+                  state1.super_context == TmtPulseParser_NoSuper,
               fuel);
           TmtPulseParser_named_state
           value2 =

@@ -609,3 +609,44 @@ Of the files that remain on the TypeScript route in these suites, about 1,000 ca
 The comparison with TypeScript's output used to cover the certified route only. It now also covers the routes that erase through Node, and a review found a real defect there: `a + b as T * c` is `((a + b) as T) * c`, and Node's type stripping blanks the assertion and leaves `a + b * c`. The native route declined such a source and the node-strip route then published Node's result. A source with an assertion followed on its line by an arithmetic or shift operator is now handed to TypeScript, and strip mode reports `AMBIGUOUS_TYPE_ERASURE` for it. Other findings of that review: a hashbang line ending in CRLF kept the carriage return in front of the inserted directive, and `get value: number` in a declared class was erased although it is an error.
 
 The oracle on the snapshot also caught a defect before it was pushed: a namespace that holds only interfaces was written as an empty function when its type-only reading failed on repeated interface names. The runtime reading now needs a member that is not a type declaration.
+
+### Import-equals, var below the top level, and a slowdown found on the benchmark host
+
+`import x = require("m")` is written as `const x = require("m")` where the output may be CommonJS, and stays a diagnostic for an ECMAScript output. `import A = B.C` is written as `var A = B.C` and, as in TypeScript, does not make the file a module by itself. A const or var declaration continues into a next line that begins with a parenthesis or a slash, and an import declaration does not, so the native route takes the declaration only before a semicolon, the end of the file, or a next line that begins with a word.
+
+A `var` inside a block, a loop, a loop head or a conditional at the top level belongs to the file. The parser reads most files without a log of local names and reads a file again with one only when a function mixes `var` with `let`. That second reading kept no log at the top level, so such a var could neither be checked against the module's own names nor be found by an export list. A module's second reading now keeps the log at the top level; at the end each var found there is entered among the module's names. A name that the module declares itself (`let`, `const`, `class`, `function`, `import`, `enum`, `namespace`) refuses the file, because V8 reports the redeclaration. In a script the compiler publishes, V8 checks the output, so the var is simply taken.
+
+A module-level `var` with a plain name may be declared again by another `var`. Entries made by such a var carry a mark among the module's names; every other declaration of the name is still a conflict.
+
+The comparison of Node's type stripping with TypeScript, added in the previous round, led to a guard that now reads the erased text: Node blanks a type in place, so what stands behind each blanked assertion decides whether the grouping changed. `a + b as T * c`, the same with the operator on the next line or behind a comment, and `a << b as T + c` are handed to TypeScript; `x as T - y` and an assertion in front of a comment are erased. A non-null mark in front of a template is refused only where an optional chain would become the tag.
+
+#### Speed
+
+Three alternating runs per tree on the Ryzen host compared this state with the last measured one. The first comparison showed a slowdown of 2 to 4 percent on project rows and 8 percent on TSX files. Comparing nine commits side by side located two causes:
+
+| Cause | Cost | Change |
+| --- | --- | --- |
+| The scan that asks whether erasure changes which strings are directives parsed every leading import and export again. | 8 percent on TSX files | The scan ends at an import or export that stays, and looks at the first item before it searches the file for strings. |
+| `expression_end` and `declarators_end` were built out of line and cold with the rare-syntax functions, although every list and every declaration ends in them. | about 2 percent on JavaScript | Both are inline again; only the search they start is cold. |
+
+After the changes the project rows are within one percent of the earlier state (vite -0.4, mreact -0.4, tachyon-dom +0.6, mreact.tsx +0.3, astro +0.1, svelte.js +1.7 percent warm), and the comparison with the other compilers is unchanged: 20 of 20 rows warm, 19 of 20 first-process, the exception being `tmt-scripts.js` first at 1.07 times. Two synthetic rows of very small inputs are slower than before (`synthetic` +8.1 percent, `enum` +6.4 percent) and have not been explained.
+
+#### Test262
+
+`test/language` and `test/built-ins/RegExp`, 47,743 compared units of file and mode, executed in a container without network: 44,407 units behave as the original when compiled as JavaScript and 44,333 when compiled as TypeScript. The 962 that differ are the ones that differed before, non-strict scripts that TypeScript also publishes with the strict directive. The native route now answers for 14,216 of the units compiled as TypeScript, up from 12,534.
+
+#### Why the remaining files of TypeScript's suites leave the native route
+
+A sample of 400 of the 4,269 files that still take the TypeScript route without diagnostics, reduced and classified (counts extrapolated from the sample):
+
+| Cause | Estimated files | |
+| --- | ---: | --- |
+| Programs TypeScript parses that are not valid JavaScript (`break` outside a loop, strict-mode violations) | 961 | stay declined |
+| A name declared twice (import and declaration, two constants) | 458 | stay declined |
+| Ambient modules and namespaces with value members | 288 | open |
+| `var` declared again at the top level | 245 | done |
+| `var` directly inside a namespace | 192 | open |
+| A class inside a namespace of a script | 181 | open |
+| `var` below the top level | 149 | done |
+| `export =` beyond the simple form | 149 | open |
+| `// @jsx` directives, triple-slash directives, decorators in scripts | about 110 each | open |

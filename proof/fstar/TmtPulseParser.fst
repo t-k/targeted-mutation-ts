@@ -4031,9 +4031,10 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
   let! kind = (fun () -> statement_kind input state.offset) in
   if state.status <> 0ul then ret input ({ state; used })
   else if kind = 0ul then
-    // Outside functions a var is taken in a module only: its names are entered among the module's at the end.
+    // Outside functions a var is taken in a module, where its names are entered among the module's at the end,
+    // and in a script that the compiler publishes, which V8 checks.
     let typed_local = in_function && strict_locals state in
-    let local_var = typed_local || (state.module_mode && state.super_context = NoSuper) in
+    let local_var = typed_local || ((state.module_mode || (state.strict_script && input.capture_types)) && state.super_context = NoSuper) in
     let! first = (fun () -> peek input state.offset) in
     let! type_width = (fun () -> if typed_local && (first = 116uy || first = 105uy) then type_declaration_width input state.offset
       else ret input 0ul) in
@@ -4087,7 +4088,7 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
     else
       let! result =
         (fun () -> if kind = 4ul then
-          let! tested = (fun () -> for_header input { state with offset = plus state.offset 3ul } allow_var ((in_function && strict_locals state) || (state.module_mode && state.super_context = NoSuper)) fuel) in
+          let! tested = (fun () -> for_header input { state with offset = plus state.offset 3ul } allow_var ((in_function && strict_locals state) || ((state.module_mode || (state.strict_script && input.capture_types)) && state.super_context = NoSuper)) fuel) in
           let! body = (fun () -> control_body input tested inner in_function (loop_jumps jumps) tested.local_names tested.local_names) in
           finish_local_scope input { body.state with local_names = state.local_names } state.local_log_used
         else if kind = 5ul then
