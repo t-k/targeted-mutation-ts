@@ -36,7 +36,8 @@ export function snapshotVitestRun(root, modules, unhandled, reason) {
       });
     }
   }
-  return { tests, modules: files, errors: errors.map(error => error.message), moduleErrors: moduleErrors.map(error => error.message), reason };
+  const timeout = tests.some(test => test.timeout) || errors.some(error => vitestTimeoutMessage.test(error.message ?? ''));
+  return { tests, modules: files, errors: errors.map(error => error.message), moduleErrors: moduleErrors.map(error => error.message), timeout, reason };
 }
 
 // How long each test and each test file's collection took, for ordering later work by cost.

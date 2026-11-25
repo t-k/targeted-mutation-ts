@@ -1,10 +1,10 @@
-import { appendFileSync, closeSync, existsSync, openSync, readFileSync, readSync, realpathSync, rmSync } from 'node:fs';
+import { appendFileSync, closeSync, existsSync, openSync, readFileSync, readSync, rmSync } from 'node:fs';
 import { createRequire, enableCompileCache } from 'node:module';
 import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { failedTests, snapshotVitestRun, timeVitestRun } from './vitest-reporter.mjs';
 import { changedReach, indexAgreement, indexCoverage, indexReach, reachOfRecords, assessTrial, cheapestFirst, openReasons, planInThread, sampleSettled, settleInThread, sharePlans, unanswered, withoutMutations } from './standard-plan.mjs';
-import { classifyVitestSessionSupport, inside } from './vitest.mjs';
+import { classifyVitestSessionSupport, disableProjectFsModuleCache, inside, resolveVitestRunnerEntry, vitestServerCacheOptions } from './vitest.mjs';
 
 // Vitest and Vite are loaded on every run. Node keeps their compiled code between runs when it can.
 try { enableCompileCache?.(); } catch { /* The cache is an optimisation only. */ }
@@ -184,15 +184,10 @@ try {
   const version = require('vitest/package.json').version;
   const versionSupport = classifyVitestSessionSupport(version);
   if (!versionSupport.supported) throw new Error(versionSupport.reason);
+  const vitestMajor = Number.parseInt(version.split('.')[0], 10);
+  const fsModuleCacheDir = resolve(temporary, 'vitest-fs-cache');
   supportsIds = versionSupport.supportsIds;
-  const vitestRequire = createRequire(vitestPkgPath);
-  let runnerResolved;
-  try {
-    runnerResolved = vitestRequire.resolve('@vitest/runner');
-  } catch {
-    runnerResolved = vitestRequire.resolve('vitest/internal/browser');
-  }
-  runnerEntry = pathToFileURL(realpathSync(runnerResolved)).href;
+  runnerEntry = resolveVitestRunnerEntry(vitestPkgPath);
   // Test files run beside each other when the project allows it: each has its own worker, and its coverage and
   // its mutations are kept per file.
   const oneByOne = { maxWorkers: 1, fileParallelism: false };
@@ -206,7 +201,8 @@ try {
   createContext = async lane => {
     const workers = resolveWorkers(lane);
     const created = await createVitest('test', {
-      root: workspace, config, watch: false, api: false, ui: false, cache: false, fsModuleCache: false,
+      root: workspace, config, watch: false, api: false, ui: false,
+      ...vitestServerCacheOptions(vitestMajor, fsModuleCacheDir),
       pool: 'threads', isolate: true, maxConcurrency: 1, ...workers,
       coverage: { enabled: false }, onConsoleLog: () => false, bail: 1,
       reporters: [{ onTestRunEnd(modules, errors, reason) {
@@ -223,7 +219,8 @@ try {
     }
     for (const project of created.projects) {
       Object.assign(project.config, { setupFiles: [setup, ...project.config.setupFiles],
-        runner: workerRunner, pool: 'threads', isolate: true, maxConcurrency: 1, ...workers, bail: 1, fsModuleCache: false });
+        runner: workerRunner, pool: 'threads', isolate: true, maxConcurrency: 1, ...workers, bail: 1 });
+      disableProjectFsModuleCache(vitestMajor, project.config);
     }
     return created;
   };

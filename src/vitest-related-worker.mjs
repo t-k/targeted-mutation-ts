@@ -2,12 +2,13 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { inside, runnerPackage } from './vitest.mjs';
+import { disableProjectFsModuleCache, inside, runnerPackage, vitestMajorVersion, vitestServerCacheOptions } from './vitest.mjs';
 
 const input = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const { workspace, config, targets, output } = input;
 
 const manifest = runnerPackage(workspace, 'vitest');
+const vitestMajor = vitestMajorVersion(manifest);
 const vitestNode = createRequire(manifest).resolve('vitest/node');
 const { createVitest } = await import(pathToFileURL(vitestNode).href);
 
@@ -17,12 +18,11 @@ const vitest = await createVitest('test', {
   watch: false,
   api: false,
   ui: false,
-  cache: false,
-  fsModuleCache: false,
+  ...vitestServerCacheOptions(vitestMajor, process.env.VITEST_FS_MODULE_CACHE_PATH),
   related: targets.map(file => inside(workspace, file)),
 });
 for (const project of vitest.projects ?? []) {
-  project.config.fsModuleCache = false;
+  disableProjectFsModuleCache(vitestMajor, project.config);
 }
 
 let specs;

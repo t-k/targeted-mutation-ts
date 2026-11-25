@@ -417,25 +417,82 @@ export function vitestMajorVersion(manifestPath) {
   return Number.parseInt(version.split('.')[0], 10);
 }
 
-export function vitestCacheCliArgs(major) {
-  return major >= 5 ? ['--no-cache', '--no-fsModuleCache'] : ['--no-cache'];
+export function vitestCacheCliArgs(major, fsModuleCacheDir) {
+  if (major >= 5) {
+    return [
+      '--no-cache',
+      '--no-fsModuleCache',
+      ...(fsModuleCacheDir ? [`--fsModuleCachePath=${fsModuleCacheDir}`] : []),
+    ];
+  }
+  if (major === 4) {
+    return [
+      '--no-cache',
+      '--experimental.fsModuleCache=false',
+      ...(fsModuleCacheDir ? [`--experimental.fsModuleCachePath=${fsModuleCacheDir}`] : []),
+    ];
+  }
+  return ['--no-cache'];
 }
 
-export function classifyVitestSessionSupport(version, projectConfigs = []) {
+export function vitestServerCacheOptions(major, fsModuleCacheDir) {
+  if (major >= 5) {
+    return {
+      cache: false,
+      fsModuleCache: false,
+      ...(fsModuleCacheDir ? { fsModuleCachePath: fsModuleCacheDir } : {}),
+    };
+  }
+  if (major === 4) {
+    return {
+      cache: false,
+      experimental: {
+        fsModuleCache: false,
+        ...(fsModuleCacheDir ? { fsModuleCachePath: fsModuleCacheDir } : {}),
+      },
+    };
+  }
+  return { cache: false };
+}
+
+export function disableProjectFsModuleCache(major, projectConfig) {
+  if (!projectConfig) return;
+  if (major >= 5) projectConfig.fsModuleCache = false;
+  else if (major === 4 && projectConfig.experimental) projectConfig.experimental.fsModuleCache = false;
+}
+
+export function resolveVitestRunnerEntry(vitestManifestPath) {
+  const version = JSON.parse(readFileSync(vitestManifestPath, 'utf8')).version ?? '';
+  const vitestRequire = createRequire(vitestManifestPath);
+  const resolved = version.startsWith('4.')
+    ? vitestRequire.resolve('@vitest/runner')
+    : vitestRequire.resolve('vitest/internal/browser');
+  return pathToFileURL(realpathSync(resolved)).href;
+}
+
+export function classifyVitestSessionSupport(version, projectConfigs = [], { allowGlobalSetup = true, rootGlobalSetup } = {}) {
   if (typeof version !== 'string' || !/^[45]\./.test(version)) {
     return { supported: false, supportsIds: false, reason: `The Vitest session requires Vitest 4 or 5, found ${version}` };
+  }
+  const supportsIds = !version.startsWith('4.0.');
+  if (!allowGlobalSetup && (rootGlobalSetup?.length || projectConfigs.some(config => config?.globalSetup?.length))) {
+    return {
+      supported: false,
+      supportsIds,
+      reason: 'Warm Vitest session does not support globalSetup',
+    };
   }
   for (const config of projectConfigs) {
     if (config?.browser?.enabled || config?.typecheck?.enabled || config?.runner ||
         config?.experimental?.viteModuleRunner === false) {
       return {
         supported: false,
-        supportsIds: !version.startsWith('4.0.'),
+        supportsIds,
         reason: 'The Vitest session requires the default Vitest runner with the Vite module runner and without browser mode or type checking',
       };
     }
   }
-  return { supported: true, supportsIds: !version.startsWith('4.0.'), reason: null };
+  return { supported: true, supportsIds, reason: null };
 }
 
 // How one Vitest run is started, shared by the blocking and the concurrent form.
@@ -454,7 +511,7 @@ function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects
   const workerArgs = workers > 1
     ? [`--maxWorkers=${workers}`, '--maxConcurrency=1']
     : ['--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism'];
-  const cacheArgs = vitestCacheCliArgs(vitestMajor);
+  const cacheArgs = vitestCacheCliArgs(vitestMajor, fsModuleCacheDir);
   return { report, testsToRun, product, args: [
     supervisor, resolve(temp, 'vitest.pid'), String(timeout),
     vitest, 'run', ...workerArgs, ...cacheArgs,
@@ -495,7 +552,7 @@ function vitestOutcome(root, { report, testsToRun, product }, result) {
     }
     const failed = data.tests.filter(test => test.status === 'failed');
     const complete = data.reason === 'passed' || data.reason === 'failed';
-    const status = failed.some(test => test.timeout) ? 'timeout'
+    const status = (data.timeout || failed.some(test => test.timeout)) ? 'timeout'
       : !complete || data.errors.length ? 'error'
         : result.status === 1 && failed.length ? 'failed'
           : result.status === 0 && data.tests.some(test => test.status === 'passed') && !failed.length ? 'passed' : 'error';

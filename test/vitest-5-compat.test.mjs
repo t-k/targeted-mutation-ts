@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -12,12 +12,14 @@ const cli = fileURLToPath(new URL('../bin/tmt.mjs', import.meta.url));
 const assertionSessionScript = fileURLToPath(new URL('../src/assertion-session.mjs', import.meta.url));
 const pictRows = readFileSync(new URL('../verification/pict/vitest-version-compat.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1).map(row => row.split('\t'));
-const repoNodeModules = fileURLToPath(new URL('../../../node_modules', import.meta.url));
+const localRequire = createRequire(import.meta.url);
+const installedVitestPkg = localRequire.resolve('vitest/package.json');
+const installedModulesDir = resolve(dirname(installedVitestPkg), '..');
 const vitest5Modules = process.env.TMT_VITEST5_NODE_MODULES ? resolve(process.env.TMT_VITEST5_NODE_MODULES) : null;
 
 function activeModulesList() {
-  const list = [{ label: 'installed-vitest', modulesDir: existsSync(repoNodeModules) ? repoNodeModules : resolve('node_modules') }];
-  if (vitest5Modules && existsSync(vitest5Modules)) {
+  const list = [{ label: 'installed-vitest', modulesDir: installedModulesDir }];
+  if (vitest5Modules && existsSync(vitest5Modules) && vitest5Modules !== installedModulesDir) {
     list.push({ label: 'vitest-5', modulesDir: vitest5Modules });
   }
   return list;
@@ -28,13 +30,26 @@ function vitestVersionOf(modulesDir) {
   return req('./vitest/package.json').version;
 }
 
+function fsCacheConfigSnippet(version, extra = '') {
+  const prefix = extra ? `${extra}, ` : '';
+  return version.startsWith('5.')
+    ? `export default { test: { ${prefix}fsModuleCache: true } };\n`
+    : `export default { test: { ${prefix}experimental: { fsModuleCache: true } } };\n`;
+}
+
+function assertNoFsCacheCreated(root, modulesDir, beforeFlags) {
+  assert.equal(existsSync(join(root, 'node_modules', '.vitest-cache')), false);
+  assert.equal(existsSync(join(root, 'node_modules', '.experimental-vitest-cache')), false);
+  if (!beforeFlags.v5) assert.equal(existsSync(join(modulesDir, '.vitest-cache')), false);
+  if (!beforeFlags.v4) assert.equal(existsSync(join(modulesDir, '.experimental-vitest-cache')), false);
+}
+
 function withVitestProject(modulesDir, files, action) {
   const root = mkdtempSync(join(tmpdir(), 'tmt-vitest-compat-'));
   const cleanup = () => rmSync(root, { recursive: true, force: true });
   let pending = false;
   try {
     mkdirSync(join(root, 'node_modules'), { recursive: true });
-    // Link packages individually so we can verify Vitest never creates `node_modules/.vitest-cache` inside `root` or `modulesDir`.
     for (const name of ['vitest', 'vite', '@vitest']) {
       if (existsSync(join(modulesDir, name))) {
         symlinkSync(join(modulesDir, name), join(root, 'node_modules', name), 'dir');
@@ -56,12 +71,13 @@ for (const { label, modulesDir } of activeModulesList()) {
   const version = vitestVersionOf(modulesDir);
 
   test(`[${label} v${version}] observes comparisons in ESM and CommonJS under --audit without polluting fsModuleCache`, () => {
-    const cacheBeforeInShared = existsSync(join(modulesDir, '.vitest-cache'));
+    const beforeFlags = {
+      v5: existsSync(join(modulesDir, '.vitest-cache')),
+      v4: existsSync(join(modulesDir, '.experimental-vitest-cache')),
+    };
     withVitestProject(modulesDir, {
       'package.json': JSON.stringify({ name: 'compat-probe', type: 'module' }),
-      'vitest.config.mjs': version.startsWith('5.')
-        ? 'export default { test: { fsModuleCache: true } };\n'
-        : 'export default {};\n',
+      'vitest.config.mjs': fsCacheConfigSnippet(version),
       'src/age.ts': 'export const isAdult = (age: number) => age >= 18;\n',
       'src/legacy.cjs': '"use strict";\nmodule.exports = value => value >= 10;\n',
       'test/age.test.ts': [
@@ -81,34 +97,29 @@ for (const { label, modulesDir } of activeModulesList()) {
       assert.equal(report.evaluation, 'evaluated');
       assert.equal(report.instrumented.status, 'passed');
       assert.equal(report.instrumented.stable, true);
-      // Threshold synthesis requires recorded safe-integer operands on `age >= 18`:
       const thresholdMutant = report.mutants.find(m => m.location.file === 'src/age.ts' && m.rule === 'comparison-threshold/v1');
       assert.ok(thresholdMutant, 'expected synthesized comparison-threshold/v1 mutant');
       assert.equal(thresholdMutant.status, 'survived');
       assert.equal(thresholdMutant.evidence, 'predicted');
       assert.equal(thresholdMutant.audit.status, 'agreed');
-      // CommonJS probe observation: `legacy(10)` hits boundary `10 >= 10`, leaving lower side `9` open:
       const cjsBoundary = report.mutants.find(m => m.location.file === 'src/legacy.cjs' && m.rule === 'comparison-boundary/v1');
       assert.equal(cjsBoundary.status, 'killed');
       assert.equal(cjsBoundary.audit.status, 'agreed');
       const cjsThreshold = report.mutants.find(m => m.location.file === 'src/legacy.cjs' && m.rule === 'comparison-threshold/v1');
       assert.ok(cjsThreshold, 'expected CommonJS threshold mutant');
       assert.equal(cjsThreshold.status, 'survived');
-      // Verify `node_modules/.vitest-cache` was never created in the project or shared modulesDir:
-      assert.equal(existsSync(join(root, 'node_modules', '.vitest-cache')), false);
-      if (!cacheBeforeInShared) {
-        assert.equal(existsSync(join(modulesDir, '.vitest-cache')), false);
-      }
+      assertNoFsCacheCreated(root, modulesDir, beforeFlags);
     });
   });
 
   test(`[${label} v${version}] runs in-worker switched session matching isolated trials with worker hazards and fsModuleCache isolation`, () => {
-    const cacheBeforeInShared = existsSync(join(modulesDir, '.vitest-cache'));
+    const beforeFlags = {
+      v5: existsSync(join(modulesDir, '.vitest-cache')),
+      v4: existsSync(join(modulesDir, '.experimental-vitest-cache')),
+    };
     withVitestProject(modulesDir, {
       'package.json': JSON.stringify({ name: 'compat-session', type: 'module' }),
-      'vitest.config.mjs': version.startsWith('5.')
-        ? 'export default { test: { testTimeout: 250, hookTimeout: 250, fsModuleCache: true } };\n'
-        : 'export default { test: { testTimeout: 250, hookTimeout: 250 } };\n',
+      'vitest.config.mjs': fsCacheConfigSnippet(version, 'testTimeout: 250, hookTimeout: 250'),
       'src/subject.ts': [
         'export const fee = (cents: number, rate: number) => cents * rate;',
         'export const fallback = (count?: number | null) => count ?? 10;',
@@ -163,7 +174,6 @@ for (const { label, modulesDir } of activeModulesList()) {
       for (const [key, mutant] of byKey(sharedReport)) {
         assert.equal(mutant.status, expected.get(key)?.status, `verdict mismatch for ${key}`);
       }
-      // Value-aware INPUT GAP, ASSERTION GAP, and variable-RHS margin synthesis all work in session mode:
       assert.ok(sharedReport.diagnostics.some(d => d.kind === 'ASSERTION GAP' && d.rule === 'arithmetic-swap/v1'));
       assert.ok(sharedReport.diagnostics.some(d => d.kind === 'INPUT GAP' && d.rule === 'nullish-fallback/v1'));
       assert.ok(sharedReport.diagnostics.some(d => d.kind === 'INPUT GAP' && d.rule === 'comparison-margin/v1'));
@@ -171,15 +181,12 @@ for (const { label, modulesDir } of activeModulesList()) {
       for (const reason of ['control-differs', 'unhandled-error', 'tests-changed']) {
         assert.ok(reasons.has(reason), `missing fallback ${reason} in ${[...reasons].join(',')}`);
       }
-      assert.equal(existsSync(join(root, 'node_modules', '.vitest-cache')), false);
-      if (!cacheBeforeInShared) {
-        assert.equal(existsSync(join(modulesDir, '.vitest-cache')), false);
-      }
+      assertNoFsCacheCreated(root, modulesDir, beforeFlags);
     });
   });
 
   if (version.startsWith('5.')) {
-    test(`[${label} v${version}] falls back safely to source-rewrite when experimental.viteModuleRunner is false and classifies aroundEach timeouts`, () => {
+    test(`[${label} v${version}] falls back on viteModuleRunner:false, ignores hoisted @vitest/runner 4.x, and classifies aroundEach/aroundAll timeouts`, () => {
       withVitestProject(modulesDir, {
         'package.json': JSON.stringify({ name: 'compat-native-esm', type: 'module' }),
         'vitest.config.mjs': 'export default { test: { hookTimeout: 150, experimental: { viteModuleRunner: false } } };\n',
@@ -200,40 +207,67 @@ for (const { label, modulesDir } of activeModulesList()) {
         assert.ok(report.mutants.some(m => m.status === 'killed'));
       });
 
+      // Coexisting foreign `@vitest/runner` 4.x in the dependency tree must never be imported by Vitest 5:
       withVitestProject(modulesDir, {
-        'package.json': JSON.stringify({ name: 'compat-around-timeout', type: 'module' }),
+        'package.json': JSON.stringify({ name: 'compat-foreign-runner-4', type: 'module' }),
+        'node_modules/@vitest/runner/package.json': JSON.stringify({ name: '@vitest/runner', version: '4.0.18', type: 'module', exports: './index.js' }),
+        'node_modules/@vitest/runner/index.js': "throw new Error('Loaded foreign @vitest/runner 4.x under Vitest 5');\n",
+        'src/gate.ts': [
+          'export function allowEach(ok: boolean) { if (ok) return true; return false; }',
+          'export function allowAllSetup(ok: boolean) { if (ok) return true; return false; }',
+          'export function allowAllTeardown(ok: boolean) { if (ok) return true; return false; }',
+        ].join('\n') + '\n',
         'vitest.config.mjs': 'export default { test: { hookTimeout: 150 } };\n',
-        'src/gate.ts': 'export function shouldProceed(ok: boolean) { if (ok) return true; return false; }\n',
         'test/gate.test.ts': [
-          "import { aroundEach, expect, it } from 'vitest';",
-          "import { shouldProceed } from '../src/gate';",
-          "aroundEach(async runTest => {",
-          "  if (!shouldProceed(true)) await new Promise(() => {});",
-          "  await runTest();",
+          "import { aroundAll, aroundEach, describe, expect, it } from 'vitest';",
+          "import { allowAllSetup, allowAllTeardown, allowEach } from '../src/gate';",
+          "aroundAll(async runSuite => {",
+          "  if (!allowAllSetup(true)) await new Promise(() => {});",
+          "  await runSuite();",
           "});",
-          "it('runs under aroundEach', () => expect(shouldProceed(true)).toBe(true));",
+          "describe('nested aroundAll teardown', () => {",
+          "  aroundAll(async runSuite => {",
+          "    await runSuite();",
+          "    if (!allowAllTeardown(true)) await new Promise(() => {});",
+          "  });",
+          "  aroundEach(async runTest => {",
+          "    if (!allowEach(true)) await new Promise(() => {});",
+          "    await runTest();",
+          "  });",
+          "  it('runs under aroundAll and aroundEach', () => {",
+          "    expect(allowEach(true)).toBe(true);",
+          "    expect(allowAllSetup(true)).toBe(true);",
+          "    expect(allowAllTeardown(true)).toBe(true);",
+          "  });",
+          "});",
         ].join('\n') + '\n',
       }, root => {
-        const run = spawnSync(process.execPath, [
-          cli, 'analyze', root, 'src/gate.ts', '--mutators', 'full', '--format', 'json',
-        ], { encoding: 'utf8', timeout: 60_000 });
-        assert.equal(run.status, 0, run.stderr + run.stdout);
-        const report = JSON.parse(run.stdout);
-        assert.equal(report.evaluation, 'evaluated');
-        assert.equal(report.operatorExecution, 'session');
-        const falseMutant = report.mutants.find(m => m.original === 'ok' && m.replacement === 'false');
-        assert.equal(falseMutant?.status, 'timeout');
+        for (const extraFlags of [[], ['--isolated-trials']]) {
+          const run = spawnSync(process.execPath, [
+            cli, 'analyze', root, 'src/gate.ts', '--mutators', 'full', '--timeout', '5', '--format', 'json', ...extraFlags,
+          ], { encoding: 'utf8', timeout: 60_000 });
+          assert.equal(run.status, 0, run.stderr + run.stdout);
+          const report = JSON.parse(run.stdout);
+          assert.equal(report.evaluation, 'evaluated');
+          assert.equal(report.operatorExecution, 'session');
+          const condFalseMutants = report.mutants.filter(m => m.original === 'ok' && m.replacement === 'false');
+          assert.equal(condFalseMutants.length, 3);
+          for (const mutant of condFalseMutants) {
+            assert.equal(mutant.status, 'timeout', `expected timeout for line ${mutant.location.line} (${extraFlags.join(' ') || 'in-worker'}): ${JSON.stringify(mutant)}`);
+          }
+        }
       });
     });
   }
 
-  test(`[${label} v${version}] runs warm assertion-session IPC and --related --suggest-assertions without cache pollution`, async () => {
-    const cacheBeforeInShared = existsSync(join(modulesDir, '.vitest-cache'));
+  test(`[${label} v${version}] runs warm assertion-session IPC, globalSetup fallback, and --related --suggest-assertions without cache pollution`, async () => {
+    const beforeFlags = {
+      v5: existsSync(join(modulesDir, '.vitest-cache')),
+      v4: existsSync(join(modulesDir, '.experimental-vitest-cache')),
+    };
     await withVitestProject(modulesDir, {
       'package.json': JSON.stringify({ name: 'compat-warm-related', type: 'module' }),
-      'vitest.config.mjs': version.startsWith('5.')
-        ? 'export default { test: { fsModuleCache: true } };\n'
-        : 'export default {};\n',
+      'vitest.config.mjs': fsCacheConfigSnippet(version),
       'src/fees.ts': [
         'export const fee = (cents: number, rate: number) => cents * rate;',
         'export function syncStore(store: { dirty: boolean }, changed: boolean, ready: boolean) { if (changed && ready) store.dirty = true; }',
@@ -251,8 +285,6 @@ for (const { label, modulesDir } of activeModulesList()) {
       ].join('\n') + '\n',
       'test/unrelated.test.ts': "import { expect, it } from 'vitest';\nit('unrelated broken test', () => expect(1).toBe(2));\n",
     }, async root => {
-      // 1. Verify the warm assertion-session child process actually boots (`ready: true`) on both Vitest 4 and 5,
-      //    and invalidates edited + restored modules across back-to-back runs in the same warm worker:
       const subjectContent = readFileSync(join(root, 'src/fees.ts'));
       const subjectDigest = createHash('sha256').update(subjectContent).digest('hex');
       const child = spawn(process.execPath, [assertionSessionScript, root, 'vitest.config.mjs'], {
@@ -267,11 +299,12 @@ for (const { label, modulesDir } of activeModulesList()) {
       });
       const exited = new Promise(resolveExit => child.once('exit', resolveExit));
       const messages = [];
-      const nextMessage = () => new Promise((resolveMsg, rejectMsg) => {
+      const nextMessage = (timeoutMs = 15_000) => new Promise((resolveMsg, rejectMsg) => {
         if (messages.length) return resolveMsg(messages.shift());
+        const timer = setTimeout(() => { cleanup(); rejectMsg(new Error('Timed out waiting for warm session IPC message')); }, timeoutMs);
         const onMsg = msg => { cleanup(); resolveMsg(msg); };
         const onExit = code => { cleanup(); rejectMsg(new Error(`warm session exited early (${code})`)); };
-        const cleanup = () => { child.off('message', onMsg); child.off('exit', onExit); };
+        const cleanup = () => { clearTimeout(timer); child.off('message', onMsg); child.off('exit', onExit); };
         child.on('message', onMsg);
         child.on('exit', onExit);
       });
@@ -305,20 +338,22 @@ for (const { label, modulesDir } of activeModulesList()) {
         messages.length = 0;
         assert.equal(editedReply.collected.trim(), '203');
 
-        // Re-running without `trial` must observe the restored `600`, never a cached `203`:
         child.send({ id: 3, testFile: 'test/fees.test.ts', rewriteContent: rewriteTest, collect: '.collect.jsonl' });
         const restoredReply = await nextMessage();
         messages.length = 0;
         assert.equal(restoredReply.collected.trim(), '600');
       } finally {
         if (child.connected) child.send({ close: true });
-        if (child.exitCode === null && child.signalCode === null) await exited;
+        if (child.exitCode === null && child.signalCode === null) {
+          await Promise.race([
+            exited,
+            new Promise((_, rejectWait) => setTimeout(() => { child.kill('SIGKILL'); rejectWait(new Error('Timed out closing warm session')); }, 10_000)),
+          ]);
+        }
         rmSync(join(root, '.tmp-vite'), { recursive: true, force: true });
         rmSync(join(root, '.tmp-fs-cache'), { recursive: true, force: true });
       }
 
-      // 2. Verify end-to-end CLI `--related --suggest-assertions` bypasses `unrelated.test.ts`,
-      //    produces concrete assertions for both Pass 1 and Pass 2, and leaves no `.vitest-cache`:
       const run = spawnSync(process.execPath, [
         cli, 'analyze', root, 'src/fees.ts', '--related', '--suggest-assertions', '--format', 'json',
       ], { encoding: 'utf8', timeout: 60_000 });
@@ -329,49 +364,146 @@ for (const { label, modulesDir } of activeModulesList()) {
       const suggested = report.diagnostics.map(d => d.suggestedTest).filter(Boolean);
       assert.ok(suggested.includes('expect(fee(200, 3)).toBe(600)'), JSON.stringify(suggested));
       assert.ok(suggested.includes('expect(store.dirty).toBe(false)'), JSON.stringify(suggested));
-      assert.equal(existsSync(join(root, 'node_modules', '.vitest-cache')), false);
-      if (!cacheBeforeInShared) {
-        assert.equal(existsSync(join(modulesDir, '.vitest-cache')), false);
-      }
+      assertNoFsCacheCreated(root, modulesDir, beforeFlags);
+    });
+
+    // Projects with `globalSetup` must decline the warm assertion session so `globalSetup` re-runs per edited trial:
+    await withVitestProject(modulesDir, {
+      'package.json': JSON.stringify({ name: 'compat-global-setup', type: 'module' }),
+      'global-setup.mjs': [
+        "import { computeSeed } from './src/seed.mjs';",
+        "export default function setup(project) { project.provide('seedValue', computeSeed(200, 3)); }",
+      ].join('\n') + '\n',
+      'vitest.config.mjs': "export default { test: { globalSetup: ['./global-setup.mjs'] } };\n",
+      'src/seed.mjs': 'export const computeSeed = (a, b) => a * b;\n',
+      'test/seed.test.ts': [
+        "import { expect, inject, it } from 'vitest';",
+        "import { computeSeed } from '../src/seed.mjs';",
+        "it('reads globalSetup seed and calls computeSeed weakly', () => {",
+        "  expect(computeSeed(200, 3)).toBeGreaterThan(0);",
+        "  const provided = inject('seedValue');",
+        "  expect(provided).toBeGreaterThan(0);",
+        "});",
+      ].join('\n') + '\n',
+    }, async root => {
+      const run = spawnSync(process.execPath, [
+        cli, 'analyze', root, 'src/seed.mjs', '--suggest-assertions', '--format', 'json',
+      ], { encoding: 'utf8', timeout: 60_000 });
+      assert.equal(run.status, 0, run.stderr + run.stdout);
+      const report = JSON.parse(run.stdout);
+      assert.equal(report.evaluation, 'evaluated');
+      const suggested = report.diagnostics.map(d => d.suggestedTest).filter(Boolean);
+      // Weak `expect(provided).toBeGreaterThan(0)` (or `computeSeed(200, 3)`) is evaluated in fresh runs with re-run globalSetup:
+      assert.ok(
+        suggested.includes('expect(provided).toBe(600)') || suggested.includes('expect(computeSeed(200, 3)).toBe(600)'),
+        JSON.stringify(suggested),
+      );
+      // Directly confirm warm session declines `globalSetup`:
+      const child = spawn(process.execPath, [assertionSessionScript, root, 'vitest.config.mjs'], {
+        cwd: root,
+        stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      });
+      const exited = new Promise(resolveExit => child.once('exit', resolveExit));
+      const boot = await new Promise((resolveMsg, rejectMsg) => {
+        const timer = setTimeout(() => rejectMsg(new Error('Timed out waiting for globalSetup boot reply')), 15_000);
+        child.once('message', msg => { clearTimeout(timer); resolveMsg(msg); });
+      });
+      assert.equal(boot.ready, false);
+      assert.match(boot.reason, /globalSetup/);
+      if (child.exitCode === null && child.signalCode === null) await exited;
     });
   });
 }
 
-test('PICT vitest-version-compat matrix covers all 30 version, mode, config, and module-format combinations', async () => {
-  const { classifyVitestSessionSupport, vitestCacheCliArgs } = await import('../src/vitest.mjs');
+test('PICT vitest-version-compat policy matrix covers all 30 version, mode, config, and module-format rows', async () => {
+  const {
+    classifyVitestSessionSupport,
+    disableProjectFsModuleCache,
+    resolveVitestRunnerEntry,
+    vitestCacheCliArgs,
+    vitestServerCacheOptions,
+  } = await import('../src/vitest.mjs');
   assert.equal(pictRows.length, 30);
+  const probeSource = readFileSync(new URL('../src/probe-runtime.mjs', import.meta.url), 'utf8');
   const versionMap = { v3_2: '3.2.4', v4_0: '4.0.18', v4_1: '4.1.12', v5_1: '5.1.2' };
-  for (const [verToken, mode, configKind, moduleFormat] of pictRows) {
-    const version = versionMap[verToken];
-    const projectConfig = {
-      browser: { enabled: configKind === 'BrowserEnabled' },
-      typecheck: { enabled: false },
-      runner: configKind === 'CustomRunner' ? './custom-runner.mjs' : undefined,
-      fsModuleCache: configKind === 'FsModuleCacheTrue' ? true : undefined,
-      experimental: configKind === 'ViteModuleRunnerFalse' ? { viteModuleRunner: false } : {},
-    };
-    const support = classifyVitestSessionSupport(version, [projectConfig]);
-    const major = Number.parseInt(version.split('.')[0], 10);
-    const cacheArgs = vitestCacheCliArgs(major);
 
-    if (verToken === 'v3_2') {
-      assert.equal(support.supported, false);
-      assert.match(support.reason, /Vitest 4 or 5/);
-      assert.deepEqual(cacheArgs, ['--no-cache']);
-    } else {
-      const configBlocksSession = ['BrowserEnabled', 'CustomRunner', 'ViteModuleRunnerFalse'].includes(configKind);
-      assert.equal(support.supported, !configBlocksSession, `${verToken}/${mode}/${configKind}/${moduleFormat}`);
-      assert.equal(support.supportsIds, verToken !== 'v4_0');
-      if (verToken === 'v5_1') {
-        assert.deepEqual(cacheArgs, ['--no-cache', '--no-fsModuleCache']);
-      } else {
+  const synthRoot = mkdtempSync(join(tmpdir(), 'tmt-pict-runner-'));
+  try {
+    // Synthetic tree with a hoisted foreign `@vitest/runner` 4.0.18 above both a v4 and v5 package:
+    mkdirSync(join(synthRoot, 'node_modules/@vitest/runner'), { recursive: true });
+    writeFileSync(join(synthRoot, 'node_modules/@vitest/runner/package.json'), JSON.stringify({ name: '@vitest/runner', version: '4.0.18', main: 'v4-runner.js' }));
+    writeFileSync(join(synthRoot, 'node_modules/@vitest/runner/v4-runner.js'), 'export {};\n');
+
+    for (const [verToken, mode, configKind, moduleFormat] of pictRows) {
+      const version = versionMap[verToken];
+      const major = Number.parseInt(version.split('.')[0], 10);
+      const projectConfig = {
+        browser: { enabled: configKind === 'BrowserEnabled' },
+        typecheck: { enabled: false },
+        runner: configKind === 'CustomRunner' ? './custom-runner.mjs' : undefined,
+        fsModuleCache: configKind === 'FsModuleCacheTrue' && major >= 5 ? true : undefined,
+        experimental: {
+          ...(configKind === 'ViteModuleRunnerFalse' ? { viteModuleRunner: false } : {}),
+          ...(configKind === 'FsModuleCacheTrue' && major === 4 ? { fsModuleCache: true } : {}),
+        },
+      };
+      const support = classifyVitestSessionSupport(version, [projectConfig], {
+        allowGlobalSetup: mode !== 'SuggestAssertionsWarm',
+      });
+      const cacheArgs = vitestCacheCliArgs(major, '/tmp/tmt-cache');
+      const serverCache = vitestServerCacheOptions(major, '/tmp/tmt-cache');
+
+      if (verToken === 'v3_2') {
+        assert.equal(support.supported, false);
+        assert.match(support.reason, /Vitest 4 or 5/);
         assert.deepEqual(cacheArgs, ['--no-cache']);
+        assert.deepEqual(serverCache, { cache: false });
+      } else {
+        const configBlocksSession = ['BrowserEnabled', 'CustomRunner', 'ViteModuleRunnerFalse'].includes(configKind);
+        assert.equal(support.supported, !configBlocksSession, `${verToken}/${mode}/${configKind}/${moduleFormat}`);
+        assert.equal(support.supportsIds, verToken !== 'v4_0');
+
+        if (major >= 5) {
+          assert.deepEqual(cacheArgs, ['--no-cache', '--no-fsModuleCache', '--fsModuleCachePath=/tmp/tmt-cache']);
+          assert.deepEqual(serverCache, { cache: false, fsModuleCache: false, fsModuleCachePath: '/tmp/tmt-cache' });
+          disableProjectFsModuleCache(major, projectConfig);
+          assert.equal(projectConfig.fsModuleCache, false);
+        } else {
+          assert.deepEqual(cacheArgs, ['--no-cache', '--experimental.fsModuleCache=false', '--experimental.fsModuleCachePath=/tmp/tmt-cache']);
+          assert.deepEqual(serverCache, {
+            cache: false,
+            experimental: { fsModuleCache: false, fsModuleCachePath: '/tmp/tmt-cache' },
+          });
+          disableProjectFsModuleCache(major, projectConfig);
+          assert.equal(projectConfig.experimental.fsModuleCache, false);
+        }
+
+        // Verify major-version-specific runner entry resolution even when a hoisted v4 `@vitest/runner` coexists:
+        const pkgDir = join(synthRoot, 'packages', verToken, 'node_modules/vitest');
+        mkdirSync(join(pkgDir, 'dist'), { recursive: true });
+        writeFileSync(join(pkgDir, 'dist/browser.js'), 'export {};\n');
+        writeFileSync(join(pkgDir, 'package.json'), JSON.stringify({
+          name: 'vitest',
+          version,
+          exports: { './package.json': './package.json', './internal/browser': './dist/browser.js' },
+        }));
+        const entryHref = resolveVitestRunnerEntry(join(pkgDir, 'package.json'));
+        if (major === 4) assert.match(entryHref, /v4-runner\.js$/);
+        else assert.match(entryHref, /vitest\/dist\/browser\.js$/);
+      }
+
+      if (mode === 'SuggestAssertionsWarm' && verToken !== 'v3_2') {
+        const withGlobalSetup = classifyVitestSessionSupport(version, [{ ...projectConfig, globalSetup: ['./gs.mjs'] }], {
+          allowGlobalSetup: false,
+        });
+        assert.equal(withGlobalSetup.supported, false);
+      }
+
+      if (moduleFormat === 'CommonJS' && verToken !== 'v3_2') {
+        assert.doesNotMatch(probeSource, /\bawait\b/);
       }
     }
-    // CommonJS requires synchronous probe resolution without top-level await in all supported versions:
-    if (moduleFormat === 'CommonJS' && verToken !== 'v3_2') {
-      const probeSource = readFileSync(new URL('../src/probe-runtime.mjs', import.meta.url), 'utf8');
-      assert.doesNotMatch(probeSource, /\bawait\b/);
-    }
+  } finally {
+    rmSync(synthRoot, { recursive: true, force: true });
   }
 });

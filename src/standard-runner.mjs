@@ -40,7 +40,10 @@ function choose(suite, selected) {
 // `expected` holds the tests the baseline ran for this entry. A test outside it that ran, or one of them that is
 // no longer registered, means the file now holds different tests, which only a fresh run can judge.
 function summarize(suite, summary, expected) {
-  for (const error of suite.result?.errors ?? []) summary.errors.push(String(error.message ?? error));
+  for (const error of suite.result?.errors ?? []) {
+    if (timedOut(error)) summary.timeout = true;
+    else summary.errors.push(String(error.message ?? error));
+  }
   for (const task of suite.tasks) {
     if (task.type !== 'test') summarize(task, summary, expected);
     else if (expected.has(task.id)) summary.missing--;
