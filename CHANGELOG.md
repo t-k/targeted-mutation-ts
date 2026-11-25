@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.2
+
+- Include all `targeted` value-aware rules in `--mutators full` across Vitest sessions, `--list`, and source-rewrite runners (`--audit` / Playwright), lifting inner built-in expression switches outside observed probes so no live mutant is dropped when both sets coexist.
+- Recognize single-argument global `Boolean(expr)` calls as truthiness-only contexts in `onlyTruthUsed` (with shadowing detection for declarations, `import = require`, Unicode escapes, and assignments while ignoring type-only imports), preventing false `ASSERTION GAP` classifications on `Boolean(a || b)` when both operands are `undefined`.
+- Also exclude element accesses wrapped in erased TypeScript assertions (`satisfies`, `as`, `<T>`) when called or deleted so `sequence-end/v1` probes preserve `this` binding and `delete` semantics.
+- Guide users toward `--copy-exclude-gitignore` and `"copyExcludeGitignore": true` in both the large-copy warning and `--help`.
+
 ## 0.4.1
 
 - Reuse the temporary project copy created for `--related` discovery in the subsequent mutation analysis session instead of copying the project twice, with single-consumer ownership (`claim()`), workspace mutation detection (falling back to a fresh copy if Vitest config/plugins modify the workspace), and TLA+ lifecycle verification (`CopyReuseLifecycle.tla`).
