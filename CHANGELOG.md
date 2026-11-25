@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0
+
+- Enable `--type-check` automatically when a nearest or Project References `tsconfig.json` has `strictNullChecks` enabled, lazily creating the TypeScript program only when a file actually queries `nullish-fallback/v1` or `nullish-equality/v1` (skipping `&&`-only files) and falling back silently when inactive. Add `--no-type-check` (`"typeCheck": false`) and `--no-copy-exclude-gitignore` (`"copyExcludeGitignore": false`) to opt out or override project configuration.
+- Preserve soundness under automatic type checking by consulting declared types for mutable `let`/`var`/parameter/destructured bindings and guarded properties so closure mutations cannot hide non-equivalent nullish mutants.
+- Extend `--suggest-assertions` beyond pure literal-argument subject calls:
+  - Pass 1 now also observes bound subject calls with non-literal arguments (`const res = fn(arg)`) and safe read-only expressions inside weak `expect(<expr>).<weakMatcher>(...)` statements.
+  - Pass 2 compares observable end-of-test local state when Pass 1 finds no diff (reserving a slot within the 4-trial per-gap budget), generating concrete assertions for Proxy stores (`expect(store.dirty).toBe(true)` without emitting broken whole-object `toStrictEqual` on partial/Proxy objects), DOM elements (`childElementCount`, `scrollTop`, `scrollLeft`, `style.*`, `getAttribute(...)`, `textContent`, and `children[i]` while guarding truncated attributes/styles), and callback/event variables.
+- Fix Vitest 4.1 compatibility in `src/standard-session.mjs`: clear Vitest's internal `filesMap`/`idMap`/`taskFileMap`/`reportedTasksMap`/errors state before each `run()` and `runInThread()` round so stale failed/dynamic test modules from an earlier trial do not leak into subsequent `bail: 1` `onTestRunEnd(modules)` snapshots.
+
 ## 0.4.2
 
 - Include all `targeted` value-aware rules in `--mutators full` across Vitest sessions, `--list`, and source-rewrite runners (`--audit` / Playwright), lifting inner built-in expression switches outside observed probes so no live mutant is dropped when both sets coexist.
