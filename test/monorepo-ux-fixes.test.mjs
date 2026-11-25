@@ -434,9 +434,17 @@ test('Review fix: async withCopy stops spawned child group immediately on SIGTER
     assert.ok(Date.now() - started < 5_000, 'Must terminate promptly without waiting for child timeout');
     assert.equal(exit.code, 143);
     assert.equal(existsSync(tempPath), false);
-    // Verify grandchild process was also stopped.
+    // Verify grandchild process was also stopped (allow brief OS teardown / reaping after SIGKILL).
     let alive = true;
-    try { process.kill(subPid, 0); } catch { alive = false; }
+    const deadline = Date.now() + 2_000;
+    while (alive && Date.now() < deadline) {
+      try {
+        process.kill(subPid, 0);
+        await new Promise(resolveWait => setTimeout(resolveWait, 25));
+      } catch {
+        alive = false;
+      }
+    }
     assert.equal(alive, false, `Expected spawned child ${subPid} to be stopped`);
   } finally {
     rmSync(project, { recursive: true, force: true });
