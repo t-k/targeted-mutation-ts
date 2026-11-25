@@ -61,3 +61,25 @@ test('explicit ESM keeps exactly the surviving Unicode-module markers', () => {
   assert.equal(erased.backend, 'pulse');
   assert.match(erased.code, /export \{\};\n$/);
 });
+
+test('the copy spelled in ASCII is refused where a spelling could be mistaken', () => {
+  const lowered = source => compile(Buffer.from('enum E { A }\n' + source), { file: 'names.ts' });
+  // A plain word of the source that equals a spelling (é is spelled NN), and two words with one spelling.
+  for (const source of ['export const é: number = E.A; export const NN: number = 2;', 'export const é: number = E.A, Ï: number = 2;']) {
+    const result = lowered(source);
+    assert.notEqual(result.backend, 'pulse', source);
+    assert.match(result.code, /const é = E\.A/);
+  }
+  assert.match(lowered('export const é: number = E.A; export const NN: number = 2;').code, /const NN = 2/);
+  // A word that is no identifier, and a number that a spelling would complete (Ђ is spelled AA).
+  for (const source of ['export const → = E.A;', 'export const n: number = 0xЂ + E.A;']) {
+    const result = lowered(source);
+    assert.notEqual(result.backend, 'pulse', source);
+    assert.notEqual(result.diagnostics.length, 0, source);
+  }
+  assert.notEqual(compile(Buffer.from('export const n: number = 0xЂ;'), { file: 'names.ts' }).backend, 'pulse');
+  // A lowered file puts names back word by word, and leaves a word like a derived name alone.
+  const kept = lowered('export const é: number = E.A; export const s: string = "NN_1";');
+  assert.equal(kept.backend, 'pulse');
+  assert.match(kept.code, /const é\s+= E\.A; export const s\s+= "NN_1";/);
+});

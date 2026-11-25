@@ -619,6 +619,11 @@ static bool enum_foreign_member(lowering *lower, TmtGrammar_span binding, uint32
   const uint32_t width = root.at - first;
   /* The enum's own name would name its members, which are constants. */
   if (width == binding.last - binding.first && !memcmp(input.source + first, input.source + binding.first, width)) return false;
+  /* Through the global object TypeScript reaches the enums of the file. */
+  static const char *const globals[] = { "globalThis", "window", "self", "global" };
+  for (size_t index = 0; index < sizeof(globals) / sizeof(*globals); index++) {
+    if (width == strlen(globals[index]) && !memcmp(input.source + first, globals[index], width)) return false;
+  }
   if (keyword_declarations(lower, input.source + first, width, false) != 0) return false;
   if (keyword_declarations(lower, input.source + binding.first, binding.last - binding.first, true) != 1) return false;
   /* Every other occurrence of the word in the body may be a member's name; a reference is followed by a dot. */

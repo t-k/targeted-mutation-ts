@@ -395,11 +395,13 @@ function closeClass(found, text, end, context) {
   // the heritage clause, and as a shorthand property `{ A }`, the name stays and means the undecorated class.
   // Both are left to TypeScript; a name between a comma or a brace and a comma or a brace may be a shorthand.
   const reference = '(?<![\\w$])(?<!(?<!\\.)\\.)' + escaped + '(?![\\w$])';
+  // White space and comments, which may stand between the brace or comma and the name.
+  const gap = '(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n\\r]*)*';
   // Type parameters, type arguments and the implements clause of the head are types, which are erased.
   let heritage = found.bodyFirst !== undefined ? text.slice(found.nameLast, found.bodyFirst).replace(/\bimplements\b[\s\S]*$/, '') : '';
   for (let before = ''; before !== heritage;) { before = heritage; heritage = heritage.replace(/<[^<>]*>/g, ''); }
   const unrenamed = found.bodyFirst !== undefined && (new RegExp(reference).test(heritage) ||
-    new RegExp('[{,]\\s*' + reference + '\\s*[,}]').test(text.slice(found.bodyFirst, end)));
+    new RegExp('[{,]' + gap + reference + gap + '[,}]').test(text.slice(found.bodyFirst, end)));
   // An await belongs to the function around the class when it stands in the heritage clause or in a computed key.
   const awaits = /\b(?:await|yield)\b/;
   const outside = found.bodyFirst !== undefined && (awaits.test(text.slice(found.nameLast, found.bodyFirst)) ||
@@ -416,12 +418,14 @@ function closeClass(found, text, end, context) {
   statements.push(named ? `${found.name} = ${setter}(${decorated});` : `${found.name} = ${decorated};`);
   if (found.isDefault) statements.push(`export default ${found.name};`);
   else if (found.exported) statements.push(`export { ${found.name} };`);
-  // A class expression cannot be abstract, so the members that are erased anyway go with the modifier.
+  // A class expression cannot be abstract, so the members that are erased anyway go with the modifier. A
+  // semicolon stands where each stood: the field before it may end by a line break alone, and the member
+  // behind it may begin with a bracket.
   return [
     ...(named ? [[found.headFirst, found.nameLast, `let [${found.name}, ${setter}] = (() => { let ${found.name}; ${found.name} = class`],
       [found.bodyFirst + 1, found.bodyFirst + 1, ` static { ${found.name} = this; }`]] :
       [[found.headFirst, found.headLast, `let ${found.name} = class `]]),
-    ...found.erased.map(([first, last]) => [first, last, '']),
+    ...found.erased.map(([first, last]) => [first, last, ';']),
     [end, end, (named ? `; return [${found.name}, ${setter} => ${found.name} = ${setter}]; })();\n` : ';\n') + statements.join('\n') + '\n'],
   ];
 }

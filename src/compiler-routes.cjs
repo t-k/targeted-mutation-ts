@@ -528,7 +528,10 @@ function compile(input, options = {}) {
           let copy = asciiSpelling(bytes, text);
           // The lowering derives a second name from a class's name. A word of that spelling in the source
           // could not be told from it when the names are put back.
-          if (copy !== null) for (const spelling of copy.spellings.values()) if (copy.plain.has(spelling + '_1')) { copy = null; break; }
+          if (copy !== null) {
+            const spelled = new Set(copy.spellings.values());
+            for (const spelling of spelled) if (copy.plain.has(spelling + '_1') || spelled.has(spelling + '_1')) { copy = null; break; }
+          }
           const lowered = copy !== null && copy.wellFormed ? lower(copy.renamed) : null;
           if (lowered !== null && lowered === copy.renamed) {
             return compile(bytes, { ...options, experimentalDecorators: false, emitDecoratorMetadata: false });

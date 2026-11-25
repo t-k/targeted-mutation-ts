@@ -845,3 +845,10 @@ A review of this round found six defects, all in two of the forms above, and eac
 - A member of the enum itself (`Length = Text.length`) was taken for a foreign name. TypeScript writes it as a property of the enum.
 - In the copy spelled in ASCII, letters take the place of bytes outside ASCII, and `"\xA"` in front of such a byte became a well-formed escape. A word behind a backslash, or one that begins with a digit, is no longer spelled: the file is left to TypeScript, which reports it.
 - Putting the names back also rewrote a word of the source that was spelled like the second name of a self-naming class (`NN_1` for a class spelled `NN`). The second name is put back only for the decorator lowering, and a source that holds such a word is left to TypeScript.
+
+The second review of the round found four more, also corrected:
+
+- The decorator lowering removed an erased member (a declared field, an abstract member) and left nothing. A field before it that ends by a line break alone then ran into a member that begins with a bracket. A semicolon stands where the member stood, as in the default mode.
+- A word with bytes outside ASCII whose spelling equals the derived second name of another (`β_1` beside a class or name spelled like `β`) was rewritten when the names were put back. Such a source is left to TypeScript.
+- Through `globalThis` TypeScript reaches the enums of the file; `globalThis`, `window`, `self` and `global` are no foreign roots of an enum value.
+- A comment between the brace and a shorthand name hid the shorthand from the check that leaves self-naming classes with a shorthand reference to TypeScript.

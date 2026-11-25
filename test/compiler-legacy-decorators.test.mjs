@@ -304,3 +304,26 @@ test('the copy spelled in ASCII is not taken where it could differ from the sour
   // Without the derived name, a word like it is left alone.
   assert.match(compile(Buffer.from('export const é: number = 1;\nexport const s: string = "NN_1";'), { file: 'legacy.ts' }).code, /"NN_1"/);
 });
+
+test('findings of the second review of the round: erased members, derived names, shorthand behind a comment', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export \{[^}]*\};?/g, '').replace(/export (?=class|const|let)/g, ''))();
+  // A semicolon stands where an erased member stood.
+  for (const member of ['protected declare y: number;', 'declare y: number']) {
+    const source = `function register(_target: Function) {}\n@register\nexport class Model {\n  x = 1\n  ${member}\n  ["z"] = 2;\n}\nexport const out = JSON.stringify(new Model());`;
+    const result = compile(Buffer.from(source), options);
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), '{"x":1,"z":2}', source);
+  }
+  const abstract = 'function register(_target: Function) {}\n@register\nexport abstract class Model {\n  x = 1\n  abstract get y(): number\n  ["z"] = 2;\n}';
+  assert.match(compile(Buffer.from(abstract), options).code, /x = 1\n\s*;\n\s*\["z"\] = 2;/);
+  // A word with bytes outside ASCII that is spelled like the second name of a class.
+  const derived = 'function register(_target: Function) {}\nexport const β_1 = 0.5;\nconst Θ = 1;\n@register\nexport class Model {\n  score() { return β_1 * Θ; }\n}';
+  const lowered = compile(Buffer.from(derived), options);
+  assert.match(lowered.code, /export const β_1 = 0\.5/);
+  assert.match(lowered.code, /return β_1 \* Θ/);
+  // A comment between the brace and a shorthand name.
+  for (const body of ['{ /* model */ Cafe }', '{ a: 1, // model\n Cafe /* x */ }', '{ Cafe // last\n }']) {
+    const source = `const wrap = (Base: any) => class extends Base {};\n@wrap\nexport class Cafe {\n  static info() { return ${body}; }\n}`;
+    assert.notEqual(compile(Buffer.from(source), options).backend, 'pulse', source);
+  }
+});

@@ -215,8 +215,16 @@ test('a member of something the file declares, or of the enum itself, is not wri
   for (const source of [
     'import L from "l";\nexport enum W { A = L.a, B = L.b.c }',
     'const k = { a: 1 } as const;\nexport enum W { A = k.a, "k" = 2 }'.replace(', "k" = 2', ''),
-    'export enum W { A = globalThis.x, B = Number.MAX_VALUE }',
+    'export enum W { A = Number.MAX_VALUE, B = Math.PI }',
   ]) {
     assert.equal(compile(Buffer.from(source), { file: 'e.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('the global object is no foreign root of an enum value', () => {
+  for (const root of ['globalThis', 'window', 'self', 'global']) {
+    const source = `enum Phase { Ready = "ready" }\nexport enum Status { Active = ${root}.Phase.Ready }`;
+    assert.notEqual(compile(Buffer.from(source), { file: 'e.ts' }).backend, 'pulse', source);
+    assert.notEqual(compile(Buffer.from(`export enum Status { Active = ${root}.x }`), { file: 'e.ts' }).backend, 'pulse', root);
   }
 });
