@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.1
+
+- Fix Vitest 4 in-worker session fallback on Windows: resolve legacy `vitest/runners` as a `file://` URL in `src/standard-runner.mjs` so Vitest's Windows `VitestModuleEvaluator.convertIdToImportUrl` does not treat a bare dynamic import specifier as a relative path, and normalize Windows backslashes before calling `vitest.invalidateFile(...)` in warm `--suggest-assertions` sessions.
+
 ## 0.6.0
 
 - Add Vitest 5 (tested with Vitest 5.1.2) compatibility alongside Vitest 4 across in-worker switched sessions, comparison tracing probes, warm `--suggest-assertions` sessions, and `--related` discovery:

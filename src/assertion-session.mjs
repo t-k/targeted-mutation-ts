@@ -3,7 +3,7 @@ import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'n
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { classifyVitestSessionSupport, disableProjectFsModuleCache, inside, vitestDisableFsCachePlugin, vitestServerCacheOptions } from './vitest.mjs';
+import { classifyVitestSessionSupport, disableProjectFsModuleCache, inside, invalidateVitestSessionModules, vitestDisableFsCachePlugin, vitestServerCacheOptions } from './vitest.mjs';
 
 // Warm Vitest 4/5 child process for `--suggest-assertions`: runs with `cwd: workspace` in an isolated process
 // communicating over a dedicated Node IPC channel (so config stdout cannot corrupt protocol messages, Vitest's
@@ -13,22 +13,6 @@ const applyEdit = (input, [start, end], replacement) => Buffer.concat([input.sub
 
 function reply(message) {
   if (typeof process.send === 'function' && process.connected) process.send(message);
-}
-
-function invalidateSessionModules(instance, files) {
-  for (const file of files) {
-    if (file) instance.invalidateFile?.(file);
-  }
-  instance.vite?.moduleGraph?.invalidateAll?.();
-  for (const environment of Object.values(instance.vite?.environments ?? {})) {
-    environment?.moduleGraph?.invalidateAll?.();
-  }
-  for (const project of instance.projects) {
-    project.vite?.moduleGraph?.invalidateAll?.();
-    for (const environment of Object.values(project.vite?.environments ?? {})) {
-      environment?.moduleGraph?.invalidateAll?.();
-    }
-  }
 }
 
 function clearWarmVitestState(instance) {
@@ -105,7 +89,7 @@ try {
         writeFileSync(absTest, rewriteContent);
         if (absSubject && trial) writeFileSync(absSubject, applyEdit(origSubject, trial.edit, trial.replacement));
         clearWarmVitestState(vitest);
-        invalidateSessionModules(vitest, [absTest, absSubject]);
+        invalidateVitestSessionModules(vitest, [absTest, absSubject]);
         await vitest.runTestSpecifications(specCache.get(absTest));
         const collected = existsSync(absCollect) ? readFileSync(absCollect, 'utf8') : '';
         reply({ id, collected });
@@ -115,7 +99,7 @@ try {
         rmSync(absCollect, { force: true });
         writeFileSync(absTest, origTest);
         if (absSubject && origSubject) writeFileSync(absSubject, origSubject);
-        invalidateSessionModules(vitest, [absTest, absSubject]);
+        invalidateVitestSessionModules(vitest, [absTest, absSubject]);
       }
     });
   });

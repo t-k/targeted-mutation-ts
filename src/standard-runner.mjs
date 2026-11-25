@@ -1,9 +1,12 @@
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, realpathSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import * as vitestApi from 'vitest';
 
 const { vi } = vitestApi;
-const legacyRunnersId = 'vitest/' + 'runners';
-const VitestTestRunner = vitestApi.TestRunner ?? (await import(/* @vite-ignore */ legacyRunnersId)).VitestTestRunner;
+const VitestTestRunner = vitestApi.TestRunner ?? (await import(
+  /* @vite-ignore */ pathToFileURL(realpathSync(createRequire(import.meta.url).resolve('vitest/runners'))).href
+)).VitestTestRunner;
 
 const sessionKey = Symbol.for('targeted-mutation-ts/session');
 const trialKey = Symbol.for('targeted-mutation-ts/trial');

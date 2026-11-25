@@ -520,6 +520,22 @@ export function disableProjectFsModuleCache(versionOrMajor, projectConfig, vites
   if (vitestInstance?.cache?._modules) vitestInstance.cache._modules.getMemoryCachePath = () => null;
 }
 
+export function invalidateVitestSessionModules(instance, files = []) {
+  for (const file of files) {
+    if (file) instance?.invalidateFile?.(file.replaceAll('\\', '/'));
+  }
+  instance?.vite?.moduleGraph?.invalidateAll?.();
+  for (const environment of Object.values(instance?.vite?.environments ?? {})) {
+    environment?.moduleGraph?.invalidateAll?.();
+  }
+  for (const project of instance?.projects ?? []) {
+    project.vite?.moduleGraph?.invalidateAll?.();
+    for (const environment of Object.values(project.vite?.environments ?? {})) {
+      environment?.moduleGraph?.invalidateAll?.();
+    }
+  }
+}
+
 export function resolveVitestRunnerEntry(vitestManifestPath) {
   const version = vitestVersionString(vitestManifestPath);
   const vitestRequire = createRequire(vitestManifestPath);
