@@ -220,6 +220,10 @@ type assignment_target =
   // An asserted operand in parentheses, `(name as T)`: the parentheses stay in the output, and a function
   // assigned to a name in parentheses gets no name. Such an assignment is refused; others are taken.
   | ParenAsserted
+  // An object literal whose members are all targets: `{ a, b: c.d, e: [f], ...rest }`.
+  | ObjectTarget
+  // `target = value`, which is an element with a default inside an array or object target.
+  | DefaultedTarget
 
 type jump_context =
   | NoJump
@@ -245,9 +249,12 @@ let switch_jumps (jumps:jump_context) : jump_context =
 
 let can_assign (target:assignment_target) : bool = target = Assignable || target = MemberTarget || target = PrivateTarget
 let can_assign_expression (target:assignment_target) : bool = can_assign target || target = AssertedTarget || target = ParenAsserted
+// What may stand as an element of an array or object target, and what may stand behind `...` there.
+let pattern_target (target:assignment_target) : bool = can_assign target || target = ArrayTarget || target = ObjectTarget
+let pattern_element (target:assignment_target) : bool = pattern_target target || target = DefaultedTarget
 type parsed = { parser:parser_state; range:G.span; open_angle:bool; outer_or:bool; right_shift:bool; shortcut:U32.t; target:assignment_target }
 type expression_items = { list_end:parser_state; valid_array_target:bool }
-type object_item = { value:parsed; prototype_setter:bool }
+type object_item = { value:parsed; prototype_setter:bool; rest:bool }
 
 let failed (state:parser_state) (error:U32.t) : parser_state =
   if state.status = 0ul then { state with status = error } else state
@@ -3081,7 +3088,9 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
               else
                 let! row = (fun () -> expression_list input inside inner input.size 93uy true) in
                 ret input (row.list_end, (if row.valid_array_target then ArrayTarget else NotAssignable))
-            else (let! anf_value_11 = (fun () -> object_members input inside inner input.size false false) in ret input (anf_value_11, NotAssignable))) in
+            else
+              let! members = (fun () -> object_members input inside inner input.size false false true false) in
+              ret input (members.list_end, (if members.valid_array_target then ObjectTarget else NotAssignable))) in
         postfix input { parser = completed; range = { G.first = start_pos; G.last = completed.offset }; open_angle = false; outer_or = false; right_shift = false; shortcut = 0ul; target }
           fuel input.size
     else if ch = 40uy then
@@ -3343,7 +3352,7 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
     let! follower = (fun () -> peek input (next st.offset)) in
     let! assignment =
       (fun () -> if can_assign_expression lhs.target then assignment_width input st.offset byte follower
-      else ret input (if lhs.target = ArrayTarget && byte = 61uy && follower <> 61uy && follower <> 62uy then 1ul
+      else ret input (if (lhs.target = ArrayTarget || lhs.target = ObjectTarget) && byte = 61uy && follower <> 61uy && follower <> 62uy then 1ul
       else 0ul)) in
     let naming = lhs.target = ParenAsserted && (assignment = 1ul || (assignment = 3ul && (byte = 38uy || byte = 124uy || byte = 63uy))) in
     let! anonymous = (fun () -> if naming then function_like_start input (plus st.offset assignment) else ret input false) in
@@ -3352,8 +3361,10 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
       if fuel = 0ul then ret input (empty_range (failed st 3ul))
       else
         let! rhs = (fun () -> comparison input { st with offset = plus st.offset assignment } (minus fuel 1ul)) in
+        // A plain assignment to a target is, inside an array or object target, an element with a default.
+        let target = if assignment = 1ul && byte = 61uy && pattern_target lhs.target then DefaultedTarget else NotAssignable in
         ret input ({ rhs with range = { rhs.range with G.first = lhs.range.G.first };
-          open_angle = lhs.open_angle || rhs.open_angle; outer_or = false; shortcut = 0ul; target = NotAssignable })
+          open_angle = lhs.open_angle || rhs.open_angle; outer_or = false; shortcut = 0ul; target })
     else if byte <> 63uy || follower = 63uy || follower = 46uy then ret input (lhs)
     else if fuel = 0ul then ret input (empty_range (failed st 3ul))
     else
@@ -3565,7 +3576,8 @@ and expression_run (input:tape) (state:parser_state) (fuel remaining:U32.t) (clo
       let! arg = (fun () -> comparison input start fuel) in
       let! st = (fun () -> skip input arg.parser) in
       // [a, ...rest] = value: a rest element is a target when it is the last one, with no comma behind it.
-      let valid_array_target = valid_array_target && can_assign arg.target in
+      // An element may itself be an array or object target, and may have a default; a rest element has none.
+      let valid_array_target = valid_array_target && (if spread then pattern_target arg.target else pattern_element arg.target) in
       (let! anf_value_4 = (fun () -> same input st.offset 44uy) in if anf_value_4 then
         let valid_array_target = valid_array_target && not spread in
         let! next_item = (fun () -> consume input st 44uy) in
@@ -3588,7 +3600,7 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required se
   let! spread = (fun () -> spread_at input st.offset) in
   if spread && not colon_required then
     let! value = (fun () -> comparison input { st with offset = plus st.offset 3ul } fuel) in
-    ret input { value; prototype_setter = false }
+    ret input { value; prototype_setter = false; rest = true }
   else
     let! head = (fun () -> accessor_modifier input st) in
     let arity = head.arity in
@@ -3651,8 +3663,12 @@ and object_member (input:tape) (st:parser_state) (fuel:U32.t) (colon_required se
           let! after_key = (fun () -> if input.capture_references && shorthand.ok && not forbidden && after_key.status = 0ul then
               record_compiler_span input after_key 62ul { G.first = st.offset; G.last = shorthand.at } { G.first = 0ul; G.last = 0ul }
             else ret input after_key) in
-          ret input (if shorthand.ok && not forbidden then empty_range after_key else empty_range (failed st 1ul))) in
-    ret input { value; prototype_setter }
+          // A shorthand whose name may be assigned is a member of an object target.
+          let! assignable = (fun () -> name input st.offset false true) in
+          ret input (if shorthand.ok && not forbidden then
+              { (empty_range after_key) with target = (if assignable.ok && assignable.at = shorthand.at then Assignable else NotAssignable) }
+            else empty_range (failed st 1ul))) in
+    ret input { value; prototype_setter; rest = false }
 // The members of an assignment pattern with defaults: names, renamed names, a default behind either, and a
 // rest name at the end. Nested patterns are left to TypeScript.
 and cover_assignment_members (input:tape) (state:parser_state) (fuel remaining:U32.t)
@@ -3690,22 +3706,27 @@ and cover_assignment_members (input:tape) (state:parser_state) (fuel remaining:U
       if valued.status <> 0ul then ret input valued
       else if comma then cover_assignment_members input { valued with offset = next valued.offset } fuel (minus remaining 1ul)
       else consume input valued 125uy
-and object_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (colon_required seen_prototype:bool)
-  : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 27; U32.v remaining]) =
+// `pattern` says whether the members read so far may all stand in an object target, and `rest_seen` that a
+// rest member stood in front of a comma. The result's flag is true when the whole literal is such a target.
+and object_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (colon_required seen_prototype pattern rest_seen:bool)
+  : Tot (stt expression_items (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 27; U32.v remaining]) =
   let! st = (fun () -> skip input state) in
   let! byte = (fun () -> peek input st.offset) in
-  if st.status <> 0ul then ret input (st)
-  else if byte = 125uy then consume input st 125uy
-  else if remaining = 0ul then ret input (failed st 3ul)
+  if st.status <> 0ul then ret input ({ list_end = st; valid_array_target = false })
+  else if byte = 125uy then
+    (let! closed = (fun () -> consume input st 125uy) in ret input ({ list_end = closed; valid_array_target = pattern && not rest_seen }))
+  else if remaining = 0ul then ret input ({ list_end = failed st 3ul; valid_array_target = false })
   else
     let! member = (fun () -> object_member input st fuel colon_required seen_prototype) in
     let value = member.value in
+    let pattern = pattern && not rest_seen && not member.prototype_setter &&
+      (if member.rest then can_assign value.target else pattern_element value.target) in
     let! st = (fun () -> skip input value.parser) in
     (let! anf_value_1 = (fun () -> same input st.offset 44uy) in if anf_value_1 then
       // A colon in the next property rules out a generic argument list across the comma.
       (let! anf_value_2 = (fun () -> (consume input st 44uy)) in object_members input anf_value_2 fuel (minus remaining 1ul)
-        value.open_angle (seen_prototype || member.prototype_setter))
-    else consume input st 125uy)
+        value.open_angle (seen_prototype || member.prototype_setter) pattern (rest_seen || member.rest))
+    else (let! closed = (fun () -> consume input st 125uy) in ret input ({ list_end = closed; valid_array_target = pattern })))
 and template_body (input:tape) (state:parser_state) (raw_start fuel remaining:U32.t) (tagged:bool)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 26; U32.v remaining]) =
   if state.status <> 0ul then ret input (state)
@@ -4869,11 +4890,20 @@ and collection_head (input:tape) (state:parser_state) (allow_in local_var:bool) 
       let! first = (fun () -> peek input start.offset) in ret input (first = 91uy || first = 123uy)
       else ret input false) in
     let! bound = (fun () -> if constant || lexical || var_pattern then pattern_binding input start binding_region_width mark mark fuel
-      else if width = 0ul && byte = 91uy then
+      else if width = 0ul && (byte = 91uy || byte = 123uy) then
+        // for ([a, b] of list) and for ({ a, b } of list): the target is read as the literal it looks like.
         let! target = (fun () -> atom input { start with in_allowed = false } fuel) in
         let st = { target.parser with in_allowed = start.in_allowed } in
-        ret input { state = if target.target = ArrayTarget then st else failed st 1ul; used = mark }
-      else let! target = (fun () -> name input start.offset false true) in ret input { state = from_cursor start target; used = mark }) in
+        ret input { state = if target.target = ArrayTarget || target.target = ObjectTarget then st else failed st 1ul; used = mark }
+      else
+        let! target = (fun () -> name input start.offset false true) in
+        let! follower = (fun () -> if target.ok then peek input target.at else ret input 0uy) in
+        if width = 0ul && (follower = 46uy || follower = 91uy) then
+          // for (record.field of list): a member is a target as well.
+          let! member = (fun () -> atom input { start with in_allowed = false } fuel) in
+          let st = { member.parser with in_allowed = start.in_allowed } in
+          ret input { state = if member.target = MemberTarget then st else failed st 1ul; used = mark }
+        else ret input { state = from_cursor start target; used = mark }) in
     let! next_token = (fun () -> skip input bound.state) in
     let! of_token = (fun () -> keyword input next_token.offset 2ul 0x6f66uL) in
     let! in_token = (fun () -> keyword input next_token.offset 2ul 0x696euL) in
@@ -6211,8 +6241,8 @@ let default_declaration (input:tape) (state:parser_state) (declaration_start:U32
           consume input object_ 123uy) in
     let! completed = (fun () -> if asserted_object.status = 0ul then
         let depth = if asserted_object.depth = 0ul then 1ul else asserted_object.depth in
-        let! object_ = (fun () -> object_members input { asserted_object with depth } 63ul input.size false false) in
-        let! tail = (fun () -> skip input object_) in
+        let! object_ = (fun () -> object_members input { asserted_object with depth } 63ul input.size false false false false) in
+        let! tail = (fun () -> skip input object_.list_end) in
         if tail.offset = input.size then ret input tail else consume input tail 59uy
       else
         let! value = (fun () -> comparison input state 64ul) in

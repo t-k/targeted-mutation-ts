@@ -2885,3 +2885,53 @@ test('the string of a JSX attribute may run over lines', () => {
     assert.notEqual(sameAsTypeScript(source, 'lines.tsx').backend, 'pulse', source);
   }
 });
+
+// A source for one row of verification/pict/compiler-assignment-targets.tsv.
+function assignmentTarget(row) {
+  const array = row.Outer === 'ArrayAssign' || row.Outer === 'ForOfArray';
+  const element = {
+    Name: 'a', Member: 'o.m', NestedArray: '[a, b]', NestedObject: '{ p: a, q: b }', DefaultName: 'a = 9', DefaultNested: '[a, b] = [7, 8]',
+    RestName: '...a', RestMember: '...o.m',
+  }[row.Element];
+  const rest = row.Element.startsWith('Rest');
+  const first = array || rest ? element : row.Element === 'Name' ? 'a' : 'k: ' + element;
+  const extra = { None: '', Hole: ', ', Renamed: 'k2: c, ', Computed: '["k" + 3]: c, ', TrailingComma: '' }[row.Extra];
+  const tail = array ? 'tail' : 't: tail';
+  // A rest element stands last.
+  const members = rest ? `${extra}${tail}, ${first}` : `${extra}${first}, ${tail}${row.Extra === 'TrailingComma' ? ',' : ''}`;
+  const target = array ? `[${members}]` : `{ ${members} }`;
+  const types = row.File === 'ts' ? ': any' : '';
+  // Every element can be taken apart as an array or as an object.
+  const value = 'Object.assign([[1, 2], [3, 4], [5, 6]], { a: 10, k: [5, 6], t: 7, k2: 8, k3: 9, p: 11, q: 12 })';
+  const statement = row.Outer.startsWith('ForOf') ? `for (${target} of [value, value]) { count++; }` : array ? `${target} = value;` : `(${target} = value);`;
+  return `let a${types}, b${types}, c${types}, tail${types}, count = 0;\nconst o${types} = {};\nconst value${types} = ${value};\n${statement}\nexport const out = JSON.stringify([a, b, c, o, tail, count]);`;
+}
+
+test('array and object targets of an assignment, nested, with defaults and with a rest element', () => {
+  const [header, ...rows] = readFileSync(new URL('../verification/pict/compiler-assignment-targets.tsv', import.meta.url), 'utf8')
+    .trim().split('\n').map(line => line.split('\t'));
+  assert.equal(rows.length, 42);
+  const run = code => new Function(code.replace(/export const out =/, 'return'))();
+  let native = 0;
+  for (const cells of rows) {
+    const row = Object.fromEntries(header.map((name, index) => [name, cells[index]]));
+    const source = assignmentTarget(row);
+    const file = 'targets.' + row.File;
+    const result = sameAsTypeScript(source, file);
+    assert.equal(run(result.code), run(reference(source, file)), source);
+    assert.equal(result.backend, row.File === 'js' ? 'javascript' : 'pulse', source);
+    native++;
+  }
+  assert.equal(native, 42);
+  // What is no target stays an error or with TypeScript: a rest element in front, a call, a parenthesized pattern.
+  for (const source of ['let a, b;\n[...a, b] = [1, 2];\nexport {};', 'let a;\n({ k: f() } = {});\nexport {};', 'let a;\n[(a = 1)] = [2];\nexport {};',
+    'let a;\n({ ...a, } = {});\nexport {};', 'let a, b;\n({ ...a, b } = {});\nexport {};', 'let a;\n([a]) = [1];\nexport {};', 'let a;\n({ get k() { return a; } } = {});\nexport {};']) {
+    const result = compile(Buffer.from(source), { file: 'targets.js' });
+    assert.ok(result.backend === 'typescript' || result.diagnostics.length !== 0, source);
+  }
+  // A member as the target of a loop.
+  const loop = 'const o = { p: 0, q: [0] };\nlet sum = 0;\nfor (o.p of [1, 2]) sum += o.p;\nfor (o.q[0] in { x: 1, y: 2 }) sum += o.q[0].length;\nexport const out = JSON.stringify([o, sum]);';
+  const looped = sameAsTypeScript(loop, 'targets.js');
+  assert.equal(looped.backend, 'javascript');
+  assert.equal(run(looped.code), '[{"p":2,"q":["y"]},5]');
+});

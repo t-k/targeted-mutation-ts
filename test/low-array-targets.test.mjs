@@ -35,7 +35,8 @@ test('array patterns distinguish plain assignment, candidates, and malformed ele
   check('[first, other] += pair; const keep = a < b;', 'diagnostic');
   check('[first, ...rest] = pair; const keep = a < b;', 'fast');
   check('[...rest, first] = pair; const keep = a < b;', 'diagnostic');
-  check('[[first], other] = pair; const keep = a < b;', 'fallback');
+  check('[[first], other] = pair; const keep = a < b;', 'fast');
+  check('[{ first }, other = a < b] = pair; const keep = a < b;', 'fast');
 });
 
 test('type suffixes distinguish bracket members from indexed access and expression statements', () => {

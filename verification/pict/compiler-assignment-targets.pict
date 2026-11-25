@@ -1,0 +1,8 @@
+Outer: ArrayAssign, ObjectAssign, ForOfArray, ForOfObject
+Element: Name, Member, NestedArray, NestedObject, DefaultName, DefaultNested, RestName, RestMember
+Extra: None, Hole, Renamed, Computed, TrailingComma
+File: js, ts
+
+IF [Extra] = "Hole" THEN [Outer] IN {"ArrayAssign", "ForOfArray"};
+IF [Extra] IN {"Renamed", "Computed"} THEN [Outer] IN {"ObjectAssign", "ForOfObject"};
+IF [Element] IN {"RestName", "RestMember"} THEN [Extra] <> "TrailingComma";

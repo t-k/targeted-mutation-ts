@@ -275,6 +275,8 @@ bool TmtPulseParser_spread_at(TmtPulseMemory_tape input, uint32_t at);
 #define TmtPulseParser_ArrayTarget 7
 #define TmtPulseParser_AngleTarget 8
 #define TmtPulseParser_ParenAsserted 9
+#define TmtPulseParser_ObjectTarget 10
+#define TmtPulseParser_DefaultedTarget 11
 
 typedef uint8_t TmtPulseParser_assignment_target;
 
@@ -948,6 +950,10 @@ TmtPulseParser_cursor TmtPulseParser_function_start(TmtPulseMemory_tape input, u
 
 bool TmtPulseParser_can_assign(TmtPulseParser_assignment_target target);
 
+bool TmtPulseParser_pattern_target(TmtPulseParser_assignment_target target);
+
+bool TmtPulseParser_pattern_element(TmtPulseParser_assignment_target target);
+
 uint32_t
 TmtPulseParser_single_less_byte(
   TmtPulseMemory_tape input0,
@@ -1324,6 +1330,7 @@ typedef struct TmtPulseParser_object_item_s
 {
   TmtPulseParser_parsed value;
   bool prototype_setter;
+  bool rest;
 }
 TmtPulseParser_object_item;
 
@@ -1967,14 +1974,16 @@ TmtPulseParser_object_member(
   bool seen_prototype
 );
 
-TmtPulseParser_parser_state
+TmtPulseParser_expression_items
 TmtPulseParser_object_members(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state state0,
   uint32_t fuel0,
   uint32_t remaining0,
   bool colon_required0,
-  bool seen_prototype0
+  bool seen_prototype0,
+  bool pattern0,
+  bool rest_seen0
 );
 
 TmtPulseParser_parser_state

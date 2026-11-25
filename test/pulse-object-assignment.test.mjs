@@ -37,11 +37,17 @@ test('ordinary object literals and equality use the ordinary expression path', (
 
 test('restricted assignment targets and operators stay on the compatibility path', () => {
   for (const source of [
-    '({ name: record[key] } = data);', '({ name = eval } += data);', '({ eval = fallback } = data);',
+    '({ name = eval } += data);', '({ eval = fallback } = data);',
     '({ name: arguments = fallback } = data);', '({ ...eval } = data);',
     '({ name } += data);', '({ name } = data) = x;',
     '({ name } = a < b, c > (d));', '({ name } = );',
   ]) compare(source, false);
+});
+
+test('a member, a nested target and a computed key are targets of an object pattern', () => {
+  for (const source of ['({ name: record[key] } = data);', '({ name: record.field, other: [first, { inner }] } = data);', '({ [key]: value, ...record.rest } = data);']) {
+    compare(source, true);
+  }
 });
 
 test('assignment patterns with defaults or a rest name are read natively', () => {
