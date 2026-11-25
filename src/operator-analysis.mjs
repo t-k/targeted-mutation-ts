@@ -77,6 +77,11 @@ async function besideSession(project, files, options, run, profile, stopsSession
     ...(options.checkpointStore ? { checkpointStore: options.checkpointStore } : {}),
     ...(options['exclude-rule'] ? { 'exclude-rule': options['exclude-rule'] } : {}),
     ...(options['type-check'] ? { 'type-check': true } : {}),
+    ...(options.tsconfig ? { tsconfig: options.tsconfig } : {}),
+    ...(options.onTypeCheckWarning ? { onTypeCheckWarning: options.onTypeCheckWarning } : {}),
+    ...(options.onProgress ? { onProgress: options.onProgress } : {}),
+    ...(options['baseline-timeout'] !== undefined ? { 'baseline-timeout': options['baseline-timeout'] } : {}),
+    ...(options['baseline-workers'] !== undefined ? { 'baseline-workers': options['baseline-workers'] } : {}),
     ...(options.testSpecs?.length ? { testSpecs: options.testSpecs } : {}),
   }).then(report => ({ report }), error => ({ error }));
   let prepared;

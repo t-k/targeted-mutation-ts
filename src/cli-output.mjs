@@ -13,12 +13,14 @@ Scope (analyze):
   --undo-changes                With --since: also put each change back as it was at REV and run the suite.
                                 A change the tests pass without is reported as UNTESTED CHANGE.
   --copy-exclude PATH           Leave a project path out of the temporary copies (warns and skips if missing). Repeatable.
+                                Also configurable via "copyExclude" in targeted-mutation.config.json.
   --copy-exclude-gitignore      Also exclude gitignored paths (except node_modules) from temporary copies.
   --exclude-rule RULE           Exclude a mutation rule (e.g. nullish-equality/v1). Repeatable.
   --type-check                  Use TypeScript's type checker (when strictNullChecks is enabled) to skip
                                 statically equivalent nullish-fallback/v1 and nullish-equality/v1 edits.
+  --tsconfig FILE               Explicit tsconfig.json path for --type-check (defaults to nearest per file / references).
   --no-config                   Ignore targeted-mutation.config.{json,mjs} and package.json#targetedMutation.
-  --progress                    Print lightweight progress updates to stderr.
+  --progress                    Print progress updates (copying, baseline, mutant completion) to stderr.
 
 Profiles (analyze):
   --mutators targeted|full      targeted (default) edits comparison boundaries and integer thresholds
@@ -48,14 +50,19 @@ Profiles (analyze):
 Runner (analyze):
   --runner vitest|playwright    Test runner (default: vitest).
   --config FILE                 Runner configuration file inside the project.
-  --test FILE                   Run only this test file. Repeatable.
+  --test FILE                   Run only this test file or glob. Repeatable. With --related, narrows related tests.
   --related                     Select only Vitest test files related to the target source files.
   --timeout SECONDS             Time limit for one run of the suite (default: 60).
+  --baseline-timeout SECONDS    Time limit for the baseline suite run (defaults to --timeout).
+  --baseline-workers N          Vitest workers for the baseline run (default: 1 for focused trace; --concurrency for session).
   --project NAME                Playwright project. Repeatable.
 
 Output & Baselines:
   --format text|json|jsonl|sarif
                                 Output format (analyze defaults to text on a terminal and json otherwise).
+  --verbose                     Include killed edits in text output (hidden by default).
+  --only-gaps                   Show only test gaps and summary in text output.
+  --fail-on-gaps                Exit with code 2 when one or more test gaps are reported.
   --json-out FILE               Also write the JSON report to FILE (can be combined with --format text).
   --sarif-out FILE              Also write the SARIF report to FILE (can be combined with --format text).
   --baseline FILE               Suppress findings already recorded in FILE.
@@ -76,14 +83,30 @@ export function chooseFormat(requested, terminal) {
 // Test names and runner output come from the analyzed project and can carry terminal control sequences.
 const printable = value => String(value).replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '?');
 const firstLine = value => printable(value).split('\n').find(line => line.trim())?.trim() ?? '';
-const at = location => location ? `${location.file}:${location.line}:${location.column}` : '(unknown location)';
+const compactSnippet = (value, maxLength = 48) => {
+  const flat = printable(value).replace(/\s+/g, ' ').trim();
+  return flat.length > maxLength ? flat.slice(0, maxLength - 3) + '...' : flat;
+};
+const at = location => location ? `${printable(location.file)}:${location.line}:${location.column}` : '(unknown location)';
 
 function describeEdit(mutant) {
   const name = mutant.mutatorName ?? mutant.rule ?? 'edit';
   if (mutant.since !== undefined) return `${name}: ${mutant.together ? 'the changes of the file together' : firstLine(mutant.original) || '(removed lines)'} as it was at ${printable(mutant.since.slice(0, 12))}`;
-  if (mutant.original !== undefined) return `${name}: ${firstLine(mutant.original)} -> ${firstLine(mutant.replacement)}`;
+  if (mutant.original !== undefined) {
+    const origFirst = firstLine(mutant.original);
+    const replFirst = firstLine(mutant.replacement);
+    if (origFirst === replFirst && mutant.original !== mutant.replacement) {
+      const rawOrig = printable(mutant.original).replace(/\s+/g, ' ').trim();
+      const rawRepl = printable(mutant.replacement).replace(/\s+/g, ' ').trim();
+      const isEmptyClause = /:\s*$/.test(rawRepl) && rawOrig.length > rawRepl.length;
+      const origFlat = compactSnippet(mutant.original);
+      const shownRepl = isEmptyClause ? `${compactSnippet(mutant.replacement, 40)} (empty)` : compactSnippet(mutant.replacement);
+      if (origFlat !== shownRepl) return `${name}: ${origFlat} -> ${shownRepl}`;
+    }
+    return `${name}: ${origFirst} -> ${replFirst}`;
+  }
   const operator = String(mutant.replacement).trim();
-  if (mutant.operator !== undefined && /^[<>=!&|?+*\/%-]+$/.test(operator)) return `${name}: ${mutant.operator} -> ${operator}`;
+  if (mutant.operator !== undefined && /^[<>=!&|?+*\/%-]+$/.test(operator)) return `${name}: ${printable(mutant.operator)} -> ${operator}`;
   return `${name}: replace with ${firstLine(mutant.replacement)}`;
 }
 
@@ -92,7 +115,7 @@ function describeBaseline(baseline = {}) {
     const limit = baseline.timeoutSeconds !== undefined ? ` after ${baseline.timeoutSeconds}s` : '';
     const lines = [
       `The baseline test suite timed out${limit} before any edit.`,
-      '  Try increasing the limit with --timeout <seconds> or narrowing the suite with --test <file|glob>.',
+      '  Try increasing the limit with --baseline-timeout <seconds> (or --timeout <seconds>), enabling --baseline-workers <N>, or narrowing the suite with --test <file|glob>.',
     ];
     if (baseline.output?.trim()) {
       lines.push(...printable(baseline.output).trim().split('\n').slice(-10).map(line => `  ${line}`));
@@ -108,6 +131,19 @@ function describeBaseline(baseline = {}) {
   if (!baseline.failedTests?.length && !baseline.errors?.length && baseline.output?.trim()) {
     lines.push(...printable(baseline.output).trim().split('\n').slice(-20).map(line => `  ${line}`));
   }
+  return lines;
+}
+
+function formatAssertionDetails(gap) {
+  const lines = [];
+  const shown = (gap.tests ?? []).slice(0, 3).map(test => `${printable(test.file)} > ${printable(test.name)}`);
+  const more = (gap.tests?.length ?? 0) - shown.length;
+  const where = [...shown, ...(more > 0 ? [`${more} more`] : []), ...(gap.outsideTests ? ['code outside the tests'] : [])].join('; ');
+  const operands = gap.example?.operands ? ` (operands ${gap.example.operands.map(printable).join(', ')})` : '';
+  if (where || operands) {
+    lines.push(`  the edit gives another value in: ${where || '(unknown test)'}${operands}`);
+  }
+  lines.push('  add an assertion on what this value decides');
   return lines;
 }
 
@@ -127,13 +163,20 @@ function describeGap(gap) {
     else if (gap.missing && gap.uncertain) {
       lines.push(`  add ${printable(gap.missing)}, or an assertion that tells them apart: the recording cannot tell whether a test has such an input`);
     } else if (gap.missing) lines.push(`  add ${printable(gap.missing)}`);
-    else {
-      const shown = (gap.tests ?? []).slice(0, 3).map(test => `${printable(test.file)} > ${printable(test.name)}`);
-      const more = (gap.tests?.length ?? 0) - shown.length;
-      const where = [...shown, ...(more > 0 ? [`${more} more`] : []), ...(gap.outsideTests ? ['code outside the tests'] : [])].join('; ');
-      const operands = gap.example?.operands ? ` (operands ${gap.example.operands.map(printable).join(', ')})` : '';
-      lines.push(`  the edit gives another value in: ${where}${operands}`, '  add an assertion on what this value decides');
+    else lines.push(...formatAssertionDetails(gap));
+  } else if (gap.kind === 'ASSERTION GAP') {
+    const edit = gap.mutations?.[0];
+    if (edit) {
+      const replacement = String(edit.replacement ?? '').trim();
+      const detail = gap.operator !== undefined && /^[<>=!&|?+*\/%-]+$/.test(replacement)
+        ? `\`${printable(gap.operator)} -> ${printable(replacement)}\``
+        : edit.original !== undefined
+          ? `\`${firstLine(edit.original)}\` -> \`${firstLine(edit.replacement)}\``
+          : `replace with \`${firstLine(edit.replacement)}\``;
+      lines.push(`  edit ${detail} survived`);
     }
+    if (gap.advice) lines.push(`  ${printable(gap.advice)}`);
+    else lines.push(...formatAssertionDetails(gap));
   }
   if (gap.kind === 'UNTESTED CHANGE') {
     lines.push(`  the tests pass with ${gap.together ? 'these changes of the file put back together as they were' : 'this change put back as it was'} at ${printable(String(gap.since).slice(0, 12))}`,
@@ -187,7 +230,7 @@ export function formatProgressSummary(report) {
   return `Completed (${report.evaluation}, ${plural(edits, 'edit')}, ${gapPart}).`;
 }
 
-export function renderText(report) {
+export function renderText(report, { verbose = false, onlyGaps = false } = {}) {
   const lines = [];
   for (const file of report.extraction ?? []) {
     if (file.path !== 'diagnostic') continue;
@@ -199,11 +242,18 @@ export function renderText(report) {
     return lines.join('\n');
   }
   const mutants = report.mutants ?? [];
-  for (const mutant of mutants) {
-    lines.push(`${at(mutant.location)}  ${mutant.status}  ${describeEdit(mutant)}`);
+  const isListed = report.evaluation === 'listed';
+  if (!onlyGaps || isListed) {
+    for (const mutant of mutants) {
+      if (!verbose && !isListed && mutant.status === 'killed') continue;
+      lines.push(`${at(mutant.location)}  ${mutant.status}  ${describeEdit(mutant)}`);
+    }
   }
   const gaps = report.diagnostics ?? [];
-  if (gaps.length) lines.push('', 'Test gaps:');
+  if (gaps.length) {
+    if (lines.length) lines.push('');
+    lines.push('Test gaps:');
+  }
   for (const gap of gaps) lines.push(...describeGap(gap));
   if (lines.length) lines.push('');
   if (report.evaluation === 'no_sites') {

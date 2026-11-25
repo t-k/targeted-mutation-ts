@@ -96,7 +96,12 @@ export function listCandidates(project, files, options = {}) {
     ...subject,
     input: readFileSync(inside(root, subject.file)),
   }));
-  const typeContext = options['type-check'] ? createTypeContext(root, targets.map(t => t.file)) : null;
+  const typeContext = options['type-check']
+    ? createTypeContext(root, targets.map(t => t.file), {
+      tsconfig: options.tsconfig,
+      onWarning: options.onTypeCheckWarning,
+    })
+    : null;
   const { mutants: prepared } = prepareBuiltinSwitches(targets, {
     dialect: options.dialect,
     excludeRules: options['exclude-rule'],

@@ -70,7 +70,7 @@ test('text output covers source rewrites, witnesses, parse failures and a silent
     ],
     diagnostics: [{ kind: 'INPUT GAP', rule: 'substitute-number/v1', location,
       witness: { arguments: [90, 100], original: true, mutant: false },
-      seed: { file: 'test/q.test.ts', test: 'accepts' }, verification: { status: 'confirmed' } }, {}] });
+      seed: { file: 'test/q.test.ts', test: 'accepts' }, verification: { status: 'confirmed' } }, {}] }, { verbose: true });
   assert.match(text, /^SKIPPED src\/bad\.ts: outside-l1\n {2}Expression expected\.$/m);
   assert.match(text, /killed {2}ArrowFunction: \(a\) => -> \(\) => undefined$/m);
   assert.match(text, /unreached {2}comparison-threshold\/v1: replace with 17$/m);
@@ -97,6 +97,16 @@ test('help starts with usage and names every option the CLI parses', () => {
 test('the text report has an exact layout', () => {
   assert.equal(renderText(reports.Gaps), [
     'src/cart.ts:4:13  survived  comparison-boundary/v1: >= -> >',
+    '',
+    'Test gaps:',
+    'INPUT GAP src/cart.ts:4:13',
+    '  operands (5000, 5000): original true, edited false',
+    '  suggested test: expect(shippingFee(5000)).toBe(0)',
+    '',
+    'vitest, 5 baseline tests: 2 edits (1 survived, 1 killed), 1 test gap',
+  ].join('\n'));
+  assert.equal(renderText(reports.Gaps, { verbose: true }), [
+    'src/cart.ts:4:13  survived  comparison-boundary/v1: >= -> >',
     'src/cart.ts:9:13  killed  comparison-boundary/v1: >= -> >',
     '',
     'Test gaps:',
@@ -106,7 +116,8 @@ test('the text report has an exact layout', () => {
     '',
     'vitest, 5 baseline tests: 2 edits (1 survived, 1 killed), 1 test gap',
   ].join('\n'));
-  assert.equal(renderText(reports.Clean), [
+  assert.equal(renderText(reports.Clean), 'vitest, 5 baseline tests: 1 edit (1 killed), 0 test gaps');
+  assert.equal(renderText(reports.Clean, { verbose: true }), [
     'src/cart.ts:9:13  killed  comparison-boundary/v1: >= -> >', '',
     'vitest, 5 baseline tests: 1 edit (1 killed), 0 test gaps',
   ].join('\n'));
@@ -122,7 +133,7 @@ test('sparse reports render without invented entries', () => {
   assert.equal(renderText({ runner: 'vitest', evaluation: 'evaluated', extraction: [{ file: 'a.ts', path: 'fast' }],
     mutants: [{ location, replacement: '>', status: 'killed' }, { location, operator: '>', replacement: '>x', status: 'killed' },
       { location, operator: '>', replacement: 'x>=', status: 'killed' }],
-    diagnostics: [{ kind: 'INPUT GAP', location }] }), [
+    diagnostics: [{ kind: 'INPUT GAP', location }] }, { verbose: true }), [
     'src/cart.ts:4:13  killed  edit: replace with >',
     'src/cart.ts:4:13  killed  edit: replace with >x',
     'src/cart.ts:4:13  killed  edit: replace with x>=',
@@ -155,7 +166,7 @@ test('a Playwright witness gap shows its requirement, test file and verification
     mutants: [{ location, rule: 'logical-operand/v1', operator: '||', replacement: '!valid', status: 'survived' },
       { location, rule: 'logical-operator/v1', operator: '||', replacement: ' && ', status: 'killed' }],
     diagnostics: [{ kind: 'SURVIVED', location, requirement: 'Saving disables the button.', suggestedTestFile: 'variants/pending.ts',
-      verification: { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' } }] });
+      verification: { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' } }] }, { verbose: true });
   assert.equal(text, [
     'src/cart.ts:4:13  survived  logical-operand/v1: replace with !valid',
     'src/cart.ts:4:13  killed  logical-operator/v1: || -> &&',

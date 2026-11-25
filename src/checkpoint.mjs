@@ -58,7 +58,10 @@ export function computeCampaignContext(targets, options = {}, root = null) {
     displaceThresholds: !!options['displace-thresholds'],
     excludeRules: options['exclude-rule'] ?? null,
     ...(options['type-check'] ? { typeCheck: true } : {}),
+    ...(options.tsconfig ? { tsconfig: options.tsconfig } : {}),
     timeout: options.timeout ?? null,
+    ...(options['baseline-timeout'] !== undefined ? { baselineTimeout: options['baseline-timeout'] } : {}),
+    ...(options['baseline-workers'] !== undefined ? { baselineWorkers: options['baseline-workers'] } : {}),
     copyExclude: options['copy-exclude'] ?? null,
     isolatedTrials: !!options['isolated-trials'],
   }));

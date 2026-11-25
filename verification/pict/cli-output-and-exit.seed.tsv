@@ -1,0 +1,10 @@
+Verbosity	GapKind	EditShape	FailOnGaps	Evaluation
+Default	ComparisonAssertionGap	OperatorSwap	Off	Evaluated
+Default	ComparisonAssertionGap	OperatorSwap	On	Evaluated
+Default	None	MultilineSameFirstLine	Off	Evaluated
+Verbose	InputGap	MultilineSameFirstLine	On	Evaluated
+OnlyGaps	ExpressionAssertionGap	SingleLine	On	Evaluated
+Default	None	SingleLine	On	Evaluated
+Default	None	SingleLine	On	BaselineError
+Default	InputGap	SingleLine	On	Incomplete
+Default	None	SingleLine	Off	Listed

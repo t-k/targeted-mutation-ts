@@ -171,8 +171,11 @@ export function mergeProjectConfig(configObj, cliValues, cliFiles) {
   const values = { ...cliValues };
   if (values.mutators === undefined && typeof configObj.mutators === 'string') values.mutators = configObj.mutators;
   if (values.timeout === undefined && configObj.timeout !== undefined) values.timeout = String(configObj.timeout);
+  if (values['baseline-timeout'] === undefined && configObj.baselineTimeout !== undefined) values['baseline-timeout'] = String(configObj.baselineTimeout);
+  if (values['baseline-workers'] === undefined && configObj.baselineWorkers !== undefined) values['baseline-workers'] = String(configObj.baselineWorkers);
   if (values.concurrency === undefined && configObj.concurrency !== undefined) values.concurrency = String(configObj.concurrency);
   if (values.config === undefined && typeof configObj.config === 'string') values.config = configObj.config;
+  if (values.tsconfig === undefined && typeof configObj.tsconfig === 'string') values.tsconfig = configObj.tsconfig;
   if (values.baseline === undefined && typeof configObj.baseline === 'string') values.baseline = configObj.baseline;
   if (values.related === undefined && !values.test?.length && configObj.related === true) values.related = true;
   if (!values.test?.length && !values.related && Array.isArray(configObj.tests)) values.test = configObj.tests.map(String);
@@ -180,6 +183,9 @@ export function mergeProjectConfig(configObj, cliValues, cliFiles) {
   if (values['copy-exclude-gitignore'] === undefined && configObj.copyExcludeGitignore === true) values['copy-exclude-gitignore'] = true;
   if (!values['exclude-rule']?.length && Array.isArray(configObj.excludeRules)) values['exclude-rule'] = configObj.excludeRules.map(String);
   if (values['type-check'] === undefined && configObj.typeCheck === true) values['type-check'] = true;
+  if (values['fail-on-gaps'] === undefined && configObj.failOnGaps === true) values['fail-on-gaps'] = true;
+  if (values.verbose === undefined && values['only-gaps'] !== true && configObj.verbose === true) values.verbose = true;
+  if (values['only-gaps'] === undefined && values.verbose !== true && configObj.onlyGaps === true) values['only-gaps'] = true;
   const files = cliFiles.length ? cliFiles : (Array.isArray(configObj.files) ? configObj.files.map(String) : []);
   return { files, values };
 }

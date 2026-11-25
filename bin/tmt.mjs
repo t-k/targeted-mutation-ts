@@ -25,6 +25,8 @@ try {
       'isolated-trials': { type: 'boolean' },
       'verify-trials': { type: 'string' },
       timeout: { type: 'string' },
+      'baseline-timeout': { type: 'string' },
+      'baseline-workers': { type: 'string' },
       runner: { type: 'string' },
       project: { type: 'string', multiple: true },
       config: { type: 'string' },
@@ -34,9 +36,13 @@ try {
       'copy-exclude-gitignore': { type: 'boolean' },
       'exclude-rule': { type: 'string', multiple: true },
       'type-check': { type: 'boolean' },
+      tsconfig: { type: 'string' },
       'no-config': { type: 'boolean' },
       progress: { type: 'boolean' },
       format: { type: 'string' },
+      verbose: { type: 'boolean' },
+      'only-gaps': { type: 'boolean' },
+      'fail-on-gaps': { type: 'boolean' },
       'json-out': { type: 'string' },
       'sarif-out': { type: 'string' },
       baseline: { type: 'string' },
@@ -69,7 +75,7 @@ try {
     if (runValues.runner !== undefined && !['vitest', 'playwright'].includes(runValues.runner)) throw new Error('Expected --runner vitest|playwright');
     if (runValues.runner === 'playwright' && runValues['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
     if (runValues.related && runValues.runner === 'playwright') throw new Error('--related requires Vitest');
-    if (values.related && values.test?.length) throw new Error('--related cannot be combined with --test');
+    if (runValues.verbose && runValues['only-gaps']) throw new Error('--verbose cannot be combined with --only-gaps');
     if (runValues.mutators !== undefined && !['targeted', 'full'].includes(runValues.mutators)) throw new Error('Expected --mutators targeted|full');
     const session = runValues.runner !== 'playwright' && !runValues.witnesses && !runValues.audit;
     if ((runValues['isolated-trials'] || runValues['verify-trials'] !== undefined) && !session) {
@@ -87,6 +93,14 @@ try {
     if (runValues.timeout !== undefined) {
       if (!/^[1-9]\d{0,4}$/.test(runValues.timeout)) throw new Error('Expected --timeout to be a number of seconds');
       runValues.timeout = Number(runValues.timeout);
+    }
+    if (runValues['baseline-timeout'] !== undefined) {
+      if (!/^[1-9]\d{0,4}$/.test(runValues['baseline-timeout'])) throw new Error('Expected --baseline-timeout to be a number of seconds');
+      runValues['baseline-timeout'] = Number(runValues['baseline-timeout']);
+    }
+    if (runValues['baseline-workers'] !== undefined) {
+      if (!/^[1-9]\d{0,3}$/.test(runValues['baseline-workers'])) throw new Error('Expected --baseline-workers to be a positive integer');
+      runValues['baseline-workers'] = Number(runValues['baseline-workers']);
     }
     if (runValues['verify-trials'] !== undefined) {
       if (!/^\d{1,6}$/.test(runValues['verify-trials'])) throw new Error('Expected --verify-trials to be a count');
@@ -158,21 +172,47 @@ try {
       runValues['copy-exclude'] = activeExclusions.map(entry => relative(validated.root, entry));
     }
     const logProgress = runValues.progress ? message => process.stderr.write(`[tmt] ${message}\n`) : () => {};
+    const seenTypeCheckWarnings = new Set();
+    const onTypeCheckWarning = message => {
+      const safe = String(message).replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, '?');
+      if (seenTypeCheckWarnings.has(safe)) return;
+      seenTypeCheckWarnings.add(safe);
+      process.stderr.write(`Warning: ${safe}\n`);
+    };
+    runValues.onTypeCheckWarning = onTypeCheckWarning;
+    if (runValues.progress) runValues.onProgress = logProgress;
     if (runValues.related && !runValues.list) {
       const { selectScope } = await import('../src/scope.mjs');
       const relatedTargets = selectScope(validated.root, files, runValues).map(subject => subject.file);
       if (relatedTargets.length) {
-        const { resolveRelatedVitestSpecs } = await import('../src/vitest.mjs');
+        const { inside, resolveRelatedVitestSpecs } = await import('../src/vitest.mjs');
+        const relatedTimeoutSeconds = runValues['baseline-timeout'] ?? runValues.timeout;
         const resolved = await resolveRelatedVitestSpecs(validated.root, relatedTargets, {
           config: runValues.config,
           copyExclude: runValues['copy-exclude'],
-          ...(runValues.timeout ? { timeout: runValues.timeout * 1000 } : {}),
+          onProgress: runValues.onProgress,
+          ...(relatedTimeoutSeconds ? { timeout: relatedTimeoutSeconds * 1000 } : {}),
         });
-        runValues.test = resolved.tests;
-        runValues.testSpecs = resolved.specs;
-        const projects = [...new Set(resolved.specs.map(spec => spec.project).filter(Boolean))];
-        if (projects.length) runValues.testProjects = projects;
-        logProgress(`Selected ${resolved.tests.length} related test ${resolved.tests.length === 1 ? 'file' : 'files'}.`);
+        let selectedTests = resolved.tests;
+        let selectedSpecs = resolved.specs;
+        if (runValues.test?.length) {
+          const allowedTests = new Set(runValues.test.map(file => relative(validated.root, inside(validated.root, file))));
+          selectedTests = resolved.tests.filter(file => allowedTests.has(file));
+          selectedSpecs = resolved.specs.filter(spec => allowedTests.has(spec.file));
+          if (!selectedTests.length) {
+            throw new Error(`No Vitest test files matched both --related (${resolved.tests.length} related) and --test. Widen --test <file|glob> or omit --related.`);
+          }
+        }
+        runValues.test = selectedTests;
+        runValues.testSpecs = selectedSpecs;
+        const allNamedProjects = selectedSpecs.length > 0 && selectedSpecs.every(spec => Boolean(spec.project));
+        if (allNamedProjects) {
+          runValues.testProjects = [...new Set(selectedSpecs.map(spec => spec.project))];
+        }
+        logProgress(`Selected ${selectedTests.length} related test ${selectedTests.length === 1 ? 'file' : 'files'}.`);
+        if (selectedTests.length > 20) {
+          process.stderr.write(`Warning: --related selected ${selectedTests.length} test files. Consider narrowing with --test <glob>, or tuning --baseline-timeout <seconds> and --baseline-workers <N>.\n`);
+        }
       }
     }
     enablePreparedTypeScript();
@@ -236,9 +276,13 @@ try {
     } else if (format === 'sarif') {
       console.log(sarifPayload);
     } else {
-      console.log(renderText(result));
+      console.log(renderText(result, { verbose: runValues.verbose === true, onlyGaps: runValues['only-gaps'] === true }));
     }
-    if (['baseline_error', 'incomplete'].includes(result.evaluation) || result.extraction.some(file => file.path === 'diagnostic')) process.exitCode = 1;
+    if (['baseline_error', 'incomplete'].includes(result.evaluation) || result.extraction.some(file => file.path === 'diagnostic')) {
+      process.exitCode = 1;
+    } else if (runValues['fail-on-gaps'] && (result.diagnostics?.length ?? 0) > 0) {
+      process.exitCode = 2;
+    }
   } else if (command === 'prototype' && positionals.length === 2) {
     enablePreparedTypeScript();
     const { runPrototype } = await import('../src/prototype.mjs');

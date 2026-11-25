@@ -63,7 +63,10 @@ export function collectComparisons(root, files, options) {
   const extraction = [];
   const scoped = selectScope(root, files, options);
   const typeContext = options['type-check'] && ['targeted', 'full'].includes(options.mutators)
-    ? createTypeContext(root, scoped.map(subject => subject.file))
+    ? createTypeContext(root, scoped.map(subject => subject.file), {
+      tsconfig: options.tsconfig,
+      onWarning: options.onTypeCheckWarning,
+    })
     : null;
   for (const { file, selected } of scoped) {
     const input = readFileSync(inside(root, file));
@@ -118,7 +121,7 @@ export function verdict(run, baseline) {
 }
 
 function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings = {}) {
-  const { tracing = false, activate, trial, witness, coverageSites, synchronousTrace, collect } = settings;
+  const { tracing = false, activate, trial, witness, coverageSites, synchronousTrace, collect, isBaseline = false } = settings;
   const attempt = withCopy(root, (workspace, temp) => {
     const trace = tracing ? resolve(temp, 'trace.jsonl') : undefined;
     if (trace) mkdirSync(pendingTraceDirectory(trace));
@@ -148,7 +151,7 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
       writeFileSync(path, readFileSync(inside(workspace, witness.content)), { flag: 'wx' });
       witnessFile = relative(workspace, path);
     }
-    const result = runner(workspace, temp, { trace, active: activate, product: true, probePreload, synchronousTrace });
+    const result = runner(workspace, temp, { trace, active: activate, product: true, probePreload, synchronousTrace, isBaseline });
     if (!tracing && collect) {
       const path = resolve(workspace, collect);
       return { ...result, collected: existsSync(path) ? readFileSync(path, 'utf8') : '' };
@@ -439,9 +442,16 @@ function diagnose(trial, result) {
   const tests = [...observation.observed].filter(([, operands]) => operands.some(differs))
     .map(([key]) => testcase(observation.tests.get(key)));
   if (tests.length) {
-    const example = trial.adjustment !== undefined ? observation.rows.find(row => differs(row.operands)).operands : undefined;
-    return { kind: 'ASSERTION GAP', site: site.id, location: site.location, tests,
-      example: example && { operands: example, ...values(...example) } };
+    const example = observation.rows.find(row => differs(row.operands))?.operands;
+    return {
+      kind: 'ASSERTION GAP',
+      site: site.id,
+      rule: trial.rule,
+      operator: site.operator,
+      location: site.location,
+      tests,
+      ...(example ? { example: { operands: example, ...values(...example) } } : {}),
+    };
   }
   const binary = observation.rows[0]?.operands;
   if (!binary) return null;
@@ -529,11 +539,12 @@ function verifyWitnessRuns(baseline, original, changed) {
 }
 
 function analyzePlaywright(root, subjects, report, options, specification) {
-  const runner = (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root,
-    tests: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
+  const baselineTimeoutSeconds = options['baseline-timeout'] ?? options.timeout ?? 60;
+  const runner = (workspace, temp, settings) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root,
+    tests: options.test, timeout: (settings?.isBaseline ? baselineTimeoutSeconds : (options.timeout ?? 60)) * 1000 });
   const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
   const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
-  const baseline = attempt();
+  const baseline = attempt({ isBaseline: true });
   report.baseline = playwrightSummary(baseline);
   if (baseline.status !== 'passed') {
     return { ...report, evaluation: 'baseline_error',
@@ -616,19 +627,27 @@ export function prepareAnalysis(project, files, options) {
 
   const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
   if (report.runner === 'playwright') return { report: analyzePlaywright(root, subjects, report, options, specification) };
+  const baselineTimeoutSeconds = options['baseline-timeout'] ?? options.timeout ?? 60;
+  // Keep single-worker trace ordering when --deterministic or --audit compares trace replay order index-by-index.
+  const baselineWorkers = (options.deterministic || options.audit) ? 1 : (options['baseline-workers'] ?? 1);
   const runner = (workspace, temp, settings) => runVitest(workspace, temp, {
-    ...settings, config: options.config, testFiles: options.test, testProjects: options.testProjects, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}),
+    ...settings,
+    config: options.config,
+    testFiles: options.test,
+    testProjects: options.testProjects,
+    timeout: (settings?.isBaseline ? baselineTimeoutSeconds : (options.timeout ?? 60)) * 1000,
+    ...(settings?.isBaseline && baselineWorkers > 1 ? { workers: baselineWorkers } : {}),
   });
   const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
   const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
   // Beside a session, which runs the suite on its own, the recording run stands for the baseline when it passes.
   // Otherwise the plain baseline runs first, so a failing suite is reported as before.
-  const recorded = options.traceIsBaseline ? attempt({ tracing: true }) : null;
+  const recorded = options.traceIsBaseline ? attempt({ tracing: true, isBaseline: true }) : null;
   // Do not re-run a plain baseline when the recording run already timed out under the same suite/limit.
-  const plainBaseline = recorded?.status === 'passed' || recorded?.status === 'timeout' ? null : attempt();
+  const plainBaseline = recorded?.status === 'passed' || recorded?.status === 'timeout' ? null : attempt({ isBaseline: true });
   const baseline = plainBaseline ?? (recorded?.status === 'passed' ? { status: 'passed', tests: recorded.tests } : recorded);
   if (baseline.status !== 'passed') {
-    const timeoutSeconds = options.timeout ?? 60;
+    const timeoutSeconds = baselineTimeoutSeconds;
     return { report: { ...report, evaluation: 'baseline_error', baseline: {
       status: baseline.status,
       ...(baseline.status === 'timeout' ? { timeoutSeconds } : {}),

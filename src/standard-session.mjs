@@ -9,7 +9,7 @@ import { inside } from './vitest.mjs';
 // Vitest and Vite are loaded on every run. Node keeps their compiled code between runs when it can.
 try { enableCompileCache?.(); } catch { /* The cache is an optimisation only. */ }
 const input = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-const { workspace, config, files, selectedSpecs, mutants, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1, verifyTrials = 0, awaitsExtras = false, runTimeout = 60_000 } = input;
+const { workspace, config, files, selectedSpecs, mutants, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1, verifyTrials = 0, awaitsExtras = false, runTimeout = 60_000, baselineTimeout = runTimeout, baselineWorkers } = input;
 const destination = resolve(temporary, 'coverage.jsonl');
 const record = event => appendFileSync(output, JSON.stringify(event) + '\n');
 const lanes = [];
@@ -52,17 +52,17 @@ function follow(path) {
   };
 }
 
+function filterSelectedSpecs(allSpecs) {
+  if (!selectedSpecs?.length) return allSpecs;
+  const allowed = new Set(selectedSpecs.map(({ project, file }) => JSON.stringify([project ?? '', file])));
+  return allSpecs.filter(spec => allowed.has(JSON.stringify([spec.project.name ?? '', inside(workspace, spec.moduleId)])));
+}
+
 // A lane is one Vitest instance with its own worker. The first lane also runs the baseline and the isolated trials.
-async function openLane(index, serial = false) {
-  const lane = { snapshot: null, events: resolve(temporary, `trials-${index}.jsonl`), serial };
+async function openLane(index, serial = false, workerOverride = undefined) {
+  const lane = { snapshot: null, events: resolve(temporary, `trials-${index}.jsonl`), serial, workerOverride };
   lane.context = await createContext(lane);
-  const allSpecs = await lane.context.globTestSpecifications(files);
-  if (selectedSpecs?.length) {
-    const allowed = new Set(selectedSpecs.map(({ project, file }) => JSON.stringify([project ?? '', file])));
-    lane.specs = allSpecs.filter(spec => allowed.has(JSON.stringify([spec.project.name ?? '', inside(workspace, spec.moduleId)])));
-  } else {
-    lane.specs = allSpecs;
-  }
+  lane.specs = filterSelectedSpecs(await lane.context.globTestSpecifications(files));
   return lane;
 }
 
@@ -115,21 +115,21 @@ async function runInThread(lane, plans, limit, deadline) {
       .filter(([, list]) => list.length));
     await Promise.race([lane.context.close(), new Promise(resolveClose => setTimeout(resolveClose, 5_000))]);
     lane.context = await createContext(lane);
-    lane.specs = await lane.context.globTestSpecifications(files);
+    lane.specs = filterSelectedSpecs(await lane.context.globTestSpecifications(files));
   }
   return events;
 }
 
-async function run(specs, state, lane = lanes[0]) {
+async function run(specs, state, lane = lanes[0], timeoutMs = runTimeout) {
   lane.snapshot = null;
   rmSync(destination, { force: true });
   lane.context.provide('tmtSession', { ...state, destination });
   const timeout = setTimeout(() => {
     record(state.id === undefined
-      ? { baseline: { status: 'timeout' } }
+      ? { baseline: { status: 'timeout', timeoutSeconds: Math.round(timeoutMs / 1000) } }
       : { id: state.id, status: 'timeout', statusReason: 'Vitest did not finish before its deadline' });
     process.exit(124);
-  }, runTimeout);
+  }, timeoutMs);
   try {
     await lane.context.runTestSpecifications(specs);
     if (!lane.snapshot) throw new Error('Vitest did not report a completed run');
@@ -172,8 +172,14 @@ try {
   // its mutations are kept per file.
   const oneByOne = { maxWorkers: 1, fileParallelism: false };
   const beside = concurrency === 1 || isolatedTrials ? oneByOne : { maxWorkers: concurrency };
+  const resolveWorkers = lane => {
+    if (lane.workerOverride !== undefined) {
+      return lane.workerOverride === 1 ? oneByOne : { maxWorkers: lane.workerOverride };
+    }
+    return lane.serial ? oneByOne : beside;
+  };
   createContext = async lane => {
-    const workers = lane.serial ? oneByOne : beside;
+    const workers = resolveWorkers(lane);
     const created = await createVitest('test', {
       root: workspace, config, watch: false, api: false, ui: false, cache: false,
       pool: 'threads', isolate: true, maxConcurrency: 1, ...workers,
@@ -194,17 +200,25 @@ try {
     }
     return created;
   };
-  lanes.push(await openLane(0));
-  const { specs } = lanes[0];
+  const trialWorkers = concurrency === 1 || isolatedTrials ? 1 : concurrency;
+  const distinctBaselineLane = baselineWorkers !== undefined && baselineWorkers !== trialWorkers;
+  const baselineLane = await openLane('baseline', false, distinctBaselineLane ? baselineWorkers : undefined);
+  lanes.push(baselineLane);
+  const { specs } = baselineLane;
   const discovered = new Set(specs.map(spec => inside(workspace, spec.moduleId)));
   if (files.length && (files.some(file => !discovered.has(file)) || discovered.size !== files.length)) {
     throw new Error('Vitest test selection mismatch');
   }
   const baselineState = { phase: 'baseline' };
   const baselineStarted = Date.now();
-  const baseline = await run(specs, baselineState);
-  const baselineTiming = lanes[0].timing;
+  const baseline = await run(specs, baselineState, baselineLane, baselineTimeout);
+  const baselineTiming = baselineLane.timing;
   const baselineTime = Date.now() - baselineStarted;
+  if (distinctBaselineLane) {
+    await Promise.race([baselineLane.context.close(), new Promise(resolveClose => setTimeout(resolveClose, 5_000))]);
+    lanes.length = 0;
+    lanes.push(await openLane(0));
+  }
   const passed = baseline.snapshot.tests.filter(test => test.status === 'passed');
   const tests = new Map(passed.map(test => [test.id, test]));
   const coveredModules = new Set(baseline.records.flatMap(record => record.modules.map(([project, file]) =>

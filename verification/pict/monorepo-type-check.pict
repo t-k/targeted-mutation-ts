@@ -1,0 +1,7 @@
+TsconfigFlag: Unset, ExplicitValid, ExplicitMissing
+RootConfigKind: SingleStrict, SingleNonStrict, ProjectRefs, Missing
+PackageConfigKind: None, Strict, NonStrict
+TargetMatch: InPackage, InRoot, OutsideRefs
+
+IF [PackageConfigKind] = "None" THEN [TargetMatch] <> "InPackage";
+IF [RootConfigKind] <> "ProjectRefs" THEN [TargetMatch] <> "OutsideRefs";

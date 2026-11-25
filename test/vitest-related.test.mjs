@@ -131,10 +131,12 @@ test('vitest-related PICT matrix: CLI/config validation, precedence, unmatched, 
         const res = spawnSync(process.execPath, [cli, 'analyze', dir, 'src/lib/math.ts', '--runner', 'playwright', '--related'], { encoding: 'utf8' });
         assert.equal(res.status, 1);
         assert.match(res.stderr, /--related requires Vitest/);
-      } else if (runner === 'Vitest' && relatedFlag === 'Cli' && testFlag === 'Cli') {
-        const res = spawnSync(process.execPath, [cli, 'analyze', dir, 'src/lib/math.ts', '--related', '--test', 'src/lib/math.test.ts'], { encoding: 'utf8' });
-        assert.equal(res.status, 1);
-        assert.match(res.stderr, /--related cannot be combined with --test/);
+      } else if (runner === 'Vitest' && relatedFlag === 'Cli' && testFlag === 'Cli' && targetScope === 'ExplicitMatched' && listMode === 'Off') {
+        const res = spawnSync(process.execPath, [cli, 'analyze', dir, 'src/lib/math.ts', '--related', '--test', 'src/lib/math.test.ts', '--format', 'json'], { encoding: 'utf8' });
+        assert.equal(res.status, 0, res.stderr);
+        const report = JSON.parse(res.stdout);
+        assert.equal(report.evaluation, 'evaluated');
+        assert.deepEqual(report.selection.tests, ['src/lib/math.test.ts']);
       } else if (runner === 'Vitest' && relatedFlag === 'Cli' && testFlag === 'Off' && targetScope === 'ExplicitUnmatched' && listMode === 'Off') {
         const res = spawnSync(process.execPath, [cli, 'analyze', dir, 'src/lib/orphan.ts', '--related'], { encoding: 'utf8' });
         assert.equal(res.status, 1);

@@ -51,7 +51,12 @@ export async function analyzeConventional(project, files, options) {
   }));
   const originals = new Map(targets.map(({ file, input }) => [file, input]));
   const awaitsExtras = options.extras !== undefined;
-  const typeContext = options['type-check'] ? createTypeContext(root, targets.map(t => t.file)) : null;
+  const typeContext = options['type-check']
+    ? createTypeContext(root, targets.map(t => t.file), {
+      tsconfig: options.tsconfig,
+      onWarning: options.onTypeCheckWarning,
+    })
+    : null;
   const { sources, mutants: prepared } = prepareBuiltinSwitches(targets, {
     dialect: options.dialect,
     shifts: awaitsExtras,
@@ -113,6 +118,9 @@ export async function analyzeConventional(project, files, options) {
     copyFileSync(runnerSource, workerRunner);
     const manifest = resolve(temp, 'mutation-session.json');
     const output = resolve(temp, 'mutation-session.jsonl');
+    const runTimeoutMs = options.timeout ? options.timeout * 1000 : 60_000;
+    const baselineTimeoutMs = options['baseline-timeout'] ? options['baseline-timeout'] * 1000 : runTimeoutMs;
+    const totalRunnable = runnable.filter(mutant => !mutant.parametric).length;
     writeFileSync(manifest, JSON.stringify({
       workspace, setup, workerRunner, output, temporary: temp, awaitsExtras,
       mutants: runnable.map(({ id, parametric, targeted }) => ({
@@ -125,12 +133,14 @@ export async function analyzeConventional(project, files, options) {
       isolatedTrials: options['isolated-trials'] === true,
       concurrency: options.concurrency ?? Math.max(1, availableParallelism() - 1),
       verifyTrials: options['verify-trials'] ?? 0,
-      ...(options.timeout ? { runTimeout: options.timeout * 1000 } : {}),
+      runTimeout: runTimeoutMs,
+      baselineTimeout: baselineTimeoutMs,
+      ...(options['baseline-workers'] !== undefined ? { baselineWorkers: options['baseline-workers'] } : {}),
       config: options.config === undefined ? undefined : inside(workspace, options.config),
       files: [...new Set((options.test ?? []).map(file => inside(workspace, file)))],
       ...(options.testSpecs?.length ? { selectedSpecs: options.testSpecs.map(({ project, file }) => ({ project, file: inside(workspace, file) })) } : {}),
     }));
-    const limit = 75_000 + (options.timeout ? options.timeout * 1000 : 60_000) * runnable.length;
+    const limit = 75_000 + baselineTimeoutMs + runTimeoutMs * runnable.length;
     // The focused analysis names its threshold edits once it has recorded the comparisons.
     // Guarded by `finished` so a late resolution never writes after `withCopy` deletes `temp`,
     // while a write error during a live session aborts the child and propagates to the caller.
@@ -155,10 +165,36 @@ export async function analyzeConventional(project, files, options) {
         }
       });
     }
+    let progressTimer = null;
+    if (options.onProgress) {
+      options.onProgress('Running baseline tests...');
+      let baselineReported = false;
+      let lastDone = -1;
+      const pollProgress = () => {
+        const current = readEvents(output);
+        if (!baselineReported) {
+          const base = current.find(event => event.baseline)?.baseline;
+          if (base?.status === 'passed') {
+            baselineReported = true;
+            options.onProgress(`Baseline passed (${base.tests} tests). Running ${totalRunnable} mutant(s)...`);
+          }
+        }
+        if (baselineReported && totalRunnable > 0) {
+          const done = current.filter(event => event.id !== undefined).length;
+          if (done !== lastDone && done > 0) {
+            lastDone = done;
+            options.onProgress(`Mutants: ${Math.min(done, totalRunnable)}/${totalRunnable} completed`);
+          }
+        }
+      };
+      progressTimer = setInterval(pollProgress, 1_000);
+      progressTimer.unref?.();
+    }
     let run;
     try {
       run = await superviseSession(workspace, temp, manifest, limit, sessionAbort.signal);
     } finally {
+      if (progressTimer) clearInterval(progressTimer);
       finished = true;
       options.signal?.removeEventListener('abort', onAbort);
     }
@@ -220,5 +256,5 @@ export async function analyzeConventional(project, files, options) {
       mutants: judged.map(({ targeted: _rule, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),
       diagnostics,
     };
-  }, { exclude: options['copy-exclude'] });
+  }, { exclude: options['copy-exclude'], onProgress: options.onProgress });
 }

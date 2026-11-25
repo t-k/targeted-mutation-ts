@@ -171,15 +171,127 @@ function rebaseCopiedLinks(source, workspace) {
   }
 }
 
-export function withCopy(project, action, { exclude = [] } = {}) {
+const activeCopies = new Set();
+let signalHandlersRegistered = false;
+
+function stopCopyProcesses(dir) {
+  try {
+    for (const entry of readdirSync(dir)) {
+      if (!entry.endsWith('.pid')) continue;
+      const pid = Number(readFileSync(resolve(dir, entry), 'utf8').trim());
+      if (!Number.isSafeInteger(pid) || pid <= 0) continue;
+      for (const sig of ['SIGTERM', 'SIGKILL']) {
+        try {
+          if (process.platform === 'win32') process.kill(pid, sig);
+          else process.kill(-pid, sig);
+        } catch {
+          // Process already exited or unreachable.
+        }
+      }
+    }
+  } catch {
+    // Best-effort process stop during shutdown.
+  }
+}
+
+function cleanupActiveCopies() {
+  for (const dir of [...activeCopies]) {
+    activeCopies.delete(dir);
+    stopCopyProcesses(dir);
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+    } catch {
+      // Best-effort cleanup during shutdown.
+    }
+  }
+}
+
+function handleSignal(signal, code) {
+  if (activeCopies.size === 0) {
+    process.off(signal, signal === 'SIGINT' ? handleSigint : handleSigterm);
+    try {
+      process.kill(process.pid, signal);
+    } catch {
+      process.exit(code);
+    }
+    return;
+  }
+  cleanupActiveCopies();
+  process.exit(code);
+}
+
+function handleSigint() {
+  handleSignal('SIGINT', 130);
+}
+
+function handleSigterm() {
+  handleSignal('SIGTERM', 143);
+}
+
+function registerActiveCopy(dir) {
+  activeCopies.add(dir);
+  if (!signalHandlersRegistered) {
+    signalHandlersRegistered = true;
+    process.on('exit', cleanupActiveCopies);
+    process.on('SIGINT', handleSigint);
+    process.on('SIGTERM', handleSigterm);
+  }
+}
+
+function unregisterActiveCopy(dir) {
+  activeCopies.delete(dir);
+  // Defer listener removal to the next turn so a signal queued during a synchronous
+  // `withCopy` call (e.g. `spawnSync`) is still delivered and exits with 130/143.
+  if (signalHandlersRegistered && activeCopies.size === 0) {
+    setImmediate(() => {
+      if (signalHandlersRegistered && activeCopies.size === 0) {
+        signalHandlersRegistered = false;
+        process.off('exit', cleanupActiveCopies);
+        process.off('SIGINT', handleSigint);
+        process.off('SIGTERM', handleSigterm);
+      }
+    }).unref?.();
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)}MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${bytes}B`;
+}
+
+export const DEFAULT_LARGE_COPY_BYTES = 500 * 1024 * 1024;
+export const DEFAULT_LARGE_COPY_FILES = 10_000;
+
+export function withCopy(project, action, {
+  exclude = [],
+  onProgress,
+  onLargeCopy,
+  largeCopyBytes = DEFAULT_LARGE_COPY_BYTES,
+  largeCopyFiles = DEFAULT_LARGE_COPY_FILES,
+} = {}) {
   const source = realpathSync(project);
   const exclusions = resolveCopyExclusions(source, exclude);
   const temp = realpathSync(mkdtempSync(resolve(tmpdir(), 'tmt-')));
-  const remove = () => rmSync(temp, { recursive: true, force: true });
+  registerActiveCopy(temp);
+  let removed = false;
+  const remove = () => {
+    if (removed) return;
+    removed = true;
+    unregisterActiveCopy(temp);
+    rmSync(temp, { recursive: true, force: true });
+  };
   let pending = false;
   try {
     const root = resolve(temp, 'project');
     const moduleTrees = [];
+    let copiedFiles = 0;
+    let copiedBytes = 0;
+    let warnedLargeCopy = false;
+    const copyStarted = Date.now();
+    let lastProgressAt = copyStarted;
+    onProgress?.('Copying project to temporary workspace...');
     cpSync(source, root, {
       recursive: true,
       // Copy-on-write where the file system offers it (APFS, Btrfs, XFS); an ordinary copy elsewhere.
@@ -188,9 +300,34 @@ export function withCopy(project, action, { exclude = [] } = {}) {
         if (path !== source && basename(path) === 'node_modules' && !exclusions.includes(path) &&
             !copyPathIsExcluded(source, dirname(path), exclusions) &&
             statSync(path, { throwIfNoEntry: false })?.isDirectory()) moduleTrees.push(path);
-        return !copyPathIsExcluded(source, path, exclusions);
+        const keep = !copyPathIsExcluded(source, path, exclusions);
+        if (keep && path !== source) {
+          const st = lstatSync(path, { throwIfNoEntry: false });
+          if (st?.isFile()) {
+            copiedFiles++;
+            copiedBytes += st.size;
+            if (!warnedLargeCopy && (copiedBytes >= largeCopyBytes || copiedFiles >= largeCopyFiles)) {
+              warnedLargeCopy = true;
+              const message = `Warning: Copying a large project (${formatBytes(copiedBytes)}, ${copiedFiles} files) into a temporary directory. ` +
+                'Consider excluding large directories with --copy-exclude <PATH> or setting "copyExclude" in targeted-mutation.config.json.';
+              if (onLargeCopy) onLargeCopy({ bytes: copiedBytes, files: copiedFiles, message });
+              else process.stderr.write(message + '\n');
+            }
+            if (onProgress) {
+              const now = Date.now();
+              if (now - lastProgressAt >= 2_000) {
+                lastProgressAt = now;
+                onProgress(`Copying project (${copiedFiles} files, ${formatBytes(copiedBytes)})...`);
+              }
+            }
+          }
+        }
+        return keep;
       },
     });
+    if (onProgress && (Date.now() - copyStarted >= 500 || copiedFiles >= 1_000)) {
+      onProgress(`Copied ${copiedFiles} files (${formatBytes(copiedBytes)}).`);
+    }
     rebaseCopiedLinks(source, root);
     const projectModules = resolve(source, 'node_modules');
     const hasLocalModules = moduleTrees.includes(projectModules);
@@ -209,7 +346,7 @@ export function withCopy(project, action, { exclude = [] } = {}) {
 }
 
 // How one Vitest run is started, shared by the blocking and the concurrent form.
-function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects = [], product = false, active, probePreload, synchronousTrace, timeout = 60_000 } = {}) {
+function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects = [], product = false, active, probePreload, synchronousTrace, timeout = 60_000, workers = 1 } = {}) {
   const vitest = resolve(dirname(runnerPackage(root, 'vitest')), 'vitest.mjs');
   const testsToRun = [...new Set(testFiles.map(file => inside(root, file)))];
   const projectArgs = [...new Set(testProjects.filter(Boolean))].flatMap(name => ['--project', name]);
@@ -218,9 +355,12 @@ function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects
   rmSync(report, { force: true });
   const cache = resolve(temp, 'vite-cache');
   mkdirSync(cache, { recursive: true });
+  const workerArgs = workers > 1
+    ? [`--maxWorkers=${workers}`, '--maxConcurrency=1']
+    : ['--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism'];
   return { report, testsToRun, product, args: [
     supervisor, resolve(temp, 'vitest.pid'), String(timeout),
-    vitest, 'run', '--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism', '--no-cache',
+    vitest, 'run', ...workerArgs, '--no-cache',
     ...configuration, ...projectArgs, ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]),
     ...testsToRun,
   ], options: {
@@ -276,13 +416,14 @@ function vitestOutcome(root, { report, testsToRun, product }, result) {
   return { status, tests, output: result.stderr + result.stdout };
 }
 
-export async function resolveRelatedVitestSpecs(project, targetFiles = [], { config, copyExclude = [], timeout = 60_000 } = {}) {
+export async function resolveRelatedVitestSpecs(project, targetFiles = [], { config, copyExclude = [], timeout = 60_000, onProgress, onLargeCopy } = {}) {
   const root = realpathSync(project);
   const relTargets = [...new Set(targetFiles.map(file => relative(root, inside(root, file))))];
   if (!relTargets.length) return { tests: [], specs: [] };
   // Validate Vitest availability up front before copying.
   runnerPackage(root, 'vitest');
-  return withCopy(root, (workspace, temp) => {
+  return withCopy(root, async (workspace, temp) => {
+    onProgress?.('Resolving related Vitest test files...');
     const cache = resolve(temp, 'vite-cache');
     mkdirSync(cache, { recursive: true });
     const manifestPath = resolve(temp, 'related-request.json');
@@ -293,15 +434,36 @@ export async function resolveRelatedVitestSpecs(project, targetFiles = [], { con
       targets: relTargets,
       output: outputPath,
     }), 'utf8');
-    const run = spawnSync(process.execPath, [
-      supervisor, resolve(temp, 'related.pid'), String(timeout),
-      relatedWorker, manifestPath,
-    ], {
-      cwd: workspace,
-      env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test', VITE_CACHE_DIR: cache },
-      encoding: 'utf8',
-      timeout: timeout + 5_000,
-      maxBuffer: 4 * 1024 * 1024,
+    const maxBuffer = 4 * 1024 * 1024;
+    const run = await new Promise(settle => {
+      const child = spawn(process.execPath, [
+        supervisor, resolve(temp, 'related.pid'), String(timeout),
+        relatedWorker, manifestPath,
+      ], {
+        cwd: workspace,
+        env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test', VITE_CACHE_DIR: cache },
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+      const out = { stdout: '', stderr: '' };
+      for (const stream of ['stdout', 'stderr']) {
+        child[stream].setEncoding('utf8');
+        child[stream].on('data', chunk => { if (out[stream].length < maxBuffer) out[stream] += chunk; });
+      }
+      const killTimer = setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch { /* ignore */ }
+      }, timeout + 5_000);
+      killTimer.unref?.();
+      let failure;
+      child.once('error', error => { failure = error; });
+      child.once('close', (status, signal) => {
+        clearTimeout(killTimer);
+        settle({
+          status,
+          signal,
+          ...out,
+          error: failure ?? (signal && status === null ? Object.assign(new Error('Vitest related discovery did not finish in time'), { code: 'ETIMEDOUT' }) : undefined),
+        });
+      });
     });
     if (run.status === 124 || run.error?.code === 'ETIMEDOUT') {
       throw new Error(`Vitest related test discovery timed out after ${Math.round(timeout / 1000)}s. Try increasing --timeout or specifying --test <FILE>.`);
@@ -317,7 +479,7 @@ export async function resolveRelatedVitestSpecs(project, targetFiles = [], { con
       throw new Error(`No Vitest test files are related to ${shown}. Specify test files explicitly with --test <FILE>.`);
     }
     return { tests, specs };
-  }, { exclude: copyExclude });
+  }, { exclude: copyExclude, onProgress, onLargeCopy });
 }
 
 export async function resolveRelatedVitestTests(project, targetFiles = [], options = {}) {

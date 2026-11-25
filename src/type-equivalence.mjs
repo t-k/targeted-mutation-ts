@@ -1,5 +1,5 @@
-import { existsSync, realpathSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { loadTypeScript } from './typescript-compiler.mjs';
 
 const PRIMITIVE_PROTOTYPE_KEYS = new Set([
@@ -163,44 +163,124 @@ function indexExpressions(ts, sourceFile) {
   return nodes;
 }
 
-export function createTypeContext(root, targetFiles = [], { tsconfig, ts = loadTypeScript() } = {}) {
-  const realRoot = existsSync(root) ? realpathSync(root) : resolve(root);
-  const configPath = tsconfig
-    ? resolve(realRoot, tsconfig)
-    : ts.findConfigFile(realRoot, ts.sys.fileExists, 'tsconfig.json');
-  if (!configPath || !existsSync(configPath)) {
-    return { strictNullChecks: false, forFile: () => null };
+function isWithinRoot(realRoot, candidate) {
+  const rel = relative(realRoot, candidate);
+  return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + sep));
+}
+
+function normalizePath(filePath) {
+  return existsSync(filePath) ? realpathSync(filePath) : resolve(filePath);
+}
+
+function readParsedConfig(ts, configPath, cache) {
+  const key = normalizePath(configPath);
+  if (cache.has(key)) return cache.get(key);
+  if (!existsSync(key)) {
+    const missing = { configPath: key, missing: true, strictNullChecks: false };
+    cache.set(key, missing);
+    return missing;
   }
-  const read = ts.readConfigFile(configPath, ts.sys.readFile);
+  const read = ts.readConfigFile(key, ts.sys.readFile);
   if (read.error || !read.config) {
-    return { strictNullChecks: false, forFile: () => null };
+    const failed = { configPath: key, error: true, strictNullChecks: false };
+    cache.set(key, failed);
+    return failed;
   }
-  const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, dirname(configPath));
+  const parsed = ts.parseJsonConfigFileContent(read.config, ts.sys, dirname(key));
   const compilerOptions = parsed.options ?? {};
   const strictNullChecks = compilerOptions.strictNullChecks === true ||
     (compilerOptions.strict === true && compilerOptions.strictNullChecks !== false);
-  if (!strictNullChecks) {
-    return { strictNullChecks: false, forFile: () => null };
-  }
-  const noUncheckedIndexedAccess = compilerOptions.noUncheckedIndexedAccess === true;
+  const fileNames = new Set((parsed.fileNames ?? []).map(normalizePath));
+  const info = {
+    configPath: key,
+    parsed,
+    compilerOptions,
+    strictNullChecks,
+    noUncheckedIndexedAccess: compilerOptions.noUncheckedIndexedAccess === true,
+    projectReferences: parsed.projectReferences ?? [],
+    fileNames,
+  };
+  cache.set(key, info);
+  return info;
+}
 
-  const absTargets = targetFiles.map(file => {
-    const resolved = resolve(realRoot, file);
-    return existsSync(resolved) ? realpathSync(resolved) : resolved;
-  });
+function resolveReferenceConfigPath(refPath) {
+  const resolved = resolve(refPath);
+  const st = statSync(resolved, { throwIfNoEntry: false });
+  if (st?.isDirectory()) return resolve(resolved, 'tsconfig.json');
+  return resolved;
+}
+
+function findConfigViaReferences(ts, configPath, absFile, cache, visited = new Set()) {
+  const key = normalizePath(configPath);
+  if (visited.has(key)) return null;
+  visited.add(key);
+  const info = readParsedConfig(ts, key, cache);
+  if (info.missing || info.error) return null;
+  for (const ref of info.projectReferences) {
+    const refConfigPath = resolveReferenceConfigPath(ref.path);
+    if (!existsSync(refConfigPath)) continue;
+    const refInfo = readParsedConfig(ts, refConfigPath, cache);
+    if (refInfo.missing || refInfo.error) continue;
+    if (refInfo.fileNames.has(absFile)) return refInfo.configPath;
+    if (refInfo.projectReferences.length) {
+      const nested = findConfigViaReferences(ts, refInfo.configPath, absFile, cache, visited);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
+function collectAncestorConfigsInRoot(ts, realRoot, startDir) {
+  const configs = [];
+  let dir = startDir;
+  while (isWithinRoot(realRoot, dir)) {
+    const candidate = resolve(dir, 'tsconfig.json');
+    if (ts.sys.fileExists(candidate)) configs.push(normalizePath(candidate));
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return configs;
+}
+
+function resolveConfigForFile(ts, realRoot, absFile, explicitConfigPath, cache) {
+  if (explicitConfigPath) return explicitConfigPath;
+  const ancestors = collectAncestorConfigsInRoot(ts, realRoot, dirname(absFile));
+  if (!ancestors.length) {
+    const fallback = ts.findConfigFile(realRoot, ts.sys.fileExists, 'tsconfig.json');
+    if (fallback) ancestors.push(normalizePath(fallback));
+  }
+  if (!ancestors.length) return null;
+
+  // Walk from nearest ancestor upward: if a config has projectReferences, prefer an owning
+  // referenced config before falling back to an ancestor config that merely includes absFile.
+  for (const configPath of ancestors) {
+    const info = readParsedConfig(ts, configPath, cache);
+    if (info.missing || info.error) continue;
+    if (info.projectReferences.length) {
+      const fromRef = findConfigViaReferences(ts, configPath, absFile, cache);
+      if (fromRef) return fromRef;
+    }
+    if (info.fileNames.has(absFile)) {
+      return configPath;
+    }
+  }
+
+  // Fallback to the nearest ancestor tsconfig so warnings report the actual config checked.
+  return ancestors[0];
+}
+
+function buildGroupContext(ts, info, absTargets) {
+  const { compilerOptions, noUncheckedIndexedAccess, parsed } = info;
   const ambientDts = (parsed.fileNames ?? []).filter(file => file.endsWith('.d.ts'));
   const rootNames = [...new Set([...absTargets, ...ambientDts])];
-  if (!rootNames.length) {
-    return { strictNullChecks: true, forFile: () => null };
-  }
-
+  if (!rootNames.length) return () => null;
   const program = ts.createProgram(rootNames, { ...compilerOptions, noEmit: true });
   const checker = program.getTypeChecker();
   const fileCache = new Map();
 
-  function forFile(file) {
-    const resolved = resolve(realRoot, file);
-    const absFile = existsSync(resolved) ? realpathSync(resolved) : resolved;
+  return (absFile, resolved) => {
     if (fileCache.has(absFile)) return fileCache.get(absFile);
     const sourceFile = program.getSourceFile(absFile) ?? program.getSourceFile(resolved);
     if (!sourceFile) {
@@ -239,7 +319,93 @@ export function createTypeContext(root, targetFiles = [], { tsconfig, ts = loadT
     };
     fileCache.set(absFile, helper);
     return helper;
+  };
+}
+
+export function createTypeContext(root, targetFiles = [], { tsconfig, onWarning, ts = loadTypeScript() } = {}) {
+  const realRoot = existsSync(root) ? realpathSync(root) : resolve(root);
+  const configCache = new Map();
+  const warnings = [];
+  const seenWarnings = new Set();
+  const warn = message => {
+    if (seenWarnings.has(message)) return;
+    seenWarnings.add(message);
+    warnings.push(message);
+    onWarning?.(message);
+  };
+  const labelConfig = configPath => {
+    const rel = relative(realRoot, configPath);
+    return rel && !isAbsolute(rel) && !rel.startsWith('..' + sep) ? rel : configPath;
+  };
+  const explicitConfigPath = tsconfig ? resolve(realRoot, tsconfig) : null;
+
+  if (!targetFiles.length) {
+    const configPath = explicitConfigPath ?? ts.findConfigFile(realRoot, ts.sys.fileExists, 'tsconfig.json');
+    if (!configPath || !existsSync(configPath)) {
+      warn(explicitConfigPath
+        ? `--type-check: tsconfig file not found (${tsconfig}); skipping type-based suppression.`
+        : '--type-check: no tsconfig.json found; skipping type-based suppression.');
+      return { strictNullChecks: false, warnings, forFile: () => null };
+    }
+    const info = readParsedConfig(ts, configPath, configCache);
+    if (info.error) {
+      warn(`--type-check: failed to read ${labelConfig(configPath)}; skipping type-based suppression.`);
+      return { strictNullChecks: false, warnings, forFile: () => null };
+    }
+    if (!info.strictNullChecks) {
+      warn(`--type-check: strictNullChecks is not enabled in ${labelConfig(configPath)}; skipping type-based suppression.`);
+    }
+    return { strictNullChecks: info.strictNullChecks, warnings, forFile: () => null };
   }
 
-  return { strictNullChecks: true, forFile };
+  const grouped = new Map();
+  const fileToConfig = new Map();
+  for (const file of targetFiles) {
+    const resolved = resolve(realRoot, file);
+    const absFile = normalizePath(resolved);
+    const configPath = resolveConfigForFile(ts, realRoot, absFile, explicitConfigPath, configCache);
+    if (!configPath) {
+      warn(`--type-check: no tsconfig.json found for ${file}; skipping type-based suppression.`);
+      fileToConfig.set(absFile, null);
+      continue;
+    }
+    const key = normalizePath(configPath);
+    fileToConfig.set(absFile, key);
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key).push(absFile);
+  }
+
+  const groupLookups = new Map();
+  let anyStrictNullChecks = false;
+  for (const [configPath, absTargets] of grouped) {
+    const info = readParsedConfig(ts, configPath, configCache);
+    if (info.missing) {
+      warn(`--type-check: tsconfig file not found (${tsconfig ?? labelConfig(configPath)}); skipping type-based suppression.`);
+      groupLookups.set(configPath, () => null);
+      continue;
+    }
+    if (info.error) {
+      warn(`--type-check: failed to read ${labelConfig(configPath)}; skipping type-based suppression.`);
+      groupLookups.set(configPath, () => null);
+      continue;
+    }
+    if (!info.strictNullChecks) {
+      warn(`--type-check: strictNullChecks is not enabled in ${labelConfig(configPath)}; skipping type-based suppression.`);
+      groupLookups.set(configPath, () => null);
+      continue;
+    }
+    anyStrictNullChecks = true;
+    groupLookups.set(configPath, buildGroupContext(ts, info, absTargets));
+  }
+
+  function forFile(file) {
+    const resolved = resolve(realRoot, file);
+    const absFile = normalizePath(resolved);
+    const configKey = fileToConfig.get(absFile);
+    if (!configKey) return null;
+    const lookup = groupLookups.get(configKey);
+    return lookup ? lookup(absFile, resolved) : null;
+  }
+
+  return { strictNullChecks: anyStrictNullChecks, warnings, forFile };
 }
