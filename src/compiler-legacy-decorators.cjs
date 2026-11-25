@@ -59,6 +59,7 @@ function lowerLegacyDecorators(addon, source) {
     } else if (kind === 55) {
       // A class body. Only the body of the class at module level holds members that are lowered here.
       if (pending.length !== 0) return null;
+      if (current !== null && depth === 0) current.bodyFirst = leftFirst;
       depth++;
     } else if (kind === 56) {
       if (pending.length !== 0) return null;
@@ -143,9 +144,12 @@ function closeClass(found, text, end) {
   const whole = found.decorators.length !== 0 || found.constructor.length !== 0;
   if (!whole && statements.length === 0) return [];
   if (!whole) return [[end, end, '\n' + statements.join('\n') + '\n']];
-  // Inside its own body the name of the class means the undecorated class. TypeScript gives the decorated
-  // one a second name there; that case is left to it.
-  if (new RegExp('(?<![\\w$.])' + found.name.replace(/\$/g, '\\$') + '(?![\\w$])').test(text.slice(found.nameLast, end))) return null;
+  // Inside the body of a named class expression its name means the undecorated class. TypeScript gives the
+  // decorated one a second name and writes that name for every reference in the body. Here the expression
+  // loses its name instead, so that the body sees the variable: a static block stores the class in it before
+  // any other static member runs, and the decorated class replaces it afterwards.
+  const named = new RegExp('(?<![\\w$.])' + found.name.replace(/\$/g, '\\$') + '(?![\\w$])').test(text.slice(found.nameLast, end));
+  if (named && (found.bodyFirst === undefined || text[found.bodyFirst] !== '{')) return null;
   const list = found.decorators.map(decorator => decorator.expression);
   for (const parameter of found.constructor) {
     for (const decorator of parameter.decorators) list.push(`__param(${parameter.index}, ${decorator.expression})`);
@@ -154,7 +158,9 @@ function closeClass(found, text, end) {
   if (found.exported) statements.push(`export { ${found.name} };`);
   // A class expression cannot be abstract, so the members that are erased anyway go with the modifier.
   return [
-    [found.headFirst, found.headLast, `let ${found.name} = class `],
+    ...(named ? [[found.headFirst, found.nameLast, `let ${found.name};\n${found.name} = class`],
+      [found.bodyFirst + 1, found.bodyFirst + 1, ` static { ${found.name} = this; }`]] :
+      [[found.headFirst, found.headLast, `let ${found.name} = class `]]),
     ...found.erased.map(([first, last]) => [first, last, '']),
     [end, end, ';\n' + statements.join('\n') + '\n'],
   ];

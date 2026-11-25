@@ -55,7 +55,6 @@ test('the lowered text runs: decorators see the class, the member and the parame
 test('what the first cut does not lower is left to TypeScript, with the same result', () => {
   for (const source of [
     'export default class A { constructor(@IFoo foo: IFoo) {} }',
-    'export class A { static ID = "a"; constructor(@IFoo foo: IFoo) { A.ID; } }',
     'export class A { @d get v() { return 1; } @d set v(x) {} }',
     'export class A { @d [k]() {} }',
     'export class A { set v(@d x: number) {} }',
@@ -81,4 +80,35 @@ test('metadata and source maps keep the TypeScript route', () => {
   const source = 'export class A { constructor(@IFoo foo: IFoo) {} }';
   assert.equal(compile(source, { ...options, emitDecoratorMetadata: true }).backend, 'typescript');
   assert.equal(compile(source, { ...options, sourceMap: true }).backend, 'typescript');
+});
+
+// A class that names itself in its body. TypeScript writes a second name for the decorated class and uses it for
+// every reference in the body; this compiler takes the name off the class expression, so that the body sees the
+// variable. The two texts differ, so they are compared by what they do.
+test('a class that names itself in its body behaves as TypeScript\'s lowering does', () => {
+  const source = 'const replace = (target: any) => class Replaced extends target { static tag = "replaced"; };\n' +
+    'const keep = (target: any) => { target.kept = true; };\n' +
+    'const mark = (target: any, key: any, index: number) => { (target.marks ??= []).push(index); };\n' +
+    '@replace\nclass A {\n  static first = A.name;\n  static self = A;\n  static make() { return new A(1); }\n' +
+    '  constructor(@mark readonly v: number) {}\n  who() { return [A.name, (A as any).tag, this instanceof A]; }\n  shadow() { const A = 5; return A; }\n}\n' +
+    '@keep\nclass B { static INSTANCE = new B(); static of(): B { return B.INSTANCE; } same() { return B.of() === B.INSTANCE; } }\n' +
+    'export const out = [A.name, (A as any).tag, (A as any).first, (A as any).self === A, A.make() instanceof A, A.make().who(), new A(2).shadow(), (A as any).marks,\n' +
+    '  (B as any).kept, B.of() instanceof B, new B().same()];';
+  const result = compile(Buffer.from(source), options);
+  assert.equal(result.backend, 'pulse');
+  const reference = ts.transpileModule(source, { fileName: 'legacy.ts', compilerOptions: {
+    target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true, experimentalDecorators: true } }).outputText;
+  const run = code => new Function(code.replace(/export const out =/, 'return'))();
+  assert.deepEqual(run(result.code), run(reference));
+  // The class that the first decorator returns is the one the body sees afterwards.
+  assert.deepEqual(run(result.code).slice(0, 2), ['Replaced', 'replaced']);
+  for (const shape of [
+    '@d export class A<T> extends B<A<T>> implements I { m(): typeof A { return this.constructor as typeof A; } }',
+    '@d export abstract class A { abstract m(): A; static of(): A { return null as any; } }',
+    'export class A { static ID = "a"; constructor(@IFoo foo: IFoo) { A.ID; } }',
+  ]) {
+    const lowered = compile(Buffer.from(shape), options);
+    assert.equal(lowered.backend, 'pulse', shape);
+    assert.match(lowered.code, /let A;\s*A = class[^{]*\{ static \{ A = this; \}/, shape);
+  }
 });

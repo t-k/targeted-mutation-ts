@@ -1871,3 +1871,30 @@ test('a label on a block, an if, a try or a switch is taken, and only break may 
     assert.notEqual(compile(Buffer.from(source), { file: 'label.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a class static block is read like the initializer of a static field', () => {
+  for (const source of [
+    'class C { static x = 1; static { C.x = 2; } }\nexport { C };',
+    'export class C { static { this.a = 1; const b: number = 2; let c = b; } m() {} }',
+    'export class C { static { } static { } }',
+    'export class C extends B { static { super.init(); } }',
+    'export class C { static { function f() { return arguments; } f(); } }',
+    'export class C { static { for (const k of [1]) { if (k) break; } } }',
+    'export class C { static\n{ } }',
+    'export class C { static static() {} static { C.static(); } }',
+    'export class C { static {} static x = 1 }',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'block.ts').backend, 'pulse', source);
+  }
+  // V8 reports each of these.
+  for (const source of [
+    'export class C { static { return; } }',
+    'export class C { static { arguments; } }',
+    'export class C { static { await 1; } }',
+    'export class C { static { break; } }',
+    'export class C { static { super(); } }',
+    'export class C { @d static { } }',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'block.ts' }).backend, 'pulse', source);
+  }
+});

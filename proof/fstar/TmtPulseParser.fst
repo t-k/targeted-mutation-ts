@@ -4366,6 +4366,22 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
     if awaiting_body then ret input (failed st 1ul)
     else (let! anf_value_1 = (fun () -> consume input st 59uy) in class_members input anf_value_1 fuel (minus remaining 1ul) derived seen_constructor kind no_overload)
   else
+    // A static block: `static` and a block. Its statements run with this as the class, like the initializer of
+    // a static field, so it is read in that context: no arguments, no await, no return, no var of the file.
+    let! static_word = (fun () -> if byte = 115uy && not decorated && not awaiting_body && kind <> AmbientClass && fuel <> 0ul then
+      keyword input st.offset 6ul 0x737461746963uL else ret input false) in
+    let! block_start = (fun () -> if static_word then skip input { st with offset = plus st.offset 6ul } else ret input (failed st 1ul)) in
+    let! block_open = (fun () -> if block_start.status = 0ul then same input block_start.offset 123uy else ret input false) in
+    if block_open then
+      if fuel = 0ul then ret input (failed st 3ul)
+      else
+      let inner = enter_function_locals { block_start with await_allowed = false; yield_allowed = false; in_allowed = true;
+        super_context = ClassField } in
+      let! body = (fun () -> control_block input inner (minus fuel 1ul) false NoJump st.local_names st.local_names) in
+      let closed = leave_function_locals { body with await_allowed = st.await_allowed; yield_allowed = st.yield_allowed;
+        in_allowed = st.in_allowed; super_context = st.super_context; local_names = st.local_names } st in
+      class_members input closed fuel (minus remaining 1ul) derived seen_constructor kind no_overload
+    else
     // An index signature, [key: string]: T, declares nothing at run time.
     let! indexed = (fun () -> if byte = 91uy && input.capture_types && not decorated && not awaiting_body then
       class_index_signature input st else ret input (failed st 1ul)) in
