@@ -2877,7 +2877,28 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
        * none of them is a declaration that hides the variable, a key, a label or a word of a string, and each
        * is written with the namespace in front of it.
        */
-      const uint32_t words = word_count(input, span.last, body_last, variable);
+      uint32_t words = word_count(input, span.last, body_last, variable);
+      /*
+       * The name of an enum member is no occurrence of the variable: `Ready` as a member of `Type` beside
+       * `export const Ready` is the common form. Only a word where a member's name stands is left out, behind
+       * the opening brace or a comma; a value that names the variable still counts and declines the namespace.
+       */
+      for (uint32_t other = index + 1; other < tail && words > 1; other++) {
+        const TmtGrammar_candidate inside = input.output[other];
+        if (inside.original != namespace_enum && inside.original != local_enum) continue;
+        if (inside.left.first < span.last || inside.left.last > body_last) continue;
+        uint32_t brace = inside.left.first;
+        while (brace < inside.left.last && input.source[brace] != '{') brace++;
+        const uint32_t width = variable.last - variable.first;
+        for (uint32_t at = brace + 1; at + width <= inside.left.last && words > 1; at++) {
+          if (memcmp(input.source + at, input.source + variable.first, width)) continue;
+          if (input.source[at - 1] >= 128 || TmtGrammar_identifier_continue(input.source[at - 1]) || input.source[at - 1] == '.') continue;
+          if (at + width < inside.left.last && (input.source[at + width] >= 128 || TmtGrammar_identifier_continue(input.source[at + width]))) continue;
+          uint32_t before = at;
+          while (before > brace && (input.source[before - 1] == ' ' || input.source[before - 1] == '\t' || input.source[before - 1] == '\n' || input.source[before - 1] == '\r')) before--;
+          if (input.source[before - 1] == '{' || input.source[before - 1] == ',') words--;
+        }
+      }
       if (words != 1 && (!read_references(scope, input.size) ||
           words != 1 + reference_count(scope, input, span.last, body_last, variable))) return false;
     }

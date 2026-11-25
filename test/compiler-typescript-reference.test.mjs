@@ -2844,3 +2844,23 @@ test('findings of the second review of the namespace and assertion round', () =>
     assert.equal(sameAsTypeScript(source, 'second.ts').backend, 'pulse', source);
   }
 });
+
+test('a member of an enum may bear the name of a variable that the namespace exports', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let|namespace)/g, ''))();
+  for (const source of [
+    'namespace WebviewState { export const enum Type { Initializing, Ready } export const Ready = { type: Type.Ready } as const; export const both = [Ready, Type.Ready]; }\nexport const out = JSON.stringify(WebviewState);',
+    'namespace S { export enum Type { None, Done = None + 1 } export const Done = { type: Type.Done } as const; export class Active { readonly type = Type.None; constructor(public v = Done) {} } }\nexport const out = JSON.stringify([S.Done, new S.Active()]);',
+    'namespace S { export const Ready = 1; function f() { enum T { Ready } return [T.Ready, Ready]; } export const got = f(); }\nexport const out = JSON.stringify(S.got);',
+  ]) {
+    const result = sameAsTypeScript(source, 'state.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'state.ts')), source);
+  }
+  // A value that reads the variable would need the namespace in front of it: the enum is not written natively.
+  for (const source of ['namespace S { export const base = 1; export enum Type { A = base } }\nexport { S };',
+    'namespace S { export const A = 5; export enum Type { A = 1, B = A } export const got = A; }\nexport { S };',
+    'namespace N { export const Text = { length: 3 }; enum Label { Length = Text.length } export const q = Label.Length; }\nexport { N };',
+    'namespace S { export const A = "x"; enum Local { A = 1, B = A.length } export const got = [A, Local.B]; }\nexport { S };']) {
+    assert.notEqual(sameAsTypeScript(source, 'state.ts').backend, 'pulse', source);
+  }
+});
