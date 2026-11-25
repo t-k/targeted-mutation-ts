@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-import { readFileSync, realpathSync } from 'node:fs';
-import { relative } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { chooseFormat, renderText, usage } from '../src/cli-output.mjs';
+import { chooseFormat, formatProgressSummary, renderText, usage } from '../src/cli-output.mjs';
 import { enablePreparedTypeScript } from '../src/typescript-compiler.mjs';
 
 try {
@@ -29,12 +29,16 @@ try {
       project: { type: 'string', multiple: true },
       config: { type: 'string' },
       test: { type: 'string', multiple: true },
+      related: { type: 'boolean' },
       'copy-exclude': { type: 'string', multiple: true },
       'copy-exclude-gitignore': { type: 'boolean' },
       'exclude-rule': { type: 'string', multiple: true },
+      'type-check': { type: 'boolean' },
       'no-config': { type: 'boolean' },
       progress: { type: 'boolean' },
       format: { type: 'string' },
+      'json-out': { type: 'string' },
+      'sarif-out': { type: 'string' },
       baseline: { type: 'string' },
       'write-baseline': { type: 'string' },
       list: { type: 'boolean' },
@@ -64,6 +68,8 @@ try {
     const runValues = merged.values;
     if (runValues.runner !== undefined && !['vitest', 'playwright'].includes(runValues.runner)) throw new Error('Expected --runner vitest|playwright');
     if (runValues.runner === 'playwright' && runValues['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
+    if (runValues.related && runValues.runner === 'playwright') throw new Error('--related requires Vitest');
+    if (values.related && values.test?.length) throw new Error('--related cannot be combined with --test');
     if (runValues.mutators !== undefined && !['targeted', 'full'].includes(runValues.mutators)) throw new Error('Expected --mutators targeted|full');
     const session = runValues.runner !== 'playwright' && !runValues.witnesses && !runValues.audit;
     if ((runValues['isolated-trials'] || runValues['verify-trials'] !== undefined) && !session) {
@@ -94,6 +100,38 @@ try {
       runValues['exclude-rule'] = runValues['exclude-rule'].flatMap(entry => entry.split(',')).map(s => s.trim()).filter(Boolean);
     }
     const format = chooseFormat(runValues.format, process.stdout.isTTY === true);
+    const canonicalOutputKeys = filePath => {
+      const abs = resolve(filePath);
+      const keys = [];
+      // Walk up to the nearest existing ancestor so symlinks above uncreated subdirectories resolve identically.
+      const tail = [];
+      let cursor = abs;
+      while (!existsSync(cursor)) {
+        const parent = dirname(cursor);
+        if (parent === cursor) break;
+        tail.unshift(basename(cursor));
+        cursor = parent;
+      }
+      const resolvedPath = existsSync(cursor) ? resolve(realpathSync(cursor), ...tail) : abs;
+      const normPath = process.platform === 'win32' || process.platform === 'darwin' ? resolvedPath.toLowerCase() : resolvedPath;
+      keys.push(`path:${normPath}`);
+      const st = statSync(abs, { throwIfNoEntry: false });
+      if (st?.isFile()) keys.push(`ino:${st.dev}:${st.ino}`);
+      return keys;
+    };
+    const seenOutputs = new Map();
+    for (const flag of ['json-out', 'sarif-out', 'write-baseline', 'checkpoint']) {
+      if (runValues[flag] === undefined) continue;
+      if (!runValues[flag].trim() || runValues[flag].includes('\0')) {
+        throw new Error(`Expected --${flag} to be a valid file path`);
+      }
+      for (const key of canonicalOutputKeys(runValues[flag])) {
+        if (seenOutputs.has(key)) {
+          throw new Error(`Output paths must be distinct: --${seenOutputs.get(key)} and --${flag} resolve to the same file`);
+        }
+        seenOutputs.set(key, flag);
+      }
+    }
     const { parseShard, parseShardingStrategy, listCandidates } = await import('../src/shard.mjs');
     const shard = parseShard(runValues.shard);
     const sharding = parseShardingStrategy(runValues.sharding);
@@ -120,6 +158,23 @@ try {
       runValues['copy-exclude'] = activeExclusions.map(entry => relative(validated.root, entry));
     }
     const logProgress = runValues.progress ? message => process.stderr.write(`[tmt] ${message}\n`) : () => {};
+    if (runValues.related && !runValues.list) {
+      const { selectScope } = await import('../src/scope.mjs');
+      const relatedTargets = selectScope(validated.root, files, runValues).map(subject => subject.file);
+      if (relatedTargets.length) {
+        const { resolveRelatedVitestSpecs } = await import('../src/vitest.mjs');
+        const resolved = await resolveRelatedVitestSpecs(validated.root, relatedTargets, {
+          config: runValues.config,
+          copyExclude: runValues['copy-exclude'],
+          ...(runValues.timeout ? { timeout: runValues.timeout * 1000 } : {}),
+        });
+        runValues.test = resolved.tests;
+        runValues.testSpecs = resolved.specs;
+        const projects = [...new Set(resolved.specs.map(spec => spec.project).filter(Boolean))];
+        if (projects.length) runValues.testProjects = projects;
+        logProgress(`Selected ${resolved.tests.length} related test ${resolved.tests.length === 1 ? 'file' : 'files'}.`);
+      }
+    }
     enablePreparedTypeScript();
     let result;
     if (runValues.list) {
@@ -157,16 +212,29 @@ try {
     if (!runValues.list && baselineIds) {
       result = applyBaseline(result, baselineIds);
     }
-    logProgress(`Completed (${result.evaluation}, ${(result.mutants ?? []).length} edits, ${(result.diagnostics ?? []).length} gaps).`);
+    logProgress(formatProgressSummary(result));
+    const jsonPayload = (format === 'json' || runValues['json-out']) ? JSON.stringify(result, null, 2) : null;
+    let sarifPayload = null;
+    if (format === 'sarif' || runValues['sarif-out']) {
+      const { renderSarif } = await import('../src/sarif.mjs');
+      const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+      sarifPayload = JSON.stringify(renderSarif(result, { version }), null, 2);
+    }
+    if (runValues['json-out']) {
+      mkdirSync(dirname(runValues['json-out']), { recursive: true });
+      writeFileSync(runValues['json-out'], jsonPayload + '\n', 'utf8');
+    }
+    if (runValues['sarif-out']) {
+      mkdirSync(dirname(runValues['sarif-out']), { recursive: true });
+      writeFileSync(runValues['sarif-out'], sarifPayload + '\n', 'utf8');
+    }
     if (format === 'json') {
-      console.log(JSON.stringify(result, null, 2));
+      console.log(jsonPayload);
     } else if (format === 'jsonl') {
       const { renderJsonl } = await import('../src/sarif.mjs');
       console.log(renderJsonl(result));
     } else if (format === 'sarif') {
-      const { renderSarif } = await import('../src/sarif.mjs');
-      const version = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
-      console.log(JSON.stringify(renderSarif(result, { version }), null, 2));
+      console.log(sarifPayload);
     } else {
       console.log(renderText(result));
     }

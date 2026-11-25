@@ -9,6 +9,7 @@ import { targetedGap } from './targeted-gaps.mjs';
 import { checkpointKeyForTrial } from './checkpoint.mjs';
 import { candidateKey } from './shard.mjs';
 import { selectScope } from './scope.mjs';
+import { createTypeContext } from './type-equivalence.mjs';
 import { inside, runnerPackage, withCopy } from './vitest.mjs';
 
 const supervisor = fileURLToPath(new URL('./runner-process.mjs', import.meta.url));
@@ -50,10 +51,12 @@ export async function analyzeConventional(project, files, options) {
   }));
   const originals = new Map(targets.map(({ file, input }) => [file, input]));
   const awaitsExtras = options.extras !== undefined;
+  const typeContext = options['type-check'] ? createTypeContext(root, targets.map(t => t.file)) : null;
   const { sources, mutants: prepared } = prepareBuiltinSwitches(targets, {
     dialect: options.dialect,
     shifts: awaitsExtras,
     excludeRules: options['exclude-rule'],
+    typeContext,
     ...(profile === 'targeted' ? { keep: targetedOrBoundary, targeted: true } : {}),
   });
   const report = {
@@ -125,6 +128,7 @@ export async function analyzeConventional(project, files, options) {
       ...(options.timeout ? { runTimeout: options.timeout * 1000 } : {}),
       config: options.config === undefined ? undefined : inside(workspace, options.config),
       files: [...new Set((options.test ?? []).map(file => inside(workspace, file)))],
+      ...(options.testSpecs?.length ? { selectedSpecs: options.testSpecs.map(({ project, file }) => ({ project, file: inside(workspace, file) })) } : {}),
     }));
     const limit = 75_000 + (options.timeout ? options.timeout * 1000 : 60_000) * runnable.length;
     // The focused analysis names its threshold edits once it has recorded the comparisons.

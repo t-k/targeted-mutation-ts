@@ -9,7 +9,7 @@ import { inside } from './vitest.mjs';
 // Vitest and Vite are loaded on every run. Node keeps their compiled code between runs when it can.
 try { enableCompileCache?.(); } catch { /* The cache is an optimisation only. */ }
 const input = JSON.parse(readFileSync(process.argv[2], 'utf8'));
-const { workspace, config, files, mutants, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1, verifyTrials = 0, awaitsExtras = false, runTimeout = 60_000 } = input;
+const { workspace, config, files, selectedSpecs, mutants, setup, workerRunner, output, temporary, isolatedTrials, concurrency = 1, verifyTrials = 0, awaitsExtras = false, runTimeout = 60_000 } = input;
 const destination = resolve(temporary, 'coverage.jsonl');
 const record = event => appendFileSync(output, JSON.stringify(event) + '\n');
 const lanes = [];
@@ -56,7 +56,13 @@ function follow(path) {
 async function openLane(index, serial = false) {
   const lane = { snapshot: null, events: resolve(temporary, `trials-${index}.jsonl`), serial };
   lane.context = await createContext(lane);
-  lane.specs = await lane.context.globTestSpecifications(files);
+  const allSpecs = await lane.context.globTestSpecifications(files);
+  if (selectedSpecs?.length) {
+    const allowed = new Set(selectedSpecs.map(({ project, file }) => JSON.stringify([project ?? '', file])));
+    lane.specs = allSpecs.filter(spec => allowed.has(JSON.stringify([spec.project.name ?? '', inside(workspace, spec.moduleId)])));
+  } else {
+    lane.specs = allSpecs;
+  }
   return lane;
 }
 

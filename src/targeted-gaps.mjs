@@ -25,7 +25,7 @@ const roundingDiffers = { 'floor trunc': 'negative and not a whole number (-0.5)
   'floor round': 'a number that rounds up (1.5, -1.5)', 'ceil round': 'a number that rounds down (1.4, -1.6)',
   'round trunc': 'a number that rounds away from zero (1.5, -1.6)', 'ceil floor': 'not a whole number (0.5)' };
 
-function missingInput({ operator, form, boolean, left, right: rightExpr, differsFor, subject, pureRight, key, boundKind, pruned, argName }, expression, rule, replacement) {
+function missingInput({ operator, form, boolean, left, right: rightExpr, differsFor, subject, pureRight, rightFalsy, key, boundKind, pruned, argName }, expression, rule, replacement) {
   const side = '`' + clip(left) + '`';
   if (rule === rules.spreadDrop) return `a test in which \`${clip(left)}.${key}\` is missing or differs from its updated value`;
   if (rule === rules.prefixSubstring) {
@@ -48,7 +48,14 @@ function missingInput({ operator, form, boolean, left, right: rightExpr, differs
   }
   if (form === 'true' || form === 'false') return `a test in which \`${clip(expression)}\` is ${form === 'true' ? 'false' : 'true'}`;
   if (form === 'loose' || form === 'strict' || form === 'other') return `a test in which \`${clip(subject)}\` is ${differsFor}`;
-  if (form === 'or' || form === 'nullish') return `a test in which ${side} is 0, 0n, '', false or NaN${pureRight ? ' and not the right side\'s value' : ''}`;
+  if (form === 'or' || form === 'nullish') {
+    if (rightFalsy) {
+      const values = ['0', '0n', "''", 'false', 'NaN'].filter(value => value !== rightFalsy);
+      const list = `${values.slice(0, -1).join(', ')} or ${values.at(-1)}`;
+      return `a test in which ${side} is ${list}`;
+    }
+    return `a test in which ${side} is 0, 0n, '', false or NaN${pureRight ? ' and not the right side\'s value' : ''}`;
+  }
   const takesRight = { '&&': 'truthy', '||': 'falsy', '??': 'null or undefined' }[operator];
   if (form === 'left') return `a test in which ${side} is ${{ '&&': 'falsy', '||': 'truthy', '??': 'neither null nor undefined' }[operator]}`;
   const kept = { '&&': 'true', '||': 'false', '??': 'undefined' }[operator];

@@ -35,9 +35,9 @@ for (const [format, terminal, outcome] of scenarios) {
       assert.match(text, /^INPUT GAP src\/cart\.ts:4:13$/m);
       assert.match(text, /^ {2}operands \(5000, 5000\): original true, edited false$/m);
       assert.match(text, /^ {2}suggested test: expect\(shippingFee\(5000\)\)\.toBe\(0\)$/m);
-      assert.match(text, /^vitest, 5 baseline tests: 2 edits \(1 survived, 1 killed\), 1 test gaps$/m);
+      assert.match(text, /^vitest, 5 baseline tests: 2 edits \(1 survived, 1 killed\), 1 test gap$/m);
     } else if (outcome === 'Clean') {
-      assert.match(text, /^vitest, 5 baseline tests: 1 edits \(1 killed\), 0 test gaps$/m);
+      assert.match(text, /^vitest, 5 baseline tests: 1 edit \(1 killed\), 0 test gaps$/m);
       assert.doesNotMatch(text, /Test gaps:/);
     } else if (outcome === 'BaselineFailed') {
       assert.match(text, /baseline failed/);
@@ -104,11 +104,11 @@ test('the text report has an exact layout', () => {
     '  operands (5000, 5000): original true, edited false',
     '  suggested test: expect(shippingFee(5000)).toBe(0)',
     '',
-    'vitest, 5 baseline tests: 2 edits (1 survived, 1 killed), 1 test gaps',
+    'vitest, 5 baseline tests: 2 edits (1 survived, 1 killed), 1 test gap',
   ].join('\n'));
   assert.equal(renderText(reports.Clean), [
     'src/cart.ts:9:13  killed  comparison-boundary/v1: >= -> >', '',
-    'vitest, 5 baseline tests: 1 edits (1 killed), 0 test gaps',
+    'vitest, 5 baseline tests: 1 edit (1 killed), 0 test gaps',
   ].join('\n'));
   assert.equal(renderText(reports.BaselineFailed), [
     'The test suite did not pass before any edit (baseline failed). Fix it and run again.',
@@ -127,7 +127,7 @@ test('sparse reports render without invented entries', () => {
     'src/cart.ts:4:13  killed  edit: replace with >x',
     'src/cart.ts:4:13  killed  edit: replace with x>=',
     '', 'Test gaps:', 'INPUT GAP src/cart.ts:4:13', '',
-    'vitest: 3 edits (3 killed), 1 test gaps',
+    'vitest: 3 edits (3 killed), 1 test gap',
   ].join('\n'));
   assert.equal(renderText({ evaluation: 'no_sites', extraction: [{ file: 'b.ts', path: 'diagnostic' }, { file: 'c.ts', path: 'diagnostic', reason: 'source-limit' }] }),
     'SKIPPED b.ts: not analyzed\nSKIPPED c.ts: source-limit\n\nNo edit sites in the selected scope.');
@@ -163,6 +163,6 @@ test('a Playwright witness gap shows its requirement, test file and verification
     '  requirement: Saving disables the button.',
     '  suggested test file: variants/pending.ts',
     '  verification: original passed, edited failed',
-    '', 'playwright, 1 baseline tests: 2 edits (1 survived, 1 killed), 1 test gaps',
+    '', 'playwright, 1 baseline test: 2 edits (1 survived, 1 killed), 1 test gap',
   ].join('\n'));
 });

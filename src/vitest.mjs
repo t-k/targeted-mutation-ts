@@ -1,12 +1,13 @@
 import { spawn, spawnSync } from 'node:child_process';
-import { constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
+import { constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const reporter = fileURLToPath(new URL('./vitest-reporter.mjs', import.meta.url));
 const supervisor = fileURLToPath(new URL('./runner-process.mjs', import.meta.url));
+const relatedWorker = fileURLToPath(new URL('./vitest-related-worker.mjs', import.meta.url));
 const toolDependencies = [
   { name: 'vitest', bin: 'vitest.mjs', command: 'vitest' },
   { name: '@playwright/test', bin: 'cli.js', command: 'playwright' },
@@ -208,9 +209,10 @@ export function withCopy(project, action, { exclude = [] } = {}) {
 }
 
 // How one Vitest run is started, shared by the blocking and the concurrent form.
-function vitestCommand(root, temp, { trace, config, testFiles = [], product = false, active, probePreload, synchronousTrace, timeout = 60_000 } = {}) {
+function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects = [], product = false, active, probePreload, synchronousTrace, timeout = 60_000 } = {}) {
   const vitest = resolve(dirname(runnerPackage(root, 'vitest')), 'vitest.mjs');
   const testsToRun = [...new Set(testFiles.map(file => inside(root, file)))];
+  const projectArgs = [...new Set(testProjects.filter(Boolean))].flatMap(name => ['--project', name]);
   const configuration = config === undefined ? [] : ['--config', inside(root, config)];
   const report = resolve(temp, 'vitest.json');
   rmSync(report, { force: true });
@@ -219,7 +221,7 @@ function vitestCommand(root, temp, { trace, config, testFiles = [], product = fa
   return { report, testsToRun, product, args: [
     supervisor, resolve(temp, 'vitest.pid'), String(timeout),
     vitest, 'run', '--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism', '--no-cache',
-    ...configuration, ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]),
+    ...configuration, ...projectArgs, ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]),
     ...testsToRun,
   ], options: {
     cwd: root,
@@ -272,6 +274,55 @@ function vitestOutcome(root, { report, testsToRun, product }, result) {
       data.testResults.every(file => file.status !== 'failed' || file.assertionResults.some(test => test.status === 'failed'))
       ? 'failed' : 'error';
   return { status, tests, output: result.stderr + result.stdout };
+}
+
+export async function resolveRelatedVitestSpecs(project, targetFiles = [], { config, copyExclude = [], timeout = 60_000 } = {}) {
+  const root = realpathSync(project);
+  const relTargets = [...new Set(targetFiles.map(file => relative(root, inside(root, file))))];
+  if (!relTargets.length) return { tests: [], specs: [] };
+  // Validate Vitest availability up front before copying.
+  runnerPackage(root, 'vitest');
+  return withCopy(root, (workspace, temp) => {
+    const cache = resolve(temp, 'vite-cache');
+    mkdirSync(cache, { recursive: true });
+    const manifestPath = resolve(temp, 'related-request.json');
+    const outputPath = resolve(temp, 'related-output.json');
+    writeFileSync(manifestPath, JSON.stringify({
+      workspace,
+      config,
+      targets: relTargets,
+      output: outputPath,
+    }), 'utf8');
+    const run = spawnSync(process.execPath, [
+      supervisor, resolve(temp, 'related.pid'), String(timeout),
+      relatedWorker, manifestPath,
+    ], {
+      cwd: workspace,
+      env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test', VITE_CACHE_DIR: cache },
+      encoding: 'utf8',
+      timeout: timeout + 5_000,
+      maxBuffer: 4 * 1024 * 1024,
+    });
+    if (run.status === 124 || run.error?.code === 'ETIMEDOUT') {
+      throw new Error(`Vitest related test discovery timed out after ${Math.round(timeout / 1000)}s. Try increasing --timeout or specifying --test <FILE>.`);
+    }
+    if (run.status !== 0 || !existsSync(outputPath)) {
+      const detail = (run.stderr || run.stdout || run.error?.message || '').trim();
+      throw new Error(detail || 'Failed to resolve related Vitest tests');
+    }
+    const { specs = [] } = JSON.parse(readFileSync(outputPath, 'utf8'));
+    const tests = [...new Set(specs.map(spec => spec.file))].sort();
+    if (!tests.length) {
+      const shown = targetFiles.slice(0, 5).join(', ') + (targetFiles.length > 5 ? `, ... (${targetFiles.length} files)` : '');
+      throw new Error(`No Vitest test files are related to ${shown}. Specify test files explicitly with --test <FILE>.`);
+    }
+    return { tests, specs };
+  }, { exclude: copyExclude });
+}
+
+export async function resolveRelatedVitestTests(project, targetFiles = [], options = {}) {
+  const { tests } = await resolveRelatedVitestSpecs(project, targetFiles, options);
+  return tests;
 }
 
 export function runVitest(root, temp, settings) {

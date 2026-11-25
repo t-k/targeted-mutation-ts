@@ -633,8 +633,10 @@ export const targetedOrBoundary = (mutation, text) => mutation.targeted !== unde
 export function prepareBuiltinSwitches(subjects, options = {}) {
   const sources = [];
   const mutants = [];
+  const { typeContext, ...restOptions } = options;
   for (const { file, input, selected } of subjects) {
-    const rendered = renderBuiltinSwitches(input, file, selected, options);
+    const typeEquivalence = typeContext?.forFile(file) ?? null;
+    const rendered = renderBuiltinSwitches(input, file, selected, { ...restOptions, typeEquivalence });
     if (!rendered.mutants.length) continue;
     if (rendered.output !== input.toString()) sources.push({ file, output: rendered.output });
     mutants.push(...rendered.mutants);

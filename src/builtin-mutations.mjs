@@ -40,7 +40,7 @@ const endSwaps = new Map([['find', 'findLast'], ['findLast', 'find'], ['findInde
   ['indexOf', 'lastIndexOf'], ['lastIndexOf', 'indexOf']]);
 const ignoredValue = { '&&': 'true', '||': 'false', '??': 'undefined' };
 
-export function collectMutations(text, file, { dialect, selected = () => true, shifts = false, targeted = false, excludeRules = [], ts = loadTypeScript() } = {}) {
+export function collectMutations(text, file, { dialect, selected = () => true, shifts = false, targeted = false, excludeRules = [], typeEquivalence = null, ts = loadTypeScript() } = {}) {
   const excludedRuleSet = new Set((excludeRules ?? []).map(r => String(r).trim()).filter(Boolean));
   const kind = dialect === 'tsx' ? ts.ScriptKind.TSX : dialect === 'ts' ? ts.ScriptKind.TS : undefined;
   const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind);
@@ -250,6 +250,17 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       ((ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) && inner.text === ''));
   };
 
+  const falsyLiteralLabel = node => {
+    const inner = strip(node);
+    const number = ts.isPrefixUnaryExpression(inner) && inner.operator === K.MinusToken ? inner.operand : inner;
+    if (inner.kind === K.FalseKeyword) return 'false';
+    if (ts.isIdentifier(inner) && inner.text === 'NaN') return 'NaN';
+    if (ts.isNumericLiteral(number) && Number(number.text) === 0) return '0';
+    if (ts.isBigIntLiteral(number) && /^0[box]?0*n$/i.test(number.text)) return '0n';
+    if ((ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner)) && inner.text === '') return "''";
+    return undefined;
+  };
+
   const nullishLiteral = node => {
     const inner = strip(node);
     return inner.kind === K.NullKeyword ? 'null' : ts.isIdentifier(inner) && inner.text === 'undefined' ? 'undefined' : undefined;
@@ -343,24 +354,35 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       // In `typeof x === "object" && x !== null` (or reversed), `x` cannot be `undefined`, so
       // relaxing `!== null` / `=== null` to loose equality is an unreachable equivalent mutant.
       if (written[literalSide] === 'null' && isGuardedTypeofObject(node, subjectNode)) return;
+      const isNullishEqv = target => Boolean(typeEquivalence?.isNullishEqualityEquivalent(begin(subjectNode), subjectNode.end, target));
       if (operator.length === 3) {
-        edit(targetedRules.nullish, 'loose', swapToken(node, token, operator.slice(0, 2)), { literalSide, differsFor: other, subject });
+        if (!isNullishEqv(other)) {
+          edit(targetedRules.nullish, 'loose', swapToken(node, token, operator.slice(0, 2)), { literalSide, differsFor: other, subject });
+        }
       } else {
         const strict = operator + '=';
-        edit(targetedRules.nullish, 'strict', swapToken(node, token, strict), { literalSide, differsFor: other, subject });
-        edit(targetedRules.nullish, 'other', literalSide ? `${left} ${strict} ${other}` : `${other} ${strict} ${right}`,
-          { literalSide, differsFor: written[literalSide], subject });
+        if (!isNullishEqv(other)) {
+          edit(targetedRules.nullish, 'strict', swapToken(node, token, strict), { literalSide, differsFor: other, subject });
+        }
+        if (!isNullishEqv(written[literalSide])) {
+          edit(targetedRules.nullish, 'other', literalSide ? `${left} ${strict} ${other}` : `${other} ${strict} ${right}`,
+            { literalSide, differsFor: written[literalSide], subject });
+        }
       }
     } else if (isLogical(node) && !staysInPlace(node.right)) {
       const operand = grouped;
+      const rightFalsy = falsyLiteralLabel(node.right);
       const more = { thunk: true, ...(written(node.right) ? { pureRight: true } : {}) };
       edit(targetedRules.ignored, 'left', `(${left}, ${right})`, more);
       edit(targetedRules.ignored, 'right', `(${left} ${operator} (${right}, ${ignoredValue[operator]}))`, more);
       // Where only the truth is used, a written falsy fallback makes `??` and `||` the same for every value.
       if (boolean && writtenFalsy(node.right)) return;
-      if (operator === '??') edit(targetedRules.fallback, 'or', `(${operand(node.left)} || ${operand(node.right)})`, { ...more, evidence: true });
+      const leftNode = strip(node.left);
+      if (typeEquivalence?.isNullishFallbackEquivalent(begin(leftNode), leftNode.end, rightFalsy)) return;
+      const fallbackMore = { ...more, ...(rightFalsy ? { rightFalsy } : {}), evidence: true };
+      if (operator === '??') edit(targetedRules.fallback, 'or', `(${operand(node.left)} || ${operand(node.right)})`, fallbackMore);
       // Where only the truth of the value is used, nobody writes `??` for `||`.
-      else if (operator === '||' && !boolean) edit(targetedRules.fallback, 'nullish', `(${operand(node.left)} ?? ${operand(node.right)})`, { ...more, evidence: true });
+      else if (operator === '||' && !boolean) edit(targetedRules.fallback, 'nullish', `(${operand(node.left)} ?? ${operand(node.right)})`, fallbackMore);
     }
   }
 

@@ -12,6 +12,7 @@ import { inside, runVitest, runVitestAsync, withCopy } from './vitest.mjs';
 import { createProbePreloadCheck, freshProbeBinding, instrument, installProbe, rewrite } from './probe.mjs';
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
+import { createTypeContext } from './type-equivalence.mjs';
 import { checkReplay } from './lean-replay.mjs';
 import { ignoredSwaps, renderBuiltinSwitches } from './builtin-switches.mjs';
 import { inspectTrace, pendingTraceDirectory, sameObservations } from './trace-buffer.mjs';
@@ -48,11 +49,11 @@ function builtInSites(comparisons, input, file, dialect, selected, options = {})
       left: [mutant.edit[0], mutant.edit[0]], right: [mutant.edit[1], mutant.edit[1]], source: mutant.source, unobserved: true }));
 }
 
-function withProfileSites(comparisons, input, file, { mutators, dialect, 'exclude-rule': excludeRules }, selected) {
+function withProfileSites(comparisons, input, file, { mutators, dialect, 'exclude-rule': excludeRules }, selected, typeEquivalence = null) {
   const start = candidate => (candidate.operatorEdit ?? candidate.edit)[0];
   // Without a session nothing is recorded, so the targeted or full edits run as plain source edits.
-  const added = mutators === 'full' ? builtInSites(comparisons, input, file, dialect, selected, { excludeRules })
-    : mutators === 'targeted' ? builtInSites(comparisons, input, file, dialect, selected, { targeted: true, excludeRules, keep: mutation => mutation.targeted !== undefined })
+  const added = mutators === 'full' ? builtInSites(comparisons, input, file, dialect, selected, { excludeRules, typeEquivalence })
+    : mutators === 'targeted' ? builtInSites(comparisons, input, file, dialect, selected, { targeted: true, excludeRules, typeEquivalence, keep: mutation => mutation.targeted !== undefined })
       : [];
   return added.length ? [...comparisons, ...added].sort((a, b) => start(a) - start(b)) : comparisons;
 }
@@ -60,7 +61,11 @@ function withProfileSites(comparisons, input, file, { mutators, dialect, 'exclud
 export function collectComparisons(root, files, options) {
   const subjects = [];
   const extraction = [];
-  for (const { file, selected } of selectScope(root, files, options)) {
+  const scoped = selectScope(root, files, options);
+  const typeContext = options['type-check'] && ['targeted', 'full'].includes(options.mutators)
+    ? createTypeContext(root, scoped.map(subject => subject.file))
+    : null;
+  for (const { file, selected } of scoped) {
     const input = readFileSync(inside(root, file));
     const { path, fallback, reason, candidates: comparisons, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, logical: options.runner === 'playwright' });
     extraction.push({ file, path, reason, diagnostics, ...(fallback === undefined ? {} : { fallback }) });
@@ -69,7 +74,9 @@ export function collectComparisons(root, files, options) {
     const disabled = ignoredSwaps(input, file, { dialect: options.dialect });
     const kept = disabled.size ? comparisons.filter(candidate => !disabled.has(`${candidate.edit[0]}:${candidate.replacement}`)) : comparisons;
     if (kept.length !== comparisons.length) extraction.at(-1).ignored = comparisons.length - kept.length;
-    const candidates = ['targeted', 'full'].includes(options.mutators) ? withProfileSites(kept, input, file, options, selected) : kept;
+    const candidates = ['targeted', 'full'].includes(options.mutators)
+      ? withProfileSites(kept, input, file, options, selected, typeContext?.forFile(file) ?? null)
+      : kept;
     const positions = byteLocations(input, candidates.map(candidate => (candidate.operatorEdit ?? candidate.edit)[0]));
     // A comparison is in scope when any line from its left operand to its right operand is: a threshold on its
     // own line belongs to the comparison whose operator is on the line above.
@@ -163,14 +170,14 @@ export function sourceTrials(root, subjects, options) {
     ? (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root,
       tests: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) })
     : (workspace, temp, settings) => runVitest(workspace, temp, {
-      ...settings, config: options.config, testFiles: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
+      ...settings, config: options.config, testFiles: options.test, testProjects: options.testProjects, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
   return settings => makeAttempt(root, subjects, runner, options['copy-exclude'], new Map(), settings);
 }
 
 // Asynchronous Vitest plain-source runs, so independent witness checks can run side by side.
 export function sourceTrialsAsync(root, subjects, options) {
   const runner = (workspace, temp, settings) => runVitestAsync(workspace, temp, {
-    ...settings, config: options.config, testFiles: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
+    ...settings, config: options.config, testFiles: options.test, testProjects: options.testProjects, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
   return settings => withCopy(root, async (workspace, temp) => {
     const { trial, witness, collect } = settings ?? {};
     for (const subject of subjects) {
@@ -610,7 +617,7 @@ export function prepareAnalysis(project, files, options) {
   const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
   if (report.runner === 'playwright') return { report: analyzePlaywright(root, subjects, report, options, specification) };
   const runner = (workspace, temp, settings) => runVitest(workspace, temp, {
-    ...settings, config: options.config, testFiles: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}),
+    ...settings, config: options.config, testFiles: options.test, testProjects: options.testProjects, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}),
   });
   const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
   const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);

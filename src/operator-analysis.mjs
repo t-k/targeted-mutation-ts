@@ -76,6 +76,8 @@ async function besideSession(project, files, options, run, profile, stopsSession
     ...(options.shardKeys ? { shardKeys: options.shardKeys } : {}),
     ...(options.checkpointStore ? { checkpointStore: options.checkpointStore } : {}),
     ...(options['exclude-rule'] ? { 'exclude-rule': options['exclude-rule'] } : {}),
+    ...(options['type-check'] ? { 'type-check': true } : {}),
+    ...(options.testSpecs?.length ? { testSpecs: options.testSpecs } : {}),
   }).then(report => ({ report }), error => ({ error }));
   let prepared;
   try {

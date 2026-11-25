@@ -1,0 +1,8 @@
+StdoutFormat: Text, Json, Sarif
+JsonOut: None, File
+SarifOut: None, File
+Profile: Targeted, Full
+GapCount: Zero, One, Many
+OtherSurvivors: Zero, One, Many
+
+IF [Profile] = "Targeted" THEN [OtherSurvivors] = "Zero";

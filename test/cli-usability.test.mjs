@@ -75,7 +75,9 @@ test('a piped analysis prints JSON and --format text prints the readable report'
   assert.equal(text.status, 0, text.stderr);
   assert.match(text.stdout, /^src\/eligibility\.ts:1:\d+ {2}survived {2}comparison-boundary\/v1: >= -> >$/m);
   assert.match(text.stdout, /^ {2}suggested test: expect\(eligible\(18\)\)\.toBe\(true\)$/m);
-  assert.match(text.stdout, new RegExp(`^vitest, 2 baseline tests: ${report.mutants.length} edits .*${report.diagnostics.length} test gaps$`, 'm'));
+  const editWord = report.mutants.length === 1 ? 'edit' : 'edits';
+  const gapWord = report.diagnostics.length === 1 ? 'test gap' : 'test gaps';
+  assert.match(text.stdout, new RegExp(`^vitest, 2 baseline tests: ${report.mutants.length} ${editWord} .*${report.diagnostics.length} ${gapWord}$`, 'm'));
 });
 
 test('a failed baseline names the failed test in both formats', () => withProject(project => {

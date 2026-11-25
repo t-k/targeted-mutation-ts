@@ -15,6 +15,8 @@ Scope (analyze):
   --copy-exclude PATH           Leave a project path out of the temporary copies (warns and skips if missing). Repeatable.
   --copy-exclude-gitignore      Also exclude gitignored paths (except node_modules) from temporary copies.
   --exclude-rule RULE           Exclude a mutation rule (e.g. nullish-equality/v1). Repeatable.
+  --type-check                  Use TypeScript's type checker (when strictNullChecks is enabled) to skip
+                                statically equivalent nullish-fallback/v1 and nullish-equality/v1 edits.
   --no-config                   Ignore targeted-mutation.config.{json,mjs} and package.json#targetedMutation.
   --progress                    Print lightweight progress updates to stderr.
 
@@ -47,12 +49,15 @@ Runner (analyze):
   --runner vitest|playwright    Test runner (default: vitest).
   --config FILE                 Runner configuration file inside the project.
   --test FILE                   Run only this test file. Repeatable.
+  --related                     Select only Vitest test files related to the target source files.
   --timeout SECONDS             Time limit for one run of the suite (default: 60).
   --project NAME                Playwright project. Repeatable.
 
 Output & Baselines:
   --format text|json|jsonl|sarif
                                 Output format (analyze defaults to text on a terminal and json otherwise).
+  --json-out FILE               Also write the JSON report to FILE (can be combined with --format text).
+  --sarif-out FILE              Also write the SARIF report to FILE (can be combined with --format text).
   --baseline FILE               Suppress findings already recorded in FILE.
   --write-baseline FILE         Write this run's findings to FILE for future --baseline runs.
   --mode script|module          extract: parse goal.
@@ -158,6 +163,30 @@ function describeGap(gap) {
   return lines;
 }
 
+const plural = (count, singular, pluralForm = singular + 's') => `${count} ${count === 1 ? singular : pluralForm}`;
+
+export function summarizeReport(report) {
+  const mutants = report?.mutants ?? [];
+  const gaps = report?.diagnostics ?? [];
+  const gapSites = new Set(gaps.map(gap => gap.site).filter(Boolean));
+  const otherSurvivors = report?.mutators === 'full'
+    ? mutants.filter(mutant =>
+      mutant.status === 'survived' &&
+      !gapSites.has(mutant.id ?? mutant.site) &&
+      !String(mutant.mutatorName ?? mutant.rule ?? '').includes('/'))
+      .length
+    : 0;
+  return { edits: mutants.length, gaps: gaps.length, otherSurvivors };
+}
+
+export function formatProgressSummary(report) {
+  const { edits, gaps, otherSurvivors } = summarizeReport(report);
+  const gapPart = otherSurvivors > 0
+    ? `${plural(gaps, 'targeted gap')}, ${plural(otherSurvivors, 'other survivor')}`
+    : plural(gaps, 'gap');
+  return `Completed (${report.evaluation}, ${plural(edits, 'edit')}, ${gapPart}).`;
+}
+
 export function renderText(report) {
   const lines = [];
   for (const file of report.extraction ?? []) {
@@ -186,8 +215,12 @@ export function renderText(report) {
   const tally = [...counts].map(([status, count]) => `${count} ${status}`).join(', ') || 'none';
   const tests = report.baseline?.tests;
   const size = Array.isArray(tests) ? tests.length : tests;
-  lines.push(`${report.runner}${size === undefined ? '' : `, ${size} baseline tests`}: ` +
-    `${mutants.length} edits (${tally}), ${gaps.length} test gaps` +
+  const { otherSurvivors } = summarizeReport(report);
+  const gapSummary = otherSurvivors > 0
+    ? `${plural(gaps.length, 'targeted gap')} (${plural(otherSurvivors, 'other survivor')})`
+    : plural(gaps.length, 'test gap');
+  lines.push(`${report.runner}${size === undefined ? '' : `, ${plural(size, 'baseline test')}`}: ` +
+    `${plural(mutants.length, 'edit')} (${tally}), ${gapSummary}` +
     (report.suppressed?.baseline ? `, ${report.suppressed.baseline} suppressed by baseline` : '') +
     (report.shard ? `, shard ${report.shard.index}/${report.shard.total}` : '') +
     (report.evaluation === 'evaluated' ? '' : `, evaluation ${report.evaluation}`));

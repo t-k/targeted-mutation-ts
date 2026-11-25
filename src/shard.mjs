@@ -2,6 +2,7 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { collectComparisons } from './analysis.mjs';
 import { prepareBuiltinSwitches, targetedOrBoundary } from './builtin-switches.mjs';
 import { selectScope } from './scope.mjs';
+import { createTypeContext } from './type-equivalence.mjs';
 import { inside } from './vitest.mjs';
 
 export function parseShard(spec) {
@@ -95,9 +96,11 @@ export function listCandidates(project, files, options = {}) {
     ...subject,
     input: readFileSync(inside(root, subject.file)),
   }));
+  const typeContext = options['type-check'] ? createTypeContext(root, targets.map(t => t.file)) : null;
   const { mutants: prepared } = prepareBuiltinSwitches(targets, {
     dialect: options.dialect,
     excludeRules: options['exclude-rule'],
+    typeContext,
     ...(profile === 'targeted' ? { keep: targetedOrBoundary, targeted: true } : {}),
   });
   for (const mutant of prepared) {
