@@ -191,6 +191,16 @@ function highByteNames(addon, source, text, file, format) {
     }
     if (erasureOnly) return { backend: 'pulse', code: restored.toString(), sourceMap: null, diagnostics: [] };
   }
+  // A copy that the emitter lowered: the text it wrote is the lowering of the copy, and the names are put back
+  // word by word. A spelling holds two capital letters side by side for every character it stands for, which
+  // no word the emitter writes of its own does, and the copy holds no byte outside ASCII, so neither does
+  // the text.
+  if (typeof emitted === 'string' && wellFormed && !/[^\x00-\x7f]/.test(emitted)) {
+    const originals = new Map();
+    for (const [word, spelling] of spellings) originals.set(spelling, Buffer.from(word, 'latin1').toString());
+    const code = emitted.replace(/[A-Za-z0-9_$]+/g, word => originals.get(word) ?? word);
+    return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
+  }
   if (emitted !== true && typeof emitted !== 'string' && emitted.parameterProperty !== true) return null;
   return eraseModule(addon, text, file, format, emitted.parameterProperty === true);
 }

@@ -1065,7 +1065,8 @@ test('review findings on the super walk, export assignments in JSX files and nam
   // A line separator outside ASCII ends a statement, so the next word is a reference the byte search would miss.
   const separated = 'export namespace Settings { export let mode = "start"; mode = "ready"; }';
   assert.notEqual(sameAsTypeScript(separated, 'space.ts').backend, 'pulse');
-  assert.notEqual(compile(Buffer.from('export namespace N { export const a = 1; const é = 2; }'), { file: 'space.ts' }).backend, 'pulse');
+  // A name outside ASCII in the body is read through the copy spelled in ASCII, where the byte search is exact.
+  assert.equal(sameAsTypeScript('export namespace N { export const a = 1; const é = 2; export const b = () => a + é; }', 'space.ts').backend, 'pulse');
 });
 
 test('looking for a module marker behind a decorator leaves the records of the file intact', () => {
@@ -1790,8 +1791,8 @@ test('names outside ASCII are read through a copy spelled in ASCII', () => {
     // The names come back byte for byte, and only types were blanked.
     assert.equal(Buffer.byteLength(result.code), Buffer.byteLength(source), source);
   }
-  // What the copy needs beyond erasure goes through Node, whose parser checks the names.
-  assert.equal(sameAsTypeScript('export class ɵC { x: number = 1; constructor(private é: number) {} }', 'names.ts').backend, 'node-transform');
+  // What the copy needs beyond erasure is lowered on the copy, and the names are put back in the text.
+  assert.equal(sameAsTypeScript('export class ɵC { x: number = 1; constructor(private é: number) {} }', 'names.ts').backend, 'pulse');
   // The certified parser still refuses what TypeScript reports, and a name that is no identifier is refused by Node.
   for (const source of ['export class V implements { ɵv = 42; }', 'export const 😀 = 1;']) {
     assert.equal(compile(Buffer.from(source), { file: 'names.ts' }).code, null, source);
@@ -2424,4 +2425,19 @@ test('a class without a name may begin with its implements clause', () => {
     assert.equal(sameAsTypeScript(source, 'head.ts').backend, 'pulse', source);
   }
   assert.notEqual(compile(Buffer.from('export const C = class implements I {};'), { file: 'head.js' }).backend, 'pulse');
+});
+
+test('names outside ASCII are put back in lowered text', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))();
+  for (const source of [
+    'export enum ɵMode { Off, ɵOn }\nexport function ɵɵf(a: ɵMode): string;\nexport function ɵɵf(a: any) { return ɵMode[a]; }\nexport const out = [ɵɵf(1), ɵMode.ɵOn].join();',
+    'namespace ɵns { export const ɵa = 1; export function f() { return ɵa; } }\nexport const out = JSON.stringify([ɵns, ɵns.f()]);',
+    'export class ɵC { constructor(private ɵx: number, public y = ɵx) {} }\nexport const out = JSON.stringify(new ɵC(2));',
+    'const été = "été";\nexport enum Saison { été = "ÉTÉ", hiver = 2 }\nexport const out = [été, Saison.été, Saison[2], `${été}!`, /été/.test(été)].join();',
+    'export function ɵɵdefinePipe<T>(d: any): unknown { return <ɵPipeDef<T>>{ type: d.ɵtype, name: "ɵx" }; }\nexport const out = JSON.stringify(ɵɵdefinePipe({ ɵtype: 1 }));',
+  ]) {
+    const result = sameAsTypeScript(source, 'names.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'names.ts')), source);
+  }
 });
