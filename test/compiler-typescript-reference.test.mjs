@@ -2309,3 +2309,53 @@ test('@jsx text in a line comment is no pragma', () => {
   // A factory named in a line comment still keeps the classic runtime with TypeScript.
   assert.equal(compile(Buffer.from('// @jsx h\nexport const a = <div/>;'), { file: 'pragma.tsx', mode: 'transform', jsx: 'classic' }).backend, 'typescript');
 });
+
+test('a declared module may hold imports, an export assignment, a default export and a re-export', () => {
+  for (const source of [
+    'declare module "*.css" { const classes: Record<string, string>; export default classes; }\nexport const q = 1;',
+    'declare module "m" { import x = require("y"); export = x; }\nexport const q = 1;',
+    'declare module "m" { export = server; }\nexport const q = 1;',
+    'declare module "m" { import { A } from "a"; import type { B } from "b"; import * as ns from "c"; import D, { type E } from "d";\n  export function f(a: A, b: B): ns.T; export interface I extends D { e: E } }\nexport const q = 1;',
+    'declare module "m" { export * from "q"; export * as all from "r"; export default function f(): void; }\nexport const q = 1;',
+    'declare module "vue" { import type { Router } from "vue-router"; interface ComponentCustomProperties { $router: Router } }\nexport const q = 1;',
+    'declare module "m" { export default class C { m(): void; } }\nvar script = 1;',
+    'declare module "m" { import "side"; export default interface I { a: 1 } }\nexport const q = 1;',
+  ]) {
+    const result = sameAsTypeScript(source, 'ambient.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.doesNotMatch(result.code, /import|require|declare|default/, source);
+  }
+  // A namespace and a global augmentation hold no text of a module, and a value is no declaration.
+  for (const source of [
+    'declare namespace N { import x = require("y"); }\nexport const q = 1;',
+    'declare global { export = x; }\nexport const q = 1;',
+    'declare namespace N { export * from "q"; }\nexport const q = 1;',
+    'declare module "m" { export default 1 + 1; }\nexport const q = 1;',
+    'declare module "m" { import x from; }\nexport const q = 1;',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'ambient.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('review of the namespace work: names that meet their parent, declared siblings, mixed exports', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))();
+  for (const source of [
+    // A namespace named like the one directly around it: TypeScript renames the parameter.
+    'export namespace Widgets { export namespace Button.Button { export const label = "OK"; } }\nexport const out = Widgets.Button.Button.label;',
+    'namespace A { export namespace A.B { export const v = 1; } }\nexport const out = JSON.stringify(A);',
+    'namespace A.A { export const v = 1; }\nexport const out = JSON.stringify(A);',
+    // A declared namespace of the name: its members are properties of the namespace.
+    'export declare namespace Settings { let limit: number; }\nexport namespace Settings.UI { export const current = () => limit; }\nexport const out = 1;',
+    'declare namespace S { const a: number; }\nnamespace S { export const b = 1; }\nexport const out = 1;',
+    // An exported declaration and a local one do not share their members.
+    'const timeout = 1000;\nexport namespace Config { export const timeout = 200; }\nnamespace Config { export const retryDelay = timeout; }\nexport const out = Config.retryDelay;',
+    // The name of an open namespace is its parameter, also when another declaration bears it.
+    'export namespace API.V1 { export const version = 1; export const read = () => V1.version; }\nexport namespace API.V1 { export const ready = true; }\nObject.assign(API, { V1: { ...API.V1, version: 2 } });\nexport const out = API.V1.read();',
+  ]) {
+    const result = sameAsTypeScript(source, 'review.ts');
+    assert.equal(run(result.code), run(reference(source, 'review.ts')), source);
+  }
+  // A line separator ends a line comment, so the block comment behind it holds a pragma.
+  const pragma = compile(Buffer.from('// Copyright /** @jsxImportSource preact */\nexport const view = <div />;'), { file: 'review.tsx', mode: 'transform', jsx: 'automatic' });
+  assert.match(pragma.code, /preact\/jsx-runtime/);
+});

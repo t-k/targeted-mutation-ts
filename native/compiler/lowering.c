@@ -1187,6 +1187,10 @@ tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_
   }
   if (!count) return factories ? TMT_JSX_PRAGMA_FACTORY : TMT_JSX_PRAGMA_ABSENT;
   if (factories) return TMT_JSX_PRAGMA_OTHER;
+  /* A line or paragraph separator ends a line comment too; the walk below does not follow them. */
+  for (uint32_t index = 0; index + 2 < size; index++) {
+    if (source[index] == 0xE2 && source[index + 1] == 0x80 && (source[index + 2] == 0xA8 || source[index + 2] == 0xA9)) return TMT_JSX_PRAGMA_OTHER;
+  }
   /* Walk the trivia before the first token and require the pragma inside one of its block comments. */
   uint32_t at = size >= 3 && source[0] == 0xEF && source[1] == 0xBB && source[2] == 0xBF ? 3 : 0;
   if (size - at >= 2 && source[at] == '#' && source[at + 1] == '!') {
@@ -2315,6 +2319,8 @@ static bool walk_siblings(namespace_scope *scope, TmtPulseMemory_tape input, uin
 
 /* The innermost open namespace that exports the name itself, or the outermost when another declaration of it does; else NULL. */
 static const TmtGrammar_span *exporting_namespace(const namespace_scope *scope, TmtPulseMemory_tape input, TmtGrammar_span name) {
+  /* The name of an open namespace is its parameter. */
+  for (uint32_t depth = 0; depth < scope->depth; depth++) if (same_name(input, scope->names[depth], name)) return NULL;
   for (uint32_t depth = scope->depth; depth-- > 0;) {
     /* The later names of a dotted head share the members of the last one. */
     uint32_t inner = 0;
@@ -2399,6 +2405,32 @@ static TmtGrammar_span declared_name(TmtPulseMemory_tape input, uint32_t at) {
   return name;
 }
 
+static bool exported_head(TmtPulseMemory_tape input, TmtGrammar_candidate head) {
+  return input.size - head.left.first > 6 && !memcmp(input.source + head.left.first, "export", 6);
+}
+
+/* Whether a declared namespace of this name stands among the erased statements. */
+static bool erased_namespace(TmtPulseMemory_tape input, uint32_t records, TmtGrammar_span name) {
+  for (uint32_t index = 0; index < records; index++) {
+    const TmtGrammar_candidate event = input.output[index];
+    if (event.original != erased_type_statement) continue;
+    uint32_t at = event.left.first;
+    bool ambient = false;
+    for (;;) {
+      while (at < event.left.last && (input.source[at] == ' ' || input.source[at] == '\t' || input.source[at] == '\n' || input.source[at] == '\r')) at++;
+      if (skip_word(input, &at, "declare")) ambient = true;
+      else if (!skip_word(input, &at, "export")) break;
+    }
+    /* A namespace that is erased without being declared holds types alone, and no member a body could name. */
+    if (!ambient || (!skip_word(input, &at, "namespace") && !skip_word(input, &at, "module"))) continue;
+    while (at < event.left.last && (input.source[at] == ' ' || input.source[at] == '\t')) at++;
+    TmtGrammar_span declared = { at, at };
+    while (declared.last < event.left.last && input.source[declared.last] < 128 && TmtGrammar_identifier_continue(input.source[declared.last])) declared.last++;
+    if (same_name(input, declared, name)) return true;
+  }
+  return false;
+}
+
 /* The further name of a dotted head at a position: the name behind the dot there, or an empty span. */
 static TmtGrammar_span dotted_part(TmtPulseMemory_tape input, TmtGrammar_candidate head, uint32_t at) {
   TmtGrammar_span part = { at, at };
@@ -2452,7 +2484,9 @@ static bool walk_siblings(namespace_scope *scope, TmtPulseMemory_tape input, uin
     }
     const bool head = opens_namespace(event.original);
     if (head && depth == 0) {
-      sibling = index != self && same_name(input, event.right, name);
+      /* An exported declaration and one that is not exported do not share their members. */
+      sibling = index != self && same_name(input, event.right, name) &&
+        exported_head(input, event) == exported_head(input, input.output[self]);
       depth = 1;
       if (!sibling) continue;
       /* The names behind the first of a dotted head: the second is a member, the others lie deeper. */
@@ -2515,6 +2549,14 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
     }
     while (head_at < span.last && (input.source[head_at] == ' ' || input.source[head_at] == '\t' || input.source[head_at] == '\n' || input.source[head_at] == '\r')) head_at++;
     if (head_at + 1 != span.last || input.source[head_at] != '{') return false;
+    /*
+     * A namespace is a variable in the body of the one around it, whose parameter bears that one's name. For
+     * a namespace named like the one directly around it TypeScript renames the parameter.
+     */
+    if (scope->depth != 0 && same_name(input, scope->names[scope->depth - 1], name)) return false;
+    for (uint32_t part = 0; part < dotted; part++) {
+      if (same_name(input, part == 0 ? name : further[part - 1], further[part])) return false;
+    }
     /* The end of this namespace, behind the namespaces inside it. */
     uint32_t tail = index + 1, inner = 0;
     while (tail < records && (inner != 0 || input.output[tail].original != namespace_end)) {
@@ -2555,6 +2597,11 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
     if (scope->depth == 0) {
       scope->records = records;
       scope->top = index;
+      /* A declared namespace of the name is erased, and its members are not known here. */
+      /* The text of an erased statement stands in the source as written, not in its projection. */
+      TmtPulseMemory_tape written = input;
+      if (scope->original) written.source = scope->original;
+      if (erased_namespace(written, records, name)) return false;
       if (!walk_siblings(scope, input, index, name, span.last, body_last, name)) return false;
     }
     if (merged) {

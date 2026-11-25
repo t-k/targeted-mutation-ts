@@ -5373,7 +5373,9 @@ let namespace_alias_tail (input:tape) (state:parser_state)
         ret input target
       else ret input (failed target 1ul)
 
-let rec type_namespace_members (input:tape) (state:parser_state) (floor used locals:names_used) (depth remaining:U32.t) (ambient:bool)
+// `module_body` is set for the body of `declare module "name"`: it is the text of a module, so it may also
+// hold imports, an export assignment, a default export and a re-export of another module. All of it is erased.
+let rec type_namespace_members (input:tape) (state:parser_state) (floor used locals:names_used) (depth remaining:U32.t) (ambient module_body:bool)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v depth; U32.v remaining]) =
   let! st = (fun () -> skip input state) in
   let! byte = (fun () -> peek input st.offset) in
@@ -5385,30 +5387,75 @@ let rec type_namespace_members (input:tape) (state:parser_state) (floor used loc
     if not ambient then ret input (failed st 1ul)
     else
       let! next_member = (fun () -> consume input st 59uy) in
-      type_namespace_members input next_member floor used locals depth (minus remaining 1ul) ambient
+      type_namespace_members input next_member floor used locals depth (minus remaining 1ul) ambient module_body
   else
     let! exported = (fun () -> keyword input st.offset 6ul 0x6578706f7274uL) in
     let! member = (fun () -> if exported then skip input { st with offset = plus st.offset 6ul } else ret input st) in
-    let! width = (fun () -> type_declaration_width input member.offset) in
-    if width = 0ul then
+    // `export default` in front of a declaration is read as `export` in front of it.
+    let! defaulted = (fun () -> if module_body && exported then keyword input member.offset 7ul 0x64656661756c74uL else ret input false) in
+    let! member = (fun () -> if defaulted then skip input { member with offset = plus member.offset 7ul } else ret input member) in
+    let! member_byte = (fun () -> peek input member.offset) in
+    let! importing = (fun () -> if module_body && not exported && member_byte = 105uy then keyword input member.offset 6ul 0x696d706f7274uL
+      else ret input false) in
+    let! width = (fun () -> if importing then ret input 0ul else type_declaration_width input member.offset) in
+    if importing then
+      // The names an import binds belong to the declared module. They are entered behind the names of the
+      // file and forgotten, and what the import records goes with them.
+      let! imported = (fun () -> import_declaration input member locals) in
+      let! gap = (fun () -> skip input imported.state) in
+      let! semicolon = (fun () -> same input gap.offset 59uy) in
+      let after = if semicolon && gap.status = 0ul then { gap with offset = next gap.offset } else imported.state in
+      type_namespace_members input { after with count = member.count } floor used locals depth (minus remaining 1ul) ambient module_body
+    else if module_body && exported && not defaulted && (member_byte = 61uy || member_byte = 42uy) then
+      // `export = name;` and `export * from "module";`
+      let! value = (fun () -> skip input { member with offset = next member.offset }) in
+      let! ended = (fun () -> if member_byte = 61uy then
+          let! first_name = (fun () -> name input value.offset false false) in
+          if value.status <> 0ul || not first_name.ok then ret input (failed value 1ul)
+          else
+            let! target = (fun () -> alias_path input { value with offset = first_name.at } 64ul) in
+            statement_end input target target.offset true
+        else
+          let! alias = (fun () -> keyword input value.offset 2ul 0x6173uL) in
+          let! named = (fun () -> if alias then
+              let! start = (fun () -> skip input { value with offset = plus value.offset 2ul }) in
+              let! alias_name = (fun () -> name input start.offset false false) in
+              skip input (from_cursor start alias_name)
+            else ret input value) in
+          let! from_ = (fun () -> keyword input named.offset 4ul 0x66726f6duL) in
+          let! source = (fun () -> if from_ && named.status = 0ul then import_source input { named with offset = plus named.offset 4ul } false
+            else ret input (failed named 1ul)) in
+          // The source ends the statement itself; a semicolon behind it is taken, as behind an import.
+          let! gap = (fun () -> skip input source) in
+          let! semicolon = (fun () -> same input gap.offset 59uy) in
+          ret input (if semicolon && gap.status = 0ul then { gap with offset = next gap.offset } else source)) in
+      type_namespace_members input ended floor used locals depth (minus remaining 1ul) ambient module_body
+    else if width = 0ul then
       let! export_list = (fun () -> if ambient && exported then same input member.offset 123uy else ret input false) in
       let! value = (fun () -> if ambient && not export_list && input.capture_types then ambient_value_member input member locals
         else ret input (failed member 1ul)) in
       let! alias = (fun () -> if not exported && not ambient && input.capture_types && byte = 105uy then
         keyword input member.offset 6ul 0x696d706f7274uL else ret input false) in
       if value.status = 0ul then
-        type_namespace_members input value floor used locals depth (minus remaining 1ul) ambient
+        type_namespace_members input value floor used locals depth (minus remaining 1ul) ambient module_body
+      else if defaulted then
+        // `export default name;`
+        let! first_name = (fun () -> name input member.offset false false) in
+        let! target = (fun () -> if first_name.ok then alias_path input { member with offset = first_name.at } 64ul
+          else ret input (failed member 1ul)) in
+        let! ended = (fun () -> statement_end input target target.offset true) in
+        type_namespace_members input ended floor used locals depth (minus remaining 1ul) ambient module_body
       else if export_list then
         let! opening = (fun () -> consume input member 123uy) in
         let! members = (fun () -> ambient_namespace_exports input opening floor used locals 64ul) in
         let! end_ = (fun () -> statement_end input members.state members.state.offset true) in
-        type_namespace_members input end_ floor members.used locals depth (minus remaining 1ul) ambient
+        type_namespace_members input end_ floor members.used locals depth (minus remaining 1ul) ambient module_body
       else if alias then
         // An alias that is not exported does not make the namespace exist, and nothing is written for it.
         let! start = (fun () -> skip input { member with offset = plus member.offset 6ul }) in
         let! named = (fun () -> bind_in_namespace input start binding_region_width floor used start.offset BothNames) in
         let! ended = (fun () -> namespace_alias_tail input named.state) in
-        type_namespace_members input ended floor named.used locals depth (minus remaining 1ul) ambient
+        type_namespace_members input ended floor named.used locals depth (minus remaining 1ul) ambient module_body
       // A namespace inside needs no export: one that holds types alone is erased with the one around it.
       else if depth = 0ul then ret input (failed member 1ul)
       else
@@ -5418,8 +5465,8 @@ let rec type_namespace_members (input:tape) (state:parser_state) (floor used loc
           let! named = (fun () -> bind_in_namespace input member binding_region_width floor used namespace_.name_start TypeNamespace) in
           if named.state.status <> 0ul then ret input named.state
           else
-            let! body = (fun () -> type_namespace_members input namespace_.body_start named.used named.used locals (minus depth 1ul) remaining ambient) in
-            type_namespace_members input body floor named.used locals depth (minus remaining 1ul) ambient
+            let! body = (fun () -> type_namespace_members input namespace_.body_start named.used named.used locals (minus depth 1ul) remaining ambient false) in
+            type_namespace_members input body floor named.used locals depth (minus remaining 1ul) ambient module_body
     else
       let! start = (fun () -> skip input { member with offset = plus member.offset width }) in
       let! named = (fun () -> bind_in_namespace input start binding_region_width floor used start.offset TypeName) in
@@ -5427,7 +5474,7 @@ let rec type_namespace_members (input:tape) (state:parser_state) (floor used loc
       let! body = (fun () -> if not valid then ret input (failed named.state 1ul)
         else if width = 9ul then interface_tail input named.state
         else type_alias_tail input named.state true) in
-      type_namespace_members input body floor named.used locals depth (minus remaining 1ul) ambient
+      type_namespace_members input body floor named.used locals depth (minus remaining 1ul) ambient module_body
 
 // The members of a namespace that exists at run time. TypeScript lowers it to a function that fills an object:
 // `export const a = 1` becomes `N.a = 1`, and an exported function or class is followed by `N.f = f`.
@@ -5625,7 +5672,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) (expo
       let! named = (fun () -> bind_in_namespace input st 0ul 0ul used namespace_.name_start TypeNamespace) in
       if named.state.status <> 0ul then ret input named
       else
-        let! body = (fun () -> type_namespace_members input namespace_.body_start 0ul 0ul used 8ul input.size head.ambient_declaration) in
+        let! body = (fun () -> type_namespace_members input namespace_.body_start 0ul 0ul used 8ul input.size head.ambient_declaration false) in
         if body.status = 0ul || not input.capture_types || head.ambient_declaration then
           let! recorded = (fun () -> record_jsx_span input body 8ul state.offset body.offset) in
           ret input { named with state = recorded }
@@ -5993,8 +6040,11 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
     // The body of a declared module holds what a declared namespace may hold: types, interfaces and declarations
     // without values. Interfaces alone are tried first, since they may repeat names of the file.
     let! interfaces = (fun () -> ambient_interfaces input ambient_module input.size true) in
+    // `declare module "name"` holds the text of a module; `declare global` does not.
+    let! declared_word = (fun () -> trivia input (plus st.offset 7ul)) in
+    let! string_module = (fun () -> if declared_word.ok then keyword input declared_word.at 6ul 0x6d6f64756c65uL else ret input false) in
     let! body = (fun () -> if interfaces.status = 0ul then ret input interfaces
-      else type_namespace_members input ambient_module 0ul used used 8ul input.size true) in
+      else type_namespace_members input ambient_module 0ul used used 8ul input.size true string_module) in
     let! recorded = (fun () -> record_jsx_span input body 8ul st.offset body.offset) in
     ret input ({ state = recorded; used })
   else if declared then module_declaration input st used exported

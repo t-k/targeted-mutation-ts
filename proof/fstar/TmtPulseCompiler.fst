@@ -577,8 +577,11 @@ let module_item_end (input:tape) (state:P.parser_state)
     let! ambient_module = (fun () -> if first = 100uy then P.ambient_module_start input state else ret input (P.failed state 1ul)) in
     if ambient_module.status = 0ul then
       let! interfaces = (fun () -> P.ambient_interfaces input ambient_module input.size true) in
+      // `declare module "name"` holds the text of a module, as in the parser's own reading.
+      let! declared_word = (fun () -> P.trivia input (P.plus state.offset 7ul)) in
+      let! string_module = (fun () -> if declared_word.ok then P.keyword input declared_word.at 6ul 0x6d6f64756c65uL else ret input false) in
       if interfaces.status = 0ul then ret input interfaces
-      else P.type_namespace_members input ambient_module 0ul 0ul 0ul 8ul input.size true
+      else P.type_namespace_members input ambient_module 0ul 0ul 0ul 8ul input.size true string_module
     else ordinary_module_item_end input state
 
 // The readings below find where an item or an expression ends in a source that the parser has accepted as a

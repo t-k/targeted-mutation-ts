@@ -2683,7 +2683,8 @@ TmtPulseParser_type_namespace_members(
   uint32_t locals,
   uint32_t depth,
   uint32_t remaining,
-  bool ambient
+  bool ambient,
+  bool module_body
 );
 
 typedef struct TmtPulseParser_declaration_head_s
