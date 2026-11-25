@@ -76,7 +76,7 @@ async function besideSession(project, files, options, run, profile, stopsSession
     ...(options.shardKeys ? { shardKeys: options.shardKeys } : {}),
     ...(options.checkpointStore ? { checkpointStore: options.checkpointStore } : {}),
     ...(options['exclude-rule'] ? { 'exclude-rule': options['exclude-rule'] } : {}),
-    ...(options['type-check'] ? { 'type-check': true } : {}),
+    ...(options['type-check'] ? { 'type-check': options['type-check'] } : {}),
     ...(options.tsconfig ? { tsconfig: options.tsconfig } : {}),
     ...(options.onTypeCheckWarning ? { onTypeCheckWarning: options.onTypeCheckWarning } : {}),
     ...(options.onProgress ? { onProgress: options.onProgress } : {}),

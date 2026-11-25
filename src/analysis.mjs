@@ -66,6 +66,7 @@ export function collectComparisons(root, files, options) {
     ? createTypeContext(root, scoped.map(subject => subject.file), {
       tsconfig: options.tsconfig,
       onWarning: options.onTypeCheckWarning,
+      silent: options['type-check'] === 'auto',
     })
     : null;
   for (const { file, selected } of scoped) {

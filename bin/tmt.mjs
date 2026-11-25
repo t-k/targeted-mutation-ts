@@ -34,8 +34,10 @@ try {
       related: { type: 'boolean' },
       'copy-exclude': { type: 'string', multiple: true },
       'copy-exclude-gitignore': { type: 'boolean' },
+      'no-copy-exclude-gitignore': { type: 'boolean' },
       'exclude-rule': { type: 'string', multiple: true },
       'type-check': { type: 'boolean' },
+      'no-type-check': { type: 'boolean' },
       tsconfig: { type: 'string' },
       'no-config': { type: 'boolean' },
       progress: { type: 'boolean' },
@@ -69,9 +71,23 @@ try {
   } else if (command === 'analyze') {
     const [project = '.', ...rawFiles] = positionals;
     const { gitignoredCopyExclusions, loadProjectConfig, mergeProjectConfig, validateAndExpandInputs } = await import('../src/project-config.mjs');
+    if (values['type-check'] && values['no-type-check']) throw new Error('--type-check cannot be combined with --no-type-check');
+    if (values['copy-exclude-gitignore'] && values['no-copy-exclude-gitignore']) {
+      throw new Error('--copy-exclude-gitignore cannot be combined with --no-copy-exclude-gitignore');
+    }
     const loadedConfig = values['no-config'] ? null : await loadProjectConfig(project, { allowCodeConfig: !values.list });
     const merged = mergeProjectConfig(loadedConfig?.config, values, rawFiles);
     const runValues = merged.values;
+    if (runValues['no-copy-exclude-gitignore']) runValues['copy-exclude-gitignore'] = false;
+    if (runValues['no-type-check']) {
+      runValues['type-check'] = false;
+    } else if (runValues['type-check'] === true || runValues.tsconfig !== undefined) {
+      runValues['type-check'] = true;
+    } else if (runValues['type-check'] === false) {
+      runValues['type-check'] = false;
+    } else {
+      runValues['type-check'] = 'auto';
+    }
     if (runValues.runner !== undefined && !['vitest', 'playwright'].includes(runValues.runner)) throw new Error('Expected --runner vitest|playwright');
     if (runValues.runner === 'playwright' && runValues['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
     if (runValues.related && runValues.runner === 'playwright') throw new Error('--related requires Vitest');

@@ -379,8 +379,15 @@ test('Issue 3: CLI --type-check narrows rowOffsets[mid] ?? 0 suggestion to NaN o
     assert.match(withTc.stdout, /add a test in which `rowOffsets\[mid\]` is NaN\b/);
     assert.doesNotMatch(withTc.stdout, /0n, ''/);
 
-    const withoutTc = spawnSync(process.execPath, [
+    const autoTc = spawnSync(process.execPath, [
       cli, 'analyze', dir, 'src/offsets.ts', '--format', 'text',
+    ], { encoding: 'utf8' });
+    assert.equal(autoTc.status, 0, autoTc.stderr);
+    assert.match(autoTc.stdout, /add a test in which `rowOffsets\[mid\]` is NaN\b/);
+    assert.doesNotMatch(autoTc.stdout, /0n, ''/);
+
+    const withoutTc = spawnSync(process.execPath, [
+      cli, 'analyze', dir, 'src/offsets.ts', '--no-type-check', '--format', 'text',
     ], { encoding: 'utf8' });
     assert.equal(withoutTc.status, 0, withoutTc.stderr);
     assert.match(withoutTc.stdout, /add a test in which `rowOffsets\[mid\]` is 0n, '', false or NaN\b/);

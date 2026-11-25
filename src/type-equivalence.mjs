@@ -290,42 +290,88 @@ function resolveConfigForFile(ts, realRoot, absFile, explicitConfigPath, cache) 
   return ancestors[0];
 }
 
+function isMutableBindingDeclaration(ts, decl) {
+  if (!decl) return false;
+  if (ts.isParameter(decl)) return true;
+  if (ts.isVariableDeclaration(decl)) return (decl.parent.flags & ts.NodeFlags.Const) === 0;
+  if (ts.isBindingElement(decl)) {
+    let cur = decl.parent;
+    while (cur && (ts.isObjectBindingPattern(cur) || ts.isArrayBindingPattern(cur) || ts.isBindingElement(cur))) {
+      cur = cur.parent;
+    }
+    return isMutableBindingDeclaration(ts, cur);
+  }
+  return false;
+}
+
+function soundTypeAtLocation(ts, checker, node) {
+  let inner = node;
+  while (inner && ts.isParenthesizedExpression(inner)) inner = inner.expression;
+  if (inner && ts.isIdentifier(inner)) {
+    const sym = checker.getSymbolAtLocation(inner);
+    const decl = sym?.valueDeclaration;
+    if (isMutableBindingDeclaration(ts, decl)) {
+      const declaredType = checker.getTypeOfSymbolAtLocation(sym, decl);
+      if (declaredType) return declaredType;
+    }
+  } else if (inner && ts.isPropertyAccessExpression(inner)) {
+    const sym = checker.getSymbolAtLocation(inner);
+    const decl = sym?.valueDeclaration;
+    if (decl && (ts.isPropertySignature(decl) || ts.isPropertyDeclaration(decl) || ts.isPropertyAssignment(decl) || ts.isShorthandPropertyAssignment(decl))) {
+      const declaredType = checker.getTypeOfSymbolAtLocation(sym, decl);
+      if (declaredType) return declaredType;
+    }
+  }
+  return checker.getTypeAtLocation(node);
+}
+
 function buildGroupContext(ts, info, absTargets) {
   const { compilerOptions, noUncheckedIndexedAccess, parsed } = info;
   const ambientDts = (parsed.fileNames ?? []).filter(file => file.endsWith('.d.ts'));
   const rootNames = [...new Set([...absTargets, ...ambientDts])];
   if (!rootNames.length) return () => null;
-  const program = ts.createProgram(rootNames, { ...compilerOptions, noEmit: true });
-  const checker = program.getTypeChecker();
-  const fileCache = new Map();
+  let program = null;
+  let checker = null;
+  const sourceCache = new Map();
 
+  const ensureLoaded = (absFile, resolved) => {
+    if (sourceCache.has(absFile)) return sourceCache.get(absFile);
+    if (!program) {
+      program = ts.createProgram(rootNames, { ...compilerOptions, noEmit: true });
+      checker = program.getTypeChecker();
+    }
+    const sourceFile = program.getSourceFile(absFile) ?? program.getSourceFile(resolved);
+    const entry = sourceFile ? { checker, nodes: indexExpressions(ts, sourceFile) } : null;
+    sourceCache.set(absFile, entry);
+    return entry;
+  };
+
+  const fileCache = new Map();
   return (absFile, resolved) => {
     if (fileCache.has(absFile)) return fileCache.get(absFile);
-    const sourceFile = program.getSourceFile(absFile) ?? program.getSourceFile(resolved);
-    if (!sourceFile) {
-      fileCache.set(absFile, null);
-      return null;
-    }
-    const nodes = indexExpressions(ts, sourceFile);
     const helper = {
       isNullishEqualityEquivalent(subjectStart, subjectEnd, differsFor) {
         if (differsFor !== 'null' && differsFor !== 'undefined') return false;
-        const node = nodes.get(`${subjectStart}:${subjectEnd}`);
+        const loaded = ensureLoaded(absFile, resolved);
+        if (!loaded) return false;
+        const node = loaded.nodes.get(`${subjectStart}:${subjectEnd}`);
         if (!node) return false;
         // Without `noUncheckedIndexedAccess`, indexed reads (`xs[i]`, `rec.missing`, or variables initialized from them) can evaluate to `undefined` at runtime.
-        if (!noUncheckedIndexedAccess && differsFor === 'undefined' && isUncheckedIndexedRead(ts, checker, node)) return false;
+        if (!noUncheckedIndexedAccess && differsFor === 'undefined' && isUncheckedIndexedRead(ts, loaded.checker, node)) return false;
         // If `undefined` is locally shadowed in scope, `x === undefined` / `=== undefined` does not compare against the built-in value.
-        if (hasLocalUndefinedBinding(ts, checker, node)) return false;
-        const type = checker.getTypeAtLocation(node);
+        if (hasLocalUndefinedBinding(ts, loaded.checker, node)) return false;
+        const type = soundTypeAtLocation(ts, loaded.checker, node);
         if (!type) return false;
-        return !canContainNullish(ts, checker, type, differsFor);
+        return !canContainNullish(ts, loaded.checker, type, differsFor);
       },
       isNullishFallbackEquivalent(leftStart, leftEnd, rightFalsy) {
-        const node = nodes.get(`${leftStart}:${leftEnd}`);
+        const loaded = ensureLoaded(absFile, resolved);
+        if (!loaded) return false;
+        const node = loaded.nodes.get(`${leftStart}:${leftEnd}`);
         if (!node) return false;
-        const type = checker.getTypeAtLocation(node);
+        const type = soundTypeAtLocation(ts, loaded.checker, node);
         if (!type) return false;
-        const falsy = collectNonNullishFalsy(ts, checker, type);
+        const falsy = collectNonNullishFalsy(ts, loaded.checker, type);
         if (falsy === 'any') return false;
         if (falsy.size === 0) return true;
         if (falsy.size === 1) {
@@ -336,15 +382,19 @@ function buildGroupContext(ts, info, absTargets) {
         return false;
       },
       possibleNullishFallbackFalsy(leftStart, leftEnd) {
-        const node = nodes.get(`${leftStart}:${leftEnd}`);
+        const loaded = ensureLoaded(absFile, resolved);
+        if (!loaded) return null;
+        const node = loaded.nodes.get(`${leftStart}:${leftEnd}`);
         if (!node) return null;
-        const type = checker.getTypeAtLocation(node);
+        const type = soundTypeAtLocation(ts, loaded.checker, node);
         if (!type) return null;
-        return falsyLabelsFromSet(collectNonNullishFalsy(ts, checker, type));
+        return falsyLabelsFromSet(collectNonNullishFalsy(ts, loaded.checker, type));
       },
       hasLocalNaNBinding(nodeStart, nodeEnd) {
-        const node = nodes.get(`${nodeStart}:${nodeEnd}`);
-        return node ? hasLocalValueBinding(ts, checker, node, 'NaN') : false;
+        const loaded = ensureLoaded(absFile, resolved);
+        if (!loaded) return false;
+        const node = loaded.nodes.get(`${nodeStart}:${nodeEnd}`);
+        return node ? hasLocalValueBinding(ts, loaded.checker, node, 'NaN') : false;
       },
     };
     fileCache.set(absFile, helper);
@@ -352,13 +402,13 @@ function buildGroupContext(ts, info, absTargets) {
   };
 }
 
-export function createTypeContext(root, targetFiles = [], { tsconfig, onWarning, ts = loadTypeScript() } = {}) {
+export function createTypeContext(root, targetFiles = [], { tsconfig, onWarning, silent = false, ts = loadTypeScript() } = {}) {
   const realRoot = existsSync(root) ? realpathSync(root) : resolve(root);
   const configCache = new Map();
   const warnings = [];
   const seenWarnings = new Set();
   const warn = message => {
-    if (seenWarnings.has(message)) return;
+    if (silent || seenWarnings.has(message)) return;
     seenWarnings.add(message);
     warnings.push(message);
     onWarning?.(message);

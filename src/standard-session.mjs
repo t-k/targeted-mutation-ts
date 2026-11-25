@@ -66,6 +66,18 @@ async function openLane(index, serial = false, workerOverride = undefined) {
   return lane;
 }
 
+function clearVitestState(lane) {
+  // Clear prior run state so Vitest 4.1 `onTestRunEnd(modules)` cannot carry over stale failed/dynamic
+  // test modules from an earlier trial when `bail: 1` interrupts a subsequent run before every file runs.
+  const vitestState = lane.context?.state;
+  if (!vitestState) return;
+  vitestState.filesMap?.clear?.();
+  vitestState.idMap?.clear?.();
+  vitestState.taskFileMap?.clear?.();
+  vitestState.reportedTasksMap?.clear?.();
+  vitestState.clearErrors?.();
+}
+
 // Runs a lane's share of the planned mutations inside its worker, one Vitest run per round. A worker that stops
 // answering is replaced, its mutation is a timeout, and the rest continue in the next round.
 async function runInThread(lane, plans, limit, deadline, onEvent, onTick) {
@@ -74,6 +86,7 @@ async function runInThread(lane, plans, limit, deadline, onEvent, onTick) {
   while (Object.keys(remaining).length) {
     rmSync(lane.events, { force: true });
     lane.snapshot = null;
+    clearVitestState(lane);
     lane.context.provide('tmtSession', { phase: 'trials', plans: remaining, events: lane.events, runnerEntry, deadline });
     const chosen = lane.specs.filter(spec => remaining[JSON.stringify([spec.project.name, spec.moduleId])]);
     if (!chosen.length) break;
@@ -125,6 +138,7 @@ async function runInThread(lane, plans, limit, deadline, onEvent, onTick) {
 async function run(specs, state, lane = lanes[0], timeoutMs = runTimeout) {
   lane.snapshot = null;
   rmSync(destination, { force: true });
+  clearVitestState(lane);
   lane.context.provide('tmtSession', { ...state, destination });
   const timeout = setTimeout(() => {
     record(state.id === undefined

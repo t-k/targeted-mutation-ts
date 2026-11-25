@@ -163,11 +163,15 @@ test('issue repro: --type-check skips equivalent nullish edits for strict TS sta
       '}',
     ].join('\n') + '\n');
 
-    const withoutTc = spawnSync(process.execPath, [cli, 'analyze', dir, 'src/bulk-selection.ts', '--list', '--format', 'json'], { encoding: 'utf8' });
+    const withoutTc = spawnSync(process.execPath, [cli, 'analyze', dir, 'src/bulk-selection.ts', '--list', '--no-type-check', '--format', 'json'], { encoding: 'utf8' });
     assert.equal(withoutTc.status, 0, withoutTc.stderr);
     const plainMutants = JSON.parse(withoutTc.stdout).mutants;
     assert.equal(plainMutants.filter(m => m.rule === 'nullish-fallback/v1').length, 2);
     assert.equal(plainMutants.filter(m => m.rule === 'nullish-equality/v1').length, 1);
+
+    const autoTc = spawnSync(process.execPath, [cli, 'analyze', dir, 'src/bulk-selection.ts', '--list', '--format', 'json'], { encoding: 'utf8' });
+    assert.equal(autoTc.status, 0, autoTc.stderr);
+    assert.equal(JSON.parse(autoTc.stdout).mutants.filter(m => m.rule === 'nullish-equality/v1').length, 0);
 
     const withTc = spawnSync(process.execPath, [cli, 'analyze', dir, 'src/bulk-selection.ts', '--list', '--type-check', '--format', 'json'], { encoding: 'utf8' });
     assert.equal(withTc.status, 0, withTc.stderr);

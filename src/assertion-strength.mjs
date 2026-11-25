@@ -411,7 +411,7 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
       const suites = suitesOf(node);
       if (suites) spelled.add([...suites, node.arguments[0].text].join(' > '));
     }
-    if (isSubjectCall(node, scope) && node.arguments.every(written)) {
+    if (isSubjectCall(node, scope) && (node.arguments.every(written) || context.allowBoundNonLiteral)) {
       let target = node;
       let awaited = false;
       let [parent, child] = up(node);
@@ -432,6 +432,10 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
         while (!ts.isExpressionStatement(outer)) outer = outer.parent;
         statement = outer;
       }
+      if (!node.arguments.every(written) && !bound) {
+        ts.forEachChild(node, childNode => visit(childNode, scope));
+        return;
+      }
       const { title, suites } = (statement && testOf(statement)) ?? {};
       const start = target.getStart(tree);
       const call = text.slice(start, target.end);
@@ -448,6 +452,483 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
   return found.filter(call => (call.full !== undefined ? testNames.includes(call.full)
     : testNames.some(name => !spelled.has(name) && (name === call.test || name.endsWith(' > ' + call.test)))))
     .map(({ full: _full, ...call }) => call);
+}
+
+const nonValueMatchers = new Set([
+  'toThrow', 'toThrowError', 'toHaveBeenCalled', 'toHaveBeenCalledTimes', 'toHaveBeenCalledWith',
+  'toHaveBeenLastCalledWith', 'toHaveBeenNthCalledWith', 'toHaveReturned', 'toHaveReturnedTimes',
+  'toHaveReturnedWith', 'toHaveLastReturnedWith', 'toHaveNthReturnedWith',
+]);
+
+function suitesOfNode(call, ts) {
+  const titles = [];
+  for (let node = call.parent; node; node = node.parent) {
+    if (!ts.isCallExpression(node) || !node.arguments.some(argument => ts.isArrowFunction(argument) || ts.isFunctionExpression(argument))) continue;
+    let callee = node.expression;
+    let each = false;
+    while (ts.isCallExpression(callee) || ts.isPropertyAccessExpression(callee)) {
+      each ||= ts.isCallExpression(callee);
+      callee = callee.expression;
+    }
+    if (!ts.isIdentifier(callee) || !['describe', 'suite'].includes(callee.text)) continue;
+    if (each || !node.arguments[0] || !ts.isStringLiteralLike(node.arguments[0])) return undefined;
+    titles.unshift(node.arguments[0].text);
+  }
+  return titles;
+}
+
+function collectTestBlocks(tree, testNames, ts) {
+  const found = [];
+  const spelled = new Set();
+  (function visit(node) {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && ['it', 'test'].includes(node.expression.text) &&
+        node.arguments[0] && ts.isStringLiteralLike(node.arguments[0])) {
+      const suites = suitesOfNode(node, ts);
+      const title = node.arguments[0].text;
+      if (suites) spelled.add([...suites, title].join(' > '));
+      const callback = node.arguments.slice(1).find(arg => ts.isArrowFunction(arg) || ts.isFunctionExpression(arg));
+      if (callback && ts.isBlock(callback.body)) {
+        found.push({ title, suites, full: suites && [...suites, title].join(' > '), body: callback.body, callNode: node });
+      }
+    }
+    ts.forEachChild(node, visit);
+  })(tree);
+  return found.filter(entry => (entry.full !== undefined ? testNames.includes(entry.full)
+    : testNames.some(name => !spelled.has(name) && (name === entry.title || name.endsWith(' > ' + entry.title)))));
+}
+
+// Only side-effect-free read expressions (identifiers, property/element accesses, and literal indices) are
+// eligible for weak `expect(<expr>)` wrapping, avoiding comma expressions, operator-precedence traps, and
+// stateful calls such as `iterator.next().value`.
+function isSafeReadExpr(node, ts) {
+  let inner = node;
+  while (ts.isParenthesizedExpression(inner)) inner = inner.expression;
+  if (ts.isIdentifier(inner)) return true;
+  if (ts.isPropertyAccessExpression(inner)) return isSafeReadExpr(inner.expression, ts);
+  if (ts.isElementAccessExpression(inner) && inner.argumentExpression) {
+    let idx = inner.argumentExpression;
+    while (ts.isParenthesizedExpression(idx)) idx = idx.expression;
+    const safeIdx = ts.isNumericLiteral(idx) || ts.isStringLiteral(idx) || ts.isNoSubstitutionTemplateLiteral(idx) ||
+      isSafeReadExpr(idx, ts);
+    return safeIdx && isSafeReadExpr(inner.expression, ts);
+  }
+  return false;
+}
+
+// Weak `expect(<expr>).<matcher>(...)` expressions directly inside named tests, regardless of whether `<expr>` is
+// a direct subject call (covers Proxy properties, DOM queries, and non-literal bound variables).
+export function weakExpectations(text, testFile, testNames, ts = loadTypeScript()) {
+  const tree = ts.createSourceFile(testFile, text, ts.ScriptTarget.Latest, true);
+  const blocks = collectTestBlocks(tree, testNames, ts);
+  const found = [];
+  for (const { title, body } of blocks) {
+    for (const statement of body.statements) {
+      if (!ts.isExpressionStatement(statement)) continue;
+      let expr = statement.expression;
+      while (ts.isParenthesizedExpression(expr)) expr = expr.expression;
+      if (!ts.isCallExpression(expr)) continue;
+      const names = [];
+      let cursor = expr.expression;
+      while (ts.isParenthesizedExpression(cursor)) cursor = cursor.expression;
+      while (ts.isPropertyAccessExpression(cursor)) {
+        names.unshift(cursor.name.text);
+        cursor = cursor.expression;
+        while (ts.isParenthesizedExpression(cursor)) cursor = cursor.expression;
+      }
+      if (!names.length || !ts.isCallExpression(cursor) || !ts.isIdentifier(cursor.expression) ||
+          cursor.expression.text !== 'expect' || cursor.arguments.length !== 1) continue;
+      if (names.includes('resolves') || names.includes('rejects')) continue;
+      const matcher = names.at(-1);
+      if (nonValueMatchers.has(matcher)) continue;
+      const isWeak = names.includes('not') || !pinning.has(matcher);
+      if (!isWeak) continue;
+      const rawArg = cursor.arguments[0];
+      if (!isSafeReadExpr(rawArg, ts)) continue;
+      const start = rawArg.getStart(tree);
+      const exprText = text.slice(start, rawArg.end);
+      if (!exprText || /[\n\r]/.test(exprText)) continue;
+      const { line, character } = tree.getLineAndCharacterOfPosition(start);
+      found.push({
+        start, end: rawArg.end, text: exprText, test: title, line: line + 1, column: character + 1,
+      });
+    }
+  }
+  return found;
+}
+
+// Local variables declared at top-level of each named test body, for end-of-test side-effect state comparison
+// (Proxy stores, DOM elements, callback counters, event arrays) when direct call/expect wrapping finds nothing.
+export function testEndTargets(text, testFile, testNames, ts = loadTypeScript()) {
+  const tree = ts.createSourceFile(testFile, text, ts.ScriptTarget.Latest, true);
+  const blocks = collectTestBlocks(tree, testNames, ts);
+  const collectNames = (binding, out) => {
+    if (!binding) return;
+    if (ts.isIdentifier(binding)) {
+      if (!binding.text.startsWith('_')) out.push(binding.text);
+    } else if (ts.isObjectBindingPattern(binding) || ts.isArrayBindingPattern(binding)) {
+      for (const el of binding.elements) if (ts.isBindingElement(el)) collectNames(el.name, out);
+    }
+  };
+  const targets = [];
+  for (const { title, body } of blocks) {
+    if (!body.statements.length) continue;
+    if (body.statements.some(stmt => ts.isReturnStatement(stmt))) continue;
+    const vars = [];
+    for (const stmt of body.statements) {
+      if (ts.isVariableStatement(stmt)) {
+        for (const decl of stmt.declarationList.declarations) collectNames(decl.name, vars);
+      }
+    }
+    const uniqueVars = [...new Set(vars)].slice(0, 12);
+    if (!uniqueVars.length) continue;
+    const insertAt = body.end - 1;
+    const lastStmt = body.statements.at(-1);
+    const { line, character } = tree.getLineAndCharacterOfPosition(lastStmt.getStart(tree));
+    targets.push({ insertAt, vars: uniqueVars, test: title, line: line + 1, column: character + 1 });
+  }
+  return targets;
+}
+
+// Wraps the end of one test body to snapshot observable local variables (primitives, arrays, plain/Proxy objects,
+// and DOM elements) after all test actions and existing assertions complete normally.
+export function recordingTestEndState(text, target, key) {
+  const fnName = `__tmtEndState_${key}`;
+  const captures = target.vars.map(name => `try { __s[${JSON.stringify(name)}] = ${name}; } catch (e) {}`).join(' ');
+  const hook = `\n;(() => { var __s = Object.create(null); ${captures} ${fnName}(__s); })();\n`;
+  const helper = `
+var __tmtEndFiles_${key};
+var __tmtEndUtil_${key};
+try { __tmtEndFiles_${key} = globalThis.process.getBuiltinModule('node:fs'); } catch (error) { /* taken at first call */ }
+try { __tmtEndUtil_${key} = globalThis.process.getBuiltinModule('node:util'); } catch (error) { /* taken at first call */ }
+function ${fnName}(locals) {
+  if (!__tmtEndUtil_${key}) {
+    try { __tmtEndUtil_${key} = globalThis.process.getBuiltinModule('node:util'); } catch (error) { /* unavailable */ }
+  }
+  var isProxy = __tmtEndUtil_${key} && __tmtEndUtil_${key}.types && typeof __tmtEndUtil_${key}.types.isProxy === 'function' ? __tmtEndUtil_${key}.types.isProxy : null;
+  function fmtPrim(v) {
+    var t = typeof v;
+    if (v === null || t === 'boolean' || t === 'undefined') return String(v);
+    if (t === 'number') return Object.is(v, -0) ? '-0' : String(v);
+    if (t === 'string') return v.length <= 200 ? JSON.stringify(v) : null;
+    if (t === 'bigint') return v + 'n';
+    return null;
+  }
+  function isDomElement(v) {
+    try { return Boolean(v && typeof v === 'object' && v.nodeType === 1 && typeof v.tagName === 'string'); } catch (e) { return false; }
+  }
+  function snapDom(el, depth) {
+    var props = Object.create(null);
+    var numProps = ['childElementCount', 'scrollTop', 'scrollLeft'];
+    for (var i = 0; i < numProps.length; i++) {
+      try {
+        var nv = el[numProps[i]];
+        if (typeof nv === 'number' && !Number.isNaN(nv)) props[numProps[i]] = Object.is(nv, -0) ? '-0' : String(nv);
+      } catch (e) {}
+    }
+    var boolProps = ['hidden', 'disabled', 'checked'];
+    for (var b = 0; b < boolProps.length; b++) {
+      try {
+        if (boolProps[b] in el && typeof el[boolProps[b]] === 'boolean') props[boolProps[b]] = String(el[boolProps[b]]);
+      } catch (e) {}
+    }
+    var strProps = ['value', 'className', 'textContent'];
+    for (var s = 0; s < strProps.length; s++) {
+      try {
+        if (strProps[s] in el && typeof el[strProps[s]] === 'string' && el[strProps[s]].length <= 200) {
+          props[strProps[s]] = JSON.stringify(el[strProps[s]]);
+        }
+      } catch (e) {}
+    }
+    var attrs = Object.create(null);
+    var attrsTruncated = false;
+    var skippedAttrs = [];
+    try {
+      var list = el.attributes;
+      if (list && typeof list.length === 'number') {
+        if (list.length > 20) attrsTruncated = true;
+        var attrCount = Math.min(list.length, 20);
+        for (var a = 0; a < attrCount; a++) {
+          var item = list[a];
+          if (!item || typeof item.name !== 'string' || item.name === 'style') continue;
+          if (typeof item.value === 'string' && item.value.length <= 200) attrs[item.name] = JSON.stringify(item.value);
+          else skippedAttrs.push(item.name);
+        }
+      }
+    } catch (e) { attrsTruncated = true; }
+    var style = Object.create(null);
+    var styleTruncated = false;
+    var skippedStyles = [];
+    try {
+      var st = el.style;
+      if (st && typeof st === 'object') {
+        var styleKeys = [];
+        if (typeof st.length === 'number') {
+          if (st.length > 20) styleTruncated = true;
+          var stLen = Math.min(st.length, 20);
+          for (var si = 0; si < stLen; si++) {
+            var sp = st[si];
+            if (typeof sp === 'string' && sp) styleKeys.push(sp);
+          }
+        }
+        var common = ['display', 'visibility', 'opacity', 'position', 'top', 'left', 'right', 'bottom', 'width', 'height', 'minHeight', 'maxHeight', 'transform', 'paddingTop', 'paddingBottom', 'marginTop', 'marginBottom', 'overflow', 'zIndex'];
+        for (var ci = 0; ci < common.length; ci++) styleKeys.push(common[ci]);
+        var seenStyle = Object.create(null);
+        for (var sk = 0; sk < styleKeys.length; sk++) {
+          var propName = styleKeys[sk];
+          if (seenStyle[propName]) continue;
+          seenStyle[propName] = true;
+          var sv = propName.indexOf('--') === 0 && typeof st.getPropertyValue === 'function' ? st.getPropertyValue(propName) : (typeof st[propName] === 'string' ? st[propName] : (typeof st.getPropertyValue === 'function' ? st.getPropertyValue(propName) : ''));
+          if (typeof sv === 'string' && sv.length > 0) {
+            if (sv.length <= 200) style[propName] = JSON.stringify(sv);
+            else skippedStyles.push(propName);
+          }
+        }
+      }
+    } catch (e) { styleTruncated = true; }
+    var children = [];
+    if (depth === 0) {
+      try {
+        var ch = el.children;
+        if (ch && typeof ch.length === 'number') {
+          var cLen = Math.min(ch.length, 8);
+          for (var c = 0; c < cLen; c++) {
+            if (isDomElement(ch[c])) children.push(snapDom(ch[c], 1));
+          }
+        }
+      } catch (e) {}
+    }
+    var tag = '';
+    try { tag = String(el.tagName); } catch (e) {}
+    return { k: 'dom', tag: tag, props: props, attrs: attrs, attrsTruncated: attrsTruncated, skippedAttrs: skippedAttrs, style: style, styleTruncated: styleTruncated, skippedStyles: skippedStyles, children: children };
+  }
+  function fmtExact(v, depth, seen) {
+    var prim = fmtPrim(v);
+    if (prim !== null) return prim;
+    if (typeof v !== 'object' || v === null || depth >= 3 || isDomElement(v)) return null;
+    if (isProxy && isProxy(v)) return null;
+    if (seen.indexOf(v) >= 0) return null;
+    var nextSeen = seen.concat([v]);
+    if (Array.isArray(v)) {
+      if (Object.getPrototypeOf(v) !== Array.prototype || v.length > 20 || Object.getOwnPropertySymbols(v).length > 0 || Object.getOwnPropertyNames(v).length !== v.length + 1) return null;
+      var items = [];
+      for (var i = 0; i < v.length; i++) {
+        var d = Object.getOwnPropertyDescriptor(v, i);
+        if (!d || !('value' in d) || !d.enumerable) return null;
+        var fItem = fmtExact(d.value, depth + 1, nextSeen);
+        if (fItem === null) return null;
+        items.push(fItem);
+      }
+      return '[' + items.join(', ') + ']';
+    }
+    if (Object.getPrototypeOf(v) !== Object.prototype || Object.getOwnPropertySymbols(v).length > 0) return null;
+    var keys = Object.keys(v);
+    if (keys.length > 20 || Object.getOwnPropertyNames(v).length !== keys.length) return null;
+    keys.sort();
+    var pairs = [];
+    for (var j = 0; j < keys.length; j++) {
+      var k = keys[j], desc = Object.getOwnPropertyDescriptor(v, k);
+      if (k === '__proto__' || !desc || !('value' in desc)) return null;
+      var fVal = fmtExact(desc.value, depth + 1, nextSeen);
+      if (fVal === null) return null;
+      var label = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k) ? k : JSON.stringify(k);
+      pairs.push(label + ': ' + fVal);
+    }
+    return pairs.length ? '{ ' + pairs.join(', ') + ' }' : '{}';
+  }
+  function snapValue(v, depth, seen) {
+    if (isDomElement(v)) return snapDom(v, 0);
+    try {
+      var exact = fmtExact(v, depth, seen);
+      if (exact !== null) return { k: 'val', v: exact };
+    } catch (e) {}
+    if (typeof v !== 'object' || v === null || depth >= 3) return null;
+    if (v instanceof Date || v instanceof RegExp || v instanceof Error || v instanceof Map || v instanceof Set || v instanceof Promise) return null;
+    if (seen.indexOf(v) >= 0) return null;
+    var nextSeen = seen.concat([v]);
+    var isArr = false;
+    try { isArr = Array.isArray(v); } catch (e) { return null; }
+    if (isArr) {
+      // Only fall back for Proxy-wrapped dense arrays without extra own properties; never reconstruct sparse or
+      // augmented arrays as plain array literals for toStrictEqual.
+      if (!isProxy || !isProxy(v)) return null;
+      var len = 0;
+      try {
+        len = v.length;
+        if (len > 20 || Object.getOwnPropertySymbols(v).length > 0 || Object.getOwnPropertyNames(v).length !== len + 1) return null;
+      } catch (e) { return null; }
+      var items = [];
+      for (var i = 0; i < len; i++) {
+        var elVal;
+        try {
+          if (!(i in v)) return null;
+          elVal = v[i];
+        } catch (e) { return null; }
+        var fEl = fmtExact(elVal, depth + 1, nextSeen);
+        if (fEl === null) return null;
+        items.push(fEl);
+      }
+      return { k: 'val', v: '[' + items.join(', ') + ']' };
+    }
+    var keys;
+    try { keys = Object.keys(v); } catch (e) { return null; }
+    if (keys.length === 0 || keys.length > 20) return null;
+    keys.sort();
+    var objIsProxy = Boolean(isProxy && isProxy(v));
+    var fields = Object.create(null);
+    var fieldCount = 0;
+    for (var j = 0; j < keys.length; j++) {
+      var k = keys[j];
+      if (k === '__proto__') continue;
+      if (!objIsProxy) {
+        var ownDesc;
+        try { ownDesc = Object.getOwnPropertyDescriptor(v, k); } catch (e) { continue; }
+        // Skip accessor getters on non-Proxy objects so snapshot reads cannot trigger stateful side effects.
+        if (!ownDesc || !('value' in ownDesc)) continue;
+      }
+      var propVal;
+      try { propVal = v[k]; } catch (e) { continue; }
+      if (typeof propVal === 'function' || typeof propVal === 'symbol') continue;
+      var childSnap = snapValue(propVal, depth + 1, nextSeen);
+      if (childSnap && (childSnap.k === 'val' || childSnap.k === 'partialObj')) {
+        fields[k] = childSnap;
+        fieldCount++;
+      }
+    }
+    return fieldCount > 0 ? { k: 'partialObj', fields: fields } : null;
+  }
+  var out = Object.create(null);
+  var varNames = Object.keys(locals);
+  for (var idx = 0; idx < varNames.length; idx++) {
+    var name = varNames[idx];
+    try {
+      var entry = snapValue(locals[name], 0, []);
+      if (entry) out[name] = entry;
+    } catch (e) {}
+  }
+  (__tmtEndFiles_${key} || (__tmtEndFiles_${key} = globalThis.process.getBuiltinModule('node:fs'))).appendFileSync(new URL('./.tmt-values-${key}.jsonl', import.meta.url), JSON.stringify(out) + '\\n');
+}
+`;
+  return text.slice(0, target.insertAt) + hook + text.slice(target.insertAt) + helper;
+}
+
+function formatStyleAccess(baseExpr, propName) {
+  if (propName.startsWith('--')) return `${baseExpr}.style.getPropertyValue(${JSON.stringify(propName)})`;
+  const camel = propName.replace(/-([a-z])/g, (_, ch) => ch.toUpperCase());
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(camel)
+    ? `${baseExpr}.style.${camel}`
+    : `${baseExpr}.style.getPropertyValue(${JSON.stringify(propName)})`;
+}
+
+function diffDomSnapshots(baseExpr, orig, edit) {
+  const propOrder = ['childElementCount', 'scrollTop', 'scrollLeft', 'hidden', 'disabled', 'checked', 'value', 'className'];
+  for (const prop of propOrder) {
+    if (orig.props?.[prop] !== undefined && edit.props?.[prop] !== undefined && orig.props[prop] !== edit.props[prop]) {
+      return { expression: `${baseExpr}.${prop}`, original: orig.props[prop], edited: edit.props[prop] };
+    }
+  }
+  const origSkippedStyles = new Set(orig.skippedStyles ?? []);
+  const editSkippedStyles = new Set(edit.skippedStyles ?? []);
+  const styleKeys = [...new Set([...Object.keys(orig.style ?? {}), ...Object.keys(edit.style ?? {})])].sort();
+  for (const prop of styleKeys) {
+    const inOrig = Object.hasOwn(orig.style ?? {}, prop);
+    const inEdit = Object.hasOwn(edit.style ?? {}, prop);
+    if (!inOrig && (orig.styleTruncated || origSkippedStyles.has(prop))) continue;
+    if (!inEdit && (edit.styleTruncated || editSkippedStyles.has(prop))) continue;
+    const o = inOrig ? orig.style[prop] : '""';
+    const e = inEdit ? edit.style[prop] : '""';
+    if (o !== e) {
+      return { expression: formatStyleAccess(baseExpr, prop), original: o, edited: e };
+    }
+  }
+  const origSkippedAttrs = new Set(orig.skippedAttrs ?? []);
+  const editSkippedAttrs = new Set(edit.skippedAttrs ?? []);
+  const attrKeys = [...new Set([...Object.keys(orig.attrs ?? {}), ...Object.keys(edit.attrs ?? {})])].sort();
+  for (const attr of attrKeys) {
+    const inOrig = Object.hasOwn(orig.attrs ?? {}, attr);
+    const inEdit = Object.hasOwn(edit.attrs ?? {}, attr);
+    if (!inOrig && (orig.attrsTruncated || origSkippedAttrs.has(attr))) continue;
+    if (!inEdit && (edit.attrsTruncated || editSkippedAttrs.has(attr))) continue;
+    const o = inOrig ? orig.attrs[attr] : 'null';
+    const e = inEdit ? edit.attrs[attr] : 'null';
+    if (o !== e) {
+      return { expression: `${baseExpr}.getAttribute(${JSON.stringify(attr)})`, original: o, edited: e };
+    }
+  }
+  if (orig.props?.textContent !== undefined && edit.props?.textContent !== undefined && orig.props.textContent !== edit.props.textContent) {
+    return { expression: `${baseExpr}.textContent`, original: orig.props.textContent, edited: edit.props.textContent };
+  }
+  const origChildren = orig.children ?? [];
+  const editChildren = edit.children ?? [];
+  const shared = Math.min(origChildren.length, editChildren.length);
+  for (let i = 0; i < shared; i++) {
+    const childDiff = diffDomSnapshots(`${baseExpr}.children[${i}]`, origChildren[i], editChildren[i]);
+    if (childDiff) return childDiff;
+  }
+  return null;
+}
+
+function diffPartialObject(baseExpr, origFields, editFields, ts, prefixPath = []) {
+  const keys = Object.keys(origFields ?? {}).sort();
+  for (const key of keys) {
+    if (!Object.hasOwn(editFields ?? {}, key)) continue;
+    const o = origFields[key];
+    const e = editFields[key];
+    if (!o || !e || o.k !== e.k) continue;
+    const nextPath = [...prefixPath, key];
+    if (o.k === 'partialObj') {
+      const deeper = diffPartialObject(baseExpr, o.fields, e.fields, ts, nextPath);
+      if (deeper) return deeper;
+    } else if (o.k === 'val' && o.v !== e.v) {
+      const narrowed = narrowSiblingPath(o.v, e.v, ts);
+      const path = narrowed ? [...nextPath, ...narrowed.path] : nextPath;
+      const expression = formatTargetPath(baseExpr, path);
+      const original = narrowed ? narrowed.original : o.v;
+      const edited = narrowed ? narrowed.edited : e.v;
+      return {
+        expression,
+        original,
+        edited,
+        path,
+        suggestedTest: `expect(${expression}).${matcherFor(original)}(${original})`,
+      };
+    }
+  }
+  return null;
+}
+
+export function diffEndSnapshots(origSnap, editSnap, ts = loadTypeScript()) {
+  if (!origSnap || !editSnap || typeof origSnap !== 'object' || typeof editSnap !== 'object') return null;
+  for (const name of Object.keys(origSnap)) {
+    const origEntry = origSnap[name];
+    const editEntry = editSnap[name];
+    if (!origEntry || !editEntry || origEntry.k !== editEntry.k) continue;
+    if (origEntry.k === 'dom') {
+      const domDiff = diffDomSnapshots(name, origEntry, editEntry);
+      if (domDiff) {
+        return {
+          ...domDiff,
+          suggestedTest: `expect(${domDiff.expression}).${matcherFor(domDiff.original)}(${domDiff.original})`,
+        };
+      }
+    } else if (origEntry.k === 'partialObj') {
+      // Never emit whole-object `toStrictEqual` on partially observed objects (e.g. Proxies or objects with methods).
+      const partialDiff = diffPartialObject(name, origEntry.fields, editEntry.fields, ts);
+      if (partialDiff) return partialDiff;
+    } else if (origEntry.k === 'val' && origEntry.v !== editEntry.v) {
+      const narrowed = narrowSiblingPath(origEntry.v, editEntry.v, ts);
+      const expression = narrowed ? formatTargetPath(name, narrowed.path) : name;
+      const original = narrowed ? narrowed.original : origEntry.v;
+      const edited = narrowed ? narrowed.edited : editEntry.v;
+      return {
+        expression,
+        original,
+        edited,
+        ...(narrowed ? { path: narrowed.path } : {}),
+        suggestedTest: `expect(${expression}).${matcherFor(original)}(${original})`,
+      };
+    }
+  }
+  return null;
 }
 
 // The test file with one call wrapped so that every value it gives is written beside the file.
@@ -559,7 +1040,8 @@ export function narrowSiblingPath(originalText, editedText, ts = loadTypeScript(
 }
 
 function formatTargetPath(base, path, awaited = false) {
-  let expr = path.length && (awaited || /^\s*await\b/.test(base)) ? `(${base})` : base;
+  const needsParens = path.length > 0 && (awaited || /^\s*await\b/.test(base) || !/^[A-Za-z_$][\w$.[\]()]*$/.test(base.trim()));
+  let expr = needsParens ? `(${base})` : base;
   for (const key of path) {
     expr += /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key) ? `.${key}` : `[${JSON.stringify(key)}]`;
   }
@@ -677,7 +1159,7 @@ export async function strengthenAssertions(root, report, options, run = defaultR
   const runnerFactory = run.sourceTrialsAsync ?? run.sourceTrials;
   const concurrency = options.concurrency ?? Math.max(1, Math.min(8, availableParallelism() - 1));
   const ts = loadTypeScript();
-  const resolveContext = { root, cache: { tsconfigs: new Map(), resolved: new Map(), asts: new Map(), exports: new Map() } };
+  const resolveContext = { root, allowBoundNonLiteral: true, cache: { tsconfigs: new Map(), resolved: new Map(), asts: new Map(), exports: new Map() } };
   const subjectsByFile = new Map();
   const candidates = [];
   for (const gap of report.diagnostics ?? []) {
@@ -691,6 +1173,8 @@ export async function strengthenAssertions(root, report, options, run = defaultR
     }
     const trial = { site: { location: gap.location }, edit: mutation.source?.edit ?? mutation.edit, replacement: mutation.source?.replacement ?? mutation.replacement };
     const calls = [];
+    const endTargets = [];
+    const seenCallIds = new Set();
     for (const testFile of [...new Set(gap.tests.map(test => test.file))].slice(0, 2)) {
       const text = readFileSync(inside(root, testFile), 'utf8');
       const names = gap.tests.filter(test => test.file === testFile).map(test => test.name);
@@ -698,19 +1182,39 @@ export async function strengthenAssertions(root, report, options, run = defaultR
       for (const call of weakCalls(text, testFile, gap.location.file, names, ts, resolveContext)) {
         if (calls.length >= 4) break;
         const id = `${testFile}:${call.start}`;
+        if (seenCallIds.has(id)) continue;
+        seenCallIds.add(id);
         calls.push({ id, testFile, text, call, attempt });
       }
-      if (calls.length >= 4) break;
+      if (calls.length < 4) {
+        for (const call of weakExpectations(text, testFile, names, ts)) {
+          if (calls.length >= 4) break;
+          const id = `${testFile}:${call.start}`;
+          if (seenCallIds.has(id)) continue;
+          seenCallIds.add(id);
+          calls.push({ id, testFile, text, call, attempt });
+        }
+      }
+      if (endTargets.length < 2) {
+        for (const target of testEndTargets(text, testFile, names, ts)) {
+          if (endTargets.length >= 2) break;
+          const id = `end:${testFile}:${target.insertAt}`;
+          endTargets.push({ id, testFile, text, target, attempt });
+        }
+      }
     }
-    if (calls.length) candidates.push({ gap, trial, calls });
+    if (calls.length || endTargets.length) candidates.push({ gap, trial, calls, endTargets });
   }
   if (!candidates.length) return report;
 
   const originalPromises = new Map();
   let tried = 0;
-  const evaluateCandidate = async ({ gap, trial, calls }, sessionRun) => {
+  const evaluateCandidate = async ({ gap, trial, calls, endTargets }, sessionRun) => {
+    let perGapTried = 0;
+    // Reserve at least one trial slot for Pass 2 end-of-test state inspection when Pass 2 targets exist.
+    const pass1Limit = endTargets.length ? 3 : 4;
     for (const { id, testFile, text, call, attempt } of calls) {
-      if (tried >= 24) break;
+      if (tried >= 24 || perGapTried >= pass1Limit) break;
       let originalPromise = originalPromises.get(id);
       if (!originalPromise) {
         originalPromise = (async () => {
@@ -726,8 +1230,9 @@ export async function strengthenAssertions(root, report, options, run = defaultR
       }
       const original = await originalPromise;
       if (!original?.length || original.includes(null)) continue;
-      if (tried >= 24) break;
+      if (tried >= 24 || perGapTried >= 4) break;
       tried++;
+      perGapTried++;
       const key = randomUUID().replaceAll('-', '');
       const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
       const rewriteContent = recordingCall(text, call, key);
@@ -753,7 +1258,50 @@ export async function strengthenAssertions(root, report, options, run = defaultR
         file: testFile, test: call.test, line: call.line, column: call.column, call: call.text,
         original: expectedText, edited: editedText, ...(narrowed ? { path: narrowed.path } : {}),
       };
-      break;
+      return;
+    }
+    // Pass 2: if no direct call or weak expectation produced a suggestion, compare observable end-of-test local
+    // state (Proxy stores, DOM elements, callback variables, event arrays).
+    for (const { id, testFile, text, target, attempt } of endTargets) {
+      if (tried >= 24 || perGapTried >= 4) break;
+      let originalPromise = originalPromises.get(id);
+      if (!originalPromise) {
+        originalPromise = (async () => {
+          const key = randomUUID().replaceAll('-', '');
+          const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
+          const rewriteContent = recordingTestEndState(text, target, key);
+          const sessionOutcome = sessionRun ? await sessionRun({ testFile, rewriteContent, collect }) : null;
+          const outcome = sessionOutcome ?? await attempt({ witness: { rewrite: { file: testFile, content: rewriteContent } }, collect });
+          return valuesOf(outcome);
+        })();
+        originalPromises.set(id, originalPromise);
+        originalPromise.catch(() => { if (originalPromises.get(id) === originalPromise) originalPromises.delete(id); });
+      }
+      const original = await originalPromise;
+      if (!original?.length) continue;
+      if (tried >= 24 || perGapTried >= 4) break;
+      tried++;
+      perGapTried++;
+      const key = randomUUID().replaceAll('-', '');
+      const collect = posix.join(posix.dirname(testFile.split(sep).join('/')), `.tmt-values-${key}.jsonl`);
+      const rewriteContent = recordingTestEndState(text, target, key);
+      const sessionOutcome = sessionRun ? await sessionRun({ testFile, rewriteContent, collect, trial }) : null;
+      const outcome = sessionOutcome ?? await attempt({ witness: { rewrite: { file: testFile, content: rewriteContent } }, collect, trial });
+      const edited = valuesOf(outcome);
+      if (edited.length !== original.length) continue;
+      let diff = null;
+      for (let i = 0; i < original.length; i++) {
+        diff = diffEndSnapshots(original[i], edited[i], ts);
+        if (diff) break;
+      }
+      if (!diff) continue;
+      gap.suggestedTest = diff.suggestedTest;
+      gap.strengthens = {
+        kind: 'state', file: testFile, test: target.test, line: target.line, column: target.column,
+        expression: diff.expression, original: diff.original, edited: diff.edited,
+        ...(diff.path ? { path: diff.path } : {}),
+      };
+      return;
     }
   };
 
@@ -777,7 +1325,7 @@ export async function strengthenAssertions(root, report, options, run = defaultR
     const batch = [];
     let reserved = 0;
     while (cursor < candidates.length && batch.length < concurrency) {
-      const worstCase = candidates[cursor].calls.length;
+      const worstCase = Math.min(4, candidates[cursor].calls.length + candidates[cursor].endTargets.length);
       if (batch.length > 0 && reserved + worstCase > remaining) break;
       batch.push(candidates[cursor++]);
       reserved += worstCase;
