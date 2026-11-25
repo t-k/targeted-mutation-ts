@@ -327,3 +327,19 @@ test('findings of the second review of the round: erased members, derived names,
     assert.notEqual(compile(Buffer.from(source), options).backend, 'pulse', source);
   }
 });
+
+test('a computed key that names the class leaves a self-naming class to TypeScript', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export \{[^}]*\};?/g, '').replace(/export (?=class|const|let)/g, ''))();
+  const source = 'let getOwner: () => Function;\nfunction register(owner: () => Function) { getOwner = owner; return "save"; }\nfunction wrap(Base: any) { return class extends Base {}; }\n' +
+    '@wrap\nexport class Cafe {\n  [register(() => Cafe)]() { return "x"; }\n}\nexport const out = getOwner!() === Cafe;';
+  const result = compile(Buffer.from(source), options);
+  assert.notEqual(result.backend, 'pulse');
+  assert.equal(run(result.code), false);
+  // The same with a name outside ASCII, which goes through the copy.
+  assert.notEqual(compile(Buffer.from(source.replaceAll('Cafe', 'Café')), options).backend, 'pulse');
+  // A key that does not name the class is no obstacle.
+  const other = 'const key = "save";\nfunction mark(c: any) {}\n@mark\nexport class Cafe {\n  [key]() { return Cafe.name; }\n}\nexport const out = new Cafe()[key]();';
+  const lowered = compile(Buffer.from(other), options);
+  assert.equal(lowered.backend, 'pulse');
+  assert.equal(run(lowered.code), 'Cafe');
+});

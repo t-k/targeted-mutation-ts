@@ -36,7 +36,7 @@ test('exponents bind more tightly than multiplication and preserve unary boundar
   check('const keep = await base ** n > end;', 'diagnostic');
   check('const keep = (await base) ** n > end;', 'fast');
   check('const keep = ' + 'base ** '.repeat(65) + 'n > end;', 'fallback');
-  check('let value = base; value **= n; const keep = value > end;', 'fallback');
+  check('let value = base; value **= n; const keep = value > end;', 'fast');
 });
 
 test('the capture mask distinguishes both sets of production capture names', () => {

@@ -2668,15 +2668,19 @@ test('a namespace behind an enum of its name merges with it', () => {
     assert.equal(run(result.code), run(reference(source, 'merge.ts')), source);
     if (result.backend === 'pulse') native++;
     // An enum that exists at run time, then a namespace with members of its own.
-    if (row.Order === 'EnumFirst' && row.Enum !== 'Declared' && (row.Body === 'Function' || row.Body === 'Variable')) {
+    if (row.Order === 'EnumFirst' && (row.Enum === 'Plain' || row.Enum === 'Exported') && (row.Body === 'Function' || row.Body === 'Variable')) {
       assert.equal(result.backend, 'pulse', source);
+    }
+    // Behind a const enum TypeScript does not resolve the members that declarations of the namespace share.
+    if (row.Order === 'EnumFirst' && /Const/.test(row.Enum) && (row.Body === 'Function' || row.Body === 'Variable')) {
+      assert.notEqual(result.backend, 'pulse', source);
     }
     // The other order would need the enum written without a declaration of its own.
     if (row.Order === 'SpaceFirst' && (row.Body === 'Function' || row.Body === 'Variable') && row.Enum !== 'Declared') {
       assert.notEqual(result.backend, 'pulse', source);
     }
   }
-  assert.ok(native >= 5, String(native));
+  assert.ok(native >= 3, String(native));
   assert.equal(compile(Buffer.from('enum E { A }\nnamespace E { export const first = E.A; }\nexport { E };'), { file: 'merge.ts' }).code,
     'var E; (function (E) {E[E["A"]=0]="A";})(E||(E={}));\n;(function (E) { E.first = E.A; })(E||(E={}));\nexport { E };');
   // Other declarations of the name still conflict with the enum.
@@ -2768,4 +2772,38 @@ test('an abstract member may be optional, and an angle assertion may begin the v
     'switch (x) { case 1: <any>{ a: 1, b: 2 }; }\nexport {};', 'if (x) <any>{ a: 1 };\nexport {};']) {
     assert.notEqual(sameAsTypeScript(source, 'value.ts').backend, 'pulse', source);
   }
+});
+
+test('the exponent assignment, and a rest element at the end of an array target', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return'))();
+  for (const [source, file, backend] of [
+    ['let x = 2, y = { z: 3 };\nx **= 3;\ny.z **= x ** 0.5 > 2 ? 2 : 1;\nexport const out = JSON.stringify([x, y]);', 'power.js', 'javascript'],
+    ['let x: number = 2;\nx **= 3;\nx **= 2;\nexport const out = x;', 'power.ts', 'pulse'],
+    ['let a, b, c;\n[a, ...b] = [1, 2, 3];\n[, c, ...b] = [4, 5, 6, 7];\nexport const out = JSON.stringify([a, b, c]);', 'rest.js', 'javascript'],
+    ['let a: number, b: number[], o = { rest: [] as number[] };\n[a, ...b] = [1, 2, 3];\n[a, ...o.rest] = b;\nexport const out = JSON.stringify([a, b, o]);', 'rest.ts', 'pulse'],
+  ]) {
+    const result = sameAsTypeScript(source, file);
+    assert.equal(result.backend, backend, source);
+    assert.deepEqual(run(result.code), run(reference(source, file)), source);
+  }
+  // A rest element must be the last one, and its operand a target.
+  for (const source of ['let a, b;\n[...b, a] = [1, 2];\nexport {};', 'let a, b;\n[a, ...b,] = [1, 2];\nexport {};', 'let a;\n[a, ...f()] = [1, 2];\nexport {};']) {
+    const result = compile(Buffer.from(source), { file: 'rest.js' });
+    assert.ok(result.backend === 'typescript' || result.diagnostics.length !== 0, source);
+  }
+  // Two asterisks and an equals sign are no exponent in front of an assignment.
+  assert.equal(compile(Buffer.from('let x = 1;\n1 **= x;\nexport {};'), { file: 'power.js' }).backend, 'typescript');
+});
+
+test('findings of the review of the namespace and assertion round', () => {
+  // A type-only alias of a name inside the file is no import that makes the file a module.
+  const script = 'namespace Models { export interface Item { id: number } }\nimport type Item = Models.Item;\nconst item: Item = { id: 1 };\nfunction isUnbound(this: void) { return this === undefined; }\nconsole.log(isUnbound(), item.id);';
+  const strict = sameAsTypeScript(script, 'alias.ts');
+  assert.match(strict.code, /^"use strict";/);
+  assert.doesNotMatch(sameAsTypeScript('import type T = require("m");\nconst x: T = 1;', 'alias.ts').code, /use strict/);
+  // Behind a const enum the declarations of a namespace do not share their members.
+  const shared = 'const label = "default";\nexport const enum Status { OK }\nexport namespace Status { export const label = "ok"; }\nexport namespace Status { export const info = { label }; export const direct = label; }';
+  const merged = sameAsTypeScript(shared, 'shared.ts');
+  assert.match(merged.code, /Status\.info = \{ label \}/);
+  assert.match(merged.code, /Status\.direct = label;/);
 });

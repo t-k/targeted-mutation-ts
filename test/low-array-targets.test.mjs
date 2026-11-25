@@ -33,7 +33,8 @@ test('array patterns distinguish plain assignment, candidates, and malformed ele
   check('[model?.x, other] = pair; const keep = a < b;', 'diagnostic');
   check('[first, 0] = pair; const keep = a < b;', 'diagnostic');
   check('[first, other] += pair; const keep = a < b;', 'diagnostic');
-  check('[first, ...rest] = pair; const keep = a < b;', 'fallback');
+  check('[first, ...rest] = pair; const keep = a < b;', 'fast');
+  check('[...rest, first] = pair; const keep = a < b;', 'diagnostic');
   check('[[first], other] = pair; const keep = a < b;', 'fallback');
 });
 

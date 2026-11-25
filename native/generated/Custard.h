@@ -2768,7 +2768,8 @@ TmtPulseParser_enum_declaration(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   uint32_t used,
-  bool ambient
+  bool ambient,
+  bool constant
 );
 
 bool

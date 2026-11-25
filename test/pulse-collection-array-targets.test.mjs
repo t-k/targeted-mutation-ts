@@ -22,6 +22,7 @@ for (const row of rows) {
     const reference = extractFallback(source, options);
     assert.deepEqual(result.candidates, reference.candidates, source);
     assert.deepEqual(result.diagnostics, reference.diagnostics, source);
-    assert.equal(result.path === 'fast', tail === 'Complete' && ['Hole', 'Member'].includes(target), source);
+    // A rest element at the end is a target as well.
+    assert.equal(result.path === 'fast', tail === 'Complete' && ['Hole', 'Member', 'Spread'].includes(target), source);
   });
 }

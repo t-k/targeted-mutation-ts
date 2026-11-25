@@ -400,8 +400,13 @@ function closeClass(found, text, end, context) {
   // Type parameters, type arguments and the implements clause of the head are types, which are erased.
   let heritage = found.bodyFirst !== undefined ? text.slice(found.nameLast, found.bodyFirst).replace(/\bimplements\b[\s\S]*$/, '') : '';
   for (let before = ''; before !== heritage;) { before = heritage; heritage = heritage.replace(/<[^<>]*>/g, ''); }
+  // A computed key is evaluated with the heritage clause, where the name means the undecorated class as well.
+  // The keys of members without a decorator are not recorded, so the name behind an opening bracket that
+  // may begin a member is taken for one (a computed key of an object literal in a method is declined with it).
   const unrenamed = found.bodyFirst !== undefined && (new RegExp(reference).test(heritage) ||
-    new RegExp('[{,]' + gap + reference + gap + '[,}]').test(text.slice(found.bodyFirst, end)));
+    new RegExp('[{,]' + gap + reference + gap + '[,}]').test(text.slice(found.bodyFirst, end)) ||
+    new RegExp('(?:[{};*]|\\b(?:static|async|get|set|readonly|public|private|protected|override|accessor|declare))' + gap +
+      '\\[[^\\]\\n\\r]*' + reference).test(text.slice(found.bodyFirst, end)));
   // An await belongs to the function around the class when it stands in the heritage clause or in a computed key.
   const awaits = /\b(?:await|yield)\b/;
   const outside = found.bodyFirst !== undefined && (awaits.test(text.slice(found.nameLast, found.bodyFirst)) ||

@@ -2126,7 +2126,8 @@ let assignment_width (input:tape) (#frame:slprop) (at:U32.t) (byte follower:U8.t
   else if (byte = 60uy || byte = 62uy) && follower = byte then
     let! width = (fun () -> shift_width input #frame at byte) in
     (let! anf_value_1 = (fun () -> same input #frame (plus at width) 61uy) in if anf_value_1 then read_ret input #frame (next width) else read_ret input #frame (0ul))
-  else if (byte = 38uy || byte = 124uy || byte = 63uy) && follower = byte then
+  // &&=, ||=, ??= and **=
+  else if (byte = 38uy || byte = 124uy || byte = 63uy || byte = 42uy) && follower = byte then
     (let! anf_value_2 = (fun () -> same input #frame (plus at 2ul) 61uy) in if anf_value_2 then read_ret input #frame (3ul) else read_ret input #frame (0ul))
   else read_ret input #frame (if follower <> 61uy then 0ul
   else if byte = 43uy || byte = 45uy || byte = 42uy || byte = 47uy || byte = 37uy ||
@@ -3537,8 +3538,10 @@ and expression_run (input:tape) (state:parser_state) (fuel remaining:U32.t) (clo
       let start = if spread then { st with offset = plus st.offset 3ul } else st in
       let! arg = (fun () -> comparison input start fuel) in
       let! st = (fun () -> skip input arg.parser) in
-      let valid_array_target = valid_array_target && not spread && can_assign arg.target in
+      // [a, ...rest] = value: a rest element is a target when it is the last one, with no comma behind it.
+      let valid_array_target = valid_array_target && can_assign arg.target in
       (let! anf_value_4 = (fun () -> same input st.offset 44uy) in if anf_value_4 then
+        let valid_array_target = valid_array_target && not spread in
         let! next_item = (fun () -> consume input st 44uy) in
         let! disambiguated = (fun () -> if arg.open_angle then
           let! following = (fun () -> skip input next_item) in
@@ -5258,9 +5261,12 @@ let rec enum_members (input:tape) (state:parser_state) (remaining:U32.t) (ambien
       else (let! anf_value_5 = (fun () -> (consume input tail 44uy)) in enum_members input anf_value_5 (minus remaining 1ul) ambient)
     else consume input tail 125uy))
 
-let enum_declaration (input:tape) (state:parser_state) (used:names_used) (ambient:bool) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
+let enum_declaration (input:tape) (state:parser_state) (used:names_used) (ambient constant:bool) : Tot (stt named_state (heap input) (fun _ -> heap input)) =
   let! start = (fun () -> skip input { state with offset = plus state.offset 4ul }) in
-  let! named = (fun () -> bind_in_namespace input start 0ul 0ul used start.offset (if ambient then AmbientBothNames else EnumName)) in
+  // A namespace behind a const enum is not merged here: TypeScript does not resolve the members that the
+  // declarations of such a namespace share.
+  let! named = (fun () -> bind_in_namespace input start 0ul 0ul used start.offset
+    (if ambient then AmbientBothNames else if constant then BothNames else EnumName)) in
   let! opening = (fun () -> (let! anf_value_1 = (fun () -> (skip input named.state)) in consume input anf_value_1 123uy)) in
   (let! anf_value_2 = (fun () -> enum_members input opening input.size ambient) in ret input ({ named with state = anf_value_2 }))
 
@@ -5791,7 +5797,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) (expo
   let! enumeration = (fun () -> if width = 0ul then
     keyword input st.offset 4ul 0x656e756duL else ret input false) in
   if enumeration then
-    let! declared = (fun () -> enum_declaration input st used head.ambient_declaration) in
+    let! declared = (fun () -> enum_declaration input st used head.ambient_declaration false) in
     let! recorded = (fun () -> record_jsx_span input declared.state (if head.ambient_declaration then 8ul else 13ul)
       state.offset declared.state.offset) in
     ret input { declared with state = recorded }
@@ -5825,7 +5831,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) (expo
     else if (width = 3ul || width = 5ul) && not head.ambient_declaration && not head.class_declaration then
       let! enumeration = (fun () -> if width = 5ul then keyword input start.offset 4ul 0x656e756duL else ret input (false)) in
       if enumeration then
-        let! declared = (fun () -> enum_declaration input start used false) in
+        let! declared = (fun () -> enum_declaration input start used false true) in
         let! recorded = (fun () -> record_jsx_span input declared.state 13ul state.offset declared.state.offset) in
         ret input { declared with state = recorded }
       else

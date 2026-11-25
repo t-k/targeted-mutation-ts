@@ -493,9 +493,17 @@ fn runtime_module_marker (input:tape) (#frame:slprop) (at:U32.t)
         let name_end = P.scan_class input #frame after.at G.Identifier;
         let assigned = P.trivia input #frame name_end;
         let equals = P.same input #frame assigned.at 61uy;
-        let alias = after.ok && G.identifier_start token && assigned.ok && equals;
+        // import type A = B.C is such an alias as well, with the name behind `type`.
+        let typed = P.keyword input #frame after.at 4ul 0x74797065uL;
+        let second = P.trivia input #frame (P.plus after.at 4ul);
+        let second_token = peek input #frame second.at;
+        let second_end = P.scan_class input #frame second.at G.Identifier;
+        let second_assigned = P.trivia input #frame second_end;
+        let second_equals = P.same input #frame second_assigned.at 61uy;
+        let typed_alias = typed && after.ok && second.ok && G.identifier_start second_token && second_assigned.ok && second_equals;
+        let alias = typed_alias || (after.ok && G.identifier_start token && assigned.ok && equals);
         if (alias) {
-          let value = P.trivia input #frame (P.next assigned.at);
+          let value = P.trivia input #frame (P.next (if typed_alias then second_assigned.at else assigned.at));
           let required = P.keyword input #frame value.at 7ul 0x72657175697265uL;
           let opening = P.trivia input #frame (P.plus value.at 7ul);
           let call = P.same input #frame opening.at 40uy;

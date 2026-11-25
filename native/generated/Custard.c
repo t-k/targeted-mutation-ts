@@ -10116,7 +10116,7 @@ TmtPulseParser_assignment_width(
     else
       return 0U;
   }
-  else if ((byte == 38U || byte == 124U || byte == 63U) && follower == byte)
+  else if ((byte == 38U || byte == 124U || byte == 63U || byte == 42U) && follower == byte)
   {
     bool value = TmtPulseParser_same(input, TmtPulseParser_plus(at, 2U), 61U);
     return value ? 3U : 0U;
@@ -19832,12 +19832,11 @@ TmtPulseParser_expression_run(
             start = value;
           TmtPulseParser_parsed value4 = TmtPulseParser_comparison(input, start, fuel);
           TmtPulseParser_parser_state value5 = TmtPulseParser_skip(input, value4.parser);
-          bool
-          valid_array_target1 =
-            valid_array_target && !value3 && TmtPulseParser_can_assign(value4.target);
+          bool valid_array_target1 = valid_array_target && TmtPulseParser_can_assign(value4.target);
           bool value6 = TmtPulseParser_same(input, value5.offset, 44U);
           if (value6)
           {
+            bool valid_array_target2 = valid_array_target1 && !value3;
             TmtPulseParser_parser_state value7 = TmtPulseParser_consume(input, value5, 44U);
             bool value80;
             if (value4.open_angle)
@@ -19870,7 +19869,7 @@ TmtPulseParser_expression_run(
               value9 = angled;
             TmtPulseParser_parser_state tmp0 = value7;
             uint32_t tmp1 = TmtPulseParser_minus(remaining, 1U);
-            bool tmp2 = valid_array_target1;
+            bool tmp2 = valid_array_target2;
             uint32_t tmp = value9;
             state = tmp0;
             remaining = tmp1;
@@ -24596,7 +24595,8 @@ TmtPulseParser_enum_declaration(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state state,
   uint32_t used,
-  bool ambient
+  bool ambient,
+  bool constant
 )
 {
   TmtPulseParser_parser_state
@@ -24633,7 +24633,8 @@ TmtPulseParser_enum_declaration(
       0U,
       used,
       value.offset,
-      ambient ? TmtPulseMemory_AmbientBothNames : TmtPulseMemory_EnumName);
+      ambient ? TmtPulseMemory_AmbientBothNames
+              : constant ? TmtPulseMemory_BothNames : TmtPulseMemory_EnumName);
   TmtPulseParser_parser_state value2 = TmtPulseParser_skip(input, value1.state);
   TmtPulseParser_parser_state value3 = TmtPulseParser_consume(input, value2, 123U);
   TmtPulseParser_parser_state
@@ -25855,7 +25856,12 @@ TmtPulseParser_module_declaration(
   if (value2)
   {
     TmtPulseParser_named_state
-    value3 = TmtPulseParser_enum_declaration(input, value10, used, value.ambient_declaration);
+    value3 =
+      TmtPulseParser_enum_declaration(input,
+        value10,
+        used,
+        value.ambient_declaration,
+        false);
     TmtPulseParser_parser_state
     value4 =
       TmtPulseParser_record_jsx_span(input,
@@ -25999,7 +26005,7 @@ TmtPulseParser_module_declaration(
       if (value4)
       {
         TmtPulseParser_named_state
-        value5 = TmtPulseParser_enum_declaration(input, value3, used, false);
+        value5 = TmtPulseParser_enum_declaration(input, value3, used, false, true);
         TmtPulseParser_parser_state
         value6 =
           TmtPulseParser_record_jsx_span(input,
