@@ -3159,7 +3159,10 @@ enum_only:
  * the source. The caller rewrites the source from them and compiles the result.
  */
 /* Kind 21 is a class member that is erased whole; a class rewritten as an expression must lose it in the source. */
-static bool legacy_record(uint32_t kind) { return (kind >= 50 && kind <= 56) || kind == 60 || kind == 64 || kind == 21; }
+/* Kind 36, the `export` of a declaration in a namespace body, tells the lowering that a namespace takes the class. */
+static bool legacy_record(uint32_t kind) {
+  return (kind >= 50 && kind <= 56) || kind == 60 || kind == 64 || kind == 65 || kind == 21 || kind == namespace_declaration;
+}
 
 /* With all set, every record of the reading is returned: the metadata of the decorators is written from type records too. */
 uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all, bool jsx, uint32_t *count) {

@@ -4633,6 +4633,13 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         let! closed = (fun () -> consume input close 93uy) in
         ret input { key with after_key = { closed with in_allowed = st.in_allowed }; last = closed.offset }
       else ret input key) in
+    // Kind 65: the place of a computed key, for the decorator lowering. A key is evaluated where the class
+    // stands, and a class that names itself in one is left to TypeScript. The record stands behind the key.
+    let! key = (fun () -> if input.legacy_decorators && key.computed && key.after_key.status = 0ul then
+        let! recorded = (fun () -> record_compiler_span input key.after_key 65ul { G.first = key.last; G.last = key.last }
+          { G.first = key.first; G.last = key.last }) in
+        ret input { key with after_key = recorded }
+      else ret input key) in
     let! tail = (fun () -> skip input key.after_key) in
     if tail.status <> 0ul then ret input (tail)
     else

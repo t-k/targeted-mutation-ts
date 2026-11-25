@@ -198,6 +198,8 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false, spa
   const context = { metadata, text, typeAt, behindSpace, used: false };
   const edits = [];
   let pending = [];
+  // Where the declaration behind the last `export` of a namespace body begins (kind 36), or -1.
+  let namespaceExport = -1;
   // The classes that are open and lowered here, innermost last. Each knows how many class bodies were open
   // around its head, so that its members can be told from those of a class expression inside it.
   const open = [];
@@ -213,6 +215,11 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false, spa
     if (kind === 50) {
       decorated = true;
       pending.push({ first: leftFirst, last: leftLast, expression: slice(rightFirst, rightLast) });
+    } else if (kind === 36) {
+      namespaceExport = leftLast;
+    } else if (kind === 65) {
+      // The computed key of a member of the class that is open.
+      if (current !== null && depth === current.depth + 1) current.computed.push([rightFirst, rightLast]);
     } else if (kind === 21) {
       // A member that is erased whole: an abstract member, an overload signature, a declared field.
       if (current !== null && depth > current.depth) current.erased.push([leftFirst, leftLast]);
@@ -228,8 +235,11 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false, spa
         name = 'default_1';
       }
       if (!plainName.test(name)) return null;
-      open.push({ local: kind !== 51, once: kind === 64, headFirst: leftFirst, headLast: leftLast, nameFirst: rightFirst, nameLast: rightLast, name, depth,
-        exported: /^export\b/.test(head), isDefault, decorators: pending, members: [], constructor: [], member: null, erased: [] });
+      // A class that a namespace exports: its head, or the first decorator in front of it, stands where the
+      // declaration behind `export` begins.
+      const taken = namespaceExport >= 0 && (namespaceExport === leftFirst || pending.some(decorator => decorator.first === namespaceExport));
+      open.push({ local: kind !== 51, once: kind === 64, taken, headFirst: leftFirst, headLast: leftLast, nameFirst: rightFirst, nameLast: rightLast, name, depth,
+        exported: /^export\b/.test(head), isDefault, decorators: pending, members: [], constructor: [], member: null, erased: [], computed: [] });
       // A decorator behind `export default` goes with the head when the head is rewritten.
       for (const decorator of pending) if (decorator.first < leftFirst) edits.push([decorator.first, decorator.last, '']);
       pending = [];
@@ -244,6 +254,7 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false, spa
         current.members = [];
         current.member = null;
         current.erased = [];
+        current.computed = [];
         current.bodyFirst = leftFirst;
       }
       depth++;
@@ -324,28 +335,11 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false, spa
   return Buffer.concat(parts);
 }
 
-// Whether a bracket that may begin a member holds the name, up to the bracket that closes it. A quotation
-// mark, a backtick or a slash inside could hide a closing bracket, so a key with one counts as holding the name.
-function computedKeyNames(body, gap, reference) {
-  const opening = new RegExp('(?:[{};*]|\\b(?:static|async|get|set|readonly|public|private|protected|override|accessor|declare))' + gap + '\\[', 'g');
-  for (let match; (match = opening.exec(body)) !== null;) {
-    let depth = 1, at = opening.lastIndex;
-    for (; at < body.length && depth !== 0; at++) {
-      const unit = body.charCodeAt(at);
-      if (unit === 91) depth++;
-      else if (unit === 93) depth--;
-      else if (unit === 34 || unit === 39 || unit === 96 || unit === 47) return true;
-    }
-    if (reference.test(body.slice(opening.lastIndex, at))) return true;
-  }
-  return false;
-}
-
 // The statements behind a class: one __decorate call per decorated member, then the class itself.
 function closeClass(found, text, end, context) {
   // A class that a namespace exports: the namespace takes the class right behind its closing brace, in front
   // of the statements written here, while TypeScript assigns it behind them.
-  if (found.local && /\bexport\s*(?:abstract\s*)?$/.test(text.slice(Math.max(0, found.headFirst - 40), found.headFirst))) return null;
+  if (found.taken) return null;
   const statements = [];
   const seen = new Set();
   const whole = found.decorators.length !== 0 || found.constructor.length !== 0;
@@ -426,11 +420,10 @@ function closeClass(found, text, end, context) {
   let heritage = found.bodyFirst !== undefined ? text.slice(found.nameLast, found.bodyFirst).replace(/\bimplements\b[\s\S]*$/, '') : '';
   for (let before = ''; before !== heritage;) { before = heritage; heritage = heritage.replace(/<[^<>]*>/g, ''); }
   // A computed key is evaluated with the heritage clause, where the name means the undecorated class as well.
-  // The keys of members without a decorator are not recorded, so the name behind an opening bracket that
-  // may begin a member is taken for one (a computed key of an object literal in a method is declined with it).
+  // The parser records the place of every computed key of a member (kind 65).
   const unrenamed = found.bodyFirst !== undefined && (new RegExp(reference).test(heritage) ||
     new RegExp('[{,]' + gap + reference + gap + '[,}]').test(text.slice(found.bodyFirst, end)) ||
-    computedKeyNames(text.slice(found.bodyFirst, end), gap, new RegExp(reference)));
+    found.computed.some(([first, last]) => new RegExp(reference).test(text.slice(first, last))));
   // An await belongs to the function around the class when it stands in the heritage clause or in a computed key.
   const awaits = /\b(?:await|yield)\b/;
   const outside = found.bodyFirst !== undefined && (awaits.test(text.slice(found.nameLast, found.bodyFirst)) ||

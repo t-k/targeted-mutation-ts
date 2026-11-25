@@ -412,3 +412,37 @@ test('findings of the second review of the namespace and assertion round, with d
   assert.doesNotMatch(jsx.code, /9on/);
   assert.match(jsx.code, /don(\\u2019|’)t close this tab/);
 });
+
+test('findings of the review of the destructuring and map round', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export \{[^}]*\};?/g, '').replace(/export (?=class|const|let|namespace|function|var)/g, ''))();
+  const reference = source => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, experimentalDecorators: true, verbatimModuleSyntax: true } }).outputText;
+  // A computed key behind a field that ends without a semicolon.
+  const key = 'const wrap = (Base: any) => class extends Base {};\nfunction make() {\n  let getOwner: () => Function;\n  function register(read: () => Function) { getOwner = read; return "run"; }\n' +
+    '  @wrap\n  class Service {\n    label?: string\n    [register(() => Service)]() {}\n  }\n  return getOwner!() === Service;\n}\nexport const out = make();';
+  const keyed = compile(Buffer.from(key), options);
+  assert.notEqual(keyed.backend, 'pulse');
+  assert.equal(run(keyed.code), false);
+  // A comment between `export` and the class that a namespace exports, and a decorator behind `export`.
+  for (const head of ['export /** @internal */ class View {', 'export // note\n  class View {', 'export abstract /* a */ class View {', 'export @record(N) class View {']) {
+    const source = `let seen: string[] = ["unset"];\nfunction record(owner: object): any { seen = Object.keys(owner); return () => {}; }\nexport namespace N {\n  ${head}\n    @record(N) value = 1;\n  }\n}\nexport const out = JSON.stringify(seen);`;
+    const result = compile(Buffer.from(source), options);
+    assert.equal(run(result.code), run(reference(source)), head);
+    assert.equal(run(result.code), '[]', head);
+  }
+  // A class of the namespace that is not exported is lowered, also behind an exported function.
+  const local = 'function mark(c: any) { c.marked = true; }\nexport namespace N {\n  export function f() { return 1; }\n  @mark class Local { static me = Local; }\n  export const got = [(Local as any).marked, Local.me === Local];\n}\nexport const out = JSON.stringify(N.got);';
+  const lowered = compile(Buffer.from(local), options);
+  assert.equal(lowered.backend, 'pulse');
+  assert.equal(run(lowered.code), '[true,true]');
+  // Only the key of a member counts: an array or an index with the name inside a method is no key.
+  for (const body of ['static all() { return [A, A.name]; }', 'static list = [1, 2]; static me() { return A; } static at(i: number) { return this.list[i]; }',
+    'label?: string\n  static pick(o: any) { return o[A.name]; }', '["plain"]() { return A; }']) {
+    const source = `const d = (c: any) => c;\n@d export class A { ${body} }`;
+    assert.equal(compile(Buffer.from(source), options).backend, 'pulse', body);
+  }
+  // A key of any shape that names the class, behind a member of any ending.
+  for (const body of ['label?: string\n  [String(A)]() {}', 'x = 1\n  static [A.name] = 2;', 'm() {}\n  get [`${A}`]() { return 1; }', 'static async *[register(() => A)]() {}']) {
+    const source = `const d = (c: any) => c;\ndeclare function register(f: any): string;\n@d export class A { ${body} }`;
+    assert.notEqual(compile(Buffer.from(source), options).backend, 'pulse', body);
+  }
+});
