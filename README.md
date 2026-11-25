@@ -26,11 +26,23 @@ INPUT GAP src/cart.ts:15:45
 
 A conventional mutation run replaces `>=` with `>` or `<`. It does not try `age >= 17`, the nearest implementation that the inputs 10 and 20 leave open. The [shipping threshold experiment](docs/development.md#shipping-threshold-experiment) compares both approaches on the same suite.
 
+## Why Targeted Mutation Testing?
+
+Conventional mutation testing treats the test suite as a black box: it enumerates fixed syntactic templates (`>=` → `>`, `+` → `-`, `{ ... }` → `{}`), re-runs tests against every mutant, and returns a list of survivors. That architecture carries three structural limits that Targeted Mutation Testing addresses directly by recording runtime operand observations during the baseline run:
+
+- **Finds value-level gaps that syntactic mutators structurally miss.** Fixed syntactic templates cannot cover a numeric or value space. In the [shipping threshold experiment](docs/development.md#shipping-threshold-experiment), tests with ¥4,800 and ¥5,000 kill 100% of StrykerJS mutants on `yen >= 5000`, yet `yen >= 4999` still passes. By observing the actual operands flowing through comparisons, Targeted Mutation Testing computes the closed interval of observationally feasible thresholds (or variable-RHS margins) and synthesizes the nearest undistinguished alternative directly—producing a single boundary witness that rules out every feasible wrong threshold on that side.
+- **Disambiguates `survived` along the RIPR model.** A conventional `survived` verdict conflates two different failures: no test reached a state infection, or infection occurred but was never revealed by an assertion. Because runtime operands are recorded, Targeted Mutation Testing separates **`INPUT GAP`** (no test passed a distinguishing input, naming the exact missing input) from **`ASSERTION GAP`** (naming the exact test whose input diverged at the expression without failing, with concrete assertion suggestions via `--suggest-assertions`).
+- **Reduces cost algorithmically, not just by parallelizing runs.** Conventional tools scale with `O(mutants × tests)` even with per-test coverage filtering. Targeted Mutation Testing cuts cost at three layers:
+  1. *Smaller, higher-signal candidate sets* guided by observed values rather than blind syntactic enumeration.
+  2. *Zero-reexecution replay* (`--deterministic`): when recorded safe-integer operands prove that an edit evaluates identically at every observed hit, survival is decided without re-running tests, checked by `tmt-decide` (extracted from Lean 4 proofs).
+  3. *In-worker execution*: trials that do run switch inside live Vitest 4 workers with an immediate post-trial control run, making even the full StrykerJS-compatible mutation set (`--mutators full`) [3–6× faster in benchmarks](docs/performance.md#mutation-runs-compared-with-strykerjs).
+- **Focuses on unguarded behavior, not syntactic noise.** Combining value-aware semantic rules with diff-level reversion (`--since REV --undo-changes`, down to individual added `&&`/`||` terms and object properties) tests the degrees of freedom your suite actually leaves open.
+
+![Why Targeted Mutation Testing](docs/why-targeted.svg)
+
 ## How it works (and how it differs from conventional mutation testing)
 
-Conventional mutation tools (such as StrykerJS) generate edits purely from syntax (`>=` to `>`, `+` to `-`, `{ ... }` to `{}`), run the suite, and report a list of surviving mutants. They do not know *what values* your tests passed, *why* a mutant survived (missing test input vs. weak assertion), or *what test* would kill it.
-
-`targeted-mutation` records the actual runtime values flowing through your code during the baseline run, synthesizes the smallest undistinguished edits from those observations, and classifies every survivor into an actionable test gap.
+During the baseline run, `targeted-mutation` records the runtime values flowing through your code, synthesizes the smallest undistinguished edits from those observations, and classifies every survivor into an actionable test gap.
 
 ![How targeted-mutation works](docs/how-it-works.svg)
 
