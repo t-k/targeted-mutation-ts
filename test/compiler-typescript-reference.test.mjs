@@ -1775,34 +1775,48 @@ test('an exported namespace variable without a value is erased, as TypeScript wr
   }
 });
 
-test('a module whose head the certified parser cannot read is erased through Node', () => {
-  // A name outside ASCII: the module still begins with import or export, and Node's parser checks the text.
+test('names outside ASCII are read through a copy spelled in ASCII', () => {
   for (const source of [
     'export const ɵa: number = 1;',
     'import { ɵsetCurrentInjector as setCurrentInjector } from "@angular/core";\nsetCurrentInjector(null as any);',
     '// note\nimport { a as ɵb } from "m";\nɵb();',
-    'export const 日本: number = 1;',
-    'export class ɵC { x: number = 1; }',
+    'export const 日本: number = 1;\nexport function 関数(引数: string): string { return 引数; }',
+    'const ɵa: number = 1;\nexport { ɵa };',
+    'let ɵa = 1;\nɵa++;\nexport {};',
+    'const x = { ɵk: 1 as number };\nexport default x;',
+    'export const AB = 1;\nexport const é: number = 2;',
   ]) {
     const result = sameAsTypeScript(source, 'names.ts');
-    assert.equal(result.backend, 'node-strip', source);
+    assert.equal(result.backend, 'pulse', source);
+    // The names come back byte for byte, and only types were blanked.
+    assert.equal(Buffer.byteLength(result.code), Buffer.byteLength(source), source);
+  }
+  // What the copy needs beyond erasure goes through Node, whose parser checks the names.
+  assert.equal(sameAsTypeScript('export class ɵC { x: number = 1; constructor(private é: number) {} }', 'names.ts').backend, 'node-transform');
+  // The certified parser still refuses what TypeScript reports, and a name that is no identifier is refused by Node.
+  for (const source of ['export class V implements { ɵv = 42; }', 'export const 😀 = 1;']) {
+    assert.equal(compile(Buffer.from(source), { file: 'names.ts' }).code, null, source);
+  }
+  // A redeclaration, an export without a binding, an escape and a space outside ASCII keep TypeScript's route.
+  for (const source of ['export const ɵa = 1;\nexport const ɵa = 2;', 'export const é = 1;\nexport { è };',
+    'export const \\u0275a = 1;\nexport const ɵb = 2;', 'export const a = 1;\nexport const é = 1;']) {
+    assert.equal(compile(Buffer.from(source), { file: 'names.ts' }).backend, 'typescript', source);
   }
 });
 
 test('Node erasure is not used where it drops the export of a decorated abstract class', () => {
   for (const source of [
-    '@Injectable()\nexport abstract class S { x: number = 1; }\nexport const ɵa = 1;',
-    '@d\nexport default abstract class S { x: number = 1; }\nexport const ɵa = 1;',
+    '@Injectable()\nexport abstract class S { x: number = 1; }\nexport const a = 1;',
+    '@d\nexport default abstract class S { x: number = 1; }\nexport const a = 1;',
   ]) {
     const result = sameAsTypeScript(source, 'state.ts');
-    assert.equal(result.backend, 'typescript', source);
-    assert.match(result.code, /export (?:default )?class S/);
+    assert.match(result.code, /export\s+(?:default\s+)?class S/);
     assert.equal(compile(source, { file: 'state.ts', mode: 'strip' }).diagnostics[0].code, 'AMBIGUOUS_TYPE_ERASURE');
   }
   // Without a decorator, or with the words in a comment, the erasure is right.
-  for (const source of ['export abstract class S { x: number = 1; }\nexport const ɵa = 1;',
-    '// export abstract class X\n@Injectable()\nexport class S { x: number = 1; }\nexport const ɵa = 1;']) {
-    assert.equal(sameAsTypeScript(source, 'state.ts').backend, 'node-strip', source);
+  for (const source of ['export abstract class S { x: number = 1; }\nexport const a = 1;',
+    '// export abstract class X\n@Injectable()\nexport class S { x: number = 1; }\nexport const a = 1;']) {
+    sameAsTypeScript(source, 'state.ts');
     assert.notEqual(compile(source, { file: 'state.ts', mode: 'strip' }).code, null);
   }
 });

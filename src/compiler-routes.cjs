@@ -131,6 +131,65 @@ function misplacedAbstractErasure(source, code) {
   return false;
 }
 
+// The certified parser reads ASCII names only. A module with other names is read through a copy in which every
+// word that holds a byte outside ASCII is spelled with capital letters of the same length. The spelling is
+// refused unless it renames injectively: two words never share a spelling, and no spelling is a word of the
+// source already. The copy then has the syntax and the bindings of the source, whatever the letters are.
+// A copy that the parser only erases from (same length, each byte kept or blanked) gives the result with the
+// names put back; that needs every renamed word to be a well-formed identifier. Otherwise Node erases the
+// source itself, and its parser checks the names.
+const unusualSpace = /[\u0085\u00a0\u1680\u180e\u2000-\u200f\u2028\u2029\u202f\u205f\u2060\u3000\ufeff]/;
+const identifierWord = /^[\p{ID_Start}$_][\p{ID_Continue}$\u200c\u200d]*$/u;
+function highByteNames(addon, source, text, file, format) {
+  let high = false;
+  for (let at = 0; at < source.length; at++) if (source[at] >= 128) { high = true; break; }
+  // An escape may spell the same name a second way, and a space outside ASCII is no part of a word.
+  if (!high || text.includes('\\u') || unusualSpace.test(text)) return null;
+  const renamed = Buffer.from(source);
+  const spellings = new Map();
+  const taken = new Set();
+  const plain = new Set();
+  let wellFormed = true;
+  const wordByte = unit => unit >= 128 || (unit >= 48 && unit <= 57) || (unit >= 65 && unit <= 90) || unit === 95 ||
+    (unit >= 97 && unit <= 122) || unit === 36;
+  for (let at = 0; at < source.length;) {
+    if (!wordByte(source[at])) { at++; continue; }
+    let end = at, mixed = false;
+    while (end < source.length && wordByte(source[end])) { if (source[end] >= 128) mixed = true; end++; }
+    const word = source.latin1Slice(at, end);
+    if (!mixed) plain.add(word);
+    else {
+      let spelling = spellings.get(word);
+      if (spelling === undefined) {
+        spelling = '';
+        for (let index = at; index < end; index++) {
+          spelling += source[index] >= 128 ? String.fromCharCode(65 + source[index] % 26) : String.fromCharCode(source[index]);
+        }
+        if (taken.has(spelling)) return null;
+        taken.add(spelling);
+        spellings.set(word, spelling);
+        if (wellFormed && !identifierWord.test(source.utf8Slice(at, end))) wellFormed = false;
+      }
+      renamed.latin1Write(spelling, at);
+    }
+    at = end;
+  }
+  for (const spelling of taken) if (plain.has(spelling)) return null;
+  const emitted = addon.emitAnnotatedModule(renamed, undefined, format === 'esm', false);
+  if (emitted === null) return null;
+  if (typeof emitted === 'string' && wellFormed && emitted.length === renamed.length) {
+    const restored = Buffer.from(emitted, 'latin1');
+    let erasureOnly = true;
+    for (let at = 0; at < restored.length && erasureOnly; at++) {
+      if (restored[at] === renamed[at]) { if (source[at] >= 128) restored[at] = source[at]; }
+      else if (restored[at] !== 32) erasureOnly = false;
+    }
+    if (erasureOnly) return { backend: 'pulse', code: restored.toString(), sourceMap: null, diagnostics: [] };
+  }
+  if (emitted !== true && typeof emitted !== 'string' && emitted.parameterProperty !== true) return null;
+  return eraseModule(addon, text, file, format, emitted.parameterProperty === true);
+}
+
 // TypeScript writes the interpreter line with a line feed. A carriage return left on it becomes part of the
 // interpreter's name when the file is run directly.
 function unixHashbang(result) {
@@ -498,13 +557,14 @@ function compile(input, options = {}) {
           if (typed && !jsxFile && !directive) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
             const property = annotated?.parameterProperty === true;
-            // The typed marker walks the leading items with the certified parser and so misses a module whose first
-            // items it cannot read, such as an import of a name outside ASCII. A file that begins with import or
-            // export is a module all the same, and Node's parser checks the erased text.
-            const result = (property || annotated === true || addon.moduleMarker(source, true) || addon.moduleMarker(source, false)) ?
-              eraseModule(addon, text, file, format, property) :
+            const result = (property || annotated === true || addon.moduleMarker(source, true)) ? eraseModule(addon, text, file, format, property) :
               format === 'preserve' ? eraseScript(addon, text, source, file) : null;
             if (result) return result;
+            // Names outside ASCII: the certified parser reads a copy in which they are spelled in ASCII.
+            if (annotated === null && source.length <= 1048576) {
+              const named = highByteNames(addon, source, text, file, format);
+              if (named) return named;
+            }
           }
         }
       }
