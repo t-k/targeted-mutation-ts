@@ -388,8 +388,9 @@ test('findings of the second review of the namespace and assertion round, with d
   const keyed = compile(Buffer.from(key), options);
   assert.notEqual(keyed.backend, 'pulse');
   assert.equal(run(keyed.code), false);
-  for (const member of ['[items[0], () => Cafe][1]', 'static [register(() => Cafe)] = 1;', '[(x => "]")(Cafe)]() {}']) {
-    const source = `declare const items: any[];\nconst wrap = (Base: any) => Base;\ndeclare function register(f: any): string;\n@wrap\nexport class Cafe {\n  static self = Cafe;\n  ${member.startsWith('[items') ? member + '() {}' : member}\n}`;
+  // A bracket inside the key does not end it, and a quotation mark in it counts as naming the class.
+  for (const member of ['[register(items[0], () => Cafe)]() {}', 'static [register(() => Cafe)] = 1;', '[(x => "]")(Cafe)]() {}']) {
+    const source = `declare const items: any[];\nconst wrap = (Base: any) => Base;\ndeclare function register(...f: any[]): string;\n@wrap\nexport class Cafe {\n  static self = Cafe;\n  ${member}\n}`;
     assert.notEqual(compile(Buffer.from(source), options).backend, 'pulse', member);
   }
   // A class that a namespace exports is assigned to the namespace behind the calls of its decorators.
