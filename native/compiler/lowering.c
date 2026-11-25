@@ -2234,7 +2234,14 @@ static uint32_t word_count(TmtPulseMemory_tape input, uint32_t first, uint32_t l
     if (property) continue;
     const bool before = at > first && (input.source[at - 1] >= 128 || TmtGrammar_identifier_continue(input.source[at - 1]));
     const bool after = at + width < last && (input.source[at + width] >= 128 || TmtGrammar_identifier_continue(input.source[at + width]));
-    if (!before && !after) count++;
+    if (before || after) continue;
+    /*
+     * A word with the same quotation mark on both sides is the whole of a string, or stands in a comment or
+     * a longer string: in no case is it a name. `export const mode = 'mode'` is the common form.
+     */
+    const uint8_t quote = at > first ? input.source[at - 1] : 0;
+    if ((quote == '\'' || quote == '"' || quote == '`') && at + width < last && input.source[at + width] == quote) continue;
+    count++;
   }
   return count;
 }

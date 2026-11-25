@@ -2036,7 +2036,8 @@ test('a reference to a variable that a namespace exports is written as a propert
     const result = sameAsTypeScript(source, 'reference.ts');
     assert.equal(run(result.code), run(reference(source, 'reference.ts')), source);
     // An occurrence that is no reference leaves the namespace to TypeScript.
-    if (['Shorthand', 'Key', 'ShadowedParameter', 'InString'].includes(row.Form)) assert.equal(result.backend, 'typescript', source);
+    // A string that is the name and nothing else is no occurrence of it.
+    if (['Shorthand', 'Key', 'ShadowedParameter'].includes(row.Form)) assert.equal(result.backend, 'typescript', source);
     else { assert.equal(result.backend, 'pulse', source); native++; }
   }
   assert.ok(native >= 25, String(native));
@@ -2464,4 +2465,18 @@ test('a class expression may be constructed where it stands, and new takes bare 
   for (const source of ['const a = new A<B>.c;\nexport { a };', 'const a = new A<B> + 1;\nexport { a };']) {
     assert.notEqual(compile(Buffer.from(source), { file: 'construct.ts' }).backend, 'pulse', source);
   }
+});
+
+test('a string that spells the name of an exported namespace variable is no occurrence of the name', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))();
+  for (const source of [
+    'export namespace Ids { export const limit = \'limit\'; export const mode = "mode"; export const tick = `tick`; }\nexport const out = JSON.stringify(Ids);',
+    'namespace States { export const idle = { type: \'idle\' }; export const busy = () => [idle, "busy", \'idle\']; }\nexport const out = JSON.stringify([States.idle, States.busy()]);',
+  ]) {
+    const result = sameAsTypeScript(source, 'quoted.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'quoted.ts')), source);
+  }
+  // A longer string and a template with a hole still count: the name may be a reference there.
+  assert.notEqual(sameAsTypeScript('namespace N { export const a = 1; export const b = `${a}`; export const c = "x a"; }\nexport { N };', 'quoted.ts').backend, 'pulse');
 });
