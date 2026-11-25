@@ -805,3 +805,22 @@ var N;(function (N) { function f() { return 1; }N.f=f; })(N||(N={}));
 A name that only the namespaces inside two declarations share still leaves the body to TypeScript.
 
 TypeScript reads the JSX pragmas from block comments only. `// @jsxImportSource preact` in a line comment is no pragma, and neither is the directive `// @jsx: preserve` that many of TypeScript's own cases begin with; the pragma reader reported both as unsupported, which kept every such file with TypeScript's emitter.
+
+### Declared modules, JSX type arguments, and two reviews of the namespace work
+
+`declare module "name" { ... }` holds the text of a module, so it may hold imports of every form, `export = name;`, `export default` in front of a function, a class, an interface or a name, and `export * from "m";`. Style sheet typings, typings of CommonJS packages and augmentations that import a type are written this way. The whole declaration is erased as before; the names its imports bind are entered behind the names of the file while it is read and forgotten after it. `declare global` and a declared namespace do not take these forms.
+
+Type arguments behind a JSX tag name, `<Select<string[]> value={v}>`, are read as types and erased. The JSX emitter reads each element from the source again and passes over the arguments by their brackets, in a TypeScript file only. A nameless class may begin with its implements clause, `class implements I { }`.
+
+The namespace and class member work went through two reviews. The first found five defects and the second five more; all are corrected, and tests hold a case for each:
+
+- A namespace named like a namespace open around it, as in `namespace Button.Button`, would declare a variable that meets a parameter of that name, or let a reference reach the wrong parameter. TypeScript renames a parameter there; such a namespace is left to it.
+- A declared namespace of the same name is erased, and its members, which are properties of the namespace, are not known to the emitter. A run-time namespace beside one is left to TypeScript.
+- Declarations of a namespace share their members only when both are exported or both are not.
+- The name of an open namespace is its parameter. A reference to it gets no property in front, also when the dotted head of another declaration bears the name.
+- An exported variable without a value is erased, and a semicolon stands where it stood: the statement before it may end by a line break alone, and the next line would otherwise continue it.
+- `get` or `set` in front of a private name begins an accessor on whatever line the name stands. The parser took `get` on a line of its own for a field and the private name for another, which is no JavaScript; a decorated script has no second check by V8, so the mistake was published.
+- Behind `export default` in a declared module stands no variable and no type alias.
+- A source with a line separator and a JSX pragma is left to TypeScript's emitter.
+
+Of TypeScript's own cases that are no declaration files, the count that takes TypeScript's emitter went from 2,198 to 1,929 of the 6,479 compiler cases and from 2,436 to 2,202 of the 5,877 conformance cases over this work. 992 of those are cases that TypeScript itself reports.
