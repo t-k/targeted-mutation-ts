@@ -15368,17 +15368,27 @@ TmtPulseParser_class_members(
                 value160 = TmtPulseParser_failed(value10, 1U);
               else
               {
+                TmtPulseParser_parser_state value16;
+                if ((value90.modifier_flags & 110U) != 0U)
+                  value16 =
+                    TmtPulseParser_record_jsx_span(input,
+                      value140,
+                      decorated ? 30U : 15U,
+                      value1.offset,
+                      value90.modifiers_end);
+                else
+                  value16 = value140;
                 TmtPulseParser_parser_state
-                value16 =
+                value17 =
                   TmtPulseParser_record_jsx_span(input,
-                    value140,
+                    value16,
                     12U,
                     value10.offset,
                     TmtPulseParser_next(value10.offset));
                 TmtPulseParser_function_shape
-                value17 =
+                value18 =
                   TmtPulseParser_function_form(input,
-                    value16,
+                    value17,
                     TmtPulseParser_minus(fuel, 1U),
                     false,
                     TmtPulseParser_MethodSuper,
@@ -15386,8 +15396,8 @@ TmtPulseParser_class_members(
                     TmtPulseParser_OrdinaryParameters,
                     false,
                     false);
-                TmtPulseParser_parser_state after = value17.after_function;
-                if (value17.signature_only)
+                TmtPulseParser_parser_state after = value18.after_function;
+                if (value18.signature_only)
                   value160 =
                     TmtPulseParser_record_jsx_span(input,
                       (

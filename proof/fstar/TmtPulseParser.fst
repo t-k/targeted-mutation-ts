@@ -4548,8 +4548,12 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
         let! closed = (fun () -> if awaiting_body || fuel = 0ul || constructor_name || prototype ||
           accessor || key.private_ || key.async_ || key.generator_ || key.readonly_ then ret input (failed tail 1ul)
           else
-            // The question mark is erased (kind 12); a method that is declared without a body goes whole.
-            let! marked = (fun () -> record_jsx_span input optional_method 12ul tail.offset (next tail.offset)) in
+            // The modifiers in front of the key are erased as for any member, then the question mark (kind 12);
+            // a method that is declared without a body goes whole.
+            let! modified = (fun () -> if U32.logand key.modifier_flags 110ul <> 0ul then
+                record_jsx_span input optional_method (if decorated then 30ul else 15ul) st.offset key.modifiers_end
+              else ret input optional_method) in
+            let! marked = (fun () -> record_jsx_span input modified 12ul tail.offset (next tail.offset)) in
             let! result = (fun () -> function_form input marked (minus fuel 1ul) false MethodSuper true OrdinaryParameters false false) in
             let after = result.after_function in
             if result.signature_only then record_jsx_span input { after with count = st.count } 21ul st.offset after.offset

@@ -17,7 +17,8 @@ for (const row of rows) {
     const reference = extractFallback(source, options);
     assert.deepEqual(result.candidates, reference.candidates, source);
     assert.deepEqual(result.diagnostics, reference.diagnostics, source);
-    const simple = key === 'Identifier' || key === 'Qualified';
+    // Any expression is a computed key.
+    const simple = key !== 'MissingBracket';
     const fast = simple && (tail === 'Method' || tail === 'Field' && (modifier === 'None' || modifier === 'Static'));
     assert.equal(result.path === 'fast', fast, source);
   });

@@ -117,7 +117,10 @@ function worker(cases, mode) {
 }
 
 // Compare the audit build with the ordinary build and summarize every validation event.
-export function auditCases(cases, options = {}) {
+export function auditCases(allCases, options = {}) {
+  // V8 does not parse accessor fields yet, so it cannot judge a source that holds one: the audit build would
+  // refuse what the certified parse accepts. Such a source rests on that parse alone, as one with decorators does.
+  const cases = allCases.filter(test => !/\baccessor[ \t]+[#\w$\["']/.test(Buffer.from(test.source, 'base64').toString()));
   const { output, trace } = worker(cases, '--audit-worker');
   assert.deepEqual(output, worker(cases, '--ordinary-worker').output, 'The audit and ordinary builds disagree');
   return summarizeValidation(trace, cases, options);

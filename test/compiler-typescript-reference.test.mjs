@@ -2283,6 +2283,8 @@ test('accessor fields keep their word, and an optional method with a body loses 
     ['class C { accessor x = 1; }', 'accessor.ts'],
     ['export class C { foo?() { return 1; } bar?<T>(x: T): T { return x; } baz?(): void; }', 'optional.ts'],
     ['class C { foo?() { return 1; } }\nvar c = new C();', 'optional.ts'],
+    // The modifiers of an optional method go like those of any member.
+    ['export class A { isSent(r: any) { return r.sent }\n  public getHeader?(response: any, name: string) { return response.getHeader(name); }\n  private static override readonly?() { return 1; } protected async?(): void; }', 'optional.ts'],
   ]) {
     const result = sameAsTypeScript(source, file);
     assert.equal(result.backend, 'pulse', source);

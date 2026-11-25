@@ -29,7 +29,8 @@ for (const row of rows) {
       Binding: `const { ${computed}: field = (a < b) } = object;`,
     };
     compare(`/* 海 🧪 */ const before = c > d; ${declarations[member]}${suffix === 'Broken' ? ' const =' : ''}`,
-      suffix === 'Valid' && !['Escaped', 'Comparison'].includes(key));
+      // A class member takes any expression as its computed key; a binding pattern takes a name or a string.
+      suffix === 'Valid' && (member !== 'Binding' || !['Escaped', 'Comparison'].includes(key)));
   });
 }
 
@@ -37,7 +38,7 @@ test('optional signatures do not suppress runtime candidates or invalid declarat
   compare("class Shape { ['ready']?(item?: number): boolean; next?(): void; }", true);
   compare("class Shape { ['ready']?<T>(item: T): T; next?<U>(value: U): void; }", true);
   compare('class Shape { static "prototype" = age < limit; }', false);
-  compare('class Shape { ready?(): boolean { return age >= 18; } }', false);
+  compare('class Shape { ready?(): boolean { return age >= 18; } }', true);
   compare('class Shape { ready?(value = (age >= 18)): boolean; }', false);
   compare('class Shape { get ready?(): boolean; }', false);
   compare('class Shape { constructor?(): void; }', false);
