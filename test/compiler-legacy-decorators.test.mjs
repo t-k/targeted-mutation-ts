@@ -243,3 +243,23 @@ test('comments and white space do not change what is read', () => {
     assert.equal(lowered(source).backend, 'typescript', source);
   }
 });
+
+test('a TSX file is lowered under the legacy option, with or without decorators', () => {
+  const tsx = { ...options, file: 'legacy.tsx' };
+  const reference = (source, extra = {}) => ts.transpileModule(source, { fileName: 'legacy.tsx', compilerOptions: {
+    target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true, experimentalDecorators: true,
+    jsx: ts.JsxEmit.ReactJSX, ...extra } }).outputText;
+  const names = code => code.replace(/_tmtJsxs?\d*|_jsxs?/g, 'J');
+  for (const source of [
+    // An at sign in a package name and in JSX text is no decorator.
+    'import { B } from "@mui/material";\nexport const a: number = 1;\nexport const v = <B x={a}>mail @me</B>;',
+    'import { B } from "@x/y";\n@D class C { @E m(@F p: string) { return <B />; } }\nexport const v = <p>{new C().m("a")}</p>;\nexport { C };',
+    '@D export class V<T> { render() { return <Select<T> v={1} />; } }',
+  ]) {
+    for (const extra of [{}, { emitDecoratorMetadata: true }]) {
+      const result = compile(Buffer.from(source), { ...tsx, ...extra });
+      assert.equal(result.backend, 'pulse', source);
+      assert.deepEqual(inspect(ts, names(result.code), 'legacy.js').shape, inspect(ts, names(reference(source, extra)), 'legacy.js').shape, source);
+    }
+  }
+});

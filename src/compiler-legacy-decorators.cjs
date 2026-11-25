@@ -70,8 +70,8 @@ function wholeCall(text, at) {
 
 const listedName = /(?:^<|,)\s*(?:(?:const|in|out)\s+)*([A-Za-z_$][\w$]*)/g;
 
-function lowerLegacyDecorators(addon, source, metadata = false) {
-  const records = metadata ? addon.legacyDecoratorRecords?.(source, true) : addon.legacyDecoratorRecords?.(source);
+function lowerLegacyDecorators(addon, source, metadata = false, jsx = false) {
+  const records = addon.legacyDecoratorRecords?.(source, metadata, jsx);
   if (!records) return null;
   const text = source.latin1Slice();
   const slice = (first, last) => source.utf8Slice(first, last);

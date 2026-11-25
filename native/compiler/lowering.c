@@ -2892,7 +2892,7 @@ enum_only:
 static bool legacy_record(uint32_t kind) { return (kind >= 50 && kind <= 56) || kind == 60 || kind == 21; }
 
 /* With all set, every record of the reading is returned: the metadata of the decorators is written from type records too. */
-uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all, uint32_t *count) {
+uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all, bool jsx, uint32_t *count) {
   *count = 0;
 #ifdef TMT_V8_VALIDATOR
   module_workspace memory = {0};
@@ -2907,7 +2907,7 @@ uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all,
     input.capture_types = true;
     input.count_only = false;
     input.legacy_decorators = true;
-    const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(input, false, true);
+    const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(input, jsx, true);
     if (parsed.status == 0 && parsed.count <= input.capacity) {
       /* The names bound at module level stand in the first region of the binding table. */
       const uint32_t region = 512;
