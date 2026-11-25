@@ -325,7 +325,10 @@ static napi_status create_source_string(napi_env env, const char *text, size_t s
 static napi_value lower_source(napi_env env, napi_callback_info info) {
   napi_value args[5], result;
   size_t argc = 5, size, length;
-  bool jsx, typescript, classic, mixed, complete;
+  bool jsx, typescript, mixed, complete;
+  /* false or 0 for the automatic runtime, true or 1 for the classic factory, 2 to keep JSX as written. */
+  uint32_t classic;
+  napi_value mode;
   void *source;
   char *output = NULL;
   NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
@@ -333,7 +336,8 @@ static napi_value lower_source(napi_env env, napi_callback_info info) {
   NAPI(napi_get_buffer_info(env, args[0], &source, &size));
   NAPI(napi_get_value_bool(env, args[1], &jsx));
   NAPI(napi_get_value_bool(env, args[2], &typescript));
-  NAPI(napi_get_value_bool(env, args[3], &classic));
+  NAPI(napi_coerce_to_number(env, args[3], &mode));
+  NAPI(napi_get_value_uint32(env, mode, &classic));
   NAPI(napi_get_value_bool(env, args[4], &mixed));
   if (size <= source_limit) output = tmt_lower_runtime(source, (uint32_t)size, jsx, typescript, classic, mixed, &length, &complete, NULL);
   if (output) {

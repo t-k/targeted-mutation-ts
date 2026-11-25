@@ -944,3 +944,9 @@ Most projects state `target: es2022` or a later year, and every such file used t
 A failure inside TypeScript itself (a `TypeError` raised from its own code, seen with CommonJS output when a file imports its own name) is answered with the diagnostic `TYPESCRIPT_FAILURE` instead of an exception.
 
 JavaScript that is published as written (`.js` and `.mjs` at the ESNext target) keeps that text with `sourceMap: true` as well, and receives a map in which every token leads to its own position; a script's map is moved down by the line of the strict directive. Before, the option sent the file to TypeScript, which prints it again in its own layout. Source bytes may be given as a plain `Uint8Array`: they are read in place and take the same routes as a Buffer.
+
+### JSX that is kept
+
+With `jsx: 'preserve'` a `.tsx` module is compiled natively: the types are erased as in the other modes, and every element is written as it stands in the source, without the type arguments of a tag (`<List<Item> />` becomes `<List />`; the projection that erases the types blanks them). The emitter walks an element with the same code that lowers it, which decides whether the element is accepted and where it ends, and then replaces what the walk wrote by the source text. Text, entities and attribute strings are therefore the source's bytes.
+
+A kept element cannot be confirmed by a JavaScript parse, so the result is published only from a certified projection of a module. When type-only statements were removed, the file must still hold an import or export of its own; this is read from a rendering with factory calls, which adds no import. A script, a `.jsx` file and a request for a source map keep the TypeScript route. On 3,005 `.tsx` files of seven code bases, 2,998 are answered natively in this mode, and each output has the same syntax tree as TypeScript's.

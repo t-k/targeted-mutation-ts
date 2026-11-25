@@ -1,0 +1,6 @@
+Tag: Intrinsic, Component, Member, Fragment, Generic
+Attribute: None, String, Typed, Spread, Element, Flag
+Child: None, Text, Typed, Nested, Comment, Mapped
+Around: Plain, RemovedType, GenericArrow, Enum
+
+IF [Tag] = "Fragment" THEN [Attribute] = "None" AND [Child] <> "None";

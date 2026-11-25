@@ -1,0 +1,7 @@
+Tag	Attribute	Child	Around
+Intrinsic	None	None	Plain
+Intrinsic	String	Text	Plain
+Component	Typed	Typed	RemovedType
+Generic	Typed	Nested	Plain
+Fragment	None	Mapped	Plain
+Component	Spread	Mapped	GenericArrow

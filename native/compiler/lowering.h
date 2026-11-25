@@ -16,7 +16,8 @@ typedef struct {
   bool failed;
 } tmt_run_log;
 
-char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescript, bool classic,
+/* classic: 0 for the automatic runtime, 1 for the classic factory, 2 to keep JSX as written. */
+char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescript, unsigned classic,
   bool mixed, size_t *length, bool *complete, tmt_run_log *runs);
 
 bool tmt_unbound_export(uint8_t *source, uint32_t size);

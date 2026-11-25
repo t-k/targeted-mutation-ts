@@ -58,11 +58,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   if (code && complete && length == size && !runs.count) check_projection(source, code, size);
   if (code && complete) check_mappings(source, size, code, length, &runs);
   free(code);
-  code = tmt_lower_runtime(source, width, flags & 16, flags & 32, flags & 64, true, &length, &complete, &runs);
+  const unsigned classic = flags & 64 ? 1 : 0;
+  code = tmt_lower_runtime(source, width, flags & 16, flags & 32, classic, true, &length, &complete, &runs);
   if (code) check_mappings(source, size, code, length, &runs);
   free(code);
-  code = tmt_lower_runtime(source, width, flags & 16, true, flags & 64, false, &length, &complete, &runs);
+  code = tmt_lower_runtime(source, width, flags & 16, true, classic, false, &length, &complete, &runs);
   if (code) check_mappings(source, size, code, length, &runs);
+  free(code);
+  /* JSX kept as written. */
+  code = tmt_lower_runtime(source, width, true, true, 2, true, &length, &complete, NULL);
   free(code);
   free(runs.items);
   (void)tmt_module_marker(source, width, flags & 128);

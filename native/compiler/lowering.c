@@ -43,9 +43,13 @@ typedef struct {
   const TmtGrammar_span *jsx_spans, *expressions;
   size_t jsx_count, expression_count;
 #endif
+  /* JSX is kept as written: the elements are walked as for lowering, then copied from the source. */
+  bool preserve;
 } lowering;
 
 enum { jsx_one = 1, jsx_many = 2, jsx_fragment = 4, jsx_create = 8 };
+/* How JSX is written: calls of the automatic runtime, calls of the classic factory, or the source text. */
+enum { jsx_mode_automatic = 0, jsx_mode_classic = 1, jsx_mode_preserve = 2 };
 enum { source_none, source_runtime, source_create };
 
 typedef struct {
@@ -1238,7 +1242,22 @@ static bool jsx_type_arguments(lowering *lower) {
   return false;
 }
 
+static bool jsx_lowered(lowering *lower, uint32_t depth);
+
 static bool jsx_element(lowering *lower, uint32_t depth) {
+  if (!lower->preserve) return jsx_lowered(lower, depth);
+  /* The walk accepts the element and finds its end; what it wrote is replaced by the source text. The
+     source is the projection, in which the type arguments of a tag are blank already. */
+  writer *out = &lower->output;
+  const size_t written = out->length;
+  const uint32_t first = lower->at;
+  if (!jsx_lowered(lower, depth) || out->failed) return false;
+  out->length = written;
+  source_bytes(lower, first, lower->at);
+  return !out->failed;
+}
+
+static bool jsx_lowered(lowering *lower, uint32_t depth) {
   if (!depth || !consume(lower, '<')) return false;
   writer *out = &lower->output;
   if (!tag_trivia(lower)) return false;
@@ -1246,7 +1265,8 @@ static bool jsx_element(lowering *lower, uint32_t depth) {
   TmtGrammar_span tag = { lower->at, lower->at };
   if (!fragment && !jsx_name(lower, &tag)) return false;
   /* Only a TypeScript file has type arguments there. */
-  if (!fragment && peek(lower) == '<' && (!lower->input.capture_types || !jsx_type_arguments(lower))) return false;
+  /* Type arguments that the projection left in place cannot be kept. */
+  if (!fragment && peek(lower) == '<' && (lower->preserve || !lower->input.capture_types || !jsx_type_arguments(lower))) return false;
   /* A keyword may touch the opening angle. The helper name must not extend it. */
   if (out->length && TmtGrammar_identifier_continue((uint8_t)out->code[out->length - 1])) put(out, " ");
   const size_t helper_offset = out->length;
@@ -1469,7 +1489,7 @@ tmt_jsx_pragma_kind tmt_jsx_pragma(const uint8_t *source, uint32_t size, uint32_
 }
 
 static bool inject_jsx_runtime(lowering *lower, size_t at) {
-  if (!lower->helpers) return true;
+  if (!lower->helpers || lower->preserve) return true;
   writer *out = &lower->output;
   const bool one = (lower->helpers & jsx_one) != 0;
   const bool many = (lower->helpers & jsx_many) != 0;
@@ -3784,12 +3804,15 @@ static bool source_jsx_with_enums(lowering *lower, uint32_t first, uint32_t last
 }
 
 static char *render_jsx_spans(TmtPulseMemory_tape input, const TmtGrammar_span *tags, size_t tag_count,
-  const TmtGrammar_span *expressions, size_t expression_count, uint32_t insertion, bool classic, size_t *length,
+  const TmtGrammar_span *expressions, size_t expression_count, uint32_t insertion, unsigned jsx_mode, size_t *length,
   uint32_t enum_records, tmt_run_log *runs)
 {
   /* Each attempt starts its own log. */
   if (runs) runs->count = 0;
-  lowering lower = { .input = input, .classic = classic, .jsx_spans = tags, .jsx_count = tag_count,
+  /* Kept JSX has no map of its own yet. */
+  if (jsx_mode == jsx_mode_preserve && runs) return NULL;
+  lowering lower = { .input = input, .classic = jsx_mode == jsx_mode_classic, .preserve = jsx_mode == jsx_mode_preserve,
+    .jsx_spans = tags, .jsx_count = tag_count,
     .expressions = expressions, .expression_count = expression_count,
     .output.limit = (size_t)input.size * 32 + 1024, .output.runs = runs };
   uint32_t enum_index = 0;
@@ -3872,9 +3895,10 @@ static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records) 
 #endif
 
 static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans, uint32_t records,
-  uint32_t insertion, bool typescript, bool classic, size_t *length, bool *complete, tmt_run_log *runs)
+  uint32_t insertion, bool typescript, unsigned classic, size_t *length, bool *complete, tmt_run_log *runs)
 {
   size_t elements = 0, expression_begin = records;
+  const bool preserve = classic == jsx_mode_preserve;
 #ifdef TMT_V8_VALIDATOR
   uint32_t enum_records = 0;
 #endif
@@ -3890,6 +3914,8 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   qsort(spans, elements, sizeof(*spans), compare_spans);
   qsort(expressions, expression_count, sizeof(*spans), compare_spans);
 #ifdef TMT_V8_VALIDATOR
+  /* Kept JSX is published only from a certified projection of a TypeScript module. */
+  if (preserve && !(typescript && input.capture_types)) return NULL;
   if (!typescript) {
     char *code = render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0, runs);
     if (code && validate_emission(code, *length, "jsx")) {
@@ -3908,6 +3934,27 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
       {
         audit_projection_guard(projected, records, "tsx");
         char *code = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion, classic, length, enum_records, runs);
+        if (code && preserve) {
+          /* The text holds JSX, so no JavaScript parse can confirm it: only a certified projection whose
+             module marker was kept is published. */
+          bool module = !facts.remove_statement || retained_module_marker(projected, insertion, records);
+          if (!facts.uncertified && !module) {
+            /* Whether a marker is left behind the removed statements is read from the text with the JSX
+               lowered to factory calls, which adds no import of its own. */
+            size_t lowered_length = 0;
+            char *lowered = render_jsx_spans(projected, spans, elements, expressions, expression_count, insertion,
+              jsx_mode_classic, &lowered_length, enum_records, NULL);
+            module = lowered && lowered_length <= 1048576 && tmt_module_marker((uint8_t *)lowered, (uint32_t)lowered_length, false);
+            free(lowered);
+          }
+          free(masked);
+          if (!facts.uncertified && module) {
+            *complete = true;
+            return code;
+          }
+          free(code);
+          return NULL;
+        }
         if (code && (!facts.remove_statement || retained_module_marker(projected, insertion, records) ||
                      (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&
             publishable(!facts.uncertified, code, *length, "tsx")) {
@@ -3921,14 +3968,15 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
       free(masked);
     }
   }
+  if (preserve) return NULL;
 #else
-  if (!typescript) return NULL;
+  if (!typescript || preserve) return NULL;
   (void)complete;
 #endif
   return render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0, runs);
 }
 
-static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, bool classic, size_t *length, bool *complete,
+static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, unsigned classic, size_t *length, bool *complete,
   tmt_run_log *runs)
 {
   module_workspace memory;
@@ -3992,7 +4040,7 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, b
 
 #endif
 
-char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescript, bool classic,
+char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescript, unsigned classic,
   bool mixed, size_t *length, bool *complete, tmt_run_log *runs)
 {
   *complete = false;
@@ -4000,7 +4048,15 @@ char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescrip
     runs->count = 0;
     runs->failed = false;
   }
-  if (!size) return NULL;
+  if (!size || classic > jsx_mode_preserve) return NULL;
+  if (classic == jsx_mode_preserve) {
+#ifdef TMT_DIRECT
+    return NULL;
+#else
+    /* JSX is kept only on the route that reads a whole TypeScript module. */
+    return jsx && typescript && mixed ? lower_jsx_module(source, size, typescript, classic, length, complete, runs) : NULL;
+#endif
+  }
   if (mixed) {
 #ifdef TMT_DIRECT
     return NULL;

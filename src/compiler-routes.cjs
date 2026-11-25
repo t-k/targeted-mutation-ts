@@ -709,6 +709,11 @@ function compile(input, options = {}) {
       if (mode === 'transform' && (typed || runtime())) {
         const addon = loadModuleAddon();
         if (addon) {
+          // JSX that is to be kept: the module emitter erases the types and copies each element as written.
+          if (jsxFile && typed && jsx === 'preserve' && !directive && source.includes('<')) {
+            const kept = addon.lower(source, true, true, 2, true);
+            if (kept !== null && typeof kept !== 'string') return { backend: 'pulse', code: kept.code, sourceMap: null, diagnostics: [] };
+          }
           const moduleProjection = typed && (!jsxFile || !source.includes('<'));
           const empty = moduleProjection ? addon.eraseTypeModule(source, format === 'esm') : null;
           if (empty !== null) return { backend: 'pulse', code: empty, sourceMap: null, diagnostics: [] };

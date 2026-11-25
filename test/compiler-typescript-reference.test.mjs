@@ -3044,3 +3044,55 @@ test('the targets from ES2022 on compile as ESNext unless a form that TypeScript
   assert.equal(mapped.backend, 'pulse');
   assert.equal(typeof mapped.sourceMap.mappings, 'string');
 });
+
+// A source for one row of verification/pict/compiler-jsx-preserve.tsv.
+function keptJsx(row) {
+  const tag = { Intrinsic: 'section', Component: 'Panel', Member: 'ui.Panel', Fragment: '', Generic: 'List<Item>' }[row.Tag];
+  const closing = row.Tag === 'Generic' ? 'List' : tag;
+  const attribute = { None: '', String: ' title="a &amp; b \'q\'"', Typed: ' value={(first as Item).id!}', Spread: ' {...(rest as object)}',
+    Element: ' icon=<i />', Flag: ' hidden' }[row.Attribute];
+  const child = { None: null, Text: "  don't &nbsp; stop — 日本語\n  ", Typed: '{count as number}', Nested: '<b>{<i>{label satisfies string}</i>}</b>',
+    Comment: '{/* note */}', Mapped: '{items.map((item: Item, at: number) => <li key={item.id}>{at}</li>)}' }[row.Child];
+  const element = child === null ? `<${tag}${attribute} />` : `<${tag}${attribute}>${child}</${closing}>`;
+  const around = {
+    Plain: `export const view = ${element};`,
+    RemovedType: `type Local = { id: string };\nexport const view = (local: Local) => ${element};`,
+    GenericArrow: `export const view = <T,>(given: T) => ${element};`,
+    Enum: `export enum Mode { On, Off }\nexport const view = (mode: Mode = Mode.On) => ${element};`,
+  }[row.Around];
+  return `import { ui, Panel, List, items, first, rest, count, label } from "./parts";\ninterface Item { id: string }\n${around}\n`;
+}
+
+test('JSX that is kept: elements as written, with the types around and inside them erased', () => {
+  const kept = (source, file = 'kept.tsx') => {
+    const expected = ts.transpileModule(source, { fileName: file, reportDiagnostics: true, compilerOptions: {
+      target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, jsx: ts.JsxEmit.Preserve, verbatimModuleSyntax: true } });
+    assert.deepEqual(expected.diagnostics.filter(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error), [], source);
+    const result = compile(Buffer.from(source), { file, jsx: 'preserve' });
+    assert.equal(typeof result.code, 'string', source);
+    assert.deepEqual(inspect(ts, result.code, file), inspect(ts, expected.outputText, file), source);
+    return result;
+  };
+  const [header, ...rows] = readFileSync(new URL('../verification/pict/compiler-jsx-preserve.tsv', import.meta.url), 'utf8')
+    .trim().split('\n').map(line => line.split('\t'));
+  assert.equal(rows.length, 39);
+  for (const cells of rows) {
+    const row = Object.fromEntries(header.map((name, index) => [name, cells[index]]));
+    const source = keptJsx(row);
+    const result = kept(source);
+    assert.equal(result.backend, 'pulse', source);
+    assert.doesNotMatch(result.code, /_tmt|react\/jsx-runtime|createElement/, source);
+  }
+  // The text of an element is the source's, byte for byte.
+  const text = kept('export const view = <p title="a &amp; b">  don\'t &nbsp; stop — 日本語\n  {1 as number}</p>;\n');
+  assert.ok(text.code.includes('<p title="a &amp; b">  don\'t &nbsp; stop — 日本語\n  {1'), text.code);
+  // A file that is left without an import or export gains one from TypeScript, so it is not answered here.
+  assert.equal(kept('import type { T } from "./t";\nconst view = <p>export</p>;\nvoid view;\n').backend, 'typescript');
+  // A script, a JavaScript file and a request for a map keep the TypeScript route.
+  assert.equal(kept('const view = <p />;\nvoid view;\n').backend, 'typescript');
+  assert.equal(compile(Buffer.from('export const view = <p />;\n'), { file: 'kept.jsx', jsx: 'preserve' }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('export const view = <p>{1 as number}</p>;\n'), { file: 'kept.tsx', jsx: 'preserve', sourceMap: true }).backend, 'typescript');
+  // The other modes are unchanged by the third one.
+  assert.match(compile(Buffer.from('export const view = <p>{1 as number}</p>;\n'), { file: 'kept.tsx' }).code, /react\/jsx-runtime/);
+  assert.match(compile(Buffer.from('export const view = <p>{1 as number}</p>;\n'), { file: 'kept.tsx', jsx: 'classic' }).code, /React\.createElement/);
+});
