@@ -488,8 +488,34 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   const probed = [];
   const identified = mutation => ({ ...mutation,
     id: createHash('sha256').update(JSON.stringify([file, mutation.name, mutation.start, mutation.end, mutation.replacement])).digest('hex').slice(0, 16) });
-  const mutants = live.map(identified).map(mutant => mutant.shift === undefined ? mutant
+  const rawMutants = live.map(identified).map(mutant => mutant.shift === undefined ? mutant
     : { ...mutant, mutated: mutant.mutated.replace(shiftPlaceholder, `${shift}()`) });
+  // When built-in expression mutations sit inside an observed probe's syntax but outside its rendered
+  // operands (e.g. `arr.length - 1` inside `arr[arr.length - 1]`, `-1` inside `arr.at(-1)`, literals in
+  // `['a', 'b'].includes(x)`), lift their switch placement to the enclosing observed expression so no
+  // live mutant is dropped when the probe renders only its operands.
+  const observedHosts = rawMutants
+    .filter(mutant => mutant.kind === 'observed')
+    .sort((a, b) => (b.placement[1] - b.placement[0]) - (a.placement[1] - a.placement[0]));
+  const mutants = observedHosts.length
+    ? rawMutants.map(mutant => {
+      if (mutant.kind !== 'expression') return mutant;
+      const [p0, p1] = mutant.placement;
+      const host = observedHosts.find(obs =>
+        obs.placement[0] <= p0 && p1 <= obs.placement[1] &&
+        (obs.placement[0] !== p0 || obs.placement[1] !== p1) &&
+        !obs.operands.some(([o0, o1]) => o0 <= p0 && p1 <= o1));
+      if (!host) return mutant;
+      return {
+        ...mutant,
+        placement: host.placement,
+        statement: host.statement,
+        leading: host.leading,
+        named: undefined,
+        mutated: text.slice(host.placement[0], p0) + mutant.mutated + text.slice(p1, host.placement[1]),
+      };
+    })
+    : rawMutants;
 
   const groups = new Map();
   for (const mutant of mutants) {

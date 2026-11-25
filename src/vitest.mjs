@@ -356,7 +356,7 @@ export function createCopy(project, {
             if (!warnedLargeCopy && (copiedBytes >= largeCopyBytes || copiedFiles >= largeCopyFiles)) {
               warnedLargeCopy = true;
               const message = `Warning: Copying a large project (${formatBytes(copiedBytes)}, ${copiedFiles} files) into a temporary directory. ` +
-                'Consider excluding large directories with --copy-exclude <PATH> or setting "copyExclude" in targeted-mutation.config.json.';
+                'Consider passing --copy-exclude-gitignore (or setting "copyExcludeGitignore": true), excluding large directories with --copy-exclude <PATH>, or setting "copyExclude" in targeted-mutation.config.json.';
               if (onLargeCopy) onLargeCopy({ bytes: copiedBytes, files: copiedFiles, message });
               else process.stderr.write(message + '\n');
             }

@@ -186,8 +186,9 @@ test('only the truth of a value is used in a condition, under a negation and thr
   // operand of another operator do not.
   assert.deepEqual(contexts('function f(a, b, c, d, e) { for (e && a; a && b;) b = 0; do { c = 0 } while (c && d); return (d && e ? 1 : 2) + -(b && c); }'),
     { e: false, a: true, c: true, d: true, b: false });
-  // A value that passes on through `??` or into a call is used as it is.
-  assert.deepEqual(contexts('function f(a, b, c) { if (c ?? (a && b)) return 1; return Boolean(b && c); }'), { c: true, a: false, b: false });
+  // A value that passes on through `??` or into an arbitrary call is used as it is,
+  // while a single-argument global `Boolean(...)` call uses only its truth.
+  assert.deepEqual(contexts('function f(a, b, c, d) { if (c ?? (a && b)) return 1; use(d && c); return Boolean(b && c); }'), { c: true, a: false, d: false, b: true });
 });
 
 const placements = {

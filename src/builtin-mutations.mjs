@@ -209,13 +209,18 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     }
   }
 
-  // Whether only the truth of the expression's value is used: as a condition, under `!`, or as an operand of a
-  // logical operator that is itself used that way.
+  // Whether only the truth of the expression's value is used: as a condition, under `!`, inside a
+  // single-argument global `Boolean(...)` call, or as an operand of a logical operator used that way.
   function onlyTruthUsed(node) {
     for (let [parent, child] = up(node); ; [parent, child] = up(parent)) {
       if (ts.isPrefixUnaryExpression(parent) && parent.operator === K.ExclamationToken) return true;
       if ((ts.isIfStatement(parent) || ts.isWhileStatement(parent) || ts.isDoStatement(parent)) && parent.expression === child) return true;
       if ((ts.isForStatement(parent) || ts.isConditionalExpression(parent)) && parent.condition === child) return true;
+      if (ts.isCallExpression(parent) && !ts.isOptionalChain(parent) &&
+          parent.arguments.length === 1 && parent.arguments[0] === child) {
+        const callee = strip(parent.expression);
+        if (ts.isIdentifier(callee) && callee.text === 'Boolean' && !ownBoolean()) return true;
+      }
       if (!isLogical(parent) || operatorOf(parent) === '??') return false;
     }
   }
@@ -393,25 +398,49 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
 
   const rename = (node, name, to) => text.slice(begin(node), begin(name)) + to + text.slice(name.end, node.end);
 
-  // A file that binds the name Math itself (a parameter, a variable, a function, an import) is not calling the
-  // built-in one.
+  // A file that binds or reassigns a global name itself (a parameter, a variable, a function, an import,
+  // or a bare assignment) is not guaranteed to be calling the built-in one.
+  function bindsIdentifier(targetName, pattern) {
+    if (!pattern.test(text) && !text.includes('\\u')) return false;
+    let found = false;
+    (function look(inner) {
+      if (found) return;
+      if (ts.isIdentifier(inner) && inner.text === targetName &&
+          !(ts.isPropertyAssignment(inner.parent) && inner.parent.name === inner) &&
+          isAssignmentTarget(inner)) {
+        found = true;
+        return;
+      }
+      const name = inner.name;
+      if (name !== undefined && ts.isIdentifier(name) && name.text === targetName) {
+        if (ts.isImportSpecifier(inner)) {
+          const clause = inner.parent?.parent;
+          found = !inner.isTypeOnly && !clause?.isTypeOnly;
+        } else if (ts.isImportClause(inner)) {
+          found = !inner.isTypeOnly;
+        } else if (ts.isNamespaceImport(inner)) {
+          found = !inner.parent?.isTypeOnly;
+        } else if (ts.isImportEqualsDeclaration(inner)) {
+          found = !inner.isTypeOnly;
+        } else {
+          found = ts.isParameter(inner) || ts.isVariableDeclaration(inner) ||
+            ts.isBindingElement(inner) || ts.isFunctionDeclaration(inner) || ts.isClassDeclaration(inner) ||
+            ts.isFunctionExpression(inner) || ts.isClassExpression(inner);
+        }
+      }
+      if (!found) ts.forEachChild(inner, look);
+    })(tree);
+    return found;
+  }
   let bindsMath;
   function ownMath() {
-    if (bindsMath === undefined) {
-      bindsMath = false;
-      if (/\bMath\b(?!\s*(?:\.|\?\.|\[))/.test(text)) {
-        (function look(inner) {
-          if (bindsMath) return;
-          const name = inner.name;
-          bindsMath = name !== undefined && ts.isIdentifier(name) && name.text === 'Math' && (ts.isParameter(inner) || ts.isVariableDeclaration(inner) ||
-            ts.isBindingElement(inner) || ts.isFunctionDeclaration(inner) || ts.isClassDeclaration(inner) || ts.isFunctionExpression(inner) ||
-            ts.isClassExpression(inner) || ts.isImportSpecifier(inner) ||
-            ts.isImportClause(inner) || ts.isNamespaceImport(inner));
-          if (!bindsMath) ts.forEachChild(inner, look);
-        })(tree);
-      }
-    }
+    if (bindsMath === undefined) bindsMath = bindsIdentifier('Math', /\bMath\b(?!\s*(?:\.|\?\.|\[))/);
     return bindsMath;
+  }
+  let bindsBoolean;
+  function ownBoolean() {
+    if (bindsBoolean === undefined) bindsBoolean = bindsIdentifier('Boolean', /\bBoolean\b/);
+    return bindsBoolean;
   }
 
   function isMathCall(node, expectedName) {
@@ -654,9 +683,12 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     (ts.isPropertyAccessExpression(node) && !node.questionDotToken && ts.isIdentifier(node.name) && plainReference(node.expression));
 
   function targetedElement(node) {
-    // What the element is used for shows above its parentheses and its non-null assertions.
+    // What the element is used for shows above its parentheses and erased TypeScript wrappers.
     let [parent, child] = up(node);
-    while (ts.isNonNullExpression(parent)) [parent, child] = up(parent);
+    while (ts.isNonNullExpression(parent) || ts.isSatisfiesExpression(parent) ||
+        ts.isTypeAssertionExpression(parent) || ts.isAsExpression(parent)) {
+      [parent, child] = up(parent);
+    }
     if (ts.isNewExpression(parent) && parent.expression === child) return;
     const written = isAssignmentTarget(child) || ts.isDeleteExpression(parent) ||
       ((ts.isPrefixUnaryExpression(parent) || ts.isPostfixUnaryExpression(parent)) && [K.PlusPlusToken, K.MinusMinusToken].includes(parent.operator)) ||
