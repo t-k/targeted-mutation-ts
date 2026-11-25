@@ -188,7 +188,12 @@ function asciiSpelling(source, text) {
 // Puts the names back in a text that was produced from the copy. The text holds no byte outside ASCII.
 function restoreNames(code, spellings) {
   const originals = new Map();
-  for (const [word, spelling] of spellings) originals.set(spelling, Buffer.from(word, 'latin1').toString());
+  for (const [word, spelling] of spellings) {
+    const original = Buffer.from(word, 'latin1').toString();
+    originals.set(spelling, original);
+    // The second name the decorator lowering gives a class that names itself.
+    originals.set(spelling + '_1', original + '_1');
+  }
   return code.replace(/[A-Za-z0-9_$]+/g, word => originals.get(word) ?? word);
 }
 

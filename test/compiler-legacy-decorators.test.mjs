@@ -274,6 +274,7 @@ test('decorators are lowered in a file with names outside ASCII', () => {
     assert.match(result.code, /__param\(0, Inject\(ɵT\)\)/);
     assert.equal(/typeof ɵDep !== "undefined" && ɵDep/.test(result.code), extra.emitDecoratorMetadata === true);
     assert.doesNotMatch(result.code, /[A-Z]{2}Svc|TZ/);
+    assert.match(result.code, /let \[ɵSvc, ɵSvc_1\] = /);
   }
   // Without a decorator such a file compiles as without the option.
   const plain = 'export const ɵa: number = 1; // mail @home';
