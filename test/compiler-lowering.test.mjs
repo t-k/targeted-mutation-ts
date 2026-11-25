@@ -76,8 +76,13 @@ test('native runtime lowering defers ambiguous transforms and honors options', (
     ['main.ts', 'export enum Ready { A = compute(), B }'],
     ['main.ts', 'export enum Ready { A = "s", B }'],
   ]) assert.notEqual(compile(source, { file }).backend, 'pulse');
-  assert.notEqual(compile(fixtures.Automatic, { file: 'input.tsx', jsx: 'preserve' }).backend, 'pulse');
-  assert.notEqual(compile(fixtures.Numeric, { target: 'es2018', sourceMap: true }).backend, 'pulse');
+  // JSX that is kept is written as it stands, with the types erased.
+  const kept = compile(fixtures.Automatic, { file: 'input.tsx', jsx: 'preserve' });
+  assert.equal(kept.backend, 'pulse');
+  assert.match(kept.code, /=> <><div enabled title="a &amp; b">\{x\}<br\/><\/div><\/>;/);
+  // An older target is native while the source holds no form newer than it.
+  assert.equal(compile(fixtures.Numeric, { target: 'es2018', sourceMap: true }).backend, 'pulse');
+  assert.notEqual(compile(fixtures.Numeric + '\nexport const a = Ready?.Zero;', { target: 'es2018', sourceMap: true }).backend, 'pulse');
 });
 
 test('automatic JSX imports exactly the helpers used by emitted code', async () => {

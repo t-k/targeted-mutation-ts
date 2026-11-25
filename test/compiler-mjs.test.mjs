@@ -25,6 +25,11 @@ for (const row of rows) {
     const result = compile(input, options);
     if (output === 'ESM' && ['ImportExport', 'TopLevelAwait', 'BOM'].includes(kind)) {
       assert.deepEqual(result, { backend: 'javascript', code: source, sourceMap: null, diagnostics: [] });
+    } else if (output === 'Map' && kind === 'TopLevelAwait') {
+      // A module published as written keeps that route with a map. A hashbang and a byte order mark do not.
+      assert.equal(result.backend, 'javascript');
+      assert.equal(result.code, source);
+      assert.deepEqual(result.sourceMap.sources, ['entry.MJS']);
     } else {
       assert.equal(result.backend, 'typescript');
       if (kind === 'Invalid') {

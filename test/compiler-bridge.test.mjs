@@ -21,7 +21,8 @@ for (const row of rows) {
     const input = samples[source];
     const result = compile(input, { target: target === 'Modern' ? 'esnext' : 'es2018', sourceMap: map === 'On' });
     // A map comes from the native scan, also for a script behind its strict-mode directive.
-    const bridged = ['Module', 'Empty', 'Script'].includes(source) && target === 'Modern';
+    // An older target changes nothing for these sources: none of them holds a form newer than ES2018.
+    const bridged = ['Module', 'Empty', 'Script'].includes(source);
     if (bridged && map === 'On') assert.equal(typeof result.sourceMap.mappings, 'string');
     assert.equal(result.backend, bridged ? 'pulse' : 'typescript');
     if (source === 'Invalid') assert.equal(result.code, null);

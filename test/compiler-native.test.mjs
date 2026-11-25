@@ -50,9 +50,13 @@ test('native code preserves runtime behavior and strip-mode output', async () =>
   const mapped = compile(input, { sourceMap: true });
   assert.equal(mapped.backend, 'pulse');
   assert.equal(mapped.code, fast.code);
+  // A target that knows every form of the source takes the same route.
   const portable = compile(input, { target: 'es2022' });
-  assert.equal(portable.backend, 'typescript');
-  await assertModule(portable.code);
+  assert.equal(portable.backend, 'pulse');
+  assert.equal(portable.code, fast.code);
+  const lowered = compile(input + '\nexport class Holder { value = 1; }', { target: 'es2021' });
+  assert.equal(lowered.backend, 'typescript');
+  await assertModule(lowered.code);
 });
 
 test('native grammar declines module and syntax hazards', () => {
@@ -67,7 +71,8 @@ test('native grammar declines module and syntax hazards', () => {
     assert.notEqual(compile(input).backend, 'pulse', JSON.stringify(input));
   }
   assert.notEqual(compile(forms.Arrow, { file: 'source.cts' }).backend, 'pulse');
-  assert.notEqual(compile(forms.Arrow, { target: 'es2018' }).backend, 'pulse');
+  assert.equal(compile(forms.Arrow, { target: 'es2018' }).backend, 'pulse');
+  assert.notEqual(compile(forms.Arrow + '\nexport const next = value ?? 1;', { target: 'es2018' }).backend, 'pulse');
 });
 
 test('the module emitter erases comments inside a delimited arrow parameter annotation', async () => {

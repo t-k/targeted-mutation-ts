@@ -36,6 +36,12 @@ for (const row of rows) {
     } else if (output === 'Preserve' && (kind === 'DynamicImport' || kind === 'UnicodeIdentifier')) {
       assert.equal(result.backend, 'javascript');
       assert.equal(result.code, '"use strict";\n' + source);
+    } else if (output === 'Map' && ['LateExport', 'DynamicImport', 'UnicodeIdentifier'].includes(kind)) {
+      // Text that is published as written keeps that route with a map, which leads every token to itself.
+      assert.equal(result.backend, 'javascript');
+      assert.equal(result.code, (kind === 'LateExport' ? '' : '"use strict";\n') + source);
+      assert.deepEqual(result.sourceMap.sourcesContent, [source]);
+      assert.equal(result.sourceMap.mappings.startsWith(';'), kind !== 'LateExport');
     } else {
       assert.equal(result.backend, 'typescript');
       if (output === 'Map') assert.ok(result.sourceMap);

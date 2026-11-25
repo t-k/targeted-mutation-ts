@@ -939,7 +939,21 @@ Most projects state `target: es2022` or a later year, and every such file used t
 | An accessor field | Writes a private storage field with a getter and a setter. |
 | The name of a class inside one of its non-static private members | Replaces the name by a variable that is set behind the class. |
 
-`compile` therefore handles `es2022`, `es2023`, `es2024` and `es2025` as ESNext when the source holds none of the four, and hands the file to TypeScript otherwise. The test errs toward TypeScript: `using name` and `accessor name` are found by pattern (prose that happens to read that way sends the file to TypeScript too), a private name counts whenever it is not read through a dot, and at signs are settled by the parser, which tells a decorator from a JSDoc tag or a string. Each test takes time in proportion to the source. Targets before ES2022 are still lowered by TypeScript.
+`compile` therefore handles `es2022`, `es2023`, `es2024` and `es2025` as ESNext when the source holds none of the four, and hands the file to TypeScript otherwise. The test errs toward TypeScript: `using name` and `accessor name` are found by pattern (prose that happens to read that way sends the file to TypeScript too), a private name counts whenever it is not read through a dot, and at signs are settled by the parser, which tells a decorator from a JSDoc tag or a string. Each test takes time in proportion to the source.
+
+The same was measured for every target down to ES2015: TypeScript's output for a target differs from its ESNext output only where the source holds a form newer than that target. A file is therefore compiled natively for an older target when none of these stands in it, found by their words and signs wherever they are (a comment or a string that holds one sends the file to TypeScript):
+
+| Target below | Forms that send the file to TypeScript |
+| --- | --- |
+| ES2022 | a class (fields, private names and static blocks all need one), any private name |
+| ES2021 | `\|\|=`, `&&=`, `??=`, a numeric separator |
+| ES2020 | `?.`, `??`, `export * as` |
+| ES2019 | a `catch` without a binding |
+| ES2018 | `...`, `for await`, an async generator, and JSX (its attributes become an object that may spread) |
+| ES2017 | `async`, `await` |
+| ES2016 | `**` |
+
+Of 33,572 measured files, 22,925 hold no class, and 11,429 hold none of the forms at all.
 
 A failure inside TypeScript itself (a `TypeError` raised from its own code, seen with CommonJS output when a file imports its own name) is answered with the diagnostic `TYPESCRIPT_FAILURE` instead of an exception.
 

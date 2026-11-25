@@ -527,7 +527,30 @@ function mappedScript(input, options) {
 // member that is not static, the name of its class is replaced by a variable that is set behind the class.
 // Measured on 33,572 files of sixteen code bases and of TypeScript's own cases, every difference between its
 // ES2022 and ESNext outputs was one of these, and no diagnostic differed.
-const recentTargets = new Set(['es2022', 'es2023', 'es2024', 'es2025']);
+//
+// The same holds further back, measured the same way for every target down to ES2015: its output differs
+// from ESNext only where the source holds a form that is newer than the target. Those forms are found by
+// their words and signs, wherever they stand (a comment or a string that holds one sends the file to
+// TypeScript):
+//   below ES2022  a class (fields, private names and static blocks all need one) and any private name
+//   below ES2021  `||=`, `&&=`, `??=` and a numeric separator
+//   below ES2020  `?.`, `??` and `export * as`
+//   below ES2019  a `catch` without a binding
+//   below ES2018  `...` (an object may spread or collect), `for await`, an async generator, and JSX,
+//                 whose attributes become an object that may spread
+//   below ES2017  `async` and `await`
+//   below ES2016  `**`
+const targetYears = new Map([['es6', 2015], ['es2015', 2015], ['es2016', 2016], ['es2017', 2017], ['es2018', 2018], ['es2019', 2019],
+  ['es2020', 2020], ['es2021', 2021], ['es2022', 2022], ['es2023', 2023], ['es2024', 2024], ['es2025', 2025]]);
+const newerForms = [
+  [2022, /\bclass\b|\.#/],
+  [2021, /\|\|=|&&=|\?\?=|(?<![\w$])\d[\w.]*_/],
+  [2020, /\?\.|\?\?|\bexport\s*\*\s*as\b/],
+  [2019, /\bcatch\b(?!\s*\()/],
+  [2018, /\.\.\.|\bfor\b(?!\s*\()|\basync\b[^;{]{0,200}\*/],
+  [2017, /\basync\b|\bawait\b/],
+  [2016, /(?<!\/)\*\*(?!\/)/],
+];
 const comment = '(?:[ \\t]|/\\*(?:[^*]|\\*(?!/))*\\*/)';
 // `using name =`, `using name:` and the head of a loop. English text with these words in this order is
 // taken for a declaration too, and such a file goes to TypeScript.
@@ -540,14 +563,16 @@ const accessorField = new RegExp('(?<![\\w$.])accessor' + comment + '+(?:[\\[\\"
 // before the name decides, so the search takes time in proportion to the source.
 const privateMember = /(?<!\/\/[ \t]{0,8})(?<=[\s{;}*\/])#[A-Za-z_$\\\u0080-\uffff]/;
 
-// Whether a source holds none of the forms that a target from ES2022 on lowers.
-function writtenAsNewest(input, jsxFile) {
+// Whether a source holds none of the forms that TypeScript writes differently for a target of that year.
+function writtenAsNewest(input, jsxFile, year) {
   const bytes = Buffer.isBuffer(input) ? input : typeof input === 'string' ? Buffer.from(input) : null;
   if (bytes === null) return false;
   const using = bytes.includes('using'), accessor = bytes.includes('accessor'), at = bytes.includes(64), hash = bytes.includes(35);
-  if (!using && !accessor && !at && !hash) return true;
+  if (year >= 2022 && !using && !accessor && !at && !hash) return true;
   const text = bytes.latin1Slice();
   if ((using && usingDeclaration.test(text)) || (accessor && accessorField.test(text)) || (hash && privateMember.test(text))) return false;
+  if (year < 2018 && jsxFile && bytes.includes(60)) return false;
+  for (const [since, form] of newerForms) if (year < since && form.test(text)) return false;
   if (at) {
     // An at sign may stand in a comment or a string: the parser says whether one of them is a decorator.
     const addon = bytes.length <= 1048576 ? loadModuleAddon() : null;
@@ -584,7 +609,7 @@ function compile(input, options = {}) {
   const format = outputFormat(file, module);
   const typed = /\.(?:m?ts|tsx)$/i.test(file);
   const jsxFile = /\.[jt]sx$/i.test(file);
-  if (recentTargets.has(target) && mode === 'transform' && !experimentalDecorators && writtenAsNewest(snapshot(input), jsxFile)) {
+  if (targetYears.has(target) && mode === 'transform' && !experimentalDecorators && writtenAsNewest(snapshot(input), jsxFile, targetYears.get(target))) {
     return compile(input, { ...options, target: 'esnext' });
   }
   // Decorators of TypeScript's earlier design are lowered to helper calls. A source without an at sign holds

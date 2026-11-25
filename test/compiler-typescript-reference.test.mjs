@@ -3037,8 +3037,8 @@ test('the targets from ES2022 on compile as ESNext unless a form that TypeScript
   assert.equal(compile('function d(...a: any[]): any {}\nexport @d class A {}', { file: 'new.ts', target: 'es2022' }).backend, 'typescript');
   assert.equal(compile('export enum E { A }', { file: 'new.ts', target: 'es2022' }).backend, 'pulse');
   assert.equal(compile('export class A { accessor x = 1; }', { file: 'new.ts', target: 'es2022' }).backend, 'typescript');
-  // An older target is still lowered by TypeScript.
-  assert.equal(compile(Buffer.from('export const a: number = 1;'), { file: 'new.ts', target: 'es2021' }).backend, 'typescript');
+  // An older target is lowered by TypeScript where the source holds a form newer than it.
+  assert.equal(compile(Buffer.from('export class A { x: number = 1; }'), { file: 'new.ts', target: 'es2021' }).backend, 'typescript');
   // With a source map the route is the same.
   const mapped = compile(Buffer.from('export enum E { A }\nexport const a: number = E.A;'), { file: 'new.ts', target: 'es2022', sourceMap: true });
   assert.equal(mapped.backend, 'pulse');
@@ -3095,4 +3095,47 @@ test('JSX that is kept: elements as written, with the types around and inside th
   // The other modes are unchanged by the third one.
   assert.match(compile(Buffer.from('export const view = <p>{1 as number}</p>;\n'), { file: 'kept.tsx' }).code, /react\/jsx-runtime/);
   assert.match(compile(Buffer.from('export const view = <p>{1 as number}</p>;\n'), { file: 'kept.tsx', jsx: 'classic' }).code, /React\.createElement/);
+});
+
+test('each target compiles natively up to the forms of its year', () => {
+  // A source and the first target year that TypeScript writes like ESNext.
+  const forms = [
+    ['/** doc */\nexport function f(a: number[]): number { for (const x of a) g(x); try { g(1); } catch (e) { g(e); } return a.length; }\ndeclare function g(x: unknown): void;', 2015],
+    ['export enum E { A }\nnamespace N { export const x: number = E.A; }\nexport const n = N.x;', 2015],
+    ['export const p: number = 2 ** 3;', 2016],
+    ['export async function f(): Promise<number> { return await g(); }\ndeclare function g(): Promise<number>;', 2017],
+    ['declare const p: object;\nexport const o = { ...p };', 2018],
+    ['export function f(...rest: number[]) { return rest; }', 2018],
+    ['export async function f(s: AsyncIterable<number>) { for await (const x of s) void x; }', 2018],
+    ['export const o = { async /* c */ *g() { yield 1; } };', 2018],
+    ['export function f(g: () => void) { try { g(); } catch { g(); } }', 2019],
+    ['export function f(g: () => void) { try { g(); } catch /* none */ { g(); } }', 2019],
+    ['declare const b: { c?: number } | undefined;\nexport const a = b?.c;', 2020],
+    ['declare const b: number | undefined;\nexport const a = b ?? 1;', 2020],
+    ['export * as parts from "./parts";', 2020],
+    ['let a: number | undefined;\na ||= 1;\na &&= 2;\na ??= 3;\nexport { a };', 2021],
+    ['export const n: number = 1_000 + 0xff_ff;', 2021],
+    ['export class A { x = 1; static s = 2; }', 2022],
+    ['export const A = class { m() { return 1; } };', 2022],
+  ];
+  const years = { es2015: 2015, es6: 2015, es2016: 2016, es2017: 2017, es2018: 2018, es2019: 2019, es2020: 2020, es2021: 2021, es2022: 2022, es2023: 2023 };
+  for (const [target, year] of Object.entries(years)) {
+    for (const [source, since] of forms) {
+      const expected = ts.transpileModule(source, { fileName: 'year.ts', reportDiagnostics: true, compilerOptions: {
+        target: ts.ScriptTarget[target === 'es6' ? 'ES2015' : target.toUpperCase()], module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true } });
+      const result = compile(Buffer.from(source), { file: 'year.ts', target });
+      assert.deepEqual(inspect(ts, result.code, 'year.ts'), inspect(ts, expected.outputText, 'year.ts'), `${target} ${source}`);
+      assert.equal(result.backend === 'typescript', year < since, `${target} ${source}`);
+    }
+    // JSX is native from ES2018 on, where the object of its attributes may spread.
+    const jsx = compile(Buffer.from('export const e = <a b={1 as number} />;'), { file: 'year.tsx', target });
+    assert.equal(jsx.backend === 'typescript', year < 2018, target);
+  }
+  // A doc comment is no exponentiation, but two stars inside one are taken for it.
+  assert.equal(compile(Buffer.from('/** a ** b */\nexport const a: number = 1;'), { file: 'year.ts', target: 'es2015' }).backend, 'typescript');
+  // A word of a newer form in a comment or a string is enough to leave the file with TypeScript.
+  assert.equal(compile(Buffer.from('// no class here\nexport const a: number = 1;'), { file: 'year.ts', target: 'es2020' }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('export const a: string = "x ?? y";'), { file: 'year.ts', target: 'es2019' }).backend, 'typescript');
+  // A private name outside a class is an error that TypeScript prints differently per target.
+  assert.equal(compile(Buffer.from('declare const x: any;\nx.#bar = 1;\nexport {};'), { file: 'year.ts', target: 'es2021' }).backend, 'typescript');
 });
