@@ -124,3 +124,22 @@ test('the copy spelled in ASCII is not taken for a pattern whose meaning depends
   // A division and a comment on one line, and a path in a string, are no pattern with structure.
   assert.equal(lowered('export const half = 1 / 2; // половина\nexport const u = "https://пример.рф/путь/x";').backend, 'pulse');
 });
+
+test('slashes that begin no pattern do not rule the copy out', () => {
+  const lowered = source => compile(Buffer.from('enum E { A }\nexport const été = E.A;\n' + source), { file: 'slashes.ts' });
+  for (const source of [
+    // A block comment and a line comment with brackets and text outside ASCII.
+    '/* смотри [раздел 2] и <тег> */\nexport const a = 1;',
+    '// [раздел] текст / далее \\ конец\nexport const a = 1;',
+    // A pattern of ASCII with structure, beside text outside ASCII elsewhere.
+    'export const a = /[a-z]\\d<x>/.test("é");',
+    // A division on one line and a bracket with such text and a slash on a later line.
+    'export const a = 4 / 2;\nexport const s = "[é]";\nexport const b = a / 2;',
+  ]) {
+    assert.equal(lowered(source).backend, 'pulse', source);
+  }
+  // A comment in front does not end the search for a pattern further down.
+  // (т-а is out of order, and its spelling BA-AU holds the range A-A, which is in order.)
+  assert.notEqual(lowered('// note\nexport const a = /[т-а]/.test("x");').backend, 'pulse');
+  assert.notEqual(lowered('/* note */ export const a = /[т-а]/.test("x");').backend, 'pulse');
+});
