@@ -2636,8 +2636,11 @@ static bool close_namespace_scope(namespace_scope *scope) {
   return closed;
 }
 
-/* Whether every use of a name in a range is followed by a dot: such a use reads a property of the name. */
-static bool only_qualified(TmtPulseMemory_tape input, uint32_t first, uint32_t last, TmtGrammar_span name) {
+/*
+ * Whether every use of a name in a range reads the name: it is followed by a dot, or the parser recorded it as
+ * a name read as an expression (`value instanceof N`, `new N()`). Any other occurrence may declare the name.
+ */
+static bool only_qualified(namespace_scope *scope, TmtPulseMemory_tape input, uint32_t first, uint32_t last, TmtGrammar_span name) {
   const uint32_t width = name.last - name.first;
   for (uint32_t at = first; at + width <= last; at++) {
     if (memcmp(input.source + at, input.source + name.first, width)) continue;
@@ -2648,7 +2651,13 @@ static bool only_qualified(TmtPulseMemory_tape input, uint32_t first, uint32_t l
     if (before || after) continue;
     uint32_t next = at + width;
     while (next < last && (input.source[next] == ' ' || input.source[next] == '\t')) next++;
-    if (next >= last || input.source[next] != '.' || (next + 1 < last && input.source[next + 1] == '.')) return false;
+    if (next < last && input.source[next] == '.' && !(next + 1 < last && input.source[next + 1] == '.')) continue;
+    if (!read_references(scope, input.size)) return false;
+    bool read = false;
+    for (uint32_t index = 0; index < scope->reference_count && !read; index++) {
+      read = scope->references[index].first == at && scope->references[index].last == at + width;
+    }
+    if (!read) return false;
   }
   return true;
 }
@@ -2847,8 +2856,8 @@ static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t in
     }
     if (tail == records) return false;
     const uint32_t body_last = input.output[tail].left.first;
-    if (body_last < span.last || !only_qualified(input, span.last, body_last, name)) return false;
-    for (uint32_t part = 0; part < dotted; part++) if (!only_qualified(input, span.last, body_last, further[part])) return false;
+    if (body_last < span.last || !only_qualified(scope, input, span.last, body_last, name)) return false;
+    for (uint32_t part = 0; part < dotted; part++) if (!only_qualified(scope, input, span.last, body_last, further[part])) return false;
     /* The search for references reads bytes. A character outside ASCII may be a line separator or part of a name. */
     for (uint32_t at = span.last; at < body_last; at++) if (input.source[at] >= 128) return false;
     /* The variables this namespace exports itself; those of a namespace inside are checked with that one. */

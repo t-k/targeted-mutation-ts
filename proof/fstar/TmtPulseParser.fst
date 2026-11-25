@@ -2982,7 +2982,11 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
                   if this_ then ret input { target with offset = plus target.offset 4ul }
                   else if anonymous then class_expression input target inner
                   else (let! anf_value_5 = (fun () -> forbidden_field_arguments input target) in if anf_value_5 then ret input (failed target 1ul)
-                  else (let! anf_value_6 = (fun () -> (name input target.offset false false)) in ret input (from_cursor target anf_value_6)))) in
+                  else
+                    let! anf_value_6 = (fun () -> (name input target.offset false false)) in
+                    // The constructed name is read as an expression like any other.
+                    if input.capture_references && anf_value_6.ok then record_reference input (from_cursor target anf_value_6) target.offset
+                    else ret input (from_cursor target anf_value_6))) in
               let! named = (fun () -> qualified_name input named 64ul) in
               let! gap = (fun () -> trivia input named.offset) in
               let! named, boundary = (fun () ->

@@ -986,7 +986,6 @@ test('a namespace with exported variables, functions and classes is lowered as T
     assert.notEqual(compile(Buffer.from(source), { file: 'space.ts' }).backend, 'pulse', source);
   }
   for (const source of [
-    'export namespace N { export const a = () => N; }',
     'export namespace N { export const a = 1, b = 2; }',
     'export namespace N { export const { a } = o; }',
     'export namespace N { export function f(): void; function f() {} }',
@@ -2154,7 +2153,6 @@ test('a namespace behind a namespace, a class or a function of its name is writt
     // member that is constructed.
     'namespace A.B { export const x = 1; }\nnamespace A.B { export const y = x; }\nexport { A };',
     'namespace N { export const a = 1; }\nnamespace N { export function f(a: number) { return a; } }\nexport { N };',
-    'namespace N { export class K {} }\nnamespace N { export const v = new K(); }\nexport { N };',
     'namespace A { export namespace B { export function f() { return 1; } } }\nnamespace A { export namespace B { export const y = f(); } }\nexport { A };',
     // An enum behind the namespace, a declared class, a class behind the namespace, and a merge inside a namespace.
     'namespace E { export const x = 1; }\nenum E { a }\nexport { E };',
@@ -2708,5 +2706,28 @@ test('an operator that binds no tighter than an assertion may follow it', () => 
   for (const expression of ['a as T / b', 'a as T + b', 'a as T > b', 'a as T instanceof b', 'a as T\n|| b']) {
     const source = `declare let a: any, b: any, x: any;\nx = ${expression};\nexport {};`;
     assert.notEqual(sameAsTypeScript(source, 'follow.ts').backend, 'pulse', expression);
+  }
+});
+
+test('a namespace body may read the name of the namespace, and a constructed name is a reference', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let|namespace)/g, ''))();
+  for (const source of [
+    'export class Style { constructor(public bold = false) {} }\nexport namespace Style { export function is(s: any): s is Style { return s instanceof Style; } export function make() { return new Style(true); } }\nexport const out = JSON.stringify([Style.is(Style.make()), Style.is(1), Style.make()]);',
+    'namespace T { export const self = T; export const list = [T, typeof T]; export namespace I { export const p = T; } }\nexport const out = JSON.stringify([T.self === T, T.list.length, T.I.p === T]);',
+    'namespace A.B { export const pair = [A, B].map(x => typeof x); }\nexport const out = JSON.stringify(A.B.pair);',
+    'export namespace N { export const a = () => N; export const o = { N }; }\nexport const out = JSON.stringify([N.a() === N, N.o.N === N]);',
+    'namespace N { export const K = class { v = 1 }; export const made = new K(); export class L { w = 2 } export const other = new L(); }\nexport const out = JSON.stringify([N.made, N.other]);',
+    'namespace N { export class K { v = 1 } }\nnamespace N { export const made = new K(); }\nexport const out = JSON.stringify(N.made);',
+  ]) {
+    const result = sameAsTypeScript(source, 'self.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'self.ts')), source);
+  }
+  // An occurrence that may declare the name leaves the namespace to TypeScript, which renames where it must.
+  for (const member of ['export function f(T: number) { return T; }', 'export function f() { const T = 1; return T; }', 'export const T = 1;', 'export class T {}',
+    'export function T() {}', 'export const k = { T: 1 };', 'export function f({ T }: any) { return T; }',
+    'export function f() { try {} catch (T) { return T; } }', 'export function f() { class T {} return T; }', 'import T = Q.R; export const a = T;']) {
+    const source = `namespace T { ${member} }\nexport { T };`;
+    assert.notEqual(sameAsTypeScript(source, 'self.ts').backend, 'pulse', source);
   }
 });

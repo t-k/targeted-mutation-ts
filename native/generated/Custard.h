@@ -1348,6 +1348,13 @@ TmtPulseParser_quote_end(
   uint32_t fuel0
 );
 
+TmtPulseParser_parser_state
+TmtPulseParser_record_reference(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t start
+);
+
 typedef struct TmtPulseParser_array_run_s
 {
   TmtPulseParser_parser_state inside;
@@ -1558,13 +1565,6 @@ TmtPulseParser_regex_pattern(
 );
 
 TmtPulseParser_cursor TmtPulseParser_regex_end(TmtPulseMemory_tape input, uint32_t at);
-
-TmtPulseParser_parser_state
-TmtPulseParser_record_reference(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t start
-);
 
 TmtPulseParser_assignment_target
 TmtPulseParser_identifier_target(TmtPulseMemory_tape input, uint32_t pos, uint8_t ch);

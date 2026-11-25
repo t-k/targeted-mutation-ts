@@ -7551,6 +7551,24 @@ TmtPulseParser_quote_end(
   KRML_HOST_EXIT(255U);
 }
 
+TmtPulseParser_parser_state
+TmtPulseParser_record_reference(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state,
+  uint32_t start
+)
+{
+  if (state.status != 0U)
+    return state;
+  else
+    return
+      TmtPulseParser_record_compiler_span(input,
+        state,
+        43U,
+        ((TmtGrammar_span){ .first = start, .last = state.offset }),
+        ((TmtGrammar_span){ .first = 0U, .last = 0U }));
+}
+
 TmtPulseParser_array_run
 TmtPulseParser_array_openers(
   TmtPulseMemory_tape input0,
@@ -8973,24 +8991,6 @@ TmtPulseParser_cursor TmtPulseParser_regex_end(TmtPulseMemory_tape input, uint32
         }
       ));
   return value.ending;
-}
-
-TmtPulseParser_parser_state
-TmtPulseParser_record_reference(
-  TmtPulseMemory_tape input,
-  TmtPulseParser_parser_state state,
-  uint32_t start
-)
-{
-  if (state.status != 0U)
-    return state;
-  else
-    return
-      TmtPulseParser_record_compiler_span(input,
-        state,
-        43U,
-        ((TmtGrammar_span){ .first = start, .last = state.offset }),
-        ((TmtGrammar_span){ .first = 0U, .last = 0U }));
 }
 
 TmtPulseParser_assignment_target
@@ -14447,7 +14447,13 @@ TmtPulseParser_atom(
                   {
                     TmtPulseParser_cursor
                     value9 = TmtPulseParser_name(input, value4.offset, false, false);
-                    value60 = TmtPulseParser_from_cursor(value4, value9);
+                    if (input.capture_references && value9.ok)
+                      value60 =
+                        TmtPulseParser_record_reference(input,
+                          TmtPulseParser_from_cursor(value4, value9),
+                          value4.offset);
+                    else
+                      value60 = TmtPulseParser_from_cursor(value4, value9);
                   }
                 }
               }
