@@ -3901,10 +3901,12 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
   let! function_head = (fun () -> if root_control || not (st.module_mode || st.strict_script) then ret input ({ at = st.offset; ok = false; newline = false })
     else function_start input st.offset) in
   let! first = (fun () -> peek input st.offset) in
-  let! class_ = (fun () -> if not root_control && st.module_mode && first = 99uy then class_keyword input st.offset
+  // A script that the compiler publishes is strict code that V8 checks, so a class may stand in its blocks too.
+  let block_classes = st.module_mode || (st.strict_script && input.capture_types) in
+  let! class_ = (fun () -> if not root_control && block_classes && first = 99uy then class_keyword input st.offset
     else ret input false) in
   // An abstract class inside a function: the modifier is erased as it is at module level.
-  let! abstract_ = (fun () -> if not root_control && st.module_mode && first = 97uy && input.capture_types then
+  let! abstract_ = (fun () -> if not root_control && block_classes && first = 97uy && input.capture_types then
     abstract_class_start input st.offset else ret input { at = st.offset; ok = false; newline = false }) in
   let! resource = (fun () -> if not root_control && allow_resource && (first = 117uy || first = 97uy && st.await_allowed) then
     resource_declaration_start input st first else ret input (failed st 1ul)) in
@@ -5166,8 +5168,15 @@ let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:
     if not exported then
       // A type alias or an interface is erased and does not make the namespace exist.
       let! local_type = (fun () -> type_declaration_width input st.offset) in
-      let! statement = (fun () -> scope_statement input st 64ul false NoJump floor used false true) in
-      runtime_namespace_members input statement.state floor statement.used (minus remaining 1ul) (instantiated || local_type = 0ul)
+      // The body becomes a function body, so a var that is a statement of it belongs to it. Other statements
+      // are read as outside a function: a return has no place here.
+      let! var_ = (fun () -> if first = 118uy then keyword input st.offset 3ul 0x766172uL else ret input false) in
+      if var_ then
+        let! declared = (fun () -> local_var_declaration input st 64ul) in
+        runtime_namespace_members input declared floor used (minus remaining 1ul) true
+      else
+        let! statement = (fun () -> scope_statement input st 64ul false NoJump floor used false true) in
+        runtime_namespace_members input statement.state floor statement.used (minus remaining 1ul) (instantiated || local_type = 0ul)
     else
       let! after = (fun () -> trivia input (plus st.offset 6ul)) in
       let! lexical = (fun () -> local_width input after.at) in

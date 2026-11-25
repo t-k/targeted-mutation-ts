@@ -1639,3 +1639,27 @@ test('a published script takes a var below the top level, and V8 refuses the con
     assert.notEqual(compile(Buffer.from(source), { file: 'script.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a namespace body is a function body for var, and published scripts take classes in blocks', () => {
+  for (const [source, file] of [
+    ['namespace N { var x = 1; }\nlet x = 2;\nexport {};', 'space.ts'],
+    ['namespace N { var x = 1; var x = 2; let y = x; }', 'space.ts'],
+    ['namespace N { type T = 1; var t: T = 1; }\nexport {};', 'space.ts'],
+    ['module M { var a = 1; function f() { return a; } export var b = f(); }', 'space.ts'],
+    ['namespace N { class C {} export const c = new C(); }', 'space.ts'],
+    ['namespace N { class C {} }', 'space.ts'],
+    ['{ class C {} }', 'space.ts'],
+    ['function f() { class C {} }', 'space.ts'],
+    ['{ abstract class C {} }', 'space.ts'],
+  ]) {
+    assert.equal(sameAsTypeScript(source, file).backend, 'pulse', source);
+  }
+  // The var stays inside the namespace: an export list of the module does not find it.
+  for (const source of [
+    'namespace N { var x = 1; }\nexport { x };',
+    'namespace N { { var x = 1; } export const y = 1; }\nexport { x };',
+    'namespace N { var x = 1; let x = 2; }\nexport {};',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'space.ts' }).backend, 'pulse', source);
+  }
+});

@@ -17434,13 +17434,14 @@ TmtPulseParser_scope_statement(
   else
     value1 = TmtPulseParser_function_start(input, st.offset);
   uint8_t value2 = TmtPulseMemory_peek(input, st.offset);
+  bool block_classes = st.module_mode || st.strict_script && input.capture_types;
   bool value3;
-  if (!root_control && st.module_mode && value2 == 99U)
+  if (!root_control && block_classes && value2 == 99U)
     value3 = TmtPulseParser_class_keyword(input, st.offset);
   else
     value3 = false;
   TmtPulseParser_cursor value4;
-  if (!root_control && st.module_mode && value2 == 97U && input.capture_types)
+  if (!root_control && block_classes && value2 == 97U && input.capture_types)
     value4 = TmtPulseParser_abstract_class_start(input, st.offset);
   else
     value4 = ((TmtPulseParser_cursor){ .at = st.offset, .ok = false, .newline = false });
@@ -22339,25 +22340,44 @@ TmtPulseParser_runtime_namespace_members(
       if (!value3)
       {
         uint32_t value4 = TmtPulseParser_type_declaration_width(input, value.offset);
-        TmtPulseParser_named_state
-        value5 =
-          TmtPulseParser_scope_statement(input,
-            value,
-            64U,
-            false,
-            ((TmtPulseParser_jump_context){ .tag = TmtPulseParser_NoJump }),
-            floor,
-            used,
-            false,
-            true);
-        TmtPulseParser_parser_state tmp0 = value5.state;
-        uint32_t tmp1 = value5.used;
-        uint32_t tmp2 = TmtPulseParser_minus(remaining, 1U);
-        bool tmp = instantiated || value4 == 0U;
-        state = tmp0;
-        used = tmp1;
-        remaining = tmp2;
-        instantiated = tmp;
+        bool value5;
+        if (value2 == 118U)
+          value5 = TmtPulseParser_keyword(input, value.offset, 3U, 0x766172ULL);
+        else
+          value5 = false;
+        if (value5)
+        {
+          TmtPulseParser_parser_state
+          value6 = TmtPulseParser_local_var_declaration(input, value, 64U);
+          TmtPulseParser_parser_state tmp0 = value6;
+          uint32_t tmp1 = TmtPulseParser_minus(remaining, 1U);
+          bool tmp = true;
+          state = tmp0;
+          remaining = tmp1;
+          instantiated = tmp;
+        }
+        else
+        {
+          TmtPulseParser_named_state
+          value6 =
+            TmtPulseParser_scope_statement(input,
+              value,
+              64U,
+              false,
+              ((TmtPulseParser_jump_context){ .tag = TmtPulseParser_NoJump }),
+              floor,
+              used,
+              false,
+              true);
+          TmtPulseParser_parser_state tmp0 = value6.state;
+          uint32_t tmp1 = value6.used;
+          uint32_t tmp2 = TmtPulseParser_minus(remaining, 1U);
+          bool tmp = instantiated || value4 == 0U;
+          state = tmp0;
+          used = tmp1;
+          remaining = tmp2;
+          instantiated = tmp;
+        }
       }
       else
       {
