@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.0
+
+- Add `--related` (and `related: true` config) for Vitest to automatically select only test files (and Vitest projects) related to the scoped source files inside a supervised temporary copy, failing with a clear `--test <FILE>` hint when no related tests match.
+- Add `--json-out FILE` and `--sarif-out FILE` to write JSON and/or SARIF reports alongside terminal text output, with pre-run output path collision checks across `--json-out`, `--sarif-out`, `--write-baseline`, and `--checkpoint`.
+- Improve `--mutators full` summary wording to distinguish non-targeted survivors (`N targeted gap(s) (M other survivor(s))`) and fix singular/plural forms (`1 edit`, `1 test gap`, `1 baseline test`, `1 gap`).
+- Improve `nullish-fallback/v1` advice to omit the right-side falsy literal itself (`""`, `0`, `0n`, `false`, `NaN`) from the suggested candidate list, and add `--type-check` (and `typeCheck: true` config) to skip statically equivalent `nullish-fallback/v1` and `nullish-equality/v1` edits under `strictNullChecks`.
+
 ## 0.2.3
 
 - Warn once on `stderr` and skip missing `--copy-exclude` (and `copyExclude` config) paths instead of failing with `Copy exclusion does not exist`, so scripts excluding optional build/test outputs work on clean checkouts. Paths escaping the project, targeting `node_modules`, or traversing symbolic links (including missing targets under a symlink) are still rejected.
