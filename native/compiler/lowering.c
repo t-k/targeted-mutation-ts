@@ -1196,13 +1196,18 @@ static bool jsx_children(lowering *lower, TmtGrammar_span tag, uint32_t depth, c
       /* TypeScript drops a container that holds nothing, not even a comment, and the texts on its two sides
          become one text. Kept JSX would keep them apart, so such an element is not answered here. */
       if (lower->preserve && peek(lower) == '}') {
-        bool blank = true;
-        for (uint32_t at = opened; at < lower->at; at++) blank = blank && space(lower->input.source[at]);
-        if (blank) return false;
+        /* Without a slash there is no comment, whatever white space stands there. */
+        if (!memchr(lower->input.source + opened, '/', lower->at - opened)) return false;
       }
       if (consume(lower, '}')) continue;
     } else if (!element) {
       if (!jsx_text(lower, &text, &multiline, &visible)) return false;
+      if (lower->preserve) {
+        /* TypeScript writes a text that begins like a comment twice, so such a text is left to it. */
+        uint32_t at = text.first;
+        while (at < text.last && lower->input.source[at] != '/' && (lower->input.source[at] <= ' ' || lower->input.source[at] >= 128)) at++;
+        if (at + 1 < text.last && lower->input.source[at] == '/' && (lower->input.source[at + 1] == '/' || lower->input.source[at + 1] == '*')) return false;
+      }
       if (multiline && !visible) continue;
     }
     if (classic || children) put(out, ",");

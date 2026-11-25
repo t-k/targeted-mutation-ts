@@ -1,0 +1,6 @@
+Import: Named, Default, Namespace, DefaultAndNamed, Renamed, Bare
+Export: Const, ConstArrow, ConstFunction, Function, Class, DefaultExpression, DefaultFunction, DefaultClass, List, ReExport, Star, StarAs, Enum, Namespace
+Use: Call, Member, Shorthand, New, Tagged, Argument, OptionalCall, Nested
+Boundary: Semicolon, NoSemicolon
+
+IF [Import] = "Bare" THEN [Use] = "Argument";

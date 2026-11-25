@@ -42,6 +42,10 @@ for (const row of rows) {
       assert.equal(result.code, (kind === 'LateExport' ? '' : '"use strict";\n') + source);
       assert.deepEqual(result.sourceMap.sourcesContent, [source]);
       assert.equal(result.sourceMap.mappings.startsWith(';'), kind !== 'LateExport');
+    } else if (output === 'CommonJS' && kind === 'LateExport') {
+      // A module published as written is rewritten to CommonJS from its own text.
+      assert.equal(result.backend, 'javascript');
+      assert.equal(result.code, '"use strict";\nObject.defineProperty(exports, "__esModule", { value: true });\nexports.local = void 0;\nconst local = 12;\n\nexports.local = local;\n');
     } else {
       assert.equal(result.backend, 'typescript');
       if (output === 'Map') assert.ok(result.sourceMap);

@@ -580,6 +580,8 @@ const otherSpace = /[\x0b\x0c]|\xc2[\x85\xa0]|\xe1\x9a\x80|\xe2\x80[\x80-\x8a\xa
 // A backslash in front of a digit, of an `x` without two hexadecimal digits, or of a `u` without four.
 const doubtfulEscape = /\\(?:[0-9]|x(?![0-9a-fA-F]{2})|u(?![0-9a-fA-F]{4}))/;
 
+const commonJsDeclined = Symbol('commonJsDeclined');
+
 // Whether a source holds none of the forms that TypeScript writes differently for a target of that year.
 function writtenAsNewest(input, jsxFile, year) {
   const bytes = Buffer.isBuffer(input) ? input : typeof input === 'string' ? Buffer.from(input) : null;
@@ -630,6 +632,21 @@ function compile(input, options = {}) {
   const format = outputFormat(file, module);
   const typed = /\.(?:m?ts|tsx)$/i.test(file);
   const jsxFile = /\.[jt]sx$/i.test(file);
+  // CommonJS output of a module: the module is compiled as such, and its imports and exports are then
+  // written the way TypeScript writes them. A file with a CommonJS extension keeps the TypeScript route.
+  if (format === 'cjs' && module === 'cjs' && mode === 'transform' && !sourceMap && !experimentalDecorators && !options[commonJsDeclined] && !/\.[cm][jt]s$/i.test(file)) {
+    const stable = snapshot(input);
+    const written = compile(stable, { ...options, module: 'preserve' });
+    // An exported ambient declaration leaves no text, yet TypeScript reads its name through `exports`.
+    const ambient = (Buffer.isBuffer(stable) ? stable.includes('declare') : typeof stable === 'string' && stable.includes('declare')) &&
+      /\bexport\s+declare\b/.test(Buffer.isBuffer(stable) ? stable.latin1Slice() : stable);
+    if (!ambient && written.code !== null && (written.backend === 'pulse' || written.backend === 'javascript') && written.diagnostics.length === 0) {
+      const addon = loadModuleAddon();
+      const code = addon ? require('./compiler-commonjs.cjs').toCommonJs(addon, written.code) : null;
+      if (code !== null) return { ...written, code };
+    }
+    return compile(stable, { ...options, [commonJsDeclined]: true });
+  }
   if (targetYears.has(target) && mode === 'transform' && !experimentalDecorators && writtenAsNewest(snapshot(input), jsxFile, targetYears.get(target))) {
     return compile(input, { ...options, target: 'esnext' });
   }

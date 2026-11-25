@@ -3090,6 +3090,11 @@ test('JSX that is kept: elements as written, with the types around and inside th
   assert.equal(kept('export const view = <p>&{}amp;</p>;\n').backend, 'typescript');
   assert.equal(kept('export const view = <p>a{ }b{1 as number}</p>;\n').backend, 'typescript');
   assert.equal(kept('export const view = <p>a{/* note */}b{1 as number}</p>;\n').backend, 'pulse');
+  assert.equal(kept('export const view = <p>&{\u2028}amp;</p>;\n').backend, 'typescript');
+  // A text that begins like a comment is written twice by TypeScript; it is left to it.
+  assert.equal(compile(Buffer.from('export const view = <p>{0}/*x*/</p>;\n'), { file: 'kept.tsx', jsx: 'preserve' }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('export const view = <p>{0} // x\n</p>;\n'), { file: 'kept.tsx', jsx: 'preserve' }).backend, 'typescript');
+  assert.equal(kept('export const view = <a>{0}see http://example.test/x</a>;\n').backend, 'pulse');
   // A file that is left without an import or export gains one from TypeScript, so it is not answered here.
   assert.equal(kept('import type { T } from "./t";\nconst view = <p>export</p>;\nvoid view;\n').backend, 'typescript');
   // A script, a JavaScript file and a request for a map keep the TypeScript route.

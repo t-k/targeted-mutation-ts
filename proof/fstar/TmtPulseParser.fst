@@ -3367,6 +3367,8 @@ and comparison (input:tape) (current:parser_state) (fuel:U32.t)
     else if assignment <> 0ul then
       if fuel = 0ul then ret input (empty_range (failed st 3ul))
       else
+        // Kind 74: the target of an assignment, when the tape asks for references.
+        let! st = (fun () -> if input.capture_references then record_jsx_span input st 74ul lhs.range.G.first lhs.range.G.last else ret input st) in
         let! rhs = (fun () -> comparison input { st with offset = plus st.offset assignment } (minus fuel 1ul)) in
         // A plain assignment to a target is, inside an array or object target, an element with a default.
         let target = if assignment = 1ul && byte = 61uy && pattern_target lhs.target then DefaultedTarget else NotAssignable in
@@ -4263,6 +4265,9 @@ and control_sequence (input:tape) (state:parser_state) (fuel remaining:U32.t) (i
   if st.status <> 0ul || st.offset = input.size || closed then ret input (st)
   else if remaining = 0ul then ret input (failed st 1ul)
   else
+    // Kind 72 at the top level and kind 76 below it: a statement of a list starts here, when the tape asks
+    // for references. A semicolon in front of such a statement changes nothing.
+    let! st = (fun () -> if input.capture_references then record_jsx_span input st (if root_control then 72ul else 76ul) st.offset st.offset else ret input st) in
     let! statement = (fun () -> scope_statement input st fuel in_function jumps floor used root_control true) in
     control_sequence input statement.state fuel (minus remaining 1ul) in_function jumps floor statement.used root_control
 and switch_sequence (input:tape) (state:parser_state) (fuel remaining:U32.t) (in_function:bool) (jumps:jump_context)
@@ -4288,6 +4293,7 @@ and switch_sequence (input:tape) (state:parser_state) (fuel remaining:U32.t) (in
         switch_sequence input colon fuel left in_function jumps floor used true true
     else if not has_label then ret input (failed st 1ul)
     else
+      let! st = (fun () -> if input.capture_references then record_jsx_span input st 76ul st.offset st.offset else ret input st) in
       let! statement = (fun () -> scope_statement input st fuel in_function jumps floor used false false) in
       switch_sequence input statement.state fuel left in_function jumps floor statement.used true seen_default
 and control_block (input:tape) (state:parser_state) (fuel:U32.t) (in_function:bool) (jumps:jump_context) (floor used:names_used)

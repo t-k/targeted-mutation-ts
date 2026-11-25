@@ -964,3 +964,22 @@ JavaScript that is published as written (`.js` and `.mjs` at the ESNext target) 
 With `jsx: 'preserve'` a `.tsx` module is compiled natively: the types are erased as in the other modes, and every element is written as it stands in the source, without the type arguments of a tag (`<List<Item> />` becomes `<List />`; the projection that erases the types blanks them). The emitter walks an element with the same code that lowers it, which decides whether the element is accepted and where it ends, and then replaces what the walk wrote by the source text. Text, entities and attribute strings are therefore the source's bytes.
 
 A kept element cannot be confirmed by a JavaScript parse, so the result is published only from a certified projection of a module. When type-only statements were removed, the file must still hold an import or export of its own; this is read from a rendering with factory calls, which adds no import. An element with an empty container (`a{}b`) is left to TypeScript, which drops the container and joins the texts. A script, a `.jsx` file and a request for a source map keep the TypeScript route. On 3,005 `.tsx` files of seven code bases, 2,998 are answered natively in this mode, and each output has the same syntax tree as TypeScript's.
+
+### CommonJS output
+
+With `module: 'cjs'` a module is first compiled as a module, on the routes described above, and its text is then written as CommonJS by `src/compiler-commonjs.cjs`. The certified parser reads the text once more and reports where each statement starts (at the top level and in every list below it), which statements are imports and exports, the names the module declares, every name that is read as an expression, and the targets of assignments. From these the writer produces what TypeScript produces, statement by statement:
+
+| In the module | In the CommonJS text |
+| --- | --- |
+| `import { a, b as c } from "./m"` | `const m_1 = require("./m");` and every reading of `a` becomes `m_1.a`; a call becomes `(0, m_1.a)()`, a shorthand member `{ a: m_1.a }` |
+| `import d from`, `import * as n from`, `import d, { a } from` | the same through `__importDefault` or `__importStar`, with TypeScript's helper texts in its order |
+| `export const x = value` | `exports.x = value;`, and readings and writings of `x` go through `exports.x` |
+| `export const f = () => …` (an arrow function, a function or a class and nothing more) | the declaration stays and `exports.f = f;` follows it, so that the value takes the name |
+| `export function f() {}` | the function stays, and `exports.f = f;` is written at the top |
+| `export class C {}`, `export default …`, `export { a, b as c }` | an assignment behind the declaration, or a getter behind the import for an imported name |
+| `export * from`, `export * as n from`, `export { a } from` | `__exportStar`, `__importStar` and getters |
+| a lowered enum or namespace | `var E; (function (E) { … })(E \|\| (exports.E = E = {}));` |
+
+The line `exports.a = exports.b = void 0;` and the names of the module variables (`foo_bar_1`, `_2d_1`) follow TypeScript's rules. Whether the value of an exported variable is function-like is asked of the parser through small texts built around the value. A rewritten call that starts a statement of a list is written behind a semicolon, since its parenthesis would otherwise continue the statement in front.
+
+Whatever is not certain is left to TypeScript: a word of the source that spells an imported or exported name and is neither a reading, a property behind a dot nor the declaration (a parameter of that name, a key, a comment); an assignment to a function or class that is exported by value; `exports`, a dynamic import or `import.meta`; a pattern or several declarators in an exported declaration; an exported ambient declaration; `default` inside braces; a script; files with a module or CommonJS extension, a source map, and legacy decorators. The result is also read once as a function body before it is returned. On fourteen code bases 9,090 of 17,306 files are written this way with `module: 'cjs'`, each with the syntax tree of TypeScript's output.
