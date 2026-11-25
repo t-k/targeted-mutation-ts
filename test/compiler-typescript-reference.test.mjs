@@ -2997,3 +2997,44 @@ test('a long chain of conditional types and a large union are read without nesti
   // A chain is no place for a line break in front of `extends`, and each link needs both branches.
   assert.notEqual(compile(Buffer.from('export type X<T> = T extends A ? B;\nexport const a = 1;'), { file: 'chain.ts' }).backend, 'pulse');
 });
+
+test('the targets from ES2022 on compile as ESNext unless a form that TypeScript lowers stands in the source', () => {
+  const reference = (source, file, target) => ts.transpileModule(source, { fileName: file, reportDiagnostics: true, compilerOptions: {
+    target: ts.ScriptTarget[target.toUpperCase()], module: ts.ModuleKind.Preserve, jsx: ts.JsxEmit.ReactJSX, verbatimModuleSyntax: true } });
+  const same = (source, file, target) => {
+    const result = compile(Buffer.from(source), { file, target });
+    const expected = reference(source, file, target);
+    assert.deepEqual(inspect(ts, result.code, file), inspect(ts, expected.outputText, file), `${target} ${source}`);
+    return result;
+  };
+  for (const target of ['es2022', 'es2023', 'es2024', 'es2025']) {
+    for (const [source, file] of [
+      ['import { a } from "./a";\nexport enum E { A }\nnamespace N { export const n: number = E.A + a; }\nexport class C { static count = 0; constructor(public v: number) {} static { C.count++; } }', 'new.ts'],
+      ['/** @param x a value, using the cache; an accessor function */\nexport const f = (x: number): number => x ?? 1;\nexport const color: string = "#fff";', 'new.ts'],
+      ['export const el = <div className="x">{(1 as number) ||= 2}</div>;'.replace('(1 as number) ||= 2', 'n as number'), 'new.tsx'],
+      ['export class A { static x = () => A; static { A.x(); } m() { return A; } }\nexport const top = await Promise.resolve(1);', 'new.js'],
+    ]) {
+      const result = same(source, file, target);
+      assert.match(result.backend, /^(pulse|javascript)$/, `${target} ${source}`);
+    }
+    // Each of the forms that TypeScript writes differently for these targets goes to TypeScript.
+    for (const source of [
+      'function d(...a: any[]): any {}\n@d export class A { @d m() {} }',
+      'export function f(g: () => Disposable) { using x = g(); return x; }',
+      'export async function f(g: () => AsyncDisposable) { await using /* held */ x = g(); return x; }',
+      'export function f(list: Disposable[]) { for (using x of list) { void x; } }',
+      'export class A { accessor x = 1; static accessor #y = 2; }',
+      'export class Foo { #x() { return Foo; } }',
+      'export class Foo {\n  /** doc */ #x = () => Foo;\n}',
+    ]) {
+      const result = same(source, 'new.ts', target);
+      assert.equal(result.backend, 'typescript', `${target} ${source}`);
+    }
+  }
+  // An older target is still lowered by TypeScript.
+  assert.equal(compile(Buffer.from('export const a: number = 1;'), { file: 'new.ts', target: 'es2021' }).backend, 'typescript');
+  // With a source map the route is the same.
+  const mapped = compile(Buffer.from('export enum E { A }\nexport const a: number = E.A;'), { file: 'new.ts', target: 'es2022', sourceMap: true });
+  assert.equal(mapped.backend, 'pulse');
+  assert.equal(typeof mapped.sourceMap.mappings, 'string');
+});

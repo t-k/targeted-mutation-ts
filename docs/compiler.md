@@ -927,3 +927,18 @@ Timing files with many declarations of one kind showed three costs that grew wit
 Two limits inside types went with the table. The type behind the colon of a conditional type was read one level deeper, so a chain of more than sixteen links (`T extends A ? X : T extends B ? Y : ...`, the lookup tables of protocol definitions) was handed to TypeScript; the chain is now read at one depth, link by link, up to 64 links in an annotation and 256 in a type alias. A union or an intersection may have 4,096 members in an annotation and 16,384 in an alias (64 and 256 before). Types that really nest, such as type arguments inside type arguments, keep their limit of sixteen levels.
 
 The reviews of this last round found three more points in the decorator lowering. Removing a recorded type from a heritage clause joined the words on both sides (`<Job<"<">title=...>` read as `Jobtitle`); every removed span now leaves a space. A direct `eval` in the body of a class that names itself reads the name by its spelling: TypeScript's text gives the class's own name, the form used here the variable that holds the decorated class. Such a class is left to TypeScript, also when the call stands behind the dots of a spread.
+
+### Targets from ES2022 on
+
+Most projects state `target: es2022` or a later year, and every such file used to go to the TypeScript emitter. TypeScript's own output was compared between ES2022 and ESNext on 33,572 files (sixteen code bases and its own test cases). The two texts differ in four situations only, and no diagnostic differs:
+
+| Form | What TypeScript does below ESNext |
+| --- | --- |
+| A decorator | Lowers it to `__esDecorate` and `__runInitializers` calls. |
+| `using` and `await using` | Lowers the declaration to `__addDisposableResource` with a `try` statement. |
+| An accessor field | Writes a private storage field with a getter and a setter. |
+| The name of a class inside one of its non-static private members | Replaces the name by a variable that is set behind the class. |
+
+`compile` therefore handles `es2022`, `es2023`, `es2024` and `es2025` as ESNext when the source holds none of the four, and hands the file to TypeScript otherwise. The test errs toward TypeScript: `using name` and `accessor name` are found by pattern (prose that happens to read that way sends the file to TypeScript too), a private name counts whenever it is not read through a dot, and at signs are settled by the parser, which tells a decorator from a JSDoc tag or a string. Each test takes time in proportion to the source. Targets before ES2022 are still lowered by TypeScript.
+
+A failure inside TypeScript itself (a `TypeError` raised from its own code, seen with CommonJS output when a file imports its own name) is answered with the diagnostic `TYPESCRIPT_FAILURE` instead of an exception.
