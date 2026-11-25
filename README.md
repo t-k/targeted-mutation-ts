@@ -132,6 +132,10 @@ The [analysis guide](docs/analysis.md) covers scope selection, specifications, P
 - [Development and verification](docs/development.md)
 - [Releasing](docs/releasing.md)
 
+## Prior work
+
+The idea of generating mutants from test observations is known as *test-aware mutant generation*. Related lines of work include SEMu (symbolic execution to kill surviving mutants), DSpot (assertion amplification), the W-method (complete test suites for finite state machines), and Meta's ACH (LLM-generated mutants with tests that kill them). `targeted-mutation` occupies the **SMT-solver-free, AI-free** corner of that space: record the runtime trace and solve the feasible interval directly (checked by `tmt-decide`, extracted from Lean 4 proofs). Rather than chasing raw mutation scores across tools with different mutant sets, it optimizes for catching real bugs per minute of CI time.
+
 ## License
 
 [Apache-2.0](LICENSE). Third-party notices are in [NOTICE](NOTICE).
