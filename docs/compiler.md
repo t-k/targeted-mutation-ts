@@ -779,3 +779,29 @@ Together these changes move 574 files of the wide corpora, TypeScript's own suit
 The reading for legacy decorators first added a flag at the end of the tape, the record that every parser function receives by value, and one to the parser state. On the benchmark host the project rows became 1.5 to 3.5 percent slower, although no file of those rows sets the flag. Replacing every test of the flag by `false` in the generated C did not bring the time back, so the branches were not the cost. A copy of the commit before the change with nothing but one more `bool` at the end of the tape was 1.2 percent slower: the tape had grown from 48 to 56 bytes.
 
 The flags now stand behind the capacity, where the C layout leaves four bytes unused, and what the state carried is an argument of the one function that needs it. With the later flag for references in the same bytes, alternating runs of the commit before the legacy reading and of the current one give, on the five project corpora of the quick measurement, differences from one percent faster to 1.2 percent slower. The full table of twenty rows, three alternating runs pooled, has the same wins as before, twenty warm and nineteen first; the warm medians of the project rows lie between 3.3 percent faster and 2.8 percent slower than the earlier commit, which is the spread of that measurement on a host that does other work.
+
+### Class keys, accessor fields, decorators in scripts and line-comment pragmas
+
+A sample of TypeScript's own cases that still took TypeScript's emitter, shrunk statement by statement to what keeps them there, showed that most of the rest test programs that are wrong in ways a single-file transform does not report: duplicate declarations, modifiers where none may stand. The forms below were the ones that ordinary code uses.
+
+A computed class key may be any assignment expression: `[0 + 1]() {}`, `[f()] = 1`. The lexical reader of class keys takes a name or a string in brackets; where it does not accept the key, the member reader reads an expression there, in the state of the class body, since the key is evaluated where the class stands.
+
+`accessor` in front of a key on its line declares a field with a getter and a setter. The word belongs to the head of the member and stays in the output; the member behind it is read as the field it is, and a parenthesis behind its key fails the member. An optional method with a body, `foo?() {}`, keeps the body and loses the question mark and its modifiers. The comparison with TypeScript found the first cut of this wrong: it erased the question mark and left `public` in front of the method, in two files of Nest.
+
+V8 parses neither decorators nor accessor fields, so the check of a published script refused every script that holds one. Such a script is given to the certified parse of modules with an empty export behind it: a strict script is a module without the syntax that only a module has, so what that parse accepts, and what holds neither `import` nor `export`, is a script. A decorated class may stand at the top of a script as it does in a module. The V8 audit, which runs the engine on every certified output to check the parser's claim, leaves out sources with accessor fields, as it cannot judge them.
+
+Two declarations of one namespace share the members they export, and TypeScript writes a reference from one body to a member of the other as a property of the namespace. That is done for a member another declaration at the top of the file exports, when every occurrence of its name in the body is a recorded reference:
+
+```ts
+namespace N { export function f() { return 1; } }
+namespace N { export const g = f(); }
+```
+
+```js
+var N;(function (N) { function f() { return 1; }N.f=f; })(N||(N={}));
+;(function (N) { N.g = N.f(); })(N||(N={}));
+```
+
+A name that only the namespaces inside two declarations share still leaves the body to TypeScript.
+
+TypeScript reads the JSX pragmas from block comments only. `// @jsxImportSource preact` in a line comment is no pragma, and neither is the directive `// @jsx: preserve` that many of TypeScript's own cases begin with; the pragma reader reported both as unsupported, which kept every such file with TypeScript's emitter.
