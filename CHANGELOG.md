@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- Reuse the temporary project copy created for `--related` discovery in the subsequent mutation analysis session instead of copying the project twice, with single-consumer ownership (`claim()`), workspace mutation detection (falling back to a fresh copy if Vitest config/plugins modify the workspace), and TLA+ lifecycle verification (`CopyReuseLifecycle.tla`).
+- Emit both incremental in-worker mutant completion counts and time-based elapsed progress heartbeats (default every 5s) under `--progress` so long-running mutation files remain visibly active.
+- Narrow `nullish-fallback/v1` missing-input advice using TypeScript type information when `--type-check` is enabled (e.g. `number | undefined` with `?? 0` suggests only `NaN`, and literal `0 | undefined` with `?? 0` suggests `-0`), while preserving local `NaN` bindings.
+- Tailor the large `--related` test-selection warning (`> 20` files) to suggest only options supported by the active execution mode (`--witnesses`, `--audit`, or default Vitest session).
+
 ## 0.4.0
 
 - Render full details for comparison-derived `ASSERTION GAP` findings in text output, including the surviving comparison edit, affected test names, witness operands, and assertion advice.
