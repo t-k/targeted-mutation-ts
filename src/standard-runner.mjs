@@ -103,7 +103,7 @@ export default class StandardMutationRunner extends VitestTestRunner {
           // trial ran in an environment that an earlier run, or the trial itself, had changed.
           const control = await inner({ phase: 'control' }, selected, plan.tests);
           const controlHits = globalThis.__stryker__.mutantCoverage?.static?.[active] ?? 0;
-          if (control.unhandled || control.errors.length || control.failed.length || control.foreign || control.missing || control.passed !== expected ||
+          if (control.timeout || control.unhandled || control.errors.length || control.failed.length || control.foreign || control.missing || control.passed !== expected ||
               controlHits !== plan.hits) {
             emit({ stop: plan.id, reason: 'control' });
             break;

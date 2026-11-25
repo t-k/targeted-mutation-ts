@@ -412,12 +412,31 @@ export function withCopy(project, action, {
   }
 }
 
-export function vitestMajorVersion(manifestPath) {
-  const version = JSON.parse(readFileSync(manifestPath, 'utf8')).version ?? '';
-  return Number.parseInt(version.split('.')[0], 10);
+export function vitestVersionString(manifestPath) {
+  return JSON.parse(readFileSync(manifestPath, 'utf8')).version ?? '';
 }
 
-export function vitestCacheCliArgs(major, fsModuleCacheDir) {
+export function vitestMajorVersion(manifestPath) {
+  return Number.parseInt(vitestVersionString(manifestPath).split('.')[0], 10);
+}
+
+function parseVitestVersion(versionOrMajor) {
+  if (typeof versionOrMajor === 'number') {
+    return { major: versionOrMajor, minor: versionOrMajor === 4 ? 1 : 0, patch: 0 };
+  }
+  const [major = NaN, minor = 0, patch = 0] = String(versionOrMajor ?? '')
+    .split('-')[0]
+    .split('.')
+    .map(part => Number.parseInt(part, 10));
+  return { major, minor, patch };
+}
+
+function hasExperimentalFsModuleCache(major, minor, patch) {
+  return major === 4 && (minor > 0 || patch >= 11);
+}
+
+export function vitestCacheCliArgs(versionOrMajor, fsModuleCacheDir) {
+  const { major, minor, patch } = parseVitestVersion(versionOrMajor);
   if (major >= 5) {
     return [
       '--no-cache',
@@ -425,7 +444,7 @@ export function vitestCacheCliArgs(major, fsModuleCacheDir) {
       ...(fsModuleCacheDir ? [`--fsModuleCachePath=${fsModuleCacheDir}`] : []),
     ];
   }
-  if (major === 4) {
+  if (hasExperimentalFsModuleCache(major, minor, patch)) {
     return [
       '--no-cache',
       '--experimental.fsModuleCache=false',
@@ -435,7 +454,8 @@ export function vitestCacheCliArgs(major, fsModuleCacheDir) {
   return ['--no-cache'];
 }
 
-export function vitestServerCacheOptions(major, fsModuleCacheDir) {
+export function vitestServerCacheOptions(versionOrMajor, fsModuleCacheDir) {
+  const { major, minor, patch } = parseVitestVersion(versionOrMajor);
   if (major >= 5) {
     return {
       cache: false,
@@ -443,7 +463,7 @@ export function vitestServerCacheOptions(major, fsModuleCacheDir) {
       ...(fsModuleCacheDir ? { fsModuleCachePath: fsModuleCacheDir } : {}),
     };
   }
-  if (major === 4) {
+  if (hasExperimentalFsModuleCache(major, minor, patch)) {
     return {
       cache: false,
       experimental: {
@@ -455,14 +475,53 @@ export function vitestServerCacheOptions(major, fsModuleCacheDir) {
   return { cache: false };
 }
 
-export function disableProjectFsModuleCache(major, projectConfig) {
-  if (!projectConfig) return;
-  if (major >= 5) projectConfig.fsModuleCache = false;
-  else if (major === 4 && projectConfig.experimental) projectConfig.experimental.fsModuleCache = false;
+function sanitizeInlineTestConfig(major, minor, patch, testConfig, fsModuleCacheDir) {
+  if (!testConfig || typeof testConfig !== 'object') return;
+  if (major >= 5) {
+    testConfig.fsModuleCache = false;
+    if (fsModuleCacheDir) testConfig.fsModuleCachePath = fsModuleCacheDir;
+  } else if (hasExperimentalFsModuleCache(major, minor, patch)) {
+    testConfig.experimental = {
+      ...testConfig.experimental,
+      fsModuleCache: false,
+      ...(fsModuleCacheDir ? { fsModuleCachePath: fsModuleCacheDir } : {}),
+    };
+  }
+}
+
+export function vitestDisableFsCachePlugin(versionOrMajor, fsModuleCacheDir) {
+  const { major, minor, patch } = parseVitestVersion(versionOrMajor);
+  return {
+    name: 'tmt:disable-fs-module-cache',
+    enforce: 'post',
+    config(userConfig) {
+      if (!userConfig || typeof userConfig !== 'object') return;
+      sanitizeInlineTestConfig(major, minor, patch, userConfig.test, fsModuleCacheDir);
+      if (Array.isArray(userConfig.test?.projects)) {
+        for (const entry of userConfig.test.projects) {
+          if (entry && typeof entry === 'object') {
+            sanitizeInlineTestConfig(major, minor, patch, entry.test, fsModuleCacheDir);
+          }
+        }
+      }
+    },
+  };
+}
+
+export function disableProjectFsModuleCache(versionOrMajor, projectConfig, vitestInstance) {
+  const { major, minor, patch } = parseVitestVersion(versionOrMajor);
+  if (projectConfig) {
+    if (major >= 5) projectConfig.fsModuleCache = false;
+    else if (hasExperimentalFsModuleCache(major, minor, patch) && projectConfig.experimental) {
+      projectConfig.experimental.fsModuleCache = false;
+    }
+  }
+  if (vitestInstance?._fsCache) vitestInstance._fsCache.getMemoryCachePath = () => null;
+  if (vitestInstance?.cache?._modules) vitestInstance.cache._modules.getMemoryCachePath = () => null;
 }
 
 export function resolveVitestRunnerEntry(vitestManifestPath) {
-  const version = JSON.parse(readFileSync(vitestManifestPath, 'utf8')).version ?? '';
+  const version = vitestVersionString(vitestManifestPath);
   const vitestRequire = createRequire(vitestManifestPath);
   const resolved = version.startsWith('4.')
     ? vitestRequire.resolve('@vitest/runner')
@@ -499,7 +558,7 @@ export function classifyVitestSessionSupport(version, projectConfigs = [], { all
 function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects = [], product = false, active, probePreload, synchronousTrace, timeout = 60_000, workers = 1 } = {}) {
   const manifestPath = runnerPackage(root, 'vitest');
   const vitest = resolve(dirname(manifestPath), 'vitest.mjs');
-  const vitestMajor = vitestMajorVersion(manifestPath);
+  const vitestVersion = vitestVersionString(manifestPath);
   const testsToRun = [...new Set(testFiles.map(file => inside(root, file)))];
   const projectArgs = [...new Set(testProjects.filter(Boolean))].flatMap(name => ['--project', name]);
   const configuration = config === undefined ? [] : ['--config', inside(root, config)];
@@ -511,7 +570,7 @@ function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects
   const workerArgs = workers > 1
     ? [`--maxWorkers=${workers}`, '--maxConcurrency=1']
     : ['--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism'];
-  const cacheArgs = vitestCacheCliArgs(vitestMajor, fsModuleCacheDir);
+  const cacheArgs = vitestCacheCliArgs(vitestVersion, fsModuleCacheDir);
   return { report, testsToRun, product, args: [
     supervisor, resolve(temp, 'vitest.pid'), String(timeout),
     vitest, 'run', ...workerArgs, ...cacheArgs,

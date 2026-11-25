@@ -3,7 +3,7 @@ import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'n
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { classifyVitestSessionSupport, disableProjectFsModuleCache, inside, vitestServerCacheOptions } from './vitest.mjs';
+import { classifyVitestSessionSupport, disableProjectFsModuleCache, inside, vitestDisableFsCachePlugin, vitestServerCacheOptions } from './vitest.mjs';
 
 // Warm Vitest 4/5 child process for `--suggest-assertions`: runs with `cwd: workspace` in an isolated process
 // communicating over a dedicated Node IPC channel (so config stdout cannot corrupt protocol messages, Vitest's
@@ -52,16 +52,16 @@ try {
     reply({ ready: false, reason: versionSupport.reason });
     process.exit(0);
   }
-  const vitestMajor = Number.parseInt(version.split('.')[0], 10);
   const fsModuleCacheDir = process.env.VITEST_FS_MODULE_CACHE_PATH;
   const { createVitest } = await import(pathToFileURL(req.resolve('vitest/node')).href);
   vitest = await createVitest('test', {
     root: workspace, config, watch: false, api: false, ui: false,
-    ...vitestServerCacheOptions(vitestMajor, fsModuleCacheDir),
+    ...vitestServerCacheOptions(version, fsModuleCacheDir),
     pool: 'threads', isolate: true, maxConcurrency: 1, maxWorkers: 1, fileParallelism: false,
     coverage: { enabled: false }, onConsoleLog: () => false,
     reporters: [{ onInit() {} }],
-  });
+  }, { plugins: [vitestDisableFsCachePlugin(version, fsModuleCacheDir)] });
+  disableProjectFsModuleCache(version, null, vitest);
   const configSupport = classifyVitestSessionSupport(version, vitest.projects.map(project => project.config), {
     allowGlobalSetup: false,
     rootGlobalSetup: vitest.config.globalSetup,
@@ -72,7 +72,7 @@ try {
     process.exit(0);
   }
   for (const project of vitest.projects) {
-    disableProjectFsModuleCache(vitestMajor, project.config);
+    disableProjectFsModuleCache(version, project.config, vitest);
   }
   const specCache = new Map();
   let queue = Promise.resolve();

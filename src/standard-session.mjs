@@ -4,7 +4,7 @@ import { relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { failedTests, snapshotVitestRun, timeVitestRun } from './vitest-reporter.mjs';
 import { changedReach, indexAgreement, indexCoverage, indexReach, reachOfRecords, assessTrial, cheapestFirst, openReasons, planInThread, sampleSettled, settleInThread, sharePlans, unanswered, withoutMutations } from './standard-plan.mjs';
-import { classifyVitestSessionSupport, disableProjectFsModuleCache, inside, resolveVitestRunnerEntry, vitestServerCacheOptions } from './vitest.mjs';
+import { classifyVitestSessionSupport, disableProjectFsModuleCache, inside, resolveVitestRunnerEntry, vitestDisableFsCachePlugin, vitestServerCacheOptions } from './vitest.mjs';
 
 // Vitest and Vite are loaded on every run. Node keeps their compiled code between runs when it can.
 try { enableCompileCache?.(); } catch { /* The cache is an optimisation only. */ }
@@ -184,7 +184,6 @@ try {
   const version = require('vitest/package.json').version;
   const versionSupport = classifyVitestSessionSupport(version);
   if (!versionSupport.supported) throw new Error(versionSupport.reason);
-  const vitestMajor = Number.parseInt(version.split('.')[0], 10);
   const fsModuleCacheDir = resolve(temporary, 'vitest-fs-cache');
   supportsIds = versionSupport.supportsIds;
   runnerEntry = resolveVitestRunnerEntry(vitestPkgPath);
@@ -202,7 +201,7 @@ try {
     const workers = resolveWorkers(lane);
     const created = await createVitest('test', {
       root: workspace, config, watch: false, api: false, ui: false,
-      ...vitestServerCacheOptions(vitestMajor, fsModuleCacheDir),
+      ...vitestServerCacheOptions(version, fsModuleCacheDir),
       pool: 'threads', isolate: true, maxConcurrency: 1, ...workers,
       coverage: { enabled: false }, onConsoleLog: () => false, bail: 1,
       reporters: [{ onTestRunEnd(modules, errors, reason) {
@@ -211,7 +210,8 @@ try {
         lane.unhandled = errors.length;
         lane.failedModules = modules.filter(module => module.errors().length).map(module => JSON.stringify([module.project.name, module.moduleId]));
       } }],
-    });
+    }, { plugins: [vitestDisableFsCachePlugin(version, fsModuleCacheDir)] });
+    disableProjectFsModuleCache(version, null, created);
     const configSupport = classifyVitestSessionSupport(version, created.projects.map(project => project.config));
     if (!configSupport.supported) {
       await created.close();
@@ -220,7 +220,7 @@ try {
     for (const project of created.projects) {
       Object.assign(project.config, { setupFiles: [setup, ...project.config.setupFiles],
         runner: workerRunner, pool: 'threads', isolate: true, maxConcurrency: 1, ...workers, bail: 1 });
-      disableProjectFsModuleCache(vitestMajor, project.config);
+      disableProjectFsModuleCache(version, project.config, created);
     }
     return created;
   };

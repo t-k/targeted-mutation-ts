@@ -2,13 +2,14 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { relative } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { disableProjectFsModuleCache, inside, runnerPackage, vitestMajorVersion, vitestServerCacheOptions } from './vitest.mjs';
+import { disableProjectFsModuleCache, inside, runnerPackage, vitestDisableFsCachePlugin, vitestServerCacheOptions, vitestVersionString } from './vitest.mjs';
 
 const input = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const { workspace, config, targets, output } = input;
 
 const manifest = runnerPackage(workspace, 'vitest');
-const vitestMajor = vitestMajorVersion(manifest);
+const vitestVersion = vitestVersionString(manifest);
+const fsModuleCacheDir = process.env.VITEST_FS_MODULE_CACHE_PATH;
 const vitestNode = createRequire(manifest).resolve('vitest/node');
 const { createVitest } = await import(pathToFileURL(vitestNode).href);
 
@@ -18,11 +19,12 @@ const vitest = await createVitest('test', {
   watch: false,
   api: false,
   ui: false,
-  ...vitestServerCacheOptions(vitestMajor, process.env.VITEST_FS_MODULE_CACHE_PATH),
+  ...vitestServerCacheOptions(vitestVersion, fsModuleCacheDir),
   related: targets.map(file => inside(workspace, file)),
-});
+}, { plugins: [vitestDisableFsCachePlugin(vitestVersion, fsModuleCacheDir)] });
+disableProjectFsModuleCache(vitestVersion, null, vitest);
 for (const project of vitest.projects ?? []) {
-  disableProjectFsModuleCache(vitestMajor, project.config);
+  disableProjectFsModuleCache(vitestVersion, project.config, vitest);
 }
 
 let specs;
