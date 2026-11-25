@@ -2332,6 +2332,14 @@ TmtPulseParser_decorated_class_start(
   TmtPulseParser_parser_state state
 );
 
+bool
+TmtPulseParser_var_seen(
+  TmtPulseMemory_tape input0,
+  uint32_t used0,
+  uint32_t pos0,
+  uint32_t len0
+);
+
 TmtPulseParser_named_state
 TmtPulseParser_hoist_root_vars(
   TmtPulseMemory_tape input0,
@@ -2612,12 +2620,20 @@ TmtPulseParser_cursor
 TmtPulseParser_ambient_modifier(TmtPulseMemory_tape input, uint32_t start);
 
 TmtPulseParser_named_state
+TmtPulseParser_module_var_name(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t used
+);
+
+TmtPulseParser_named_state
 TmtPulseParser_module_lexical_list(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state state0,
   uint32_t used0,
   bool constant0,
   bool names_only0,
+  bool hoisted0,
   uint32_t remaining0,
   uint32_t angled0
 );

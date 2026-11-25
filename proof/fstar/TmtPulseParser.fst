@@ -4861,13 +4861,43 @@ let module_function (input:tape) (state:parser_state) (used:names_used) (declara
     ret input ({ binding with state = result })
 
 #push-options "--z3rlimit 20"
-let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) (constant names_only:bool) (remaining angled:U32.t)
+// A module-level var may be declared again by another var. Its entry among the module's names carries owner 1.
+let rec var_seen (input:tape) (used:names_used) (pos len:U32.t)
+  : Tot (stt bool (heap input) (fun _ -> heap input)) (decreases U32.v used) =
+  if used = 0ul then ret input false
+  else
+    let previous = U32.sub used 1ul in
+    let base:names_base = 0ul in
+    let! saved = (fun () -> get_binding input (U32.add base previous)) in
+    let! equal = (fun () -> if saved.owner = 1uy && len = minus saved.span.G.last saved.span.G.first then
+      same_bytes input pos saved.span.G.first len else ret input false) in
+    if equal then ret input true else var_seen input previous pos len
+
+let module_var_name (input:tape) (st:parser_state) (used:names_used)
+  : Tot (stt named_state (heap input) (fun _ -> heap input)) =
+  let! end_name = (fun () -> name input st.offset false true) in
+  let length = minus end_name.at st.offset in
+  let! repeated = (fun () -> if end_name.ok && U32.(length <=^ 256ul) then var_seen input used st.offset length else ret input false) in
+  if repeated then
+    let named = from_cursor st end_name in
+    let! first = (fun () -> peek input st.offset) in
+    let! recorded = (fun () -> if input.capture_types then record_contextual_reference input named st.offset first else ret input named) in
+    ret input ({ state = recorded; used })
+  else
+    let! bound = (fun () -> bind_pattern_name input st 0ul 0ul used st.offset) in
+    if bound.state.status <> 0ul || used = binding_region_width || bound.used = used then ret input bound
+    else
+      let! _ = (fun () -> set_binding input (U32.add 0ul used) { span = { G.first = st.offset; G.last = end_name.at }; namespace = ValueName; owner = 1uy }) in
+      ret input bound
+
+let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) (constant names_only hoisted:bool) (remaining angled:U32.t)
   : Tot (stt named_state (heap input) (fun _ -> heap input)) (decreases U32.v remaining) =
   let! start = (fun () -> skip input state) in
   if start.status <> 0ul || remaining = 0ul then ret input ({ state = failed start 1ul; used })
   else
     let! first = (fun () -> peek input start.offset) in
     let! decl = (fun () -> if names_only then bind_pattern_name input start 0ul 0ul used start.offset
+      else if hoisted && G.identifier_start first then module_var_name input start used
       else pattern_binding input start 0ul 0ul used 64ul) in
     let! value = (fun () -> declarator_value input decl.state 64ul (not constant && G.identifier_start first)) in
     let! tail = (fun () -> skip input value.parser) in
@@ -4880,7 +4910,7 @@ let rec module_lexical_list (input:tape) (state:parser_state) (used:names_used) 
       let! angled = (fun () -> if value.open_angle && angled = 0ul then
           first_less_from input start.offset tail.offset start.offset (minus tail.offset start.offset)
         else ret input angled) in
-      (let! anf_value_2 = (fun () -> (consume input tail 44uy)) in module_lexical_list input anf_value_2 decl.used constant names_only (minus remaining 1ul) angled)
+      (let! anf_value_2 = (fun () -> (consume input tail 44uy)) in module_lexical_list input anf_value_2 decl.used constant names_only hoisted (minus remaining 1ul) angled)
 
 // The declarators of `declare const a: T, b;`: names with optional annotations and no initializers.
 let rec ambient_declarators (input:tape) (decl:named_state) (remaining:U32.t)
@@ -5245,7 +5275,9 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) : Tot
         let! declared = (fun () -> enum_declaration input start used false) in
         let! recorded = (fun () -> record_jsx_span input declared.state 13ul state.offset declared.state.offset) in
         ret input { declared with state = recorded }
-      else module_lexical_list input start used (width = 5ul) false input.size 0ul
+      else
+        let! hoisted = (fun () -> if width = 3ul then keyword input st.offset 3ul 0x766172uL else ret input false) in
+        module_lexical_list input start used (width = 5ul) false hoisted input.size 0ul
     else if (width = 3ul || width = 5ul) && head.ambient_declaration && not head.class_declaration then
       let! first = (fun () -> bind_in_namespace input start 0ul 0ul used start.offset AmbientValueName) in
       let! all = (fun () -> ambient_declarators input first 64ul) in
@@ -5555,7 +5587,7 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
       ret input (namespace_.body_start.status = 0ul)
     else
       let! width = (fun () -> local_width input st.offset) in ret input (width <> 0ul)) in
-  if resource.status = 0ul then module_lexical_list input resource used true true input.size 0ul
+  if resource.status = 0ul then module_lexical_list input resource used true true false input.size 0ul
   else if ambient_module.status = 0ul then
     // The body of a declared module holds what a declared namespace may hold: types, interfaces and declarations
     // without values. Interfaces alone are tried first, since they may repeat names of the file.
@@ -5592,13 +5624,15 @@ let rec hoist_root_vars (input:tape) (state:parser_state) (floor used:names_used
     if entry.namespace <> LocalVarName then hoist_root_vars input state floor used previous
     else
       let length = minus entry.span.G.last entry.span.G.first in
-      let! declared = (fun () -> name_seen input 0ul 0ul floor entry.span.G.first length BothNames) in
-      let! repeated = (fun () -> name_seen input 0ul floor used entry.span.G.first length ValueName) in
+      let! named = (fun () -> name_seen input 0ul 0ul floor entry.span.G.first length BothNames) in
+      let! by_var = (fun () -> if named && U32.(length <=^ 256ul) then var_seen input floor entry.span.G.first length else ret input false) in
+      let declared = named && not by_var in
+      let! repeated = (fun () -> if by_var then ret input true else name_seen input 0ul floor used entry.span.G.first length ValueName) in
       if declared then ret input ({ state = failed state 1ul; used })
       else if repeated then hoist_root_vars input state floor used previous
       else if used = binding_region_width then ret input ({ state = failed state 1ul; used })
       else
-        let! _ = (fun () -> set_binding input (U32.add 0ul used) { span = entry.span; namespace = ValueName; owner = 0uy }) in
+        let! _ = (fun () -> set_binding input (U32.add 0ul used) { span = entry.span; namespace = ValueName; owner = 1uy }) in
         hoist_root_vars input state floor (U32.add used 1ul) previous
 
 let rec module_sequence (input:tape) (state:parser_state) (used:names_used) (fuel:U32.t) (exports:names_used) (pending:pending_exports) (family:U8.t)

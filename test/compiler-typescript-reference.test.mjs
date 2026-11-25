@@ -1589,3 +1589,34 @@ test('a var below the top level of a module belongs to the module', () => {
     assert.notEqual(compile(Buffer.from(source), { file: 'hoist.ts' }).backend, 'pulse', source);
   }
 });
+
+test('a module-level var may be declared again by another var, and by nothing else', () => {
+  for (const source of [
+    'var a = 1; var a = 2;\nexport {};',
+    'var a = 1, a = 2;\nexport { a };',
+    'var a: number;\nvar a: number = 3;\nexport default a;',
+    'var a;\ninterface a {}\nvar a;\nexport {};',
+    'var a;\n{ var a; }\nvar a;\nexport { a };',
+    '{ var a; }\nvar a;\nexport {};',
+    'export var a = 1;\nvar a;',
+    'var a;\nexport { a };\nvar a;',
+    'for (var i = 0; i < 1; i++) {}\nvar i;\nexport {};',
+  ]) {
+    assert.equal(sameAsTypeScript(source, 'again.ts').backend, 'pulse', source);
+  }
+  // V8 reports each of these as a redeclaration.
+  for (const source of [
+    'var a;\nlet a;\nexport {};',
+    'let a;\nvar a;\nexport {};',
+    'var a;\nfunction a() {}\nexport {};',
+    'function a() {}\nvar a;\nexport {};',
+    'var a;\nclass a {}\nexport {};',
+    'var a;\nimport { a } from "x";',
+    'import { a } from "x";\nvar a;',
+    'var a;\nconst a = 1;\nexport {};',
+    'var a;\nenum a { X }\nexport {};',
+    'var a;\nnamespace a { export const b = 1; }\nexport {};',
+  ]) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'again.ts' }).backend, 'pulse', source);
+  }
+});

@@ -18793,6 +18793,45 @@ TmtPulseParser_decorated_class_start(
   }
 }
 
+bool
+TmtPulseParser_var_seen(
+  TmtPulseMemory_tape input0,
+  uint32_t used0,
+  uint32_t pos0,
+  uint32_t len0
+)
+{
+  TmtPulseMemory_tape input = input0;
+  uint32_t used = used0;
+  uint32_t pos = pos0;
+  uint32_t len = len0;
+  while (true)
+    if (used == 0U)
+      return false;
+    else
+    {
+      uint32_t previous = used - 1U;
+      TmtPulseMemory_binding_name value = TmtPulseMemory_get_binding(input, previous);
+      bool value1;
+      if (value.owner == 1U && len == TmtPulseParser_minus(value.span.last, value.span.first))
+        value1 = TmtPulseParser_same_bytes(input, pos, value.span.first, len);
+      else
+        value1 = false;
+      if (value1)
+        return true;
+      else
+      {
+        uint32_t tmp = previous;
+        used = tmp;
+      }
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
 TmtPulseParser_named_state
 TmtPulseParser_hoist_root_vars(
   TmtPulseMemory_tape input0,
@@ -18832,16 +18871,25 @@ TmtPulseParser_hoist_root_vars(
             value.span.first,
             length,
             TmtPulseMemory_BothNames);
-        bool
-        value2 =
-          TmtPulseParser_name_seen(input,
-            0U,
-            floor,
-            used,
-            value.span.first,
-            length,
-            TmtPulseMemory_ValueName);
-        if (value1)
+        bool value2;
+        if (value1 && length <= 256U)
+          value2 = TmtPulseParser_var_seen(input, floor, value.span.first, length);
+        else
+          value2 = false;
+        bool declared = value1 && !value2;
+        bool value3;
+        if (value2)
+          value3 = true;
+        else
+          value3 =
+            TmtPulseParser_name_seen(input,
+              0U,
+              floor,
+              used,
+              value.span.first,
+              length,
+              TmtPulseMemory_ValueName);
+        if (declared)
           return
             (
               (TmtPulseParser_named_state){
@@ -18849,7 +18897,7 @@ TmtPulseParser_hoist_root_vars(
                 .used = used
               }
             );
-        else if (value2)
+        else if (value3)
         {
           uint16_t tmp = previous;
           index = tmp;
@@ -18870,7 +18918,7 @@ TmtPulseParser_hoist_root_vars(
               (TmtPulseMemory_binding_name){
                 .span = value.span,
                 .namespace0 = TmtPulseMemory_ValueName,
-                .owner = 0U
+                .owner = 1U
               }
             ));
           uint32_t tmp0 = used + 1U;
@@ -21509,12 +21557,64 @@ TmtPulseParser_ambient_modifier(TmtPulseMemory_tape input, uint32_t start)
 }
 
 TmtPulseParser_named_state
+TmtPulseParser_module_var_name(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state st,
+  uint32_t used
+)
+{
+  TmtPulseParser_cursor value = TmtPulseParser_name(input, st.offset, false, true);
+  uint32_t length = TmtPulseParser_minus(value.at, st.offset);
+  bool value1;
+  if (value.ok && length <= 256U)
+    value1 = TmtPulseParser_var_seen(input, used, st.offset, length);
+  else
+    value1 = false;
+  if (value1)
+  {
+    TmtPulseParser_parser_state named = TmtPulseParser_from_cursor(st, value);
+    uint8_t value2 = TmtPulseMemory_peek(input, st.offset);
+    TmtPulseParser_parser_state value3;
+    if (input.capture_types)
+      value3 = TmtPulseParser_record_contextual_reference(input, named, st.offset, value2);
+    else
+      value3 = named;
+    return ((TmtPulseParser_named_state){ .state = value3, .used = used });
+  }
+  else
+  {
+    TmtPulseParser_named_state
+    value2 = TmtPulseParser_bind_pattern_name(input, st, 0U, 0U, used, st.offset);
+    if
+    (
+      value2.state.status != 0U || used == TmtPulseMemory_binding_region_width ||
+        value2.used == used
+    )
+      return value2;
+    else
+    {
+      TmtPulseMemory_set_binding(input,
+        used,
+        (
+          (TmtPulseMemory_binding_name){
+            .span = { .first = st.offset, .last = value.at },
+            .namespace0 = TmtPulseMemory_ValueName,
+            .owner = 1U
+          }
+        ));
+      return value2;
+    }
+  }
+}
+
+TmtPulseParser_named_state
 TmtPulseParser_module_lexical_list(
   TmtPulseMemory_tape input0,
   TmtPulseParser_parser_state state0,
   uint32_t used0,
   bool constant0,
   bool names_only0,
+  bool hoisted0,
   uint32_t remaining0,
   uint32_t angled0
 )
@@ -21524,6 +21624,7 @@ TmtPulseParser_module_lexical_list(
   uint32_t used = used0;
   bool constant = constant0;
   bool names_only = names_only0;
+  bool hoisted = hoisted0;
   uint32_t remaining = remaining0;
   uint32_t angled = angled0;
   while (true)
@@ -21538,6 +21639,8 @@ TmtPulseParser_module_lexical_list(
       TmtPulseParser_named_state value2;
       if (names_only)
         value2 = TmtPulseParser_bind_pattern_name(input, value, 0U, 0U, used, value.offset);
+      else if (hoisted && TmtGrammar_identifier_start(value1))
+        value2 = TmtPulseParser_module_var_name(input, value, used);
       else
         value2 = TmtPulseParser_pattern_binding(input, value, 0U, 0U, used, 64U);
       TmtPulseParser_parsed
@@ -23021,14 +23124,22 @@ TmtPulseParser_module_declaration(
         return ((TmtPulseParser_named_state){ .state = value6, .used = value5.used });
       }
       else
+      {
+        bool value5;
+        if (width == 3U)
+          value5 = TmtPulseParser_keyword(input, value10.offset, 3U, 0x766172ULL);
+        else
+          value5 = false;
         return
           TmtPulseParser_module_lexical_list(input,
             value3,
             used,
             width == 5U,
             false,
+            value5,
             input.size,
             0U);
+      }
     }
     else if ((width == 3U || width == 5U) && value.ambient_declaration && !value.class_declaration)
     {
@@ -23303,7 +23414,15 @@ module_plain_declaration(
     value30 = value3 != 0U;
   }
   if (value1.status == 0U)
-    return TmtPulseParser_module_lexical_list(input, value1, used, true, true, input.size, 0U);
+    return
+      TmtPulseParser_module_lexical_list(input,
+        value1,
+        used,
+        true,
+        true,
+        false,
+        input.size,
+        0U);
   else if (value2.status == 0U)
   {
     TmtPulseParser_parser_state
