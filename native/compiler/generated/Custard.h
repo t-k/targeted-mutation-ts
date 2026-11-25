@@ -2631,6 +2631,12 @@ uint32_t TmtPulseParser_ambient_variable_width(TmtPulseMemory_tape input, uint32
 TmtPulseParser_cursor
 TmtPulseParser_ambient_modifier(TmtPulseMemory_tape input, uint32_t start);
 
+TmtPulseParser_parser_state
+TmtPulseParser_ambient_module_shorthand(
+  TmtPulseMemory_tape input,
+  TmtPulseParser_parser_state state
+);
+
 TmtPulseParser_named_state
 TmtPulseParser_module_var_name(
   TmtPulseMemory_tape input,

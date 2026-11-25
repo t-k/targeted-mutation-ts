@@ -5294,6 +5294,28 @@ let ambient_module_start (input:tape) (#frame:slprop) (state:parser_state) : Tot
     else read_ret input #frame (failed state 1ul))
   else read_ret input #frame (failed state 1ul))
 
+// declare module "name"; without a body: the end of the statement, a semicolon or the end of the line.
+// The form with a body is tried first, so no brace follows here.
+let ambient_module_shorthand (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
+  (let! declared = (fun () -> keyword input #frame state.offset 7ul 0x6465636c617265uL) in if declared then
+    let! gap = (fun () -> trivia input #frame (plus state.offset 7ul)) in
+    let module_ = if gap.newline then failed state 1ul else from_cursor state gap in
+    (let! word = (fun () -> keyword input #frame module_.offset 6ul 0x6d6f64756c65uL) in if module_.status = 0ul && word then
+      let! name_gap = (fun () -> trivia input #frame (plus module_.offset 6ul)) in
+      let quoted = if name_gap.newline then failed state 1ul else from_cursor module_ name_gap in
+      let! delimiter = (fun () -> peek input #frame quoted.offset) in
+      if quoted.status = 0ul && (delimiter = 34uy || delimiter = 39uy) then
+        let! key = (fun () -> string_end input #frame (next quoted.offset) delimiter input.size false) in
+        let! tail = (fun () -> if key.ok then trivia input #frame key.at else read_ret input #frame key) in
+        let! semicolon = (fun () -> if tail.ok then same input #frame tail.at 59uy else read_ret input #frame false) in
+        read_ret input #frame (if not key.ok || not tail.ok then failed state 1ul
+          else if semicolon then { state with offset = next tail.at }
+          else if tail.newline || tail.at = input.size then { state with offset = key.at }
+          else failed state 1ul)
+      else read_ret input #frame (failed state 1ul)
+    else read_ret input #frame (failed state 1ul))
+  else read_ret input #frame (failed state 1ul))
+
 type namespace_head = { body_start:parser_state; name_start:U32.t }
 
 // The further names of a dotted namespace name, `A.B.C`: each a dot and a name, with nothing between.
@@ -6190,6 +6212,8 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
       ret input (namespace_.body_start.status = 0ul)
     else
       let! width = (fun () -> local_width input st.offset) in ret input (width <> 0ul)) in
+  let! shorthand_module = (fun () -> if first = 100uy && input.capture_types && ambient_module.status <> 0ul then ambient_module_shorthand input st
+    else ret input (failed st 1ul)) in
   if resource.status = 0ul then module_lexical_list input resource used true true false input.size 0ul
   else if ambient_module.status = 0ul then
     // The body of a declared module holds what a declared namespace may hold: types, interfaces and declarations
@@ -6201,6 +6225,9 @@ private let module_plain_declaration (input:tape) (st:parser_state) (used:names_
     let! body = (fun () -> if interfaces.status = 0ul then ret input interfaces
       else type_namespace_members input ambient_module 0ul used used 8ul input.size true string_module) in
     let! recorded = (fun () -> record_jsx_span input body 8ul st.offset body.offset) in
+    ret input ({ state = recorded; used })
+  else if shorthand_module.status = 0ul then
+    let! recorded = (fun () -> record_jsx_span input shorthand_module 8ul st.offset shorthand_module.offset) in
     ret input ({ state = recorded; used })
   else if declared then module_declaration input st used exported
   else (let! anf_value_6 = (fun () -> (let! anf_value_7 = (fun () -> (control_statement input st 64ul false NoJump 0ul 0ul false)) in ret input (anf_value_7.state))) in ret input ({ state = anf_value_6; used }))

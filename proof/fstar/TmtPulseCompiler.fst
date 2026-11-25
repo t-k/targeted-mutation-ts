@@ -590,7 +590,10 @@ let module_item_end (input:tape) (state:P.parser_state)
       let! string_module = (fun () -> if declared_word.ok then P.keyword input declared_word.at 6ul 0x6d6f64756c65uL else ret input false) in
       if interfaces.status = 0ul then ret input interfaces
       else P.type_namespace_members input ambient_module 0ul 0ul 0ul 8ul input.size true string_module
-    else ordinary_module_item_end input state
+    else
+      // declare module "name"; without a body.
+      let! shorthand = (fun () -> if first = 100uy && input.capture_types then P.ambient_module_shorthand input state else ret input (P.failed state 1ul)) in
+      if shorthand.status = 0ul then ret input shorthand else ordinary_module_item_end input state
 
 // The readings below find where an item or an expression ends in a source that the parser has accepted as a
 // whole. A function that declares both vars and lexical names is checked in that whole reading, by a second

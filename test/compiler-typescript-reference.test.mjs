@@ -2807,3 +2807,18 @@ test('findings of the review of the namespace and assertion round', () => {
   assert.match(merged.code, /Status\.info = \{ label \}/);
   assert.match(merged.code, /Status\.direct = label;/);
 });
+
+test('a declared module without a body is erased', () => {
+  for (const source of [
+    'declare module "jquery";\ndeclare module \'lodash\'\ndeclare module "a" { const x: number; export = x; }\nexport const a = 1;',
+    'declare module "*.css";\nimport styles from "./a.css";\nexport const s = styles;',
+    'declare module "x"\n{ export const y: number; }\nexport const z = 2;',
+  ]) {
+    const result = sameAsTypeScript(source, 'ambient.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.doesNotMatch(result.code, /declare|jquery|lodash/, source);
+  }
+  // Without another statement the file is a script, as TypeScript writes it; whichever route answers.
+  sameAsTypeScript('declare module "jquery";\nconst n: number = 1;', 'ambient.ts');
+  assert.notEqual(compile(Buffer.from('declare module "jquery" const n = 1;\nexport {};'), { file: 'ambient.ts' }).backend, 'pulse');
+});
