@@ -545,3 +545,37 @@ test('a token behind a lowered decorator on the same line leads to its own place
   assert.equal(checked, 7);
   assert.ok(assertSegmentsFaithful(source, result) >= 10);
 });
+
+test('JavaScript published as written receives a map that leads every position to itself', () => {
+  const identity = (source, file, down) => {
+    const result = compile(Buffer.from(source), { file, sourceMap: true });
+    assert.equal(result.backend, 'javascript', source);
+    assert.equal(result.code, compile(Buffer.from(source), { file }).code);
+    assert.ok(result.code.endsWith(source));
+    assert.deepEqual(result.sourceMap.sources, [file.slice(file.lastIndexOf('/') + 1)]);
+    assert.equal(result.sourceMap.file, result.sourceMap.sources[0]);
+    assert.deepEqual(result.sourceMap.sourcesContent, [source]);
+    const lines = decode(result.sourceMap.mappings);
+    let segments = 0;
+    lines.forEach((line, generatedLine) => {
+      for (const [column, sourceLine, sourceColumn] of line) {
+        assert.equal(sourceLine, generatedLine - down, source);
+        assert.equal(sourceColumn, column, source);
+        segments++;
+      }
+    });
+    assert.ok(segments > 3, source);
+    for (let line = 0; line < down; line++) assert.deepEqual(lines[line], []);
+  };
+  // A module is published as written.
+  identity('// note\nexport   const a = 1\nexport function f(x) { return x+1 }\n', 'plain.js', 0);
+  identity('export const text = "日本語", pair = "😀", after = `a\n${text}b`;\n', 'dir/unicode.mjs', 0);
+  identity('export const a = 1;\r\nexport const b = a;\r\n', 'crlf.js', 0);
+  // A script is published behind a strict directive, which moves the map down by one line.
+  identity('const a = 1;\nconsole.log(a);\n', 'script.js', 1);
+  // What is not published as written keeps the TypeScript route: a hashbang, JSX, and invalid text.
+  assert.equal(compile(Buffer.from('#!/usr/bin/env node\nexport const a = 1;\n'), { file: 'bin.mjs', sourceMap: true }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('export const e = <div/>;\n'), { file: 'view.jsx', sourceMap: true }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('const a = ;\n'), { file: 'broken.js', sourceMap: true }).code, null);
+  assert.equal(compile(Buffer.from('const a = 1;\nmodule.exports = a;\n'), { file: 'common.cjs', sourceMap: true }).backend, 'typescript');
+});

@@ -221,3 +221,20 @@ test('a failure inside TypeScript on CommonJS output is a diagnostic, not an exc
   assert.equal(required.diagnostics.length, 0);
   assert.match(required.code, /const a = require\("\.\/a"\);\nmodule\.exports = a;/);
 });
+
+test('bytes in a plain Uint8Array take the same routes as bytes in a Buffer', () => {
+  for (const [source, options] of [
+    ['export enum E { A }\nexport const a: number = E.A;', { file: 'bytes.ts' }],
+    ['export const a: number = 1;', { file: 'bytes.ts', target: 'es2022' }],
+    ['export const e = <div>{1 as number}</div>;', { file: 'bytes.tsx', sourceMap: true }],
+    ['export const a = 1;\n', { file: 'bytes.mjs' }],
+    ['export const a: number = 1;', { file: 'bytes.ts', mode: 'strip' }],
+  ]) {
+    const buffer = Buffer.from(`//pad\n${source}`);
+    // A view that starts inside its buffer, as a slice of a larger read would.
+    const view = new Uint8Array(buffer.buffer, buffer.byteOffset + 6, buffer.length - 6);
+    assert.deepEqual(compile(view, options), compile(Buffer.from(source), options), source);
+    assert.notEqual(compile(view, options).backend, 'typescript', source);
+  }
+  assert.equal(compile(new Uint8Array([0xff, 0xfe]), { file: 'bytes.ts' }).diagnostics[0].code, 'INVALID_ENCODING');
+});

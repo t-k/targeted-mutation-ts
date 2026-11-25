@@ -562,6 +562,10 @@ function compile(input, options = {}) {
   const { file = 'input.ts', mode = 'transform', target = 'esnext', module = 'preserve', jsx = 'automatic',
     sourceMap = false, experimentalDecorators = false, emitDecoratorMetadata = false } = options;
   if (typeof file !== 'string' || !extensions.test(file)) throw new TypeError('Expected a JS, TS, JSX or TSX filename');
+  // Bytes in a plain Uint8Array are read in place like those of a Buffer, so both take the same routes.
+  if (input instanceof Uint8Array && !Buffer.isBuffer(input) && !(types ??= require('node:util').types).isSharedArrayBuffer(input.buffer)) {
+    return compile(Buffer.from(input.buffer, input.byteOffset, input.byteLength), options);
+  }
   if (typeof experimentalDecorators !== 'boolean' || typeof emitDecoratorMetadata !== 'boolean' ||
       (emitDecoratorMetadata && !experimentalDecorators)) {
     throw new TypeError('Expected boolean decorator options, and emitDecoratorMetadata only with experimentalDecorators');
@@ -765,7 +769,28 @@ function compile(input, options = {}) {
     const code = modernJavaScript(source, file, format);
     if (code !== null) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
   }
+  if (target === 'esnext' && format !== 'cjs' && sourceMap && /\.m?js$/i.test(file) && !file.includes('\\')) {
+    const mapped = mappedJavaScript(source, file, format);
+    if (mapped !== null) return mapped;
+  }
   return transformCompatibility(source, { file, target, outputModule: format, jsx, sourceMap });
+}
+
+// JavaScript that is published as written, possibly behind a strict directive, with a map that leads every
+// token to itself. The lines in front of the source text move the map down.
+function mappedJavaScript(source, file, format) {
+  if (source.charCodeAt(0) === 0xFEFF || source.startsWith('#!')) return null;
+  const code = modernJavaScript(source, file, format);
+  if (code === null || !code.endsWith(source)) return null;
+  const head = code.slice(0, code.length - source.length);
+  if (head !== '' && !head.endsWith('\n')) return null;
+  const bytes = Buffer.from(source);
+  const addon = bytes.length <= 1048576 ? loadModuleAddon() : null;
+  const mappings = addon?.projectionMappings?.(bytes, bytes);
+  if (typeof mappings !== 'string') return null;
+  const name = file.slice(file.lastIndexOf('/') + 1);
+  return { backend: 'javascript', code, diagnostics: [], sourceMap: { version: 3, file: name, sourceRoot: '', sources: [name], names: [],
+    mappings: ';'.repeat(head.split('\n').length - 1) + mappings, sourcesContent: [source] } };
 }
 
 // Strip mode keeps every position of its input, the carriage return included.

@@ -3031,6 +3031,12 @@ test('the targets from ES2022 on compile as ESNext unless a form that TypeScript
       assert.equal(result.backend, 'typescript', `${target} ${source}`);
     }
   }
+  // A decorator in a place where the parser gives no records still goes to TypeScript, and a source given
+  // as a string is decided like one given as bytes.
+  same('function d(...a: any[]): any {}\nexport @d class A {}', 'new.ts', 'es2022');
+  assert.equal(compile('function d(...a: any[]): any {}\nexport @d class A {}', { file: 'new.ts', target: 'es2022' }).backend, 'typescript');
+  assert.equal(compile('export enum E { A }', { file: 'new.ts', target: 'es2022' }).backend, 'pulse');
+  assert.equal(compile('export class A { accessor x = 1; }', { file: 'new.ts', target: 'es2022' }).backend, 'typescript');
   // An older target is still lowered by TypeScript.
   assert.equal(compile(Buffer.from('export const a: number = 1;'), { file: 'new.ts', target: 'es2021' }).backend, 'typescript');
   // With a source map the route is the same.
