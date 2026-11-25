@@ -1,16 +1,29 @@
-import { writeFileSync } from 'node:fs';
+import { realpathSync, writeFileSync } from 'node:fs';
 import { relative } from 'node:path';
 
 const primitive = value => ['string', 'number', 'boolean'].includes(typeof value) || value === null ? value : undefined;
 const vitestTimeoutMessage = /^(?:(?:Hook|Test) timed out in \d+ms(?: while waiting for [^\n]+)?\.\nIf this is a long-running|The (?:setup|teardown) phase of "around(?:Each|All)" hook timed out after \d+ms\.)/;
 
+function safeCanonicalPath(path) {
+  if (typeof path !== 'string' || !path) return path;
+  try {
+    const resolved = realpathSync(path);
+    if (process.platform !== 'win32') return resolved;
+    const native = realpathSync.native(resolved);
+    return !resolved.startsWith('\\\\') && native.startsWith('\\\\') ? resolved : native;
+  } catch {
+    return path;
+  }
+}
+
 export function snapshotVitestRun(root, modules, unhandled, reason) {
+  const canonicalRoot = safeCanonicalPath(root);
   const errors = [...unhandled];
   const moduleErrors = [];
   const tests = [];
   const files = [];
   for (const module of modules) {
-    const file = relative(root, module.moduleId);
+    const file = relative(canonicalRoot, safeCanonicalPath(module.moduleId));
     files.push(file);
     const moduleTests = [...module.children.allTests()];
     const loadErrors = module.errors();

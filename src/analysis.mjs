@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mjs';
 import { comparisonThresholdSites } from './prototype.mjs';
@@ -8,7 +8,7 @@ import { extractLoopCounterNonNegative, extractReachability, filterReachableThre
 import { checkpointKeyForTrial } from './checkpoint.mjs';
 import { shiftedReplacement, tightenComparison } from './displacement.mjs';
 import { failedTests } from './vitest-reporter.mjs';
-import { inside, runVitest, runVitestAsync, withCopy } from './vitest.mjs';
+import { canonicalPath, inside, runVitest, runVitestAsync, withCopy } from './vitest.mjs';
 import { createProbePreloadCheck, freshProbeBinding, instrument, installProbe, rewrite } from './probe.mjs';
 import { runPlaywright } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
@@ -617,7 +617,7 @@ export function analyze(project, files, options) {
 // Everything up to the planned trials: extraction, the baseline and the recorded comparisons.
 // Returns { report } when the analysis already ended there.
 export function prepareAnalysis(project, files, options) {
-  const root = realpathSync(project);
+  const root = canonicalPath(project);
   const { subjects, extraction } = collectComparisons(root, files, options);
   const report = { schemaVersion: 1, runner: options.runner ?? 'vitest', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
   if (['targeted', 'full'].includes(options.mutators)) report.mutators = options.mutators;

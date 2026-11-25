@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { closeSync, copyFileSync, existsSync, openSync, readFileSync, realpathSync, renameSync, writeFileSync } from 'node:fs';
+import { closeSync, copyFileSync, existsSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -10,7 +10,7 @@ import { checkpointKeyForTrial } from './checkpoint.mjs';
 import { candidateKey } from './shard.mjs';
 import { selectScope } from './scope.mjs';
 import { createTypeContext } from './type-equivalence.mjs';
-import { inside, runnerPackage, withCopy } from './vitest.mjs';
+import { canonicalPath, inside, runnerPackage, withCopy } from './vitest.mjs';
 
 const supervisor = fileURLToPath(new URL('./runner-process.mjs', import.meta.url));
 const session = fileURLToPath(new URL('./standard-session.mjs', import.meta.url));
@@ -48,7 +48,7 @@ function superviseSession(workspace, temp, manifest, limit, signal) {
 }
 
 export async function analyzeConventional(project, files, options) {
-  const root = realpathSync(project);
+  const root = canonicalPath(project);
   const profile = options.mutators ?? 'targeted';
   const prefix = '.tmt-session-' + randomUUID();
   const targets = selectScope(root, files, options).map(subject => ({

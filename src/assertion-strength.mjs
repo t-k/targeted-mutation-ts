@@ -1,13 +1,13 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { dirname, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { sourceTrialsAsync } from './analysis.mjs';
 import { inParallel } from './in-parallel.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
-import { inside, withCopy } from './vitest.mjs';
+import { canonicalPath, inside, withCopy } from './vitest.mjs';
 
 // A test can make the very call that tells an edit from the original and still pass, because its assertion does
 // not pin the result down: `expect(bucket(3)).not.toBe('none')`, `expect(total(1, 2)).toBeGreaterThan(0)`, a call
@@ -230,7 +230,7 @@ export function weakCalls(text, testFile, subjectFile, testNames, ts = loadTypeS
   const testPosix = testFile.split(sep).join('/');
   const subjectPosix = subjectFile.split(sep).join('/');
   const subjectStem = subjectPosix.replace(extension, '');
-  const root = context.root ? realpathSync(context.root) : null;
+  const root = context.root ? canonicalPath(context.root) : null;
   const cache = context.cache ?? { tsconfigs: new Map(), resolved: new Map(), asts: new Map(), exports: new Map() };
   const imported = new Set();
   // Map of namespace identifier -> null (any member) or Set of member names originating from subjectFile.

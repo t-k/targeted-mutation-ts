@@ -24,6 +24,17 @@ export function resolveOptional(require, id) {
   }
 }
 
+export function canonicalPath(path) {
+  const resolved = realpathSync(path);
+  if (process.platform !== 'win32') return resolved;
+  try {
+    const native = realpathSync.native(resolved);
+    return !resolved.startsWith('\\\\') && native.startsWith('\\\\') ? resolved : native;
+  } catch {
+    return resolved;
+  }
+}
+
 export function runnerPackage(root, runner) {
   const name = runner === 'vitest' ? 'vitest' : '@playwright/test';
   const manifest = resolveOptional(createRequire(resolve(root, 'package.json')), name + '/package.json');
@@ -31,12 +42,13 @@ export function runnerPackage(root, runner) {
     const label = runner === 'vitest' ? 'Vitest' : 'Playwright';
     throw new Error(`Install ${label} in the project or its workspace: npm install -D ${name}`);
   }
-  return manifest;
+  return canonicalPath(manifest);
 }
 
 export function inside(root, path) {
-  const target = realpathSync(resolve(root, path));
-  const fromRoot = relative(root, target);
+  const canonicalRoot = canonicalPath(root);
+  const target = canonicalPath(resolve(canonicalRoot, path));
+  const fromRoot = relative(canonicalRoot, target);
   if (fromRoot === '..' || fromRoot.startsWith('..' + sep) || isAbsolute(fromRoot)) {
     throw new Error(`Path escapes the project: ${path}`);
   }
@@ -303,9 +315,9 @@ export function createCopy(project, {
   largeCopyBytes = DEFAULT_LARGE_COPY_BYTES,
   largeCopyFiles = DEFAULT_LARGE_COPY_FILES,
 } = {}) {
-  const source = realpathSync(project);
+  const source = canonicalPath(project);
   const exclusions = resolveCopyExclusions(source, exclude);
-  const temp = realpathSync(mkdtempSync(resolve(tmpdir(), 'tmt-')));
+  const temp = canonicalPath(mkdtempSync(resolve(tmpdir(), 'tmt-')));
   registerActiveCopy(temp);
   let removed = false;
   let claimed = false;
@@ -542,7 +554,7 @@ export function resolveVitestRunnerEntry(vitestManifestPath) {
   const resolved = version.startsWith('4.')
     ? vitestRequire.resolve('@vitest/runner')
     : vitestRequire.resolve('vitest/internal/browser');
-  return pathToFileURL(realpathSync(resolved)).href;
+  return pathToFileURL(canonicalPath(resolved)).href;
 }
 
 export function classifyVitestSessionSupport(version, projectConfigs = [], { allowGlobalSetup = true, rootGlobalSetup } = {}) {
@@ -576,6 +588,7 @@ function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects
   const vitest = resolve(dirname(manifestPath), 'vitest.mjs');
   const vitestVersion = vitestVersionString(manifestPath);
   const testsToRun = [...new Set(testFiles.map(file => inside(root, file)))];
+  const cliTestsToRun = testsToRun.map(file => relative(root, file).replaceAll('\\', '/'));
   const projectArgs = [...new Set(testProjects.filter(Boolean))].flatMap(name => ['--project', name]);
   const configuration = config === undefined ? [] : ['--config', inside(root, config)];
   const report = resolve(temp, 'vitest.json');
@@ -591,7 +604,7 @@ function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects
     supervisor, resolve(temp, 'vitest.pid'), String(timeout),
     vitest, 'run', ...workerArgs, ...cacheArgs,
     ...configuration, ...projectArgs, ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]),
-    ...testsToRun,
+    ...cliTestsToRun,
   ], options: {
     cwd: root,
     env: {
@@ -621,7 +634,8 @@ function vitestOutcome(root, { report, testsToRun, product }, result) {
       const missing = [...expected].filter(file => !actual.has(file));
       const unexpected = [...actual].filter(file => !expected.has(file));
       if (missing.length || unexpected.length) {
-        return { status: 'error', output: `Vitest test selection mismatch (missing: ${missing.join(', ') || 'none'}; unexpected: ${unexpected.join(', ') || 'none'})`,
+        const detail = `${result.stderr ?? ''}${result.stdout ?? ''}`.trim();
+        return { status: 'error', output: `Vitest test selection mismatch (missing: ${missing.join(', ') || 'none'}; unexpected: ${unexpected.join(', ') || 'none'})${detail ? '\n' + detail : ''}`,
           errors: data.errors };
       }
     }
@@ -648,7 +662,7 @@ function vitestOutcome(root, { report, testsToRun, product }, result) {
 }
 
 export async function resolveRelatedVitestSpecs(project, targetFiles = [], { config, copyExclude = [], timeout = 60_000, onProgress, onLargeCopy, copy } = {}) {
-  const root = realpathSync(project);
+  const root = canonicalPath(project);
   const relTargets = [...new Set(targetFiles.map(file => relative(root, inside(root, file))))];
   if (!relTargets.length) return { tests: [], specs: [] };
   // Validate Vitest availability up front before copying.

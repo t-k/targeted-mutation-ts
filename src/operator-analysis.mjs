@@ -1,11 +1,11 @@
-import { readFileSync, realpathSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { analyze, baselineRunSymbol, completeAnalysis, prepareAnalysis } from './analysis.mjs';
 import { checkpointKeyForTrial, computeCampaignContext, openCheckpoint } from './checkpoint.mjs';
 import { analyzeConventional } from './conventional.mjs';
 import { suppressEnclosingDiagnostics } from './enclosing-suppression.mjs';
 import { selectScope } from './scope.mjs';
 import { computeShardSelection } from './shard.mjs';
-import { inside } from './vitest.mjs';
+import { canonicalPath, inside } from './vitest.mjs';
 
 const order = (a, b) => a.location.file.localeCompare(b.location.file) || a.location.start - b.location.start ||
   b.location.end - a.location.end;
@@ -115,7 +115,7 @@ export async function analyzeOperators(project, files, options, run = { analyze,
   const shardSelection = options.shard ? computeShardSelection(project, files, { ...options, mutators: profile }) : null;
   let checkpointStore = null;
   if (options.checkpoint) {
-    const root = realpathSync(project);
+    const root = canonicalPath(project);
     const targets = selectScope(root, files, options).map(subject => ({
       ...subject, input: readFileSync(inside(root, subject.file)),
     }));

@@ -4,8 +4,18 @@ import { pathToFileURL } from 'node:url';
 import * as vitestApi from 'vitest';
 
 const { vi } = vitestApi;
+function canonicalRunnerPath(path) {
+  const resolved = realpathSync(path);
+  if (process.platform !== 'win32') return resolved;
+  try {
+    const native = realpathSync.native(resolved);
+    return !resolved.startsWith('\\\\') && native.startsWith('\\\\') ? resolved : native;
+  } catch {
+    return resolved;
+  }
+}
 const VitestTestRunner = vitestApi.TestRunner ?? (await import(
-  /* @vite-ignore */ pathToFileURL(realpathSync(createRequire(import.meta.url).resolve('vitest/runners'))).href
+  /* @vite-ignore */ pathToFileURL(canonicalRunnerPath(createRequire(import.meta.url).resolve('vitest/runners'))).href
 )).VitestTestRunner;
 
 const sessionKey = Symbol.for('targeted-mutation-ts/session');

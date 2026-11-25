@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -593,69 +593,89 @@ test('PICT vitest-version-compat policy matrix covers all 30 version, mode, conf
 test('standard-runner resolves legacy Vitest 4 runners as a file:// URL compatible with Windows VitestModuleEvaluator', async () => {
   const { pathToFileURL } = await import('node:url');
   const { moduleRunnerTransform } = await import('vite');
-  const runnerUrl = new URL('../src/standard-runner.mjs', import.meta.url);
-  const runnerCode = readFileSync(runnerUrl, 'utf8');
-  const transformed = await moduleRunnerTransform(runnerCode, undefined, runnerUrl.pathname, runnerCode);
-  const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  const evaluateRunner = async vitestExports => {
-    const exportsObj = {};
-    const dynamicSpecifiers = [];
-    const ssrImport = async id => {
-      if (id === 'vitest') return vitestExports;
-      return import(id);
+  const runnerSourceUrl = new URL('../src/standard-runner.mjs', import.meta.url);
+  const runnerCode = readFileSync(runnerSourceUrl, 'utf8');
+  const synthDir = mkdtempSync(join(tmpdir(), 'tmt-win-runner-'));
+  try {
+    // Provide a self-contained Vitest 4 `vitest/runners` package so this test passes under both Vitest 4 and Vitest 5 installs:
+    const v4PkgDir = join(synthDir, 'node_modules/vitest');
+    mkdirSync(v4PkgDir, { recursive: true });
+    writeFileSync(join(v4PkgDir, 'package.json'), JSON.stringify({
+      name: 'vitest',
+      version: '4.0.18',
+      type: 'module',
+      exports: { './runners': './runners.mjs' },
+    }));
+    writeFileSync(join(v4PkgDir, 'runners.mjs'), 'export class VitestTestRunner {}\n');
+    const copiedRunnerPath = join(synthDir, '.tmt-session-runner.mjs');
+    writeFileSync(copiedRunnerPath, runnerCode);
+    const copiedRunnerUrl = pathToFileURL(copiedRunnerPath);
+
+    const transformed = await moduleRunnerTransform(runnerCode, undefined, copiedRunnerPath, runnerCode);
+    const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+    const evaluateRunner = async vitestExports => {
+      const exportsObj = {};
+      const dynamicSpecifiers = [];
+      const ssrImport = async id => {
+        if (id === 'vitest') return vitestExports;
+        return import(id);
+      };
+      const ssrDynamicImport = async id => {
+        dynamicSpecifiers.push(id);
+        // Reproduce VitestModuleEvaluator.convertIdToImportUrl on win32, which turns bare specifiers like
+        // `vitest/runners` into `pathToFileURL(id)` unless `id` already has a `file:` (or `node:`/`data:`/`http:`) scheme.
+        const winConverted = /^(?:node:|data:|http:|https:|file:)/.test(id) ? id : pathToFileURL(id).href;
+        return import(winConverted);
+      };
+      const fn = new AsyncFunction(
+        '__vite_ssr_exports__',
+        '__vite_ssr_import_meta__',
+        '__vite_ssr_import__',
+        '__vite_ssr_dynamic_import__',
+        '__vite_ssr_exportAll__',
+        '__vite_ssr_exportName__',
+        '"use strict";' + transformed.code,
+      );
+      await fn(
+        exportsObj,
+        { url: copiedRunnerUrl.href },
+        ssrImport,
+        ssrDynamicImport,
+        () => {},
+        (name, getter) => Object.defineProperty(exportsObj, name, { enumerable: true, configurable: true, get: getter }),
+      );
+      return { RunnerClass: exportsObj.default, dynamicSpecifiers };
     };
-    const ssrDynamicImport = async id => {
-      dynamicSpecifiers.push(id);
-      // Reproduce VitestModuleEvaluator.convertIdToImportUrl on win32, which turns bare specifiers like
-      // `vitest/runners` into `pathToFileURL(id)` unless `id` already has a `file:` (or `node:`/`data:`/`http:`) scheme.
-      const winConverted = /^(?:node:|data:|http:|https:|file:)/.test(id) ? id : pathToFileURL(id).href;
-      return import(winConverted);
-    };
-    const fn = new AsyncFunction(
-      '__vite_ssr_exports__',
-      '__vite_ssr_import_meta__',
-      '__vite_ssr_import__',
-      '__vite_ssr_dynamic_import__',
-      '__vite_ssr_exportAll__',
-      '__vite_ssr_exportName__',
-      '"use strict";' + transformed.code,
-    );
-    await fn(
-      exportsObj,
-      { url: runnerUrl.href },
-      ssrImport,
-      ssrDynamicImport,
-      () => {},
-      (name, getter) => Object.defineProperty(exportsObj, name, { enumerable: true, configurable: true, get: getter }),
-    );
-    return { RunnerClass: exportsObj.default, dynamicSpecifiers };
-  };
 
-  // Vitest 4 mode (`vitest.TestRunner` is undefined): must dynamically import a `file://` URL, never bare `vitest/runners`.
-  const v4 = await evaluateRunner({ vi: {} });
-  assert.equal(typeof v4.RunnerClass, 'function');
-  assert.equal(v4.dynamicSpecifiers.length, 1);
-  assert.match(v4.dynamicSpecifiers[0], /^file:\/\//);
+    // Vitest 4 mode (`vitest.TestRunner` is undefined): must dynamically import a `file://` URL, never bare `vitest/runners`.
+    const v4 = await evaluateRunner({ vi: {} });
+    assert.equal(typeof v4.RunnerClass, 'function');
+    assert.equal(v4.dynamicSpecifiers.length, 1);
+    assert.match(v4.dynamicSpecifiers[0], /^file:\/\/\/.*\/runners\.mjs$/);
 
-  // Vitest 5 mode (`vitest.TestRunner` is present): no dynamic fallback import needed at module evaluation.
-  class FakeV5TestRunner {}
-  const v5 = await evaluateRunner({ vi: {}, TestRunner: FakeV5TestRunner });
-  assert.equal(typeof v5.RunnerClass, 'function');
-  assert.equal(Object.getPrototypeOf(v5.RunnerClass), FakeV5TestRunner);
-  assert.deepEqual(v5.dynamicSpecifiers, []);
+    // Vitest 5 mode (`vitest.TestRunner` is present): no dynamic fallback import needed at module evaluation.
+    class FakeV5TestRunner {}
+    const v5 = await evaluateRunner({ vi: {}, TestRunner: FakeV5TestRunner });
+    assert.equal(typeof v5.RunnerClass, 'function');
+    assert.equal(Object.getPrototypeOf(v5.RunnerClass), FakeV5TestRunner);
+    assert.deepEqual(v5.dynamicSpecifiers, []);
 
-  // Windows backslash paths passed to warm-session module invalidation must be slash-normalized for `invalidateFile`:
-  const { invalidateVitestSessionModules } = await import('../src/vitest.mjs');
-  const invalidatedFiles = [];
-  let ssrInvalidated = 0;
-  invalidateVitestSessionModules({
-    invalidateFile: filepath => invalidatedFiles.push(filepath),
-    projects: [{ vite: { environments: { ssr: { moduleGraph: { invalidateAll: () => { ssrInvalidated++; } } } } } }],
-  }, ['D:\\work\\project\\test\\example.test.ts', 'D:\\work\\project\\src\\example.ts', null]);
-  assert.deepEqual(invalidatedFiles, [
-    'D:/work/project/test/example.test.ts',
-    'D:/work/project/src/example.ts',
-  ]);
-  assert.equal(ssrInvalidated, 1);
+    // Windows backslash paths passed to warm-session module invalidation must be slash-normalized for `invalidateFile`:
+    const { canonicalPath, invalidateVitestSessionModules } = await import('../src/vitest.mjs');
+    assert.equal(canonicalPath(synthDir), realpathSync.native(synthDir));
+    const invalidatedFiles = [];
+    let ssrInvalidated = 0;
+    invalidateVitestSessionModules({
+      invalidateFile: filepath => invalidatedFiles.push(filepath),
+      projects: [{ vite: { environments: { ssr: { moduleGraph: { invalidateAll: () => { ssrInvalidated++; } } } } } }],
+    }, ['D:\\work\\project\\test\\example.test.ts', 'D:\\work\\project\\src\\example.ts', null]);
+    assert.deepEqual(invalidatedFiles, [
+      'D:/work/project/test/example.test.ts',
+      'D:/work/project/src/example.ts',
+    ]);
+    assert.equal(ssrInvalidated, 1);
+  } finally {
+    rmSync(synthDir, { recursive: true, force: true });
+  }
 });
 

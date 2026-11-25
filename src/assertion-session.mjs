@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { classifyVitestSessionSupport, disableProjectFsModuleCache, inside, invalidateVitestSessionModules, vitestDisableFsCachePlugin, vitestServerCacheOptions } from './vitest.mjs';
+import { canonicalPath, classifyVitestSessionSupport, disableProjectFsModuleCache, inside, invalidateVitestSessionModules, vitestDisableFsCachePlugin, vitestServerCacheOptions } from './vitest.mjs';
 
 // Warm Vitest 4/5 child process for `--suggest-assertions`: runs with `cwd: workspace` in an isolated process
 // communicating over a dedicated Node IPC channel (so config stdout cannot corrupt protocol messages, Vitest's
@@ -27,7 +27,7 @@ function clearWarmVitestState(instance) {
 
 let vitest;
 try {
-  const workspace = realpathSync(rawWorkspace);
+  const workspace = canonicalPath(rawWorkspace);
   const config = configArg ? inside(workspace, configArg) : undefined;
   const req = createRequire(resolve(workspace, 'package.json'));
   const version = req('vitest/package.json').version;
