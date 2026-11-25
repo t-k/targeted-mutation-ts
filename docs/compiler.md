@@ -665,7 +665,7 @@ Also taken now: a label in front of a block, an `if`, a `try` or a `switch` (`br
 
 `experimentalDecorators` and `emitDecoratorMetadata` are options of `compile` and of the CLI (`--experimental-decorators`, `--emit-decorator-metadata`). vscode, Angular and Nest are written for this design: 1,412, 1,886 and 611 of their files hold decorators, and vscode injects its services through decorators on constructor parameters, which the standard design does not have.
 
-The lowering rewrites the source. The parser reads the module in a mode that takes decorators on the parameters of class members and records where decorators, classes, members and parameters stand (record kinds 50 to 56). From those records the decorators are cut out and the calls TypeScript writes follow each class:
+The lowering rewrites the source. The parser reads the module in a mode that takes decorators on the parameters of class members and records where decorators, classes, members and parameters stand (record kinds 50 to 56 and 60). From those records the decorators are cut out and the calls TypeScript writes follow each class:
 
 ```ts
 @D class A { @E m(@F a) {} }
@@ -689,6 +689,35 @@ A = __decorate([D], A);
 
 The body sees the variable, which holds the class while the static members run and the decorated class afterwards. A test runs both lowerings with a decorator that replaces the class and compares what they return.
 
-On the files of vscode, Angular, Nest and typeorm that hold an at sign, 9,026 of 9,028 native outputs have the syntax of TypeScript's lowering once both forms of the self-naming class are folded into one; the two others are of the known parenthesis kind. 1,196 of vscode's 1,412 decorated files are lowered natively, 1,605 of Angular's 1,886 and 514 of Nest's 611.
+A class declaration is lowered wherever it stands: at module level, inside a function, a block or a method of another class, and as the default export. An anonymous default class gets the name TypeScript gives it, `default_1`. The lowering keeps a stack of the classes that are open, each with the number of class bodies around its head, so the members of a class expression inside a lowered class are not taken for its own. A PICT table of 38 placements (place, class decorator, member, parameter, self-naming, abstract) is built into sources, and each is compared with TypeScript's lowering by syntax and by running both.
 
-Left to TypeScript for now: `export default class`, classes inside functions and class expressions, computed and private keys, decorators on both accessors of one name, a leading directive or interpreter line, `emitDecoratorMetadata`, and source maps.
+#### Metadata
+
+With `emitDecoratorMetadata`, TypeScript adds `__metadata` calls that name the types of a decorated member: `design:type`, `design:paramtypes` and `design:returntype`. Nest and TypeORM read them at run time. The values come from the annotations, by rules that are TypeScript's own for a file compiled alone, without knowledge of other files:
+
+| Annotation | Value |
+| --- | --- |
+| `string`, a string literal, a template without holes | `String` |
+| `number`, `boolean`, `bigint`, `symbol` and their literals | `Number`, `Boolean`, `BigInt`, `Symbol` |
+| `void`, `undefined`, `null`, `never` | `void 0` |
+| an array, a tuple | `Array` |
+| a function or constructor type | `Function` |
+| an object type, `any`, `unknown`, `this`, `keyof`, `typeof`, an indexed access, no annotation | `Object` |
+| a union or intersection | the common value of its members, else `Object` |
+| a class of the module | the class |
+| an interface of the module, a type-only import | `Object` |
+| any name the file does not declare | `typeof (_a = typeof Name !== "undefined" && Name) === "function" ? _a : Object` |
+
+The last row is the common one: an imported name may be a class or a type, and one file cannot tell. TypeScript numbers the temporaries in the order it creates them, so the lowering creates them in the same order: the constructor's parameters first, then the members in source order, and a reference only when it is written. `S[]` creates none, and in `string | number | S` the union is `Object` before `S` is reached. A setter's parameter is serialized twice, once as the type of the member and once in the parameter list.
+
+The parser supplies what the text alone does not show. In the legacy reading it records the start of every parameter of a class member (kind 57), the end of each parameter list (kind 58) and every list that declares type parameters (kind 59), and it marks a class below module level (kind 60). The annotation records of type erasure give the extent of each type. Which names the file declares is read from the text, and whether a class, an interface or a type-only import stands at module level is read from the records, so words inside strings and comments do not count as imports.
+
+Whatever is not certain is left to TypeScript: a name the file declares as a type alias, an enum, a namespace, a function, or more than once; a type parameter; an interface that can be called or that extends another; conditional, `infer`, `import()` and predicate types; `never` and `unknown` inside a union; a destructured or `this` parameter; an accessor with both declarations; a source that spells a name like `_a`; and a class inside a function that needs a temporary, which TypeScript declares in that function. A PICT table of 108 rows (position, type form, kind of name, static, class decorator) is compared with TypeScript by syntax.
+
+#### Coverage
+
+Of the files that hold decorators, the rewriting succeeds for 1,338 of vscode's 1,412, 1,761 of Angular's 1,886, 607 of Nest's 611 and all 1,594 of typeorm's. With metadata the counts are 1,290, 1,683, 584 and 1,561. Most of the rest are files the parser does not read in any mode.
+
+On the files of these four projects that hold an at sign, 9,261 of 9,263 native outputs have the syntax of TypeScript's lowering once both forms of the self-naming class are folded into one, and 9,070 of 9,072 with metadata; the two others are of the known parenthesis kind in both runs.
+
+Left to TypeScript for now: a decorator between `export default` and `class`, class expressions with decorated members, classes in namespaces, computed and private keys, decorators on both accessors of one name, a leading directive or interpreter line, and source maps.

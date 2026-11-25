@@ -1901,6 +1901,11 @@ let capture_type_parameters (input:tape) (state:parser_state) (allow_variance:bo
   let! arguments = (fun () -> optional_type_parameters input first allow_variance) in
   if not input.capture_types || arguments.offset = first.offset then skip input arguments
   else
+    // Kind 59: a list that declares type parameters, for the metadata of legacy decorators. Kind 10 alone
+    // does not tell it from type arguments.
+    let! arguments = (fun () -> if input.legacy_decorators && arguments.status = 0ul then
+        record_compiler_span input arguments 59ul { G.first = first.offset; G.last = arguments.offset } { G.first = 0ul; G.last = 0ul }
+      else ret input arguments) in
     let! recorded = (fun () -> record_jsx_span input arguments 10ul first.offset arguments.offset) in
     skip input recorded
 
@@ -3986,7 +3991,16 @@ and scope_statement (input:tape) (st:parser_state) (fuel:U32.t) (in_function:boo
       let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
       let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
       let start = { tracked with local_names = decl.used } in
-      (let! anf_value_2 = (fun () -> class_tail input start (minus fuel 1ul) OrdinaryClass) in ret input ({ decl with state = anf_value_2 }))
+      // Kinds 60 and 54 for a class inside a function or a block: as kinds 51 and 54 at module level.
+      let name_span = { G.first = named.offset; G.last = decl.state.offset } in
+      let! start = (fun () -> if input.legacy_decorators then
+          record_compiler_span input start 60ul { G.first = st.offset; G.last = named.offset } name_span
+        else ret input start) in
+      let! closed = (fun () -> class_tail input start (minus fuel 1ul) OrdinaryClass) in
+      let! closed = (fun () -> if input.legacy_decorators && closed.status = 0ul && U32.gt closed.offset 0ul then
+          record_compiler_span input closed 54ul { G.first = minus closed.offset 1ul; G.last = closed.offset } name_span
+        else ret input closed) in
+      ret input ({ decl with state = closed })
   else
     let! type_width =
       (fun () -> if input.capture_types && not root_control && strict_locals st &&
@@ -4008,7 +4022,15 @@ and local_abstract_class (input:tape) (st:parser_state) (class_at:U32.t) (floor 
     let! decl = (fun () -> bind_since input named binding_region_width floor used named.offset) in
     let! tracked = (fun () -> record_local_pattern input decl.state used decl.used) in
     let start = { tracked with local_names = decl.used } in
-    (let! closed = (fun () -> class_tail input start (minus fuel 1ul) AbstractClass) in ret input ({ decl with state = closed }))
+    let name_span = { G.first = named.offset; G.last = decl.state.offset } in
+    let! start = (fun () -> if input.legacy_decorators then
+        record_compiler_span input start 60ul { G.first = st.offset; G.last = named.offset } name_span
+      else ret input start) in
+    let! closed = (fun () -> class_tail input start (minus fuel 1ul) AbstractClass) in
+    let! closed = (fun () -> if input.legacy_decorators && closed.status = 0ul && U32.gt closed.offset 0ul then
+        record_compiler_span input closed 54ul { G.first = minus closed.offset 1ul; G.last = closed.offset } name_span
+      else ret input closed) in
+    ret input ({ decl with state = closed })
 
 and local_function_group (input:tape) (start:parser_state) (declaration_start fuel:U32.t) (async_ generator:bool) (expected:G.span) (remaining:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) (decreases %[U32.v fuel; 54; U32.v remaining]) =
@@ -4203,6 +4225,10 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
         else
           let! named = (fun () -> skip input after) in
           record_compiler_span input named 53ul { G.first = minus 64ul remaining; G.last = st.offset } { G.first = st.offset; G.last = named.offset }) in
+    // Kind 57: the start of every parameter of a class member, behind its decorators, with its index.
+    let! st = (fun () -> if decorated && st.status = 0ul then
+        record_compiler_span input st 57ul { G.first = minus 64ul remaining; G.last = st.offset } { G.first = 0ul; G.last = 0ul }
+      else ret input st) in
     if st.status <> 0ul then ret input ({ names = { state = st; used }; non_simple })
     else
     let! spread = (fun () -> spread_at input st.offset) in
@@ -4279,6 +4305,12 @@ and function_form (input:tape) (state:parser_state) (fuel:U32.t) (async_:bool) (
   let floor = state.local_names in
   let constructor = super_ = BaseConstructor || super_ = DerivedConstructor in
   let! params = (fun () -> function_parameters input opening floor floor fuel limit false constructor decorated) in
+  // Kind 58: the end of the parameter list of a class member, where its return type may follow.
+  let! params = (fun () -> if decorated && params.names.state.status = 0ul then
+      let! closed = (fun () -> record_compiler_span input params.names.state 58ul
+        { G.first = params.names.state.offset; G.last = params.names.state.offset } { G.first = 0ul; G.last = 0ul }) in
+      ret input ({ params with names = { params.names with state = closed } })
+    else ret input params) in
   let! annotation = (fun () -> if constructor then ret input (params.names.state) else capture_annotation input params.names.state true) in
   let! st = (fun () -> skip input annotation) in
   let! signature_only = (fun () -> if overload && st.status = 0ul then (let! anf_value_4 = (fun () -> (same input st.offset 123uy)) in ret input (not anf_value_4)) else ret input (false)) in
@@ -5719,7 +5751,16 @@ let default_declaration (input:tape) (state:parser_state) (declaration_start:U32
     let! named = (fun () -> if byte = 123uy || byte = 60uy || derives then ret input ({ state = start; used })
       else bind_at input start 0ul used start.offset) in
     let kind = if abstract_.ok then AbstractClass else OrdinaryClass in
-    (let! anf_value_2 = (fun () -> class_tail input named.state 64ul kind) in ret input ({ named with state = anf_value_2 }))
+    // Kinds 51 and 54 for the default class. Its head runs from `export`; the name may be empty.
+    let name_span = { G.first = start.offset; G.last = named.state.offset } in
+    let! opened = (fun () -> if input.legacy_decorators then
+        record_compiler_span input named.state 51ul { G.first = declaration_start; G.last = start.offset } name_span
+      else ret input named.state) in
+    let! closed = (fun () -> class_tail input opened 64ul kind) in
+    let! closed = (fun () -> if input.legacy_decorators && closed.status = 0ul && U32.gt closed.offset 0ul then
+        record_compiler_span input closed 54ul { G.first = minus closed.offset 1ul; G.last = closed.offset } name_span
+      else ret input closed) in
+    ret input ({ named with state = closed })
   else if function_head.ok then
     let! start = (fun () -> skip input { state with offset = plus function_head.at 8ul }) in
     let! head = (fun () -> read_generator_head input start) in

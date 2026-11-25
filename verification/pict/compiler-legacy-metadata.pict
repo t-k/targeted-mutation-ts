@@ -1,0 +1,10 @@
+Position: Field, MethodParameter, Return, ConstructorParameter, Getter, Setter, Rest
+Type: None, Primitive, Literal, Array, Tuple, Function, ObjectLiteral, Reference, Qualified, Generic, UnionSame, UnionMixed, UnionNull, Keyof, Parenthesized
+Name: Unknown, ValueImport, TypeImport, ModuleClass, Alias, TypeParameter
+Static: No, Yes
+ClassDecorator: No, Yes
+
+IF [Position] IN {"ConstructorParameter"} THEN [Static] = "No";
+IF [Position] = "ConstructorParameter" THEN [ClassDecorator] = "Yes";
+IF [Type] IN {"None", "Primitive", "Literal", "Tuple", "Function", "ObjectLiteral"} THEN [Name] = "Unknown";
+IF [Type] = "Qualified" THEN [Name] IN {"Unknown", "ValueImport"};

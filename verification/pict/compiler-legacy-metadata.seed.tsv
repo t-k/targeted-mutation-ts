@@ -1,0 +1,13 @@
+Position	Type	Name	Static	ClassDecorator
+Field	Primitive	Unknown	No	No
+ConstructorParameter	Reference	ValueImport	No	Yes
+MethodParameter	Reference	ValueImport	No	No
+Return	Generic	Unknown	No	No
+Field	Reference	ModuleClass	No	Yes
+ConstructorParameter	Reference	TypeImport	No	Yes
+Field	UnionNull	ValueImport	No	No
+Rest	Reference	ValueImport	No	No
+Setter	Primitive	Unknown	Yes	No
+Getter	None	Unknown	No	No
+Field	Reference	TypeParameter	No	No
+Field	Reference	Alias	No	No

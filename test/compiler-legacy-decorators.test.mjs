@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { inspect } from '../scripts/audit-compiler-coverage.mjs';
 import { compile } from '../src/compiler.mjs';
@@ -54,12 +55,12 @@ test('the lowered text runs: decorators see the class, the member and the parame
 
 test('what the first cut does not lower is left to TypeScript, with the same result', () => {
   for (const source of [
-    'export default class A { constructor(@IFoo foo: IFoo) {} }',
+    'export default @d class A {}',
+    'namespace N { @d export class A {} }\nexport { N };',
     'export class A { @d get v() { return 1; } @d set v(x) {} }',
     'export class A { @d [k]() {} }',
     'export class A { set v(@d x: number) {} }',
     '"use strict";\n@d class A {}\nexport { A };',
-    'function f() { @d class L { constructor(@IFoo foo: IFoo) {} } return L; }\nexport { f };',
     'const C = class { constructor(@IFoo foo: IFoo) {} };\nexport { C };',
   ]) {
     assert.equal(lowered(source).backend, 'typescript', source);
@@ -76,9 +77,8 @@ test('a source whose at signs are no decorators compiles as without the option',
   assert.equal(compile(Buffer.from(source), options).backend, 'pulse');
 });
 
-test('metadata and source maps keep the TypeScript route', () => {
+test('source maps keep the TypeScript route', () => {
   const source = 'export class A { constructor(@IFoo foo: IFoo) {} }';
-  assert.equal(compile(source, { ...options, emitDecoratorMetadata: true }).backend, 'typescript');
   assert.equal(compile(source, { ...options, sourceMap: true }).backend, 'typescript');
 });
 
@@ -111,4 +111,62 @@ test('a class that names itself in its body behaves as TypeScript\'s lowering do
     assert.equal(lowered.backend, 'pulse', shape);
     assert.match(lowered.code, /let A;\s*A = class[^{]*\{ static \{ A = this; \}/, shape);
   }
+});
+
+// One source per row of the PICT table: where the class stands, and what is decorated in it.
+function placed(row) {
+  const members = [];
+  if (row.Parameter === 'Constructor') members.push('constructor(@p("c") a?: number) {}');
+  if (row.Member === 'Method') members.push(row.Parameter === 'Method' ? '@m("m") m(x: number, @p("m") y?: number) { return 1; }' : '@m("m") m() { return 1; }');
+  if (row.Member === 'Field') members.push('@m("f") f = 2;');
+  if (row.Member === 'Static') members.push('@m("s") static s() { return 3; }');
+  if (row.Member === 'Accessor') members.push('@m("g") get g() { return 4; }');
+  if (row.SelfName === 'Yes') members.push('static make() { return new K(); }', 'who() { return K.name; }');
+  if (row.Abstract === 'Yes') members.push('abstract missing(): void;');
+  const decorators = { None: '', One: '@c("1") ', Two: '@c("1") @c("2") ' }[row.ClassDecorator];
+  const modifier = row.Abstract === 'Yes' ? 'abstract ' : '';
+  const body = ` { ${members.join(' ')} }`;
+  const prelude = 'const log: string[] = [];\n' +
+    'const c = (n: string) => (t: any) => { log.push("c" + n + typeof t); };\n' +
+    'const m = (n: string) => (t: any, k: any, d?: any) => { log.push("m" + n + String(k) + typeof d); };\n' +
+    'const p = (n: string) => (t: any, k: any, i: number) => { log.push("p" + n + String(k) + i); };\n';
+  const use = '[log.join("|"), Object.getOwnPropertyNames(K.prototype).join(), Object.getOwnPropertyNames(K).join()]';
+  switch (row.Place) {
+    case 'Module': return `${prelude}${decorators}${modifier}class K${body}\nexport const out = ${use};`;
+    case 'Exported': return `${prelude}${decorators}export ${modifier}class K${body}\nexport const out = ${use};`;
+    case 'DefaultNamed': return `${prelude}${decorators}export default ${modifier}class K${body}\nexport const out = ${use};`;
+    case 'DefaultAnonymous': return `${prelude}${decorators}export default ${modifier}class${body}\nexport const out = [log.join("|")];`;
+    case 'Function': return `${prelude}function f() { ${decorators}${modifier}class K${body}\n return ${use}; }\nexport const out = f();`;
+    case 'Block': return `${prelude}let seen: any;\nif (log.length === 0) { ${decorators}${modifier}class K${body}\n seen = ${use}; }\nexport const out = seen;`;
+    case 'Method': return `${prelude}@c("o") class Outer { @m("o") run() { ${decorators}${modifier}class K${body}\n return ${use}; } }\nexport const out = new Outer().run();`;
+    default: throw new Error(row.Place);
+  }
+}
+
+const places = readFileSync(new URL('../verification/pict/compiler-legacy-decorator-places.tsv', import.meta.url), 'utf8')
+  .trim().split('\n').map(line => line.split('\t'));
+
+test('a decorated class is lowered wherever its declaration stands', () => {
+  const [header, ...rows] = places;
+  assert.equal(rows.length, 38);
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export default\s+(?=class)/g, '').replace(/export default /g, 'void ').replace(/export\s+(?=class)/g, '').replace(/export \{[^}]*\};?/g, ''))();
+  let native = 0;
+  for (const cells of rows) {
+    const row = Object.fromEntries(header.map((name, index) => [name, cells[index]]));
+    const source = placed(row);
+    const result = compile(Buffer.from(source), options);
+    const reference = ts.transpileModule(source, { fileName: 'legacy.ts', reportDiagnostics: true, compilerOptions: {
+      target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true, experimentalDecorators: true } });
+    assert.deepEqual(reference.diagnostics.filter(diagnostic => diagnostic.category === ts.DiagnosticCategory.Error), [], source);
+    assert.equal(typeof result.code, 'string', source);
+    const whole = row.ClassDecorator !== 'None' || row.Parameter === 'Constructor';
+    // A class that names itself is written with another device than TypeScript's, so only the behaviour is compared.
+    if (!(row.SelfName === 'Yes' && whole)) {
+      assert.deepEqual(inspect(ts, result.code, 'legacy.ts'), inspect(ts, reference.outputText, 'legacy.ts'), source);
+    }
+    assert.deepEqual(run(result.code), run(reference.outputText), source);
+    const any = whole || row.Member !== 'None';
+    if (any) { assert.equal(result.backend, 'pulse', source); native++; }
+  }
+  assert.ok(native >= 30);
 });

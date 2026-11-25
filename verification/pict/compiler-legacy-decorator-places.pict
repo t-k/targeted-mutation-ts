@@ -1,0 +1,9 @@
+Place: Module, Exported, DefaultNamed, DefaultAnonymous, Function, Block, Method
+ClassDecorator: None, One, Two
+Member: None, Method, Field, Static, Accessor
+Parameter: None, Constructor, Method
+SelfName: No, Yes
+Abstract: No, Yes
+
+IF [Place] = "DefaultAnonymous" THEN [SelfName] = "No";
+IF [Parameter] = "Method" THEN [Member] = "Method";

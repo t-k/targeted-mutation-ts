@@ -418,16 +418,18 @@ error:
   return NULL;
 }
 
-/* legacyDecoratorRecords(source): a Uint32Array of five numbers per record, or null. */
+/* legacyDecoratorRecords(source, all): a Uint32Array of five numbers per record, or null. */
 static napi_value legacy_decorator_records(napi_env env, napi_callback_info info) {
-  napi_value arg, result, buffer;
-  size_t argc = 1, size;
+  napi_value args[2], result, buffer;
+  size_t argc = 2, size;
   void *source, *data;
   uint32_t count = 0;
-  NAPI(napi_get_cb_info(env, info, &argc, &arg, NULL, NULL));
-  if (argc != 1) goto error;
-  NAPI(napi_get_buffer_info(env, arg, &source, &size));
-  uint32_t *records = size && size <= source_limit ? tmt_legacy_decorator_records(source, (uint32_t)size, &count) : NULL;
+  bool all = false;
+  NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
+  if (argc != 1 && argc != 2) goto error;
+  NAPI(napi_get_buffer_info(env, args[0], &source, &size));
+  if (argc == 2) NAPI(napi_get_value_bool(env, args[1], &all));
+  uint32_t *records = size && size <= source_limit ? tmt_legacy_decorator_records(source, (uint32_t)size, all, &count) : NULL;
   if (!records) {
     NAPI(napi_get_null(env, &result));
     return result;

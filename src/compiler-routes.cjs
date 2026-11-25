@@ -467,10 +467,10 @@ function compile(input, options = {}) {
     if (text.includes('@')) {
       // Without metadata and without a map the decorators are lowered here: the source is rewritten into
       // TypeScript without decorators, which the ordinary routes compile.
-      if (!emitDecoratorMetadata && !sourceMap && mode === 'transform' && !jsxFile && format !== 'cjs' && target === 'esnext') {
+      if (!sourceMap && mode === 'transform' && !jsxFile && format !== 'cjs' && target === 'esnext') {
         const bytes = Buffer.from(text);
         const addon = bytes.length <= 1048576 ? loadModuleAddon() : null;
-        const rewritten = addon ? require('./compiler-legacy-decorators.cjs').lowerLegacyDecorators(addon, bytes) : null;
+        const rewritten = addon ? require('./compiler-legacy-decorators.cjs').lowerLegacyDecorators(addon, bytes, emitDecoratorMetadata) : null;
         if (rewritten !== null) {
           const result = compile(rewritten, { ...options, experimentalDecorators: false, emitDecoratorMetadata: false });
           if (rewritten === bytes || (result.code !== null && result.backend !== 'typescript')) return result;

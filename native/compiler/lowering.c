@@ -2399,14 +2399,15 @@ enum_only:
 #endif
 
 /*
- * The places of legacy decorators in a module: five numbers per record, the kind (50 decorator, 51 class head,
+ * The places of legacy decorators in a module: five numbers per record, the kind (50 decorator, 51 class head, 60 the head of a class below module level,
  * 52 member, 53 parameter, 54 class end, 55 and 56 the body of any class) and the two spans the parser wrote. NULL when the parser does not take
  * the source. The caller rewrites the source from them and compiles the result.
  */
 /* Kind 21 is a class member that is erased whole; a class rewritten as an expression must lose it in the source. */
-static bool legacy_record(uint32_t kind) { return (kind >= 50 && kind <= 56) || kind == 21; }
+static bool legacy_record(uint32_t kind) { return (kind >= 50 && kind <= 56) || kind == 60 || kind == 21; }
 
-uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, uint32_t *count) {
+/* With all set, every record of the reading is returned: the metadata of the decorators is written from type records too. */
+uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, bool all, uint32_t *count) {
   *count = 0;
 #ifdef TMT_V8_VALIDATOR
   module_workspace memory = {0};
@@ -2424,12 +2425,12 @@ uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, uint32_t 
     const TmtPulseParser_parser_state parsed = TmtPulseParser_parse(input, false, true);
     if (parsed.status == 0 && parsed.count <= input.capacity) {
       uint32_t kept = 0;
-      for (uint32_t index = 0; index < parsed.count; index++) kept += legacy_record(records[index].original);
+      for (uint32_t index = 0; index < parsed.count; index++) kept += all || legacy_record(records[index].original);
       found = malloc((kept ? kept : 1) * 5 * sizeof(*found));
       if (found) {
         for (uint32_t index = 0; index < parsed.count; index++) {
           const TmtGrammar_candidate entry = records[index];
-          if (!legacy_record(entry.original)) continue;
+          if (!all && !legacy_record(entry.original)) continue;
           uint32_t *row = found + 5 * (*count)++;
           row[0] = entry.original; row[1] = entry.left.first; row[2] = entry.left.last;
           row[3] = entry.right.first; row[4] = entry.right.last;

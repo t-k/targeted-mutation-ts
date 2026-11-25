@@ -1,0 +1,10 @@
+Place	ClassDecorator	Member	Parameter	SelfName	Abstract
+Module	None	None	None	No	No
+Exported	One	Field	Constructor	No	No
+Function	One	Method	Constructor	No	No
+Function	One	None	None	Yes	No
+DefaultNamed	One	Method	None	No	No
+DefaultAnonymous	None	Method	None	No	No
+DefaultAnonymous	One	None	None	No	No
+Method	One	Method	Method	No	No
+Block	None	Static	None	No	Yes
