@@ -2519,3 +2519,31 @@ test('declare stands behind other modifiers, and readonly may precede abstract',
   // readonly belongs to a property.
   assert.notEqual(compile(Buffer.from('export abstract class R { readonly abstract m(): void; }'), { file: 'modifiers.ts' }).backend, 'pulse');
 });
+
+test('a left shift whose operand is followed by a right shift is no type argument list', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return'))();
+  for (const [source, file] of [
+    ['const b = 3, c = 200, d = 2;\nexport const out = [b << 2 | c >>> 6, b << 2 | c >> d, b << d & c >> 1, 1 << 2 | c >>> 6, b << d | c | b >> 1];', 'shift.ts'],
+    ['const b = 3, c = 200, d = [5, 6, 7, 8];\nexport const out = d[(b << 2 | c >>> 6) & 3];', 'shift.js'],
+  ]) {
+    const result = sameAsTypeScript(source, file);
+    assert.match(result.backend, /^(pulse|javascript)$/, source);
+    assert.deepEqual(run(result.code), run(reference(source, file)), source);
+  }
+  // A single > may close type arguments, and so may a shift behind operands that are not plain.
+  for (const source of ['x = b << T | U > (d);\nexport {};', 'x = b << (T) | U >> (d);\nexport {};', 'x = b << T | U\n>> d;\nexport {};']) {
+    assert.notEqual(compile(Buffer.from(source), { file: 'shift.ts' }).backend, 'pulse', source);
+  }
+});
+
+test('the operand of new may be parenthesized or asserted without an argument list', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return'))();
+  for (const source of [
+    'interface I { k: number }\nfunction mock<T>(): any { return class { k = 1 }; }\nfunction f(...a: object[]) { return a; }\nexport const out = JSON.stringify(f(new (mock<I>()), new (mock<I>()), new class { k = 2 } as I, [new (mock())]));',
+    'class K { v = 1 }\nconst o = { K };\nexport const out = JSON.stringify([new (o.K), new K as object, (new K as K).v]);',
+  ]) {
+    const result = sameAsTypeScript(source, 'operand.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'operand.ts')), source);
+  }
+});

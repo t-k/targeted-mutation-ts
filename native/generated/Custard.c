@@ -9926,6 +9926,47 @@ bool TmtPulseParser_exponent_base(TmtPulseMemory_tape input, TmtPulseParser_pars
 }
 
 bool
+TmtPulseParser_plain_operands(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t last0,
+  uint32_t fuel0
+)
+{
+  TmtPulseMemory_tape input = input0;
+  uint32_t at = at0;
+  uint32_t last = last0;
+  uint32_t fuel = fuel0;
+  while (true)
+    if (at >= last)
+      return true;
+    else if (fuel == 0U)
+      return false;
+    else
+    {
+      uint8_t value = TmtPulseMemory_peek(input, at);
+      if
+      (
+        value == 32U || value == 46U || value == 124U || value == 38U ||
+          value < 128U && TmtGrammar_identifier_continue(value)
+      )
+      {
+        uint32_t tmp0 = TmtPulseParser_next(at);
+        uint32_t tmp = TmtPulseParser_minus(fuel, 1U);
+        at = tmp0;
+        fuel = tmp;
+      }
+      else
+        return false;
+    }
+  KRML_HOST_EPRINTF("KaRaMeL abort at %s:%d\n%s\n",
+    __FILE__,
+    __LINE__,
+    "unreachable, returns inserted above");
+  KRML_HOST_EXIT(255U);
+}
+
+bool
 TmtPulseParser_left_shift_type_ambiguity(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state start,
@@ -9947,10 +9988,23 @@ TmtPulseParser_left_shift_type_ambiguity(
   {
     TmtPulseParser_parser_state value1 = TmtPulseParser_annotation_type(input, start, 16U, 64U);
     TmtPulseParser_parser_state value2 = TmtPulseParser_skip(input, value1);
+    bool value3;
     if (value2.status == 0U)
-      return TmtPulseParser_same(input, value2.offset, 62U);
+      value3 = TmtPulseParser_same(input, value2.offset, 62U);
     else
+      value3 = false;
+    if (!value3)
       return false;
+    else
+    {
+      bool value4 = TmtPulseParser_same(input, TmtPulseParser_next(value2.offset), 62U);
+      bool value5;
+      if (value4)
+        value5 = TmtPulseParser_plain_operands(input, start.offset, value2.offset, 96U);
+      else
+        value5 = false;
+      return !value5;
+    }
   }
 }
 
@@ -14500,7 +14554,7 @@ TmtPulseParser_atom(
                     }
                   );
               }
-              else if (value15.status != 0U || value5 == 40U || value14)
+              else if (value15.status != 0U || value14)
                 value40 =
                   (
                     (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_assignment_target){
@@ -14541,7 +14595,12 @@ TmtPulseParser_atom(
                   value15.offset == input.size || value18 == 59U || value18 == 44U || value18 == 41U
                   || value18 == 93U
                   || value18 == 125U;
-                if (closed || value190)
+                bool value20;
+                if (input.capture_types && !boundary.newline && value18 == 97U)
+                  value20 = TmtPulseParser_keyword(input, value15.offset, 2U, 0x6173ULL);
+                else
+                  value20 = false;
+                if (closed || value20 || value190 && value5 != 40U)
                   value40 =
                     (
                       (FStar_Pervasives_Native_tuple2__TmtPulseParser_parser_state_TmtPulseParser_assignment_target){

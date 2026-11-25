@@ -2643,6 +2643,17 @@ let exponent_base (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt b
   let! head = (fun () -> read_atom_head input #frame state) in
   read_ret input #frame (head.token_ <> 60uy && (head.prefix_ = 0ul || head.increment_ <> 0ul))
 
+// Whether the bytes are names, numbers, dots, | and & on one line.
+let rec plain_operands (input:tape) (#frame:slprop) (at last fuel:U32.t)
+  : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) (decreases U32.v fuel) =
+  if U32.gte at last then read_ret input #frame true
+  else if fuel = 0ul then read_ret input #frame false
+  else
+    let! byte = (fun () -> peek input #frame at) in
+    if byte = 32uy || byte = 46uy || byte = 124uy || byte = 38uy || (U8.lt byte 128uy && G.identifier_continue byte) then
+      plain_operands input #frame (next at) last (minus fuel 1ul)
+    else read_ret input #frame false
+
 let left_shift_type_ambiguity (input:tape) (#frame:slprop) (start tail:parser_state)
   : Tot (stt bool (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! byte = (fun () -> peek input #frame tail.offset) in
@@ -2655,7 +2666,14 @@ let left_shift_type_ambiguity (input:tape) (#frame:slprop) (start tail:parser_st
   else
     let! annotation = (fun () -> annotation_type input #frame start 16ul 64ul) in
     let! greater = (fun () -> skip input #frame annotation) in
-    if greater.status = 0ul then same input #frame greater.offset 62uy else read_ret input #frame false
+    let! closing = (fun () -> if greater.status = 0ul then same input #frame greater.offset 62uy else read_ret input #frame false) in
+    if not closing then read_ret input #frame false
+    else
+      // a << b | c >> d: behind plain operands a right shift never closes type arguments, as TypeScript's
+      // parser reads the second > of the shift where it wants the parameters of a function type.
+      let! shifted = (fun () -> same input #frame (next greater.offset) 62uy) in
+      let! plain = (fun () -> if shifted then plain_operands input #frame start.offset greater.offset 96ul else read_ret input #frame false) in
+      read_ret input #frame (not plain)
 
 let finish_jsx_expression (input:tape) (state:parser_state) (first:U32.t)
   : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
@@ -2988,7 +3006,7 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
                 let! args = (fun () -> consume input tail 40uy) in
                 let! list = (fun () -> expression_list input args inner input.size 41uy false) in
                 ret input (list.list_end, NotAssignable)
-              else if tail.status <> 0ul || head = 40uy || typed then ret input (failed tail 1ul, NotAssignable)
+              else if tail.status <> 0ul || typed then ret input (failed tail 1ul, NotAssignable)
               else
                 let! declaration = (fun () -> if not boundary.newline then ret input false
                   else if next_token = 108uy then keyword input tail.offset 3ul 0x6c6574uL
@@ -3003,8 +3021,11 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
                   else ret input false) in
                 let closed = tail.offset = input.size || next_token = 59uy || next_token = 44uy ||
                   next_token = 41uy || next_token = 93uy || next_token = 125uy in
+                // new class { } as T: the assertion ends the operand like a closing bracket does.
+                let! asserted = (fun () -> if input.capture_types && not boundary.newline && next_token = 97uy then
+                    keyword input tail.offset 2ul 0x6173uL else ret input false) in
                 // Keep the constructor operand's end separate from the enclosing expression's trivia.
-                ret input (if closed || declaration then (named, NotAssignable) else (failed tail 1ul, NotAssignable))
+                ret input (if closed || asserted || (declaration && head <> 40uy) then (named, NotAssignable) else (failed tail 1ul, NotAssignable))
           else
             let inside = { st with offset = next start_pos } in
             if ch = 96uy then (let! anf_value_9 = (fun () -> template_body input inside start_pos inner input.size false) in ret input (anf_value_9, NotAssignable))

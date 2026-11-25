@@ -1687,6 +1687,14 @@ bool
 TmtPulseParser_exponent_base(TmtPulseMemory_tape input, TmtPulseParser_parser_state state);
 
 bool
+TmtPulseParser_plain_operands(
+  TmtPulseMemory_tape input0,
+  uint32_t at0,
+  uint32_t last0,
+  uint32_t fuel0
+);
+
+bool
 TmtPulseParser_left_shift_type_ambiguity(
   TmtPulseMemory_tape input,
   TmtPulseParser_parser_state start,
