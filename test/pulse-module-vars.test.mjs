@@ -23,7 +23,9 @@ for (const row of rows) {
     const expected = extractFallback(source, options);
     assert.deepEqual(actual.candidates, expected.candidates, source);
     assert.deepEqual(actual.diagnostics, expected.diagnostics, source);
-    assert.equal(actual.path === 'fast', suffix === 'Comparison' || suffix === 'DifferentScope', source);
+    // A var with a plain name may be declared again by another var; a pattern keeps the conflict.
+    const again = suffix === 'SameVar' && binding !== 'Pattern';
+    assert.equal(actual.path === 'fast', suffix === 'Comparison' || suffix === 'DifferentScope' || again, source);
   });
 }
 
