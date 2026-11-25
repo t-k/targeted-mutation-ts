@@ -175,21 +175,54 @@ function asciiSpelling(source, text) {
     else {
       let spelling = spellings.get(word);
       if (spelling === undefined) {
-        spelling = '';
-        for (let index = at; index < end; index++) {
-          spelling += source[index] >= 128 ? String.fromCharCode(65 + source[index] % 26) : String.fromCharCode(source[index]);
+        // A word that is no identifier (a dash, a bullet, a quotation mark from a string or a comment) is
+        // spelled with a digit in front and letters from G to Z behind it: in a string, a comment, a template
+        // or a regular expression that is text like any other, and where code stands it is no number and no
+        // name, so the copy is refused exactly where the source is.
+        const identifier = identifierWord.test(source.utf8Slice(at, end));
+        spelling = identifier ? '' : '9';
+        for (let index = at + spelling.length; index < end; index++) {
+          spelling += source[index] < 128 ? String.fromCharCode(source[index]) :
+            identifier ? String.fromCharCode(65 + source[index] % 26) : String.fromCharCode(71 + source[index] % 20);
         }
         if (taken.has(spelling)) return null;
         taken.add(spelling);
         spellings.set(word, spelling);
-        if (wellFormed && !identifierWord.test(source.utf8Slice(at, end))) wellFormed = false;
       }
       renamed.latin1Write(spelling, at);
     }
     at = end;
   }
   for (const spelling of taken) if (plain.has(spelling)) return null;
+  if (highByteInPattern(source)) return null;
   return { renamed, spellings, wellFormed, plain };
+}
+
+// Whether a byte outside ASCII may stand in the body of a regular expression literal. What such a body
+// means, and whether it is well formed, depends on its characters (a range in a class, a character beyond
+// the Basic Multilingual Plane), so a copy with other letters there proves nothing about the source.
+// A literal begins with a slash that is followed by neither a slash nor an asterisk and does not follow a
+// slash, and runs on its line to the next slash outside a class and not behind a backslash. Every such
+// slash is taken for a beginning, wherever it stands; a string or a comment with two slashes around such
+// text is declined with it.
+function highByteInPattern(source) {
+  for (let at = source.indexOf(47); at >= 0; at = source.indexOf(47, at + 1)) {
+    const next = source[at + 1];
+    if (next === 47 || next === 42 || (at > 0 && source[at - 1] === 47)) continue;
+    // A body of plain characters means the same whatever they are. A class, an escape and a group name do not.
+    let high = false, inClass = false, structured = false;
+    for (let index = at + 1; index < source.length; index++) {
+      const unit = source[index];
+      if (unit === 10 || unit === 13) break;
+      if (unit >= 128) high = true;
+      else if (unit === 92) { structured = true; index++; }
+      else if (inClass) { if (unit === 93) inClass = false; }
+      else if (unit === 91) { structured = true; inClass = true; }
+      else if (unit === 60) structured = true;
+      else if (unit === 47) { if (high && structured) return true; break; }
+    }
+  }
+  return false;
 }
 
 // Puts the names back in a text that was produced from the copy. The text holds no byte outside ASCII.
@@ -655,8 +688,10 @@ function compile(input, options = {}) {
             const result = (property || annotated === true || addon.moduleMarker(source, true)) ? eraseModule(addon, text, file, format, property) :
               format === 'preserve' ? eraseScript(addon, text, source, file) : null;
             if (result) return result;
-            // Names outside ASCII: the certified parser reads a copy in which they are spelled in ASCII.
-            if (annotated === null && source.length <= 1048576) {
+            // Names outside ASCII: the certified parser reads a copy in which they are spelled in ASCII. The
+            // copy also serves where the parser read the source but the emitter declined it for such a byte
+            // (a namespace body is searched byte by byte).
+            if (source.length <= 1048576) {
               const named = highByteNames(addon, source, text, file, format);
               if (named) return named;
             }

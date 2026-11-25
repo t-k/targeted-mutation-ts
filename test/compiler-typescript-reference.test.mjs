@@ -2687,3 +2687,26 @@ test('a namespace behind an enum of its name merges with it', () => {
     assert.notEqual(compile(Buffer.from(source), { file: 'merge.ts' }).backend, 'pulse', source);
   }
 });
+
+test('an operator that binds no tighter than an assertion may follow it', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return'))();
+  const native = ['a as any || {}', 'a as T && b', 'a as T ?? b', 'a as T === b', 'a as T == b', 'a as T !== b', 'a as T != b', 'a as T ^ b',
+    'a as T ? b : c', 'a + b as T || c', 'a < b as T || c', 'a as T as U || b', 'a satisfies T || b', 'a as T ?\n b : c', 'a as T[] || b',
+    'a as T<U> === b', 'b || a as T === c && d', 'a! as T || b', 'a as unknown as T ? 1 : 2', 'a as const === b', '(a as T ? b : c)',
+    'f(a as T || b, c as U ?? d)', 'a as T === b as U'];
+  for (const expression of native) {
+    const source = `declare let a: any, b: any, c: any, d: any, f: any, x: any;\nx = ${expression};\nexport {};`;
+    assert.equal(sameAsTypeScript(source, 'follow.ts').backend, 'pulse', expression);
+  }
+  const values = 'const a: any = 0, b: any = 5, c: any = 7;\nexport const out = JSON.stringify([a as number || b, a as number ?? b, a as number === 0, a + b as number ? c : a, b as any ^ c, a as any && b]);';
+  assert.equal(run(sameAsTypeScript(values, 'follow.ts').code), '[5,0,true,7,2,0]');
+  // An assignment is no continuation, and neither do the operators that bind tighter follow natively.
+  for (const expression of ['a as T ||= b', 'a as T &&= b', 'a as T ??= b', 'a as T ^= b', 'a as T = b', 'a as T < b', 'a as T ?.b', 'a as T ? ++b : c']) {
+    const result = compile(Buffer.from(`x = ${expression};\nexport {};`), { file: 'follow.ts' });
+    assert.notEqual(result.diagnostics.length, 0, expression);
+  }
+  for (const expression of ['a as T / b', 'a as T + b', 'a as T > b', 'a as T instanceof b', 'a as T\n|| b']) {
+    const source = `declare let a: any, b: any, x: any;\nx = ${expression};\nexport {};`;
+    assert.notEqual(sameAsTypeScript(source, 'follow.ts').backend, 'pulse', expression);
+  }
+});

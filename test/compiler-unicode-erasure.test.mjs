@@ -83,3 +83,44 @@ test('the copy spelled in ASCII is refused where a spelling could be mistaken', 
   assert.equal(kept.backend, 'pulse');
   assert.match(kept.code, /const é\s+= E\.A; export const s\s+= "NN_1";/);
 });
+
+test('a word outside ASCII that is no identifier is text in a string and an error in code', () => {
+  const lowered = source => compile(Buffer.from('enum E { A }\n' + source), { file: 'words.ts' });
+  for (const source of [
+    'export const s: string = "a ¦ b — c • d", e = E.A;',
+    '// → arrow in a comment\nexport const t: string = `x → ${E.A} ← y`;',
+    'export const q: string = "don’t", n: string = "9GK", e = E.A;',
+    '/* блочный комментарий — с тире */\nexport const e: number = E.A; // половина ½',
+  ]) {
+    const result = lowered(source);
+    assert.equal(result.backend, 'pulse', source);
+    assert.ok(result.code.endsWith(source.replace(/: (string|number)/g, m => ' '.repeat(m.length)).split('\n').pop()), source + '\n' + result.code);
+  }
+  const space = compile(Buffer.from('export namespace M { export const é = "¦"; export function k(r: string[]): string { return r.join(é); } }'), { file: 'words.ts' });
+  assert.equal(space.backend, 'pulse');
+  assert.match(space.code, /M\.é = "¦"; function k\(r\s*\)\s*{ return r\.join\(M\.é\); }/);
+  // In code such a word is an error, as in the source.
+  for (const source of ['export const → = E.A;', 'export const x = ¶5 + E.A;', 'export const x = a.¦ + E.A;', 'export const x = { ¦: 1, e: E.A };', 'label¦: for (;;) break;\nexport const e = E.A;']) {
+    const result = lowered(source);
+    assert.notEqual(result.backend, 'pulse', source);
+    assert.notEqual(result.diagnostics.length, 0, source);
+  }
+});
+
+test('the copy spelled in ASCII is not taken for a pattern whose meaning depends on its characters', () => {
+  const lowered = source => compile(Buffer.from('enum E { A }\nexport const été = E.A;\n' + source), { file: 'pattern.ts' });
+  // A range out of order is an error; spelled in other letters it could be in order.
+  const range = lowered('export const a = /[я-а]/.test("x");');
+  assert.notEqual(range.backend, 'pulse');
+  for (const pattern of ['/[а-я]/', '/(?<été>x)/', '/\\p{L}é/u', '/é\\d/', '/(?<=é)x/']) {
+    assert.notEqual(lowered(`export const a = ${pattern}.test("x");`).backend, 'pulse', pattern);
+  }
+  // Plain characters mean the same whatever they are.
+  for (const pattern of ['/été+/', '/a|é|ü/i', '/é{2,3}$/']) {
+    const result = lowered(`export const a = ${pattern}.test("x");`);
+    assert.equal(result.backend, 'pulse', pattern);
+    assert.ok(result.code.includes(pattern), pattern);
+  }
+  // A division and a comment on one line, and a path in a string, are no pattern with structure.
+  assert.equal(lowered('export const half = 1 / 2; // половина\nexport const u = "https://пример.рф/путь/x";').backend, 'pulse');
+});

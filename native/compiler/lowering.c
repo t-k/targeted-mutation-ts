@@ -1888,8 +1888,21 @@ static bool erasable_expression_range(TmtPulseMemory_tape input, TmtGrammar_cand
   if (tail.at == input.size) return true;
   if (!tail.newline && tail.at == next_assertion) return true;
   const uint8_t byte = input.source[tail.at];
-  return byte == ';' || byte == ',' || byte == ':' || byte == ')' || byte == ']' || byte == '}' ||
-    assertion_line_boundary(input, tail);
+  if (byte == ';' || byte == ',' || byte == ':' || byte == ')' || byte == ']' || byte == '}') return true;
+  /*
+   * An operator that binds no tighter than the assertion: the asserted operand holds only operators that bind
+   * tighter, so it groups the same without the assertion. Assignment operators are no continuation at all
+   * (TypeScript reports them), and `<`, `>` and the arithmetic operators are left out: the first two meet the
+   * type, the others would take the last operand of the asserted expression.
+   */
+  if (!tail.newline && tail.at + 2 < input.size) {
+    const uint8_t second = input.source[tail.at + 1], third = input.source[tail.at + 2];
+    if ((byte == '|' && second == '|') || (byte == '&' && second == '&') || (byte == '?' && second == '?')) return third != '=';
+    if ((byte == '=' || byte == '!') && second == '=') return true;
+    if (byte == '^') return second != '=';
+    if (byte == '?') return second != '.';
+  }
+  return assertion_line_boundary(input, tail);
 }
 
 static bool delimited_annotation(TmtPulseMemory_tape input, uint32_t last) {
