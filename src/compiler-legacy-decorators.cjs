@@ -200,6 +200,9 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false, spa
   let pending = [];
   // Where the declaration behind the last `export` of a namespace body begins (kind 36), or -1.
   let namespaceExport = -1;
+  // The type arguments, type parameter lists and implements clauses of the file, in order (kinds 10, 59, 18).
+  const erasedTypes = [];
+  context.erasedTypes = erasedTypes;
   // The classes that are open and lowered here, innermost last. Each knows how many class bodies were open
   // around its head, so that its members can be told from those of a class expression inside it.
   const open = [];
@@ -215,6 +218,8 @@ function lowerLegacyDecorators(addon, source, metadata = false, jsx = false, spa
     if (kind === 50) {
       decorated = true;
       pending.push({ first: leftFirst, last: leftLast, expression: slice(rightFirst, rightLast) });
+    } else if (kind === 10 || kind === 59 || kind === 18) {
+      erasedTypes.push([leftFirst, leftLast]);
     } else if (kind === 36) {
       namespaceExport = leftLast;
     } else if (kind === 65) {
@@ -416,9 +421,19 @@ function closeClass(found, text, end, context) {
   const reference = '(?<![\\w$])(?<!(?<!\\.)\\.)' + escaped + '(?![\\w$])';
   // White space and comments, which may stand between the brace or comma and the name.
   const gap = '(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n\\r]*)*';
-  // Type parameters, type arguments and the implements clause of the head are types, which are erased.
-  let heritage = found.bodyFirst !== undefined ? text.slice(found.nameLast, found.bodyFirst).replace(/\bimplements\b[\s\S]*$/, '') : '';
-  for (let before = ''; before !== heritage;) { before = heritage; heritage = heritage.replace(/<[^<>]*>/g, ''); }
+  // Type parameters, type arguments and the implements clause of the head are types, which are erased: the
+  // parser recorded where they stand, and what is left is the expression that the class extends. (A pair of
+  // angle brackets found by its look could be two comparisons: `extends pick(() => n < 1 || A.v > 1)`.)
+  let heritage = '';
+  if (found.bodyFirst !== undefined) {
+    let at = found.nameLast;
+    for (const [first, last] of context.erasedTypes) {
+      if (last <= at || first >= found.bodyFirst) continue;
+      heritage += text.slice(at, Math.max(at, first));
+      at = Math.max(at, last);
+    }
+    heritage += text.slice(Math.min(at, found.bodyFirst), found.bodyFirst);
+  }
   // A computed key is evaluated with the heritage clause, where the name means the undecorated class as well.
   // The parser records the place of every computed key of a member (kind 65).
   const unrenamed = found.bodyFirst !== undefined && (new RegExp(reference).test(heritage) ||

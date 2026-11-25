@@ -446,3 +446,29 @@ test('findings of the review of the destructuring and map round', () => {
     assert.notEqual(compile(Buffer.from(source), options).backend, 'pulse', body);
   }
 });
+
+test('the heritage clause of a self-naming class is read without its types, which the parser recorded', () => {
+  const run = code => new Function(code.replace(/export const out =/, 'return').replace(/export \{[^}]*\};?/g, '').replace(/export (?=class|const|let|namespace|function|var)/g, ''))();
+  const reference = source => ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, experimentalDecorators: true, verbatimModuleSyntax: true } }).outputText;
+  const prelude = 'function withPolicy(check: () => boolean): any { return class { static canRun = check; }; }\nfunction upgrade(Base: any): any { return class extends Base { static version = 2; }; }\n' +
+    'class Base<T> { static canRun() { return "base"; } }\ninterface I<T> {}\n';
+  // Two comparisons in a callback are no type arguments: the name between them is a reference.
+  for (const body of [
+    'function build(retries: number) {\n  @upgrade\n  class Job extends withPolicy((): boolean => retries < 1 || Job.version > 1) {\n    static version = 1;\n  }\n  return Job.canRun();\n}\nexport const out = build(3);',
+    '@upgrade\nclass Job extends withPolicy((): boolean => 3 < 1 || Job.version > 1) { static version = 1; static me() { return Job; } }\nexport const out = Job.canRun();',
+  ]) {
+    const result = compile(Buffer.from(prelude + body), options);
+    assert.notEqual(result.backend, 'pulse', body);
+    assert.equal(run(result.code), false, body);
+  }
+  // Type arguments, type parameters and an implements clause that name the class are erased and no reference.
+  for (const body of [
+    '@upgrade\nclass Job extends Base<Job> implements I<Job> { static version = 1; static me() { return Job; } }\nexport const out = [Job.canRun(), Job.me() === Job];',
+    '@upgrade\nclass Job<T extends Job<T> = Job<any>> extends Base<Array<Job<any>>> { static version = 1; static me() { return Job; } }\nexport const out = [Job.canRun(), Job.me() === Job];',
+  ]) {
+    const source = prelude + body;
+    const result = compile(Buffer.from(source), options);
+    assert.equal(result.backend, 'pulse', body);
+    assert.deepEqual(run(result.code), run(reference(source)), body);
+  }
+});

@@ -909,3 +909,7 @@ A review of the last rounds found two defects, both in checks of the decorator l
 
 - A computed key that names its class was looked for behind a punctuation mark or a modifier, and a key behind a field that ends without a semicolon was missed. The parser records the place of every computed key of a class member (kind 65), and the lowering looks at those places.
 - A class that a namespace exports was recognised by the word `export` in front of its head, and a comment between the two hid it. The parser's record of the `export` of a namespace member (kind 36) is passed to the lowering, which compares its end with the start of the class or of its first decorator.
+
+- The second review of that round found a third check of the same kind. The heritage clause of a self-naming class was searched for the class's name after taking out what looked like type arguments, a pair of angle brackets; two comparisons in a callback (`extends pick(() => n < 1 || Job.version > 1)`) look like one, and the name between them was not seen. The parser's records of type arguments, type parameter lists and implements clauses are passed to the lowering, which takes out exactly those.
+
+A corpus variant was added for checks that go by the text: real files with block comments put between tokens at random places (a comment without a line break changes nothing for TypeScript). The native outputs of the 1,241 plain and 1,771 decorated files agree with TypeScript's.
