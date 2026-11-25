@@ -2053,9 +2053,20 @@ static int compare_insertions(const void *lhs, const void *rhs) {
 }
 
 static bool emit_recorded_enum(lowering *lower, TmtGrammar_span span, uint32_t kind);
+typedef struct namespace_scope namespace_scope;
+static bool emit_namespace_record(lowering *lower, uint32_t records, uint32_t index, namespace_scope *scope);
+static void namespace_bytes(lowering *lower, namespace_scope *scope, uint32_t first, uint32_t last);
+static bool namespace_record(uint32_t kind);
+static bool inside_namespace(const namespace_scope *scope);
+static namespace_scope *new_namespace_scope(uint8_t *original, bool module);
+static bool close_namespace_scope(namespace_scope *scope);
 
 /* Copies a range of the projection and lowers the enum declarations recorded inside it. */
-static bool copy_lowering_enums(lowering *lower, uint32_t records, uint32_t *enum_index, uint32_t first, uint32_t last, bool enums) {
+/*
+ * Copies a range of the source and lowers the enums and namespaces in it. A namespace may hold classes with
+ * parameter properties, so its records are written here as well, between the statements this pass inserts.
+ */
+static bool copy_lowering_enums(lowering *lower, namespace_scope *scope, uint32_t records, uint32_t *enum_index, uint32_t first, uint32_t last, bool enums) {
   while (enums && *enum_index < records) {
     const TmtGrammar_candidate event = lower->input.output[*enum_index];
     if (!enum_record(event.original)) {
@@ -2065,18 +2076,24 @@ static bool copy_lowering_enums(lowering *lower, uint32_t records, uint32_t *enu
     const TmtGrammar_span span = event.left;
     if (span.first >= last) break;
     if (span.first < first || span.last > last) return false;
-    source_bytes(lower, first, span.first);
-    if (!emit_recorded_enum(lower, span, event.original)) return false;
+    namespace_bytes(lower, scope, first, span.first);
+    if (namespace_record(event.original)) {
+      if (!emit_namespace_record(lower, records, *enum_index, scope)) return false;
+    } else if (event.original == import_alias && inside_namespace(scope)) {
+      /* An alias in a namespace body is an ordinary variable. */
+      put(&lower->output, "var");
+    } else if (!emit_recorded_enum(lower, span, event.original)) return false;
     first = span.last;
     (*enum_index)++;
   }
-  source_bytes(lower, first, last);
+  namespace_bytes(lower, scope, first, last);
   return true;
 }
 
 static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *projected, uint32_t records,
-  uint32_t properties, bool enums, size_t *length, tmt_run_log *runs)
+  uint32_t properties, bool enums, bool module, size_t *length, tmt_run_log *runs)
 {
+  uint8_t *const original = input.source;
   parameter_insertion *edits = malloc((size_t)properties * 2 * sizeof(*edits));
   if (!edits) return NULL;
   uint32_t used = 0;
@@ -2111,10 +2128,16 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
     return NULL;
   }
   lower.output.capacity = reserve;
+  namespace_scope *scope = new_namespace_scope(original, module);
+  if (!scope) {
+    free(edits);
+    free(lower.output.code);
+    return NULL;
+  }
   uint32_t copied = 0, enum_index = 0;
   for (uint32_t index = 0; index < used; index++) {
     const parameter_insertion edit = edits[index];
-    if (!copy_lowering_enums(&lower, records, &enum_index, copied, edit.at, enums)) lower.output.failed = true;
+    if (!copy_lowering_enums(&lower, scope, records, &enum_index, copied, edit.at, enums)) lower.output.failed = true;
     if (edit.separate && copied != edit.at) put(&lower.output, ";");
     put(&lower.output, "\n");
     if (!edit.field) put(&lower.output, "this.");
@@ -2126,7 +2149,9 @@ static char *emit_parameter_properties(TmtPulseMemory_tape input, const char *pr
     put(&lower.output, ";");
     copied = edit.at;
   }
-  if (!copy_lowering_enums(&lower, records, &enum_index, copied, input.size, enums)) lower.output.failed = true;
+  if (!copy_lowering_enums(&lower, scope, records, &enum_index, copied, input.size, enums)) lower.output.failed = true;
+  /* Every namespace that was opened has to be closed. */
+  if (!close_namespace_scope(scope)) lower.output.failed = true;
   free(edits);
   if (lower.output.failed) {
     free(lower.output.code);
@@ -2191,7 +2216,7 @@ static bool skip_word(TmtPulseMemory_tape input, uint32_t *at, const char *word)
 }
 
 /* The namespaces that are open while their records are written, outermost first. */
-typedef struct {
+struct namespace_scope {
   TmtGrammar_span names[8];
   /* Whether the namespace is a member that its parent exports. */
   bool exported[8];
@@ -2209,7 +2234,7 @@ typedef struct {
   bool references_read;
   uint8_t *original;
   bool module;
-} namespace_scope;
+};
 
 static int by_position(const void *left, const void *right) {
   const uint32_t a = ((const TmtGrammar_span *)left)->first, b = ((const TmtGrammar_span *)right)->first;
@@ -2310,6 +2335,25 @@ static void namespace_bytes(lowering *lower, namespace_scope *scope, uint32_t fi
     }
   }
   source_bytes(lower, first, last);
+}
+
+static bool inside_namespace(const namespace_scope *scope) { return scope->depth != 0; }
+
+static namespace_scope *new_namespace_scope(uint8_t *original, bool module) {
+  namespace_scope *scope = calloc(1, sizeof(*scope));
+  if (scope) {
+    scope->original = original;
+    scope->module = module;
+  }
+  return scope;
+}
+
+/* Frees the scope. False when a namespace is still open. */
+static bool close_namespace_scope(namespace_scope *scope) {
+  const bool closed = scope->depth == 0;
+  free(scope->references);
+  free(scope);
+  return closed;
 }
 
 /* Whether every use of a name in a range is followed by a dot: such a use reads a property of the name. */
@@ -2631,7 +2675,7 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   if (facts.properties) {
     if (facts.local_enums) goto enum_only;
     /* One pass inserts the property statements and lowers the enums between them. */
-    char *lowered = emit_parameter_properties(input, code, records, facts.properties, facts.runtime_enums, length, runs);
+    char *lowered = emit_parameter_properties(input, code, records, facts.properties, facts.runtime_enums, module, length, runs);
     if (!lowered) goto enum_only;
     free(code);
     code = lowered;

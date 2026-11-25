@@ -2178,3 +2178,22 @@ test('an import alias in a namespace body is a variable of the body, or a member
     assert.notEqual(sameAsTypeScript(source, 'alias.ts').backend, 'pulse', source);
   }
 });
+
+test('a namespace and parameter properties are lowered in one pass', () => {
+  const run = code => new Function('A', code.replace(/export const out =/, 'return').replace(/export (?=var|const|function|class|let)/g, ''))({ q: 5 });
+  for (const source of [
+    'namespace N { export class C { constructor(public x: number) {} } }\nexport const out = JSON.stringify(new N.C(3));',
+    'namespace N { class C { constructor(private a: number, readonly b = 2) {} } export const c = new C(1); }\nexport const out = JSON.stringify(N);',
+    'export class P { constructor(public x: number) {} }\nnamespace N { export const v = 1; export function f() { return v; } }\nexport const out = JSON.stringify([new P(2), N.f()]);',
+    'namespace N.M { export class C extends Object { constructor(public x: number) { super(); } } export enum E { a } }\nexport const out = JSON.stringify([new N.M.C(4), N.M.E]);',
+    'declare const A: any;\nnamespace N { import B = A.q; export class C { constructor(public y = B) {} } }\nexport const out = JSON.stringify(new N.C());',
+    'namespace N { export let count = 0; export class C { constructor(public id = ++count) {} } }\nexport const out = JSON.stringify([new N.C(), new N.C(), N.count]);',
+    'class First { constructor(readonly a: string) {} }\nnamespace First { export const tag = "t"; }\nexport const out = JSON.stringify([new First("x"), First.tag]);',
+  ]) {
+    const result = sameAsTypeScript(source, 'properties.ts');
+    assert.equal(result.backend, 'pulse', source);
+    assert.equal(run(result.code), run(reference(source, 'properties.ts')), source);
+  }
+  // A parameter that bears the name of an exported variable hides it.
+  assert.notEqual(sameAsTypeScript('namespace N { export var x = 1; export class C { constructor(public x: number) {} } }\nexport { N };', 'properties.ts').backend, 'pulse');
+});
