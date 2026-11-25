@@ -472,3 +472,14 @@ test('the heritage clause of a self-naming class is read without its types, whic
     assert.deepEqual(run(result.code), run(reference(source)), body);
   }
 });
+
+test('an await in the computed key of any member keeps a self-naming class with TypeScript', () => {
+  for (const member of ['[await 1]() {}', 'x = 1\n  [await key()] = 2;', 'static get [(await key())]() { return 1; }']) {
+    const source = `const d = (c: any) => c;\ndeclare function key(): Promise<string>;\n@d export class K { static v = K;\n  ${member}\n}`;
+    assert.notEqual(compile(Buffer.from(source), options).backend, 'pulse', member);
+  }
+  // Without the self reference no function is written around the class, and the key may await.
+  const plain = compile(Buffer.from('const d = (c: any) => c;\n@d export class K { [await Promise.resolve("k")]() { return 1; } }'), options);
+  assert.equal(plain.backend, 'pulse');
+  assert.match(plain.code, /let K = class K \{ \[await Promise\.resolve\("k"\)\]\(\)/);
+});

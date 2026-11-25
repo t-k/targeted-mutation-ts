@@ -442,7 +442,8 @@ function closeClass(found, text, end, context) {
   // An await belongs to the function around the class when it stands in the heritage clause or in a computed key.
   const awaits = /\b(?:await|yield)\b/;
   const outside = found.bodyFirst !== undefined && (awaits.test(text.slice(found.nameLast, found.bodyFirst)) ||
-    found.members.some(member => (member.flags & 32) && awaits.test(member.key)));
+    found.members.some(member => (member.flags & 32) && awaits.test(member.key)) ||
+    found.computed.some(([first, last]) => awaits.test(text.slice(first, last))));
   if (named && ((found.local && !found.once) || found.bodyFirst === undefined || text[found.bodyFirst] !== '{' || outside || unrenamed ||
       new RegExp('(?<![\\w$])' + escaped + '_1(?![\\w$])').test(text))) return null;
   const list = found.decorators.map(decorator => decorator.expression);
