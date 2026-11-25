@@ -1,0 +1,6 @@
+Profile	ExecutionPath	SiteShape
+Full	Session	LogicalAndSpread
+Full	Session	ObservedWithInnerBuiltin
+Full	List	LogicalAndSpread
+Full	SourceRewrite	LogicalAndSpread
+Targeted	Session	LogicalAndSpread

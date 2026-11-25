@@ -106,7 +106,8 @@ export function listCandidates(project, files, options = {}) {
     dialect: options.dialect,
     excludeRules: options['exclude-rule'],
     typeContext,
-    ...(profile === 'targeted' ? { keep: targetedOrBoundary, targeted: true } : {}),
+    targeted: true,
+    ...(profile === 'targeted' ? { keep: targetedOrBoundary } : {}),
   });
   for (const mutant of prepared) {
     if (mutant.parametric) continue;

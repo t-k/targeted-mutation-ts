@@ -62,7 +62,8 @@ export async function analyzeConventional(project, files, options) {
     shifts: awaitsExtras,
     excludeRules: options['exclude-rule'],
     typeContext,
-    ...(profile === 'targeted' ? { keep: targetedOrBoundary, targeted: true } : {}),
+    targeted: true,
+    ...(profile === 'targeted' ? { keep: targetedOrBoundary } : {}),
   });
   const report = {
     schemaVersion: 1, runner: 'vitest', mutators: profile,

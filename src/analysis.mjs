@@ -52,7 +52,7 @@ function builtInSites(comparisons, input, file, dialect, selected, options = {})
 function withProfileSites(comparisons, input, file, { mutators, dialect, 'exclude-rule': excludeRules }, selected, typeEquivalence = null) {
   const start = candidate => (candidate.operatorEdit ?? candidate.edit)[0];
   // Without a session nothing is recorded, so the targeted or full edits run as plain source edits.
-  const added = mutators === 'full' ? builtInSites(comparisons, input, file, dialect, selected, { excludeRules, typeEquivalence })
+  const added = mutators === 'full' ? builtInSites(comparisons, input, file, dialect, selected, { targeted: true, excludeRules, typeEquivalence })
     : mutators === 'targeted' ? builtInSites(comparisons, input, file, dialect, selected, { targeted: true, excludeRules, typeEquivalence, keep: mutation => mutation.targeted !== undefined })
       : [];
   return added.length ? [...comparisons, ...added].sort((a, b) => start(a) - start(b)) : comparisons;

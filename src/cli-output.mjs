@@ -15,6 +15,7 @@ Scope (analyze):
   --copy-exclude PATH           Leave a project path out of the temporary copies (warns and skips if missing). Repeatable.
                                 Also configurable via "copyExclude" in targeted-mutation.config.json.
   --copy-exclude-gitignore      Also exclude gitignored paths (except node_modules) from temporary copies.
+                                Also configurable via "copyExcludeGitignore": true in targeted-mutation.config.json.
   --exclude-rule RULE           Exclude a mutation rule (e.g. nullish-equality/v1). Repeatable.
   --type-check                  Use TypeScript's type checker (when strictNullChecks is enabled) to skip
                                 statically equivalent nullish-fallback/v1 and nullish-equality/v1 edits.

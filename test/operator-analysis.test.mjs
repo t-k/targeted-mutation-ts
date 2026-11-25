@@ -100,7 +100,8 @@ test('the full profile runs the complete built-in mutation set without an extra 
   const byName = {};
   for (const mutant of report.mutants) (byName[mutant.mutatorName ?? mutant.rule] ??= []).push(mutant.status);
   assert.deepEqual(Object.keys(byName).sort(), ['ArithmeticOperator', 'BlockStatement', 'BooleanLiteral', 'ConditionalExpression',
-    'EqualityOperator', 'LogicalOperator', 'comparison-boundary/v1', 'comparison-threshold/v1']);
+    'EqualityOperator', 'LogicalOperator', 'arithmetic-swap/v1', 'comparison-boundary/v1', 'comparison-threshold/v1',
+    'equality-constant/v1', 'ignored-operand/v1']);
   // `total >= 100` -> `total > 100` is reported once, by the focused analysis with its missing input.
   assert.deepEqual(byName['comparison-boundary/v1'], ['survived']);
   assert.deepEqual(byName['comparison-threshold/v1'], ['survived']);
@@ -109,7 +110,12 @@ test('the full profile runs the complete built-in mutation set without an extra 
   assert.deepEqual(equality, [['member === true', 'member !== true', 'killed'], ['total >= 100', 'total < 100', 'killed']]);
   // Nothing calls `unused`, so per-test coverage reports its mutations as unreached.
   const unused = report.mutants.filter(mutant => mutant.location.line >= 6);
-  assert.deepEqual(unused.map(mutant => [mutant.mutatorName, mutant.status]), [['BlockStatement', 'unreached'], ['ArithmeticOperator', 'unreached']]);
+  assert.deepEqual(unused.map(mutant => [mutant.mutatorName, mutant.status]), [
+    ['BlockStatement', 'unreached'],
+    ['ArithmeticOperator', 'unreached'],
+    ['arithmetic-swap/v1', 'unreached'],
+    ['arithmetic-swap/v1', 'unreached'],
+  ]);
   assert.equal(report.mutants.find(mutant => mutant.mutatorName === 'BlockStatement' && mutant.location.line === 1).status, 'killed');
   assert.equal(report.mutants.every(mutant => mutant.source === undefined && mutant.operatorSwap === undefined), true);
   assert.equal(new Set(report.mutants.map(mutant => `${mutant.id ?? mutant.site}:${mutant.rule ?? mutant.mutatorName}:${mutant.replacement}`)).size, report.mutants.length);
