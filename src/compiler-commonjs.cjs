@@ -335,13 +335,22 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       text.includes('\r') || text.includes('\xe2\x80\xa8') || text.includes('\xe2\x80\xa9')) return null;
   // The CommonJS dialect of TypeScript (`export =`, `import x = require()`) is written without the module's head.
   if (source.includes('=') && /\bexport\s*=|\bimport\s+[\w$]+\s*=/.test(source)) return null;
-  const records = addon.moduleRecords?.(bytes);
+  let records = addon.moduleRecords?.(bytes);
   if (!records) return null;
+  let hasStart = false;
+  for (let i = 0; i < records.length; i += 5) if (records[i] === 72) { hasStart = true; break; }
+  if (!hasStart && text.includes('export')) {
+    // Single-declaration modules taking the parser's direct-module shortcut omit statement-start records;
+    // appending an empty statement forces full module-record emission without altering source offsets.
+    records = addon.moduleRecords?.(Buffer.from(code + '\n;'));
+    if (!records) return null;
+  }
 
   const starts = new Set(), listed = new Set(), targets = [], moduleEnds = new Map(), defaults = new Map(), direct = new Set();
   const declared = [], references = [], shorthand = new Set(), classBodies = [];
   for (let index = 0; index < records.length; index += 5) {
     const kind = records[index], first = records[index + 1], last = records[index + 2];
+    if (first >= bytes.length || last > bytes.length) continue;
     if (kind === 72) starts.add(first);
     else if (kind === 76) listed.add(first);
     else if (kind === 74) targets.push([first, last]);
@@ -666,7 +675,8 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           const beforeEnd = hasSemi ? value.slice(0, tailEnd - 1) : trailingComment ? value.slice(0, tailEnd) : value.replace(/\n[ \t]*$/, '').replace(/\n+$/, '');
           const leading = /^([ \t]*)([\s\S]*)$/.exec(beforeEnd);
           if (skipTriviaBack(beforeEnd, beforeEnd.length, true) !== beforeEnd.length ||
-              ((leading[1].length > 1 || leading[2].startsWith('\n')) && /^(?:async(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)+function|function|class)(?![\w$])/.test(leading[2].trimStart()))) return null;
+              ((leading[1].length > 1 || (leading[2].startsWith('\n') && source.includes('<') && /=(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*</.test(source))) &&
+               /^(?:async(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)+function|function|class)(?![\w$])/.test(leading[2].trimStart()))) return null;
           edits.push([first, at, '']);
           if (trailingComment) edits.push([equals + tailEnd, equals + tailEnd, `;\nexports.${name} = ${name};`]);
           else behind(index, `exports.${name} = ${name};`);
@@ -842,6 +852,9 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
     while (targetCursor < targets.length && targets[targetCursor][1] <= position) targetCursor++;
     return targetCursor < targets.length && position >= targets[targetCursor][0] && position < targets[targetCursor][1];
   };
+  // An identifier followed by `.`, `(`, or `[` inside an assignment LHS (`browser.rootEl = 1`, `configs[dirname(p)] = 1`)
+  // is evaluated as a receiver/callee/index expression rather than assigned as a binding.
+  const isBindingTarget = (position, nextChar) => nextChar !== '.' && nextChar !== '(' && nextChar !== '[' && targeted(position);
   // Every occurrence of a renamed name in code has to be one that the parser read as an expression, a
   // property behind a dot, a property key/label/method name, or the declaration itself. A local name that
   // stays is exported by value, so nothing may write or shadow it.
@@ -948,7 +961,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       }
       const [one, two, three, nextAt] = followers(text, at + name.length);
       if (/[\x80-\xff\\]/.test(one)) return false;
-      if (target.kind !== 'variable' && (writes(text, at, one, two, three, prevToken) || targeted(at))) return false;
+      if (target.kind !== 'variable' && (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one))) return false;
       // An optional call is written by TypeScript with parentheses that end the chain; it is left to it.
       if (one === '?' && two === '.') {
         const afterOpt = skipTrivia(text, nextAt + 2);
@@ -991,15 +1004,15 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       if (checkLoopTarget() || (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt)))) return false;
       if (targets.some(([first, last]) => first === at && last === at + name.length) && one === '=' && two !== '=' && two !== '>') {
         edits.push([at, at, local.exported.slice().reverse().map(exported => `exports.${exported} = `).join('')]);
-      } else if (writes(text, at, one, two, three, prevToken) || targeted(at)) return false;
+      } else if (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one)) return false;
     } else if (reference !== undefined && local.kind === 'filled') {
       // The variable of a lowered enum or namespace is written only by the function that fills it.
       const [one, two, three] = followers(text, at + name.length);
-      if (statementOf(at) !== local.statement + 1 && (writes(text, at, one, two, three, prevToken) || targeted(at))) return false;
+      if (statementOf(at) !== local.statement + 1 && (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one))) return false;
     } else if (reference !== undefined && (local.kind === 'function' || local.kind === 'class')) {
       // A function or a class is exported by value: an assignment to it would have to write the export too.
       const [one, two, three, nextAt] = followers(text, at + name.length);
-      if (writes(text, at, one, two, three, prevToken) || targeted(at)) return false;
+      if (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one)) return false;
       // The head of a loop and a parenthesized object are the targets that the parser does not report.
       if ((nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) || checkLoopTarget()) return false;
       if (checkObjectTarget() && (one === ',' || one === '}')) return false;

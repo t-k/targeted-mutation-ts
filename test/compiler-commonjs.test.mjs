@@ -589,4 +589,15 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   assert.equal(compile(Buffer.from('const d = (c: any) => c;\n@d export class C {}\nlet async: any;\nasync && { x: await 0 };\n'), { file: 'a.ts', module: 'cjs' }).backend, 'typescript');
   assert.equal(compile(Buffer.from('const d = (c: any) => c;\n@d export class C {}\nconst async = 1;\nasync\n{ await Promise.resolve(); }\n'), { file: 'a.ts', module: 'cjs' }).backend, 'typescript');
   assert.equal(sameAsTypeScript('import { Dec } from "./d";\n@Dec()\nexport class C { async m({ x }: any) { await x; } }\n').backend, 'pulse');
+  // Receiver/callee/index occurrences inside assignment LHS (`browser.rootEl = 1`, `configs[dirname(p)] = 1`)
+  // and Prettier-formatted multiline `export const f =\n  function () {}` compile natively.
+  for (const src of [
+    'import { browser, dirname } from "./d";\nconst configs: any = {};\nbrowser.rootEl = "#app";\nconfigs[dirname("/a/b")] = 1;\nexport { configs };\n',
+    'export const f =\n  function () { return 1; };\nexport default f.name;\n',
+    'export const g =\n  async function () { return 2; };\n',
+    '/*! @license */\nexport const VERSIONS_CONFIG = { a: "1", b: 2 };\n',
+  ]) {
+    assert.equal(sameAsTypeScript(src).backend, 'pulse', src);
+  }
+  assert.equal(compile(Buffer.from('export const f = <any>\n  function () {};\nexport default f.name;\n'), { file: 'a.ts', module: 'cjs' }).backend, 'typescript');
 });
