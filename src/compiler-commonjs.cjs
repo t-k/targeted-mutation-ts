@@ -7,6 +7,7 @@
 
 // TypeScript's helpers, in the text it writes them, and the order in which it writes them.
 const helperText = require('./compiler-commonjs-helpers.json');
+const { collectShadowedSpans } = require('./compiler-commonjs-scope.cjs');
 // Those the others rest on come first, then `__importStar` and `__exportStar` in the order of their first use.
 // The helpers of legacy decorators stand at the head of the module text and are moved among these.
 const helperRank = { __createBinding: 0, __setModuleDefault: 1, __decorate: 2, __importStar: 3, __exportStar: 3, __metadata: 4, __param: 5, __importDefault: 6 };
@@ -891,134 +892,169 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   const checkLoopTarget = () => (hasLoopTarget ??= loopTarget.test(text));
   const checkObjectTarget = () => (hasObjectTarget ??= objectTarget.test(text));
   const referenceAt = new Map(references.map(reference => [reference.first, reference]));
-  const scanned = scanCodeIdentifiers(text, (name, at, prevToken, depth, inTopClass, inAsyncFn) => {
-    if (name === 'await' && !inAsyncFn && prevToken !== '.') hasAwaitOutsideMethod = true;
-    if (prevToken === '@' || text[at - 1] === '@') hasStage3Decorator = true;
-    if (name === 'exports' && prevToken !== '.') {
-      const [one] = followers(text, at + name.length);
-      if (one !== ':') return false;
+  const isInShadowedSpan = (spansMap, name, pos) => {
+    const list = spansMap.get(name);
+    if (list === undefined) return false;
+    for (let k = 0; k < list.length; k++) {
+      if (pos >= list[k][0] && pos < list[k][1]) return true;
     }
-    if (name === 'import' && prevToken !== '.' && prevToken !== '#' && text[at - 1] !== '#' && !inEdit(at)) {
-      const [one, , , nextAt] = followers(text, at + 6);
-      if (one === '.') return false;
-      if (one === '(') {
-        hasDynamicImport = true;
-        const dyn = new RegExp(`^\\((${quoted})\\)`).exec(text.slice(nextAt, nextAt + 300));
-        if (dyn !== null) {
-          need(at, '__createBinding', '__setModuleDefault', '__importStar');
-          const spec = dyn[1];
-          const rep = `Promise.resolve().then(() => __importStar(require(${spec})))`;
-          const specAt = text.indexOf(spec, nextAt);
-          const repAt = rep.indexOf(spec);
-          edits.push([at, nextAt + dyn[0].length, rep, [repAt, specAt, spec.length]]);
-          if (nextAt + dyn[0].length > dynEditEnd) dynEditEnd = nextAt + dyn[0].length;
-          return;
-        }
-        const closeParen = findMatchingParen(nextAt);
-        if (closeParen < 0) return false;
-        const inner = text.slice(nextAt + 1, closeParen);
-        const innerStripped = inner.replace(/"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, m => m[0] === '"' || m[0] === "'" ? m : ' ').trim();
-        if (innerStripped === '') return false;
-        if (new RegExp(`^${quoted}$`).test(innerStripped)) {
-          // A commented string literal like `import(/* webpackChunkName: "x" */ "./x")` is a plain literal
-          // unless erased assertion blanks stand around it.
-          const specMatch = new RegExp(`^(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n]*\\n)*(${quoted})(?:\\n[ \\t]*)*$`).exec(inner);
-          if (specMatch === null) return false;
-          // Ensure no erased prefix assertion (more than 1 space before the quote on the same line, including after a comment).
-          const beforeSpec = inner.slice(0, inner.indexOf(specMatch[1]));
-          const afterLastLine = beforeSpec.slice(beforeSpec.lastIndexOf('\n') + 1);
-          const afterLastComment = afterLastLine.includes('*/') ? afterLastLine.slice(afterLastLine.lastIndexOf('*/') + 2) : afterLastLine;
-          if (afterLastLine.includes('*/') ? afterLastComment.length > 1 : (!beforeSpec.includes('\n') && afterLastLine.length > 1)) return false;
-          need(at, '__createBinding', '__setModuleDefault', '__importStar');
-          edits.push([at, nextAt + 1, 'Promise.resolve().then(() => __importStar(require(']);
-          edits.push([closeParen, closeParen + 1, ')))']);
-          return;
-        }
-        need(at, '__createBinding', '__setModuleDefault', '__importStar');
-        edits.push([at, nextAt + 1, 'Promise.resolve(`${']);
-        edits.push([closeParen, closeParen + 1, '}`).then(s => __importStar(require(s)))']);
-        return;
+    return false;
+  };
+  const preScanEditsLen = edits.length;
+  const preScanHelpers = new Map(helpers);
+  const preScanStage3 = hasStage3Decorator;
+  let shadowCandidates = null;
+  const runScan = shadowedSpans => {
+    targetCursor = 0;
+    editCursor = 0;
+    dynEditEnd = -1;
+    return scanCodeIdentifiers(text, (name, at, prevToken, depth, inTopClass, inAsyncFn) => {
+      if (name === 'await' && !inAsyncFn && prevToken !== '.') hasAwaitOutsideMethod = true;
+      if (prevToken === '@' || text[at - 1] === '@') hasStage3Decorator = true;
+      if (name === 'exports' && prevToken !== '.') {
+        const [one] = followers(text, at + name.length);
+        if (one !== ':') return false;
       }
-    }
-    const target = renamed.get(name), local = target === undefined ? kept.get(name) : undefined;
-    if (target === undefined && local === undefined) return;
-    if (prevToken === '.') return;
-    const before = text[at - 1], reference = referenceAt.get(at);
-    if (target !== undefined) {
-      if (target.declaration === at || inEdit(at)) return;
-      const isDecoratorHead = prevToken === '@' || before === '@';
-      if (isDecoratorHead) {
-        if (!(depth === 0 || inTopClass || !isShadowedLocal(name))) return false;
-      } else if (reference === undefined || reference.last !== at + name.length) {
-        // Non-reference identifier in code: safe when it is a property key/label (`name:`), a method or
-        // accessor definition (`name(` not after `function`/`function*`), a label jump, or a static member.
-        if (reference === undefined) {
-          const [one] = followers(text, at + name.length);
+      if (name === 'import' && prevToken !== '.' && prevToken !== '#' && text[at - 1] !== '#' && !inEdit(at)) {
+        const [one, , , nextAt] = followers(text, at + 6);
+        if (one === '.') return false;
+        if (one === '(') {
+          hasDynamicImport = true;
+          const dyn = new RegExp(`^\\((${quoted})\\)`).exec(text.slice(nextAt, nextAt + 300));
+          if (dyn !== null) {
+            need(at, '__createBinding', '__setModuleDefault', '__importStar');
+            const spec = dyn[1];
+            const rep = `Promise.resolve().then(() => __importStar(require(${spec})))`;
+            const specAt = text.indexOf(spec, nextAt);
+            const repAt = rep.indexOf(spec);
+            edits.push([at, nextAt + dyn[0].length, rep, [repAt, specAt, spec.length]]);
+            if (nextAt + dyn[0].length > dynEditEnd) dynEditEnd = nextAt + dyn[0].length;
+            return;
+          }
+          const closeParen = findMatchingParen(nextAt);
+          if (closeParen < 0) return false;
+          const inner = text.slice(nextAt + 1, closeParen);
+          const innerStripped = inner.replace(/"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, m => m[0] === '"' || m[0] === "'" ? m : ' ').trim();
+          if (innerStripped === '') return false;
+          if (new RegExp(`^${quoted}$`).test(innerStripped)) {
+            // A commented string literal like `import(/* webpackChunkName: "x" */ "./x")` is a plain literal
+            // unless erased assertion blanks stand around it.
+            const specMatch = new RegExp(`^(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n]*\\n)*(${quoted})(?:\\n[ \\t]*)*$`).exec(inner);
+            if (specMatch === null) return false;
+            // Ensure no erased prefix assertion (more than 1 space before the quote on the same line, including after a comment).
+            const beforeSpec = inner.slice(0, inner.indexOf(specMatch[1]));
+            const afterLastLine = beforeSpec.slice(beforeSpec.lastIndexOf('\n') + 1);
+            const afterLastComment = afterLastLine.includes('*/') ? afterLastLine.slice(afterLastLine.lastIndexOf('*/') + 2) : afterLastLine;
+            if (afterLastLine.includes('*/') ? afterLastComment.length > 1 : (!beforeSpec.includes('\n') && afterLastLine.length > 1)) return false;
+            need(at, '__createBinding', '__setModuleDefault', '__importStar');
+            edits.push([at, nextAt + 1, 'Promise.resolve().then(() => __importStar(require(']);
+            edits.push([closeParen, closeParen + 1, ')))']);
+            return;
+          }
+          need(at, '__createBinding', '__setModuleDefault', '__importStar');
+          edits.push([at, nextAt + 1, 'Promise.resolve(`${']);
+          edits.push([closeParen, closeParen + 1, '}`).then(s => __importStar(require(s)))']);
+          return;
+        }
+      }
+      const target = renamed.get(name), local = target === undefined ? kept.get(name) : undefined;
+      if (target === undefined && local === undefined) return;
+      if (prevToken === '.') return;
+      const before = text[at - 1], reference = referenceAt.get(at);
+      if (target !== undefined) {
+        if (target.declaration === at || inEdit(at)) return;
+        if (shadowedSpans !== null && target.kind !== 'variable' && isInShadowedSpan(shadowedSpans, name, at)) return;
+        const isDecoratorHead = prevToken === '@' || before === '@';
+        if (isDecoratorHead) {
+          if (!(depth === 0 || inTopClass || !isShadowedLocal(name))) return false;
+        } else if (reference === undefined || reference.last !== at + name.length) {
+          // Non-reference identifier in code: safe when it is a property key/label (`name:`), a method or
+          // accessor definition (`name(` not after `function`/`function*`), a label jump, or a static member.
+          if (reference === undefined) {
+            const [one] = followers(text, at + name.length);
+            if (one === ':' || prevToken === 'break' || prevToken === 'continue' || prevToken === 'static' ||
+                (inTopClass && (one === '=' || one === ';')) ||
+                (one === '(' && prevToken !== 'function' && prevToken !== 'function*')) return;
+            if (shadowedSpans === null && target.kind !== 'variable') {
+              if (shadowCandidates === null) shadowCandidates = new Set();
+              shadowCandidates.add(name);
+              return;
+            }
+          }
+          return false;
+        }
+        const [one, two, three, nextAt] = followers(text, at + name.length);
+        if (/[\x80-\xff\\]/.test(one)) return false;
+        if (target.kind !== 'variable' && (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one))) return false;
+        // An optional call is written by TypeScript with parentheses that end the chain; it is left to it.
+        if (one === '?' && two === '.') {
+          const afterOpt = skipTrivia(text, nextAt + 2);
+          if (afterOpt < 0 || text[afterOpt] === '(' || text[afterOpt] === '`') return false;
+        }
+        const called = (one === '(' || one === '`') && prevToken !== 'new';
+        let value = called ? `(0, ${target.text})` : target.text;
+        if (called) {
+          // The parenthesis would continue a statement in front that ends without a semicolon. Where a
+          // statement of a list starts, a semicolon is written; elsewhere the call has to follow, on its
+          // line, something that cannot be the end of a statement.
+          if (starts.has(at) || listed.has(at)) value = ';' + value;
+          else {
+            const prev = skipTriviaBack(text, at, false);
+            if (prev < 0) {
+              if (prevToken !== '' && !'([{,;:?=!&|^~<>+-*%/@'.includes(prevToken[0]) && prevToken !== '=>') return false;
+            } else if (text.slice(prev, at).includes('\n') && prev > 0 && /[\w$)\]}'"`\x80-\xff]/.test(text[prev - 1]) &&
+                !['else', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'case'].includes(prevToken)) return false;
+          }
+        }
+        edits.push([at, at + name.length, reference && reference.shorthand ? `${name}: ${target.text}` : value]);
+      } else if (reference === undefined && (local.kind === 'function' || local.kind === 'class' || local.kind === 'mutable' || local.kind === 'constant')) {
+        // A name in an object that is assigned to, a loop variable, or a shadowing declaration in a block
+        // is not among the references. Only its own declaration (and the self-name of a lowered decorated
+        // class expression), a property key, label, or method name are harmless.
+        const decl = declarations.get(name);
+        const isSelfClassName = local.kind === 'mutable' && decl !== undefined && at > decl.first && at < endOf(local.statement) &&
+          /^\s*=\s*class\s+$/.test(text.slice(decl.last, at));
+        if (at !== decl?.first && !isSelfClassName && !inEdit(at)) {
+          if (prevToken === '@' || before === '@') return false;
+          const [one, , , nextAt] = followers(text, at + name.length);
           if (one === ':' || prevToken === 'break' || prevToken === 'continue' || prevToken === 'static' ||
-              (inTopClass && (one === '=' || one === ';')) ||
               (one === '(' && prevToken !== 'function' && prevToken !== 'function*')) return;
+          if (one === '}' || one === ',' || one === '=' || one === ']' || one === ')' || one === ';' || one === '{' || one === '(') return false;
+          if (precededByDecl(prevToken)) return false;
+          if (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) return false;
         }
-        return false;
+      } else if (reference !== undefined && local.kind === 'mutable') {
+        const [one, two, three, nextAt] = followers(text, at + name.length);
+        if (checkLoopTarget() || (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt)))) return false;
+        if (targets.some(([first, last]) => first === at && last === at + name.length) && one === '=' && two !== '=' && two !== '>') {
+          edits.push([at, at, local.exported.slice().reverse().map(exported => `exports.${exported} = `).join('')]);
+        } else if (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one)) return false;
+      } else if (reference !== undefined && local.kind === 'filled') {
+        // The variable of a lowered enum or namespace is written only by the function that fills it.
+        const [one, two, three] = followers(text, at + name.length);
+        if (statementOf(at) !== local.statement + 1 && (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one))) return false;
+      } else if (reference !== undefined && (local.kind === 'function' || local.kind === 'class')) {
+        // A function or a class is exported by value: an assignment to it would have to write the export too.
+        const [one, two, three, nextAt] = followers(text, at + name.length);
+        if (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one)) return false;
+        // The head of a loop and a parenthesized object are the targets that the parser does not report.
+        if ((nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) || checkLoopTarget()) return false;
+        if (checkObjectTarget() && (one === ',' || one === '}')) return false;
       }
-      const [one, two, three, nextAt] = followers(text, at + name.length);
-      if (/[\x80-\xff\\]/.test(one)) return false;
-      if (target.kind !== 'variable' && (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one))) return false;
-      // An optional call is written by TypeScript with parentheses that end the chain; it is left to it.
-      if (one === '?' && two === '.') {
-        const afterOpt = skipTrivia(text, nextAt + 2);
-        if (afterOpt < 0 || text[afterOpt] === '(' || text[afterOpt] === '`') return false;
-      }
-      const called = (one === '(' || one === '`') && prevToken !== 'new';
-      let value = called ? `(0, ${target.text})` : target.text;
-      if (called) {
-        // The parenthesis would continue a statement in front that ends without a semicolon. Where a
-        // statement of a list starts, a semicolon is written; elsewhere the call has to follow, on its
-        // line, something that cannot be the end of a statement.
-        if (starts.has(at) || listed.has(at)) value = ';' + value;
-        else {
-          const prev = skipTriviaBack(text, at, false);
-          if (prev < 0) {
-            if (prevToken !== '' && !'([{,;:?=!&|^~<>+-*%/@'.includes(prevToken[0]) && prevToken !== '=>') return false;
-          } else if (text.slice(prev, at).includes('\n') && prev > 0 && /[\w$)\]}'"`\x80-\xff]/.test(text[prev - 1]) &&
-              !['else', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'case'].includes(prevToken)) return false;
-        }
-      }
-      edits.push([at, at + name.length, reference && reference.shorthand ? `${name}: ${target.text}` : value]);
-    } else if (reference === undefined && (local.kind === 'function' || local.kind === 'class' || local.kind === 'mutable' || local.kind === 'constant')) {
-      // A name in an object that is assigned to, a loop variable, or a shadowing declaration in a block
-      // is not among the references. Only its own declaration (and the self-name of a lowered decorated
-      // class expression), a property key, label, or method name are harmless.
-      const decl = declarations.get(name);
-      const isSelfClassName = local.kind === 'mutable' && decl !== undefined && at > decl.first && at < endOf(local.statement) &&
-        /^\s*=\s*class\s+$/.test(text.slice(decl.last, at));
-      if (at !== decl?.first && !isSelfClassName && !inEdit(at)) {
-        if (prevToken === '@' || before === '@') return false;
-        const [one, , , nextAt] = followers(text, at + name.length);
-        if (one === ':' || prevToken === 'break' || prevToken === 'continue' || prevToken === 'static' ||
-            (one === '(' && prevToken !== 'function' && prevToken !== 'function*')) return;
-        if (one === '}' || one === ',' || one === '=' || one === ']' || one === ')' || one === ';' || one === '{' || one === '(') return false;
-        if (precededByDecl(prevToken)) return false;
-        if (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) return false;
-      }
-    } else if (reference !== undefined && local.kind === 'mutable') {
-      const [one, two, three, nextAt] = followers(text, at + name.length);
-      if (checkLoopTarget() || (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt)))) return false;
-      if (targets.some(([first, last]) => first === at && last === at + name.length) && one === '=' && two !== '=' && two !== '>') {
-        edits.push([at, at, local.exported.slice().reverse().map(exported => `exports.${exported} = `).join('')]);
-      } else if (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one)) return false;
-    } else if (reference !== undefined && local.kind === 'filled') {
-      // The variable of a lowered enum or namespace is written only by the function that fills it.
-      const [one, two, three] = followers(text, at + name.length);
-      if (statementOf(at) !== local.statement + 1 && (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one))) return false;
-    } else if (reference !== undefined && (local.kind === 'function' || local.kind === 'class')) {
-      // A function or a class is exported by value: an assignment to it would have to write the export too.
-      const [one, two, three, nextAt] = followers(text, at + name.length);
-      if (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one)) return false;
-      // The head of a loop and a parenthesized object are the targets that the parser does not report.
-      if ((nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) || checkLoopTarget()) return false;
-      if (checkObjectTarget() && (one === ',' || one === '}')) return false;
-    }
-  });
+    });
+  };
+  let scanned = runScan(null);
+  if (scanned && shadowCandidates !== null) {
+    const shadowedSpans = collectShadowedSpans(text, shadowCandidates);
+    if (shadowedSpans === null || shadowedSpans.size === 0) return null;
+    edits.length = preScanEditsLen;
+    helpers.clear();
+    for (const [k, v] of preScanHelpers) helpers.set(k, v);
+    hasStage3Decorator = preScanStage3;
+    hasAwaitOutsideMethod = false;
+    hasDynamicImport = false;
+    scanned = runScan(shadowedSpans);
+  }
   if (!scanned) return null;
 
   // A non-null mark on a name keeps TypeScript from writing a call of it as `(0, f)()`, and the mark is gone

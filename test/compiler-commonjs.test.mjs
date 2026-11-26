@@ -77,10 +77,9 @@ test('CommonJS output of a module has the syntax tree of TypeScript\'s', () => {
     const row = Object.fromEntries(header.map((name, index) => [name, cells[index]]));
     const source = moduleOf(row);
     const result = sameAsTypeScript(source);
-    // An optional call is left to TypeScript, and so is the nested use, whose function has a parameter with
-    // the name of the import (a namespace import is not rewritten, so neither matters for it). Every other
-    // row is written here.
-    const declined = (row.Use === 'OptionalCall' && row.Import !== 'Namespace' && row.Import !== 'Bare') || (row.Use === 'Nested' && row.Import !== 'Bare' && row.Import !== 'Namespace');
+    // An optional call is left to TypeScript (a namespace import is not rewritten, so it does not matter
+    // for it). Nested shadowing parameters and every other row are written natively here.
+    const declined = row.Use === 'OptionalCall' && row.Import !== 'Namespace' && row.Import !== 'Bare';
     assert.equal(result.backend, declined ? 'typescript' : 'pulse', source);
   }
 });
@@ -162,7 +161,6 @@ test('modules that are left to TypeScript for CommonJS output', () => {
     ['export function f() { return 1; }\nlet o: any;\n({ k: [f] } = o);', 'a nested target'],
     ['export var E: { a?: number } | number | undefined;\n(function (E) {})(E || (E = {}));\nE = 9;', 'a hand-written filling function'],
     ['export /*gap*/ declare const d: number;\nexport default d;', 'an ambient export behind a comment'],
-    ['import { a } from "./a";\nexport function f(a: number) { return a; }\nvoid a;', 'a parameter with the name of an import'],
     ['export function f() {}\nf = null as any;', 'an assignment to an exported function'],
     ['export class A {}\n[A] = [null as any];', 'an array target with an exported class'],
     ['export function f() {}\nlet o: any;\n({ f } = o);', 'an object target with an exported function'],
@@ -608,4 +606,37 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   new Function('exports', 'require', 'module', eofSingle.code)(eofMod.exports, () => ({}), eofMod);
   assert.equal(eofMod.exports.f, 1);
   assert.equal(sameAsTypeScript('export const [f] = [1] // end').backend, 'typescript');
+});
+
+test('CommonJS local-scope import shadowing compiles natively and matches TypeScript', () => {
+  for (const src of [
+    'import { a } from "./a";\nexport function f(a: number) { return a; }\nexport const top = a;\n',
+    'import { path } from "./p";\nexport const xs = [1, 2].map(path => path + 1);\nexport const p = path;\n',
+    'import { a } from "./a";\nexport const f = ({ a }: { a: number }) => a;\nexport const g = ([a]: number[]) => a;\nexport const top = a;\n',
+    'import { a } from "./a";\nexport function f() { const a = 10; return a; }\nexport const top = a;\n',
+    'import { a } from "./a";\nexport function f(xs: number[]) { let s = 0; for (const a of xs) { s += a; } return s + a; }\n',
+    'import { a } from "./a";\nexport function f() { try { return a; } catch (a) { return a; } }\n',
+    'import { a } from "./a";\nexport const f = function a() { return typeof a; };\nexport const top = a;\n',
+    'import { Dec, Use, Filter } from "./d";\nexport function suite() { @Dec() class Filter {} @Use(Filter) class Sub {} return [Filter, Sub]; }\nexport const top = Filter;\n',
+  ]) {
+    assert.equal(sameAsTypeScript(src).backend, 'pulse', src);
+  }
+  // Runtime verification: shadowed local returns its own value while outer reference reads the module import.
+  const compiled = compile(Buffer.from(
+    'import { val } from "./dep";\nexport function run() {\n  const inner = (val: number) => val * 2;\n  const block = () => { const val = 5; return val; };\n  return [inner(3), block(), val];\n}\n'
+  ), { file: 'shadow.ts', module: 'cjs' });
+  assert.equal(compiled.backend, 'pulse');
+  const mod = { exports: {} };
+  new Function('exports', 'require', 'module', compiled.code)(mod.exports, () => ({ val: 42 }), mod);
+  assert.deepEqual(mod.exports.run(), [6, 5, 42]);
+
+  // Complex/ambiguous scoping cases safely decline to TypeScript.
+  for (const src of [
+    'import { a } from "./a";\nexport function f() { var a = 1; return a; }\nvoid a;\n',
+    'import { a } from "./a";\nexport function f(x = a, a = 1) { return [x, a]; }\nvoid a;\n',
+    'import { a } from "./a";\nexport function f() { const g = () => a; const a = 1; return g(); }\nvoid a;\n',
+    'import { a } from "./a";\nexport function f(a: number) { return eval("a"); }\nvoid a;\n',
+  ]) {
+    assert.equal(compile(Buffer.from(src), { file: 'shadow.ts', module: 'cjs' }).backend, 'typescript', src);
+  }
 });
