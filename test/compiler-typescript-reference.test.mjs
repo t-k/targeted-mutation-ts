@@ -3362,8 +3362,19 @@ test('F170 TypeScript lowering: legacy module, CJS equals, ambient blocks, TSX p
     ['bad-type.ts', 'type void = number;\n'],
     ['bad-ref.ts', '/// <reference path="unclosed.ts />\nclass C {}\n'],
     ['bad-var.ts', 'type T<in in> = T;\n'],
+    ['bad-shorthand.ts', 'export {};\nconst x = {if};\n'],
+    ['bad-dup-static.ts', 'export {};\nclass C { static /*a*/ static x = 1; }\n'],
+    ['bad-bare-await.ts', 'export {};\nawait;\n'],
   ]) {
     const r = compile(Buffer.from(source), { file });
     assert.equal(r.code, null, `must reject invalid TS: ${file}`);
   }
+  // Review Round 52 regressions: template literal preservation, multi-declarator namespace refs,
+  // enum forward-ref/pow, and ASI continuation after "use strict".
+  const tplSrc = '// import\nconst s = `\ndeclare module Foo {\n}`;\nclass C { accessor x: number = 1; }\n';
+  assert.match(sameAsTypeScript(tplSrc, 'tpl.ts').code, /declare module Foo \{/);
+  sameAsTypeScript('module N { export const a = 1, b = a + 1; }\n', 'ns-multi.ts');
+  sameAsTypeScript('enum E { A = E.X, X = 2 }\n', 'enum-fwd.ts');
+  sameAsTypeScript('enum E { A = 2 ** 3 }\n', 'enum-pow.ts');
+  sameAsTypeScript('"use strict"\n[1].forEach(console.log);\nlet x: any;\n', 'strict-asi.ts');
 });

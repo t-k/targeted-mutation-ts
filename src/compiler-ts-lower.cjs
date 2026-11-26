@@ -384,8 +384,72 @@ function eraseValidatedAmbientBlocks(source, isJsx = false) {
   return out;
 }
 
-// Evaluates constant enum member expressions (numeric literals, strings, unary/binary ops, parens, refs to prior members).
-function evalEnumExpr(expr, env, allowComputed = false) {
+// Linear-time check for `for (... [ ... in ... ] ...)` on a single line (avoids quadratic regex backtracking).
+function hasForBracketIn(source) {
+  let pos = 0;
+  const n = source.length;
+  while (pos < n) {
+    const idx = source.indexOf('for', pos);
+    if (idx < 0) return false;
+    const before = idx > 0 ? source.charCodeAt(idx - 1) : 0;
+    const after = idx + 3 < n ? source.charCodeAt(idx + 3) : 0;
+    if (isIdentPart(before) || isIdentPart(after)) { pos = idx + 3; continue; }
+    let nl = source.indexOf('\n', idx + 3);
+    if (nl < 0) nl = n;
+    const br = source.indexOf('[', idx + 3);
+    if (br >= 0 && br < nl) {
+      let close = source.indexOf(']', br + 1);
+      if (close < 0 || close > nl) close = nl;
+      const slice = source.slice(br + 1, close);
+      if (/\bin\b/.test(slice)) return true;
+    }
+    pos = nl + 1;
+  }
+  return false;
+}
+
+// Token-based rewrite of top-level `declare module Name {` -> `declare namespace Name {` and
+// `declare module "str" {` -> `declare namespace __tmt_amb__ {` outside strings/templates/comments/regexes.
+function normalizeAmbientModules(source) {
+  if (!source.includes('declare') || !source.includes('module')) return source;
+  const toks = tokenize(source);
+  if (!toks) return source;
+  const edits = [];
+  const allowAmbName = !source.includes('__tmt_amb__');
+  let depth = 0;
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t.type === 'punc' && t.text === '{') { depth++; continue; }
+    if (t.type === 'punc' && t.text === '}') { if (depth > 0) depth--; continue; }
+    if (depth !== 0 || t.type !== 'id' || t.text !== 'declare') continue;
+    const prev = i > 0 ? toks[i - 1] : null;
+    if (prev && !(prev.type === 'punc' && (prev.text === ';' || prev.text === '}')) &&
+        !hasNewlineBetween(source, prev.end, t.start)) continue;
+    const kw = toks[i + 1];
+    if (!kw || kw.type !== 'id' || kw.text !== 'module' || hasNewlineBetween(source, t.end, kw.start)) continue;
+    const nameTok = toks[i + 2];
+    if (!nameTok || hasNewlineBetween(source, kw.end, nameTok.start)) continue;
+    if (nameTok.type === 'str') {
+      if (!allowAmbName || toks[i + 3]?.text !== '{') continue;
+      edits.push({ start: kw.start, end: nameTok.end, text: 'namespace __tmt_amb__' });
+      i += 2;
+    } else if (nameTok.type === 'id') {
+      let k = i + 3;
+      while (toks[k]?.text === '.' && toks[k + 1]?.type === 'id') k += 2;
+      if (toks[k]?.text !== '{') continue;
+      edits.push({ start: kw.start, end: kw.end, text: 'namespace' });
+      i = k - 1;
+    }
+  }
+  if (edits.length === 0) return source;
+  let out = '', pos = 0;
+  for (const e of edits) { out += source.slice(pos, e.start) + e.text; pos = e.end; }
+  out += source.slice(pos);
+  return out;
+}
+
+// Evaluates constant enum member expressions (numeric literals, strings, unary/binary/pow ops, parens, refs to prior members).
+function evalEnumExpr(expr, env, allowComputed = false, enumName = '') {
   const s = expr.trim();
   if (!s) return null;
   if ((s[0] === '"' || s[0] === "'") && s[s.length - 1] === s[0] && s.length >= 2) {
@@ -438,10 +502,20 @@ function evalEnumExpr(expr, env, allowComputed = false) {
     return v;
   }
   function parseMul() {
-    let v = parseUnary();
+    let v = parsePow();
     while (v !== null && pos < toks.length && (toks[pos].text === '*' || toks[pos].text === '/' || toks[pos].text === '%')) {
-      const op = toks[pos++].text; const r = parseUnary();
+      if (toks[pos].text === '*' && toks[pos + 1]?.text === '*') break;
+      const op = toks[pos++].text; const r = parsePow();
       v = r === null ? null : (op === '*' ? v * r : op === '/' ? v / r : v % r);
+    }
+    return v;
+  }
+  function parsePow() {
+    const v = parseUnary();
+    if (v !== null && pos + 1 < toks.length && toks[pos].text === '*' && toks[pos + 1].text === '*') {
+      pos += 2;
+      const r = parsePow();
+      return r === null ? null : Math.pow(v, r);
     }
     return v;
   }
@@ -469,9 +543,9 @@ function evalEnumExpr(expr, env, allowComputed = false) {
   if (val !== null && pos === toks.length && Number.isFinite(val)) {
     return { kind: 'num', value: val, raw: s };
   }
-  if (allowComputed && !/['"`]/.test(s)) {
+  if (allowComputed && !/['"`]/.test(s) && !s.includes('**')) {
     for (const t of toks) {
-      if (t.type === 'id' && env.has(t.text)) return null;
+      if (t.type === 'id' && (env.has(t.text) || (enumName && t.text === enumName))) return null;
     }
     return { kind: 'computed', raw: s };
   }
@@ -520,7 +594,7 @@ function lowerEnumBody(name, bodySource, sharedEnv = null, allowComputed = false
       nextNum++;
     } else if (m.length >= 3 && m[1].type === 'punc' && m[1].text === '=') {
       const exprSrc = bodySource.slice(m[2].start, m[m.length - 1].end).trim();
-      const ev = evalEnumExpr(exprSrc, env, allowComputed);
+      const ev = evalEnumExpr(exprSrc, env, allowComputed, name);
       if (ev === null) return null;
       if (ev.kind === 'str') {
         lines.push(`    ${name}[${propKey}] = ${ev.raw};`);
@@ -875,6 +949,15 @@ function lowerNamespacesAndEnums(source) {
             }
             if (eqIdx < 0) continue; // uninitialized `export var x: T;` is erased by TS
             const rhs = src.slice(toks[eqIdx + 1].start, toks[de - 1].end).trim();
+            // Bail if this initializer references any previously exported var in this namespace (including earlier declarators in the same statement)
+            for (const prevExp of exportedVars) {
+              if (new RegExp(`(?<![\\w$.])${prevExp.name}(?![\\w$])`).test(rhs)) return null;
+            }
+            if (declRanges.length > 1) {
+              // Bail if any later declarator in this same statement references `varName`
+              const tailSrc = src.slice(toks[de - 1].end, toks[endIdx].end);
+              if (new RegExp(`(?<![\\w$.])${varName}(?![\\w$])`).test(tailSrc)) return null;
+            }
             if (new RegExp(`(?<![\\w$.])${varName}(?![\\w$])`).test(rest)) {
               if (/\bclass\b|\bimport\s+[A-Za-z_$][\w$]*\s*=/.test(rest) ||
                   new RegExp(`\\b(?:var|let|const|function|class|enum|namespace|module)\\s+${varName}\\b|\\([^)]*\\b${varName}\\b|\\b${varName}\\s*:`).test(rest)) {
@@ -1493,6 +1576,8 @@ function stripWithSwcRelaxations(source, errMsg) {
 
 module.exports = {
   tokenize,
+  hasForBracketIn,
+  normalizeAmbientModules,
   hasTopLevelModuleSyntax,
   preprocessPreserveCjs,
   eraseValidatedAmbientBlocks,

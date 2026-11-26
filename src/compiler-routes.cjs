@@ -380,7 +380,7 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
 // A .ts/.mts file that contains no TypeScript syntax and passes V8's parser (or Node's strict-identity
 // strip check with TS 6.0.3 compatibility guards) can be published natively when it avoids the few
 // ES2025/Unicode/legacy forms that V8/SWC accept and TypeScript 6.0.3 rejects.
-const tsRejectsInStripIdentity = /\\[1-9]|\\0[0-9]|\b0\d*_|0[bBoOxX]_|\._|\bfor\s*\([^;)]*;[^;)]*\)|\{\s*(?:default|extends|yield|await|false|true|null)\s*[,}]|\bawait\s*[;),}]|\b(?:var|let|const|class|new)\s+await\b|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|\bthis\s*=(?!=)|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
+const tsRejectsInStripIdentity = /\\[1-9]|\\0[0-9]|\b0\d*_|0[bBoOxX]_|\._|\bfor\s*\([^;)]*;[^;)]*\)|\{\s*(?:while|for|if|return|class|function|var|let|const|default|extends|yield|await|false|true|null)\s*[,}]|\bstatic(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|\bawait\s*[;),}]|\b(?:var|let|const|class|new)\s+await\b|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|\bthis\s*=(?!=)|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
 
 function hasInvalidRegexLiteral(text) {
   if (!text.includes('/')) return false;
@@ -406,7 +406,8 @@ function hasDuplicateTopLevelLexical(text) {
 
 function validJavaScriptTsModule(addon, source, text, file, format, directive = false, sourceMap = false) {
   if (hasEscapedKeyword(text) ||
-      /\bnew(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*import\b|\bimport(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*(?:\.(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*(?:source|defer)|source|defer)\b|\?\.[^\n;]*#|\bfor\b[^\n]*\[[^\]]*\bin\b/.test(text)) {
+      /\bnew(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*)*import\b|\bimport(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*)*(?:\.(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*)*(?:source|defer)|source|defer)\b|\?\.[^\n;]*#/.test(text) ||
+      require('./compiler-ts-lower.cjs').hasForBracketIn(text)) {
     return null;
   }
   const validators = javascriptValidators();
@@ -559,20 +560,36 @@ function hasModuleMarker(addon, code, bytes = Buffer.from(code)) {
     (code.includes('\u2002') && addon.moduleMarker(Buffer.from(code.replaceAll('\u2002', ' ')), false));
 }
 
+function isUseStrictDirective(source, at) {
+  const m = /(["'])use strict\1[ \t]*/y;
+  m.lastIndex = at;
+  if (!m.test(source)) return false;
+  const end = m.lastIndex;
+  if (end >= source.length || source[end] === ';') return true;
+  if (source[end] !== '\r' && source[end] !== '\n' && source[end] !== '\u2028' && source[end] !== '\u2029') return false;
+  // Without `;`, a line break only terminates the directive via ASI when the next token does NOT continue an expression.
+  const nextTrivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*/y;
+  nextTrivia.lastIndex = end;
+  nextTrivia.exec(source);
+  const next = source[nextTrivia.lastIndex];
+  if (next === undefined) return true;
+  if ('[(`+-/.?&|*^=<>,'.includes(next)) return false;
+  if (/^(?:in|instanceof)\b/.test(source.slice(nextTrivia.lastIndex, nextTrivia.lastIndex + 12))) return false;
+  return true;
+}
+
 // wellFormedDirectives: the caller has seen that leading triple-slash comments are notes or well-formed
 // references. TypeScript writes the strict directive in front of them as in front of any comment.
 function strictScript(source, file, wellFormedDirectives = false) {
   if (source.includes('<!--') || (source.includes('-->') && /(?:^|\*\/)[^\S\r\n\u2028\u2029]*-->/m.test(source))) return null;
   // The interpreter line ends with its whole line break, so that a carriage return does not stay on it.
   const hashbang = source.startsWith('#!') ? (match => match === null ? source.length : match.index + match[0].length)(/\r\n|[\r\n\u2028\u2029]/.exec(source)) : 0;
-  const trivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[\s\S]*?\*\/)*/y;
+  const trivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*/y;
   trivia.lastIndex = hashbang;
   trivia.exec(source);
   if (!wellFormedDirectives && source.slice(0, trivia.lastIndex).includes('///')) return null;
   const first = source[trivia.lastIndex];
-  const directive = /(["'])use strict\1[ \t]*(?:;|(?=\r?\n|$))/y;
-  directive.lastIndex = trivia.lastIndex;
-  const strict = directive.test(source);
+  const strict = isUseStrictDirective(source, trivia.lastIndex);
   if ((first === '"' || first === "'") && !strict) return null;
   const code = strict ? source : source.slice(0, hashbang) + '"use strict";\n' + source.slice(hashbang);
   // Node can abort while decorating a syntax error from vm.Script. The addon asks V8 directly.
@@ -596,23 +613,15 @@ function decoratedScript(code) {
   return emit !== undefined && emit(Buffer.from(code + '\nexport {};'), true) !== undefined ? code : null;
 }
 
-const tsRejectsInNodeStrip = /\/\/\/\s*<amd-module|\\u003[0-9]|\\u\{0*3[0-9]\}|\?\.[^\n;]*#|\bstatic(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)*\bstatic\b|=(?:\s|\/\*[\s\S]*?\*\/)*\bawait\b(?![ \t]*[\w$([{'"`!~+-])|@[A-Za-z_$][\w$]*(?:\([^)]*\))?(?:\s|\/\*[\s\S]*?\*\/)*(?:\bthis\b|static\s*\{|\b(?:constructor|enum|function|interface|type|var|let|const|namespace|module|import)\b)|\(\s*@[A-Za-z_$][\w$]*(?:\([^)]*\))?\s+(?!\s|class\b|@)|(?<!\bexport\s*)\{\s*(?:while|for|if|return|class|function|var|let|const|extends)\s*[,}]|\?\.(?:\s|\/\*[\s\S]*?\*\/)*[A-Za-z_$][\w$]*\s*<|\bnew(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)*import\b|\bimport(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)*(?:\.(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)*(?:source|defer)|(?:type\s+)?(?:defer|source))\b|<[^<>\n;]+>\s*\.[A-Za-z_$]|\btype[ \t]+(?:void|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)[ \t]*=|<[^>]*\b(?:in\s+in|out\s+out)\b|\b(?:get|set)[ \t]+[A-Za-z_$][\w$]*[ \t]*<|\b(?:get|set)[ \t]+[A-Za-z_$][\w$]*[ \t]*\([^)]*\)[ \t]*\}|\bexport\s+as\s+namespace\b|\bimplements\s*\{|\bdeclare[ \t]+(?:get|set)\b|\bdeclare[ \t]+module[ \t]*[\r\n]|\bdeclare[ \t]+(?:module|namespace)[ \t]+(?:break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)\b|\bfor\b[^\n]*\[[^\]]*\bin\b|[ \t]<[^<>\n;]+>[ \t]*(?:\(|\/)|\(\s*(?:<[^>]+>\s*)?[A-Za-z_$][\w$]*(?:\s+(?:as|satisfies)\b[^)]*)?\)\s*(?:&&|\|\||\?\?)?=(?![=>])/;
+const tsRejectsInNodeStrip = /\/\/\/\s*<amd-module|\\u003[0-9]|\\u\{0*3[0-9]\}|\?\.[^\n;]*#|\bstatic(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|=(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*\bawait\b(?![ \t]*[\w$([{'"`!~+-])|@[A-Za-z_$][\w$]*(?:\([^)]*\))?(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*(?:\bthis\b|static\s*\{|\b(?:constructor|enum|function|interface|type|var|let|const|namespace|module|import)\b)|\(\s*@[A-Za-z_$][\w$]*(?:\([^)]*\))?\s+(?!\s|class\b|@)|(?<!\bexport\s*)\{\s*(?:while|for|if|return|class|function|var|let|const|extends)\s*[,}]|\?\.(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*[A-Za-z_$][\w$]*\s*<|\bnew(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*import\b|\bimport(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*(?:\.(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*(?:source|defer)|(?:type\s+)?(?:defer|source))\b|<[^<>\n;]+>\s*\.[A-Za-z_$]|\btype[ \t]+(?:void|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)[ \t]*=|<[^>]*\b(?:in\s+in|out\s+out)\b|\b(?:get|set)[ \t]+[A-Za-z_$][\w$]*[ \t]*<|\b(?:get|set)[ \t]+[A-Za-z_$][\w$]*[ \t]*\([^)]*\)[ \t]*\}|\bexport\s+as\s+namespace\b|\bimplements\s*\{|\bdeclare[ \t]+(?:get|set)\b|\bdeclare[ \t]+module[ \t]*[\r\n]|\bdeclare[ \t]+(?:module|namespace)[ \t]+(?:break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)\b|[ \t]<[^<>\n;]+>[ \t]*(?:\(|\/)|\(\s*(?:<[^>]+>\s*)?[A-Za-z_$][\w$]*(?:\s+(?:as|satisfies)\b[^)]*)?\)\s*(?:&&|\|\||\?\?)?=(?![=>])/;
 
-// Rewrites `declare module Name {` to `declare namespace Name {` and `declare module "str" {` to
-// `declare namespace __tmt_amb__ {` so Node's stripTypeScriptTypes validates and erases the ambient block.
+function hasTsRejectsInNodeStrip(source) {
+  return tsRejectsInNodeStrip.test(source) || require('./compiler-ts-lower.cjs').hasForBracketIn(source);
+}
+
+// Token-based rewrite of top-level `declare module Name {` / `declare module "str" {` outside strings/templates/comments.
 function normalizeAmbientModules(source) {
-  if (!source.includes('declare') || !source.includes('module')) return source;
-  let out = source.replace(
-    /(^|[;\r\n}])[ \t]*declare[ \t]+module([ \t]+[A-Za-z_$][\w$.]*[ \t]*\{)/g,
-    '$1declare namespace$2'
-  );
-  if (!out.includes('__tmt_amb__')) {
-    out = out.replace(
-      /(^|[;\r\n}])[ \t]*declare[ \t]+module[ \t]+(?:"[^"\r\n]*"|'[^'\r\n]*')([ \t]*\{)/g,
-      '$1declare namespace __tmt_amb__$2'
-    );
-  }
-  return out;
+  return require('./compiler-ts-lower.cjs').normalizeAmbientModules(source);
 }
 
 function sloppyStrictScript(source, file, directive = false) {
@@ -620,14 +629,12 @@ function sloppyStrictScript(source, file, directive = false) {
   if (code !== null) return code;
   if (source.includes('<!--') || (source.includes('-->') && /(?:^|\*\/)[^\S\r\n\u2028\u2029]*-->/m.test(source))) return null;
   const hashbang = source.startsWith('#!') ? (match => match === null ? source.length : match.index + match[0].length)(/\r\n|[\r\n\u2028\u2029]/.exec(source)) : 0;
-  const trivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[\s\S]*?\*\/)*/y;
+  const trivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*/y;
   trivia.lastIndex = hashbang;
   trivia.exec(source);
   if (!directive && source.slice(0, trivia.lastIndex).includes('///')) return null;
   const first = source[trivia.lastIndex];
-  const useStrict = /(["'])use strict\1[ \t]*(?:;|(?=\r?\n|$))/y;
-  useStrict.lastIndex = trivia.lastIndex;
-  const strict = useStrict.test(source);
+  const strict = isUseStrictDirective(source, trivia.lastIndex);
   if ((first === '"' || first === "'") && !strict) return null;
   if (/(?<![\w$.])0[0-9]/.test(source) || /\bimport\s*\.\s*meta\b/.test(source)) return null;
   // Node's stripTypeScriptTypes (SWC) already validated the script syntax. V8's validScript rejects
@@ -643,7 +650,7 @@ function sloppyStrictScript(source, file, directive = false) {
 }
 
 function eraseScript(addon, source, bytes, file, directive = false) {
-  if (hasEscapedKeyword(source, false) || tsRejectsInNodeStrip.test(source)) return null;
+  if (hasEscapedKeyword(source, false) || hasTsRejectsInNodeStrip(source)) return null;
   const plain = !/\b(?:import|export)\b/.test(source) && addon.plainScript(bytes);
   const work = plain ? source : normalizeAmbientModules(source);
   const result = strip(work, file);
@@ -739,7 +746,7 @@ function eraseLoweredModule(addon, source, file, format, directive = false) {
 }
 
 function eraseModule(addon, source, file, format, parameterProperty) {
-  if (hasEscapedKeyword(source, false) || source.includes('\u00a0') || tsRejectsInNodeStrip.test(source) || hasInvalidRegexLiteral(source)) return null;
+  if (hasEscapedKeyword(source, false) || source.includes('\u00a0') || hasTsRejectsInNodeStrip(source) || /\bawait[ \t]*[;),}]/.test(source) || hasInvalidRegexLiteral(source)) return null;
   const work = normalizeAmbientModules(source);
   const transformAllowed = () => !/\benum\b|\bnamespace\b(?![ \t]*:)/.test(work);
   const directTransform = parameterProperty && transformAllowed();
@@ -1551,7 +1558,7 @@ function compile(input, options = {}) {
               const tsLower = require('./compiler-ts-lower.cjs');
               const decPre = tsLower.eraseNonEsDecorators(text);
               const cjsPre = decPre !== null ? tsLower.preprocessPreserveCjs(decPre.code) : null;
-              if (cjsPre !== null && !tsRejectsInNodeStrip.test(cjsPre.code)) {
+              if (cjsPre !== null && !hasTsRejectsInNodeStrip(cjsPre.code)) {
                 const ambPre = tsLower.eraseValidatedAmbientBlocks(cjsPre.code);
                 if (ambPre !== null) {
                   const nsPre = tsLower.lowerNamespacesAndEnums(ambPre);
@@ -1572,7 +1579,7 @@ function compile(input, options = {}) {
                             const workBuf = Buffer.from(relaxed);
                             const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
                             if (isMod) {
-                              if (hasModuleMarker(addon, relaxed, workBuf)) {
+                              if (!/\bawait[ \t]*[;),}]/.test(work) && hasModuleMarker(addon, relaxed, workBuf)) {
                                 return verifyRuntimeExports({ backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] }, file, addon, workBuf);
                               }
                             } else {
