@@ -671,7 +671,10 @@ function collectShadowedSpans(text, watchedNames) {
         if (tokens[bodyIdx]?.value === 'extends') {
           bodyIdx++;
           while (bodyIdx < tokens.length && tokens[bodyIdx].value !== '{') {
-            if (tokens[bodyIdx].type === 'id' && !tokens[bodyIdx].afterDot && tokens[bodyIdx].value === nameTok.value) return null;
+            if (tokens[bodyIdx].type === 'id' && !tokens[bodyIdx].afterDot) {
+              const ev = tokens[bodyIdx].value;
+              if (ev === nameTok.value || ev === 'class' || ev === 'function') return null;
+            }
             if (tokens[bodyIdx].value === '(' || tokens[bodyIdx].value === '[' || tokens[bodyIdx].value === '${') {
               const c = matchClose[bodyIdx];
               if (c < 0) return null;

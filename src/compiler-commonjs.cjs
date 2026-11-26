@@ -72,6 +72,7 @@ function scanCodeIdentifiers(text, visit) {
       while (end < len && ID_CONT[text.charCodeAt(end)]) end++;
       if (prev === '.') {
         prev = 'id';
+        asyncParenDepth = -1;
         at = end;
         continue;
       }

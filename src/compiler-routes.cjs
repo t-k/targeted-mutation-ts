@@ -1001,20 +1001,51 @@ function compile(input, options = {}) {
     const innerFile = file.replace(/\.[cm]([jt]s)$/i, '.$1');
     const written = compile(stable, { ...options, file: innerFile, module: 'preserve' });
     // An exported ambient value declaration leaves no text, yet TypeScript reads its name through `exports`.
-    // Type-only `export declare interface/type` or unreferenced ambient value names do not change CJS output.
+    // Type-only `export declare interface/type` or unreferenced single-name ambient declarations do not change CJS output.
     const rawOrigin = Buffer.isBuffer(stable) ? stable.latin1Slice() : typeof stable === 'string' ? stable : '';
     let ambient = false;
     if (written.code !== null && rawOrigin.includes('declare')) {
       const ambRe = /\bexport\b(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)*declare\b/g;
       let m;
       while ((m = ambRe.exec(rawOrigin)) !== null) {
-        const rest = rawOrigin.slice(m.index + m[0].length, m.index + m[0].length + 200);
-        const head = /^\s+(?:(interface|type)\b|(?:const\s+enum|abstract\s+class|async\s+function\*?|const|let|var|function\*?|class|enum|namespace|module)\s+([A-Za-z_$][\w$]*))/.exec(rest);
+        const start = m.index + m[0].length;
+        const head = /^\s+(?:(interface|type)\b|(const|let|var|const\s+enum|abstract\s+class|async\s+function\*?|function\*?|class|enum|namespace|module)\s+([A-Za-z_$][\w$]*))/.exec(rawOrigin.slice(start, start + 120));
         if (head === null) { ambient = true; break; }
         if (head[1] !== undefined) continue; // `export declare interface` / `export declare type`
-        const name = head[2];
-        // Decline if the ambient declaration has multiple declarators (e.g. `export declare const a: T, b: U`) or is referenced in emitted code.
-        if (rest.slice(head[0].length).match(/^\s*(?::[^;,\n]*)?,/)) { ambient = true; break; }
+        const kind = head[2], name = head[3];
+        if (kind === 'const' || kind === 'let' || kind === 'var') {
+          // Scan the entire variable declaration to `;` at nesting depth 0 to conservatively reject multi-declarator lists.
+          let pos = start + head[0].length, depth = 0, closed = false;
+          while (pos < rawOrigin.length) {
+            const c = rawOrigin.charCodeAt(pos);
+            if (c === 47 && rawOrigin.charCodeAt(pos + 1) === 47) {
+              const nl = rawOrigin.indexOf('\n', pos + 2);
+              pos = nl < 0 ? rawOrigin.length : nl + 1;
+              continue;
+            }
+            if (c === 47 && rawOrigin.charCodeAt(pos + 1) === 42) {
+              const endC = rawOrigin.indexOf('*/', pos + 2);
+              if (endC < 0) break;
+              pos = endC + 2;
+              continue;
+            }
+            if (c === 34 || c === 39 || c === 96) {
+              pos++;
+              while (pos < rawOrigin.length && rawOrigin.charCodeAt(pos) !== c) {
+                pos += rawOrigin.charCodeAt(pos) === 92 ? 2 : 1;
+              }
+              if (pos >= rawOrigin.length) break;
+              pos++;
+              continue;
+            }
+            if (c === 40 || c === 91 || c === 123 || c === 60) depth++;
+            else if (c === 41 || c === 93 || c === 125 || c === 62) { if (depth > 0) depth--; }
+            else if (depth === 0 && c === 44) { ambient = true; break; } // top-level `,` => multi-declarator
+            else if (depth === 0 && c === 59) { closed = true; break; } // `;`
+            pos++;
+          }
+          if (ambient || !closed) { ambient = true; break; }
+        }
         if (written.code.includes(name) && new RegExp(`(?<![\\w$])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(written.code)) {
           ambient = true;
           break;
