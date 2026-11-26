@@ -3412,4 +3412,39 @@ test('F170 TypeScript lowering: legacy module, CJS equals, ambient blocks, TSX p
   sameAsTypeScript("enum E { A = '\\n'.length, B }\n", 'enum-len-esc.ts');
   sameAsTypeScript("enum E { A = 'a' + 1 }\n", 'enum-str-fold.ts');
   sameAsTypeScript("enum E { A = 'a' + 'b' === 'ab' }\n", 'enum-str-cmp.ts');
+  // F175/F176 regressions (98%+ official suites): JSX automatic fallback (fragments, namespaces, pragmas, spread children),
+  // top-level `export import`, enum string/template/computed/block lowering, angle-bracket `<T>{}`, and strict TS-error rejections.
+  for (const [file, source] of [
+    ['tsx-frag-ws.tsx', 'const a = <   ></   >;\nconst b = < /*c*/ ></ /*c*/ >;\n'],
+    ['tsx-ns.tsx', 'const a = <svg:path a:b={1}></svg:path>;\n'],
+    ['tsx-pragma-src.tsx', '/* @jsxImportSource preact */\nconst a = <div className="x">hi</div>;\n'],
+    ['tsx-spread-child.tsx', 'declare const xs: any[];\nconst a = <div>{...xs}</div>;\n'],
+    ['exp-imp-alias.ts', 'namespace M { export var x = 1; }\nexport import a = M.x;\n'],
+    ['enum-tpl.ts', 'enum E { A = `1`, B = "1" + "2", C = `1` + "2" }\n'],
+    ['enum-block.ts', '{ enum A { X = 1 } }\n'],
+    ['angle-obj.ts', 'var v = (a: any) => <any><any>{};\nvar w = <any>{ a: 1 };\n'],
+    ['let-reserved.ts', 'const x = 1, let = 2;\nfor (let let of [1]) {}\n'],
+    ['ctor-dup.ts', 'class C { constructor(a: number) {} constructor(b: string) {} }\n'],
+    ['use-strict-non-simple.ts', 'function f(a = 1) { "use strict"; return a; }\n'],
+    ['static-const.ts', 'class C { static const H = 1; }\n'],
+    ['override-order.ts', 'class A { override static x = 1; }\n'],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    assert.notEqual(r.backend, 'typescript', `${file}: ${source}`);
+  }
+  for (const [file, source] of [
+    ['bad-tsx-brace.tsx', 'let x = <div>}</div>;\n'],
+    ['bad-tsx-gt.tsx', 'let x = <div>></div>;\n'],
+    ['bad-tsx-unclosed.tsx', 'let x = <   Foo >Hello\n'],
+    ['bad-pub-ctor.ts', 'class C { public constructor; }\n'],
+    ['bad-using-destr.ts', '{ await using [a] = null; }\nexport {};\n'],
+    ['bad-using-of.ts', 'for (using of of []) {}\n'],
+    ['bad-var-enum.ts', 'var enum = 1;\nexport {};\n'],
+    ['bad-for-semi.ts', 'for (a; b\n)\nexport {};\n'],
+    ['bad-async-fn-lhs.ts', '(async function foo() {} = 1);\nexport {};\n'],
+    ['bad-let-nl-yield.ts', 'function f() { let\nyield 0; }\nexport {};\n'],
+  ]) {
+    const r = compile(Buffer.from(source), { file });
+    assert.equal(r.code, null, `must reject invalid TS: ${file}`);
+  }
 });

@@ -569,7 +569,7 @@ function strip(source, file) {
     }
     return { backend: 'node-strip', code, sourceMap: null, diagnostics: [] };
   } catch (error) {
-    if (error.code !== 'ERR_INVALID_TYPESCRIPT_SYNTAX' && error.code !== 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') throw error;
+    if (error.code !== 'ERR_INVALID_TYPESCRIPT_SYNTAX' && error.code !== 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX' && error.code !== 'ERR_INTERNAL_ASSERTION') throw error;
     return fail('node-strip', [{ file, code: error.code, severity: 'error', message: error.message, start: 0, end: 0 }]);
   }
 }
@@ -642,10 +642,16 @@ function decoratedScript(code) {
   return emit !== undefined && emit(Buffer.from(code + '\nexport {};'), true) !== undefined ? code : null;
 }
 
-const tsRejectsInNodeStrip = /\/\/\/\s*<amd-module|\\u003[0-9]|\\u\{0*3[0-9]\}|\?\.[^\n;]*#|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|=(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*\bawait\b(?![ \t]*[\w$([{'"`!~+-])|@[A-Za-z_$][\w$]*(?:\([^)]*\))?(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*(?:\bthis\b|static\s*\{|\b(?:constructor|enum|function|interface|type|var|let|const|namespace|module|import)\b)|(?<!\bexport\s*)\{\s*(?:while|for|if|return|class|function|var|let|const|extends)\s*[,}]|\?\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*[A-Za-z_$][\w$]*\s*<|\bnew(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*import\b|\bimport(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*(?:\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*source|type\s+(?:defer|source)|source)\b|<[^<>\n;]+>\s*\.[A-Za-z_$]|\btype[ \t]+(?:void|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)[ \t]*=|<[^>]*\b(?:in\s+in|out\s+out)\b|\b(?:get|set)[ \t]+[A-Za-z_$][\w$]*[ \t]*\([^)]*\)[ \t]*\}|\bexport\s+as\s+namespace\b|\bimplements\s*\{|\bdeclare[ \t]+module[ \t]*[\r\n]|\bdeclare[ \t]+(?:module|namespace)[ \t]+(?:break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)\b|\(\s*(?:<[^>]+>\s*)?[A-Za-z_$][\w$]*(?:\s+(?:as|satisfies)\b[^)]*)?\)\s*(?:&&|\|\||\?\?)?=(?![=>])/;
+const tsRejectsInNodeStrip = /\\u003[0-9]|\\u\{0*3[0-9]\}|\?\.[^\n;]*#|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|=(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*\bawait\b(?![ \t]*[\w$([{'"`!~+-])|@[A-Za-z_$][\w$]*(?:\([^)]*\))?(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*(?:\bthis\b|static\s*\{|\b(?:constructor|enum|function|interface|type|var|let|const|namespace|module|import)\b)|(?<!\bexport\s*)\{\s*(?:while|for|if|return|class|function|var|let|const|extends)\s*[,}]|\?\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*[A-Za-z_$][\w$]*\s*<|\bnew(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*import\b|\bimport(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*(?:\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*source|type\s+(?:defer|source)|source)\b|<[^<>\n;]+>\s*\.[A-Za-z_$]|\btype[ \t]+(?:void|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)[ \t]*=|<[^>]*\b(?:in\s+in|out\s+out)\b|\bexport\s+as\s+namespace\b|\bimplements\s*\{|\bdeclare[ \t]+module[ \t]*[\r\n]|\bdeclare[ \t]+(?:module|namespace)[ \t]+(?:break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)\b|\(\s*(?:<[^>]+>\s*)?[A-Za-z_$][\w$]*(?:\s+(?:as|satisfies)\b[^)]*)?\)\s*(?:&&|\|\||\?\?)?=(?![=>])/;
 
 function hasTsRejectsInNodeStrip(source) {
-  return tsRejectsInNodeStrip.test(source) || require('./compiler-ts-lower.cjs').hasForBracketIn(source);
+  if (tsRejectsInNodeStrip.test(source) || require('./compiler-ts-lower.cjs').hasForBracketIn(source)) return true;
+  // TypeScript rejects multiple `/// <amd-module` directives in one file.
+  if (source.includes('<amd-module')) {
+    const m = source.match(/\/\/\/[ \t\f\v]*<amd-module\b/gi);
+    if (m && m.length > 1) return true;
+  }
+  return false;
 }
 
 // Token-based rewrite of top-level `declare module Name {` / `declare module "str" {` outside strings/templates/comments.
@@ -661,7 +667,7 @@ function sloppyStrictScript(source, file, directive = false) {
   const trivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*/y;
   trivia.lastIndex = hashbang;
   trivia.exec(source);
-  if (!directive && source.slice(0, trivia.lastIndex).includes('///')) return null;
+  if (!directive && source.slice(0, trivia.lastIndex).includes('///') && !/\/\/\/[ \t]*<reference\b/i.test(source.slice(0, trivia.lastIndex))) return null;
   const first = source[trivia.lastIndex];
   const strict = isUseStrictDirective(source, trivia.lastIndex);
   if ((first === '"' || first === "'") && !strict) return null;
@@ -1509,7 +1515,7 @@ function compile(input, options = {}) {
               }
             }
           }
-          if (typed && jsxFile && format === 'preserve' && jsx !== 'preserve' && runtime() &&
+          if (typed && jsxFile && format === 'preserve' && jsx !== 'preserve' && (runtime() || jsx === 'automatic') &&
               (!source.includes('\\u') || !/\\u(?:\{|00(?:5f|74|6d))/i.test(source.toString('latin1')))) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
             const tsLower = require('./compiler-ts-lower.cjs');
@@ -1528,7 +1534,7 @@ function compile(input, options = {}) {
                     if (ch === '/' && work[at + 1] === '/') {
                       const nl = work.indexOf('\n', at + 2);
                       const end = nl < 0 ? work.length : nl;
-                      out += work.slice(at, end).replace(/^(\/\/[ \t]*)@jsx([A-Za-z]*[ \t]*:)/i, '$1_jsx$2');
+                      out += work.slice(at, end).replace(/^(\/\/[ \t]*)@jsx([A-Za-z]*[ \t]*:)/i, '$1~jsx$2');
                       at = end;
                       continue;
                     }
@@ -1555,7 +1561,7 @@ function compile(input, options = {}) {
                   }
                   maskedWork = out;
                 }
-                if (cjsPre.changed || ambPre !== text || (nsPre && nsPre.changed) || maskedWork !== work) {
+                if (runtime() && (cjsPre.changed || ambPre !== text || (nsPre && nsPre.changed) || maskedWork !== work)) {
                   work = maskedWork;
                   // If erasing an ambient block exposed a leading string directive (e.g. "use client";),
                   // leave directive/helper-import placement to TypeScript.
@@ -1577,6 +1583,23 @@ function compile(input, options = {}) {
                       return result;
                     }
                   }
+                  }
+                }
+                // Fallback JS JSX-to-automatic-runtime lowerer when the native C++ lowerer declines `.tsx`.
+                if (jsx === 'automatic') {
+                  const unmaskedWork = nsPre ? nsPre.code : ambPre;
+                  const dupAmbientConst = !unmaskedWork.includes('@filename') &&
+                    /\bdeclare[ \t]+(?:const|let|var|enum|class|function)[ \t]+([A-Za-z_$][\w$]*)\b[\s\S]*\b(?:const|let|var|enum|class|function)[ \t]+\1\b/.test(unmaskedWork);
+                  let jsxLowered = dupAmbientConst ? null : require('./compiler-jsx-lower.cjs').lowerJsxToAutomatic(unmaskedWork);
+                  if (jsxLowered !== null) {
+                    if (/\b(?:module|namespace|enum)\b/.test(jsxLowered)) {
+                      const nsPost = tsLower.lowerNamespacesAndEnums(jsxLowered);
+                      if (nsPost !== null) jsxLowered = nsPost.code;
+                    }
+                    if (!hasEscapedKeyword(jsxLowered, false) && !hasTsRejectsInNodeStrip(jsxLowered)) {
+                      const jsRes = eraseModule(addon, jsxLowered, file, format, false);
+                      if (jsRes && jsRes.code !== null && jsRes.backend !== 'node-transform') return jsRes;
+                    }
                   }
                 }
               }
@@ -1609,7 +1632,7 @@ function compile(input, options = {}) {
             const triedOrigMod = !directive && (property || annotated === true || addon.moduleMarker(source, true));
             const noBom = text.charCodeAt(0) === 0xFEFF && !text.startsWith('\uFEFF#!') ? text.slice(1) : text;
             const hasTsDirectiveComment = noBom.includes('// @') || noBom.includes('//@');
-            const extMod = directive || hasTsDirectiveComment || noBom.includes('declare module') || noBom.includes('declare global');
+            const extMod = directive || hasTsDirectiveComment || noBom.includes('declare module') || noBom.includes('declare global') || /\bexport[ \t]+(?:default|declare)\b/.test(noBom);
             let result = (!triedOrigMod && extMod && !/[^\x00-\x7f]/.test(noBom) && /\b(?:import|export)\b/.test(noBom))
               ? eraseModule(addon, noBom, file, format, property) : null;
             if (!result && !triedOrigMod && !noBom.includes('\u00a0') && format === 'preserve') result = eraseScript(addon, noBom, Buffer.from(noBom), file, directive);
@@ -1620,9 +1643,9 @@ function compile(input, options = {}) {
               const tsLower = require('./compiler-ts-lower.cjs');
               const decPre = tsLower.eraseNonEsDecorators(noBom);
               const cjsPre = decPre !== null ? tsLower.preprocessPreserveCjs(decPre.code) : null;
-              if (cjsPre !== null && !hasTsRejectsInNodeStrip(cjsPre.code)) {
+              if (cjsPre !== null) {
                 const ambPre = tsLower.eraseValidatedAmbientBlocks(cjsPre.code);
-                if (ambPre !== null) {
+                if (ambPre !== null && !hasTsRejectsInNodeStrip(ambPre)) {
                   const nsPre = tsLower.lowerNamespacesAndEnums(ambPre);
                   if (nsPre !== null) {
                     const ppPre = tsLower.lowerParameterProperties(nsPre.code);
@@ -1660,7 +1683,7 @@ function compile(input, options = {}) {
                           const workBuf = Buffer.from(relaxed);
                           const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
                           if (isMod) {
-                            if (!/\bawait[ \t]*[;),}]/.test(work) && hasModuleMarker(addon, relaxed, workBuf)) {
+                            if (!/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(work) && (hasModuleMarker(addon, relaxed, workBuf) || tsLower.hasTopLevelModuleSyntax(relaxed))) {
                               const verified = verifyRuntimeExports({ backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] }, file, addon, workBuf);
                               if (verified.code !== null) return verified;
                             }
@@ -1687,9 +1710,9 @@ function compile(input, options = {}) {
           const plainJs = validJavaScriptTsModule(addon, source, text, file, format, false, false);
           if (plainJs) return plainJs;
         }
-        // Leading triple-slash comments like `/// <amd-dependency .../>` or `/// <reference lib="..." preserve="true" />`
-        // that are well-formed closed tags (not `<amd-module` or malformed unclosed `<reference`).
-        if (!/\/\/\/[ \t\f\v]*<amd-module\b/i.test(text) &&
+        // Leading triple-slash comments like `/// <amd-dependency .../>`, `/// <amd-module .../>` (in preserve mode),
+        // or `/// <reference lib="..." preserve="true" />` that are well-formed closed tags.
+        if ((format === 'preserve' || !/\/\/\/[ \t\f\v]*<amd-module\b/i.test(text)) &&
             !/\/\/\/[ \t\f\v]*<reference\b(?![ \t]+(?:path|types|lib|no-default-lib)[ \t]*=(?:"[^"\r\n]*"|'[^'\r\n]*')(?:[ \t]+[a-z-]+[ \t]*=(?:"[^"\r\n]*"|'[^'\r\n]*'))*[ \t]*\/>)/.test(text)) {
           let result = /\b(?:import|export)\b/.test(text) ? eraseModule(addon, text, file, format, false) : null;
           if (!result && format === 'preserve') result = eraseScript(addon, text, source, file, true);
@@ -1697,7 +1720,7 @@ function compile(input, options = {}) {
           if (format === 'preserve' && !hasEscapedKeyword(text, false) && /\b(?:namespace|module|enum|require|export|constructor)\b/.test(text)) {
             const tsLower = require('./compiler-ts-lower.cjs');
             const cjsPre = tsLower.preprocessPreserveCjs(text);
-            if (cjsPre !== null && !tsRejectsInNodeStrip.test(cjsPre.code)) {
+            if (cjsPre !== null && !hasTsRejectsInNodeStrip(cjsPre.code)) {
               const ambPre = tsLower.eraseValidatedAmbientBlocks(cjsPre.code);
               if (ambPre !== null) {
                 const nsPre = tsLower.lowerNamespacesAndEnums(ambPre);
@@ -1706,7 +1729,7 @@ function compile(input, options = {}) {
                   const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
                   const loweredRes = isMod
                     ? eraseModule(addon, work, file, format, false)
-                    : eraseScript(addon, work, Buffer.from(work), file, true);
+                    : eraseScript(addon, work, Buffer.from(work), file, true, true);
                   if (loweredRes) return loweredRes;
                   if (cjsPre.hasCjsModule && !tsLower.hasTopLevelModuleSyntax(work)) {
                     const stripped = strip(work, file);

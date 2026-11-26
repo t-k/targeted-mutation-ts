@@ -302,13 +302,17 @@ function preprocessPreserveCjs(source, isJsx = false) {
       }
     }
 
-    // `export = expr` -> `module.exports = expr`
-    if (t.text === 'export' && tokens[i + 1]?.type === 'punc' && tokens[i + 1].text === '=' &&
-        !(tokens[i + 2]?.type === 'punc' && (tokens[i + 2].text === '=' || tokens[i + 2].text === '>'))) {
-      edits.push({ start: t.start, end: t.end, text: 'module.exports' });
-      hasCjsModule = true;
-      i += 1;
-      continue;
+    // `[declare] [export] export = expr` -> `module.exports = expr`
+    if (t.text === 'declare' || t.text === 'export') {
+      let ek = i;
+      while (ek < tokens.length && (tokens[ek].text === 'declare' || tokens[ek].text === 'export')) ek++;
+      if (ek > i && tokens[ek - 1].text === 'export' && tokens[ek]?.type === 'punc' && tokens[ek].text === '=' &&
+          !(tokens[ek + 1]?.type === 'punc' && (tokens[ek + 1].text === '=' || tokens[ek + 1].text === '>'))) {
+        edits.push({ start: t.start, end: tokens[ek - 1].end, text: 'module.exports' });
+        hasCjsModule = true;
+        i = ek;
+        continue;
+      }
     }
   }
   if (edits.length === 0) return { code: source, changed: false, hasCjsModule: false };
@@ -460,18 +464,54 @@ function normalizeAmbientModules(source) {
 }
 
 // Evaluates constant enum member expressions (numeric literals, strings, unary/binary/pow ops, parens, refs to prior members).
+function decodeSimpleStringToken(tok) {
+  const s = tok.text;
+  if (s[0] === '`') {
+    if (s.includes('\\') || s.includes('${')) return null;
+    return s.slice(1, -1).replace(/\r\n?/g, '\n');
+  }
+  if (tok.type === 'str') {
+    if (s.includes('\\')) return null;
+    return s.slice(1, -1);
+  }
+  return null;
+}
+
 function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums = null) {
   const s = expr.trim();
   if (!s) return null;
-  if ((s[0] === '"' || s[0] === "'") && s[s.length - 1] === s[0] && s.length >= 2) {
-    // Only single string literal (no `+` outside quotes)
-    const toks = tokenize(s);
-    if (toks && toks.length === 1 && toks[0].type === 'str') {
-      return { kind: 'str', raw: s };
-    }
-  }
   const toks = tokenize(s);
   if (!toks || toks.length === 0) return null;
+  if (toks.length === 1 && (toks[0].type === 'str' || toks[0].type === 'tpl')) {
+    const sv = decodeSimpleStringToken(toks[0]);
+    if (s[0] === '`') return sv !== null ? { kind: 'str', value: sv, raw: JSON.stringify(sv) } : null;
+    return sv !== null ? { kind: 'str', value: sv, raw: s } : { kind: 'str', raw: s };
+  }
+  // Exact constant string concatenation (`"a" + "b"`, `` `a` + "b" ``, `prevStr + "b"`, `1 + "a"`).
+  if (toks.some(t => t.type === 'str' || t.type === 'tpl' || (t.type === 'id' && env.get(t.text)?.kind === 'str')) &&
+      toks.every((t, idx) => idx % 2 === 1 ? t.text === '+' : (t.type === 'str' || t.type === 'tpl' || t.type === 'num' || (t.type === 'id' && env.has(t.text))))) {
+    let acc = null;
+    let ok = true;
+    for (let idx = 0; idx < toks.length; idx += 2) {
+      const tk = toks[idx];
+      let val;
+      if (tk.type === 'str' || tk.type === 'tpl') {
+        val = decodeSimpleStringToken(tk);
+        if (val === null) { ok = false; break; }
+      } else if (tk.type === 'num') {
+        val = Number(tk.text.replace(/_/g, ''));
+        if (!Number.isFinite(val)) { ok = false; break; }
+      } else if (tk.type === 'id') {
+        const prev = env.get(tk.text);
+        if (!prev || prev.value === undefined) { ok = false; break; }
+        val = prev.value;
+      } else { ok = false; break; }
+      acc = idx === 0 ? val : (acc + val);
+    }
+    if (ok && typeof acc === 'string') {
+      return { kind: 'str', value: acc, raw: JSON.stringify(acc) };
+    }
+  }
   // Try constant numeric evaluation via recursive descent
   let pos = 0;
   function parseOr() {
@@ -542,7 +582,22 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
     }
     if (toks[pos].type === 'num') {
       const n = Number(toks[pos++].text.replace(/_/g, ''));
-      return Number.isFinite(n) ? n : null;
+      return Number.isNaN(n) ? null : n;
+    }
+    if (toks[pos].type === 'str' || toks[pos].type === 'tpl') {
+      const sv = decodeSimpleStringToken(toks[pos++]);
+      return sv !== null ? Number(sv) : null;
+    }
+    if (toks[pos].type === 'id' && enumName && toks[pos].text === enumName &&
+        ((toks[pos + 1]?.text === '.' && toks[pos + 2]?.type === 'id') ||
+         (toks[pos + 1]?.text === '[' && toks[pos + 2]?.type === 'str' && toks[pos + 3]?.text === ']'))) {
+      const k = toks[pos + 1].text === '.' ? toks[pos + 2].text : decodeSimpleStringToken(toks[pos + 2]);
+      pos += toks[pos + 1].text === '.' ? 3 : 4;
+      if (k !== null && env.has(k)) {
+        const prev = env.get(k);
+        return prev.kind === 'num' ? prev.value : null;
+      }
+      return null;
     }
     if (toks[pos].type === 'id' && env.has(toks[pos].text)) {
       const prev = env.get(toks[pos++].text);
@@ -551,14 +606,39 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
     return null;
   }
   const val = parseOr();
-  if (val !== null && pos === toks.length && Number.isFinite(val)) {
-    return { kind: 'num', value: val, raw: s };
-  }
-  if (allowComputed && !/['"`]/.test(s) && !s.includes('**')) {
-    for (const t of toks) {
-      if (t.type === 'id' && (env.has(t.text) || (enumName && t.text === enumName) || (allEnums && allEnums.has(t.text)))) return null;
+  if (val !== null && pos === toks.length) {
+    if (Number.isFinite(val)) return { kind: 'num', value: val, raw: s };
+    if (val === Infinity || val === -Infinity || Number.isNaN(val)) {
+      return { kind: 'num', value: Number.isNaN(val) ? 'NaN' : (val > 0 ? 'Infinity' : '-Infinity'), raw: s, nonFinite: true };
     }
-    return { kind: 'computed', raw: s };
+  }
+  if (allowComputed && !s.includes('**')) {
+    // Only allow strings/templates in computed enum expressions when they are clearly numeric/member-access
+    // (e.g. `.length`, `E["k"]`, unary `+`/`-`, or binary `-`/`*`/`/`/`%`), never raw string-returning expressions.
+    const hasQuote = /['"`]/.test(s);
+    const safeQuotedComputed = hasQuote && (/\.length\b|\.valueOf\s*\(|^\s*[+-]\s*['"`]|\[['"`]/.test(s) || /[-*/%]/.test(s));
+    if (!hasQuote || safeQuotedComputed) {
+      // Rewrite bare references to earlier members of this enum (`a` -> `EnumName.a`)
+      const rwEdits = [];
+      for (let ti = 0; ti < toks.length; ti++) {
+        const tk = toks[ti];
+        if (tk.type !== 'id') continue;
+        if ((enumName && tk.text === enumName) || (allEnums && allEnums.has(tk.text))) return null;
+        if (env.has(tk.text)) {
+          const prev = ti > 0 ? toks[ti - 1] : null;
+          if (prev && prev.text === '.') continue;
+          if (enumName) rwEdits.push({ start: tk.start, end: tk.end, text: `${enumName}.${tk.text}` });
+          else return null;
+        }
+      }
+      let outExpr = s;
+      if (rwEdits.length > 0) {
+        let nr = '', rp = 0;
+        for (const e of rwEdits) { nr += s.slice(rp, e.start) + e.text; rp = e.end; }
+        outExpr = nr + s.slice(rp);
+      }
+      return { kind: 'computed', raw: outExpr };
+    }
   }
   return null;
 }
@@ -596,10 +676,46 @@ function lowerEnumBody(name, bodySource, sharedEnv = null, allowComputed = false
     let propKey;
     if (keyTok.type === 'id') propKey = JSON.stringify(keyTok.text);
     else if (keyTok.type === 'str') propKey = keyTok.text;
-    else return null;
+    else if (keyTok.type === 'num') propKey = JSON.stringify(keyTok.text);
+    else if (keyTok.type === 'punc' && keyTok.text === '[') {
+      // Computed enum member key `[expr] = val`
+      let closeB = -1, d = 0;
+      for (let bi = 0; bi < m.length; bi++) {
+        if (m[bi].text === '[') d++;
+        else if (m[bi].text === ']') { if (--d === 0) { closeB = bi; break; } }
+      }
+      if (closeB <= 1) return null;
+      const keyExpr = bodySource.slice(m[1].start, m[closeB - 1].end).trim();
+      if (!keyExpr) return null;
+      const restM = m.slice(closeB + 1);
+      if (restM.length === 0) {
+        if (nextNum === null) return null;
+        lines.push(`    ${name}[${name}[${keyExpr}] = ${nextNum}] = ${keyExpr};`);
+        nextNum++;
+      } else if (restM.length >= 2 && restM[0].text === '=') {
+        const exprSrc = bodySource.slice(restM[1].start, restM[restM.length - 1].end).trim();
+        const ev = evalEnumExpr(exprSrc, env, allowComputed, name, allEnums);
+        if (ev === null) return null;
+        if (ev.kind === 'str') {
+          lines.push(`    ${name}[${keyExpr}] = ${ev.raw};`);
+          nextNum = null;
+        } else if (ev.kind === 'num') {
+          lines.push(`    ${name}[${name}[${keyExpr}] = ${ev.value}] = ${keyExpr};`);
+          nextNum = ev.nonFinite ? null : ev.value + 1;
+        } else {
+          lines.push(`    ${name}[${name}[${keyExpr}] = ${ev.raw}] = ${keyExpr};`);
+          nextNum = null;
+        }
+      } else return null;
+      continue;
+    } else return null;
 
     if (m.length === 1) {
-      if (nextNum === null) return null;
+      if (nextNum === null) {
+        if (!allowComputed) return null;
+        lines.push(`    ${name}[${name}[${propKey}] = void 0] = ${propKey};`);
+        continue;
+      }
       lines.push(`    ${name}[${name}[${propKey}] = ${nextNum}] = ${propKey};`);
       if (keyTok.type === 'id') env.set(keyTok.text, { kind: 'num', value: nextNum });
       nextNum++;
@@ -613,13 +729,13 @@ function lowerEnumBody(name, bodySource, sharedEnv = null, allowComputed = false
         nextNum = null;
       } else if (ev.kind === 'num') {
         lines.push(`    ${name}[${name}[${propKey}] = ${ev.value}] = ${propKey};`);
-        if (keyTok.type === 'id') env.set(keyTok.text, ev);
-        nextNum = ev.value + 1;
+        const envKey = keyTok.type === 'id' ? keyTok.text : decodeSimpleStringToken(keyTok);
+        if (envKey !== null && !ev.nonFinite) env.set(envKey, ev);
+        nextNum = ev.nonFinite ? null : ev.value + 1;
       } else {
-        // Computed expression: only safe if it doesn't produce a string at runtime (conservative: reject string concat/template)
-        if (/['"`]/.test(ev.raw)) return null;
         lines.push(`    ${name}[${name}[${propKey}] = ${ev.raw}] = ${propKey};`);
-        if (keyTok.type === 'id') env.set(keyTok.text, { kind: 'computed' });
+        const envKey = keyTok.type === 'id' ? keyTok.text : decodeSimpleStringToken(keyTok);
+        if (envKey !== null) env.set(envKey, { kind: 'computed' });
         nextNum = null;
       }
     } else {
@@ -675,7 +791,8 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
   const allowNs = isJsx || /\bmodule[ \t]+[A-Za-z_$]/.test(source) || source.includes('// @') || source.includes('//@') ||
     !/\bexport[ \t]+(?:namespace|const|let|var|function|class|\{)/.test(source);
   const allowComputedEnum = !/\b(?:import|export)\b/.test(source);
-  if (!/\b(?:module|enum)\b/.test(source) && !(allowNs && /\bnamespace[ \t]+[A-Za-z_$]/.test(source))) {
+  if (!/\b(?:module|enum)\b/.test(source) && !(allowNs && /\bnamespace[ \t]+[A-Za-z_$]/.test(source)) &&
+      !/\bimport[ \t]+[A-Za-z_$][\w$]*[ \t]*=/.test(source)) {
     return { code: source, changed: false };
   }
   const tokens = tokenize(source, isJsx);
@@ -707,8 +824,9 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
   // before lowering (prevents false positives on TS-error files). JSX files are validated by addon.lower.
   let allowTypeOnlyBlank = true;
   if (!isJsx) {
-    let valSrc = source.replace(/(?<=^|[;\r\n{])[ \t]*((?:export[ \t]+|declare[ \t]+)*)module(?=[ \t]+[A-Za-z_$][\w$.]*[ \t]*\{)/g, '$1namespace');
-    valSrc = valSrc.replace(/(?<=^|[;\r\n{])[ \t]*(?:export[ \t]+)?import(?=[ \t]+[A-Za-z_$][\w$]*[ \t]*=[ \t]*(?!require\b|module\b)[A-Za-z_$][\w$.]*(?![ \t]*\())/g, 'var');
+    let valSrc = source.replace(/(?<=^|[;\r\n{])[ \t]*((?:export[ \t]+|declare[ \t]+|async[ \t]+|public[ \t]+|private[ \t]+|protected[ \t]+)*)module(?=[ \t]+[A-Za-z_$][\w$.]*\s*\{)/g, '$1namespace');
+    valSrc = valSrc.replace(/(?<=^|[;\r\n{])[ \t]*((?:export[ \t]+)*)(?:async|public|private|protected)[ \t]+(?=(?:namespace|enum)[ \t]+[A-Za-z_$])/g, '$1');
+    valSrc = valSrc.replace(/(?<=^|[;\r\n{])[ \t]*(?:declare[ \t]+)?(?:export[ \t]+)?import(?=[ \t]+[A-Za-z_$][\w$]*[ \t]*=[ \t]*(?!require\b|module\b)[A-Za-z_$][\w$.]*(?![ \t]*\())/g, 'var');
     try {
       stripTypeScriptTypes(valSrc, { mode: 'transform' });
     } catch (err) {
@@ -726,7 +844,19 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         em.includes('Expression expected') ||
         em.includes('Unexpected token `ident`. Expected * for generator') ||
         em.includes('A parameter initializer is only allowed') ||
-        em.includes('An implementation cannot be declared in ambient contexts');
+        em.includes('An implementation cannot be declared in ambient contexts') ||
+        em.includes('ESM-style module declarations are not permitted') ||
+        em.includes("Expected '{', got 'export'") ||
+        em.includes("Expected ']', got ','") ||
+        em.includes("'import', and 'export' cannot be used outside") ||
+        em.includes('cannot be used as an identifier in strict mode') ||
+        em.includes('A parameter property is only allowed') ||
+        em.includes('`declare` modifier not allowed') ||
+        em.includes('An enum member cannot have a numeric name') ||
+        em.includes('Computed property names are not allowed in enums') ||
+        em.includes('Import declarations in a namespace cannot reference a module') ||
+        em.includes('An interface can only extend an identifier') ||
+        em.includes('Expected ident');
       if (!relaxable) return null;
       allowTypeOnlyBlank = false;
     }
@@ -744,7 +874,28 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
       const t = toks[i];
       if (t.type === 'punc' && t.text === '{') { depth++; continue; }
       if (t.type === 'punc' && t.text === '}') { if (depth > 0) depth--; continue; }
-      if (depth !== 0 || t.type !== 'id') continue;
+      if (t.type !== 'id') continue;
+      if (depth !== 0) {
+        // Also lower `[const] enum E { ... }` inside block/if/function scopes when `!parentNs`
+        if (!parentNs && (t.text === 'enum' || (t.text === 'const' && toks[i + 1]?.text === 'enum' && !hasNewlineBetween(src, t.end, toks[i + 1].start)))) {
+          const prev = i > 0 ? toks[i - 1] : null;
+          if (prev && (prev.text === '.' || prev.text === 'declare' || prev.text === ':')) continue;
+          const eIdx = t.text === 'const' ? i + 1 : i;
+          if (toks[eIdx + 1]?.type === 'id' && toks[eIdx + 2]?.text === '{') {
+            const enumName = toks[eIdx + 1].text;
+            const openIdx = eIdx + 2;
+            const closeIdx = findMatchingBrace(toks, openIdx);
+            if (closeIdx < 0) return null;
+            const bodySrc = src.slice(toks[openIdx].end, toks[closeIdx].start);
+            const loweredBody = lowerEnumBody(enumName, bodySrc, new Map(), allowComputedEnum, null);
+            if (loweredBody === null) return null;
+            const emitted = `{ var ${enumName}; (function (${enumName}) {\n${loweredBody}${loweredBody ? '\n' : ''}})(${enumName} || (${enumName} = {})); }`;
+            edits.push({ start: t.start, end: toks[closeIdx].end, text: emitted });
+            i = closeIdx;
+          }
+        }
+        continue;
+      }
 
       const prev = i > 0 ? toks[i - 1] : null;
       if (prev && !(prev.type === 'punc' && (prev.text === ';' || prev.text === '}')) &&
@@ -752,19 +903,26 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         continue;
       }
 
-      // Skip `declare ...`
+      // Skip `declare ...` (except `declare [export] import a = b;`, which we lower below)
       if (t.text === 'declare') {
-        // Jump past `{ ... }` if it's `declare namespace/module/class/enum`
-        let j = i + 1;
-        while (j < toks.length && !(toks[j].type === 'punc' && (toks[j].text === '{' || toks[j].text === ';'))) j++;
-        if (j < toks.length && toks[j].text === '{') {
-          const close = findMatchingBrace(toks, j);
-          if (close >= 0) i = close;
+        const afterDec = toks[i + 1]?.text === 'export' ? i + 2 : i + 1;
+        if (toks[afterDec]?.text === 'import' && toks[afterDec + 1]?.type === 'id' && toks[afterDec + 2]?.text === '=' &&
+            toks[afterDec + 3]?.type === 'id' && toks[afterDec + 3].text !== 'require' && toks[afterDec + 3].text !== 'module') {
+          // fall through with idx = i + 1
+        } else {
+          // Jump past `{ ... }` if it's `declare namespace/module/class/enum`
+          let j = i + 1;
+          while (j < toks.length && !(toks[j].type === 'punc' && (toks[j].text === '{' || toks[j].text === ';'))) j++;
+          if (j < toks.length && toks[j].text === '{') {
+            const close = findMatchingBrace(toks, j);
+            if (close >= 0) i = close;
+          }
+          continue;
         }
-        continue;
       }
 
       let idx = i;
+      if (toks[idx].text === 'declare') idx++;
       let isExport = false;
       if (toks[idx].text === 'export') {
         isExport = true;
@@ -808,7 +966,12 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         }
       }
 
-      // Case 1: `[export] [const] enum E { ... }`
+      // Case 1: `[export] [async|public|private|protected] [const] enum E { ... }`
+      if (toks[idx].type === 'id' && (toks[idx].text === 'async' || toks[idx].text === 'public' || toks[idx].text === 'private' || toks[idx].text === 'protected') &&
+          toks[idx + 1]?.type === 'id' && (toks[idx + 1].text === 'enum' || toks[idx + 1].text === 'module' || toks[idx + 1].text === 'namespace' || (toks[idx + 1].text === 'const' && toks[idx + 2]?.text === 'enum')) &&
+          !hasNewlineBetween(src, toks[idx].end, toks[idx + 1].start)) {
+        idx++;
+      }
       let isConstEnum = false;
       if (toks[idx].type === 'id' && toks[idx].text === 'const' &&
           toks[idx + 1]?.type === 'id' && toks[idx + 1].text === 'enum' &&
@@ -835,7 +998,9 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         const varKw = (parentNs && isExport) ? 'let' : 'var';
         const varDecl = declaredVars.has(enumName) ? '' : (isExport && !parentNs ? `export var ${enumName};\n` : `${varKw} ${enumName};\n`);
         declaredVars.add(enumName);
-        const emitted = `${varDecl}(function (${enumName}) {\n${loweredBody}${loweredBody ? '\n' : ''}})(${arg});`;
+        const bodyEmitted = `${varDecl}(function (${enumName}) {\n${loweredBody}${loweredBody ? '\n' : ''}})(${arg});`;
+        const needsBlockWrap = !parentNs && prev && (prev.text === ')' || prev.text === 'else' || prev.text === 'do');
+        const emitted = needsBlockWrap ? `{ ${bodyEmitted} }` : bodyEmitted;
         edits.push({ start: t.start, end: toks[closeIdx].end, text: emitted });
         i = closeIdx;
         continue;
@@ -901,6 +1066,25 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         // Type-only exports inside namespace: strip `export ` so stripTypeScriptTypes erases them inside the IIFE.
         if (kw.text === 'interface' || kw.text === 'type' || kw.text === 'declare') {
           edits.push({ start: t.start, end: kw.start, text: '' });
+          continue;
+        }
+        // `export default ...` inside a namespace: strip `export default ` (invalid in TS namespace);
+        // wrap anonymous `class {}` / `function () {}` in parens so it stays a valid statement.
+        if (kw.text === 'default') {
+          const afterDef = toks[idx + 1];
+          if (afterDef && (afterDef.text === 'class' || afterDef.text === 'function') &&
+              (toks[idx + 2]?.text === '{' || toks[idx + 2]?.text === '(')) {
+            let k = idx + 2;
+            while (k < toks.length && toks[k].text !== '{') k++;
+            const close = k < toks.length ? findMatchingBrace(toks, k) : -1;
+            if (close > k) {
+              const exprSrc = src.slice(afterDef.start, toks[close].end);
+              edits.push({ start: t.start, end: toks[close].end, text: `(${exprSrc});` });
+              i = close;
+              continue;
+            }
+          }
+          edits.push({ start: t.start, end: kw.end, text: '' });
           continue;
         }
         // `export async function f(...) { ... }` or `export function f(...) { ... }`
@@ -989,7 +1173,49 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
           const outParts = [];
           for (const [ds, de] of declRanges) {
             const nameTok = toks[ds];
-            if (!nameTok || nameTok.type !== 'id') return null;
+            if (!nameTok) return null;
+            if (nameTok.type === 'punc' && (nameTok.text === '{' || nameTok.text === '[')) {
+              // Destructuring `export var { a, b } = expr;` or `export var [a, b] = expr;` inside namespace
+              let eqIdx = -1, pD = 0, bD = 0, brD = 0, aD = 0;
+              for (let m = ds; m < de; m++) {
+                const mt = toks[m];
+                if (mt.type === 'punc') {
+                  if (mt.text === '(') pD++;
+                  else if (mt.text === ')') pD--;
+                  else if (mt.text === '[') bD++;
+                  else if (mt.text === ']') bD--;
+                  else if (mt.text === '{') brD++;
+                  else if (mt.text === '}') brD--;
+                  else if (mt.text === '<') aD++;
+                  else if (mt.text === '>') { if (aD > 0) aD--; }
+                  else if (mt.text === '=' && pD === 0 && bD === 0 && brD === 0 && aD === 0) { eqIdx = m; break; }
+                }
+              }
+              if (eqIdx < 0) return null;
+              // Extract bound identifiers from the pattern (toks[ds..eqIdx-1])
+              const bound = [];
+              let patEnd = eqIdx;
+              // Skip optional `: Type` before `=`
+              for (let m = ds, dB = 0, dBr = 0; m < eqIdx; m++) {
+                if (toks[m].text === '[') dB++;
+                else if (toks[m].text === ']') dB--;
+                else if (toks[m].text === '{') dBr++;
+                else if (toks[m].text === '}') dBr--;
+                else if (toks[m].text === ':' && dB === 0 && dBr === 0) { patEnd = m; break; }
+              }
+              for (let m = ds; m < patEnd; m++) {
+                if (toks[m].type === 'id' && toks[m + 1]?.text !== ':' && toks[m - 1]?.text !== '.') {
+                  // Skip default values after `=` inside pattern
+                  if (toks[m - 1]?.text === '=') continue;
+                  bound.push(toks[m].text);
+                }
+              }
+              const declText = src.slice(toks[ds].start, toks[de - 1].end).trim();
+              outParts.push(`${kw.text} ${declText};`);
+              for (const bn of bound) outParts.push(`${parentNs}.${bn} = ${bn};`);
+              continue;
+            }
+            if (nameTok.type !== 'id') return null;
             const varName = nameTok.text;
             let eqIdx = -1, pD = 0, bD = 0, brD = 0, aD = 0;
             for (let m = ds + 1; m < de; m++) {
@@ -1041,7 +1267,7 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
               if (new RegExp(`(?<![\\w$.])${varName}(?![\\w$])`).test(tailSrc)) return null;
             }
             if (new RegExp(`(?<![\\w$.])${varName}(?![\\w$])`).test(rest)) {
-              if (/\bclass\b|\bimport\s+[A-Za-z_$][\w$]*\s*=/.test(rest) ||
+              if (/\bimport\s+[A-Za-z_$][\w$]*\s*=/.test(rest) ||
                   new RegExp(`\\b(?:var|let|const|function|class|enum|namespace|module)\\s+${varName}\\b|\\([^)]*\\b${varName}\\b|\\b${varName}\\s*:`).test(rest)) {
                 return null;
               }
@@ -1081,6 +1307,26 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         // Any other `export ...` inside a namespace: bail safely
         return null;
       }
+      // Top-level `export import a = X.Y;` -> `export var a = X.Y;`
+      if (!parentNs && isExport && toks[idx].text === 'import' && toks[idx + 1]?.type === 'id' &&
+          toks[idx + 2]?.type === 'punc' && toks[idx + 2].text === '=' &&
+          toks[idx + 3]?.type === 'id' && toks[idx + 3].text !== 'require' && toks[idx + 3].text !== 'module') {
+        const aliasName = toks[idx + 1].text;
+        let k = idx + 3;
+        while (toks[k + 1]?.type === 'punc' && toks[k + 1].text === '.' && toks[k + 2]?.type === 'id') k += 2;
+        if (toks[k + 1]?.text === '(') return null;
+        let endIdx = k;
+        if (toks[endIdx + 1]?.type === 'punc' && toks[endIdx + 1].text === ';') endIdx++;
+        else {
+          const nextTk = toks[endIdx + 1];
+          if (nextTk && (nextTk.text === '(' || nextTk.text === '[' || nextTk.text === '/' || nextTk.type === 'regex' || nextTk.text.startsWith('in'))) return null;
+        }
+        const rhs = src.slice(toks[idx + 3].start, toks[k].end);
+        if (rhs.split('.').some(part => RESERVED_NS.has(part))) return null;
+        edits.push({ start: t.start, end: toks[endIdx].end, text: `export var ${aliasName} = ${rhs};` });
+        i = endIdx;
+        continue;
+      }
       // Non-exported `import a = X.Y;` (top-level or inside a namespace) -> `var a = X.Y;`
       if (!isExport && toks[idx].text === 'import' && toks[idx + 1]?.type === 'id' &&
           toks[idx + 2]?.type === 'punc' && toks[idx + 2].text === '=' &&
@@ -1091,7 +1337,12 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         if (toks[k + 1]?.text === '(') return null;
         let endIdx = k;
         if (toks[endIdx + 1]?.type === 'punc' && toks[endIdx + 1].text === ';') endIdx++;
+        else {
+          const nextTk = toks[endIdx + 1];
+          if (nextTk && (nextTk.text === '(' || nextTk.text === '[' || nextTk.text === '/' || nextTk.type === 'regex' || nextTk.text.startsWith('in'))) return null;
+        }
         const rhs = src.slice(toks[idx + 3].start, toks[k].end);
+        if (rhs.split('.').some(part => RESERVED_NS.has(part))) return null;
         edits.push({ start: t.start, end: toks[endIdx].end, text: `var ${aliasName} = ${rhs};` });
         i = endIdx;
         continue;
@@ -1189,7 +1440,7 @@ function lowerParameterProperties(source) {
       if (abort) break;
       if (!hasMod) continue;
       if (j >= p.length || p[j].type !== 'id') {
-        if (j < p.length && (p[j].text === '{' || p[j].text === '[')) {
+        if (j < p.length && (p[j].text === '{' || p[j].text === '[' || p[j].text === '...')) {
           modRemovals.push({ start: p[0].start, end: p[j].start });
           continue;
         }
@@ -1340,40 +1591,55 @@ function eraseAngleBracketAssertions(source) {
   if (!source.includes('<')) return null;
   const toks = tokenize(source);
   if (!toks) return null;
-  const EXPR_PREFIX = new Set(['=', '(', '[', ',', ':', '?', ';', '{', '=>', 'return', 'throw', '!', '~', '+', '-', '*', '/', '%', '&', '|', '^']);
+  const EXPR_PREFIX = new Set(['=', '(', '[', ',', ':', '?', ';', '{', '}', '=>', 'return', 'throw', '!', '~', '+', '-', '*', '/', '%', '&', '|', '^']);
+  const EXPR_OBJ_PREFIX = new Set(['=', '(', '[', ',', ':', '?', 'return', 'throw']);
   const edits = [];
   for (let i = 0; i < toks.length; i++) {
     if (toks[i].type !== 'punc' || toks[i].text !== '<') continue;
     const prev = i > 0 ? toks[i - 1] : null;
     if (prev && !EXPR_PREFIX.has(prev.text)) continue;
-    // Scan balanced `< ... >` (no `;` or `\n` inside simple type)
-    let k = i + 1, dA = 1, dBr = 0, dP = 0, dB = 0;
-    while (k < toks.length && dA > 0) {
-      const tk = toks[k];
-      if (tk.text === ';' && dBr === 0) break;
-      if (tk.text === '<') dA++;
-      else if (tk.text === '>') dA--;
-      else if (tk.text === '{') dBr++;
-      else if (tk.text === '}') dBr--;
-      else if (tk.text === '(') dP++;
-      else if (tk.text === ')') dP--;
-      else if (tk.text === '[') dB++;
-      else if (tk.text === ']') dB--;
-      k++;
+    // Scan one or more chained balanced `< ... >` (e.g. `<any><any>{}`).
+    let k = i;
+    let chainCount = 0;
+    while (k < toks.length && toks[k].type === 'punc' && toks[k].text === '<') {
+      let m = k + 1, dA = 1, dBr = 0, dP = 0, dB = 0;
+      while (m < toks.length && dA > 0) {
+        const tk = toks[m];
+        if (tk.text === ';' && dBr === 0) break;
+        if (tk.text === '<') dA++;
+        else if (tk.text === '>') dA--;
+        else if (tk.text === '{') dBr++;
+        else if (tk.text === '}') dBr--;
+        else if (tk.text === '(') dP++;
+        else if (tk.text === ')') dP--;
+        else if (tk.text === '[') dB++;
+        else if (tk.text === ']') dB--;
+        m++;
+      }
+      if (dA !== 0 || m >= toks.length) { chainCount = 0; break; }
+      k = m;
+      chainCount++;
     }
-    if (dA !== 0 || k >= toks.length) continue;
+    if (chainCount === 0 || k >= toks.length) continue;
     const after = toks[k];
-    // Handle `=> <T>{ ... }` -> `=> ({ ... })` so arrow object literal body stays an expression
+    // Handle `<T>{ ... }`:
+    // - After `=>` or at statement start (`!prev`, `;`, `{`, `}`), wrap `{ ... }` in `({ ... })` so it stays an object literal expression.
+    // - After expression prefixes (`=`, `(`, `[`, `,`, `:`, `?`, `return`, `throw`), simply erase `<T>`.
     if (after.text === '{') {
       const closeBr = findMatchingBrace(toks, k);
-      if (closeBr > k && prev && prev.text === '=>') {
-        const startOff = toks[i].start;
-        const endOff = toks[k - 1].end;
-        const blank = source.slice(startOff, endOff).replace(/[^\r\n]/g, ' ');
-        edits.push({ start: startOff, end: endOff, text: blank });
-        edits.push({ start: after.start, end: after.start, text: '(' });
-        edits.push({ start: toks[closeBr].end, end: toks[closeBr].end, text: ')' });
-        i = k - 1;
+      if (closeBr > k) {
+        const needsParens = !prev || prev.text === '=>' || prev.text === ';' || prev.text === '{' || prev.text === '}';
+        if (needsParens || EXPR_OBJ_PREFIX.has(prev.text)) {
+          const startOff = toks[i].start;
+          const endOff = toks[k - 1].end;
+          const blank = source.slice(startOff, endOff).replace(/[^\r\n]/g, ' ');
+          edits.push({ start: startOff, end: endOff, text: blank });
+          if (needsParens) {
+            edits.push({ start: after.start, end: after.start, text: '(' });
+            edits.push({ start: toks[closeBr].end, end: toks[closeBr].end, text: ')' });
+          }
+          i = k - 1;
+        }
       }
       continue;
     }
@@ -1390,7 +1656,7 @@ function eraseAngleBracketAssertions(source) {
       continue;
     }
     if (after.text === '=>' || after.text === ';' || after.text === ',' || after.text === ')') continue;
-    if (after.type === 'id' || after.type === 'num' || after.type === 'str' || after.type === 'tpl' || after.text === '[') {
+    if (after.type === 'id' || after.type === 'num' || after.type === 'str' || after.type === 'tpl' || after.type === 'regex' || after.text === '[') {
       const startOff = toks[i].start;
       const endOff = toks[k - 1].end;
       const blank = source.slice(startOff, endOff).replace(/[^\r\n]/g, ' ');
@@ -1399,6 +1665,7 @@ function eraseAngleBracketAssertions(source) {
     }
   }
   if (edits.length === 0) return null;
+  edits.sort((a, b) => a.start - b.start || a.end - b.end);
   let out = '', pos = 0;
   for (const e of edits) {
     out += source.slice(pos, e.start) + e.text;
@@ -1418,7 +1685,7 @@ function eraseAngleBracketAssertions(source) {
 // Each transform substitutes a unique placeholder outside comments/strings/regexes, runs
 // stripTypeScriptTypes on the copy (preserving full TS syntax validation), and restores the original text.
 function stripWithSwcRelaxations(source, errMsg, depth = 0) {
-  if (!errMsg || depth > 2) return null;
+  if (!errMsg || depth > 4) return null;
   if (source.includes('await') || source.includes('yield')) {
     const checkToks = tokenize(source);
     if (checkToks) {
@@ -1434,7 +1701,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
       return stripTypeScriptTypes(work);
     } catch (e) {
       const nextMsg = String(e?.message || '');
-      if (depth >= 2 || !nextMsg || nextMsg === errMsg) return null;
+      if (depth >= 4 || !nextMsg || nextMsg === errMsg) return null;
       if (nextMsg.includes('angle-bracket') && work.includes('<')) {
         const ang = eraseAngleBracketAssertions(work);
         if (ang !== null) {
@@ -1577,7 +1844,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
           const next = toks[i + 1];
           if (prev && prev.type === 'punc' && prev.text === '.') continue;
           if (next && next.text === '=>') return null;
-          if (isExpectedIdent && next && next.text === ':') return null;
+          if (isExpectedIdent && next && next.text === ':' && (!prev || (prev.text !== 'var' && prev.text !== 'let' && prev.text !== 'const' && prev.text !== '(' && prev.text !== ','))) return null;
           const isBinding = (prev && (prev.text === '(' || prev.text === ',' || prev.text === 'var' || prev.text === 'let' || prev.text === 'const' || prev.text === 'function' || prev.text === '{' || prev.text === '[')) ||
             (next && (next.text === ')' || next.text === ',' || (!isExpectedIdent && next.text === ':') || next.text === '=' || next.text === ';' || next.text === '}' || next.text === ']'));
           if (isBinding) {
@@ -1595,7 +1862,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     }
   }
 
-  if (errMsg.includes('let is reserved in const, let, or class')) {
+  if (errMsg.includes('let is reserved in const, let')) {
     if (source.includes('__tmt_lt__')) return null;
     const toks = tokenize(source);
     if (!toks) return null;
@@ -1604,7 +1871,10 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
       const t = toks[i];
       if (t.type !== 'id' || t.text !== 'let') continue;
       const prev = toks[i - 1];
-      if (prev.text === 'let' || prev.text === 'const' || prev.text === ',' || prev.text === '[' || prev.text === '{') {
+      const next = toks[i + 1];
+      if (prev.text === '.') continue;
+      if (prev.text === 'let' || prev.text === 'const' || prev.text === 'class' || prev.text === ',' || prev.text === '[' ||
+          (next && (next.text === '=' || next.text === ',' || next.text === ';' || next.text === ':' || next.text === ')' || next.text === ']' || next.text === '}'))) {
         edits.push({ start: t.start, end: t.end, text: '__tmt_lt__' });
       }
     }
@@ -1612,10 +1882,8 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     let work = '', pos = 0;
     for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
     work += source.slice(pos);
-    try {
-      const stripped = stripTypeScriptTypes(work);
-      return stripped.replace(/__tmt_lt__/g, 'let');
-    } catch { return null; }
+    const stripped = tryStrip(work);
+    return stripped === null ? null : stripped.replace(/__tmt_lt__/g, 'let');
   }
 
   if (errMsg.includes('Expected one variable binding') || errMsg.includes('Unexpected initializer in for in/of loop')) {
@@ -1667,11 +1935,11 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     let work = '', pos = 0;
     for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
     work += source.slice(pos);
-    try {
-      let stripped = stripTypeScriptTypes(work);
-      for (const [ph, orig] of saved) stripped = stripped.replace(ph + ' ', () => orig);
-      return stripped;
-    } catch { return null; }
+    const stripped = tryStrip(work);
+    if (stripped === null) return null;
+    let out = stripped;
+    for (const [ph, orig] of saved) out = out.replace(ph + ' ', () => orig);
+    return out;
   }
 
   if (errMsg.includes('A rest parameter must be last in a parameter list')) {
@@ -1861,7 +2129,12 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
       }
       if (!ASSIGN_MAP.has(op)) { i = endIdx; continue; }
       const prev = toks[i - 1];
-      if (LHS_ENDS.has(prev.text) || prev.type === 'num' || prev.type === 'str' || prev.type === 'tpl') {
+      if (LHS_ENDS.has(prev.text) || prev.type === 'num' || prev.type === 'str' || prev.type === 'tpl' ||
+          (prev.type === 'id' && toks[i - 2]?.text === 'new')) {
+        if (prev.text === '}' && /\bfunction\b/.test(source.slice(Math.max(0, prev.start - 60), prev.start))) {
+          i = endIdx;
+          continue;
+        }
         const repl = ASSIGN_MAP.get(op);
         aEdits.push({ start: t.start, end: toks[endIdx].end, text: repl });
         aOffsets.push([t.start, repl, op]);
@@ -1883,6 +2156,66 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
         }
         out += stripped.slice(p);
         return out;
+      }
+    }
+    // `for (a = 1 in b)` / `for (new foo() in b)` / `for (this in b)` -> mask invalid for-in/of LHS expression
+    if (!source.includes('__tmt_fl_')) {
+      const fEdits = [];
+      const fSaved = [];
+      for (let i = 0; i < toks.length - 3; i++) {
+        if (toks[i].type !== 'id' || toks[i].text !== 'for') continue;
+        let pIdx = i + 1;
+        if (toks[pIdx]?.text === 'await') pIdx++;
+        if (toks[pIdx]?.text !== '(') continue;
+        const closeP = findMatchingParen(toks, pIdx);
+        if (closeP < 0) continue;
+        const first = toks[pIdx + 1];
+        if (!first || first.text === 'var' || first.text === 'let' || first.text === 'const' || first.text === 'using') continue;
+        let dP = 0, dB = 0, dBr = 0, inIdx = -1;
+        for (let k = pIdx + 1; k < closeP; k++) {
+          const tk = toks[k];
+          if (tk.text === '(') dP++;
+          else if (tk.text === ')') dP--;
+          else if (tk.text === '[') dB++;
+          else if (tk.text === ']') dB--;
+          else if (tk.text === '{') dBr++;
+          else if (tk.text === '}') dBr--;
+          else if (dP === 0 && dB === 0 && dBr === 0 && tk.type === 'id' && (tk.text === 'in' || tk.text === 'of')) { inIdx = k; break; }
+        }
+        if (inIdx > pIdx + 1) {
+          const lhsSrc = source.slice(toks[pIdx + 1].start, toks[inIdx - 1].end);
+          const ph = `__tmt_fl_${fSaved.length}__`;
+          fSaved.push([ph, lhsSrc]);
+          fEdits.push({ start: toks[pIdx + 1].start, end: toks[inIdx - 1].end, text: ph });
+        }
+      }
+      if (fEdits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of fEdits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) {
+          let out = stripped;
+          for (const [ph, orig] of fSaved) out = out.replace(ph, () => orig);
+          return out;
+        }
+      }
+    }
+    // Strict-mode `eval = 1`, `arguments = 1`, `++eval` reported as invalid LHS
+    if ((source.includes('eval') || source.includes('arguments')) && !source.includes('__tmt_ev__') && !source.includes('__tmt_ar__')) {
+      const evEdits = [];
+      for (let i = 0; i < toks.length; i++) {
+        const t = toks[i];
+        if (t.type !== 'id' || (t.text !== 'eval' && t.text !== 'arguments')) continue;
+        if (toks[i - 1]?.text === '.') continue;
+        evEdits.push({ start: t.start, end: t.end, text: t.text === 'eval' ? '__tmt_ev__' : '__tmt_ar__' });
+      }
+      if (evEdits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of evEdits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped.replace(/__tmt_ev__/g, 'eval').replace(/__tmt_ar__/g, 'arguments');
       }
     }
   }
@@ -1909,13 +2242,14 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     let work = '', pos = 0;
     for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
     work += source.slice(pos);
-    try { return stripTypeScriptTypes(work); } catch { return null; }
+    return tryStrip(work);
   }
 
   // `A parameter initializer is only allowed in a function or constructor implementation`
-  // In overload/ambient signatures (ended by `;` rather than `{`), strip `= <default>` before stripping
-  // (TS erases the entire signature anyway, so the output is identical).
-  if (errMsg.includes('A parameter initializer is only allowed')) {
+  // or `Unexpected token ')'. Expected an identifier, [ for an array pattern` (e.g. `function f(a = 3);`, `(a = 1) => void` in type)
+  // In overload/ambient/call signatures (ended by `;` or `=>` in type), strip `= <default>` (and `?` before `=`).
+  if (errMsg.includes('A parameter initializer is only allowed') ||
+      errMsg.includes("Unexpected token `)`. Expected an identifier")) {
     const toks = tokenize(source);
     if (!toks) return null;
     const edits = [];
@@ -1941,11 +2275,11 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
           else if (tk.text === ';' && dP === 0 && dB === 0 && dBr === 0 && dA === 0) { isSig = true; break; }
           k++;
         }
-      } else if (toks[k]?.text === ';') {
+      } else if (toks[k]?.text === ';' || toks[k]?.text === '=>') {
         isSig = true;
       }
       if (!isSig) continue;
-      // Erase `= <expr>` inside this signature's parameter list
+      // Erase `= <expr>` (and `?` before `=`) inside this signature's parameter list
       let p = i + 1, dP = 0, dB = 0, dBr = 0, dA = 0;
       while (p < closeP) {
         const pt = toks[p];
@@ -1957,7 +2291,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
         else if (pt.text === '}') dBr--;
         else if (pt.text === '<') dA++;
         else if (pt.text === '>') { if (dA > 0) dA--; }
-        else if (pt.text === '=' && dP === 0 && dB === 0 && dBr === 0 && dA === 0) {
+        else if (pt.text === '=' && dP === 0 && dB === 0 && dA === 0) {
           let e = p + 1, eP = 0, eB = 0, eBr = 0, eA = 0;
           while (e < closeP) {
             const et = toks[e];
@@ -1969,10 +2303,11 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
             else if (et.text === '}') eBr--;
             else if (et.text === '<') eA++;
             else if (et.text === '>') { if (eA > 0) eA--; }
-            else if (et.text === ',' && eP === 0 && eB === 0 && eBr === 0 && eA === 0) break;
+            else if (eP === 0 && eB === 0 && eBr === 0 && eA === 0 && (et.text === ',' || et.text === '}' || et.text === ']')) break;
             e++;
           }
-          edits.push({ start: pt.start, end: toks[e - 1].end, text: source.slice(pt.start, toks[e - 1].end).replace(/[^\r\n]/g, ' ') });
+          const cutStart = (toks[p - 1]?.text === '?') ? toks[p - 1].start : pt.start;
+          edits.push({ start: cutStart, end: toks[e - 1].end, text: source.slice(cutStart, toks[e - 1].end).replace(/[^\r\n]/g, ' ') });
           p = e;
           continue;
         }
@@ -1983,29 +2318,55 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     let work = '', pos = 0;
     for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
     work += source.slice(pos);
-    try { return stripTypeScriptTypes(work); } catch { return null; }
+    return tryStrip(work);
   }
 
   // `Unexpected token 'ident'. Expected * for generator...`: out-of-order TS-only class member modifiers
-  // (`abstract public`, `static public`, `readonly private`, `override public`, etc.)
+  // (`abstract public`, `static public`, `readonly private`, `override public`, `override static`, `static const`, etc.)
   if (errMsg.includes('Unexpected token `ident`. Expected * for generator')) {
     const toks = tokenize(source);
     if (!toks) return null;
-    const ALL_MODS = new Set(['public', 'private', 'protected', 'readonly', 'abstract', 'static', 'override', 'declare', 'accessor', 'async']);
-    const TS_ONLY_MODS = new Set(['public', 'private', 'protected', 'readonly', 'override', 'abstract', 'declare']);
+    const ALL_MODS = new Set(['public', 'private', 'protected', 'readonly', 'abstract', 'static', 'override', 'declare', 'accessor', 'async', 'const']);
+    const TS_ONLY_MODS = new Set(['public', 'private', 'protected', 'readonly', 'override', 'abstract', 'declare', 'const']);
+    const TS_BEFORE_JS = new Set(['public', 'private', 'protected', 'readonly', 'override', 'abstract', 'const']);
     const edits = [];
-    for (let i = 1; i < toks.length - 1; i++) {
+    const editedStarts = new Set();
+    const pushEdit = (tok) => {
+      if (!editedStarts.has(tok.start)) {
+        editedStarts.add(tok.start);
+        edits.push({ start: tok.start, end: tok.end, text: ' '.repeat(tok.end - tok.start) });
+      }
+    };
+    let braceDepth = 0;
+    for (let i = 0; i < toks.length - 1; i++) {
       const t = toks[i];
+      if (t.text === '{') { braceDepth++; continue; }
+      if (t.text === '}') { braceDepth = Math.max(0, braceDepth - 1); continue; }
+      if (i === 0) continue;
       const prev = toks[i - 1];
-      if (t.type !== 'id' || (!TS_ONLY_MODS.has(t.text) && !(t.text === 'accessor' && prev.text === 'accessor'))) continue;
       const next = toks[i + 1];
-      if (prev.type === 'id' && ALL_MODS.has(prev.text) && !hasNewlineBetween(source, prev.end, t.start) &&
-          (next.type === 'id' || next.text === '[' || next.text === '*' || next.type === 'str' || next.type === 'num') &&
+      if (t.type === 'id' && (t.text === 'static' || t.text === 'async' || t.text === 'accessor' || t.text === 'abstract' || t.text === 'declare') &&
+          prev.type === 'id' && TS_BEFORE_JS.has(prev.text) && prev.text !== t.text && !hasNewlineBetween(source, prev.end, t.start) &&
+          (next.type === 'id' || next.text === '[' || next.text === '*' || next.text === '#' || next.type === 'str' || next.type === 'num') &&
           !hasNewlineBetween(source, t.end, next.start)) {
-        edits.push({ start: t.start, end: t.end, text: ' '.repeat(t.end - t.start) });
+        pushEdit(prev);
+        continue;
+      }
+      if (braceDepth > 0 && t.type === 'id' && (t.text === 'const' || t.text === 'export') &&
+          (prev.text === '{' || prev.text === ';' || hasNewlineBetween(source, prev.end, t.start)) &&
+          (next.type === 'id' || next.text === '[' || next.text === '*') && !hasNewlineBetween(source, t.end, next.start)) {
+        pushEdit(t);
+        continue;
+      }
+      if (t.type !== 'id' || (!TS_ONLY_MODS.has(t.text) && !(t.text === 'accessor' && prev.text === 'accessor'))) continue;
+      if (prev.type === 'id' && ALL_MODS.has(prev.text) && !hasNewlineBetween(source, prev.end, t.start) &&
+          (next.type === 'id' || next.text === '[' || next.text === '*' || next.text === '#' || next.type === 'str' || next.type === 'num') &&
+          !hasNewlineBetween(source, t.end, next.start)) {
+        pushEdit(t);
       }
     }
     if (edits.length === 0) return null;
+    edits.sort((a, b) => a.start - b.start);
     let work = '', pos = 0;
     for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
     work += source.slice(pos);
@@ -2060,17 +2421,176 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
         return out;
       }
     }
+    // `if (...) const x = 1;` / `else let x = 1;` / `while (...) let x = 1;` / `do const x = 1;` / `with (...) const x = 1;`
+    if (errMsg.includes('Expression expected') || errMsg.includes("Expected ';', '}' or <eof>")) {
+      const cEdits = [];
+      const cOffsets = [];
+      for (let i = 1; i < toks.length - 1; i++) {
+        const t = toks[i];
+        if (t.type !== 'id' || (t.text !== 'const' && t.text !== 'let')) continue;
+        if (toks[i + 1].text === 'enum') continue;
+        const prev = toks[i - 1];
+        if (prev.text === ')' || prev.text === 'else' || prev.text === 'do' ||
+            (prev.text === ':' && !/\bexport\b/.test(source) && toks[i - 2]?.type === 'id')) {
+          const repl = t.text === 'const' ? 'var  ' : 'var';
+          cEdits.push({ start: t.start, end: t.end, text: repl });
+          cOffsets.push([t.start, t.text, repl]);
+        }
+      }
+      if (cEdits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of cEdits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const [off, orig, repl] of cOffsets) {
+            if (stripped.slice(off, off + orig.length) === repl) {
+              out += stripped.slice(p, off) + orig;
+              p = off + orig.length;
+            }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+    // Duplicate `declare declare ...`, `declare import ...`, `declare export ...`,
+    // and invalid modifiers on top-level/module statements (`protected class C`, `public var x`, `static function f`)
+    if (errMsg.includes("Expected ';', '}' or <eof>")) {
+      const dEdits = [];
+      const BAD_STMT_MODS = new Set(['public', 'private', 'protected', 'static']);
+      const STMT_KWS = new Set(['var', 'let', 'const', 'function', 'class', 'interface', 'type', 'enum', 'module', 'namespace']);
+      for (let i = 0; i < toks.length - 1; i++) {
+        const t = toks[i];
+        if (t.type === 'id' && t.text === 'declare' && toks[i - 1]?.text !== '.' &&
+            !hasNewlineBetween(source, t.end, toks[i + 1].start) &&
+            (toks[i + 1].text === 'declare' || toks[i + 1].text === 'import' || toks[i + 1].text === 'export')) {
+          dEdits.push({ start: t.start, end: t.end, text: '       ' });
+        } else if (t.type === 'id' && BAD_STMT_MODS.has(t.text) && toks[i - 1]?.text !== '.' &&
+            !hasNewlineBetween(source, t.end, toks[i + 1].start) &&
+            STMT_KWS.has(toks[i + 1].text)) {
+          dEdits.push({ start: t.start, end: t.end, text: ' '.repeat(t.end - t.start) });
+        }
+      }
+      if (dEdits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of dEdits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+    // `import<T>("./a")` / `import<>("./a")` -> erase invalid type arguments on dynamic `import(...)`
+    if (errMsg.includes('Expression expected') && source.includes('import')) {
+      const icEdits = [];
+      for (let i = 0; i < toks.length - 2; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'import' && toks[i + 1].text === '<') {
+          let k = i + 2, dA = 1;
+          while (k < toks.length && dA > 0) {
+            if (toks[k].text === '<') dA++;
+            else if (toks[k].text === '>') dA--;
+            k++;
+          }
+          if (dA === 0 && toks[k]?.text === '(') {
+            icEdits.push({ start: toks[i + 1].start, end: toks[k - 1].end, text: source.slice(toks[i + 1].start, toks[k - 1].end).replace(/[^\r\n]/g, ' ') });
+          }
+        }
+      }
+      if (icEdits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of icEdits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
   }
 
-  // `interface name is invalid` (e.g. `interface any {}`, `interface number {}`) -> rename predefined non-keyword type names
+  // `export import defaultBinding, { ... } from "..."` / `export import * as ns from "..."` / `export import "..."` -> strip `export `
+  if (errMsg.includes("Expected '=', got ','") || errMsg.includes("Expected '=', got '*'") ||
+      errMsg.includes("Expected '=', got 'from'") || errMsg.includes('Expected ident')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 2; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'export' &&
+            toks[i + 1].type === 'id' && toks[i + 1].text === 'import' &&
+            !hasNewlineBetween(source, toks[i].end, toks[i + 1].start)) {
+          // Only when it is NOT `export import id = ...`
+          if (!(toks[i + 2].type === 'id' && toks[i + 3]?.text === '=')) {
+            edits.push({ start: toks[i].start, end: toks[i].end, text: '      ' });
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `'import', and 'export' cannot be used outside of module code`: `export` inside blocks (TS keeps `export` in output)
+  if (errMsg.includes("'import', and 'export' cannot be used outside of module code")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const offsets = [];
+      let braceDepth = 0;
+      for (let i = 0; i < toks.length - 1; i++) {
+        const t = toks[i];
+        if (t.type === 'punc') {
+          if (t.text === '{') braceDepth++;
+          else if (t.text === '}') braceDepth = Math.max(0, braceDepth - 1);
+          continue;
+        }
+        if ((braceDepth > 0 || toks[i - 1]?.text === ')' || toks[i - 1]?.text === 'else' || toks[i - 1]?.text === ':') &&
+            t.type === 'id' && t.text === 'export' && toks[i - 1]?.text !== '.' &&
+            !hasNewlineBetween(source, t.end, toks[i + 1].start) &&
+            (toks[i + 1].text === 'function' || toks[i + 1].text === 'class' || toks[i + 1].text === 'var' ||
+             toks[i + 1].text === 'let' || toks[i + 1].text === 'const' || toks[i + 1].text === 'async' ||
+             toks[i + 1].text === 'abstract' || toks[i + 1].text === 'declare')) {
+          edits.push({ start: t.start, end: t.end, text: '      ' });
+          if (toks[i + 1].text !== 'declare') offsets.push(t.start);
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const off of offsets) {
+            if (stripped.slice(off, off + 6) === '      ') {
+              out += stripped.slice(p, off) + 'export';
+              p = off + 6;
+            }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `interface name is invalid` (e.g. `interface any {}`, `interface number {}`, `public interface I {}`, `abstract interface I {}`)
   if (errMsg.includes('interface name is invalid')) {
     if (source.includes('__tmt_if__')) return null;
     const PREDEFINED = new Set(['any', 'number', 'string', 'boolean', 'symbol', 'object', 'unknown', 'never', 'bigint', 'undefined']);
+    const BAD_IF_MODS = new Set(['public', 'private', 'protected', 'static', 'readonly', 'abstract', 'override']);
     const toks = tokenize(source);
     if (!toks) return null;
     const edits = [];
     for (let i = 0; i < toks.length - 1; i++) {
-      if (toks[i].type === 'id' && toks[i].text === 'interface' && toks[i - 1]?.text !== '.' &&
+      if (toks[i].type === 'id' && BAD_IF_MODS.has(toks[i].text) && toks[i - 1]?.text !== '.' &&
+          toks[i + 1].type === 'id' && toks[i + 1].text === 'interface' &&
+          !hasNewlineBetween(source, toks[i].end, toks[i + 1].start)) {
+        edits.push({ start: toks[i].start, end: toks[i].end, text: ' '.repeat(toks[i].end - toks[i].start) });
+      } else if (toks[i].type === 'id' && toks[i].text === 'interface' && toks[i - 1]?.text !== '.' &&
           toks[i + 1].type === 'id' && PREDEFINED.has(toks[i + 1].text) &&
           !hasNewlineBetween(source, toks[i].end, toks[i + 1].start)) {
         edits.push({ start: toks[i + 1].start, end: toks[i + 1].end, text: '__tmt_if__' });
@@ -2080,7 +2600,1564 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     let work = '', pos = 0;
     for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
     work += source.slice(pos);
-    try { return stripTypeScriptTypes(work); } catch { return null; }
+    return tryStrip(work);
+  }
+
+  // `Expected ',', got 'ident'` / `Expected ident`: invalid modifier on parameter (`constructor(static a: number)`, `constructor(export a: number)`)
+  if (errMsg.includes("Expected ',', got 'ident'") || errMsg.includes('Expected ident')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const BAD_PMODS = new Set(['static', 'export', 'declare', 'abstract', 'async']);
+      const edits = [];
+      let parenDepth = 0;
+      for (let i = 1; i < toks.length - 1; i++) {
+        const t = toks[i];
+        if (t.text === '(') { parenDepth++; continue; }
+        if (t.text === ')') { if (parenDepth > 0) parenDepth--; continue; }
+        if (parenDepth > 0 && t.type === 'id' && BAD_PMODS.has(t.text) &&
+            (toks[i - 1].text === '(' || toks[i - 1].text === ',' || BAD_PMODS.has(toks[i - 1].text)) &&
+            toks[i + 1].type === 'id' && !hasNewlineBetween(source, t.end, toks[i + 1].start)) {
+          edits.push({ start: t.start, end: t.end, text: ' '.repeat(t.end - t.start) });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `A class can only have one constructor`: rename 2nd+ `constructor` implementations inside a class, strip, restore
+  if (errMsg.includes('A class can only have one constructor')) {
+    if (!source.includes('__tmt_ctor__')) {
+      const toks = tokenize(source);
+      if (toks) {
+        const edits = [];
+        const classStack = [];
+        let braceDepth = 0;
+        for (let i = 0; i < toks.length - 1; i++) {
+          const t = toks[i];
+          if (t.type === 'id' && t.text === 'class' && toks[i - 1]?.text !== '.') {
+            // Mark next `{` at current braceDepth as a class body
+            let k = i + 1;
+            while (k < toks.length && toks[k].text !== '{') k++;
+            if (k < toks.length) classStack.push({ openIdx: k, depth: braceDepth + 1, seenCtor: false });
+          } else if (t.text === '{') {
+            braceDepth++;
+          } else if (t.text === '}') {
+            if (classStack.length > 0 && classStack[classStack.length - 1].depth === braceDepth) classStack.pop();
+            braceDepth = Math.max(0, braceDepth - 1);
+          } else if (classStack.length > 0 && braceDepth === classStack[classStack.length - 1].depth &&
+              t.type === 'id' && t.text === 'constructor' && toks[i + 1]?.text === '(') {
+            const closeP = findMatchingParen(toks, i + 1);
+            if (closeP > i + 1 && toks[closeP + 1]?.text === '{') {
+              const top = classStack[classStack.length - 1];
+              if (top.seenCtor) {
+                edits.push({ start: t.start, end: t.end, text: '__tmt_ctor__' });
+              } else {
+                top.seenCtor = true;
+              }
+            }
+          }
+        }
+        if (edits.length > 0) {
+          let work = '', pos = 0;
+          for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+          work += source.slice(pos);
+          const stripped = tryStrip(work);
+          if (stripped !== null) return stripped.replace(/__tmt_ctor__/g, 'constructor');
+        }
+      }
+    }
+  }
+
+  // `Expected ']', got ','`: trailing comma in index signature `[key: string,]: T;`
+  if (errMsg.includes("Expected ']', got ','")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 1; i < toks.length - 2; i++) {
+        if (toks[i].text === ',' && toks[i + 1].text === ']' && toks[i + 2].text === ':') {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: ' ' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Parameter cannot have question mark and initializer` (`x?: number = 1`, `x? = 0`)
+  if (errMsg.includes('Parameter cannot have question mark and initializer')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      let parenDepth = 0;
+      for (let i = 1; i < toks.length - 1; i++) {
+        const t = toks[i];
+        if (t.text === '(') { parenDepth++; continue; }
+        if (t.text === ')') { if (parenDepth > 0) parenDepth--; continue; }
+        if (parenDepth > 0 && t.type === 'punc' && t.text === '?' && toks[i - 1].type === 'id' &&
+            (toks[i + 1].text === ':' || toks[i + 1].text === '=')) {
+          edits.push({ start: t.start, end: t.end, text: ' ' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Illegal 'use strict' directive in function with non-simple parameter list`
+  if (errMsg.includes("Illegal 'use strict' directive")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const offsets = [];
+      for (let i = 0; i < toks.length; i++) {
+        const t = toks[i];
+        if (t.type === 'str' && (t.text === '"use strict"' || t.text === "'use strict'")) {
+          const q = t.text[0];
+          const repl = `${q}__tmt_us__${q}`;
+          edits.push({ start: t.start, end: t.end, text: repl });
+          offsets.push([t.start, t.text, repl]);
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const [off, orig, repl] of offsets) {
+            if (stripped.slice(off, off + orig.length) === repl) {
+              out += stripped.slice(p, off) + orig;
+              p = off + orig.length;
+            }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `An interface can only extend an identifier/qualified-name` (`interface C extends Foo?.Bar {}`)
+  if (errMsg.includes('An interface can only extend an identifier') && source.includes('?.')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const offsets = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].text === '?' && toks[i + 1].text === '.' && toks[i].end === toks[i + 1].start) {
+          edits.push({ start: toks[i].start, end: toks[i + 1].end, text: '. ' });
+          offsets.push(toks[i].start);
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const off of offsets) {
+            if (stripped.slice(off, off + 2) === '. ') {
+              out += stripped.slice(p, off) + '?.';
+              p = off + 2;
+            }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `Expected '{', got 'export'`: duplicate `export export`
+  if (errMsg.includes("Expected '{', got 'export'")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'export' &&
+            toks[i + 1].type === 'id' && toks[i + 1].text === 'export' &&
+            !hasNewlineBetween(source, toks[i].end, toks[i + 1].start)) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: '      ' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Unexpected token 'get'` / `Unexpected token 'set'` / `Unexpected token '['`: duplicate or `export` class member modifiers
+  if (errMsg.includes('Unexpected token `get`') || errMsg.includes('Unexpected token `set`') || errMsg.includes('Unexpected token `[`')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const MODS = new Set(['public', 'private', 'protected', 'readonly', 'abstract', 'static', 'override', 'declare', 'export']);
+      const edits = [];
+      let braceDepth = 0;
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].text === '{') { braceDepth++; continue; }
+        if (toks[i].text === '}') { braceDepth = Math.max(0, braceDepth - 1); continue; }
+        if (braceDepth > 0 && toks[i].type === 'id' && toks[i].text === 'export' &&
+            (toks[i + 1].text === 'get' || toks[i + 1].text === 'set' || toks[i + 1].text === '[') &&
+            !hasNewlineBetween(source, toks[i].end, toks[i + 1].start)) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: '      ' });
+        } else if (i > 0 && toks[i].type === 'id' && MODS.has(toks[i].text) &&
+            toks[i - 1].type === 'id' && MODS.has(toks[i - 1].text) &&
+            !hasNewlineBetween(source, toks[i - 1].end, toks[i].start)) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: ' '.repeat(toks[i].end - toks[i].start) });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `await isn't allowed in non-async function`: `for await (...)` and `await expr` inside non-async functions
+  if (errMsg.includes("await isn't allowed in non-async function")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const offsets = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        const t = toks[i];
+        if (t.type !== 'id' || t.text !== 'await' || toks[i - 1]?.text === '.') continue;
+        if (toks[i - 1]?.text === 'for' && toks[i + 1].text === '(') {
+          edits.push({ start: t.start, end: t.end, text: '     ' });
+          offsets.push([t.start, 'await', '     ']);
+        } else if (toks[i + 1].text !== '=>') {
+          edits.push({ start: t.start, end: t.end, text: 'void ' });
+          offsets.push([t.start, 'await', 'void ']);
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const [off, orig, repl] of offsets) {
+            if (stripped.slice(off, off + orig.length) === repl) {
+              out += stripped.slice(p, off) + orig;
+              p = off + orig.length;
+            }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `Expected ';', got '='`: initializer in interface/type/object-type-literal property (`interface Foo { bar: number = 5; }`, `var Foo: { bar: number = 5; }`)
+  if (errMsg.includes("Expected ';', got '='")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        const isTypeBlock = (toks[i].type === 'id' && (toks[i].text === 'interface' || toks[i].text === 'type') && toks[i - 1]?.text !== '.') ||
+          (toks[i].text === ':' && toks[i + 1].text === '{');
+        if (isTypeBlock) {
+          let k = i + 1;
+          while (k < toks.length && toks[k].text !== '{' && toks[k].text !== ';') k++;
+          if (k >= toks.length || toks[k].text !== '{') continue;
+          const closeBr = findMatchingBrace(toks, k);
+          if (closeBr < 0) continue;
+          let dP = 0, dB = 0, dBr = 0;
+          for (let m = k + 1; m < closeBr; m++) {
+            const mt = toks[m];
+            if (mt.text === '(') dP++;
+            else if (mt.text === ')') dP--;
+            else if (mt.text === '[') dB++;
+            else if (mt.text === ']') dB--;
+            else if (mt.text === '{') dBr++;
+            else if (mt.text === '}') dBr--;
+            else if (mt.text === '=' && dP === 0 && dB === 0 && dBr === 0 && toks[m - 1]?.text !== '=' && toks[m + 1]?.text !== '=' && toks[m + 1]?.text !== '>') {
+              let e = m + 1, eP = 0, eB = 0, eBr = 0;
+              while (e < closeBr) {
+                const et = toks[e];
+                if (et.text === '(') eP++;
+                else if (et.text === ')') eP--;
+                else if (et.text === '[') eB++;
+                else if (et.text === ']') eB--;
+                else if (et.text === '{') eBr++;
+                else if (et.text === '}') eBr--;
+                else if (eP === 0 && eB === 0 && eBr === 0 && (et.text === ';' || et.text === ',' || hasNewlineBetween(source, toks[e - 1].end, et.start))) break;
+                e++;
+              }
+              edits.push({ start: mt.start, end: toks[e - 1].end, text: source.slice(mt.start, toks[e - 1].end).replace(/[^\r\n]/g, ' ') });
+              m = e - 1;
+            }
+          }
+          i = closeBr;
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `'readonly' modifier already seen.` / `A method cannot be readonly` -> erase redundant `readonly`
+  if (errMsg.includes("'readonly' modifier already seen") || errMsg.includes('A method cannot be readonly')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'readonly' && toks[i - 1]?.text !== '.' &&
+            !hasNewlineBetween(source, toks[i].end, toks[i + 1].start)) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: '        ' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `private names are not allowed in interface` -> replace `#name` inside `interface { ... }` (erased by TS)
+  if (errMsg.includes('private names are not allowed in interface')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && (toks[i].text === 'interface' || toks[i].text === 'type') && toks[i - 1]?.text !== '.') {
+          let k = i + 1;
+          while (k < toks.length && toks[k].text !== '{' && toks[k].text !== ';') k++;
+          if (k >= toks.length || toks[k].text !== '{') continue;
+          const closeBr = findMatchingBrace(toks, k);
+          if (closeBr < 0) continue;
+          for (let m = k + 1; m < closeBr; m++) {
+            if (toks[m].type === 'punc' && toks[m].text === '#' && toks[m + 1]?.type === 'id') {
+              edits.push({ start: toks[m].start, end: toks[m].end, text: '_' });
+            }
+          }
+          i = closeBr;
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Classes can't have a private field named '#constructor'` -> rename `#constructor` -> `#__tmt_ctor__`, strip, restore
+  if (errMsg.includes("private field named '#constructor'") && !source.includes('#__tmt_ctor__')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'punc' && toks[i].text === '#' && toks[i + 1].type === 'id' && toks[i + 1].text === 'constructor' &&
+            toks[i].end === toks[i + 1].start) {
+          edits.push({ start: toks[i + 1].start, end: toks[i + 1].end, text: '__tmt_ctor__' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped.replace(/__tmt_ctor__/g, 'constructor');
+      }
+    }
+  }
+
+  // `Classes may not have a non-static field named 'constructor'` -> rename `constructor` field -> `__tmt_cf__`, strip, restore
+  if (errMsg.includes("field named 'constructor'") && !source.includes('__tmt_cf__')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        const t = toks[i];
+        const next = toks[i + 1];
+        if (((t.type === 'id' && t.text === 'constructor') || (t.type === 'str' && (t.text === '"constructor"' || t.text === "'constructor'"))) &&
+            toks[i - 1]?.text !== '.' &&
+            (next.text === ':' || next.text === '=' || next.text === '?' || next.text === '!')) {
+          edits.push({ start: t.start, end: t.end, text: t.type === 'str' ? `${t.text[0]}__tmt_cf__${t.text[0]}` : '__tmt_cf__' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped.replace(/__tmt_cf__/g, 'constructor');
+      }
+    }
+  }
+
+  // `Expected ';', got '['` / `Expected ';', got 'readonly'` (`static [x: string]: any;`, `public [a: string]: number;`)
+  if (errMsg.includes("Expected ';', got '['") || errMsg.includes("Expected ';', got 'readonly'")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const IDX_MODS = new Set(['static', 'public', 'private', 'protected']);
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && IDX_MODS.has(toks[i].text) && toks[i - 1]?.text !== '.' &&
+            !hasNewlineBetween(source, toks[i].end, toks[i + 1].start) &&
+            (toks[i + 1].text === '[' || (toks[i + 1].text === 'readonly' && toks[i + 2]?.text === '['))) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: ' '.repeat(toks[i].end - toks[i].start) });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `` `await` expressions cannot be used in a parameter `` -> `await` -> `void `, strip, restore
+  if (errMsg.includes('`await` expressions cannot be used in a parameter')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const offsets = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'await' && toks[i - 1]?.text !== '.' && toks[i + 1].text !== '=>') {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: 'void ' });
+          offsets.push(toks[i].start);
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const off of offsets) {
+            if (stripped.slice(off, off + 5) === 'void ') {
+              out += stripped.slice(p, off) + 'await';
+              p = off + 5;
+            }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `Expected '(', got '{'` (`public static {}`, `async static {}`, `private static {}`) -> erase modifier before `static {`
+  if (errMsg.includes("Expected '(', got '{'")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const MODS = new Set(['public', 'private', 'protected', 'readonly', 'abstract', 'override', 'declare', 'async']);
+      const edits = [];
+      for (let i = 0; i < toks.length - 2; i++) {
+        if (toks[i].type === 'id' && MODS.has(toks[i].text) && toks[i + 1].text === 'static' && toks[i + 2].text === '{' &&
+            !hasNewlineBetween(source, toks[i].end, toks[i + 1].start)) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: ' '.repeat(toks[i].end - toks[i].start) });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Expected ',', got '!'` (`{ a! }`) -> erase `!` to space
+  if (errMsg.includes("Expected ',', got '!'")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 1; i < toks.length - 1; i++) {
+        if (toks[i].type === 'punc' && toks[i].text === '!' && toks[i - 1].type === 'id' &&
+            (toks[i + 1].text === '}' || toks[i + 1].text === ',' || toks[i + 1].text === '=')) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: ' ' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `` `extends` clause already seen. `` (`class D extends C extends C {}`) -> erase 2nd+ `extends <heritage>`
+  if (errMsg.includes('`extends` clause already seen')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'extends' && toks[i - 1]?.text !== '.') {
+          // Find next `extends` before `{`
+          let k = i + 1;
+          while (k < toks.length && toks[k].text !== '{') {
+            if (toks[k].type === 'id' && toks[k].text === 'extends') {
+              let e = k + 1;
+              while (e < toks.length && toks[e].text !== '{' && toks[e].text !== 'implements' && toks[e].text !== 'extends') e++;
+              edits.push({ start: toks[k].start, end: toks[e - 1].end, text: source.slice(toks[k].start, toks[e - 1].end).replace(/[^\r\n]/g, ' ') });
+              k = e;
+              continue;
+            }
+            k++;
+          }
+          i = k;
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Expected ')', got '('`: nested `import(import("./a").LookAt).Value` in type position (erased by TS)
+  if (errMsg.includes("Expected ')', got '('") && source.includes('import(')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 4; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'import' && toks[i + 1].text === '(' &&
+            toks[i + 2].type === 'id' && toks[i + 2].text === 'import' && toks[i + 3].text === '(') {
+          const closeOuter = findMatchingParen(toks, i + 1);
+          if (closeOuter > i + 3) {
+            edits.push({ start: toks[i + 2].start, end: toks[closeOuter - 1].end, text: '"__tmt__"' });
+            i = closeOuter;
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `` `abstract` modifier can only appear on a class or method `` / `Abstract methods can only appear within an abstract class`
+  if (errMsg.includes('`abstract` modifier can only appear') || errMsg.includes('Abstract methods can only appear within an abstract class')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'abstract' && toks[i - 1]?.text !== '.' &&
+            toks[i + 1].text !== 'class' && !hasNewlineBetween(source, toks[i].end, toks[i + 1].start)) {
+          // If it's a bodyless method/field ending in `;` before `{`, erase the whole declaration; otherwise erase `abstract`
+          let k = i + 1, hasBody = false;
+          while (k < toks.length && toks[k].text !== ';' && toks[k].text !== '}') {
+            if (toks[k].text === '(') { const cp = findMatchingParen(toks, k); if (cp > k) { k = cp + 1; continue; } }
+            if (toks[k].text === '{') { hasBody = true; break; }
+            k++;
+          }
+          if (!hasBody && k < toks.length && toks[k].text === ';') {
+            edits.push({ start: toks[i].start, end: toks[k].end, text: source.slice(toks[i].start, toks[k].end).replace(/[^\r\n]/g, ' ') });
+            i = k;
+          } else {
+            edits.push({ start: toks[i].start, end: toks[i].end, text: '        ' });
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Unexpected token '...'. Expected yield, an identifier, [ or {` (`constructor(public ...rest: string[]) {}`)
+  if (errMsg.includes('Unexpected token `...`')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const MODS = new Set(['public', 'private', 'protected', 'readonly']);
+      const edits = [];
+      let parenDepth = 0;
+      for (let i = 0; i < toks.length - 1; i++) {
+        const t = toks[i];
+        if (t.text === '(') { parenDepth++; continue; }
+        if (t.text === ')') { if (parenDepth > 0) parenDepth--; continue; }
+        if (parenDepth > 0 && t.type === 'id' && MODS.has(t.text) && toks[i + 1].text === '...') {
+          edits.push({ start: t.start, end: t.end, text: ' '.repeat(t.end - t.start) });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Expression expected`:
+  //   1. Malformed type-only index signatures (`[...x]: T`, `[idx?: T]: U`, `[]: T`, `[a?]`) inside interface/type/class
+  //   2. Strict-mode contextual keywords used as identifiers (`[public]()`, `static()`, `var interface`, `(private, public, static)`)
+  //   3. `using` / `await using` declarations in non-standard positions
+  if (errMsg.includes('Expression expected') || errMsg.includes("Expected ';', '}' or <eof>")) {
+    const toks = tokenize(source);
+    if (toks) {
+      // 1. Index signatures `[...x]`, `[x?: T]`, `[x?]`, `[]`
+      if (errMsg.includes('Expression expected')) {
+        const ixEdits = [];
+        for (let i = 0; i < toks.length - 1; i++) {
+          if (toks[i].text !== '[') continue;
+          const prev = i > 0 ? toks[i - 1] : null;
+          const isMemberStart = prev && (prev.text === '{' || prev.text === ';' || prev.text === '}' || hasNewlineBetween(source, prev.end, toks[i].start));
+          if (!isMemberStart) continue;
+          if (toks[i + 1].text === ']' && (toks[i + 2]?.text === ':' || toks[i + 2]?.text === ';' || toks[i + 2]?.text === '}')) {
+            ixEdits.push({ start: toks[i].end, end: toks[i].end, text: '__tmt_ix__: any' });
+          } else if (toks[i + 1].text === '...' && toks[i + 2]?.type === 'id') {
+            ixEdits.push({ start: toks[i + 1].start, end: toks[i + 1].end, text: '   ' });
+          } else if (toks[i + 1].type === 'id' && toks[i + 2]?.text === '?' && (toks[i + 3]?.text === ':' || toks[i + 3]?.text === ']')) {
+            ixEdits.push({ start: toks[i + 2].start, end: toks[i + 2].end, text: ' ' });
+          }
+        }
+        if (ixEdits.length > 0) {
+          let work = '', pos = 0;
+          for (const e of ixEdits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+          work += source.slice(pos);
+          const stripped = tryStrip(work);
+          if (stripped !== null) return stripped;
+        }
+        // 2. Strict-mode contextual keywords (`public`, `private`, `protected`, `static`, `interface`, `package`, `implements`) as expressions/bindings
+        const CTX_KWS = new Set(['public', 'private', 'protected', 'static', 'interface', 'package', 'implements']);
+        if (!source.includes('__tmt_ck_')) {
+          const ckEdits = [];
+          const ckSaved = [];
+          for (let i = 0; i < toks.length; i++) {
+            const t = toks[i];
+            if (t.type !== 'id' || !CTX_KWS.has(t.text)) continue;
+            const prev = i > 0 ? toks[i - 1] : null;
+            const next = toks[i + 1];
+            if (prev && prev.text === '.') continue;
+            const asExpr = (prev && (prev.text === '[' || prev.text === '(' || prev.text === ',' || prev.text === 'var' || prev.text === 'let' || prev.text === 'const')) ||
+              (next && (next.text === ']' || next.text === '(' || next.text === ')' || next.text === ',' || next.text === ':' || next.text === ';'));
+            if (asExpr && !(t.text === 'interface' && next?.type === 'id' && !hasNewlineBetween(source, t.end, next.start))) {
+              const ph = `__tmt_ck_${ckSaved.length}__`;
+              ckSaved.push([ph, t.text]);
+              ckEdits.push({ start: t.start, end: t.end, text: ph });
+            }
+          }
+          if (ckEdits.length > 0) {
+            let work = '', pos = 0;
+            for (const e of ckEdits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+            work += source.slice(pos);
+            const stripped = tryStrip(work);
+            if (stripped !== null) {
+              let out = stripped;
+              for (const [ph, orig] of ckSaved) out = out.replace(ph, () => orig);
+              return out;
+            }
+          }
+        }
+      }
+      // 3. `using` / `await using` declarations -> same-length `var  ` / `var        ` -> strip -> restore
+      if (source.includes('using')) {
+        const uEdits = [];
+        const uOffsets = [];
+        for (let i = 0; i < toks.length - 1; i++) {
+          const t = toks[i];
+          if (t.type === 'id' && t.text === 'using' && toks[i - 1]?.text !== '.' &&
+              !hasNewlineBetween(source, t.end, toks[i + 1].start) &&
+              toks[i + 1].type === 'id' && toks[i + 1].text !== 'of') {
+            if (toks[i - 1]?.type === 'id' && toks[i - 1].text === 'await' && !hasNewlineBetween(source, toks[i - 1].end, t.start)) {
+              const len = t.end - toks[i - 1].start;
+              const repl = 'var' + ' '.repeat(len - 3);
+              uEdits.push({ start: toks[i - 1].start, end: t.end, text: repl });
+              uOffsets.push([toks[i - 1].start, source.slice(toks[i - 1].start, t.end), repl]);
+            } else {
+              uEdits.push({ start: t.start, end: t.end, text: 'var  ' });
+              uOffsets.push([t.start, 'using', 'var  ']);
+            }
+          }
+        }
+        if (uEdits.length > 0) {
+          let work = '', pos = 0;
+          for (const e of uEdits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+          work += source.slice(pos);
+          const stripped = tryStrip(work);
+          if (stripped !== null && stripped.length === work.length) {
+            let out = '', p = 0;
+            for (const [off, orig, repl] of uOffsets) {
+              if (stripped.slice(off, off + orig.length) === repl) {
+                out += stripped.slice(p, off) + orig;
+                p = off + orig.length;
+              }
+            }
+            out += stripped.slice(p);
+            return out;
+          }
+        }
+      }
+      // 4. Labeled `function*` / `async function` / `class` / `let` / `const` (`label: function* gen() {}`, `label: class C {}`)
+      if (errMsg.includes("Expected ';', '}' or <eof>")) {
+        const lEdits = [];
+        const lOffsets = [];
+        const allowLexLabel = !/\bexport\b/.test(source) || source.includes('// @') || source.includes('//@');
+        for (let i = 0; i < toks.length - 2; i++) {
+          if (toks[i].type === 'id' && toks[i + 1].text === ':' &&
+              (toks[i + 2].text === 'function' || toks[i + 2].text === 'async' || toks[i + 2].text === 'class' ||
+               (allowLexLabel && (toks[i + 2].text === 'let' || toks[i + 2].text === 'const'))) &&
+              (i === 0 || toks[i - 1].text === ';' || toks[i - 1].text === '{' || toks[i - 1].text === '}' || hasNewlineBetween(source, toks[i - 1].end, toks[i].start))) {
+            const len = toks[i + 1].end - toks[i].start;
+            const repl = ' '.repeat(len);
+            lEdits.push({ start: toks[i].start, end: toks[i + 1].end, text: repl });
+            lOffsets.push([toks[i].start, source.slice(toks[i].start, toks[i + 1].end), repl]);
+          }
+        }
+        if (lEdits.length > 0) {
+          let work = '', pos = 0;
+          for (const e of lEdits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+          work += source.slice(pos);
+          const stripped = tryStrip(work);
+          if (stripped !== null && stripped.length === work.length) {
+            let out = '', p = 0;
+            for (const [off, orig, repl] of lOffsets) {
+              if (stripped.slice(off, off + orig.length) === repl) {
+                out += stripped.slice(p, off) + orig;
+                p = off + orig.length;
+              }
+            }
+            out += stripped.slice(p);
+            return out;
+          }
+        }
+      }
+    }
+  }
+
+  // `Expected ident`:
+  //   1. Tagged template optional chain (`a?.`b``) -> `?.` -> `  `, strip, restore
+  //   2. `export class {}` -> `export class __tmt_cls__ {}`, strip, restore
+  //   3. `interface X extends (...) {}` -> replace `(...)` with `__tmt_base__` (erased by TS)
+  if (errMsg.includes('Expected ident')) {
+    const toks = tokenize(source);
+    if (toks) {
+      if (source.includes('?.`')) {
+        const edits = [];
+        const offsets = [];
+        for (let i = 0; i < toks.length - 2; i++) {
+          if (toks[i].text === '?' && toks[i + 1].text === '.' && toks[i].end === toks[i + 1].start && toks[i + 2].type === 'tpl') {
+            edits.push({ start: toks[i].start, end: toks[i + 1].end, text: '  ' });
+            offsets.push(toks[i].start);
+          }
+        }
+        if (edits.length > 0) {
+          let work = '', pos = 0;
+          for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+          work += source.slice(pos);
+          const stripped = tryStrip(work);
+          if (stripped !== null && stripped.length === work.length) {
+            let out = '', p = 0;
+            for (const off of offsets) {
+              if (stripped.slice(off, off + 2) === '  ') { out += stripped.slice(p, off) + '?.'; p = off + 2; }
+            }
+            out += stripped.slice(p);
+            return out;
+          }
+        }
+      }
+      if (!source.includes('__tmt_cls__') && !source.includes('__tmt_base__')) {
+        const edits = [];
+        for (let i = 0; i < toks.length - 1; i++) {
+          if (toks[i].type === 'id' && toks[i].text === 'class' && toks[i - 1]?.text === 'export' && toks[i + 1].text === '{') {
+            edits.push({ start: toks[i].end, end: toks[i].end, text: ' __tmt_cls__' });
+          } else if (toks[i].type === 'id' && toks[i].text === 'extends' && toks[i + 1].text === '(') {
+            // Only inside `interface ... extends (...)`
+            let isIf = false;
+            for (let b = i - 1; b >= Math.max(0, i - 6); b--) {
+              if (toks[b].text === 'interface') { isIf = true; break; }
+              if (toks[b].text === 'class' || toks[b].text === ';' || toks[b].text === '}') break;
+            }
+            if (isIf) {
+              const cp = findMatchingParen(toks, i + 1);
+              if (cp > i + 1) edits.push({ start: toks[i + 1].start, end: toks[cp].end, text: '__tmt_base__' });
+            }
+          }
+        }
+        if (edits.length > 0) {
+          let work = '', pos = 0;
+          for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+          work += source.slice(pos);
+          const stripped = tryStrip(work);
+          if (stripped !== null) return stripped.replace(/ __tmt_cls__/g, '');
+        }
+      }
+    }
+  }
+
+  // `Rest pattern is not allowed in setter` (`set X(...v) {}`) -> mask `...` -> strip -> restore
+  if (errMsg.includes('Rest pattern is not allowed in setter') && !source.includes('__tmt_sr__')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 4; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'set' && toks[i + 2]?.text === '(' && toks[i + 3]?.text === '...') {
+          edits.push({ start: toks[i + 3].start, end: toks[i + 3].end, text: '/*__tmt_sr__*/' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped.replace(/\/\*__tmt_sr__\*\//g, '...');
+      }
+    }
+  }
+
+  // `Unexpected token ':'` (`var b = { x?: 1 }`, `{ x ?: 1 }`) -> erase `?` before `:` in object literal property
+  if (errMsg.includes('Unexpected token `:`')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 1; i < toks.length - 1; i++) {
+        if (toks[i].text === '?' && toks[i + 1].text === ':' && (toks[i - 1].type === 'id' || toks[i - 1].type === 'str' || toks[i - 1].type === 'num' || toks[i - 1].text === ']')) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: ' ' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Type argument list cannot be empty.` (`I<>`) -> `I<any>` (type arg is erased by TS)
+  if (errMsg.includes('Type argument list cannot be empty')) {
+    const work = source.replace(/<>/g, '<any>');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
+    }
+  }
+
+  // `Expected ')', got '='` (`catch (e = 1) {}`) -> mask `= <expr>` before `)`, strip, restore
+  if (errMsg.includes("Expected ')', got '='") && source.includes('catch') && !source.includes('__tmt_ci_')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const saved = [];
+      for (let i = 0; i < toks.length - 4; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'catch' && toks[i + 1].text === '(') {
+          const cp = findMatchingParen(toks, i + 1);
+          if (cp > i + 2) {
+            for (let k = i + 2; k < cp; k++) {
+              if (toks[k].text === '=') {
+                const orig = source.slice(toks[k].start, toks[cp].start);
+                const ph = `/*__tmt_ci_${saved.length}__*/`;
+                saved.push([ph, orig]);
+                edits.push({ start: toks[k].start, end: toks[cp].start, text: ph });
+                break;
+              }
+            }
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) {
+          let out = stripped;
+          for (const [ph, orig] of saved) out = out.replace(ph, () => orig);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `Classes can only extend a single class` (`class C extends A, B {}`) -> mask `, B...` before `{`/`implements`
+  if (errMsg.includes('Classes can only extend a single class')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 3; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'extends' && toks[i - 1]?.text !== '.') {
+          let k = i + 1, dP = 0, dA = 0, commaIdx = -1;
+          while (k < toks.length && !(dP === 0 && dA === 0 && (toks[k].text === '{' || toks[k].text === 'implements'))) {
+            if (toks[k].text === '(') dP++;
+            else if (toks[k].text === ')') dP--;
+            else if (toks[k].text === '<') dA++;
+            else if (toks[k].text === '>') { if (dA > 0) dA--; }
+            else if (toks[k].text === ',' && dP === 0 && dA === 0 && commaIdx < 0) commaIdx = k;
+            k++;
+          }
+          if (commaIdx > i && k < toks.length) {
+            edits.push({ start: toks[commaIdx].start, end: toks[k - 1].end, text: source.slice(toks[commaIdx].start, toks[k - 1].end).replace(/[^\r\n]/g, ' ') });
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Type parameters cannot appear on a constructor` (`constructor<T>() {}`) -> erase `<T>`
+  if (errMsg.includes('Type parameters cannot appear on a constructor')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 2; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'constructor' && toks[i + 1].text === '<') {
+          let k = i + 2, dA = 1;
+          while (k < toks.length && dA > 0) {
+            if (toks[k].text === '<') dA++;
+            else if (toks[k].text === '>') dA--;
+            k++;
+          }
+          if (dA === 0 && toks[k]?.text === '(') {
+            edits.push({ start: toks[i + 1].start, end: toks[k - 1].end, text: source.slice(toks[i + 1].start, toks[k - 1].end).replace(/[^\r\n]/g, ' ') });
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Type annotation cannot appear on a constructor` (`constructor(): number {}`) -> erase `: T` before `{`
+  if (errMsg.includes('Type annotation cannot appear on a constructor')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 3; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'constructor' && toks[i + 1].text === '(') {
+          const cp = findMatchingParen(toks, i + 1);
+          if (cp > i + 1 && toks[cp + 1]?.text === ':') {
+            let k = cp + 2;
+            while (k < toks.length && toks[k].text !== '{' && toks[k].text !== ';') k++;
+            if (k < toks.length) {
+              edits.push({ start: toks[cp + 1].start, end: toks[k - 1].end, text: source.slice(toks[cp + 1].start, toks[k - 1].end).replace(/[^\r\n]/g, ' ') });
+            }
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Class constructor can't be an accessor` / `A constructor cannot be generator` -> rename `constructor` -> `__tmt_ca__`, strip, restore
+  if ((errMsg.includes("constructor can't be an accessor") || errMsg.includes('A constructor cannot be generator')) && !source.includes('__tmt_ca__')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 1; i < toks.length; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'constructor' &&
+            (toks[i - 1].text === 'get' || toks[i - 1].text === 'set' || toks[i - 1].text === '*')) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: '__tmt_ca__' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped.replace(/__tmt_ca__/g, 'constructor');
+      }
+    }
+  }
+
+  // `The left-hand side of a 'for...of' statement` (`for (async of [1, 2]) {}`) -> rename `async` -> `__tmt_as__`, strip, restore
+  if (errMsg.includes('The left-hand side of a `for...of` statement') && !source.includes('__tmt_as__')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 1; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'async' && toks[i - 1].text === '(' && toks[i + 1].text === 'of') {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: '__tmt_as__' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped.replace(/__tmt_as__/g, 'async');
+      }
+    }
+  }
+
+  // `A comma expression is not allowed in a computed property` (`{ [0, 1]: {} }`) -> wrap inner expr in `(...)`, strip, restore
+  if (errMsg.includes('A comma expression is not allowed in a computed property') && !source.includes('__tmt_cp')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 3; i++) {
+        if (toks[i].text === '[') {
+          let k = i + 1, d = 1, hasComma = false;
+          while (k < toks.length && d > 0) {
+            if (toks[k].text === '[') d++;
+            else if (toks[k].text === ']') d--;
+            else if (toks[k].text === ',' && d === 1) hasComma = true;
+            k++;
+          }
+          if (d === 0 && hasComma && (toks[k]?.text === ':' || toks[k]?.text === '(')) {
+            edits.push({ start: toks[i].end, end: toks[i].end, text: '/*__tmt_cpL*/(' });
+            edits.push({ start: toks[k - 1].start, end: toks[k - 1].start, text: ')/*__tmt_cpR*/' });
+          }
+        }
+      }
+      if (edits.length > 0) {
+        edits.sort((a, b) => a.start - b.start);
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped.replace(/\/\*__tmt_cpL\*\/\(/g, '').replace(/\)\/\*__tmt_cpR\*\//g, '');
+      }
+    }
+  }
+
+  // `import defer ...` invalid forms (`import defer from "a"`, `import defer x from "a"`, `import defer { a } from "a"`)
+  if ((errMsg.includes("Unexpected token `from`") || errMsg.includes("Expected 'from', got 'ident'") || errMsg.includes("Expected 'from', got '{'")) &&
+      source.includes('defer')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const offsets = [];
+      for (let i = 1; i < toks.length; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'defer' && toks[i - 1].text === 'import') {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: '     ' });
+          offsets.push(toks[i].start);
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const off of offsets) {
+            if (stripped.slice(off, off + 5) === '     ') { out += stripped.slice(p, off) + 'defer'; p = off + 5; }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `Expected '(', got 'yield'` (`function* yield() {}`) / `'yield' cannot be used as a parameter`
+  if ((errMsg.includes("Expected '(', got 'yield'") || errMsg.includes("'yield' cannot be used as a parameter")) && !source.includes('__tmt_yd__')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'yield' && toks[i - 1]?.text !== '.' && toks[i + 1]?.text !== '=>') {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: errMsg.includes('Expected \'(\'') ? '__tmt_yd__' : 'void ' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) {
+          return errMsg.includes("Expected '('") ? stripped.replace(/__tmt_yd__/g, 'yield') : stripped.replace(/void /g, 'yield');
+        }
+      }
+    }
+  }
+
+  // `Expected ',', got '='` (`var [...x = a] = a;`) -> mask `= expr` inside `[...x = expr]`
+  if (errMsg.includes("Expected ',', got '='") && source.includes('...') && !source.includes('__tmt_re_')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const saved = [];
+      for (let i = 0; i < toks.length - 3; i++) {
+        if (toks[i].text === '...' && toks[i + 1].type === 'id' && toks[i + 2].text === '=') {
+          let k = i + 3, dP = 0, dB = 0, dBr = 0;
+          while (k < toks.length && !(dP === 0 && dB === 0 && dBr === 0 && (toks[k].text === ']' || toks[k].text === '}' || toks[k].text === ','))) {
+            if (toks[k].text === '(') dP++; else if (toks[k].text === ')') dP--;
+            else if (toks[k].text === '[') dB++; else if (toks[k].text === ']') dB--;
+            else if (toks[k].text === '{') dBr++; else if (toks[k].text === '}') dBr--;
+            k++;
+          }
+          if (k < toks.length) {
+            const orig = source.slice(toks[i + 2].start, toks[k].start);
+            const ph = `/*__tmt_re_${saved.length}__*/`;
+            saved.push([ph, orig]);
+            edits.push({ start: toks[i + 2].start, end: toks[k].start, text: ph });
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) {
+          let out = stripped;
+          for (const [ph, orig] of saved) out = out.replace(ph, () => orig);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `Expected ',', got '#'` (`const obj = { get #foo() {} }`) -> rename `#id` -> `__tmt_op__`, strip, restore
+  if (errMsg.includes("Expected ',', got '#'") && !source.includes('__tmt_op_')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const saved = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].text === '#' && toks[i + 1].type === 'id' && toks[i].end === toks[i + 1].start) {
+          const orig = '#' + toks[i + 1].text;
+          const ph = `__tmt_op_${saved.length}__`;
+          saved.push([ph, orig]);
+          edits.push({ start: toks[i].start, end: toks[i + 1].end, text: ph });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) {
+          let out = stripped;
+          for (const [ph, orig] of saved) out = out.replace(ph, () => orig);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `An index signature must have exactly one parameter` / `Expected ']', got 'ident'` (`interface I { [a, b]: T }`, `interface I { [public a] }`)
+  if (errMsg.includes('An index signature must have exactly one parameter') || errMsg.includes("Expected ']', got 'ident'")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'interface' && toks[i - 1]?.text !== '.') {
+          let k = i + 1;
+          while (k < toks.length && toks[k].text !== '{' && toks[k].text !== ';') k++;
+          if (k >= toks.length || toks[k].text !== '{') continue;
+          const closeBr = findMatchingBrace(toks, k);
+          if (closeBr < 0) continue;
+          for (let m = k + 1; m < closeBr; m++) {
+            if (toks[m].text === '[') {
+              let e = m + 1, d = 1;
+              while (e < closeBr && d > 0) { if (toks[e].text === '[') d++; else if (toks[e].text === ']') d--; e++; }
+              if (d === 0) {
+                edits.push({ start: toks[m].end, end: toks[e - 1].start, text: '__tmt_ix__: any' });
+                m = e - 1;
+              }
+            }
+          }
+          i = closeBr;
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Expected ')', got 'ident'` (`import(foo).Bar` in type position) -> `import("__tmt__").Bar` (erased by TS)
+  if (errMsg.includes("Expected ')', got 'ident'") && source.includes('import(')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 3; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'import' && toks[i + 1].text === '(' && toks[i + 2].type === 'id') {
+          const cp = findMatchingParen(toks, i + 1);
+          if (cp > i + 2 && toks[cp + 1]?.text === '.') {
+            edits.push({ start: toks[i + 2].start, end: toks[cp].start, text: '"__tmt__"' });
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Expected '{', got 'using'` / `Expected '{', got 'await'` (`export using x = ...`, `export await using x = ...`)
+  if ((errMsg.includes("Expected '{', got 'using'") || errMsg.includes("Expected '{', got 'await'")) && source.includes('using')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const offsets = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'using' && toks[i + 1].type === 'id' && toks[i + 1].text !== 'of') {
+          if (toks[i - 1]?.text === 'await') {
+            const len = toks[i].end - toks[i - 1].start;
+            const repl = 'var' + ' '.repeat(len - 3);
+            edits.push({ start: toks[i - 1].start, end: toks[i].end, text: repl });
+            offsets.push([toks[i - 1].start, source.slice(toks[i - 1].start, toks[i].end), repl]);
+          } else {
+            edits.push({ start: toks[i].start, end: toks[i].end, text: 'var  ' });
+            offsets.push([toks[i].start, 'using', 'var  ']);
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const [off, orig, repl] of offsets) {
+            if (stripped.slice(off, off + orig.length) === repl) { out += stripped.slice(p, off) + orig; p = off + orig.length; }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `` `<kw>` cannot be used as an identifier in strict mode `` (`"use strict"; let`, `export var static: any;`)
+  if (errMsg.includes('cannot be used as an identifier in strict mode') && !source.includes('__tmt_sm_')) {
+    const STRICT_CTX = new Set(['let', 'static', 'public', 'private', 'protected', 'interface', 'package', 'implements', 'yield']);
+    const m = /`([a-z]+)` cannot be used as an identifier in strict mode/.exec(errMsg);
+    if (m && STRICT_CTX.has(m[1])) {
+      const kw = m[1];
+      const toks = tokenize(source);
+      if (toks) {
+        const edits = [];
+        for (let i = 0; i < toks.length; i++) {
+          if (toks[i].type === 'id' && toks[i].text === kw && toks[i - 1]?.text !== '.') {
+            const next = toks[i + 1];
+            // Only replace when used as an identifier (not as a keyword like `let x = 1` or `static foo()`)
+            if (!next || next.text === ';' || next.text === ',' || next.text === ':' || next.text === '=' || next.text === ')' || next.text === '}' || next.text === ']' || hasNewlineBetween(source, toks[i].end, next.start)) {
+              edits.push({ start: toks[i].start, end: toks[i].end, text: '__tmt_sm__' });
+            }
+          }
+        }
+        if (edits.length > 0) {
+          let work = '', pos = 0;
+          for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+          work += source.slice(pos);
+          const stripped = tryStrip(work);
+          if (stripped !== null) return stripped.replace(/__tmt_sm__/g, kw);
+        }
+      }
+    }
+  }
+
+  // `Expected ',', got 'numeric literal'` / `Expected a semicolon` (`() => ({ b: yield 1 })`) -> `yield` -> `void `, strip, restore
+  if ((errMsg.includes("Expected ',', got 'numeric literal'") || errMsg.includes('Expected a semicolon')) &&
+      source.includes('yield') && !/\byield[ \t]*=>/.test(source)) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const offsets = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'yield' && toks[i - 1]?.text !== '.' && toks[i - 1]?.text !== 'let' &&
+            !hasNewlineBetween(source, toks[i].end, toks[i + 1].start)) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: 'void ' });
+          offsets.push(toks[i].start);
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const off of offsets) {
+            if (stripped.slice(off, off + 5) === 'void ') { out += stripped.slice(p, off) + 'yield'; p = off + 5; }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `Trailing comma is not allowed` (`var a,;`) -> mask `,` before `;`, strip, restore
+  if (errMsg.includes('Trailing comma is not allowed')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const offsets = [];
+      for (let i = 1; i < toks.length - 1; i++) {
+        if (toks[i].text === ',' && toks[i + 1].text === ';') {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: ' ' });
+          offsets.push(toks[i].start);
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const off of offsets) {
+            if (stripped[off] === ' ') { out += stripped.slice(p, off) + ','; p = off + 1; }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `Unknown regular expression flags.` (`if (1) /regexp/a.foo();`) -> mask invalid regex flags, strip, restore
+  if (errMsg.includes('Unknown regular expression flags')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const VALID_FLAGS = new Set(['d', 'g', 'i', 'm', 's', 'u', 'v', 'y']);
+      const edits = [];
+      const offsets = [];
+      for (const t of toks) {
+        if (t.type === 'regex') {
+          const lastSlash = t.text.lastIndexOf('/');
+          if (lastSlash > 0 && lastSlash < t.text.length - 1) {
+            const flags = t.text.slice(lastSlash + 1);
+            const cleanFlags = [...flags].map(ch => VALID_FLAGS.has(ch) ? ch : ' ').join('');
+            if (cleanFlags !== flags) {
+              const start = t.start + lastSlash + 1;
+              edits.push({ start, end: t.end, text: cleanFlags });
+              offsets.push([start, flags, cleanFlags]);
+            }
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const [off, orig, repl] of offsets) {
+            if (stripped.slice(off, off + orig.length) === repl) { out += stripped.slice(p, off) + orig; p = off + orig.length; }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `Expected ';', got 'ident'` (`type A = { get foo() { return 0 } }`) -> erase accessor body inside type/interface (erased by TS)
+  if (errMsg.includes("Expected ';', got 'ident'")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && (toks[i].text === 'type' || toks[i].text === 'interface') && toks[i - 1]?.text !== '.') {
+          let k = i + 1;
+          while (k < toks.length && toks[k].text !== '{' && toks[k].text !== ';') k++;
+          if (k >= toks.length || toks[k].text !== '{') continue;
+          const closeBr = findMatchingBrace(toks, k);
+          if (closeBr < 0) continue;
+          for (let m = k + 1; m < closeBr - 2; m++) {
+            if (toks[m].text === ')' && toks[m + 1].text === '{') {
+              const cb = findMatchingBrace(toks, m + 1);
+              if (cb > m + 1 && cb < closeBr) {
+                edits.push({ start: toks[m + 1].start, end: toks[cb].end, text: ';' });
+                m = cb;
+              }
+            }
+          }
+          i = closeBr;
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `An implementation cannot be declared in ambient contexts` (`export declare class C { m() {} }`) -> erase method bodies inside `declare class`
+  if (errMsg.includes('An implementation cannot be declared in ambient contexts') && source.includes('declare')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 2; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'declare' &&
+            (toks[i + 1].text === 'class' || (toks[i + 1].text === 'abstract' && toks[i + 2]?.text === 'class'))) {
+          let k = i + 2;
+          while (k < toks.length && toks[k].text !== '{') k++;
+          if (k >= toks.length) continue;
+          const closeCls = findMatchingBrace(toks, k);
+          if (closeCls < 0) continue;
+          for (let m = k + 1; m < closeCls - 1; m++) {
+            if (toks[m].text === '{') {
+              const cb = findMatchingBrace(toks, m);
+              if (cb > m && cb < closeCls) {
+                edits.push({ start: toks[m].start, end: toks[cb].end, text: ';' });
+                m = cb;
+              }
+            }
+          }
+          i = closeCls;
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Expected 'from', got 'public'` / `'private'` / `'protected'` / `'static'` / `'package'` -> strict-mode words in import
+  if (/Expected 'from', got '(?:public|private|protected|static|package|interface|implements)'/.test(errMsg) && !source.includes('__tmt_im_')) {
+    const CTX_IM = new Set(['public', 'private', 'protected', 'static', 'package', 'interface', 'implements']);
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const saved = [];
+      for (let i = 1; i < toks.length; i++) {
+        if (toks[i].type === 'id' && CTX_IM.has(toks[i].text) && (toks[i - 1].text === 'import' || toks[i - 1].text === 'as')) {
+          const ph = `__tmt_im_${saved.length}__`;
+          saved.push([ph, toks[i].text]);
+          edits.push({ start: toks[i].start, end: toks[i].end, text: ph });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) {
+          let out = stripped;
+          for (const [ph, orig] of saved) out = out.replace(ph, () => orig);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `An object member cannot be declared optional` (`{ a? }`) -> erase `?` to space
+  if (errMsg.includes('An object member cannot be declared optional')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 1; i < toks.length - 1; i++) {
+        if (toks[i].type === 'punc' && toks[i].text === '?' && toks[i - 1].type === 'id' &&
+            (toks[i + 1].text === '}' || toks[i + 1].text === ',' || toks[i + 1].text === '=')) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: ' ' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Expected ident` for `yield` parameter in generator (`function* f(yield) {}`) -> placeholder -> strip -> restore
+  if (errMsg.includes('Expected ident') && source.includes('yield') && !source.includes('__tmt_yd__')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 1; i < toks.length - 1; i++) {
+        const t = toks[i];
+        if (t.type !== 'id' || t.text !== 'yield') continue;
+        const prev = toks[i - 1];
+        const next = toks[i + 1];
+        if (prev.text === '.') continue;
+        if (next.text === '=>') return null;
+        if ((prev.text === '(' || prev.text === ',' || prev.text === 'var' || prev.text === 'let' || prev.text === 'const' || prev.text === '[' || prev.text === '{') &&
+            (next.text === ')' || next.text === ',' || next.text === '=' || next.text === ':' || next.text === ';' || next.text === ']' || next.text === '}')) {
+          edits.push({ start: t.start, end: t.end, text: '__tmt_yd__' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped.replace(/__tmt_yd__/g, 'yield');
+      }
+    }
   }
 
   // `Expected ']', got ':'` (e.g. `public [x: string]: any;` class index signature with accessibility modifier)
@@ -2310,6 +4387,18 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
         if (tk.text === 'import' && (toks[i + 1]?.text === '(' || toks[i + 1]?.text === '.')) continue;
         const isNested = braceDepth > 0 || (parenDepth === 0 && prev && (prev.text === ')' || prev.text === 'else' || prev.text === 'do' || prev.text === ':'));
         if (!isNested) continue;
+        // Reject malformed `for (a; b)` before `export` (missing 2nd `;`)
+        if (braceDepth === 0 && prev && prev.text === ')') {
+          let p = i - 2, pd2 = 1, semis = 0, hasInOf = false;
+          while (p >= 0 && pd2 > 0) {
+            if (toks[p].text === ')') pd2++;
+            else if (toks[p].text === '(') pd2--;
+            else if (pd2 === 1 && toks[p].text === ';') semis++;
+            else if (pd2 === 1 && (toks[p].text === 'in' || toks[p].text === 'of')) hasInOf = true;
+            p--;
+          }
+          if (p >= 0 && toks[p].text === 'for' && !hasInOf && semis !== 2) return null;
+        }
         let k = i + 1, bd = 0, pd = 0, bkd = 0, endIdx = -1;
         while (k < toks.length) {
           const nt = toks[k];
@@ -3370,6 +5459,18 @@ function validPureJsWithSwcRelaxations(source, errMsg, depth = 0) {
         if (tk.text === 'import' && (toks[i + 1]?.text === '(' || toks[i + 1]?.text === '.')) continue;
         const isNested = braceDepth > 0 || (parenDepth === 0 && prev && (prev.text === ')' || prev.text === 'else' || prev.text === 'do' || prev.text === ':'));
         if (!isNested) continue;
+        // Reject malformed `for (a; b)` before `export` (missing 2nd `;`)
+        if (braceDepth === 0 && prev && prev.text === ')') {
+          let p = i - 2, pd2 = 1, semis = 0, hasInOf = false;
+          while (p >= 0 && pd2 > 0) {
+            if (toks[p].text === ')') pd2++;
+            else if (toks[p].text === '(') pd2--;
+            else if (pd2 === 1 && toks[p].text === ';') semis++;
+            else if (pd2 === 1 && (toks[p].text === 'in' || toks[p].text === 'of')) hasInOf = true;
+            p--;
+          }
+          if (p >= 0 && toks[p].text === 'for' && !hasInOf && semis !== 2) return null;
+        }
         // Scan until `;` or matching `}` at current braceDepth
         let k = i + 1, bd = 0, pd = 0, bkd = 0, endIdx = -1;
         while (k < toks.length) {
