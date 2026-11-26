@@ -651,10 +651,11 @@ function compile(input, options = {}) {
   const typed = /\.(?:m?ts|tsx)$/i.test(file);
   const jsxFile = /\.[jt]sx$/i.test(file);
   // CommonJS output of a module: the module is compiled as such, and its imports and exports are then
-  // written the way TypeScript writes them. A file with a CommonJS extension keeps the TypeScript route.
-  if (format === 'cjs' && module === 'cjs' && mode === 'transform' && (!sourceMap || !file.includes('\\')) && !options[commonJsDeclined] && !/\.[cm][jt]s$/i.test(file)) {
+  // written the way TypeScript writes them.
+  if (format === 'cjs' && mode === 'transform' && (!sourceMap || !file.includes('\\')) && !options[commonJsDeclined]) {
     const stable = snapshot(input);
-    const written = compile(stable, { ...options, module: 'preserve' });
+    const innerFile = file.replace(/\.[cm]([jt]s)$/i, '.$1');
+    const written = compile(stable, { ...options, file: innerFile, module: 'preserve' });
     // An exported ambient declaration leaves no text, yet TypeScript reads its name through `exports`.
     const ambient = (Buffer.isBuffer(stable) ? stable.includes('declare') : typeof stable === 'string' && stable.includes('declare')) &&
       /\bexport\b(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)*declare\b/.test(Buffer.isBuffer(stable) ? stable.latin1Slice() : stable);
@@ -668,7 +669,7 @@ function compile(input, options = {}) {
         if (!sourceMap) return { ...written, code };
         const mappings = require('./compiler-legacy-maps.cjs').composeCommonJsMappings(Buffer.from(written.code), Buffer.from(code), spans, written.sourceMap.mappings, code);
         if (mappings !== null) {
-          return { ...written, code, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, mappings, written.sourceMap.sourcesContent[0], jsx === 'preserve') };
+          return { ...written, code, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, mappings, written.sourceMap.sourcesContent[0], jsx === 'preserve', 'cjs') };
         }
       }
     }
@@ -747,7 +748,7 @@ function compile(input, options = {}) {
       if (result.code !== null && result.backend !== 'typescript') return result;
     }
   }
-  if (sourceMap && typed && target === 'esnext' && format !== 'cjs') {
+  if (sourceMap && (typed || (jsxFile && jsx === 'preserve')) && target === 'esnext' && format !== 'cjs') {
     const mapper = loadModuleAddon();
     if (jsx === 'preserve' && jsxFile && !file.includes('\\')) {
       const stable = snapshot(input);
@@ -755,18 +756,21 @@ function compile(input, options = {}) {
       if (mapper && source !== null && source[0] !== 0xEF && (validUtf8 ??= require('node:buffer').isUtf8)(source) &&
           loadDirectAddon()?.leadingTripleSlash(source) === 0) {
         if (source.includes('<')) {
-          const kept = mapper.lower(source, true, true, 2, true);
+          const kept = mapper.lower(source, true, typed, 2, true);
           if (kept !== null && typeof kept !== 'string') {
             const mappings = mapper.projectionMappings?.(source, Buffer.from(kept.code));
             if (typeof mappings === 'string') {
               return { backend: 'pulse', code: kept.code, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, mappings, source.toString(), true), diagnostics: [] };
             }
           }
-        } else {
+        } else if (typed) {
           const result = require('./compiler-maps.cjs').mappedTypeScript(source, file, (format === 'esm' ? 2 : 0) | 1, mapper);
           if (result !== undefined) {
             return { ...result, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, result.sourceMap.mappings, result.sourceMap.sourcesContent[0], true) };
           }
+        } else {
+          const mapped = mappedJavaScript(typeof stable === 'string' ? stable : source.toString(), file, format);
+          if (mapped !== null) return mapped;
         }
       }
     } else if (jsx !== 'preserve') {
@@ -827,13 +831,17 @@ function compile(input, options = {}) {
         const code = native.lower(source, jsxFile, typed, jsx === 'classic', false);
         if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
       }
-      if (mode === 'transform' && (typed || runtime())) {
+      if (mode === 'transform' && (typed || runtime() || (jsxFile && jsx === 'preserve'))) {
         const addon = loadModuleAddon();
         if (addon) {
-          // JSX that is to be kept: the module emitter erases the types and copies each element as written.
-          if (jsxFile && typed && jsx === 'preserve' && !directive && source.includes('<')) {
-            const kept = addon.lower(source, true, true, 2, true);
+          // JSX that is to be kept: the module emitter erases the types (for .tsx) and copies each element as written.
+          if (jsxFile && jsx === 'preserve' && !directive && source.includes('<')) {
+            const kept = addon.lower(source, true, typed, 2, true);
             if (kept !== null && typeof kept !== 'string') return { backend: 'pulse', code: kept.code, sourceMap: null, diagnostics: [] };
+          }
+          if (jsxFile && !typed && jsx === 'preserve' && !source.includes('<')) {
+            const code = modernJavaScript(typeof stableInput === 'string' ? stableInput : source.toString(), file, format);
+            if (code !== null) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
           }
           const moduleProjection = typed && (!jsxFile || !source.includes('<'));
           const empty = moduleProjection ? addon.eraseTypeModule(source, format === 'esm') : null;

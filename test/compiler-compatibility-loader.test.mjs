@@ -28,9 +28,12 @@ test('native calls do not initialize the general compatibility emitter', () => {
     assert.equal(native.backend, 'pulse');
     assert.ok(native.sourceMap.mappings);
     assert.equal(compatibilityLoads, 0);
-    const mapped = compile('export const View = () => <i/>;', { file: 'a.tsx', sourceMap: true, jsx: 'preserve' });
-    assert.equal(mapped.backend, 'typescript');
-    assert.ok(mapped.sourceMap);
+    const keptMapped = compile('export const View = () => <i/>;', { file: 'a.tsx', sourceMap: true, jsx: 'preserve' });
+    assert.equal(keptMapped.backend, 'pulse');
+    assert.ok(keptMapped.sourceMap);
+    assert.equal(compatibilityLoads, 0);
+    const downlevel = compile('export async function f() { return await 1; }', { file: 'a.ts', target: 'es2015' });
+    assert.equal(downlevel.backend, 'typescript');
     assert.equal(compatibilityLoads, 1);
   `], { encoding: 'utf8', timeout: 15000 });
   assert.equal(result.status, 0, result.stderr);

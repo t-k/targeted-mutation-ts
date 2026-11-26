@@ -3097,10 +3097,10 @@ test('JSX that is kept: elements as written, with the types around and inside th
   assert.equal(kept('export const view = <a>{0}see http://example.test/x</a>;\n').backend, 'pulse');
   // A file that is left without an import or export gains one from TypeScript, so it is not answered here.
   assert.equal(kept('import type { T } from "./t";\nconst view = <p>export</p>;\nvoid view;\n').backend, 'typescript');
-  // A script, a JavaScript file and a request for a map keep the TypeScript route.
+  // A script keeps the TypeScript route; .jsx and a request for a map are answered natively.
   assert.equal(kept('const view = <p />;\nvoid view;\n').backend, 'typescript');
-  assert.equal(compile(Buffer.from('export const view = <p />;\n'), { file: 'kept.jsx', jsx: 'preserve' }).backend, 'typescript');
-  assert.equal(compile(Buffer.from('export const view = <p>{1 as number}</p>;\n'), { file: 'kept.tsx', jsx: 'preserve', sourceMap: true }).backend, 'typescript');
+  assert.equal(kept('export const view = <p />;\n', 'kept.jsx').backend, 'pulse');
+  assert.equal(compile(Buffer.from('export const view = <p>{1 as number}</p>;\n'), { file: 'kept.tsx', jsx: 'preserve', sourceMap: true }).backend, 'pulse');
   // The other modes are unchanged by the third one.
   assert.match(compile(Buffer.from('export const view = <p>{1 as number}</p>;\n'), { file: 'kept.tsx' }).code, /react\/jsx-runtime/);
   assert.match(compile(Buffer.from('export const view = <p>{1 as number}</p>;\n'), { file: 'kept.tsx', jsx: 'classic' }).code, /React\.createElement/);

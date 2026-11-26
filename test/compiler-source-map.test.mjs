@@ -200,7 +200,6 @@ test('outputs that are not projections and unusual inputs take the router', () =
   for (const [source, file] of [
     ['export const view = <i {...{ __proto__: null }}/>;\n', 'a.tsx'],
     ['\ufeff' + typed, 'a.ts'],
-    [typed, 'a.cts'],
     [typed, 'index.d.ts'],
     [typed, 'index.d.mts'],
     [typed, 'A.TS'],

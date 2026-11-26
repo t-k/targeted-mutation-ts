@@ -184,11 +184,33 @@ test('modules that are left to TypeScript for CommonJS output', () => {
   // A call on its own line behind something that may end a statement is not written here.
   const unsure = compile(Buffer.from('import { a } from "./a";\ndeclare const x: any;\nif (x)\n  a()\nexport {};'), { file: 'module.ts', module: 'cjs' });
   assert.equal(unsure.backend, 'typescript');
-  // Files with a module extension keep the TypeScript route; a source map is emitted natively.
-  assert.equal(compile(Buffer.from('export const a = 1;'), { file: 'module.mts', module: 'cjs' }).backend, 'typescript');
-  const mappedCjs = compile(Buffer.from('import { b } from "./b";\nexport const a: number = b;\n'), { file: 'module.ts', module: 'cjs', sourceMap: true });
-  assert.equal(mappedCjs.backend, 'pulse');
-  assert.equal(mappedCjs.sourceMap.file, 'module.js');
+  // .cts, .cjs, .mts with CommonJS and source maps are emitted natively.
+  for (const [source, file, opts, expectedBackend, expectedMapFile] of [
+    ['import { a } from "./a";\nexport const x: number = a + 1;\n', 'mod.cts', {}, 'pulse', 'mod.cjs'],
+    ['import { a } from "./a";\nexport const x = a + 1;\n', 'mod.cjs', {}, 'javascript', 'mod.cjs'],
+    ['import { a } from "./a";\nexport const x: number = a + 1;\n', 'mod.mts', { module: 'cjs' }, 'pulse', 'mod.js'],
+    ['import { b } from "./b";\nexport const a: number = b;\n', 'module.ts', { module: 'cjs' }, 'pulse', 'module.js'],
+  ]) {
+    const plain = compile(Buffer.from(source), { file, ...opts });
+    assert.equal(plain.backend, expectedBackend, file);
+    assert.deepEqual(shape(plain.code), shape(reference(source, file.replace(/\.[cm]([jt]s)$/i, '.$1'))), file);
+    const withMap = compile(Buffer.from(source), { file, ...opts, sourceMap: true });
+    assert.equal(withMap.backend, expectedBackend, `${file} map`);
+    assert.equal(withMap.code, plain.code, `${file} map code`);
+    assert.equal(withMap.sourceMap.file, expectedMapFile, `${file} map file`);
+  }
+  // .jsx with jsx: 'preserve' (with and without source maps, and rejecting TS syntax).
+  const jsxSrc = 'import { a } from "./a";\nexport const View = <div id="x">{a}</div>;\n';
+  const jsxKept = compile(Buffer.from(jsxSrc), { file: 'View.jsx', jsx: 'preserve' });
+  assert.equal(jsxKept.backend, 'pulse');
+  assert.equal(jsxKept.code, jsxSrc);
+  const jsxKeptMap = compile(Buffer.from(jsxSrc), { file: 'dir/View.jsx', jsx: 'preserve', sourceMap: true });
+  assert.equal(jsxKeptMap.backend, 'pulse');
+  assert.equal(jsxKeptMap.code, jsxSrc);
+  assert.equal(jsxKeptMap.sourceMap.file, 'View.jsx');
+  // TypeScript syntax in a .jsx file is rejected (not published natively).
+  const badJsx = compile(Buffer.from('export const x: number = 1;\nexport const View = <div/>;\n'), { file: 'Bad.jsx', jsx: 'preserve' });
+  assert.equal(badJsx.code, null);
 });
 
 test('the CommonJS text runs like TypeScript\'s', () => {

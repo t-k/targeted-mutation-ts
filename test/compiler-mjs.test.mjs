@@ -30,6 +30,9 @@ for (const row of rows) {
       assert.equal(result.backend, 'javascript');
       assert.equal(result.code, source);
       assert.deepEqual(result.sourceMap.sources, ['entry.MJS']);
+    } else if (output === 'CommonJS' && kind === 'ImportExport') {
+      assert.equal(result.backend, 'javascript');
+      assert.match(result.code, /require\(["']\.\/unused\.js/);
     } else {
       assert.equal(result.backend, 'typescript');
       if (kind === 'Invalid') {
@@ -37,8 +40,6 @@ for (const row of rows) {
         assert.ok(result.diagnostics.some(diagnostic => diagnostic.severity === 'error'));
       } else if (output === 'Map') {
         assert.ok(result.sourceMap);
-      } else if (output === 'CommonJS' && kind === 'ImportExport') {
-        assert.match(result.code, /require\(["']\.\/unused\.js/);
       }
     }
   });

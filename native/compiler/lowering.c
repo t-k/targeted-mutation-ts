@@ -3930,11 +3930,25 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   qsort(spans, elements, sizeof(*spans), compare_spans);
   qsort(expressions, expression_count, sizeof(*spans), compare_spans);
 #ifdef TMT_V8_VALIDATOR
-  /* Kept JSX is published only from a certified projection of a TypeScript module. */
-  if (preserve && !(typescript && input.capture_types)) return NULL;
+  /* Kept JSX is published only from a certified projection of a TypeScript module, or a validated .jsx module. */
+  if (preserve && typescript && !input.capture_types) return NULL;
   if (!typescript) {
     char *code = render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0, runs);
-    if (code && validate_emission(code, *length, "jsx")) {
+    if (!code) return NULL;
+    if (preserve) {
+      size_t lowered_length = 0;
+      char *lowered = render_jsx_spans(input, spans, elements, expressions, expression_count, insertion,
+        jsx_mode_classic, &lowered_length, 0, NULL);
+      const bool valid = lowered && validate_emission(lowered, lowered_length, "jsx");
+      free(lowered);
+      if (valid) {
+        *complete = true;
+        return code;
+      }
+      free(code);
+      return NULL;
+    }
+    if (validate_emission(code, *length, "jsx")) {
       *complete = true;
       return code;
     }
@@ -4069,8 +4083,8 @@ char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescrip
 #ifdef TMT_DIRECT
     return NULL;
 #else
-    /* JSX is kept only on the route that reads a whole TypeScript module. */
-    return jsx && typescript && mixed ? lower_jsx_module(source, size, typescript, classic, length, complete, runs) : NULL;
+    /* JSX is kept only on the route that reads a whole module. */
+    return jsx && mixed ? lower_jsx_module(source, size, typescript, classic, length, complete, runs) : NULL;
 #endif
   }
   if (mixed) {
