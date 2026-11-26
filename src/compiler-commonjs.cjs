@@ -8,7 +8,8 @@
 // TypeScript's helpers, in the text it writes them, and the order in which it writes them.
 const helperText = require('./compiler-commonjs-helpers.json');
 // Those the others rest on come first, then `__importStar` and `__exportStar` in the order of their first use.
-const helperRank = { __createBinding: 0, __setModuleDefault: 1, __importStar: 2, __exportStar: 2, __importDefault: 3 };
+// The helpers of legacy decorators stand at the head of the module text and are moved among these.
+const helperRank = { __createBinding: 0, __setModuleDefault: 1, __decorate: 2, __importStar: 3, __exportStar: 3, __metadata: 4, __param: 5, __importDefault: 6 };
 
 const word = '[A-Za-z_$][\\w$]*';
 const quoted = '(?:"[^"\\\\\\n]*"|\'[^\'\\\\\\n]*\')';
@@ -144,7 +145,24 @@ function toCommonJs(addon, code, source) {
   const exportsOfLists = [];
   let front = '';
 
-  for (let index = 0; index < order.length; index++) {
+  // Helpers that the lowering of legacy decorators wrote in front of the module.
+  const ownHelpers = {};
+  let lead = 0;
+  for (; lead < order.length; lead++) {
+    const found = /^var (__decorate|__metadata|__param) = /.exec(text.slice(order[lead], order[lead] + 24));
+    if (found === null) break;
+    ownHelpers[found[1]] = text.slice(order[lead], endOf(lead)).trimEnd() + '\n';
+    helpers.add(found[1]);
+    edits.push([order[lead], endOf(lead), '']);
+  }
+  // The temporaries of decorator metadata are declared behind those helpers, and stay in front of the head.
+  let temporaries = '';
+  if (lead !== 0 && lead < order.length && /^var _[a-z0-9]+(?:, _[a-z0-9]+)*;\s*$/.test(text.slice(order[lead], endOf(lead)))) {
+    temporaries = text.slice(order[lead], endOf(lead)).trimEnd() + '\n';
+    edits.push([order[lead], endOf(lead), '']);
+    lead++;
+  }
+  for (let index = lead; index < order.length; index++) {
     const first = order[index], end = endOf(index);
     if (moduleEnds.has(first)) {
       const last = moduleEnds.get(first);
@@ -313,6 +331,13 @@ function toCommonJs(addon, code, source) {
     } else if (/^const\s+$/.test(head) || /^class\s+$/.test(head)) {
       behind(statement, `exports.${exported} = ${local};`);
       if (!kept.has(local)) kept.set(local, { statement, kind: head.startsWith('class') ? 'class' : 'constant' });
+    } else if (/^(?:let|var)\s+$/.test(head) && declared.filter(entry => entry.first >= order[statement] && entry.first < endOf(statement)).length === 1) {
+      // A variable that may be assigned again, as the class of a legacy decorator is: its export follows the
+      // declaration, and every assignment writes the export too.
+      behind(statement, `exports.${exported} = ${local};`);
+      if (!kept.has(local)) kept.set(local, { statement, kind: 'mutable', exported: [] });
+      if (kept.get(local).kind !== 'mutable') return null;
+      kept.get(local).exported.push(exported);
     } else return null;
   }
 
@@ -349,7 +374,7 @@ function toCommonJs(addon, code, source) {
         }
       }
       edits.push([at, at + name.length, reference.shorthand ? `${name}: ${target.text}` : value]);
-    } else if (reference === undefined && (local.kind === 'function' || local.kind === 'class')) {
+    } else if (reference === undefined && (local.kind === 'function' || local.kind === 'class' || local.kind === 'mutable')) {
       // A name in an object that is assigned to is a target, and is not among the references.
       // Only its declaration, a key and a word of prose are harmless; behind a brace, a comma or an equals
       // sign it may be such a target.
@@ -357,6 +382,12 @@ function toCommonJs(addon, code, source) {
       if (at !== declarations.get(name)?.first && !inEdit(at) && (one === '}' || one === ',' || one === '=' || one === ']' || one === ')')) return null;
       // So is the variable of a loop.
       if (/^(?:of|in)(?![\w$])/.test(text.slice(at + name.length).trimStart()) && /\(\s*$/.test(text.slice(Math.max(0, at - 40), at))) return null;
+    } else if (reference !== undefined && local.kind === 'mutable') {
+      const [one, two, three] = followers(text, at + name.length);
+      if (one === '/' || loopTarget.test(text) || /^(?:of|in)(?![\w$])/.test(text.slice(at + name.length).trimStart())) return null;
+      if (targets.some(([first, last]) => first === at && last === at + name.length) && one === '=' && two !== '=' && two !== '>') {
+        edits.push([at, at, local.exported.slice().reverse().map(exported => `exports.${exported} = `).join('')]);
+      } else if (writes(text, at, one, two, three) || targeted(at)) return null;
     } else if (reference !== undefined && local.kind === 'filled') {
       // The variable of a lowered enum or namespace is written only by the function that fills it.
       const [one, two, three] = followers(text, at + name.length);
@@ -405,8 +436,8 @@ function toCommonJs(addon, code, source) {
   const prologue = text.slice(order[0], prologueEnd);
   if (prologue !== '') body = body.slice(prologue.length);
   let head = hashbang + (strict ? '' : '"use strict";\n') + (prologue === '' ? '' : prologue.trimEnd().replace(/;?$/, ';') + '\n');
-  for (const name of [...helpers].sort((a, b) => helperRank[a] - helperRank[b])) head += helperText[name];
-  head += 'Object.defineProperty(exports, "__esModule", { value: true });\n';
+  for (const name of [...helpers].sort((a, b) => helperRank[a] - helperRank[b])) head += ownHelpers[name] ?? helperText[name];
+  head += temporaries + 'Object.defineProperty(exports, "__esModule", { value: true });\n';
   if (cleared.length !== 0) head += cleared.slice().reverse().map(name => `exports.${name}`).join(' = ') + ' = void 0;\n';
   // Functions are exported in the order of the statements that export them.
   for (const [, line] of hoisted.sort((a, b) => a[0] - b[0])) head += line + '\n';

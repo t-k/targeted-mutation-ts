@@ -634,7 +634,7 @@ function compile(input, options = {}) {
   const jsxFile = /\.[jt]sx$/i.test(file);
   // CommonJS output of a module: the module is compiled as such, and its imports and exports are then
   // written the way TypeScript writes them. A file with a CommonJS extension keeps the TypeScript route.
-  if (format === 'cjs' && module === 'cjs' && mode === 'transform' && !sourceMap && !experimentalDecorators && !options[commonJsDeclined] && !/\.[cm][jt]s$/i.test(file)) {
+  if (format === 'cjs' && module === 'cjs' && mode === 'transform' && !sourceMap && !options[commonJsDeclined] && !/\.[cm][jt]s$/i.test(file)) {
     const stable = snapshot(input);
     const written = compile(stable, { ...options, module: 'preserve' });
     // An exported ambient declaration leaves no text, yet TypeScript reads its name through `exports`.

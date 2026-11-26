@@ -207,3 +207,35 @@ test('a function that is exported by value: reading is written here, writing is 
     sameAsTypeScript(`export function f() { return 1; }\ndeclare let x: any;\n${statement}\n`);
   }
 });
+
+test('CommonJS output of modules with legacy decorators', () => {
+  const same = (source, metadata = false) => {
+    const options = { file: 'module.ts', module: 'cjs', experimentalDecorators: true, ...(metadata ? { emitDecoratorMetadata: true } : {}) };
+    const result = compile(Buffer.from(source), options);
+    const expected = ts.transpileModule(source, { fileName: 'module.ts', compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.CommonJS,
+      verbatimModuleSyntax: true, experimentalDecorators: true, emitDecoratorMetadata: metadata } }).outputText;
+    assert.deepEqual(shape(result.code), shape(expected), source);
+    return result;
+  };
+  const head = 'import { d, p } from "./decorators";\nimport main from "./main";\nimport * as all from "./all";\nexport * from "./more";\n';
+  for (const metadata of [false, true]) {
+    for (const body of [
+      '@d()\nexport class A { constructor(@p private readonly x: number) {} @d() run(): void {} @d() field = 1; }',
+      '@d()\nclass B {}\nexport { B };',
+      '@d()\nclass B {}\nexport { B, B as C };',
+      '@d(main, all)\nexport default class D { @d() static s(): void {} }',
+      '@d()\nexport class A {}\n@d()\nexport class E extends A { @d() get g(): number { return 1; } }\nexport const made = new E();',
+      'export class Plain { @d() value!: string; }\nexport function make() { return new Plain(); }',
+    ]) {
+      const result = same(head + body, metadata);
+      assert.equal(result.backend, 'pulse', body);
+    }
+  }
+  // A variable of an export list may be assigned again; each assignment writes the export.
+  assert.equal(same('let w = 1;\nw = 2;\nif (w) w = 3;\nexport { w, w as v };').backend, 'pulse');
+  // Any other way of writing it is left to TypeScript.
+  for (const source of ['let w = 1;\nw += 2;\nexport { w };', 'let w = 1;\nw++;\nexport { w };', 'let w = 1;\n[w] = [2];\nexport { w };', 'let w = 1, u = 2;\nw = u;\nexport { w };',
+    'let w = 1;\nfor (w of [1]) {}\nexport { w };', 'let w: any;\n({ w } = { w: 1 });\nexport { w };']) {
+    assert.equal(same(source).backend, 'typescript', source);
+  }
+});
