@@ -9,46 +9,46 @@ import { binaryPath, installedPackage, locateBinary, packageVersion, platformPac
 const scenarios = readFileSync(new URL('../verification/pict/runtime-binaries.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1).map(row => row.split('\t'));
 
-for (const [platform, arch, local, installed] of scenarios) {
-  test(`binary source: ${platform} ${arch} local ${local} package ${installed}`, () => {
+for (const [platform, arch, artifact, local, installed] of scenarios) {
+  test(`binary source: ${platform} ${arch} ${artifact} local ${local} package ${installed}`, () => {
     const requested = [];
-    const found = locateBinary('tmt.node', {
+    const binary = artifact === 'Extractor' ? 'tmt.node' : 'tmt-decide';
+    const filename = artifact === 'Decision' && platform === 'win32' ? 'tmt-decide.exe' : binary;
+    const localRoot = join('checkout', 'build');
+    const localPath = join(localRoot, filename);
+    const packageName = `@targeted-mutation/tmt-${platform}-${arch}`;
+    const packageRoot = join('modules', packageName);
+    const packagePath = join(packageRoot, filename);
+    const found = locateBinary(binary, {
       host: { platform, arch },
       version: '1.2.3',
-      localRoot: '/checkout/build',
-      exists: path => path === '/checkout/build/tmt.node' ? local === 'Present' : installed !== 'Absent',
+      localRoot,
+      exists: path => (path === localPath && local === 'Present') || (path === packagePath && installed === 'Matching'),
       resolvePackage(name) {
         requested.push(name);
         if (installed === 'Absent') return null;
-        return { root: `/modules/${name}`, version: installed === 'Matching' ? '1.2.3' : '1.2.2' };
+        return { root: packageRoot, version: installed === 'Mismatched' ? '1.2.2' : '1.2.3' };
       },
     });
-    const supported = supportedTargets.includes(`${platform}-${arch}`);
+    const supported = arch === 'x64' || (arch === 'arm64' && platform !== 'win32');
     if (local === 'Present') {
-      assert.deepEqual(found, { path: '/checkout/build/tmt.node', source: 'local' });
+      assert.deepEqual(found, { path: localPath, source: 'local' });
       assert.deepEqual(requested, []);
     } else if (supported && installed === 'Matching') {
-      const name = `@targeted-mutation/tmt-${platform}-${arch}`;
-      assert.deepEqual(found, { path: `/modules/${name}/tmt.node`, source: 'package' });
-      assert.deepEqual(requested, [name]);
+      assert.deepEqual(found, { path: packagePath, source: 'package' });
+      assert.deepEqual(requested, [packageName]);
     } else {
       assert.equal(found, null);
-      assert.deepEqual(requested, supported ? [`@targeted-mutation/tmt-${platform}-${arch}`] : []);
+      assert.deepEqual(requested, supported ? [packageName] : []);
     }
   });
 }
 
-test('a platform package without the requested binary yields no binary', () => {
-  assert.equal(locateBinary('tmt-decide', {
-    host: { platform: 'linux', arch: 'x64' }, version: '1.0.0', localRoot: '/build', exists: () => false,
-    resolvePackage: name => ({ root: `/modules/${name}`, version: '1.0.0' }),
-  }), null);
-});
-
 test('platform packages exist only for the built targets', () => {
-  assert.deepEqual(supportedTargets, ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64']);
+  assert.deepEqual(supportedTargets, ['darwin-arm64', 'darwin-x64', 'linux-arm64', 'linux-x64', 'win32-x64']);
   assert.equal(platformPackage('darwin', 'arm64'), '@targeted-mutation/tmt-darwin-arm64');
-  assert.equal(platformPackage('win32', 'x64'), null);
+  assert.equal(platformPackage('win32', 'x64'), '@targeted-mutation/tmt-win32-x64');
+  assert.equal(platformPackage('win32', 'arm64'), null);
   assert.equal(platformPackage('linux', 'ia32'), null);
 });
 

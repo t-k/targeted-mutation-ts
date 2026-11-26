@@ -1,6 +1,4 @@
-import { platformPackage, supportedTargets } from '../src/runtime-binaries.mjs';
-
-export const binaries = ['tmt.node', 'tmt-decide'];
+import { decisionBinaryName, platformPackage, supportedTargets } from '../src/runtime-binaries.mjs';
 
 // The checkout manifest stays private. Only these generated manifests are published.
 export function mainManifest(root) {
@@ -28,7 +26,7 @@ export function platformManifest(root, platform, arch) {
     os: [platform],
     cpu: [arch],
     ...(platform === 'linux' ? { libc: ['glibc'] } : {}),
-    files: [...binaries, 'lean/', 'LICENSE', 'NOTICE', 'README.md'],
+    files: ['tmt.node', decisionBinaryName(platform), 'lean/', 'LICENSE', 'NOTICE', 'README.md'],
   };
 }
 

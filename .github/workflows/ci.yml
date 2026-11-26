@@ -133,3 +133,43 @@ jobs:
         run: |
           node scripts/pack-runtime.mjs --only main
           node scripts/test-package.mjs --portable
+
+  windows-native:
+    name: Windows x64 native package (windows-2025)
+    if: github.event.repository.visibility == 'public'
+    runs-on: windows-2025
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.14.0
+          package-manager-cache: false
+
+      - name: Install the pinned Lean toolchain and build the decision executable
+        uses: leanprover/lean-action@v1.7.1
+        with:
+          auto-config: false
+          build: true
+          use-github-cache: false
+          lake-package-directory: proof/lean
+
+      - run: npm ci
+
+      - name: Build and exercise the local native runtime
+        run: |
+          npm run build:native
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:lean
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test test/runtime-binaries.test.mjs test/release-manifests.test.mjs test/extract.test.mjs test/positions.test.mjs test/pulse-native-limits.test.mjs test/lean.test.mjs
+
+      - name: Pack and test the installed packages
+        run: |
+          npm run pack:runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:package

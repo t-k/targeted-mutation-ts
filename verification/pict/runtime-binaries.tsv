@@ -1,13 +1,19 @@
-Platform	Arch	Local	Package
-darwin	arm64	Present	Absent
-darwin	arm64	Absent	Matching
-linux	x64	Absent	Matching
-linux	x64	Absent	Mismatched
-win32	x64	Absent	Absent
-linux	arm64	Present	Matching
-darwin	x64	Present	Mismatched
-darwin	ia32	Present	Absent
-linux	ia32	Absent	Absent
-win32	arm64	Present	Absent
-win32	ia32	Absent	Absent
-linux	arm64	Present	Mismatched
+Platform	Arch	Artifact	Local	Package
+darwin	arm64	Extractor	Present	Absent
+darwin	arm64	Extractor	Absent	Matching
+linux	x64	Decision	Absent	Matching
+linux	x64	Extractor	Absent	Mismatched
+linux	arm64	Extractor	Present	Matching
+win32	x64	Extractor	Absent	Matching
+win32	x64	Decision	Absent	Matching
+win32	x64	Decision	Present	Matching
+win32	x64	Decision	Absent	MissingBinary
+win32	x64	Decision	Absent	Mismatched
+win32	x64	Extractor	Absent	Absent
+win32	arm64	Decision	Absent	Absent
+win32	ia32	Decision	Present	Absent
+darwin	x64	Extractor	Present	MissingBinary
+linux	arm64	Extractor	Absent	MissingBinary
+darwin	ia32	Decision	Absent	Absent
+linux	ia32	Extractor	Absent	Absent
+darwin	arm64	Extractor	Present	Mismatched

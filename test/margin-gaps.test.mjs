@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { decisionBinaryName } from '../src/runtime-binaries.mjs';
 import { planFocusedTrials } from '../src/analysis.mjs';
 import { renderText } from '../src/cli-output.mjs';
 import { extract } from '../src/extract.mjs';
@@ -128,7 +129,7 @@ test('Lean replay accepts shift operators only for safe integer pairs that agree
   const unsafeShift = { ...valid, observations: [[Number.MIN_SAFE_INTEGER, Number.MIN_SAFE_INTEGER]] };
   const wrongOp = { ...valid, original: '<' };
   const ambiguous = { ...valid, replacement: { geLiteral: 0, geShift: 1 }, observations: [[5, 5]] };
-  const run = spawnSync('build/tmt-decide', [], { encoding: 'utf8', input: JSON.stringify([valid, differs, unsafeShift, wrongOp, ambiguous]) });
+  const run = spawnSync(`build/${decisionBinaryName()}`, [], { encoding: 'utf8', input: JSON.stringify([valid, differs, unsafeShift, wrongOp, ambiguous]) });
   assert.equal(run.status, 0, run.stderr);
   assert.deepEqual(JSON.parse(run.stdout), [true, false, false, false, false]);
 });

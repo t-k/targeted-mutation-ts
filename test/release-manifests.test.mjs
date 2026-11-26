@@ -4,7 +4,7 @@ import test from 'node:test';
 import { mainManifest, platformManifest, publishAll, publishOrder, tarballName } from '../scripts/release-manifests.mjs';
 
 const root = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
-const targets = [['darwin', 'arm64'], ['darwin', 'x64'], ['linux', 'arm64'], ['linux', 'x64']];
+const targets = [['darwin', 'arm64'], ['darwin', 'x64'], ['linux', 'arm64'], ['linux', 'x64'], ['win32', 'x64']];
 const platforms = () => targets.map(([platform, arch]) => platformManifest(root, platform, arch));
 
 test('the checkout manifest cannot be published by accident', () => {
@@ -20,6 +20,7 @@ test('the main manifest is public and depends on every platform package at its o
   assert.deepEqual(main.optionalDependencies, {
     '@targeted-mutation/tmt-darwin-arm64': root.version, '@targeted-mutation/tmt-darwin-x64': root.version,
     '@targeted-mutation/tmt-linux-arm64': root.version, '@targeted-mutation/tmt-linux-x64': root.version,
+    '@targeted-mutation/tmt-win32-x64': root.version,
   });
   assert.deepEqual(main.dependencies, root.dependencies);
   // An exact optional peer would still conflict with a project that has another instrumenter version installed.
@@ -43,7 +44,12 @@ test('a platform manifest restricts installation to its OS, CPU and C library', 
   assert.equal(Object.hasOwn(mac, 'libc'), false);
   for (const field of ['bin', 'dependencies', 'scripts', 'private']) assert.equal(Object.hasOwn(mac, field), false, field);
   assert.equal(mac.description, 'Native parser and decision executable of targeted-mutation for darwin arm64.');
-  assert.throws(() => platformManifest(root, 'win32', 'x64'), /No platform package is built for win32-x64/);
+  const windows = platformManifest(root, 'win32', 'x64');
+  assert.equal(windows.name, '@targeted-mutation/tmt-win32-x64');
+  assert.deepEqual([windows.os, windows.cpu], [['win32'], ['x64']]);
+  assert.equal(Object.hasOwn(windows, 'libc'), false);
+  assert.deepEqual(windows.files, ['tmt.node', 'tmt-decide.exe', 'lean/', 'LICENSE', 'NOTICE', 'README.md']);
+  assert.throws(() => platformManifest(root, 'win32', 'arm64'), /No platform package is built for win32-arm64/);
 });
 
 test('tarball names follow npm pack', () => {
@@ -55,7 +61,7 @@ test('publish order puts every platform package before the main package', () => 
   const ordered = publishOrder([mainManifest(root), ...platforms().reverse()]);
   assert.deepEqual(ordered.map(manifest => manifest.name), [
     '@targeted-mutation/tmt-darwin-arm64', '@targeted-mutation/tmt-darwin-x64',
-    '@targeted-mutation/tmt-linux-arm64', '@targeted-mutation/tmt-linux-x64', 'targeted-mutation',
+    '@targeted-mutation/tmt-linux-arm64', '@targeted-mutation/tmt-linux-x64', '@targeted-mutation/tmt-win32-x64', 'targeted-mutation',
   ]);
 });
 
@@ -66,10 +72,11 @@ test('an incomplete or inconsistent set is refused before anything is published'
   assert.throws(() => publishOrder([main, ...platforms().slice(1)]), /Platform packages do not match the main package: expected .*found @targeted-mutation\/tmt-darwin-x64/);
   assert.throws(() => publishOrder([main]), {
     message: 'Platform packages do not match the main package: expected @targeted-mutation/tmt-darwin-arm64, ' +
-      '@targeted-mutation/tmt-darwin-x64, @targeted-mutation/tmt-linux-arm64, @targeted-mutation/tmt-linux-x64; found none',
+      '@targeted-mutation/tmt-darwin-x64, @targeted-mutation/tmt-linux-arm64, @targeted-mutation/tmt-linux-x64, @targeted-mutation/tmt-win32-x64; found none',
   });
   assert.throws(() => publishOrder([main, ...platforms().slice(2)]),
-    /found @targeted-mutation\/tmt-linux-arm64, @targeted-mutation\/tmt-linux-x64$/);
+    /found @targeted-mutation\/tmt-linux-arm64, @targeted-mutation\/tmt-linux-x64, @targeted-mutation\/tmt-win32-x64$/);
+  assert.throws(() => publishOrder([main, ...platforms().slice(0, -1)]), /expected .*tmt-win32-x64; found/);
   const pinnedElsewhere = platforms();
   pinnedElsewhere[0] = { ...pinnedElsewhere[0], version: '0.0.9' };
   const following = { ...main, optionalDependencies: { ...main.optionalDependencies, [pinnedElsewhere[0].name]: '0.0.9' } };
@@ -94,11 +101,11 @@ function registry(published = [], failing) {
 }
 const entries = () => publishOrder([mainManifest(root), ...platforms()]).map(manifest => ({ manifest, tarball: tarballName(manifest) }));
 
-test('a first run publishes all five packages with the main package last', () => {
+test('a first run publishes all six packages with the main package last', () => {
   const npm = registry();
   const log = [];
   const done = publishAll(entries(), { ...npm.hooks, log: line => log.push(line) });
-  assert.equal(npm.calls.length, 5);
+  assert.equal(npm.calls.length, 6);
   assert.equal(npm.calls.at(-1), 'targeted-mutation');
   assert.deepEqual(done, npm.calls.map(name => `${name}@${root.version}`));
   assert.equal(log.at(-1), `published targeted-mutation@${root.version}`);
@@ -111,9 +118,19 @@ test('a platform failure stops the run before the main package and a re-run fini
   const retry = registry(npm.published);
   const log = [];
   publishAll(entries(), { ...retry.hooks, log: line => log.push(line) });
-  assert.deepEqual(retry.calls, ['@targeted-mutation/tmt-linux-arm64', '@targeted-mutation/tmt-linux-x64', 'targeted-mutation']);
+  assert.deepEqual(retry.calls, ['@targeted-mutation/tmt-linux-arm64', '@targeted-mutation/tmt-linux-x64', '@targeted-mutation/tmt-win32-x64', 'targeted-mutation']);
   assert.equal(log[0], `skip @targeted-mutation/tmt-darwin-arm64@${root.version}: already published`);
   const again = registry(retry.published);
   assert.deepEqual(publishAll(entries(), again.hooks), []);
   assert.deepEqual(again.calls, []);
+});
+
+test('a Windows publication failure holds the main package until the next run', () => {
+  const windows = '@targeted-mutation/tmt-win32-x64';
+  const npm = registry([], windows);
+  assert.throws(() => publishAll(entries(), npm.hooks), /registry refused .*tmt-win32-x64/);
+  assert.equal(npm.published.length, 4);
+  const retry = registry(npm.published);
+  publishAll(entries(), retry.hooks);
+  assert.deepEqual(retry.calls, [windows, 'targeted-mutation']);
 });
