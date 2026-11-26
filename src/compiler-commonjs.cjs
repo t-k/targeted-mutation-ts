@@ -29,7 +29,7 @@ const forms = {
 const reserved = /(?<![\w$.])(?:default_1|__importStar|__importDefault|__exportStar|__createBinding|__setModuleDefault)(?![\w$])|\bimport\s*[.(]/;
 
 const regexAfter = new Set(['', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~', '<', '>', '+', '-', '*', '%', '/', '=>', ')ctrl',
-  'return', 'throw', 'case', 'yield', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'of', 'new', 'else', 'do']);
+  'return', 'throw', 'case', 'yield', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do']);
 
 // Walks `text` lexically, invoking `visit(name, at, prevToken)` for every identifier in code (skipping
 // comments, strings, template literal text and regular expressions). Returns false on ambiguous syntax or
@@ -103,7 +103,7 @@ function scanCodeIdentifiers(text, visit) {
       continue;
     }
     if (c === '/') {
-      if (prev === '}' || prev === '++' || prev === '--') return false;
+      if (prev === '}' || prev === '++' || prev === '--' || prev === 'of') return false;
       if (regexAfter.has(prev)) {
         at++;
         let inClass = false;
@@ -139,11 +139,12 @@ function scanCodeIdentifiers(text, visit) {
       continue;
     }
     if (code >= 48 && code <= 57) {
+      const radixPrefix = c === '0' && (text[at + 1] === 'x' || text[at + 1] === 'X' || text[at + 1] === 'b' || text[at + 1] === 'B' || text[at + 1] === 'o' || text[at + 1] === 'O');
       at++;
       while (at < text.length) {
         const u = text.charCodeAt(at);
         if ((u >= 48 && u <= 57) || (u >= 65 && u <= 90) || (u >= 97 && u <= 122) || u === 95 || u === 46) {
-          if ((u === 69 || u === 101) && (text[at + 1] === '+' || text[at + 1] === '-')) at += 2;
+          if (!radixPrefix && (u === 69 || u === 101) && (text[at + 1] === '+' || text[at + 1] === '-')) at += 2;
           else at++;
         } else break;
       }
@@ -287,7 +288,8 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   if (bytes.length > 1048576) return null;
   // One byte per character, so that the parser's offsets index the text.
   const text = bytes.latin1Slice();
-  if (reserved.test(text) || /(?<![\w$.])default_1(?![\w$])/.test(source) || text.includes('\r')) return null;
+  if (reserved.test(text) || /(?<![\w$.])default_1(?![\w$])/.test(source) || text.includes('\r') ||
+      text.includes('\xe2\x80\xa8') || text.includes('\xe2\x80\xa9')) return null;
   // The CommonJS dialect of TypeScript (`export =`, `import x = require()`) is written without the module's head.
   if (/\bexport\s*=|\bimport\s+[\w$]+\s*=/.test(source) || /(?<![\w$.])module\s*\.\s*exports\b/.test(text)) return null;
   const records = addon.moduleRecords?.(bytes);
@@ -376,7 +378,13 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       const statement = text.slice(first, last).trim();
       if (statement.includes('/*') || statement.includes('//') || /[^\s;]/.test(text.slice(last, end).replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, ''))) return null;
       let match;
-      if ((match = forms.bare.exec(statement))) edits.push([first, last, `require(${match[1]});`]);
+      const editWithSpec = (replacement, spec) => {
+        const specAt = text.indexOf(spec, first);
+        const repAt = replacement.indexOf(spec);
+        edits.push(specAt >= first && specAt + spec.length <= last && repAt >= 0 ?
+          [first, last, replacement, [repAt, specAt, spec.length]] : [first, last, replacement]);
+      };
+      if ((match = forms.bare.exec(statement))) editWithSpec(`require(${match[1]});`, match[1]);
       else if ((match = forms.imported.exec(statement))) {
         const [, defaultName, namespaceName, list, specifier] = match;
         if (defaultName === undefined && namespaceName === undefined && list === undefined) return null;
@@ -386,7 +394,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         if (namespaceName !== undefined) {
           need('__createBinding', '__setModuleDefault', '__importStar');
           kept.set(namespaceName, { statement: index, kind: 'namespace' });
-          edits.push([first, last, `const ${namespaceName} = __importStar(require(${specifier}));`]);
+          editWithSpec(`const ${namespaceName} = __importStar(require(${specifier}));`, specifier);
         } else {
           const name = moduleName(specifier);
           if (name === null) return null;
@@ -411,15 +419,15 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
             if (front !== '') return null;
             front = `const ${name} = ${value};\n`;
             edits.push([first, last, ';']);
-          } else edits.push([first, last, `const ${name} = ${value};`]);
+          } else editWithSpec(`const ${name} = ${value};`, specifier);
         }
       } else if ((match = forms.star.exec(statement))) {
         need('__createBinding', '__exportStar');
-        edits.push([first, last, `__exportStar(require(${match[1]}), exports);`]);
+        editWithSpec(`__exportStar(require(${match[1]}), exports);`, match[1]);
       } else if ((match = forms.starAs.exec(statement))) {
         need('__createBinding', '__setModuleDefault', '__importStar');
         cleared.push(match[1]);
-        edits.push([first, last, `exports.${match[1]} = __importStar(require(${match[2]}));`]);
+        editWithSpec(`exports.${match[1]} = __importStar(require(${match[2]}));`, match[2]);
       } else if ((match = forms.from.exec(statement))) {
         const pairs = members(match[1]);
         if (pairs === null || pairs.length === 0) return null;
@@ -435,7 +443,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
             lines += `\nObject.defineProperty(exports, "${exported}", { enumerable: true, get: function () { return ${name}.${sourceName}; } });`;
           }
         }
-        edits.push([first, last, lines]);
+        editWithSpec(lines, match[2]);
       } else if ((match = forms.list.exec(statement))) {
         const pairs = members(match[1]);
         if (pairs === null) return null;
@@ -617,7 +625,15 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       if (one === '(' || one === '`') {
         prev = skipTriviaBack(text, at, false);
         if (prev < 0) return false;
-        called = !/(?<![\w$.])new$/.test(text.slice(Math.max(0, prev - 16), prev));
+        let isNew = /(?<![\w$.])new$/.test(text.slice(Math.max(0, prev - 16), prev));
+        if (isNew) {
+          const beforeNew = skipTriviaBack(text, prev - 3, false);
+          if (beforeNew < 0) return false;
+          if (beforeNew > 0 && text[beforeNew - 1] === '.' && !(beforeNew >= 3 && text[beforeNew - 2] === '.' && text[beforeNew - 3] === '.')) {
+            isNew = false;
+          }
+        }
+        called = !isNew;
       }
       let value = called ? `(0, ${target.text})` : target.text;
       if (called) {
@@ -675,11 +691,16 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   for (let index = 0; index < order.length; index++) {
     const end = endOf(index);
     while (next < edits.length && edits[next][0] < end) {
-      const [first, last, replacement] = edits[next++];
+      const [first, last, replacement, specCopy] = edits[next++];
       if (first < position) return null;
       if (bodySpans !== null) {
         if (first > position) bodySpans.push([first - position, position]);
-        if (replacement.length > 0) bodySpans.push([replacement.length, -1]);
+        if (specCopy !== undefined) {
+          const [repAt, specAt, specLen] = specCopy;
+          if (repAt > 0) bodySpans.push([repAt, -1]);
+          bodySpans.push([specLen, specAt]);
+          if (replacement.length > repAt + specLen) bodySpans.push([replacement.length - repAt - specLen, -1]);
+        } else if (replacement.length > 0) bodySpans.push([replacement.length, -1]);
       }
       body += text.slice(position, first) + replacement;
       position = last;
@@ -735,7 +756,11 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   if (spans !== null) {
     if (hashbang.length > 0) spans.push([hashbang.length, 0]);
     if (strictLine.length > 0) spans.push([strictLine.length, -1]);
-    if (prologueText.length > 0) spans.push([prologueText.length, -1]);
+    if (prologueText.length > 0) {
+      const prologueTrimmed = prologue.trimEnd();
+      spans.push([prologueTrimmed.length, order[0]]);
+      if (prologueText.length > prologueTrimmed.length) spans.push([prologueText.length - prologueTrimmed.length, -1]);
+    }
     if (headAfterPrologue.length > 0) spans.push([headAfterPrologue.length, -1]);
     if (front.length > 0) spans.push([front.length, -1]);
     if (preludeRest.length > 0) spans.push([preludeRest.length, hashbang.length]);

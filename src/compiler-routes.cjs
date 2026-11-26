@@ -770,7 +770,9 @@ function compile(input, options = {}) {
           }
         } else {
           const mapped = mappedJavaScript(typeof stable === 'string' ? stable : source.toString(), file, format);
-          if (mapped !== null) return mapped;
+          if (mapped !== null) {
+            return { ...mapped, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, mapped.sourceMap.mappings, mapped.sourceMap.sourcesContent[0], true) };
+          }
         }
       }
     } else if (jsx !== 'preserve') {

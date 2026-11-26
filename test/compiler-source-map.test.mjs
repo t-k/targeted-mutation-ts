@@ -633,4 +633,23 @@ test('source maps for CommonJS output, jsx: preserve, and non-ASCII identifiers 
     }
     assert.ok(assertSegmentsFaithful(source, result, true) >= 5, file);
   }
+
+  // 4. Review round 35 source map regressions: CJS directive, re-export specifier, and uppercase .JSX.
+  const dirSrc = '"use client";\nimport { a } from "./dep";\nexport const x = a;\n';
+  const dirRes = compile(Buffer.from(dirSrc), { file: 'dir.ts', module: 'cjs', sourceMap: true });
+  assert.equal(dirRes.backend, 'pulse');
+  assert.ok(assertSegmentsFaithful(dirSrc, dirRes) >= 4);
+  const dirRows = lines(dirRes.code);
+  const dirLine = dirRows.findIndex(l => l.includes('"use client"'));
+  assert.ok(decode(dirRes.sourceMap.mappings)[dirLine].some(seg => seg.length === 3 && seg[1] === 0), dirRes.sourceMap.mappings);
+
+  const reexpSrc = 'export { default as answer } from "./dep";\n';
+  const reexpRes = compile(Buffer.from(reexpSrc), { file: 're.ts', module: 'cjs', sourceMap: true });
+  assert.equal(reexpRes.backend, 'pulse');
+  assert.ok(assertSegmentsFaithful(reexpSrc, reexpRes) >= 1);
+  assert.ok(decode(reexpRes.sourceMap.mappings).flat().some(seg => seg.length === 3 && seg[1] === 0), reexpRes.sourceMap.mappings);
+
+  const upperJsx = compile(Buffer.from('export const x = 1;\n'), { file: 'A.JSX', jsx: 'preserve', sourceMap: true });
+  assert.equal(upperJsx.backend, 'javascript');
+  assert.equal(upperJsx.sourceMap.file, 'A.jsx');
 });

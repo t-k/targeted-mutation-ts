@@ -326,3 +326,36 @@ test('CommonJS review round 34 regressions match TypeScript in syntax and behavi
   assert.equal(runCircular(uninitOurs), 9);
   assert.equal(runCircular(uninitTheirs), 9);
 });
+
+test('CommonJS review round 35 regressions match TypeScript in syntax and behavior', () => {
+  const run = (code, deps = {}) => {
+    const mod = { exports: {} };
+    new Function('exports', 'require', 'module', code)(mod.exports, id => deps[id] ?? {}, mod);
+    return mod.exports;
+  };
+  // 1. Hex literal followed by +x (e is a hex digit, not an exponent).
+  const hexSrc = 'import { x } from "./dep";\nexport default 0x1e+x;\n';
+  const hexRes = sameAsTypeScript(hexSrc);
+  assert.equal(hexRes.backend, 'pulse');
+  assert.equal(run(hexRes.code, { './dep': { x: 3 } }).default, 33);
+  // 2. Variable named `of` followed by division (not a regex).
+  const ofSrc = 'import { x } from "./dep";\nconst of = 12;\nexport default of / x / 2;\n';
+  const ofRes = sameAsTypeScript(ofSrc);
+  assert.equal(ofRes.backend, 'typescript');
+  assert.equal(run(ofRes.code, { './dep': { x: 3 } }).default, 2);
+  // 3. Line comment ending in U+2028 or U+2029.
+  for (const sep of ['\u2028', '\u2029']) {
+    const sepSrc = `import { x } from "./dep";\n// comment${sep}export default x;\n`;
+    const sepRes = sameAsTypeScript(sepSrc);
+    assert.equal(sepRes.backend, 'typescript');
+    assert.equal(run(sepRes.code, { './dep': { x: 7 } }).default, 7);
+  }
+  // 4. Property named `new` with comments before a call on the next line.
+  const propNewSrc = 'import { f } from "./dep";\nexport default (function () { const y = { new: 1 }; y./**/new /**/\nf(); })();\n';
+  const propNewRes = sameAsTypeScript(propNewSrc);
+  assert.equal(propNewRes.backend, 'pulse');
+  let gotThis = null;
+  const strictDep = { f() { 'use strict'; gotThis = this === undefined ? 'unbound' : 'bound'; } };
+  run(propNewRes.code, { './dep': strictDep });
+  assert.equal(gotThis, 'unbound');
+});
