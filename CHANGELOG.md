@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.0
+
+- Add native `node:test` runner support (`--runner node`, also configurable via `"runner": "node"` in `targeted-mutation.config.json`):
+  - Runs each mutation in an isolated temporary workspace and fresh Node process via `node:test`'s `run()` API and the `runner-process.mjs` supervisor (including Windows process-tree termination on timeout via `taskkill /T /F`), with `--test`, `--concurrency`, `--checkpoint` (incremental per-trial persistence), `--shard`, `--since --undo-changes`, `--baseline`, and SARIF/JSONL output.
+  - Classifies nested `describe`/`it`/`t.test()`, duplicate test names, `skip`/`todo` statuses, helper-registered tests across files, `before`/`after` hook failures, module load failures (using baseline test inventory and captured `test:stderr` details so load failures are reported as `error` rather than false `killed`), and malformed/missing reports.
+- Improve baseline failure diagnostics across Vitest, Playwright, and Node runners: record collected test files (`baseline.files`) and per-file error locations (`baseline.fileErrors`), and display them in text reports so miscollected specs or failing test files can be identified immediately.
+- Improve gap prioritization for timeouts and rounding equivalence:
+  - Preserve `statusReason` across Vitest session verdicts (`sessionVerdicts`), focused analysis (`completeAnalysis`), checkpoints, and source-rewrite runners, and render stop reasons (such as `Mutation hit limit reached`, `Vitest test timeout`, `The worker stopped answering`, or `Node test runner timed out`) directly on mutant lines in text output.
+  - Detect soundly non-negative `Math.floor` <-> `Math.trunc` mutations as equivalent (`ignored` with `statusReason`), and annotate surviving domain-non-negative `floor`/`trunc` gaps (such as `Math.floor(items.length / total)`) with `equivalenceHint: "likely-equivalent"` and a note in text and SARIF output.
+
 ## 0.6.2
 
 - Canonicalize Windows 8.3 short paths (such as `RUNNER~1` under `%TEMP%`) with `realpathSync.native` across project roots, temporary workspace copies, probes, and reporters so path comparisons match Vite and Vitest 5's native realpath resolution, and pass workspace-relative slash-normalized test filters to Vitest CLI runs.
