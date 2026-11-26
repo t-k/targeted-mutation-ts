@@ -662,4 +662,10 @@ test('source maps for CommonJS output, jsx: preserve, and non-ASCII identifiers 
   assert.match(olderRes.code, /1000000/);
   assert.match(olderRes.code, /catch \(_a\)/);
   assert.ok(assertSegmentsFaithful(olderSrc, olderRes) >= 6);
+
+  // 6. Non-ASCII identifiers with erased-syntax separators/parentheses keep native projection maps.
+  const nonAsciiSepSrc = 'export class \u0275Widget {\n  value = 1\n  public [Symbol.iterator]() { return this.value; }\n}\nexport const \u0275run = (x: unknown) => (<number>x) + 1;\n';
+  const nonAsciiSepRes = compile(Buffer.from(nonAsciiSepSrc), { file: 'widget.ts', sourceMap: true });
+  assert.equal(nonAsciiSepRes.backend, 'pulse');
+  assert.ok(assertSegmentsFaithful(nonAsciiSepSrc, nonAsciiSepRes, true) >= 8);
 });

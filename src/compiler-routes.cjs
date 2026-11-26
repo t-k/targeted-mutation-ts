@@ -424,6 +424,8 @@ function highByteNames(addon, source, text, file, format, sourceMap = false) {
             at += width - 1;
           }
         }
+      } else if ((restored[at] === 59 || restored[at] === 40 || restored[at] === 41) && source[at] < 0x80) {
+        // Separator or parenthesis written over erased ASCII syntax is a valid projection edit.
       } else erasureOnly = false;
     }
     if (erasureOnly) {
