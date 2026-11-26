@@ -80,6 +80,31 @@ static inline bool tmt_map_word_run(const uint8_t *from, const uint8_t *to) {
   return vminvq_u8(ok) != 0;
 }
 
+/* Counts leading bytes in a 16-byte template-literal window before `` ` ``, `$`, or `\`. */
+static inline unsigned tmt_template_run(const uint8_t *source) {
+  const uint8x16_t b = vld1q_u8(source);
+  uint8x16_t hits = vorrq_u8(vceqq_u8(b, vdupq_n_u8('`')), vceqq_u8(b, vdupq_n_u8('$')));
+  hits = vorrq_u8(hits, vceqq_u8(b, vdupq_n_u8('\\')));
+  const uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(hits), 4)), 0);
+  return mask ? (unsigned)(__builtin_ctzll(mask) >> 2) : 16U;
+}
+
+/* Counts leading ASCII space/tab/LF/CR bytes in a 16-byte window, setting `*has_nl` if LF/CR was skipped. */
+static inline unsigned tmt_space_run(const uint8_t *source, bool *has_nl) {
+  const uint8x16_t b = vld1q_u8(source);
+  const uint8x16_t sp = vorrq_u8(vceqq_u8(b, vdupq_n_u8(' ')), vceqq_u8(b, vdupq_n_u8('\t')));
+  const uint8x16_t nl = vorrq_u8(vceqq_u8(b, vdupq_n_u8('\n')), vceqq_u8(b, vdupq_n_u8('\r')));
+  const uint8x16_t non_ws = vmvnq_u8(vorrq_u8(sp, nl));
+  const uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(non_ws), 4)), 0);
+  const unsigned count = mask ? (unsigned)(__builtin_ctzll(mask) >> 2) : 16U;
+  if (count != 0U && !*has_nl) {
+    const uint64_t nl_mask = vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(nl), 4)), 0);
+    const uint64_t valid = count == 16U ? ~0ULL : ((1ULL << (count << 2)) - 1ULL);
+    if (nl_mask & valid) *has_nl = true;
+  }
+  return count;
+}
+
 /* Blocked lanes require the ordinary JSX scanner transition. */
 static inline bool tmt_jsx_quote_run(const uint8_t *source, bool decode) {
   const uint8x16_t bytes = vld1q_u8(source);
@@ -180,6 +205,29 @@ static inline bool tmt_map_word_run(const uint8_t *from, const uint8_t *to) {
   const __m128i is_extra = _mm_or_si128(_mm_cmpeq_epi8(t, _mm_set1_epi8('_')), _mm_cmpeq_epi8(t, _mm_set1_epi8('$')));
   const __m128i ok = _mm_and_si128(_mm_cmpeq_epi8(f, t), _mm_or_si128(_mm_or_si128(is_alpha, is_digit), is_extra));
   return _mm_movemask_epi8(ok) == 0xffff;
+}
+
+static inline unsigned tmt_template_run(const uint8_t *source) {
+  const __m128i b = _mm_loadu_si128((const __m128i *)source);
+  __m128i hits = _mm_or_si128(_mm_cmpeq_epi8(b, _mm_set1_epi8('`')), _mm_cmpeq_epi8(b, _mm_set1_epi8('$')));
+  hits = _mm_or_si128(hits, _mm_cmpeq_epi8(b, _mm_set1_epi8('\\')));
+  const unsigned mask = (unsigned)_mm_movemask_epi8(hits);
+  return mask ? (unsigned)__builtin_ctz(mask) : 16U;
+}
+
+static inline unsigned tmt_space_run(const uint8_t *source, bool *has_nl) {
+  const __m128i b = _mm_loadu_si128((const __m128i *)source);
+  const __m128i sp = _mm_or_si128(_mm_cmpeq_epi8(b, _mm_set1_epi8(' ')), _mm_cmpeq_epi8(b, _mm_set1_epi8('\t')));
+  const __m128i nl = _mm_or_si128(_mm_cmpeq_epi8(b, _mm_set1_epi8('\n')), _mm_cmpeq_epi8(b, _mm_set1_epi8('\r')));
+  const unsigned ws_mask = (unsigned)_mm_movemask_epi8(_mm_or_si128(sp, nl));
+  const unsigned non_ws = (~ws_mask) & 0xffffU;
+  const unsigned count = non_ws ? (unsigned)__builtin_ctz(non_ws) : 16U;
+  if (count != 0U && !*has_nl) {
+    const unsigned nl_mask = (unsigned)_mm_movemask_epi8(nl);
+    const unsigned valid = count == 16U ? 0xffffU : ((1U << count) - 1U);
+    if (nl_mask & valid) *has_nl = true;
+  }
+  return count;
 }
 
 static inline bool tmt_jsx_quote_run(const uint8_t *source, bool decode) {

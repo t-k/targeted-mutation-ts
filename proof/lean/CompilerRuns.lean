@@ -240,4 +240,40 @@ theorem skipAsciiLineBlock (bytes : List UInt8) (point : MapPoint)
       simp [mapSeekStep, h.1, Nat.add_comm, Nat.add_left_comm]
   rw [go bytes point safe, width]
 
+-- Template-literal static text scan: bytes other than `` ` `` (96), `$` (36), and `\` (92)
+-- only advance `offset` by 1 and leave every other parser-state field untouched.
+def templatePlain (byte : UInt8) : Bool :=
+  byte != 96 && byte != 36 && byte != 92
+
+theorem skipTemplateRun (bytes : List UInt8) (offset : Nat)
+    (safe : bytes.all templatePlain = true) :
+    bytes.foldl (fun pos b => if templatePlain b then pos + 1 else pos) offset = offset + bytes.length := by
+  induction bytes generalizing offset with
+  | nil => simp
+  | cons b rest ih =>
+    simp only [List.all_cons, Bool.and_eq_true] at safe
+    rw [List.foldl_cons, if_pos safe.1, ih (offset + 1) safe.2]
+    omega
+
+-- Whitespace run in `trivia_from`: skipping spaces/tabs/LF/CR advances `position` by the count
+-- and sets `newline` iff `cursor.newline` was already true or any skipped byte is LF/CR.
+def asciiSpace (byte : UInt8) : Bool :=
+  byte == 32 || byte == 9 || byte == 10 || byte == 13
+
+def asciiLineEnd (byte : UInt8) : Bool :=
+  byte == 10 || byte == 13
+
+theorem skipSpaceRun (bytes : List UInt8) (cursor : CommentCursor)
+    (safe : bytes.all asciiSpace = true) :
+    bytes.foldl (commentStep asciiLineEnd) cursor =
+      { position := cursor.position + bytes.length,
+        newline := cursor.newline || bytes.any asciiLineEnd } := by
+  induction bytes generalizing cursor with
+  | nil => cases cursor; simp
+  | cons b rest ih =>
+    simp only [List.all_cons, Bool.and_eq_true] at safe
+    rw [List.foldl_cons, ih _ safe.2]
+    cases cursor
+    simp [commentStep, Bool.or_assoc, Nat.add_assoc, Nat.add_comm 1]
+
 end CompilerRuns

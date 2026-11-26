@@ -39,6 +39,38 @@ export function simdSource(root, original, scratch, scalar) {
 `;
     source = source.slice(0, position) + fast + source.slice(position);
   }
+  // Optional SIMD fast-paths for multi-byte whitespace runs in `trivia_from` and static text runs in `template_body`.
+  const extraLoops = [
+    ['trivia_from', '7acc224935178f6b09f022c6f46356a7894690134b6bfe067141b8c375b40502',
+      'uint8_t value = TmtPulseMemory_peek(input, at);',
+      `${simd}      if (at < input.size && fuel >= 16U && input.size - at >= 16U && input.source[at] <= 32U && input.source[at + 1] <= 32U) {
+        const unsigned skipped = tmt_space_run(input.source + at, &newline);
+        if (skipped != 0U) { at += skipped; fuel -= skipped; continue; }
+      }
+#endif
+`],
+    ['template_body', '270858e67955eed7bc10d9274482b0472740d6c1e04b89a5de603abde024ca20',
+      'uint32_t at = state.offset;',
+      `${simd}      if (state.offset < input.size && remaining >= 16U && input.size - state.offset >= 16U) {
+        const unsigned skipped = tmt_template_run(input.source + state.offset);
+        if (skipped != 0U) { state.offset += skipped; remaining -= skipped; continue; }
+      }
+#endif
+`],
+  ];
+  for (const [loop, expected, scalar, fast] of extraLoops) {
+    const start = source.indexOf(`\nTmtPulseParser_${loop}(`);
+    if (start < 0) continue;
+    const end = source.indexOf('\n}\n', start);
+    if (end < 0) continue;
+    const body = source.slice(start, end);
+    if (createHash('sha256').update(body).digest('hex') !== expected) continue;
+    const anchor = `    else\n    {\n      ${scalar}`;
+    const at = body.indexOf(anchor);
+    if (at < 0) continue;
+    const position = start + at + anchor.length - scalar.length - 6;
+    source = source.slice(0, position) + fast + source.slice(position);
+  }
   const output = resolve(scratch, 'Custard.simd.c');
   const header = simd + '#include "tmt_simd_scan.h"\n#endif\n';
   writeFileSync(output, source.replace(include, include + header));

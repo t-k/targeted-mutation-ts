@@ -74,6 +74,31 @@ static void check_map_runs(void)
   puts("SIMD source-map runs matched all bytes in every lane");
 }
 
+static void check_template_and_space_runs(void)
+{
+  uint8_t buf[16];
+  for (unsigned lane = 0; lane < 16; lane++) {
+    for (unsigned byte = 0; byte < 256; byte++) {
+      memset(buf, 'a', sizeof(buf));
+      buf[lane] = (uint8_t)byte;
+      const unsigned expected_tpl = (byte == '`' || byte == '$' || byte == '\\') ? lane : 16U;
+      assert(tmt_template_run(buf) == expected_tpl);
+
+      memset(buf, ' ', sizeof(buf));
+      buf[lane] = (uint8_t)byte;
+      const bool is_ws = byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r';
+      const bool is_nl = byte == '\n' || byte == '\r';
+      bool nl = false;
+      assert(tmt_space_run(buf, &nl) == (is_ws ? 16U : lane));
+      assert(nl == is_nl);
+      nl = true;
+      assert(tmt_space_run(buf, &nl) == (is_ws ? 16U : lane));
+      assert(nl == true);
+    }
+  }
+  puts("SIMD template and whitespace runs matched all bytes in every lane");
+}
+
 /* The scalar block comment loop stops at a terminator and, before its first line break, at a line break start. */
 static unsigned comment_run_reference(const uint8_t *bytes, bool newline)
 {
@@ -365,6 +390,7 @@ int main(int argc, char **argv)
   check_jsx_blocks();
   check_type_blocks();
   check_map_runs();
+  check_template_and_space_runs();
   check_comment_runs();
 #endif
 #if defined(__aarch64__)
