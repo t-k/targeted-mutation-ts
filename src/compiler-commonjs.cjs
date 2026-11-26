@@ -26,7 +26,7 @@ const forms = {
   variableHead: new RegExp(`^(const|let|var)\\s+(${word})\\s*(=(?![=>])|;|$)`),
 };
 // Words whose meaning in CommonJS differs from a module's (checked in real code or raw text).
-const reserved = /(?<![\w$.])(?:default_1|__importStar|__importDefault|__exportStar|__createBinding|__setModuleDefault)(?![\w$])|\bimport\s*[.(]/;
+const reserved = /(?<![\w$.])(?:default_1|__importStar|__importDefault|__exportStar|__createBinding|__setModuleDefault)(?![\w$])/;
 
 const regexAfter = new Set(['', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~', '<', '>', '+', '-', '*', '%', '/', '=>', ')ctrl',
   'return', 'throw', 'case', 'yield', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do']);
@@ -392,7 +392,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         if (defaultName === undefined && namespaceName === undefined && list === undefined) return null;
         if (defaultName !== undefined && namespaceName !== undefined) return null;
         const pairs = list === undefined ? [] : members(list);
-        if (pairs === null || pairs.some(([imported, local]) => imported === 'default' || local === 'default')) return null;
+        if (pairs === null || pairs.some(([, local]) => local === 'default')) return null;
         if (namespaceName !== undefined) {
           need('__createBinding', '__setModuleDefault', '__importStar');
           kept.set(namespaceName, { statement: index, kind: 'namespace' });
@@ -400,14 +400,16 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         } else {
           const name = moduleName(specifier);
           if (name === null) return null;
+          const hasDefaultPair = pairs.some(([imported]) => imported === 'default');
+          const hasNamedPair = pairs.some(([imported]) => imported !== 'default');
           let value = `require(${specifier})`;
-          if (defaultName !== undefined && pairs.length !== 0) { need('__createBinding', '__setModuleDefault', '__importStar'); value = `__importStar(${value})`; }
-          else if (defaultName !== undefined) { need('__importDefault'); value = `__importDefault(${value})`; }
+          if ((defaultName !== undefined || hasDefaultPair) && hasNamedPair) { need('__createBinding', '__setModuleDefault', '__importStar'); value = `__importStar(${value})`; }
+          else if (defaultName !== undefined || hasDefaultPair) { need('__importDefault'); value = `__importDefault(${value})`; }
           if (defaultName !== undefined) renamed.set(defaultName, { text: `${name}.default`, statement: index, kind: 'default' });
           let pairOrder = 0;
           for (const [imported, local] of pairs) {
             if (renamed.has(local)) return null;
-            renamed.set(local, { text: `${name}.${imported}`, statement: index, kind: 'import', order: pairOrder++ });
+            renamed.set(local, { text: `${name}.${imported}`, statement: index, kind: imported === 'default' ? 'default' : 'import', order: pairOrder++ });
           }
           // The import of the JSX runtime is written by the emitter where the module's first import or export
           // stands, which may be behind code that uses it. Imports are in force before any code, so the
@@ -597,6 +599,21 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
     if (name === 'exports' && prevToken !== '.') {
       const [one] = followers(text, at + name.length);
       if (one !== ':') return false;
+    }
+    if (name === 'import' && prevToken !== '.' && !inEdit(at)) {
+      const [one, , , nextAt] = followers(text, at + 6);
+      if (one === '.') return false;
+      if (one === '(') {
+        const dyn = new RegExp(`^\\((${quoted})\\)`).exec(text.slice(nextAt, nextAt + 300));
+        if (dyn === null) return false;
+        need('__createBinding', '__setModuleDefault', '__importStar');
+        const spec = dyn[1];
+        const rep = `Promise.resolve().then(() => __importStar(require(${spec})))`;
+        const specAt = text.indexOf(spec, nextAt);
+        const repAt = rep.indexOf(spec);
+        edits.push([at, nextAt + dyn[0].length, rep, [repAt, specAt, spec.length]]);
+        return;
+      }
     }
     const target = renamed.get(name), local = target === undefined ? kept.get(name) : undefined;
     if (target === undefined && local === undefined) return;

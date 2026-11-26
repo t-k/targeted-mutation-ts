@@ -804,6 +804,12 @@ function compile(input, options = {}) {
           if (asciiCjs !== null && !/[^\x00-\x7f]/.test(asciiCjs)) code = restoreNames(asciiCjs, copy.spellings);
         }
       }
+      if (code === null && !sourceMap && !experimentalDecorators && addon && origin !== null &&
+          /\bexport\s*=/.test(origin) && /\bmodule\.exports\s*=/.test(written.code) &&
+          !/\b(?:import|export)\b/.test(written.code) && written.backend === 'pulse') {
+        const strict = strictScript(written.code, file, false);
+        if (strict !== null) code = strict;
+      }
       if (code !== null) {
         if (!sourceMap) return { ...written, code };
         const mappings = require('./compiler-legacy-maps.cjs').composeCommonJsMappings(Buffer.from(written.code), Buffer.from(code), spans, written.sourceMap.mappings, code);

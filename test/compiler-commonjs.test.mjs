@@ -143,6 +143,11 @@ test('forms of CommonJS output: declarations that stay, hoisting, helpers and na
   // URL strings containing `//` before an imported call, and non-ASCII identifiers in CommonJS.
   native('import { run } from "./run";\nconst url = "https://example.test/a";\nexport const out = run(url);');
   native('import { café } from "./dep";\nexport const 合計: number = café() + 1;');
+  // Dynamic import with a string literal, `import { default as X }`, and CommonJS `import = require` / `export =`.
+  native('export const load = () => import("./m");\nexport const m = import("./n");');
+  native('import { default as d } from "./d";\nexport const out = d(1);');
+  native('import { default as d, other } from "./d";\nexport const out = d(other);');
+  native('import a = require("./a");\nexport = a;');
 });
 
 test('modules that are left to TypeScript for CommonJS output', () => {
@@ -168,16 +173,13 @@ test('modules that are left to TypeScript for CommonJS output', () => {
     ['export const a = 1, b = 2;', 'two declarators'],
     ['export let f = () => 1;\nf = () => 2;', 'a function-like value in a variable that can change'],
     ['const exports = 1;\nexport { exports as e };', 'the word exports'],
-    ['export const m = import("./m");', 'a dynamic import'],
+    ['export const m = (x: string) => import(x);', 'a dynamic import with a computed specifier'],
     ['export const u = import.meta.url;', 'import.meta'],
-    ['import a = require("./a");\nexport = a;', 'the CommonJS dialect'],
-    ['export declare const ambient: number;\nexport const b = 1;\nvoid ambient;', 'an exported ambient declaration'],
     ['import d, * as all from "./d";\nd; all;', 'a default and a namespace import together'],
     ['import g from "./x/";\ng;', 'a specifier that ends in a slash'],
     ['import g from "..";\ng;', 'a specifier without a name'],
     ['import { x } from "./$";\nexport default x;', 'a specifier with only punctuation in its last part'],
     ['import { dec } from "./d";\n@dec()\nexport class C {}', 'an unlowered decorator referencing an import'],
-    ['import { default as d } from "./d";\nd;', 'default as a named import'],
     ['import d from "./d";\nexport { d };', 'a default import in an export list'],
     ['import { a } from "./a";\nexport const b = 1;\nconst a_1 = 2;\nvoid [a, a_1];', 'a word that TypeScript would have to avoid'],
     ['import { a } from "./a";\ndeclare const x: any;\nx\n  a()\nexport {};', 'never'],
@@ -371,4 +373,34 @@ test('CommonJS review round 35 regressions match TypeScript in syntax and behavi
   const specCommentRes = compile(Buffer.from(specCommentSrc), { file: 'a.ts', module: 'cjs', sourceMap: true });
   assert.equal(specCommentRes.backend, 'pulse');
   assert.ok(specCommentRes.sourceMap.mappings.length > 0);
+});
+
+test('CommonJS extensions: dynamic import, default-as named import, and export =', () => {
+  // Dynamic import with plain string literal is native; erased assertion inside import() declines to TypeScript.
+  const dynLit = sameAsTypeScript('export const load = () => import("./lazy");\nexport const tag = 1;\n');
+  assert.equal(dynLit.backend, 'pulse');
+  const dynAs = sameAsTypeScript('export const load = () => import("./lazy" as any);\nexport const tag = 1;\n');
+  assert.equal(dynAs.backend, 'typescript');
+  const dynBang = sameAsTypeScript('export const load = () => import("./lazy"!);\nexport const tag = 1;\n');
+  assert.equal(dynBang.backend, 'typescript');
+  const dynOptCall = sameAsTypeScript('export const load = (x: any) => x?.import("./lazy");\nexport const tag = 1;\n');
+  assert.equal(dynOptCall.backend, 'pulse');
+
+  // Named import of `default as X` (alone and mixed with other named imports).
+  const defAs = sameAsTypeScript('import { default as Def, a } from "./dep";\nexport const out = [Def(), a];\n');
+  assert.equal(defAs.backend, 'pulse');
+
+  // CommonJS dialect `export =` (with or without `import = require`) stays native without __esModule.
+  const expEq = sameAsTypeScript('const v = 1;\nexport = v;\n');
+  assert.equal(expEq.backend, 'pulse');
+  const impExpEq = sameAsTypeScript('import dep = require("./dep");\nexport = dep;\n');
+  assert.equal(impExpEq.backend, 'pulse');
+
+  // `import = require` without `export =` keeps __esModule (handled by TypeScript).
+  const impReqOnly = sameAsTypeScript('import assert = require("assert");\nassert.ok(true);\n');
+  assert.equal(impReqOnly.backend, 'typescript');
+
+  // Commented `import = require` or `export =` in a type-only file still emits __esModule.
+  sameAsTypeScript('/* import x = require("a") */\nexport interface T { a: number }\n');
+  sameAsTypeScript('/* export = foo */\nexport interface T { a: number }\n');
 });
