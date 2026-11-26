@@ -364,4 +364,11 @@ test('CommonJS review round 35 regressions match TypeScript in syntax and behavi
   const strictDep = { f() { 'use strict'; gotThis = this === undefined ? 'unbound' : 'bound'; } };
   run(propNewRes.code, { './dep': strictDep });
   assert.equal(gotThis, 'unbound');
+  // Review round 36: non-ASCII import called with `!()` keeps receiver, and specifier map skips comment.
+  const nonAsciiBang = sameAsTypeScript('import { café } from "./x";\nexport const r: unknown = café!();\n', 'a.cts');
+  assert.equal(nonAsciiBang.backend, 'typescript');
+  const specCommentSrc = 'import { foo } from /* "pkg" */ "pkg";\nexport const a = foo();\n';
+  const specCommentRes = compile(Buffer.from(specCommentSrc), { file: 'a.ts', module: 'cjs', sourceMap: true });
+  assert.equal(specCommentRes.backend, 'pulse');
+  assert.ok(specCommentRes.sourceMap.mappings.length > 0);
 });

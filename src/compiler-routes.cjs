@@ -246,6 +246,8 @@ const escapedKeywords = new Set([
   'get', 'set', 'from', 'of', 'as', 'accessor', 'using', 'abstract', 'declare', 'override', 'readonly', 'satisfies',
 ]);
 
+const regexKeywords = new Set(['return', 'throw', 'case', 'yield', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do']);
+
 // Checks for `\u` escapes in code that spell a JS/TS keyword (which V8 may accept in some contextual
 // positions like `st\u0061tic` fields while TypeScript reports TS1260).
 function hasEscapedKeyword(text) {
@@ -265,7 +267,15 @@ function hasEscapedKeyword(text) {
   for (let at = 0; at < text.length; at++) {
     const c = text[at];
     if (c === ' ' || c === '\t' || c === '\n' || c === '\r') continue;
-    if (c === '/' && text[at + 1] === '/') { const e = text.indexOf('\n', at + 2); at = e < 0 ? text.length : e; continue; }
+    if (c === '/' && text[at + 1] === '/') {
+      at += 2;
+      while (at < text.length) {
+        const u = text.charCodeAt(at);
+        if (u === 10 || u === 13 || u === 0x2028 || u === 0x2029) break;
+        at++;
+      }
+      continue;
+    }
     if (c === '/' && text[at + 1] === '*') { const e = text.indexOf('*/', at + 2); if (e < 0) return true; at = e + 1; continue; }
     if (c === '"' || c === "'") {
       at++;
@@ -284,7 +294,7 @@ function hasEscapedKeyword(text) {
       prev = '}';
       continue;
     }
-    if (c === '/' && (prev === '' || '([{,;:?=!&|^~<>+-*%'.includes(prev))) {
+    if (c === '/' && (prev === '' || '([{,;:?=!&|^~<>+-*%'.includes(prev) || regexKeywords.has(prev))) {
       at++;
       let inClass = false;
       while (at < text.length) {
@@ -313,12 +323,19 @@ function hasEscapedKeyword(text) {
         }
         break;
       }
+      const raw = text.slice(start, at);
       if (hasEsc) {
-        const raw = text.slice(start, at);
-        const decoded = raw.replace(/\\u(?:\{([0-9a-fA-F]+)\}|([0-9a-fA-F]{4}))/g, (_, a, b) => String.fromCodePoint(parseInt(a ?? b, 16)));
-        if (escapedKeywords.has(decoded) || newerLetter(decoded)) return true;
+        let invalid = false;
+        const decoded = raw.replace(/\\u(?:\{([0-9a-fA-F]+)\}|([0-9a-fA-F]{4}))/g, (_, a, b) => {
+          const cp = parseInt(a ?? b, 16);
+          if (!Number.isFinite(cp) || cp > 0x10ffff) { invalid = true; return ''; }
+          return String.fromCodePoint(cp);
+        });
+        if (invalid || escapedKeywords.has(decoded) || newerLetter(decoded)) return true;
+        prev = 'id';
+      } else {
+        prev = prev === '.' ? 'id' : raw;
       }
-      prev = 'id';
       at--;
       continue;
     }
@@ -331,7 +348,7 @@ function hasEscapedKeyword(text) {
 // when it avoids the few ES2025/Unicode forms that V8 accepts and TypeScript 6.0.3 rejects.
 function validJavaScriptTsModule(addon, source, text, file, format, directive = false, sourceMap = false) {
   if (hasEscapedKeyword(text) || newerLetter(text) ||
-      />\s*(?:[(`]|\/[/*])|\bnew\s+import\b|\bimport\s*\.\s*(?:source|defer)\b|\bimport\s+(?:source|defer)\b|\?\.[^\n;]*#|\bfor\b[^\n]*\[[^\]]*\bin\b/.test(text)) {
+      />\s*[(`\/]|\bnew(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*import\b|\bimport(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*(?:\.(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*(?:source|defer)|source|defer)\b|\?\.[^\n;]*#|\bfor\b[^\n]*\[[^\]]*\bin\b/.test(text)) {
     return null;
   }
   const validators = javascriptValidators();
@@ -779,7 +796,7 @@ function compile(input, options = {}) {
       const toCjs = require('./compiler-commonjs.cjs').toCommonJs;
       let code = addon && origin !== null ? toCjs(addon, written.code, origin, experimentalDecorators, spans) : null;
       if (code === null && !sourceMap && addon && origin !== null && /[^\x00-\x7f]/.test(written.code) &&
-          !/\b(?:from|import)\s*["'][^"'\n]*[^\x00-\x7f]/.test(written.code)) {
+          !/!(?!=)/.test(origin) && !/\b(?:from|import)\s*["'][^"'\n]*[^\x00-\x7f]/.test(written.code)) {
         const writtenBytes = Buffer.from(written.code);
         const copy = asciiSpelling(writtenBytes, written.code);
         if (copy !== null && copy.wellFormed) {

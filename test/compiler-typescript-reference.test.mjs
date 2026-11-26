@@ -3214,8 +3214,22 @@ test('pure-JavaScript .ts modules and scripts validated by V8 publish natively w
     assert.equal(r.backend, 'javascript', source);
     assert.equal(r.code, source);
   }
-  // Escaped keyword, `new import(...)`, and generic-call ambiguity must stay with TypeScript.
+  // Escaped keyword, `new import(...)`, generic-call/regex ambiguity, and CR/LS-ended `//` comments stay with TypeScript.
   assert.equal(compile(Buffer.from('class C { st\\u0061tic\nx = 1; }\nexport { C };\n'), { file: 'bad.ts' }).backend, 'typescript');
+  for (const sep of ['\r', '\u2028', '\u2029']) {
+    const r = compile(Buffer.from(`// x${sep}export class C { st\\u0061tic\nx = 1; }\n`), { file: 'bad.ts' });
+    assert.equal(r.backend, 'typescript');
+    assert.equal(r.code, null);
+  }
   assert.equal(compile(Buffer.from('new import.meta();\nexport {};\n'), { file: 'bad.ts' }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('new /*c*/ import.meta();\nexport {};\n'), { file: 'bad.ts' }).code, null);
   assert.equal(compile(Buffer.from('export const a = f(a < b, c > (d));\n'), { file: 'bad.ts' }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('export const a = f(a0 < b, c > /d/g);\n'), { file: 'bad.ts' }).backend, 'typescript');
+  // Out-of-range Unicode escapes in non-u regexes and invalid identifiers must not throw RangeError.
+  for (const module of ['preserve', 'cjs']) {
+    const regexOk = compile(Buffer.from('export function f() { return /\\u{110000}/; }\n'), { file: 're.ts', module });
+    assert.equal(typeof regexOk.code, 'string', module);
+    const badId = compile(Buffer.from('export const x = \\u{110000};\n'), { file: 'bad.ts', module });
+    assert.equal(badId.code, null, module);
+  }
 });

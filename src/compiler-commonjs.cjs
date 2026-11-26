@@ -381,7 +381,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       const statement = rawStatement.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ' ').trim();
       let match;
       const editWithSpec = (replacement, spec) => {
-        const specAt = text.indexOf(spec, first);
+        const specAt = text.lastIndexOf(spec, last - spec.length);
         const repAt = replacement.indexOf(spec);
         edits.push(specAt >= first && specAt + spec.length <= last && repAt >= 0 ?
           [first, last, replacement, [repAt, specAt, spec.length]] : [first, last, replacement]);
