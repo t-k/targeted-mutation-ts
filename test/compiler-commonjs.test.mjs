@@ -140,6 +140,9 @@ test('forms of CommonJS output: declarations that stay, hoisting, helpers and na
   // Comments inside import/export lists and >50 exports chunked by 50.
   native('import {\n  // comment\n  a,\n  /* block */ b as c,\n} from "./d";\nexport const out = a(c);');
   native(Array.from({ length: 55 }, (_, i) => `export const v${i} = ${i};`).join('\n'));
+  // URL strings containing `//` before an imported call, and non-ASCII identifiers in CommonJS.
+  native('import { run } from "./run";\nconst url = "https://example.test/a";\nexport const out = run(url);');
+  native('import { café } from "./dep";\nexport const 合計: number = café() + 1;');
 });
 
 test('modules that are left to TypeScript for CommonJS output', () => {

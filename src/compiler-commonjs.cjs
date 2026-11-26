@@ -227,7 +227,7 @@ function skipTriviaBack(text, at, includeOpenParen = false) {
 }
 
 // Whether a name is the target of an assignment or of an update, by the signs around it.
-function writes(text, at, one, two, three) {
+function writes(text, at, one, two, three, prevToken) {
   if (one === ')') {
     // A name in parentheses is written through them: the signs behind the closing ones count.
     let end = at;
@@ -246,6 +246,8 @@ function writes(text, at, one, two, three) {
   if (two === '=' && /[-+*/%&|^]/.test(one)) return true;
   if (three === '=' && ['**', '<<', '>>', '&&', '||', '??'].includes(pair)) return true;
   if (pair === '>>' && three === '>') return true;
+  if (prevToken === '++' || prevToken === '--') return true;
+  if (prevToken !== '(') return false;
   const before = skipTriviaBack(text, at, true);
   if (before < 0) return true;
   const leading = text.slice(Math.max(0, before - 2), before);
@@ -253,11 +255,9 @@ function writes(text, at, one, two, three) {
 }
 
 // Whether a non-reference occurrence of a name is immediately preceded by a declaration keyword.
-function precededByDecl(text, at) {
-  const before = skipTriviaBack(text, at, false);
-  if (before < 0) return true;
-  const head = text.slice(Math.max(0, before - 16), before);
-  return /(?<![\w$.])(?:const|let|var|class|function|catch)$/.test(head);
+function precededByDecl(prevToken) {
+  return prevToken === 'const' || prevToken === 'let' || prevToken === 'var' || prevToken === 'class' ||
+    prevToken === 'function' || prevToken === 'function*' || prevToken === 'catch';
 }
 
 // The members of a braced list: [local, exported] pairs, or null for a member that is not two plain names.
@@ -617,33 +617,25 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       }
       const [one, two, three, nextAt] = followers(text, at + name.length);
       if (/[\x80-\xff\\]/.test(one)) return false;
-      if (target.kind !== 'variable' && (writes(text, at, one, two, three) || targeted(at))) return false;
+      if (target.kind !== 'variable' && (writes(text, at, one, two, three, prevToken) || targeted(at))) return false;
       // An optional call is written by TypeScript with parentheses that end the chain; it is left to it.
       if (one === '?' && two === '.') {
         const afterOpt = skipTrivia(text, nextAt + 2);
         if (afterOpt < 0 || text[afterOpt] === '(' || text[afterOpt] === '`') return false;
       }
-      let called = false, prev = at;
-      if (one === '(' || one === '`') {
-        prev = skipTriviaBack(text, at, false);
-        if (prev < 0) return false;
-        let isNew = /(?<![\w$.])new$/.test(text.slice(Math.max(0, prev - 16), prev));
-        if (isNew) {
-          const beforeNew = skipTriviaBack(text, prev - 3, false);
-          if (beforeNew < 0) return false;
-          if (beforeNew > 0 && text[beforeNew - 1] === '.' && !(beforeNew >= 3 && text[beforeNew - 2] === '.' && text[beforeNew - 3] === '.')) {
-            isNew = false;
-          }
-        }
-        called = !isNew;
-      }
+      const called = (one === '(' || one === '`') && prevToken !== 'new';
       let value = called ? `(0, ${target.text})` : target.text;
       if (called) {
         // The parenthesis would continue a statement in front that ends without a semicolon. Where a
         // statement of a list starts, a semicolon is written; elsewhere the call has to follow, on its
         // line, something that cannot be the end of a statement.
         if (starts.has(at) || listed.has(at)) value = ';' + value;
-        else if (text.slice(prev, at).includes('\n') && prev > 0 && /[\w$)\]}'"`\x80-\xff]/.test(text[prev - 1])) return false;
+        else {
+          const prev = skipTriviaBack(text, at, false);
+          if (prev < 0) {
+            if (prevToken !== '' && !'([{,;:?=!&|^~<>+-*%/'.includes(prevToken[0]) && prevToken !== '=>') return false;
+          } else if (text.slice(prev, at).includes('\n') && prev > 0 && /[\w$)\]}'"`\x80-\xff]/.test(text[prev - 1])) return false;
+        }
       }
       edits.push([at, at + name.length, reference.shorthand ? `${name}: ${target.text}` : value]);
     } else if (reference === undefined && (local.kind === 'function' || local.kind === 'class' || local.kind === 'mutable' || local.kind === 'constant')) {
@@ -659,7 +651,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         if (one === ':' || prevToken === 'break' || prevToken === 'continue' || prevToken === 'static' ||
             (one === '(' && prevToken !== 'function' && prevToken !== 'function*')) return;
         if (one === '}' || one === ',' || one === '=' || one === ']' || one === ')' || one === ';' || one === '{' || one === '(') return false;
-        if (precededByDecl(text, at)) return false;
+        if (precededByDecl(prevToken)) return false;
         if (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) return false;
       }
     } else if (reference !== undefined && local.kind === 'mutable') {
@@ -667,15 +659,15 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       if (loopTarget.test(text) || (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt)))) return false;
       if (targets.some(([first, last]) => first === at && last === at + name.length) && one === '=' && two !== '=' && two !== '>') {
         edits.push([at, at, local.exported.slice().reverse().map(exported => `exports.${exported} = `).join('')]);
-      } else if (writes(text, at, one, two, three) || targeted(at)) return false;
+      } else if (writes(text, at, one, two, three, prevToken) || targeted(at)) return false;
     } else if (reference !== undefined && local.kind === 'filled') {
       // The variable of a lowered enum or namespace is written only by the function that fills it.
       const [one, two, three] = followers(text, at + name.length);
-      if (statementOf(at) !== local.statement + 1 && (writes(text, at, one, two, three) || targeted(at))) return false;
+      if (statementOf(at) !== local.statement + 1 && (writes(text, at, one, two, three, prevToken) || targeted(at))) return false;
     } else if (reference !== undefined && (local.kind === 'function' || local.kind === 'class')) {
       // A function or a class is exported by value: an assignment to it would have to write the export too.
       const [one, two, three, nextAt] = followers(text, at + name.length);
-      if (writes(text, at, one, two, three) || targeted(at)) return false;
+      if (writes(text, at, one, two, three, prevToken) || targeted(at)) return false;
       // The head of a loop and a parenthesized object are the targets that the parser does not report.
       if ((nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) || loopTarget.test(text)) return false;
       if (objectTarget.test(text) && (one === ',' || one === '}')) return false;

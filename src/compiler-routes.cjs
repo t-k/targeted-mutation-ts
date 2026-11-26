@@ -776,7 +776,17 @@ function compile(input, options = {}) {
       const addon = loadModuleAddon();
       const origin = Buffer.isBuffer(stable) ? stable.latin1Slice() : typeof stable === 'string' ? Buffer.from(stable).latin1Slice() : null;
       const spans = sourceMap ? [] : null;
-      const code = addon && origin !== null ? require('./compiler-commonjs.cjs').toCommonJs(addon, written.code, origin, experimentalDecorators, spans) : null;
+      const toCjs = require('./compiler-commonjs.cjs').toCommonJs;
+      let code = addon && origin !== null ? toCjs(addon, written.code, origin, experimentalDecorators, spans) : null;
+      if (code === null && !sourceMap && addon && origin !== null && /[^\x00-\x7f]/.test(written.code) &&
+          !/\b(?:from|import)\s*["'][^"'\n]*[^\x00-\x7f]/.test(written.code)) {
+        const writtenBytes = Buffer.from(written.code);
+        const copy = asciiSpelling(writtenBytes, written.code);
+        if (copy !== null && copy.wellFormed) {
+          const asciiCjs = toCjs(addon, copy.renamed.toString(), origin, experimentalDecorators, null);
+          if (asciiCjs !== null && !/[^\x00-\x7f]/.test(asciiCjs)) code = restoreNames(asciiCjs, copy.spellings);
+        }
+      }
       if (code !== null) {
         if (!sourceMap) return { ...written, code };
         const mappings = require('./compiler-legacy-maps.cjs').composeCommonJsMappings(Buffer.from(written.code), Buffer.from(code), spans, written.sourceMap.mappings, code);
