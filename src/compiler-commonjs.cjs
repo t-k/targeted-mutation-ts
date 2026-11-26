@@ -375,8 +375,10 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
     const first = order[index], end = endOf(index);
     if (moduleEnds.has(first)) {
       const last = moduleEnds.get(first);
-      const statement = text.slice(first, last).trim();
-      if (statement.includes('/*') || statement.includes('//') || /[^\s;]/.test(text.slice(last, end).replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, ''))) return null;
+      const rawStatement = text.slice(first, last).trim();
+      if (/[^\s;]/.test(text.slice(last, end).replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, ''))) return null;
+      if (/["'][^"'\n]*(?:\/\*|\/\/)/.test(rawStatement)) return null;
+      const statement = rawStatement.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ' ').trim();
       let match;
       const editWithSpec = (replacement, spec) => {
         const specAt = text.indexOf(spec, first);
@@ -684,7 +686,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   // A non-null mark on a name keeps TypeScript from writing a call of it as `(0, f)()`, and the mark is gone
   // from the text that is read here.
   for (const name of renamed.keys()) if (source.includes('!') && marked(name).test(source)) return null;
-  if (cleared.length > 50 || new Set(cleared).size !== cleared.length) return null;
+  if (new Set(cleared).size !== cleared.length) return null;
   edits.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const bodySpans = spans === null ? null : [];
   let body = '', position = order[0], next = 0;
@@ -744,7 +746,11 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   let headAfterPrologue = '';
   for (const name of [...helpers].sort((a, b) => helperRank[a] - helperRank[b])) headAfterPrologue += ownHelpers[name] ?? helperText[name];
   headAfterPrologue += temporaries + 'Object.defineProperty(exports, "__esModule", { value: true });\n';
-  if (cleared.length !== 0) headAfterPrologue += cleared.slice().reverse().map(name => `exports.${name}`).join(' = ') + ' = void 0;\n';
+  if (cleared.length !== 0) {
+    for (let i = 0; i < cleared.length; i += 50) {
+      headAfterPrologue += cleared.slice(i, i + 50).reverse().map(name => `exports.${name}`).join(' = ') + ' = void 0;\n';
+    }
+  }
   // Functions are exported in the order of the statements that first export them, keeping aliases together.
   for (const [, line] of hoisted.sort((a, b) => a[0] - b[0] || (a[2] ?? a[0]) - (b[2] ?? b[0]))) headAfterPrologue += line + '\n';
   const head = hashbang + strictLine + prologueText + headAfterPrologue;

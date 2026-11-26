@@ -238,6 +238,118 @@ function restoreNames(code, spellings, derived = false) {
   return code.replace(/[A-Za-z0-9_$]+/g, word => originals.get(word) ?? word);
 }
 
+const escapedKeywords = new Set([
+  'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else',
+  'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof', 'new',
+  'null', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with',
+  'yield', 'let', 'static', 'implements', 'interface', 'package', 'private', 'protected', 'public', 'async',
+  'get', 'set', 'from', 'of', 'as', 'accessor', 'using', 'abstract', 'declare', 'override', 'readonly', 'satisfies',
+]);
+
+// Checks for `\u` escapes in code that spell a JS/TS keyword (which V8 may accept in some contextual
+// positions like `st\u0061tic` fields while TypeScript reports TS1260).
+function hasEscapedKeyword(text) {
+  if (!text.includes('\\u')) return false;
+  const braces = [];
+  let prev = '';
+  const skipTpl = pos => {
+    while (pos < text.length) {
+      const ch = text[pos];
+      if (ch === '\\') { pos += 2; continue; }
+      if (ch === '`') { prev = 'lit'; return pos; }
+      if (ch === '$' && text[pos + 1] === '{') { braces.push('tpl'); prev = '{'; return pos + 1; }
+      pos++;
+    }
+    return text.length;
+  };
+  for (let at = 0; at < text.length; at++) {
+    const c = text[at];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') continue;
+    if (c === '/' && text[at + 1] === '/') { const e = text.indexOf('\n', at + 2); at = e < 0 ? text.length : e; continue; }
+    if (c === '/' && text[at + 1] === '*') { const e = text.indexOf('*/', at + 2); if (e < 0) return true; at = e + 1; continue; }
+    if (c === '"' || c === "'") {
+      at++;
+      while (at < text.length && text[at] !== c) {
+        if (text[at] === '\\') at += 2;
+        else at++;
+      }
+      prev = 'lit';
+      continue;
+    }
+    if (c === '`') { at = skipTpl(at + 1); continue; }
+    if (c === '{') { braces.push('{'); prev = '{'; continue; }
+    if (c === '}') {
+      if (braces.length > 0 && braces[braces.length - 1] === 'tpl') { braces.pop(); at = skipTpl(at + 1); continue; }
+      if (braces.length > 0) braces.pop();
+      prev = '}';
+      continue;
+    }
+    if (c === '/' && (prev === '' || '([{,;:?=!&|^~<>+-*%'.includes(prev))) {
+      at++;
+      let inClass = false;
+      while (at < text.length) {
+        const rc = text[at];
+        if (rc === '\\') { at += 2; continue; }
+        if (rc === '\n' || rc === '\r') return true;
+        if (inClass) { if (rc === ']') inClass = false; }
+        else if (rc === '[') inClass = true;
+        else if (rc === '/') break;
+        at++;
+      }
+      prev = 'lit';
+      continue;
+    }
+    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c === '_' || c === '$' || (c === '\\' && text[at + 1] === 'u')) {
+      const start = at;
+      let hasEsc = false;
+      while (at < text.length) {
+        const ch = text[at];
+        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch === '_' || ch === '$') { at++; continue; }
+        if (ch === '\\' && text[at + 1] === 'u') {
+          hasEsc = true;
+          if (text[at + 2] === '{') { const end = text.indexOf('}', at + 3); if (end < 0) return true; at = end + 1; }
+          else at += 6;
+          continue;
+        }
+        break;
+      }
+      if (hasEsc) {
+        const raw = text.slice(start, at);
+        const decoded = raw.replace(/\\u(?:\{([0-9a-fA-F]+)\}|([0-9a-fA-F]{4}))/g, (_, a, b) => String.fromCodePoint(parseInt(a ?? b, 16)));
+        if (escapedKeywords.has(decoded) || newerLetter(decoded)) return true;
+      }
+      prev = 'id';
+      at--;
+      continue;
+    }
+    prev = c;
+  }
+  return false;
+}
+
+// A .ts/.mts file that contains no TypeScript syntax and passes V8's parser can be published natively
+// when it avoids the few ES2025/Unicode forms that V8 accepts and TypeScript 6.0.3 rejects.
+function validJavaScriptTsModule(addon, source, text, file, format, directive = false, sourceMap = false) {
+  if (hasEscapedKeyword(text) || newerLetter(text) ||
+      />\s*(?:[(`]|\/[/*])|\bnew\s+import\b|\bimport\s*\.\s*(?:source|defer)\b|\bimport\s+(?:source|defer)\b|\?\.[^\n;]*#|\bfor\b[^\n]*\[[^\]]*\bin\b/.test(text)) {
+    return null;
+  }
+  const validators = javascriptValidators();
+  if (!validators.validModule || !validators.validScript) return null;
+  let code = null;
+  if (validators.validModule(text) && !validators.validScript(text) && /\b(?:import|export)\b/.test(text)) {
+    code = text;
+  } else if (!sourceMap && format === 'preserve' && !/\b(?:import|export)\b/.test(text) && validators.validScript(text)) {
+    code = strictScript(text, file, directive);
+  }
+  if (code === null) return null;
+  if (!sourceMap) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
+  if (file.includes('\\') || source[0] === 0xEF || text.startsWith('#!')) return null;
+  const mappings = addon.projectionMappings?.(source, source);
+  if (typeof mappings !== 'string') return null;
+  return { backend: 'javascript', code, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, mappings, text), diagnostics: [] };
+}
+
 function highByteNames(addon, source, text, file, format, sourceMap = false) {
   const copy = asciiSpelling(source, text);
   if (copy === null) return null;
@@ -789,6 +901,8 @@ function compile(input, options = {}) {
             loadDirectAddon()?.leadingTripleSlash(source) === 0) {
           const named = highByteNames(mapper, source, typeof stable === 'string' ? stable : source.toString(), file, format, true);
           if (named !== null) return named;
+          const plainJs = validJavaScriptTsModule(mapper, source, typeof stable === 'string' ? stable : source.toString(), file, format, false, true);
+          if (plainJs !== null) return plainJs;
         }
       }
     }
@@ -859,6 +973,8 @@ function compile(input, options = {}) {
           }
           if (!directive && annotated?.reference === true) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
+            const plainJs = typed && !jsxFile ? validJavaScriptTsModule(addon, source, text, file, format, directive, false) : null;
+            if (plainJs) return plainJs;
             return transformCompatibility(text, { file, target, outputModule: format, jsx, sourceMap });
           }
           if (!directive && annotated?.code !== undefined) {
@@ -893,6 +1009,11 @@ function compile(input, options = {}) {
               const named = highByteNames(addon, source, text, file, format);
               if (named) return named;
             }
+          }
+          if (typed && !jsxFile) {
+            const text = typeof stableInput === 'string' ? stableInput : source.toString();
+            const plainJs = validJavaScriptTsModule(addon, source, text, file, format, directive, false);
+            if (plainJs) return plainJs;
           }
         }
       }

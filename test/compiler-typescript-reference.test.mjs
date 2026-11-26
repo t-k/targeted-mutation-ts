@@ -1799,7 +1799,7 @@ test('names outside ASCII are read through a copy spelled in ASCII', () => {
   }
   // A redeclaration, an export without a binding, an escape and a space outside ASCII keep TypeScript's route.
   for (const source of ['export const ɵa = 1;\nexport const ɵa = 2;', 'export const é = 1;\nexport { è };',
-    'export const \\u0275a = 1;\nexport const ɵb = 2;', 'export const a = 1;\nexport const é = 1;']) {
+    'export const \\u0275a: number = 1;\nexport const ɵb = 2;', 'export const a : number = 1;\nexport const é = 1;']) {
     assert.equal(compile(Buffer.from(source), { file: 'names.ts' }).backend, 'typescript', source);
   }
   // A letter of Unicode 16 or 17 is one for the engine and none for TypeScript, which reports the name.
@@ -3203,4 +3203,19 @@ test('lifted syntax limits: for-of object defaults, new a!.b(), labeled simple s
   // A lexical declaration behind a label is invalid and must not be published natively.
   const bad = compile(Buffer.from('export function f() { lbl: const x = 1; }\n'), { file: 'lifted.ts' });
   assert.equal(bad.backend, 'typescript');
+});
+
+test('pure-JavaScript .ts modules and scripts validated by V8 publish natively while declining TS-rejected forms', () => {
+  for (const source of [
+    'class C { get 0b10() { return 2; } }\nexport { C };\n',
+    'const \\u0061 = 1;\nexport default \\u0061;\n',
+  ]) {
+    const r = compile(Buffer.from(source), { file: 'js.ts' });
+    assert.equal(r.backend, 'javascript', source);
+    assert.equal(r.code, source);
+  }
+  // Escaped keyword, `new import(...)`, and generic-call ambiguity must stay with TypeScript.
+  assert.equal(compile(Buffer.from('class C { st\\u0061tic\nx = 1; }\nexport { C };\n'), { file: 'bad.ts' }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('new import.meta();\nexport {};\n'), { file: 'bad.ts' }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('export const a = f(a < b, c > (d));\n'), { file: 'bad.ts' }).backend, 'typescript');
 });

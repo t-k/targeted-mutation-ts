@@ -137,6 +137,9 @@ test('forms of CommonJS output: declarations that stay, hoisting, helpers and na
   native('export { default } from "./d";');
   native('export { default as Foo, a } from "./d";');
   native('export { a as default } from "./d";');
+  // Comments inside import/export lists and >50 exports chunked by 50.
+  native('import {\n  // comment\n  a,\n  /* block */ b as c,\n} from "./d";\nexport const out = a(c);');
+  native(Array.from({ length: 55 }, (_, i) => `export const v${i} = ${i};`).join('\n'));
 });
 
 test('modules that are left to TypeScript for CommonJS output', () => {
