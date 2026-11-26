@@ -3377,4 +3377,30 @@ test('F170 TypeScript lowering: legacy module, CJS equals, ambient blocks, TSX p
   sameAsTypeScript('enum E { A = E.X, X = 2 }\n', 'enum-fwd.ts');
   sameAsTypeScript('enum E { A = 2 ** 3 }\n', 'enum-pow.ts');
   sameAsTypeScript('"use strict"\n[1].forEach(console.log);\nlet x: any;\n', 'strict-asi.ts');
+  // F172/F173 regressions: pure-JS SWC relaxations, namespace cross-stmt export refs, optional-chain LHS,
+  // nested module/export-interface lowering, and strict rejection of TS syntax errors.
+  for (const [file, source] of [
+    ['ns-cross-ref.ts', 'module M { export interface I { a: number; } export var a = 1; export var b = a + 1; }\n'],
+    ['ns-nested-line.ts', 'module A { export module B { export module C { export class D {} } } }\n'],
+    ['opt-lhs.ts', 'declare const o: any;\no?.["a"]++;\no?.a = 1;\n'],
+    ['for-of-init.ts', 'for (var a = 1, b = 2 of []) {}\n'],
+    ['destr-pp.ts', 'class C { constructor(public { a }: any) {} }\n'],
+    ['js-with.ts', 'with ({}) {}\nexport {};\n'],
+    ['js-import-args.ts', 'import();\nexport {};\n'],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    assert.notEqual(r.backend, 'typescript', `${file}: ${source}`);
+  }
+  for (const [file, source] of [
+    ['bad-import-mod.ts', 'import r = module("rect");\n'],
+    ['bad-if-void.ts', 'interface void {}\n'],
+    ['bad-await-arrow.ts', 'async function f(a = await => await) {}\n'],
+    ['bad-yield-arrow.ts', 'function* g(a = yield => yield) {}\n'],
+    ['bad-double-inc.ts', 'let x = 1;\n++x++;\n'],
+    ['bad-for-let-of.ts', 'for (let of []) {}\n'],
+    ['bad-import-type-defer.ts', 'import type defer * as ns from "./a";\n'],
+  ]) {
+    const r = compile(Buffer.from(source), { file });
+    assert.equal(r.code, null, `must reject invalid TS: ${file}`);
+  }
 });
