@@ -36,7 +36,7 @@ const regexAfter = new Set(['', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!
 // when `visit` returns false.
 function scanCodeIdentifiers(text, visit) {
   const braces = [], parens = [];
-  let prev = '', at = 0, expectClassBody = false;
+  let prev = '', at = 0, expectClassBody = false, seenAsync = false;
   const skipTemplate = pos => {
     while (pos < text.length) {
       const c = text[pos];
@@ -91,8 +91,9 @@ function scanCodeIdentifiers(text, visit) {
       continue;
     }
     if (c === '{') {
-      braces.push(expectClassBody ? 'class' : '{');
+      braces.push(expectClassBody ? 'class' : seenAsync ? 'async' : '{');
       expectClassBody = false;
+      seenAsync = false;
       prev = '{';
       at++;
       continue;
@@ -140,9 +141,11 @@ function scanCodeIdentifiers(text, visit) {
       }
       const name = text.slice(at, end);
       const inTopClass = braces.length === 1 && braces[0] === 'class';
-      const inClassMethod = braces.length >= 2 && braces[0] === 'class';
-      if (visit(name, at, prev, braces.length, inTopClass, inClassMethod) === false) return false;
-      if (name === 'class' && prev !== '.') expectClassBody = true;
+      const inAsyncFn = braces.includes('async') || (seenAsync && prev === '=>');
+      if (visit(name, at, prev, braces.length, inTopClass, inAsyncFn) === false) return false;
+      if (name === 'class' && prev !== '.') { expectClassBody = true; seenAsync = false; }
+      else if (name === 'async' && prev !== '.') seenAsync = true;
+      else if (name === 'if' || name === 'while' || name === 'for' || name === 'switch' || name === 'try' || name === 'catch' || name === 'finally' || name === 'else' || name === 'do' || name === 'static') seenAsync = false;
       prev = prev === '.' ? 'id' : (prev === 'for' && name === 'await') ? 'await-for' : name;
       at = end;
       continue;
@@ -165,6 +168,7 @@ function scanCodeIdentifiers(text, visit) {
     if (c === '=' && text[at + 1] === '>') { prev = '=>'; at += 2; continue; }
     if ((c === '+' && text[at + 1] === '+') || (c === '-' && text[at + 1] === '-')) { prev = c + c; at += 2; continue; }
     if (c === '*') { prev = prev === 'function' ? 'function*' : '*'; at++; continue; }
+    if (c === ';') seenAsync = false;
     prev = c;
     at++;
   }
@@ -290,9 +294,33 @@ function specifierName(specifier) {
   return seg.replace(/^(\d)/, '_$1').replace(/\W/g, '_');
 }
 
-// A name as it may stand in the source in front of a non-null mark, with white space or comments between.
-// A single dot in front is a property access, while three dots (`...f!()`) are a spread before the name.
 const marked = name => new RegExp(`(?<![\\w$])(?<!(?<!\\.\\.)\\.)${name.replace(/\$/g, '\\$')}(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n]*\\n)*!(?!=)`);
+
+// Checks whether any name in `renamed` stands in `source` immediately before a non-null `!` (skipping
+// whitespace and comments, and ignoring property access behind a single `.` while keeping `...f!()`).
+function hasMarkedRenamed(source, renamed) {
+  if (renamed.size === 0 || !source.includes('!')) return false;
+  for (let bang = source.indexOf('!'); bang >= 0; bang = source.indexOf('!', bang + 1)) {
+    if (source[bang + 1] === '=') continue;
+    const end = skipTriviaBack(source, bang, false);
+    if (end < 0) {
+      for (const name of renamed.keys()) if (marked(name).test(source)) return true;
+      return false;
+    }
+    let start = end;
+    while (start > 0) {
+      const u = source.charCodeAt(start - 1);
+      if ((u >= 65 && u <= 90) || (u >= 97 && u <= 122) || (u >= 48 && u <= 57) || u === 95 || u === 36) start--;
+      else break;
+    }
+    if (start === end) continue;
+    const id = source.slice(start, end);
+    if (!renamed.has(id)) continue;
+    if (start > 0 && source[start - 1] === '.' && !(start >= 3 && source[start - 2] === '.' && source[start - 3] === '.')) continue;
+    return true;
+  }
+  return false;
+}
 
 // `source` is the text the module was compiled from, as a string of bytes.
 function toCommonJs(addon, code, source, experimentalDecorators = false, spans = null) {
@@ -300,10 +328,11 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   if (bytes.length > 1048576) return null;
   // One byte per character, so that the parser's offsets index the text.
   const text = bytes.latin1Slice();
-  if (reserved.test(text) || /(?<![\w$.])default_1(?![\w$])/.test(source) || text.includes('\r') ||
-      text.includes('\xe2\x80\xa8') || text.includes('\xe2\x80\xa9')) return null;
+  if (((text.includes('__') || text.includes('default_1')) && reserved.test(text)) ||
+      (source.includes('default_1') && /(?<![\w$.])default_1(?![\w$])/.test(source)) ||
+      text.includes('\r') || text.includes('\xe2\x80\xa8') || text.includes('\xe2\x80\xa9')) return null;
   // The CommonJS dialect of TypeScript (`export =`, `import x = require()`) is written without the module's head.
-  if (/\bexport\s*=|\bimport\s+[\w$]+\s*=/.test(source)) return null;
+  if (source.includes('=') && /\bexport\s*=|\bimport\s+[\w$]+\s*=/.test(source)) return null;
   const records = addon.moduleRecords?.(bytes);
   if (!records) return null;
 
@@ -350,8 +379,10 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       const name = base.endsWith('_') ? `${base}${number}` : `${base}_${number}`;
       if (taken.has(name)) continue;
       // A word of the source (including erased types) with this spelling would make TypeScript choose another number.
-      const clash = new RegExp(`(?<![\\w$])${name.replace(/\$/g, '\\$')}(?![\\w$])`);
-      if (clash.test(text) || clash.test(source)) return null;
+      if (text.includes(name) || source.includes(name)) {
+        const clash = new RegExp(`(?<![\\w$])${name.replace(/\$/g, '\\$')}(?![\\w$])`);
+        if (clash.test(text) || clash.test(source)) return null;
+      }
       taken.add(name);
       return name;
     }
@@ -803,14 +834,48 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
     for (const [, , line] of list) behind(statement, line);
   }
 
-  const targeted = position => targets.some(([first, last]) => position >= first && position < last);
+  targets.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let targetCursor = 0;
+  const targeted = position => {
+    while (targetCursor < targets.length && targets[targetCursor][1] <= position) targetCursor++;
+    return targetCursor < targets.length && position >= targets[targetCursor][0] && position < targets[targetCursor][1];
+  };
   // Every occurrence of a renamed name in code has to be one that the parser read as an expression, a
   // property behind a dot, a property key/label/method name, or the declaration itself. A local name that
   // stays is exported by value, so nothing may write or shadow it.
-  const inEdit = position => edits.some(([first, last, replacement]) => position >= first && position < last && replacement !== undefined);
+  const preEdits = edits.filter(e => e[2] !== undefined).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  let editCursor = 0, dynEditEnd = -1;
+  const inEdit = position => {
+    if (position < dynEditEnd) return true;
+    while (editCursor < preEdits.length && preEdits[editCursor][1] <= position) editCursor++;
+    return editCursor < preEdits.length && position >= preEdits[editCursor][0] && position < preEdits[editCursor][1];
+  };
+  let hasLoopTarget, hasObjectTarget, bodyNoImports;
+  const shadowedCache = new Map();
+  const isShadowedLocal = name => {
+    let cached = shadowedCache.get(name);
+    if (cached !== undefined) return cached;
+    if (bodyNoImports === undefined) {
+      // Remove top-level import/export-from statements so imported names themselves are not mistaken for local bindings.
+      bodyNoImports = text;
+      for (const [mStart, mEnd] of moduleEnds) {
+        bodyNoImports = bodyNoImports.slice(0, mStart) + ' '.repeat(mEnd - mStart) + bodyNoImports.slice(mEnd);
+      }
+    }
+    const esc = name.replace(/\$/g, '\\$');
+    const shadowed =
+      new RegExp(`\\b(?:const|let|var|function|class|catch)\\b[^;\\n=(){]{0,200}?(?<![\\w$.])${esc}(?![\\w$])`).test(bodyNoImports) ||
+      new RegExp(`\\b(?:const|let|var|catch)\\s*[\\[{][^;\\n=]{0,200}?(?<![\\w$.])${esc}(?![\\w$])`).test(bodyNoImports) ||
+      new RegExp(`\\([^)]{0,400}?(?<![\\w$.])${esc}(?![\\w$])[^)]{0,400}?\\)\\s*(?:=>|\\{)`).test(bodyNoImports) ||
+      new RegExp(`(?<![\\w$.])${esc}\\s*=>`).test(bodyNoImports);
+    shadowedCache.set(name, shadowed);
+    return shadowed;
+  };
+  const checkLoopTarget = () => (hasLoopTarget ??= loopTarget.test(text));
+  const checkObjectTarget = () => (hasObjectTarget ??= objectTarget.test(text));
   const referenceAt = new Map(references.map(reference => [reference.first, reference]));
-  const scanned = scanCodeIdentifiers(text, (name, at, prevToken, depth, inTopClass, inClassMethod) => {
-    if (name === 'await' && !inClassMethod && prevToken !== '.') hasAwaitOutsideMethod = true;
+  const scanned = scanCodeIdentifiers(text, (name, at, prevToken, depth, inTopClass, inAsyncFn) => {
+    if (name === 'await' && !inAsyncFn && prevToken !== '.') hasAwaitOutsideMethod = true;
     if (prevToken === '@' || text[at - 1] === '@') hasStage3Decorator = true;
     if (name === 'exports' && prevToken !== '.') {
       const [one] = followers(text, at + name.length);
@@ -829,6 +894,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           const specAt = text.indexOf(spec, nextAt);
           const repAt = rep.indexOf(spec);
           edits.push([at, nextAt + dyn[0].length, rep, [repAt, specAt, spec.length]]);
+          if (nextAt + dyn[0].length > dynEditEnd) dynEditEnd = nextAt + dyn[0].length;
           return;
         }
         const closeParen = findMatchingParen(nextAt);
@@ -865,13 +931,14 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       if (target.declaration === at || inEdit(at)) return;
       const isDecoratorHead = prevToken === '@' || before === '@';
       if (isDecoratorHead) {
-        if (!(depth === 0 || inTopClass)) return false;
+        if (!(depth === 0 || inTopClass || !isShadowedLocal(name))) return false;
       } else if (reference === undefined || reference.last !== at + name.length) {
         // Non-reference identifier in code: safe when it is a property key/label (`name:`), a method or
         // accessor definition (`name(` not after `function`/`function*`), a label jump, or a static member.
         if (reference === undefined) {
           const [one] = followers(text, at + name.length);
           if (one === ':' || prevToken === 'break' || prevToken === 'continue' || prevToken === 'static' ||
+              (inTopClass && (one === '=' || one === ';')) ||
               (one === '(' && prevToken !== 'function' && prevToken !== 'function*')) return;
         }
         return false;
@@ -918,7 +985,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       }
     } else if (reference !== undefined && local.kind === 'mutable') {
       const [one, two, three, nextAt] = followers(text, at + name.length);
-      if (loopTarget.test(text) || (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt)))) return false;
+      if (checkLoopTarget() || (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt)))) return false;
       if (targets.some(([first, last]) => first === at && last === at + name.length) && one === '=' && two !== '=' && two !== '>') {
         edits.push([at, at, local.exported.slice().reverse().map(exported => `exports.${exported} = `).join('')]);
       } else if (writes(text, at, one, two, three, prevToken) || targeted(at)) return false;
@@ -931,15 +998,15 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       const [one, two, three, nextAt] = followers(text, at + name.length);
       if (writes(text, at, one, two, three, prevToken) || targeted(at)) return false;
       // The head of a loop and a parenthesized object are the targets that the parser does not report.
-      if ((nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) || loopTarget.test(text)) return false;
-      if (objectTarget.test(text) && (one === ',' || one === '}')) return false;
+      if ((nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) || checkLoopTarget()) return false;
+      if (checkObjectTarget() && (one === ',' || one === '}')) return false;
     }
   });
   if (!scanned) return null;
 
   // A non-null mark on a name keeps TypeScript from writing a call of it as `(0, f)()`, and the mark is gone
   // from the text that is read here.
-  for (const name of renamed.keys()) if (source.includes('!') && marked(name).test(source)) return null;
+  if (hasMarkedRenamed(source, renamed)) return null;
   if (new Set(cleared).size !== cleared.length) return null;
   edits.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   const bodySpans = spans === null ? null : [];

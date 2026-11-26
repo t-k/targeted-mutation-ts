@@ -570,4 +570,16 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   assert.equal(awaitInBlock.backend, 'typescript');
   const dynBeforeMemberDec = compile(Buffer.from('const d = (m: any) => m;\nexport const p = import("./x");\nexport class C { @d m() {} }\n'), { file: 'a.ts', module: 'cjs' });
   assert.equal(dynBeforeMemberDec.backend, 'typescript');
+  // Stage 3 decorators with async arrow await, imported-name class field, and nested non-shadowed decorators.
+  for (const src of [
+    'import { Dec } from "./d";\n@Dec()\nexport class C { m() { Promise.resolve().then(async () => { await 1; }); } }\n',
+    'import { Dec, Kind } from "./d";\n@Dec()\nexport class C { Kind = Kind; }\n',
+    'import { Dec } from "./d";\nexport function run() { @Dec() class Local {} return Local; }\n',
+  ]) {
+    const r = sameAsTypeScript(src);
+    assert.equal(r.backend, 'pulse', src);
+  }
+  // Shadowed local decorator binding declines cleanly to TypeScript.
+  const shadowedDec = compile(Buffer.from('import { Dec } from "./d";\nexport function run(Dec: any) { @Dec() class Local {} return Local; }\n'), { file: 'a.ts', module: 'cjs' });
+  assert.equal(shadowedDec.backend, 'typescript');
 });
