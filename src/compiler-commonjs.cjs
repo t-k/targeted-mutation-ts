@@ -668,8 +668,15 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           // where an assertion was erased; TypeScript does not take a value under an assertion for a function.
           const headAt = skipTrivia(value, 0);
           if (headAt < 0 || /\/\/|\/\*/.test(value.slice(0, headAt))) return null;
-          const tailEnd = skipTriviaBack(value, value.length, true);
+          let tailEnd = skipTriviaBack(value, value.length, true);
           if (tailEnd < 0) return null;
+          // Strip trailing empty statements (`;` left behind by erased `interface`/`type` declarations).
+          while (tailEnd > 0 && value[tailEnd - 1] === ';') {
+            const prevEnd = skipTriviaBack(value, tailEnd - 1, true);
+            if (prevEnd < 0) return null;
+            if (prevEnd > 0 && value[prevEnd - 1] === ';') { tailEnd = prevEnd; continue; }
+            break;
+          }
           const hasSemi = tailEnd > 0 && value[tailEnd - 1] === ';';
           const trailingComment = !hasSemi && /\/\/|\/\*/.test(value.slice(tailEnd));
           if (trailingComment && value[tailEnd] !== '\n') return null;
