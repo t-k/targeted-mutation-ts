@@ -1,1 +1,1 @@
-export { compile } from './compiler.cjs';
+export { compile, emitDeclaration } from './compiler.cjs';

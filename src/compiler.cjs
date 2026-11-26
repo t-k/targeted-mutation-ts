@@ -103,4 +103,9 @@ function compile(input, options) {
   return (routes ??= require('./compiler-routes.cjs').compile)(input, options);
 }
 
+function emitDeclaration(input, options) {
+  return require('./compiler-dts.cjs').emitDeclaration(input, options);
+}
+
 exports.compile = compile;
+exports.emitDeclaration = emitDeclaration;
