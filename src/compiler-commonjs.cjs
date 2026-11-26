@@ -103,7 +103,7 @@ function scanCodeIdentifiers(text, visit) {
       continue;
     }
     if (c === '/') {
-      if (prev === '}' || prev === '++' || prev === '--' || prev === 'of') return false;
+      if (prev === '}' || prev === '++' || prev === '--' || prev === 'of' || prev === 'debugger' || prev === 'break' || prev === 'continue') return false;
       if (regexAfter.has(prev)) {
         at++;
         let inClass = false;
@@ -327,7 +327,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
 
   // Edits of the text: [first, last, replacement], applied together at the end. `after` holds the statements
   // that TypeScript writes behind a statement.
-  const edits = [], after = new Map(), hoisted = [], cleared = [], helpers = new Set();
+  const edits = [], after = new Map(), hoisted = [], cleared = [], helpers = new Map();
   const renamed = new Map(), kept = new Map(), moduleNames = new Map(), taken = new Set();
   const behind = (index, line) => after.set(index, (after.get(index) ?? '') + line + '\n');
   const moduleName = specifier => {
@@ -345,8 +345,10 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       return name;
     }
   };
-  // A set keeps the order of first use; the helpers that others rest on are sorted to the front at the end.
-  const need = (...names) => { for (const name of names) helpers.add(name); };
+  // Track each helper's earliest source position; dependencies are sorted first, ties by first use in source.
+  const need = (pos, ...names) => {
+    for (const name of names) if (!helpers.has(name) || pos < helpers.get(name)) helpers.set(name, pos);
+  };
   const exportsOfLists = [];
   let front = '';
 
@@ -360,7 +362,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       if (found === null) break;
       if (new RegExp(`(?<![\\w$.])${found[1]}(?![\\w$])`).test(source)) return null;
       ownHelpers[found[1]] = statement.trimEnd() + '\n';
-      helpers.add(found[1]);
+      helpers.set(found[1], order[lead]);
       edits.push([order[lead], endOf(lead), '']);
     }
   }
@@ -394,7 +396,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         const pairs = list === undefined ? [] : members(list);
         if (pairs === null || pairs.some(([, local]) => local === 'default')) return null;
         if (namespaceName !== undefined) {
-          need('__createBinding', '__setModuleDefault', '__importStar');
+          need(first, '__createBinding', '__setModuleDefault', '__importStar');
           kept.set(namespaceName, { statement: index, kind: 'namespace' });
           editWithSpec(`const ${namespaceName} = __importStar(require(${specifier}));`, specifier);
         } else {
@@ -403,8 +405,8 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           const hasDefaultPair = pairs.some(([imported]) => imported === 'default');
           const hasNamedPair = pairs.some(([imported]) => imported !== 'default');
           let value = `require(${specifier})`;
-          if ((defaultName !== undefined || hasDefaultPair) && hasNamedPair) { need('__createBinding', '__setModuleDefault', '__importStar'); value = `__importStar(${value})`; }
-          else if (defaultName !== undefined || hasDefaultPair) { need('__importDefault'); value = `__importDefault(${value})`; }
+          if ((defaultName !== undefined || hasDefaultPair) && hasNamedPair) { need(first, '__createBinding', '__setModuleDefault', '__importStar'); value = `__importStar(${value})`; }
+          else if (defaultName !== undefined || hasDefaultPair) { need(first, '__importDefault'); value = `__importDefault(${value})`; }
           if (defaultName !== undefined) renamed.set(defaultName, { text: `${name}.default`, statement: index, kind: 'default' });
           let pairOrder = 0;
           for (const [imported, local] of pairs) {
@@ -426,10 +428,10 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           } else editWithSpec(`const ${name} = ${value};`, specifier);
         }
       } else if ((match = forms.star.exec(statement))) {
-        need('__createBinding', '__exportStar');
+        need(first, '__createBinding', '__exportStar');
         editWithSpec(`__exportStar(require(${match[1]}), exports);`, match[1]);
       } else if ((match = forms.starAs.exec(statement))) {
-        need('__createBinding', '__setModuleDefault', '__importStar');
+        need(first, '__createBinding', '__setModuleDefault', '__importStar');
         cleared.push(match[1]);
         editWithSpec(`exports.${match[1]} = __importStar(require(${match[2]}));`, match[2]);
       } else if ((match = forms.from.exec(statement))) {
@@ -441,7 +443,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         for (const [sourceName, exported] of pairs) {
           cleared.push(exported);
           if (sourceName === 'default') {
-            need('__importDefault');
+            need(first, '__importDefault');
             lines += `\nObject.defineProperty(exports, "${exported}", { enumerable: true, get: function () { return __importDefault(${name}).default; } });`;
           } else {
             lines += `\nObject.defineProperty(exports, "${exported}", { enumerable: true, get: function () { return ${name}.${sourceName}; } });`;
@@ -541,8 +543,8 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           if (!hasSemi && /\/\/|\/\*/.test(value.slice(tailEnd))) return null;
           const beforeEnd = hasSemi ? value.slice(0, tailEnd - 1) : value.replace(/\n[ \t]*$/, '').replace(/\n+$/, '');
           const leading = /^([ \t]*)([\s\S]*)$/.exec(beforeEnd);
-          if (/\s$/.test(beforeEnd) ||
-              ((leading[1].length > 1 || leading[2].startsWith('\n')) && /^(?:async\s+function|function|class)(?![\w$])/.test(leading[2].trimStart()))) return null;
+          if (skipTriviaBack(beforeEnd, beforeEnd.length, true) !== beforeEnd.length ||
+              ((leading[1].length > 1 || leading[2].startsWith('\n')) && /^(?:async|function|class)(?![\w$])/.test(leading[2].trimStart()))) return null;
           edits.push([first, at, '']);
           behind(index, `exports.${name} = ${name};`);
         } else edits.push([first, names[0].last, `exports.${name}`]);
@@ -613,13 +615,13 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       const [one] = followers(text, at + name.length);
       if (one !== ':') return false;
     }
-    if (name === 'import' && prevToken !== '.' && !inEdit(at)) {
+    if (name === 'import' && prevToken !== '.' && prevToken !== '#' && text[at - 1] !== '#' && !inEdit(at)) {
       const [one, , , nextAt] = followers(text, at + 6);
       if (one === '.') return false;
       if (one === '(') {
         const dyn = new RegExp(`^\\((${quoted})\\)`).exec(text.slice(nextAt, nextAt + 300));
         if (dyn === null) return false;
-        need('__createBinding', '__setModuleDefault', '__importStar');
+        need(at, '__createBinding', '__setModuleDefault', '__importStar');
         const spec = dyn[1];
         const rep = `Promise.resolve().then(() => __importStar(require(${spec})))`;
         const specAt = text.indexOf(spec, nextAt);
@@ -766,7 +768,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   const strictLine = strict ? '' : '"use strict";\n';
   const prologueText = prologue === '' ? '' : prologue.trimEnd().replace(/;?$/, ';') + '\n';
   let headAfterPrologue = '';
-  for (const name of [...helpers].sort((a, b) => helperRank[a] - helperRank[b])) headAfterPrologue += ownHelpers[name] ?? helperText[name];
+  for (const name of [...helpers.keys()].sort((a, b) => helperRank[a] - helperRank[b] || helpers.get(a) - helpers.get(b))) headAfterPrologue += ownHelpers[name] ?? helperText[name];
   headAfterPrologue += temporaries + 'Object.defineProperty(exports, "__esModule", { value: true });\n';
   if (cleared.length !== 0) {
     for (let i = 0; i < cleared.length; i += 50) {
@@ -778,9 +780,12 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   const head = hashbang + strictLine + prologueText + headAfterPrologue;
   const preludeRest = prelude.slice(hashbang.length);
   const result = Buffer.from(head + front + preludeRest + body, 'latin1').toString();
-  // The text is read once more by the parser before it is returned. (Node's own compile function is not
-  // asked: for some invalid texts it ends the process while it decorates the error.)
+  // The text is read once more by the parser and checked against Node's CommonJS wrapper grammar
+  // (catching top-level await or wrapper-parameter clashes) before it is returned.
   if (addon.moduleRecords(Buffer.from(result)) === null) return null;
+  try {
+    new Function('exports', 'require', 'module', '__filename', '__dirname', result.startsWith('#!') ? '//' + result : result);
+  } catch { return null; }
   if (spans !== null) {
     if (hashbang.length > 0) spans.push([hashbang.length, 0]);
     if (strictLine.length > 0) spans.push([strictLine.length, -1]);

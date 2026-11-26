@@ -212,11 +212,11 @@ test('the legacy decorator options lower decorators as TypeScript does', async (
 test('a failure inside TypeScript on CommonJS output is a diagnostic, not an exception', () => {
   // With CommonJS output TypeScript fails inside its own code on a file that imports itself by its own name.
   // (The dynamic import keeps the file off the native CommonJS route.)
-  const result = compile(Buffer.from('import { a } from "./a";\nexport const x: number = a;\nexport const later = import("./b");'), { file: 'a.ts', module: 'cjs' });
+  const result = compile(Buffer.from('import { a } from "./a";\nexport const x: number = a;\nexport const later = import(spec);'), { file: 'a.ts', module: 'cjs' });
   assert.equal(result.code, null);
   assert.equal(result.diagnostics[0].code, 'TYPESCRIPT_FAILURE');
   // Under another name the same text compiles.
-  assert.match(compile(Buffer.from('import { a } from "./a";\nexport const x: number = a;\nexport const later = import("./b");'), { file: 'common.ts', module: 'cjs' }).code, /require\("\.\/a"\)/);
+  assert.match(compile(Buffer.from('import { a } from "./a";\nexport const x: number = a;\nexport const later = import(spec);'), { file: 'common.ts', module: 'cjs' }).code, /require\("\.\/a"\)/);
   // The forms of the CommonJS dialect still compile.
   const required = compile(Buffer.from('import a = require("./a");\nexport = a;'), { file: 'common.ts', module: 'cjs' });
   assert.equal(required.diagnostics.length, 0);

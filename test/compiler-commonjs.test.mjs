@@ -426,4 +426,37 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   // Exported enum followed by a JSDoc comment before the next declaration stays native.
   const enumDoc = sameAsTypeScript('export enum Level { H2 = "h2", H3 = "h3" }\n/** doc */\nexport interface Item { level: Level }\n');
   assert.equal(enumDoc.backend, 'pulse');
+
+  // Review round 37 regressions (sol + terra):
+  // 1. Private member `#import("x")` and regex after `debugger\n` must not be rewritten as dynamic import.
+  const privImp = sameAsTypeScript('export class C { #import = (x: string) => x; #Promise = 0; f() { return this.#import("x"); } }\nexport const tag = 1;\n');
+  assert.equal(privImp.backend, 'pulse');
+  const dbgRegex = sameAsTypeScript('export let yes = false;\ndebugger\n/import("x")/.test(\'import"x"\') && (yes = true);\n');
+  assert.equal(dbgRegex.backend, 'typescript');
+  // 2. Trailing block comment after erased assertion and prefix assertion before `async /*c*/ function` keep `.name === ""`.
+  const asBlockComment = sameAsTypeScript('export const f = function() {} as any/*c*/;\nexport const name = f.name;\n');
+  assert.equal(asBlockComment.backend, 'typescript');
+  const prefixAsyncComment = sameAsTypeScript('export const f = <any> async /*c*/ function() {};\nexport const name = f.name;\n');
+  assert.equal(prefixAsyncComment.backend, 'typescript');
+  // 3. Top-level await and `export =` clashing with CommonJS wrapper parameter report INVALID_COMMONJS_OUTPUT.
+  const topAwait = compile(Buffer.from('export {};\nawait import("x");\n'), { file: 'a.ts', module: 'cjs' });
+  assert.equal(topAwait.code, null);
+  assert.equal(topAwait.diagnostics[0].code, 'INVALID_COMMONJS_OUTPUT');
+  const clashReq = compile(Buffer.from('const require = 0;\nexport = 1;\n'), { file: 'a.ts', module: 'cjs' });
+  assert.equal(clashReq.code, null);
+  assert.equal(clashReq.diagnostics[0].code, 'INVALID_COMMONJS_OUTPUT');
+  // 4. Type-only modules preserve license / sourceURL comments (and delegate to TS when sourceMap needs comment mappings).
+  const typeLicense = compile(Buffer.from('export type T = number;\n/*! @license x */\n'), { file: 'a.ts', module: 'cjs' });
+  assert.equal(typeLicense.backend, 'pulse');
+  assert.match(typeLicense.code, /\/\*! @license x \*\//);
+  const typeSourceUrlMap = compile(Buffer.from('export type X = 1;\n//# sourceURL=virtual-source.js\n'), { file: 'a.ts', module: 'cjs', sourceMap: true });
+  assert.match(typeSourceUrlMap.code, /sourceURL=virtual-source\.js/);
+  assert.ok(typeSourceUrlMap.sourceMap.mappings.length > 0);
+  // 5. Helper order between dynamic import (`__importStar`) and `export *` (`__exportStar`) follows source order.
+  const dynFirst = sameAsTypeScript('export const load = () => import("./x");\nexport * from "./y";\n');
+  assert.equal(dynFirst.backend, 'pulse');
+  assert.ok(dynFirst.code.indexOf('var __importStar') < dynFirst.code.indexOf('var __exportStar'));
+  const starFirst = sameAsTypeScript('export * from "./y";\nexport const load = () => import("./x");\n');
+  assert.equal(starFirst.backend, 'pulse');
+  assert.ok(starFirst.code.indexOf('var __exportStar') < starFirst.code.indexOf('var __importStar'));
 });
