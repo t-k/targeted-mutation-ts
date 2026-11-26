@@ -123,6 +123,14 @@ static inline unsigned tmt_template_run(const uint8_t *source) {
   return mask ? (unsigned)(__builtin_ctzll(mask) >> 2) : 16U;
 }
 
+/* Counts leading ASCII horizontal whitespace (`' '` or `'\t'`) in a 16-byte window (0..16). */
+static inline unsigned tmt_hspace_run(const uint8_t *source) {
+  const uint8x16_t b = vld1q_u8(source);
+  const uint8x16_t non_ws = vmvnq_u8(vorrq_u8(vceqq_u8(b, vdupq_n_u8(' ')), vceqq_u8(b, vdupq_n_u8('\t'))));
+  const uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(non_ws), 4)), 0);
+  return mask ? (unsigned)(__builtin_ctzll(mask) >> 2) : 16U;
+}
+
 /* Counts leading ASCII space/tab/LF/CR bytes in a 16-byte window, setting `*has_nl` if LF/CR was skipped. */
 static inline unsigned tmt_space_run(const uint8_t *source, bool *has_nl) {
   const uint8x16_t b = vld1q_u8(source);
@@ -273,6 +281,13 @@ static inline unsigned tmt_template_run(const uint8_t *source) {
   hits = _mm_or_si128(hits, _mm_cmpeq_epi8(b, _mm_set1_epi8('\\')));
   const unsigned mask = (unsigned)_mm_movemask_epi8(hits);
   return mask ? (unsigned)__builtin_ctz(mask) : 16U;
+}
+
+static inline unsigned tmt_hspace_run(const uint8_t *source) {
+  const __m128i b = _mm_loadu_si128((const __m128i *)source);
+  const __m128i sp = _mm_or_si128(_mm_cmpeq_epi8(b, _mm_set1_epi8(' ')), _mm_cmpeq_epi8(b, _mm_set1_epi8('\t')));
+  const unsigned non_ws = (~(unsigned)_mm_movemask_epi8(sp)) & 0xffffU;
+  return non_ws ? (unsigned)__builtin_ctz(non_ws) : 16U;
 }
 
 static inline unsigned tmt_space_run(const uint8_t *source, bool *has_nl) {

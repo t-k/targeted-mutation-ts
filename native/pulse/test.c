@@ -103,7 +103,9 @@ static void check_template_and_space_runs(void)
       memset(buf, ' ', sizeof(buf));
       buf[lane] = (uint8_t)byte;
       const bool is_ws = byte == ' ' || byte == '\t' || byte == '\n' || byte == '\r';
+      const bool is_hws = byte == ' ' || byte == '\t';
       const bool is_nl = byte == '\n' || byte == '\r';
+      assert(tmt_hspace_run(buf) == (is_hws ? 16U : lane));
       bool nl = false;
       assert(tmt_space_run(buf, &nl) == (is_ws ? 16U : lane));
       assert(nl == is_nl);

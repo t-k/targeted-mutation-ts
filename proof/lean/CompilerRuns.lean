@@ -317,4 +317,20 @@ theorem skipIdentRun (bytes : List UInt8) (offset : Nat)
     simp only [List.length_cons]
     omega
 
+-- Horizontal whitespace run (`' '` or `'\t'`) for `tmt_hspace_run` in `TmtPulseScan_scan_class`.
+def asciiHorizontalSpace (byte : UInt8) : Bool :=
+  byte == 32 || byte == 9
+
+theorem skipHorizontalSpaceRun (bytes : List UInt8) (offset : Nat)
+    (safe : bytes.all asciiHorizontalSpace = true) :
+    bytes.foldl (fun pos b => if asciiHorizontalSpace b then pos + 1 else pos) offset =
+      offset + bytes.length := by
+  induction bytes generalizing offset with
+  | nil => simp
+  | cons b rest ih =>
+    simp only [List.all_cons, Bool.and_eq_true] at safe
+    rw [List.foldl_cons, if_pos safe.1, ih (offset + 1) safe.2]
+    simp only [List.length_cons]
+    omega
+
 end CompilerRuns

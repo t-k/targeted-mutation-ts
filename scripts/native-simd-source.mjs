@@ -88,6 +88,19 @@ export function simdSource(root, original, scratch, scalar) {
       cursor += skipped;
       if (skipped < 16U) return cursor;
     }
+  } else if (code == 0U) {
+    bool dummy_nl = true;
+    while (cursor < size && size - cursor >= 16U && source[cursor] <= 32U && source[cursor + 1] <= 32U) {
+      const unsigned skipped = tmt_space_run(source + cursor, &dummy_nl);
+      cursor += skipped;
+      if (skipped < 16U) return cursor;
+    }
+  } else if (code == 3U) {
+    while (cursor < size && size - cursor >= 16U && source[cursor] <= 32U && source[cursor + 1] <= 32U) {
+      const unsigned skipped = tmt_hspace_run(source + cursor);
+      cursor += skipped;
+      if (skipped < 16U) return cursor;
+    }
   }
 #endif
 `;
