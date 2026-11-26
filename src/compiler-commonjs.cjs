@@ -703,23 +703,25 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           if (headAt < 0 || /\/\/|\/\*/.test(value.slice(0, headAt))) return null;
           let tailEnd = skipTriviaBack(value, value.length, true);
           if (tailEnd < 0) return null;
+          let trailingErasedSemi = false;
           // Strip trailing empty statements (`;` left behind by erased `interface`/`type` declarations).
           while (tailEnd > 0 && value[tailEnd - 1] === ';') {
             const prevEnd = skipTriviaBack(value, tailEnd - 1, true);
             if (prevEnd < 0) return null;
             if (prevEnd > 0 && value[prevEnd - 1] === ';') { tailEnd = prevEnd; continue; }
+            if (prevEnd > 0 && value[prevEnd] === '\n') { tailEnd = prevEnd; trailingErasedSemi = true; continue; }
             break;
           }
-          const hasSemi = tailEnd > 0 && value[tailEnd - 1] === ';';
-          const trailingComment = !hasSemi && /\/\/|\/\*/.test(value.slice(tailEnd));
+          const hasSemi = !trailingErasedSemi && tailEnd > 0 && value[tailEnd - 1] === ';';
+          const trailingComment = !hasSemi && !trailingErasedSemi && /\/\/|\/\*/.test(value.slice(tailEnd));
           if (trailingComment && value[tailEnd] !== '\n') return null;
-          const beforeEnd = hasSemi ? value.slice(0, tailEnd - 1) : trailingComment ? value.slice(0, tailEnd) : value.replace(/\n[ \t]*$/, '').replace(/\n+$/, '');
+          const beforeEnd = hasSemi ? value.slice(0, tailEnd - 1) : (trailingComment || trailingErasedSemi) ? value.slice(0, tailEnd) : value.replace(/\n[ \t]*$/, '').replace(/\n+$/, '');
           const leading = /^([ \t]*)([\s\S]*)$/.exec(beforeEnd);
           if (skipTriviaBack(beforeEnd, beforeEnd.length, true) !== beforeEnd.length ||
               ((leading[1].length > 1 || (leading[2].startsWith('\n') && source.includes('<') && /=(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*</.test(source))) &&
                /^(?:async(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)+function|function|class)(?![\w$])/.test(leading[2].trimStart()))) return null;
           edits.push([first, at, '']);
-          if (trailingComment) edits.push([equals + tailEnd, equals + tailEnd, `;\nexports.${name} = ${name};`]);
+          if (trailingComment || trailingErasedSemi) edits.push([equals + tailEnd, equals + tailEnd, `;\nexports.${name} = ${name};`]);
           else behind(index, `exports.${name} = ${name};`);
         } else edits.push([first, names[0].last, `exports.${name}`]);
         renamed.set(name, { text: `exports.${name}`, statement: index, kind: 'variable', declaration: names[0].first });
@@ -895,8 +897,26 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
     return targetCursor < targets.length && position >= targets[targetCursor][0] && position < targets[targetCursor][1];
   };
   // An identifier followed by `.`, `(`, or `[` inside an assignment LHS (`browser.rootEl = 1`, `configs[dirname(p)] = 1`)
-  // is evaluated as a receiver/callee/index expression rather than assigned as a binding.
-  const isBindingTarget = (position, nextChar) => nextChar !== '.' && nextChar !== '(' && nextChar !== '[' && targeted(position);
+  // or used as a computed property index (`entity[SIGNAL] = 1`, `(getter)[SIGNAL] = 1`) is evaluated as an expression
+  // rather than assigned as a binding.
+  const nonExprKeywords = new Set(['return', 'yield', 'await', 'case', 'throw', 'delete', 'typeof', 'void', 'in', 'of', 'instanceof', 'new', 'else', 'do']);
+  const isComputedIndex = (position, prevToken, nextChar) => {
+    if (prevToken !== '[' || nextChar !== ']') return false;
+    const brEnd = skipTriviaBack(text, position, false);
+    if (brEnd <= 0 || text[brEnd - 1] !== '[') return false;
+    const beforeBr = skipTriviaBack(text, brEnd - 1, false);
+    if (beforeBr <= 0) return false;
+    const ch = text.charCodeAt(beforeBr - 1);
+    if (ch === 41 || ch === 93) return true; // `)[key] =` or `][key] =`
+    if (ID_CONT[ch]) {
+      let s = beforeBr - 1;
+      while (s > 0 && ID_CONT[text.charCodeAt(s - 1)]) s--;
+      return !nonExprKeywords.has(text.slice(s, beforeBr));
+    }
+    return false;
+  };
+  const isBindingTarget = (position, nextChar, prevToken) =>
+    nextChar !== '.' && nextChar !== '(' && nextChar !== '[' && !isComputedIndex(position, prevToken, nextChar) && targeted(position);
   // Every occurrence of a renamed name in code has to be one that the parser read as an expression, a
   // property behind a dot, a property key/label/method name, or the declaration itself. A local name that
   // stays is exported by value, so nothing may write or shadow it.
@@ -1024,7 +1044,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         }
         const [one, two, three, nextAt] = followers(text, at + name.length);
         if (/[\x80-\xff\\]/.test(one)) return false;
-        if (target.kind !== 'variable' && (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one))) return false;
+        if (target.kind !== 'variable' && (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one, prevToken))) return false;
         // An optional call is written by TypeScript with parentheses that end the chain; it is left to it.
         if (one === '?' && two === '.') {
           const afterOpt = skipTrivia(text, nextAt + 2);
@@ -1042,7 +1062,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
             if (prev < 0) {
               if (prevToken !== '' && !'([{,;:?=!&|^~<>+-*%/@'.includes(prevToken[0]) && prevToken !== '=>') return false;
             } else if (text.slice(prev, at).includes('\n') && prev > 0 && /[\w$)\]}'"`\x80-\xff]/.test(text[prev - 1]) &&
-                !['else', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'case'].includes(prevToken)) return false;
+                !['else', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'case', ')ctrl'].includes(prevToken)) return false;
           }
         }
         edits.push([at, at + name.length, reference !== undefined && (reference & 1) === 1 ? `${name}: ${target.text}` : value]);
@@ -1075,15 +1095,15 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         if (checkLoopTarget() || (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt)))) return false;
         if (targets.some(([first, last]) => first === at && last === at + name.length) && one === '=' && two !== '=' && two !== '>') {
           edits.push([at, at, local.exported.slice().reverse().map(exported => `exports.${exported} = `).join('')]);
-        } else if (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one)) return false;
+        } else if (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one, prevToken)) return false;
       } else if (reference !== undefined && local.kind === 'filled') {
         // The variable of a lowered enum or namespace is written only by the function that fills it.
         const [one, two, three] = followers(text, at + name.length);
-        if (statementOf(at) !== local.statement + 1 && (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one))) return false;
+        if (statementOf(at) !== local.statement + 1 && (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one, prevToken))) return false;
       } else if (reference !== undefined && (local.kind === 'function' || local.kind === 'class')) {
         // A function or a class is exported by value: an assignment to it would have to write the export too.
         const [one, two, three, nextAt] = followers(text, at + name.length);
-        if (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one)) return false;
+        if (writes(text, at, one, two, three, prevToken) || isBindingTarget(at, one, prevToken)) return false;
         // The head of a loop and a parenthesized object are the targets that the parser does not report.
         if ((nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) || checkLoopTarget()) return false;
         if (checkObjectTarget() && (one === ',' || one === '}')) return false;

@@ -182,9 +182,9 @@ test('modules that are left to TypeScript for CommonJS output', () => {
     assert.equal(result.backend, 'typescript', why);
     if (result.code !== null) assert.deepEqual(shape(result.code), shape(reference(source, 'module.ts')), why);
   }
-  // A call on its own line behind something that may end a statement is not written here.
-  const unsure = compile(Buffer.from('import { a } from "./a";\ndeclare const x: any;\nif (x)\n  a()\nexport {};'), { file: 'module.ts', module: 'cjs' });
-  assert.equal(unsure.backend, 'typescript');
+  // A call on its own line behind `if (x)` or `for (...)` is unambiguous (`)ctrl`).
+  assert.equal(sameAsTypeScript('import { a } from "./a";\ndeclare const x: any;\nif (x)\n  a()\nexport {};').backend, 'pulse');
+  assert.equal(sameAsTypeScript('import { a } from "./a";\nexport function run() { for (let i = 0; i < 1; i++)\n  a() }').backend, 'pulse');
   // .cts, .cjs, .mts with CommonJS and source maps are emitted natively.
   for (const [source, file, opts, expectedBackend, expectedMapFile] of [
     ['import { a } from "./a";\nexport const x: number = a + 1;\n', 'mod.cts', {}, 'pulse', 'mod.cjs'],
@@ -626,6 +626,8 @@ test('CommonJS local-scope import shadowing compiles natively and matches TypeSc
     'export const value = 1;\nexport function use(value: number) { return value + 1; }\nexport const outer = value;\n',
     'export declare namespace Foo { export interface Bar { x: number } }\nexport declare interface Baz { y: string }\nexport declare type Qux = number;\nexport const ok = 1;\n',
     'export const noop = (_: number) => true;\n\ninterface Query { name: string }\ntype Op = number;\n',
+    'export const fn = () => 1\n\n/** doc */\ntype T = number\n',
+    'import { SIGNAL, basename } from "./s";\nexport function set(entity: any, getter: any, data: any) { entity[basename] = data; (getter)[SIGNAL] = data; }\n',
   ]) {
     assert.equal(sameAsTypeScript(src).backend, 'pulse', src);
   }
@@ -653,6 +655,8 @@ test('CommonJS local-scope import shadowing compiles natively and matches TypeSc
     'export let x = 1;\nexport const f = () => class x extends class {} { m() { return x; } };\n',
     'const d = (c: any) => c;\n@d export class C {}\nconst async: any = { if() {} };\nasync.if()\n{ await 0; }\n',
     'const d = (c: any) => c;\n@d export class C {}\nconst async: any = { if() {} };\nasync?.if()\n{ await 0; }\n',
+    'import { SIGNAL } from "./s";\n[SIGNAL] = [1];\nexport {};\n',
+    'export const fn = function () {} as any\n\ntype T = number;\n',
   ]) {
     assert.equal(compile(Buffer.from(src), { file: 'shadow.ts', module: 'cjs' }).backend, 'typescript', src);
   }
