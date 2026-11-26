@@ -577,12 +577,11 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
     const r = sameAsTypeScript(src);
     assert.equal(r.backend, 'pulse', src);
   }
-  // Shadowed local decorator binding declines cleanly to TypeScript.
-  const shadowedDec = compile(Buffer.from('import { Dec } from "./d";\nexport function run(Dec: any) { @Dec() class Local {} return Local; }\n'), { file: 'a.ts', module: 'cjs' });
-  assert.equal(shadowedDec.backend, 'typescript');
-  // Review round 44 regressions: method param after parenthesized default, block comment with `/*` before `!`,
+  // Shadowed local decorator bindings are resolved natively by the scope analyzer and match TypeScript.
+  assert.equal(sameAsTypeScript('import { Dec } from "./d";\nexport function run(Dec: any) { @Dec() class Local {} return Local; }\n').backend, 'pulse');
+  assert.equal(sameAsTypeScript('import { Dec } from "./d";\nexport class C { m(x = (0), Dec = () => () => {}) { @Dec() class Local {} return Local; } }\n').backend, 'pulse');
+  // Review round 44 regressions: block comment with `/*` before `!`,
   // `async` identifier before `{ await }` vs destructured async method param.
-  assert.equal(compile(Buffer.from('import { Dec } from "./d";\nexport class C { m(x = (0), Dec = () => () => {}) { @Dec() class Local {} return Local; } }\n'), { file: 'a.ts', module: 'cjs' }).backend, 'typescript');
   assert.equal(compile(Buffer.from('import { f } from "./d";\nexport const x = f /* a /* b */!();\n'), { file: 'a.ts', module: 'cjs' }).backend, 'typescript');
   assert.equal(compile(Buffer.from('const d = (c: any) => c;\n@d export class C {}\nlet async: any;\nasync && { x: await 0 };\n'), { file: 'a.ts', module: 'cjs' }).backend, 'typescript');
   assert.equal(compile(Buffer.from('const d = (c: any) => c;\n@d export class C {}\nconst async = 1;\nasync\n{ await Promise.resolve(); }\n'), { file: 'a.ts', module: 'cjs' }).backend, 'typescript');
@@ -628,6 +627,7 @@ test('CommonJS local-scope import shadowing compiles natively and matches TypeSc
     'export const noop = (_: number) => true;\n\ninterface Query { name: string }\ntype Op = number;\n',
     'export const fn = () => 1\n\n/** doc */\ntype T = number\n',
     'import { SIGNAL, basename } from "./s";\nexport function set(entity: any, getter: any, data: any) { entity[basename] = data; (getter)[SIGNAL] = data; }\n',
+    'export declare namespace CliApp { export interface Config { name: string } }\nexport const id = Symbol.for("@effect/cli/CliApp");\n',
   ]) {
     assert.equal(sameAsTypeScript(src).backend, 'pulse', src);
   }

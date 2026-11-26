@@ -739,4 +739,4 @@ function collectShadowedSpans(text, watchedNames) {
   return spans;
 }
 
-module.exports = { collectShadowedSpans };
+module.exports = { collectShadowedSpans, tokenizeJs };

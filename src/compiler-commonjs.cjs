@@ -1051,7 +1051,11 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         if (shadowedSpans !== null && isInShadowedSpan(shadowedSpans, name, at)) return;
         const isDecoratorHead = prevToken === '@' || before === '@';
         if (isDecoratorHead) {
-          if (!(depth === 0 || inTopClass || !isShadowedLocal(name))) return false;
+          if (!(depth === 0 || inTopClass || shadowedSpans !== null || !isShadowedLocal(name))) {
+            if (shadowCandidates === null) shadowCandidates = new Set();
+            shadowCandidates.add(name);
+            return;
+          }
         } else if (reference === undefined || Math.floor(reference / 2) !== at + name.length) {
           // Non-reference identifier in code: safe when it is a property key/label (`name:`), a method or
           // accessor definition (`name(` not after `function`/`function*`), a label jump, or a static member.
@@ -1139,7 +1143,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   let scanned = runScan(null);
   if (scanned && shadowCandidates !== null) {
     const shadowedSpans = collectShadowedSpans(text, shadowCandidates);
-    if (shadowedSpans === null || shadowedSpans.size === 0) return null;
+    if (shadowedSpans === null) return null;
     edits.length = preScanEditsLen;
     helpers.clear();
     for (const [k, v] of preScanHelpers) helpers.set(k, v);

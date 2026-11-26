@@ -1047,8 +1047,12 @@ function compile(input, options = {}) {
           if (ambient || !closed) { ambient = true; break; }
         }
         if (written.code.includes(name) && new RegExp(`(?<![\\w$])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(written.code)) {
-          ambient = true;
-          break;
+          // Verify whether `name` actually appears as a code identifier (not merely inside comments/strings).
+          const toks = require('./compiler-commonjs-scope.cjs').tokenizeJs(written.code);
+          if (toks === null || toks.some(t => t.type === 'id' && !t.afterDot && t.value === name)) {
+            ambient = true;
+            break;
+          }
         }
       }
     }
