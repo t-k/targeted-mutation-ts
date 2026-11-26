@@ -256,10 +256,25 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
   if (!text.includes('\\u') && !/[^\x00-\x7f]/.test(text) && (!checkGenericCall || !text.includes('>'))) return false;
   const braces = [];
   let prev = '';
+  let badEsc = false;
+  const isValidUnicodeEsc = pos => {
+    if (text[pos + 2] === '{') {
+      let e = pos + 3;
+      while (e < text.length && /[0-9a-fA-F]/.test(text[e])) e++;
+      if (e === pos + 3 || text[e] !== '}') return false;
+      const cp = parseInt(text.slice(pos + 3, e), 16);
+      return Number.isFinite(cp) && cp <= 0x10ffff;
+    }
+    return /^[0-9a-fA-F]{4}/.test(text.slice(pos + 2, pos + 6));
+  };
   const skipTpl = pos => {
     while (pos < text.length) {
       const ch = text[pos];
-      if (ch === '\\') { pos += 2; continue; }
+      if (ch === '\\') {
+        if (text[pos + 1] === 'u' && !isValidUnicodeEsc(pos)) { badEsc = true; return text.length; }
+        pos += 2;
+        continue;
+      }
       if (ch === '`') { prev = 'lit'; return pos; }
       if (ch === '$' && text[pos + 1] === '{') { braces.push('tpl'); prev = '{'; return pos + 1; }
       pos++;
@@ -282,16 +297,18 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
     if (c === '"' || c === "'") {
       at++;
       while (at < text.length && text[at] !== c) {
-        if (text[at] === '\\') at += 2;
-        else at++;
+        if (text[at] === '\\') {
+          if (text[at + 1] === 'u' && !isValidUnicodeEsc(at)) return true;
+          at += 2;
+        } else at++;
       }
       prev = 'lit';
       continue;
     }
-    if (c === '`') { at = skipTpl(at + 1); continue; }
+    if (c === '`') { at = skipTpl(at + 1); if (badEsc) return true; continue; }
     if (c === '{') { braces.push('{'); prev = '{'; continue; }
     if (c === '}') {
-      if (braces.length > 0 && braces[braces.length - 1] === 'tpl') { braces.pop(); at = skipTpl(at + 1); continue; }
+      if (braces.length > 0 && braces[braces.length - 1] === 'tpl') { braces.pop(); at = skipTpl(at + 1); if (badEsc) return true; continue; }
       if (braces.length > 0) braces.pop();
       prev = '}';
       continue;
@@ -355,12 +372,13 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
           if (!Number.isFinite(cp) || cp > 0x10ffff) { invalid = true; return ''; }
           return String.fromCodePoint(cp);
         });
-        if (invalid || newerLetter(decoded)) return true;
+        if (invalid || newerLetter(decoded) || /^[\u200c\u200d]/.test(decoded)) return true;
         if (escapedKeywords.has(decoded)) {
           let next = at;
           while (next < text.length && (text[next] === ' ' || text[next] === '\t' || text[next] === '\n' || text[next] === '\r')) next++;
           const follower = text[next];
-          const isProp = prev === '.' || (follower === ':' && (prev === '{' || prev === ',')) ||
+          const isProp = prev === '.' ||
+            (follower === ':' && (prev === ',' || (prev === '{' && decoded !== 'await' && decoded !== 'yield'))) ||
             (follower === '(' && (prev === '{' || prev === ',' || prev === ';' || prev === '}' || prev === 'static' || prev === 'get' || prev === 'set' || prev === 'async' || prev === '*'));
           if (!isProp) return true;
         }
@@ -405,7 +423,7 @@ function hasDuplicateTopLevelLexical(text) {
 }
 
 function validJavaScriptTsModule(addon, source, text, file, format, directive = false, sourceMap = false) {
-  if (hasEscapedKeyword(text) ||
+  if (hasEscapedKeyword(text, false) ||
       /\bnew(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*)*import\b|\bimport(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*)*(?:\.(?:\s+|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*)*(?:source|defer)|source|defer)\b|\?\.[^\n;]*#/.test(text) ||
       require('./compiler-ts-lower.cjs').hasForBracketIn(text)) {
     return null;
@@ -413,24 +431,31 @@ function validJavaScriptTsModule(addon, source, text, file, format, directive = 
   const validators = javascriptValidators();
   if (!validators.validModule || !validators.validScript) return null;
   let code = null;
-  if (validators.validModule(text) && !validators.validScript(text) && /\b(?:import|export)\b/.test(text)) {
+  const genericCallSafe = !hasEscapedKeyword(text, true);
+  if (genericCallSafe && validators.validModule(text) && !validators.validScript(text) && /\b(?:import|export)\b/.test(text)) {
     code = text;
-  } else if (!sourceMap && format === 'preserve' && !/\b(?:import|export)\b/.test(text) && validators.validScript(text)) {
+  } else if (genericCallSafe && !sourceMap && format === 'preserve' && !/\b(?:import|export)\b/.test(text) && validators.validScript(text)) {
     code = strictScript(text, file, directive);
   } else if (!sourceMap && format === 'preserve' && !directive && /\b(?:import|export)\b/.test(text) && !tsRejectsInStripIdentity.test(text)) {
     // 1. Sloppy-mode pure-JS body with trailing `export {};` (common in Test262 module harnesses):
     //    V8's script parser validates the body when it has no octal/await/HTML-comment module hazards.
     const trail = /^([\s\S]*)\nexport \{\};\n?$/.exec(text);
-    if (trail !== null && !/\b(?:import|export|await)\b|\b0[0-9]|\\[1-7]|\\0[0-9]/.test(trail[1]) && validators.validScript(trail[1])) {
+    if (genericCallSafe && trail !== null && !/\b(?:import|export|await)\b|\b0[0-9]|\\[1-7]|\\0[0-9]/.test(trail[1]) && validators.validScript(trail[1])) {
       code = text;
-    } else if (!/\\u|[\u200c\u200d\u2028\u2029]/.test(text) && !hasDuplicateTopLevelLexical(text) &&
+    } else if (!/[\u200c\u200d\u2028\u2029]/.test(text) && !hasDuplicateTopLevelLexical(text) &&
         !(/[^\x00-\x7f]/.test(text) && /\bexport\s*\{\s*[^}\s]/.test(text)) &&
         !/\bconstructor\s*\([^)]*\b(?:public|private|protected|readonly)\b/.test(text) &&
         (text.includes('export {};') || text.includes('---*/') || !hasInvalidRegexLiteral(text))) {
       // 2. Pure-JS module that passes Node's stripTypeScriptTypes verbatim (identity output) while
       //    avoiding all SWC/TS 6.0.3 syntax divergences checked above (hasEscapedKeyword already ran).
       const stripped = strip(text, file);
-      if (stripped.code === text && verifyRuntimeExports(stripped, file, addon, source).code !== null) code = text;
+      if (stripped.code === text && verifyRuntimeExports(stripped, file, addon, source).code !== null) {
+        code = text;
+      } else if (stripped.code === null && stripped.diagnostics[0]?.message &&
+          require('./compiler-ts-lower.cjs').validPureJsWithSwcRelaxations(text, stripped.diagnostics[0].message) &&
+          verifyRuntimeExports({ backend: 'javascript', code: text, sourceMap: null, diagnostics: [] }, file, addon, source).code !== null) {
+        code = text;
+      }
     }
   }
   if (code === null) return null;

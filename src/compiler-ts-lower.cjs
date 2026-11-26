@@ -1574,6 +1574,297 @@ function stripWithSwcRelaxations(source, errMsg) {
   return null;
 }
 
+// Validates a pure-JavaScript module/script that Node's stripTypeScriptTypes rejected only for an
+// ECMAScript semantic early error that TypeScript 6.0.3's syntax-only transpileModule accepts verbatim.
+// Substitutes only the targeted construct, runs stripTypeScriptTypes to verify full grammar validity
+// AND identity output (no TypeScript syntax erased), and returns true iff valid.
+function validPureJsWithSwcRelaxations(source, errMsg) {
+  if (!errMsg) return false;
+  const checkId = (work) => {
+    try { return stripTypeScriptTypes(work) === work; }
+    catch { return false; }
+  };
+
+  // 1. `"use strict"` inside function with non-simple parameter list
+  if (errMsg.includes("Illegal 'use strict' directive")) {
+    if (!/["']use strict["']/.test(source)) return false;
+    const work = source.replace(/(["'])use strict\1/g, '$1use_strict$1');
+    return work !== source && checkId(work);
+  }
+
+  // 2. `with (expr)` statement in strict/module code
+  if (errMsg.includes("The 'with' statement is not supported")) {
+    const toks = tokenize(source);
+    if (!toks) return false;
+    const edits = [];
+    for (let i = 0; i < toks.length; i++) {
+      if (toks[i].type === 'id' && toks[i].text === 'with' && toks[i + 1]?.text === '(') {
+        const prev = i > 0 ? toks[i - 1] : null;
+        if (prev && prev.text === '.') continue;
+        edits.push({ start: toks[i].start, end: toks[i].end, text: 'if' });
+      }
+    }
+    if (edits.length === 0) return false;
+    let work = '', pos = 0;
+    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+    work += source.slice(pos);
+    return checkId(work);
+  }
+
+  // 3. `yield` used as an identifier in strict mode / async generator
+  if (errMsg.includes('`yield` cannot be used as an identifier')) {
+    if (source.includes('__tmt_yd__')) return false;
+    const toks = tokenize(source);
+    if (!toks) return false;
+    const edits = [];
+    for (let i = 0; i < toks.length; i++) {
+      if (toks[i].type !== 'id' || toks[i].text !== 'yield') continue;
+      const prev = i > 0 ? toks[i - 1] : null;
+      if (prev && prev.text === '.') continue;
+      const next = toks[i + 1];
+      const isIdentUse = (prev && (prev.text === '(' || prev.text === ',' || prev.text === 'var' || prev.text === 'let' || prev.text === 'const' || prev.text === 'function' || prev.text === '[' || prev.text === '{' || prev.text === ':' || prev.text === '=' || prev.text === '...')) ||
+        (next && (next.text === ')' || next.text === ',' || next.text === ';' || next.text === '=' || next.text === ']' || next.text === '}'));
+      if (isIdentUse) edits.push({ start: toks[i].start, end: toks[i].end, text: '__tmt_yd__' });
+    }
+    if (edits.length === 0) return false;
+    let work = '', pos = 0;
+    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+    work += source.slice(pos);
+    return checkId(work);
+  }
+
+  // 4. `'arguments' is only allowed in functions and class methods` (e.g. class field initializer / static block)
+  if (errMsg.includes("'arguments' is only allowed in functions")) {
+    if (source.includes('__tmt_ag__')) return false;
+    const toks = tokenize(source);
+    if (!toks) return false;
+    const edits = [];
+    for (let i = 0; i < toks.length; i++) {
+      if (toks[i].type === 'id' && toks[i].text === 'arguments' && toks[i - 1]?.text !== '.') {
+        edits.push({ start: toks[i].start, end: toks[i].end, text: '__tmt_ag__' });
+      }
+    }
+    if (edits.length === 0) return false;
+    let work = '', pos = 0;
+    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+    work += source.slice(pos);
+    return checkId(work);
+  }
+
+  // 5. Rest element early errors: `[...a, b] = []`, `[...a,] = []`, `[...a = 1] = []`, `(...a = 1) => {}`
+  if (errMsg.includes('Rest element must be final') ||
+      errMsg.includes("Expected ',', got '='") ||
+      errMsg.includes("Trailing comma isn't permitted after a rest") ||
+      errMsg.includes('A rest parameter cannot have an initializer')) {
+    const toks = tokenize(source);
+    if (!toks) return false;
+    const edits = [];
+    for (let i = 0; i < toks.length; i++) {
+      if (toks[i].type === 'punc' && toks[i].text === '...') {
+        // Removing `...` in a destructuring/parameter pattern turns a rest element into a normal element
+        // so SWC still validates the entire pattern, initializer, and trailing elements.
+        edits.push({ start: toks[i].start, end: toks[i].end, text: '   ' });
+      }
+    }
+    if (edits.length === 0) return false;
+    let work = '', pos = 0;
+    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+    work += source.slice(pos);
+    return checkId(work);
+  }
+
+  // 6. Invalid assignment LHS (`a?.b = 1`, `f() = 1`, `++f()`, `1 = 2`) in pure JS:
+  //    In TS 6.0.3, `transpileModule` parses assignment expressions with any LeftHandSideExpression
+  //    (and rejects actual syntax errors like `a + b = 1`? No, TS accepts `a?.b = 1` and `f() = 1`).
+  //    Rewrite `?.` -> `.` first if present; otherwise replace `=` / `++` / `--` target check with `,` expression.
+  if (errMsg.includes('The left-hand side of an assignment expression') || errMsg.includes('Invalid assignment target')) {
+    if (source.includes('?.')) {
+      const work = source.replace(/\?\./g, '.');
+      if (work !== source && checkId(work)) return true;
+    }
+    // Try replacing top-level assignment `=` in `(lhs = rhs)` with `,`? Only safe when `=` is `=` (not `==`/`=>`)
+    // and NOT inside destructuring default where `=` is valid. Better: skip unless `?.` handled it, or check `new Function`?
+    // For `f() = 1` / `1 = 2`: check `lhs` followed by `=` where `lhs` ends with `)` (call expression) or literal.
+    const toks = tokenize(source);
+    if (!toks) return false;
+    const edits = [];
+    const assignOps = new Set(['=', '+=', '-=', '*=', '/=', '%=', '**=', '<<=', '>>=', '>>>=', '&=', '|=', '^=', '&&=', '||=', '??=']);
+    const lhsEnds = new Set([')', 'true', 'false', 'null', 'target']);
+    for (let i = 1; i < toks.length - 1; i++) {
+      const t = toks[i];
+      if (t.type === 'punc' && assignOps.has(t.text) &&
+          (t.text !== '=' || (toks[i - 1].text !== '=' && toks[i - 1].text !== '!' &&
+            toks[i - 1].text !== '<' && toks[i - 1].text !== '>' && toks[i + 1].text !== '=' && toks[i + 1].text !== '>'))) {
+        const prev = toks[i - 1];
+        if (lhsEnds.has(prev.text) || prev.type === 'num' || prev.type === 'str' || prev.type === 'tpl') {
+          edits.push({ start: t.start, end: t.end, text: '==' });
+        }
+      } else if (t.type === 'punc' && (t.text === '++' || t.text === '--')) {
+        if (toks[i - 1]?.text === ')') {
+          edits.push({ start: t.start, end: t.end, text: '  ' });
+        } else if (toks[i + 1]?.text === '(' || toks[i + 1]?.type === 'id') {
+          // Only relax prefix `++f()` / `--(a)` when followed by a call or parenthesized expr
+          let k = i + 1;
+          while (k < toks.length && (toks[k].type === 'id' || toks[k].text === '.')) k++;
+          if (toks[k]?.text === '(') {
+            edits.push({ start: t.start, end: t.end, text: '+ ' });
+          }
+        }
+      }
+    }
+    if (edits.length === 0) return false;
+    let work = '', pos = 0;
+    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+    work += source.slice(pos);
+    return checkId(work);
+  }
+
+  // 7. `import()` with 0 or 3+ arguments (SWC enforces 1..2 args; TS 6.0.3 accepts any argument list)
+  if (errMsg.includes('`import()` requires')) {
+    if (source.includes('__tmt_im__')) return false;
+    const toks = tokenize(source);
+    if (!toks) return false;
+    const edits = [];
+    for (let i = 0; i < toks.length - 1; i++) {
+      if (toks[i].type === 'id' && toks[i].text === 'import' && toks[i + 1].text === '(' && toks[i - 1]?.text !== '.') {
+        edits.push({ start: toks[i].start, end: toks[i].end, text: '__tmt_im__' });
+      }
+    }
+    if (edits.length === 0) return false;
+    let work = '', pos = 0;
+    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+    work += source.slice(pos);
+    return checkId(work);
+  }
+
+  // 8. `'eval' and 'arguments' cannot be used as a binding identifier in strict mode`
+  if (errMsg.includes("'eval' and 'arguments' cannot be used as a binding identifier")) {
+    if (source.includes('__tmt_ev__') || source.includes('__tmt_ag__')) return false;
+    const toks = tokenize(source);
+    if (!toks) return false;
+    const edits = [];
+    for (let i = 0; i < toks.length; i++) {
+      if (toks[i].type === 'id' && (toks[i].text === 'eval' || toks[i].text === 'arguments') && toks[i - 1]?.text !== '.') {
+        edits.push({ start: toks[i].start, end: toks[i].end, text: toks[i].text === 'eval' ? '__tmt_ev__' : '__tmt_ag__' });
+      }
+    }
+    if (edits.length === 0) return false;
+    let work = '', pos = 0;
+    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+    work += source.slice(pos);
+    return checkId(work);
+  }
+
+  // 9. `` `let` cannot be used as an identifier in strict mode ``
+  if (errMsg.includes('`let` cannot be used as an identifier')) {
+    if (source.includes('__tmt_lt__')) return false;
+    const toks = tokenize(source);
+    if (!toks) return false;
+    const edits = [];
+    for (let i = 0; i < toks.length; i++) {
+      if (toks[i].type !== 'id' || toks[i].text !== 'let') continue;
+      const prev = i > 0 ? toks[i - 1] : null;
+      if (prev && prev.text === '.') continue;
+      const next = toks[i + 1];
+      const isIdentUse = (prev && ['var', 'let', 'const', 'function', 'class', '(', ',', '[', '{', ':', '=', '...'].includes(prev.text)) ||
+        (next && [')', ',', ';', '=', ']', '}'].includes(next.text));
+      if (isIdentUse) edits.push({ start: toks[i].start, end: toks[i].end, text: '__tmt_lt__' });
+    }
+    if (edits.length === 0) return false;
+    let work = '', pos = 0;
+    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+    work += source.slice(pos);
+    return checkId(work);
+  }
+
+  // 10. `` `await` cannot be used as an identifier in an async context ``
+  if (errMsg.includes('`await` cannot be used as an identifier')) {
+    if (source.includes('__tmt_aw__')) return false;
+    const toks = tokenize(source);
+    if (!toks) return false;
+    const edits = [];
+    for (let i = 0; i < toks.length; i++) {
+      if (toks[i].type !== 'id' || toks[i].text !== 'await') continue;
+      const prev = i > 0 ? toks[i - 1] : null;
+      if (prev && prev.text === '.') continue;
+      const next = toks[i + 1];
+      const isIdentUse = (prev && ['var', 'let', 'const', 'function', 'class', '(', ',', '[', '{', ':', '=', '...'].includes(prev.text)) ||
+        (next && [')', ',', ';', '=', ']', '}', ':'].includes(next.text));
+      if (isIdentUse) edits.push({ start: toks[i].start, end: toks[i].end, text: '__tmt_aw__' });
+    }
+    if (edits.length === 0) return false;
+    let work = '', pos = 0;
+    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+    work += source.slice(pos);
+    return checkId(work);
+  }
+
+  // 11. `'import', and 'export' cannot be used outside of module code`
+  //     Lift nested `import`/`export` statements (at braceDepth > 0 or after `)`/`else`/`do`/`:`)
+  //     to top-level so SWC still validates both the enclosing statement and the import/export syntax.
+  if (errMsg.includes("'import', and 'export' cannot be used outside of module code")) {
+    const toks = tokenize(source);
+    if (!toks) return false;
+    const edits = [];
+    const lifted = [];
+    let braceDepth = 0, parenDepth = 0;
+    for (let i = 0; i < toks.length; i++) {
+      const tk = toks[i];
+      if (tk.type === 'punc') {
+        if (tk.text === '{') braceDepth++;
+        else if (tk.text === '}') braceDepth = Math.max(0, braceDepth - 1);
+        else if (tk.text === '(') parenDepth++;
+        else if (tk.text === ')') parenDepth = Math.max(0, parenDepth - 1);
+        continue;
+      }
+      if (parenDepth === 0 && tk.type === 'id' && (tk.text === 'import' || tk.text === 'export')) {
+        const prev = i > 0 ? toks[i - 1] : null;
+        if (prev && prev.text === '.') continue;
+        if (tk.text === 'import' && (toks[i + 1]?.text === '(' || toks[i + 1]?.text === '.')) continue;
+        const isNested = braceDepth > 0 || (prev && (prev.text === ')' || prev.text === 'else' || prev.text === 'do' || prev.text === ':'));
+        if (!isNested) continue;
+        // Scan until `;` or matching `}` at current braceDepth
+        let k = i + 1, bd = 0, pd = 0, bkd = 0, endIdx = -1;
+        while (k < toks.length) {
+          const nt = toks[k];
+          if (nt.type === 'punc') {
+            if (nt.text === '{') bd++;
+            else if (nt.text === '}') {
+              if (bd === 0) { endIdx = k - 1; break; }
+              bd--;
+              if (bd === 0 && pd === 0 && bkd === 0 && toks[k + 1]?.text !== 'from' && toks[k + 1]?.text !== ';') {
+                // `export function f() {}` or `export class C {}`
+                const second = toks[i + 1]?.text;
+                if (second === 'function' || second === 'class' || second === 'async' ||
+                    (second === 'default' && (toks[i + 2]?.text === 'function' || toks[i + 2]?.text === 'class' || toks[i + 2]?.text === 'async'))) {
+                  endIdx = k;
+                  break;
+                }
+              }
+            } else if (nt.text === '(') pd++;
+            else if (nt.text === ')') pd--;
+            else if (nt.text === '[') bkd++;
+            else if (nt.text === ']') bkd--;
+            else if (nt.text === ';' && bd === 0 && pd === 0 && bkd === 0) { endIdx = k; break; }
+          }
+          k++;
+        }
+        if (endIdx < i) return false;
+        lifted.push(source.slice(tk.start, toks[endIdx].end));
+        edits.push({ start: tk.start, end: toks[endIdx].end, text: ';' });
+        i = endIdx;
+      }
+    }
+    if (edits.length === 0) return false;
+    let work = '', pos = 0;
+    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+    work += source.slice(pos) + '\n' + lifted.join('\n') + '\n';
+    return checkId(work);
+  }
+
+  return false;
+}
+
 module.exports = {
   tokenize,
   hasForBracketIn,
@@ -1586,4 +1877,5 @@ module.exports = {
   eraseNonEsDecorators,
   eraseAngleBracketAssertions,
   stripWithSwcRelaxations,
+  validPureJsWithSwcRelaxations,
 };
