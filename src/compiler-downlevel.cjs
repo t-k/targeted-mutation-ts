@@ -390,9 +390,11 @@ function lowerDownlevel(code, year) {
       continue;
     }
 
-    // 3. Single-step optional chaining: `id?.prop`, `id?.(args)`, `id?.[idx]`
+    // 3. Single-optional-point chaining on plain ident or `this`: `id?.prop`, `id?.(args)`, `id?.[idx]`,
+    //    plus arbitrary non-optional `.prop` / `[idx]` / `(args)` continuations (`id?.b.c(1)`, `this?.a`).
     if (needOptChain && t.value === '?.') {
-      if (!isPlainIdent(prev, prev2) || prev.value === 'eval') return null;
+      const isThis = prev && prev.type === 'id' && prev.value === 'this' && (!prev2 || (prev2.value !== '.' && prev2.value !== '?.'));
+      if ((!isPlainIdent(prev, prev2) && !isThis) || prev.value === 'eval') return null;
       if (prev2 && (prev2.value === 'delete' || prev2.value === 'new')) return null;
       const next = tokens[i + 1];
       if (!next) return null;
@@ -400,18 +402,6 @@ function lowerDownlevel(code, year) {
       if (next.type === 'id') {
         chainEndIdx = i + 2;
         access = `.${next.value}`;
-        // Allow a single method call `id?.prop(args)` or chained property `.prop2` when no nested downlevel ops appear.
-        const nextAfter = tokens[chainEndIdx];
-        if (nextAfter && nextAfter.value === '(') {
-          const closeIdx = findClose(tokens, chainEndIdx);
-          if (closeIdx < 0) return null;
-          for (let k = chainEndIdx + 1; k < closeIdx; k++) {
-            const v = tokens[k].value;
-            if (v === '?.' || v === '??' || v === '||=' || v === '&&=' || v === '??=' || (needExp && (v === '**' || v === '**='))) return null;
-          }
-          access += code.slice(next.end, tokens[closeIdx].end);
-          chainEndIdx = closeIdx + 1;
-        }
       } else if (next.value === '(' || next.value === '[') {
         const closeIdx = findClose(tokens, i + 1);
         if (closeIdx < 0) return null;
@@ -422,10 +412,28 @@ function lowerDownlevel(code, year) {
         chainEndIdx = closeIdx + 1;
         access = code.slice(next.start, tokens[closeIdx].end);
       } else return null;
-      // Decline chained continuations (`a?.b?.c`, `a?.b.c`, `a?.b()`, `a?.b = 1`) and parenthesized
-      // call/delete (`(a?.b)()`, `delete (a?.b)`) so TypeScript handles temps/short-circuiting/`this`.
+      // Extend across non-optional `.prop`, `[idx]`, and `(args)` continuations (preserving comments).
+      while (chainEndIdx < tokens.length) {
+        const cont = tokens[chainEndIdx];
+        if (cont.value === '.') {
+          const prop = tokens[chainEndIdx + 1];
+          if (!prop || prop.type !== 'id') return null;
+          access += code.slice(tokens[chainEndIdx - 1].end, prop.end);
+          chainEndIdx += 2;
+        } else if (cont.value === '(' || cont.value === '[') {
+          const closeIdx = findClose(tokens, chainEndIdx);
+          if (closeIdx < 0) return null;
+          for (let k = chainEndIdx + 1; k < closeIdx; k++) {
+            const v = tokens[k].value;
+            if (v === '?.' || v === '??' || v === '||=' || v === '&&=' || v === '??=' || (needExp && (v === '**' || v === '**='))) return null;
+          }
+          access += code.slice(tokens[chainEndIdx - 1].end, tokens[closeIdx].end);
+          chainEndIdx = closeIdx + 1;
+        } else break;
+      }
+      // Decline chained optional continuations (`a?.b?.c`), assignments, updates, or tagged templates.
       const after = tokens[chainEndIdx];
-      if (after && (after.value === '?.' || after.value === '.' || after.value === '(' || after.value === '[' || after.value === '=' || after.value === '++' || after.value === '--' || after.type === 'tpl' || after.type === 'tplHead')) return null;
+      if (after && (after.value === '?.' || after.value === '=' || after.value === '++' || after.value === '--' || after.type === 'tpl' || after.type === 'tplHead')) return null;
       if (prev2 && prev2.value === '(' && after && after.value === ')') {
         const beforeParen = i > 2 ? tokens[i - 3] : null;
         const afterParen = tokens[chainEndIdx + 1];

@@ -3205,12 +3205,20 @@ test('each target compiles natively up to the forms of its year', () => {
   // Tokenized downlevel skips comments and strings for `class` and `??`, while real classes below ES2022 still defer.
   assert.equal(compile(Buffer.from('// no class here\nexport const a: number = 1;'), { file: 'year.ts', target: 'es2020' }).backend, 'pulse');
   assert.equal(compile(Buffer.from('export const a: string = "x ?? y";'), { file: 'year.ts', target: 'es2019' }).backend, 'pulse');
-  // Single-step optional method call `id?.m(args)` lowers natively below ES2020, preserving comments.
+  // Single-optional-point chaining with non-optional continuations (`id?.b.c(1)`, `id?.b[0]`, `this?.a`) lowers natively below ES2020.
+  for (const src of [
+    'export const f = (data: any) => data?.trim/* keep */();\n',
+    'export const f = (a: any) => a?.b.c(1);\n',
+    'export const f = (a: any) => a?.b[0].d;\n',
+    'export function f(this: any) { return this?.a.b(); }\n',
+  ]) {
+    const r = compile(Buffer.from(src), { file: 'year.ts', target: 'es2019' });
+    assert.equal(r.backend, 'pulse', src);
+    assert.deepEqual(inspect(ts, r.code, 'year.ts'), inspect(ts, ts.transpileModule(src, {
+      fileName: 'year.ts', compilerOptions: { target: ts.ScriptTarget.ES2019, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true } }).outputText, 'year.ts'), src);
+  }
   const optCall = compile(Buffer.from('export const f = (data: any) => data?.trim/* keep */();\n'), { file: 'year.ts', target: 'es2019' });
-  assert.equal(optCall.backend, 'pulse');
   assert.match(optCall.code, /data\.trim\/\* keep \*\/\(\)/);
-  assert.deepEqual(inspect(ts, optCall.code, 'year.ts'), inspect(ts, ts.transpileModule('export const f = (data: any) => data?.trim/* keep */();\n', {
-    fileName: 'year.ts', compilerOptions: { target: ts.ScriptTarget.ES2019, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true } }).outputText, 'year.ts'));
   // Review round 44 & 46: keyword property after `?.` followed by division + `class`,
   // inline `extends class {}` / `extends function () {}`, and `async` field before newline decline below ES2022.
   for (const src of [
