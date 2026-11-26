@@ -1201,7 +1201,8 @@ function compile(input, options = {}) {
     const native = source && !skipsDirectAddon ? loadDirectAddon() : null;
     const wellFormed = source && (skipsDirectAddon || native) && (validUtf8 ??= require('node:buffer').isUtf8)(source);
     // 0 without a leading triple-slash comment, 1 for notes and well-formed references, 2 for anything else.
-    const slashes = wellFormed && !skipsDirectAddon && mode !== 'strip' ? native.leadingTripleSlash(source) : 0;
+    const rawSlashes = wellFormed && !skipsDirectAddon && mode !== 'strip' ? native.leadingTripleSlash(source) : 0;
+    const slashes = rawSlashes === 2 && !/\/\/\/[ \t\f\v]*</.test(source.latin1Slice()) ? 0 : rawSlashes;
     // A file of comments and white space alone is a script with nothing in it. TypeScript writes the strict
     // directive in front of its text.
     if (wellFormed && slashes !== 2 && typed && mode === 'transform' && format === 'preserve' &&
