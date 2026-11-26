@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { writeFileSync } from 'node:fs';
 
 const [pidReport, timeout, command, ...args] = process.argv.slice(2);
@@ -11,7 +11,13 @@ let interrupted = false;
 function signalChild(signal) {
   if (!child.pid) return false;
   try {
-    if (process.platform === 'win32') return child.kill(signal);
+    if (process.platform === 'win32') {
+      // Kill the entire process tree on Windows so nested test workers (e.g. `node:test` isolation: 'process')
+      // do not outlive a timed-out runner and lock or keep burning CPU in the temporary workspace.
+      const killed = spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true });
+      if (killed.status === 0) return false;
+      return child.kill(signal);
+    }
     return process.kill(-child.pid, signal);
   } catch (error) {
     // macOS answers EPERM for a group whose only member has exited and is not reaped yet.

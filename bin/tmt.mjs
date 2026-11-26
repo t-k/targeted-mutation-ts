@@ -89,6 +89,8 @@ try {
       runValues['type-check'] = 'auto';
     }
     if (runValues.runner !== undefined && !['vitest', 'playwright', 'node'].includes(runValues.runner)) throw new Error('Expected --runner vitest|playwright|node');
+    if (runValues.runner === 'node' && runValues.config !== undefined) throw new Error('--config does not apply to --runner node');
+    if (runValues.runner === 'node' && runValues.audit) throw new Error('--audit does not apply to --runner node');
     if ((runValues.runner === 'playwright' || runValues.runner === 'node') && runValues['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
     if (runValues.related && (runValues.runner === 'playwright' || runValues.runner === 'node')) throw new Error('--related requires Vitest');
     if (runValues.verbose && runValues['only-gaps']) throw new Error('--verbose cannot be combined with --only-gaps');

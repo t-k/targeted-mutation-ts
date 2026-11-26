@@ -448,7 +448,8 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
   }
   report.evaluation = 'evaluated';
   // A file the suite runs as a test is not the program: its assertions stay as they are in every trial.
-  const testFiles = new Set(baseline.tests.map(entry => entry.file));
+  const normalizeTestPath = path => String(path ?? '').replaceAll('\\', '/');
+  const testFiles = new Set(baseline.tests.map(entry => normalizeTestPath(entry.file)));
   const needsTogether = new Set();
   const recordOutcome = (trial, result) => {
     const { mutant, unloadable, diagnostic, incomplete } = classifyUndoOutcome(trial, result, baseline, options, revision);
@@ -458,7 +459,7 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
     if (diagnostic) report.diagnostics.push(diagnostic);
   };
   for (const trial of trials) {
-    if (testFiles.has(trial.site.location.file)) continue;
+    if (testFiles.has(normalizeTestPath(trial.site.location.file))) continue;
     recordOutcome(trial, trial.parses ? attempt({ trial }) : null);
   }
   for (const trial of buildTogetherTrials(needsTogether, fileHunks)) {
@@ -490,8 +491,9 @@ export async function analyzeUndoneChangesAsync(project, files, options, run = d
     } };
   }
   report.evaluation = 'evaluated';
-  const testFiles = new Set(baseline.tests.map(entry => entry.file));
-  const active = trials.filter(trial => !testFiles.has(trial.site.location.file));
+  const normalizeTestPath = path => String(path ?? '').replaceAll('\\', '/');
+  const testFiles = new Set(baseline.tests.map(entry => normalizeTestPath(entry.file)));
+  const active = trials.filter(trial => !testFiles.has(normalizeTestPath(trial.site.location.file)));
   const concurrency = options.runner === 'playwright' ? 1 : (options.concurrency ?? Math.max(1, Math.min(8, availableParallelism() - 1)));
   const results = new Array(active.length);
   await inParallel(active.map((trial, index) => ({ trial, index })), concurrency, async ({ trial, index }) => {

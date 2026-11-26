@@ -35,13 +35,14 @@ for (const [argShape, roundingPair, mutantOutcome] of pictRows) {
     const mut = mutations.find(m => m.name === 'rounding-swap/v1' && m.targeted?.form === swapFn);
     assert.ok(mut, `expected rounding-swap/v1 ${origFn}->${swapFn} for ${expr}`);
 
-    const provablyNonNeg = ['NonNegativeLiteral', 'LengthProp', 'NonNegDivPositiveLiteral', 'MathMaxNonNeg'].includes(argShape);
+    const provablyNonNeg = ['NonNegativeLiteral', 'MathMaxNonNeg'].includes(argShape);
+    const likelyNonNeg = ['LengthProp', 'NonNegDivPositiveLiteral', 'NonNegDivVar'].includes(argShape);
     const isFloorTrunc = roundingPair === 'FloorToTrunc' || roundingPair === 'TruncToFloor';
 
     if (isFloorTrunc && provablyNonNeg) {
       assert.ok(mut.ignored, `expected ${origFn}->${swapFn}(${expr}) to be ignored as equivalent`);
       assert.match(mut.ignored, /Equivalent mutant/);
-    } else if (isFloorTrunc && argShape === 'NonNegDivVar') {
+    } else if (isFloorTrunc && likelyNonNeg) {
       assert.equal(mut.ignored, undefined);
       assert.equal(mut.targeted.equivalenceHint, 'likely-equivalent');
     } else {
@@ -76,16 +77,22 @@ for (const [argShape, roundingPair, mutantOutcome] of pictRows) {
 
 test('classifyRoundingEquivalenceText handles sound non-negative expressions and rejects signed ones', () => {
   const ts = loadTypeScript();
-  for (const expr of ['0', 'arr.length', 'map.size', 'buf.byteLength', 'Math.abs(x)', 'Math.sqrt(x)', 'x >>> 1',
-    'items.length / 2', 'Math.max(0, x)', 'Math.min(a.length, b.length)', 'a.length + b.length', 'a.length % n', 'cond ? 1 : a.length']) {
+  // 100% sound provably non-negative (never negative, never -0 divisor)
+  for (const expr of ['0', 'Math.abs(x)', 'Math.abs(x) / 2', 'Math.hypot(a, b)', 'Math.clz32(x)', 'x >>> 1',
+    'Math.max(0, x)', 'Math.max(0, x) / 2', 'Math.min(Math.abs(a), Math.abs(b))', 'Math.abs(a) + Math.abs(b)', 'Math.abs(a) % n', 'cond ? 1 : Math.abs(a)']) {
     assert.equal(classifyRoundingEquivalenceText(expr, ts)?.kind, 'equivalent', `expected equivalent for ${expr}`);
   }
-  for (const expr of ['items.length / total', 'ids.length / count', 'Math.abs(x) * factor']) {
+  // Likely equivalent (always executed, never suppressed, annotated if surviving)
+  for (const expr of ['arr.length', 'map.size', 'buf.byteLength', 'items.length / 2', 'items.length / total',
+    'ids.length / count', 'Math.abs(x) * factor', 'Math.sqrt(x)', '({ length: -1 }).length / 2']) {
     assert.equal(classifyRoundingEquivalenceText(expr, ts)?.kind, 'likely-equivalent', `expected likely-equivalent for ${expr}`);
   }
-  for (const expr of ['x', 'x / 2', 'a - b', '-items.length', 'Math.min(0, x)', 'Math.max(-1, x)', 'a + b']) {
-    assert.equal(classifyRoundingEquivalenceText(expr, ts), null, `expected null for ${expr}`);
+  // Distinguishable / signed expressions (neither equivalent nor likely-equivalent)
+  for (const expr of ['x', 'x / 2', 'a - b', '-items.length', 'Math.min(0, x)', 'Math.max(-1, x)', 'a + b', 'Math.max(1 / Math.sqrt(-0), -1.5)']) {
+    assert.notEqual(classifyRoundingEquivalenceText(expr, ts)?.kind, 'equivalent', `must NOT suppress ${expr}`);
   }
+  assert.equal(classifyRoundingEquivalenceText('x / 2', ts), null);
+  assert.equal(classifyRoundingEquivalenceText('Math.max(1 / Math.sqrt(-0), -1.5)', ts), null);
   assert.equal(isProvablyNonNegativeNode(null, ts), false);
 });
 

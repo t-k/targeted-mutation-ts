@@ -621,14 +621,36 @@ function analyzePlaywright(root, subjects, report, options, specification) {
 }
 
 function nodeBaselineError(baseline, timeoutSeconds) {
+  const errors = baseline.errors?.length
+    ? baseline.errors
+    : (baseline.statusReason ? [baseline.statusReason] : []);
   return {
     status: baseline.status,
     ...(baseline.status === 'timeout' ? { timeoutSeconds } : {}),
+    ...(baseline.statusReason ? { statusReason: baseline.statusReason } : {}),
     ...(baseline.files?.length ? { files: baseline.files } : {}),
     ...(baseline.fileErrors?.length ? { fileErrors: baseline.fileErrors } : {}),
     output: baseline.output,
-    errors: baseline.errors,
+    errors,
     failedTests: failedTests(baseline),
+  };
+}
+
+function restoreNodeCheckpointMutant(site, cached) {
+  const { diagnostic, ...outcome } = cached;
+  return {
+    result: {
+      site: site.id,
+      location: site.location,
+      rule: site.rule,
+      operator: site.operator,
+      original: site.original,
+      edit: site.edit,
+      replacement: site.replacement,
+      ...outcome,
+      evidence: outcome.evidence ?? 'checkpoint',
+    },
+    diagnostic: diagnostic ?? null,
   };
 }
 
@@ -697,8 +719,8 @@ function analyzeNode(root, subjects, report, options) {
   for (const { site, trial } of entries) {
     const cached = options.checkpointStore?.get(checkpointKeyForTrial({ ...site, location: site.location }));
     if (cached) {
-      const { diagnostic, ...outcome } = cached;
-      report.mutants.push({ ...outcome, evidence: outcome.evidence ?? 'checkpoint' });
+      const { result, diagnostic } = restoreNodeCheckpointMutant(site, cached);
+      report.mutants.push(result);
       if (diagnostic) report.diagnostics.push(diagnostic);
       done++;
       continue;
@@ -743,9 +765,9 @@ export async function analyzeNodeAsync(project, files, options) {
   const outcomes = await inParallel(entries, concurrency, async ({ site, trial }) => {
     const cached = options.checkpointStore?.get(checkpointKeyForTrial({ ...site, location: site.location }));
     if (cached) {
-      const { diagnostic, ...outcome } = cached;
+      const restored = restoreNodeCheckpointMutant(site, cached);
       done++;
-      return { result: { ...outcome, evidence: outcome.evidence ?? 'checkpoint' }, diagnostic: diagnostic ?? null, fromCache: true };
+      return { ...restored, fromCache: true };
     }
     const mutant = await attempt({ trial });
     const built = buildNodeTrialResult(site, mutant, baseline);

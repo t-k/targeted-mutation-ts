@@ -39,6 +39,8 @@ const reportPath = manifest.report;
 const timeout = typeof manifest.timeout === 'number' && manifest.timeout > 0 ? manifest.timeout : undefined;
 
 const events = [];
+const stderrByFile = new Map();
+const MAX_STDERR_PER_FILE = 2_000;
 let summary = null;
 let fatalError = null;
 
@@ -51,6 +53,14 @@ try {
     ...(timeout ? { timeout } : {}),
   });
   for await (const { type, data } of stream) {
+    if (type === 'test:stderr') {
+      const file = normalizeFile(workspace, data.file) ?? '';
+      const current = stderrByFile.get(file) ?? '';
+      if (current.length < MAX_STDERR_PER_FILE) {
+        stderrByFile.set(file, (current + String(data.message ?? '')).slice(0, MAX_STDERR_PER_FILE));
+      }
+      continue;
+    }
     if (type === 'test:summary') {
       if (!data.file) {
         summary = { success: Boolean(data.success), counts: data.counts ?? {} };
@@ -87,7 +97,8 @@ try {
   fatalError = String(error?.message ?? error);
 }
 
-const payload = { workspace, events, summary, ...(fatalError ? { error: fatalError } : {}) };
+const fileStderr = Object.fromEntries([...stderrByFile].filter(([, text]) => text.trim().length > 0));
+const payload = { workspace, events, summary, ...(Object.keys(fileStderr).length ? { fileStderr } : {}), ...(fatalError ? { error: fatalError } : {}) };
 writeFileSync(reportPath + '.part', JSON.stringify(payload), 'utf8');
 renameSync(reportPath + '.part', reportPath);
 process.exitCode = !fatalError && summary?.success === true ? 0 : 1;

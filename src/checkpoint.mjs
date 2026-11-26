@@ -159,6 +159,7 @@ export function openCheckpoint(path, context, metadata = {}) {
       if (stored.has(key)) return false;
       const sanitized = {
         status: outcome.status,
+        ...(outcome.statusReason ? { statusReason: outcome.statusReason } : {}),
         ...(outcome.tests ? { tests: outcome.tests } : {}),
         ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
         ...(diagnostic ? { diagnostic } : {}),

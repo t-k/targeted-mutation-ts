@@ -295,6 +295,8 @@ test('CLI validates --runner node flags and supports runner in project config', 
     ['analyze', '--runner', 'node', '--displace-thresholds'],
     ['analyze', '--runner', 'node', '--isolated-trials'],
     ['analyze', '--runner', 'node', '--witnesses'],
+    ['analyze', '--runner', 'node', '--config', 'vitest.config.ts'],
+    ['analyze', '--runner', 'node', '--audit'],
     ['analyze', '--runner', 'jest'],
   ]) {
     assert.throws(() => execFileSync(process.execPath, [bin, ...badArgs], { stdio: 'pipe' }), /Error|Command failed/);
@@ -302,6 +304,83 @@ test('CLI validates --runner node flags and supports runner in project config', 
   const merged = mergeProjectConfig({ runner: 'node', tests: ['test/*.test.mjs'] }, {}, []);
   assert.equal(merged.values.runner, 'node');
   assert.deepEqual(merged.values.test, ['test/*.test.mjs']);
+});
+
+test('helper-registered tests, checkpoint resume, stderr load details, and all-skipped baseline work on --runner node', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'tmt-node-edge-'));
+  try {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    mkdirSync(join(dir, 'test'), { recursive: true });
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'demo', type: 'module' }));
+    writeFileSync(join(dir, 'src/check.mjs'), 'export function ok(n) { return n >= 10; }\n');
+    writeFileSync(join(dir, 'test/helper.mjs'), `
+import assert from 'node:assert/strict';
+import { it } from 'node:test';
+export function registerBoundary(fn, val, expected) {
+  it('helper check ' + val, () => assert.equal(fn(val), expected));
+}
+`);
+    writeFileSync(join(dir, 'test/a.test.mjs'), `
+import { describe } from 'node:test';
+import { ok } from '../src/check.mjs';
+import { registerBoundary } from './helper.mjs';
+describe('suite a', () => { registerBoundary(ok, 10, true); });
+`);
+    writeFileSync(join(dir, 'test/b.test.mjs'), `
+import { describe } from 'node:test';
+import { ok } from '../src/check.mjs';
+import { registerBoundary } from './helper.mjs';
+describe('suite b', () => { registerBoundary(ok, 5, false); });
+`);
+
+    // 1. Helper-registered tests across two selected files must not trigger selection mismatch
+    const run = runNodeTest(dir, dir, { testFiles: ['test/a.test.mjs', 'test/b.test.mjs'], timeout: 10_000 });
+    assert.equal(run.status, 'passed');
+    assert.deepEqual(run.files, ['test/a.test.mjs', 'test/b.test.mjs']);
+    assert.equal(run.tests.length, 2);
+    assert.ok(run.tests.every(t => t.name.includes(' > helper check ')));
+
+    // 2. Checkpoint resume restores full mutant metadata (location, rule, edit, replacement, statusReason)
+    const { analyzeOperators } = await import('../src/operator-analysis.mjs');
+    const ckptFile = join(dir, 'ckpt.jsonl');
+    const first = await analyzeOperators(dir, ['src/check.mjs'], {
+      runner: 'node', mutators: 'targeted', test: ['test/a.test.mjs', 'test/b.test.mjs'], checkpoint: ckptFile, timeout: 15,
+    });
+    assert.equal(first.evaluation, 'evaluated');
+    const second = await analyzeOperators(dir, ['src/check.mjs'], {
+      runner: 'node', mutators: 'targeted', test: ['test/a.test.mjs', 'test/b.test.mjs'], checkpoint: ckptFile, timeout: 15,
+    });
+    assert.equal(second.evaluation, 'evaluated');
+    assert.equal(second.checkpoint.resumed, true);
+    assert.equal(second.mutants.length, first.mutants.length);
+    for (let i = 0; i < first.mutants.length; i++) {
+      assert.deepEqual(second.mutants[i].location, first.mutants[i].location);
+      assert.equal(second.mutants[i].rule, first.mutants[i].rule);
+      assert.deepEqual(second.mutants[i].edit, first.mutants[i].edit);
+      assert.equal(second.mutants[i].replacement, first.mutants[i].replacement);
+      assert.equal(second.mutants[i].status, first.mutants[i].status);
+    }
+
+    // 3. Baseline error on missing import surfaces real stderr detail in fileErrors
+    writeFileSync(join(dir, 'test/broken.test.mjs'), "import './does-not-exist.mjs';\n");
+    const broken = await analyzeNodeAsync(dir, ['src/check.mjs'], {
+      runner: 'node', mutators: 'targeted', test: ['test/broken.test.mjs'], timeout: 10,
+    });
+    assert.equal(broken.evaluation, 'baseline_error');
+    assert.equal(broken.baseline.fileErrors?.[0]?.file, 'test/broken.test.mjs');
+    assert.match(broken.baseline.fileErrors?.[0]?.message ?? '', /ERR_MODULE_NOT_FOUND|Cannot find module/);
+
+    // 4. All-skipped baseline surfaces statusReason in baseline.errors
+    writeFileSync(join(dir, 'test/skipped.test.mjs'), "import { it } from 'node:test'; it.skip('only skipped', () => {});\n");
+    const skipped = await analyzeNodeAsync(dir, ['src/check.mjs'], {
+      runner: 'node', mutators: 'targeted', test: ['test/skipped.test.mjs'], timeout: 10,
+    });
+    assert.equal(skipped.evaluation, 'baseline_error');
+    assert.match(skipped.baseline.statusReason ?? '', /executed no tests/);
+    assert.ok(skipped.baseline.errors.some(err => /executed no tests/.test(err)));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('self-dogfooding: CLI --runner node analyzes TMT src/source-text.mjs with unmodified test/source-text.test.mjs', () => {

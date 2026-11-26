@@ -18,6 +18,13 @@ function isSameFileName(name, relFile) {
   return normName === normFile || normName.endsWith('/' + normFile);
 }
 
+function extractStderrDetail(stderrText) {
+  if (!stderrText) return '';
+  const lines = String(stderrText).split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const errorLine = lines.find(line => /^(?:[A-Z]\w*Error|Error|ERR_[A-Z0-9_]+):/.test(line) || /\bERR_MODULE_NOT_FOUND\b/.test(line));
+  return errorLine ?? lines[0] ?? '';
+}
+
 // Classify structured events emitted by `node:test`'s `run()` into TMT's standard run outcome shape.
 export function classifyNodeTestEvents(report, exitCode, expectedFiles = []) {
   if (!report || typeof report !== 'object' || !Array.isArray(report.events)) {
@@ -35,20 +42,25 @@ export function classifyNodeTestEvents(report, exitCode, expectedFiles = []) {
   const moduleErrors = [];
   const fileErrors = [];
   const tests = [];
-  const observedFiles = new Set();
-  const stacks = new Map();
+  const executedFiles = new Set();
+  const registeredFiles = new Set();
+  const fileStderr = report.fileStderr ?? {};
+  // Because `concurrency: 1` runs one test file at a time, a single nesting stack keeps
+  // helper-registered subtests attached to their enclosing suite even when `data.file` points to the helper.
+  let stack = [];
   const occurrences = new Map();
-  const fileLeafCounts = new Map();
   let timedOut = false;
 
   if (report.error) errors.push(String(report.error));
 
   for (const event of report.events) {
     const file = event.file ? String(event.file) : '';
-    if (file) observedFiles.add(file);
-    if (event.type === 'test:file-summary') continue;
-    let stack = stacks.get(file);
-    if (!stack) stacks.set(file, stack = []);
+    if (event.type === 'test:file-summary') {
+      if (file) executedFiles.add(file);
+      stack = [];
+      continue;
+    }
+    if (file) registeredFiles.add(file);
     const nesting = Number(event.nesting ?? 0);
 
     if (event.type === 'test:start') {
@@ -77,7 +89,10 @@ export function classifyNodeTestEvents(report, exitCode, expectedFiles = []) {
       event.line === 1 && (event.column === 1 || event.column === undefined) && event.error?.code !== 'ERR_ASSERTION';
 
     if (isModuleLoadFailure) {
-      const message = errorMessage || `Failed to load ${file}`;
+      if (file) executedFiles.add(file);
+      const stderrDetail = extractStderrDetail(fileStderr[file] ?? fileStderr['']);
+      const generic = !errorMessage || errorMessage === 'test failed';
+      const message = (generic && stderrDetail) ? stderrDetail : (errorMessage || stderrDetail || `Failed to load ${file}`);
       moduleErrors.push(message);
       fileErrors.push({ file, message });
       errors.push(message);
@@ -105,7 +120,6 @@ export function classifyNodeTestEvents(report, exitCode, expectedFiles = []) {
     const occKey = JSON.stringify([file, fullName]);
     const occurrence = occurrences.get(occKey) ?? 0;
     occurrences.set(occKey, occurrence + 1);
-    fileLeafCounts.set(file, (fileLeafCounts.get(file) ?? 0) + 1);
 
     const status = event.skip !== undefined ? 'skipped'
       : event.todo !== undefined ? 'todo'
@@ -122,10 +136,11 @@ export function classifyNodeTestEvents(report, exitCode, expectedFiles = []) {
     });
   }
 
-  const files = [...observedFiles].sort();
+  const effectiveFiles = executedFiles.size > 0 ? executedFiles : registeredFiles;
+  const files = [...effectiveFiles].sort();
   if (expectedFiles.length) {
     const expected = new Set(expectedFiles.map(file => toPosix(file)));
-    const missing = [...expected].filter(file => !observedFiles.has(file));
+    const missing = [...expected].filter(file => !effectiveFiles.has(file));
     const unexpected = files.filter(file => !expected.has(file));
     if (missing.length || unexpected.length) {
       const message = `Node test selection mismatch (missing: ${missing.join(', ') || 'none'}; unexpected: ${unexpected.join(', ') || 'none'})`;
