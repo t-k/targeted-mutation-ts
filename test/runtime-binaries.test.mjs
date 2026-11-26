@@ -19,11 +19,12 @@ for (const [platform, arch, artifact, local, installed] of scenarios) {
     const packageName = `@targeted-mutation/tmt-${platform}-${arch}`;
     const packageRoot = join('modules', packageName);
     const packagePath = join(packageRoot, filename);
+    const hasPackagedBinary = installed === 'Matching' || installed === 'Mismatched';
     const found = locateBinary(binary, {
       host: { platform, arch },
       version: '1.2.3',
       localRoot,
-      exists: path => (path === localPath && local === 'Present') || (path === packagePath && installed === 'Matching'),
+      exists: path => (path === localPath && local === 'Present') || (path === packagePath && hasPackagedBinary),
       resolvePackage(name) {
         requested.push(name);
         if (installed === 'Absent') return null;

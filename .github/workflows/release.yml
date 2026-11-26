@@ -48,10 +48,11 @@ jobs:
 
       - run: npm ci
 
-      - name: Pack and test the installed packages
-        run: |
-          npm run pack:runtime
-          npm run test:package
+      - name: Pack the runtime
+        run: npm run pack:runtime
+
+      - name: Test the installed packages
+        run: npm run test:package
 
       # Every runner builds the same main package. The Linux x64 copy is the one published.
       - name: Keep one main package

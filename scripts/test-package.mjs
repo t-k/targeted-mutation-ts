@@ -2,12 +2,13 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { decisionBinaryName } from '../src/runtime-binaries.mjs';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const target = `${process.platform}-${process.arch}`;
+const platformName = `@targeted-mutation/tmt-${target}`;
 const decision = decisionBinaryName();
 const windows = process.platform === 'win32';
 const cliArgs = process.argv.slice(2);
@@ -16,7 +17,7 @@ const positionals = cliArgs.filter(arg => arg !== '--portable');
 const tarball = resolve(positionals[0] ?? `build/packages/targeted-mutation-${version}.tgz`);
 const platformTarball = portable ? null : resolve(positionals[1] ?? `build/packages/targeted-mutation-tmt-${target}-${version}.tgz`);
 const fixture = resolve('fixtures/eligibility');
-const cwd = mkdtempSync(join(tmpdir(), 'tmt-pack-test-'));
+const cwd = mkdtempSync(join(tmpdir(), 'tmt pack test-'));
 const npm = windows ? 'npm.cmd' : 'npm';
 const combinations = readFileSync(new URL('../verification/pict/runtime-dependencies.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1).map(row => row.split('\t'));
@@ -34,16 +35,22 @@ function run(command, args, options) {
 
 try {
   cpSync(fixture, join(cwd, 'fixture'), { recursive: true });
-  writeFileSync(join(cwd, 'package.json'), '{"name":"tmt-pack-test","version":"1.0.0","private":true}');
+  cpSync(tarball, join(cwd, 'main-runtime.tgz'));
+  const project = { name: 'tmt-pack-test', version: '1.0.0', private: true };
+  if (!portable) {
+    cpSync(platformTarball, join(cwd, 'native-runtime.tgz'));
+    // Point npm at the staged archive while leaving the native dependency transitive.
+    project.overrides = { [platformName]: 'file:./native-runtime.tgz' };
+  }
+  writeFileSync(join(cwd, 'package.json'), JSON.stringify(project));
+  const platformPackage = join(cwd, 'node_modules', platformName);
   const install = (...packages) => {
     run(npm, ['install', ...packages, '--no-audit', '--no-fund']);
     if (portable && existsSync(platformPackage)) rmSync(platformPackage, { recursive: true, force: true });
   };
   // The syntax projection is generated from this compiler release. Other releases use the full compiler.
-  if (portable) run(npm, ['install', tarball, 'typescript@6.0.3', '--no-audit', '--no-fund', '--omit=optional']);
-  else install(tarball, platformTarball, 'typescript@6.0.3');
+  run(npm, ['install', './main-runtime.tgz', 'typescript@6.0.3', '--no-audit', '--no-fund', ...(portable ? ['--omit=optional'] : [])]);
   const installed = join(cwd, 'node_modules/targeted-mutation');
-  const platformPackage = join(cwd, `node_modules/@targeted-mutation/tmt-${target}`);
   const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
   let platformManifest = null;
   if (!portable) {
@@ -79,7 +86,7 @@ try {
   for (const absent of ['build/tmt.node', 'build/tmt-decide', 'build/tmt-decide.exe', 'evidence']) assert.equal(existsSync(join(installed, absent)), false, absent);
   const binSuffix = windows ? '.cmd' : '';
   for (const command of ['targeted-mutation', 'tmts']) {
-    assert.equal(run(join(cwd, 'node_modules/.bin', `${command}${binSuffix}`), ['--version']).trim(), version);
+    assert.equal(run(join('node_modules/.bin', `${command}${binSuffix}`), ['--version']).trim(), version);
   }
   assert.equal(existsSync(join(installed, 'build/typescript-cache')), false);
   const syntax = join(installed, 'build/typescript-syntax');
@@ -90,10 +97,13 @@ try {
   // The lockfile also lists the other platforms' optional packages, which npm does not install here.
   const expectedInstalled = portable
     ? ['node_modules/targeted-mutation', 'node_modules/typescript']
-    : [`node_modules/@targeted-mutation/tmt-${target}`, 'node_modules/targeted-mutation', 'node_modules/typescript'];
+    : [`node_modules/${platformName}`, 'node_modules/targeted-mutation', 'node_modules/typescript'];
   assert.deepEqual(Object.keys(lock.packages).filter(path => path.startsWith('node_modules/') && existsSync(join(cwd, path))).sort(),
     expectedInstalled);
   if (!portable) {
+    const nativeDependency = lock.packages[`node_modules/${platformName}`];
+    assert.equal(nativeDependency.optional, true);
+    assert.equal(nativeDependency.version, version);
     assert.deepEqual(platformManifest.os, [process.platform]);
     assert.deepEqual(platformManifest.cpu, [process.arch]);
     if (process.platform === 'linux') assert.deepEqual(platformManifest.libc, ['glibc']);
@@ -200,7 +210,7 @@ registerHooks({ load(url, context, next) {
       name: 'tmt-platform-mismatch', version: '1.0.0', os: platformManifest.os, cpu: [wrongArch],
     }));
     const [{ filename }] = JSON.parse(run(npm, ['pack', '--ignore-scripts', '--json'], { cwd: mismatch }));
-    const denied = invoke(npm, ['install', join(mismatch, filename), '--no-audit', '--no-fund']);
+    const denied = invoke(npm, ['install', `file:${relative(cwd, join(mismatch, filename))}`, '--no-audit', '--no-fund']);
     assert.notEqual(denied.status, 0);
     assert.match(denied.stderr, /EBADPLATFORM/);
     // Without a platform package both extraction and analysis fall back seamlessly to TypeScript.
