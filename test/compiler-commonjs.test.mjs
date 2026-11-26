@@ -162,7 +162,6 @@ test('modules that are left to TypeScript for CommonJS output', () => {
     ['export function f() { return 1; }\nlet o: any;\n({ k: [f] } = o);', 'a nested target'],
     ['export var E: { a?: number } | number | undefined;\n(function (E) {})(E || (E = {}));\nE = 9;', 'a hand-written filling function'],
     ['export /*gap*/ declare const d: number;\nexport default d;', 'an ambient export behind a comment'],
-    ['const a: number = 1;\nconsole.log(a);', 'a script'],
     ['import { a } from "./a";\nexport function f(a: number) { return a; }\nvoid a;', 'a parameter with the name of an import'],
     ['export function f() {}\nf = null as any;', 'an assignment to an exported function'],
     ['export class A {}\n[A] = [null as any];', 'an array target with an exported class'],
@@ -421,7 +420,13 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   assert.equal(typeOnlyMap.backend, 'pulse');
   assert.equal(typeOnlyMap.sourceMap.mappings, '');
   const typeOnlyScript = sameAsTypeScript('interface ScriptOnly { a: number }\n');
-  assert.equal(typeOnlyScript.backend, 'typescript');
+  assert.equal(typeOnlyScript.backend, 'pulse');
+  const plainScript = sameAsTypeScript('const a: number = 1;\nconsole.log(a);\n');
+  assert.equal(plainScript.backend, 'pulse');
+  const noSemiArrowDoc = sameAsTypeScript('export const f = () => {\n  return 1\n}\n/** next */\nexport const g = 2\n');
+  assert.equal(noSemiArrowDoc.backend, 'pulse');
+  const urlSpec = sameAsTypeScript('import { x } from "https://example.com/mod.ts";\nexport const y = x;\n');
+  assert.equal(urlSpec.backend, 'pulse');
 
   // Exported enum followed by a JSDoc comment before the next declaration stays native.
   const enumDoc = sameAsTypeScript('export enum Level { H2 = "h2", H3 = "h3" }\n/** doc */\nexport interface Item { level: Level }\n');

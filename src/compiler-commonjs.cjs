@@ -379,8 +379,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       const last = moduleEnds.get(first);
       const rawStatement = text.slice(first, last).trim();
       if (/[^\s;]/.test(text.slice(last, end).replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, ''))) return null;
-      if (/["'][^"'\n]*(?:\/\*|\/\/)/.test(rawStatement)) return null;
-      const statement = rawStatement.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ' ').trim();
+      const statement = rawStatement.replace(/"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, m => m[0] === '"' || m[0] === "'" ? m : ' ').trim();
       let match;
       const editWithSpec = (replacement, spec) => {
         const specAt = text.lastIndexOf(spec, last - spec.length);
@@ -540,8 +539,9 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           const tailEnd = skipTriviaBack(value, value.length, true);
           if (tailEnd < 0) return null;
           const hasSemi = tailEnd > 0 && value[tailEnd - 1] === ';';
-          if (!hasSemi && /\/\/|\/\*/.test(value.slice(tailEnd))) return null;
-          const beforeEnd = hasSemi ? value.slice(0, tailEnd - 1) : value.replace(/\n[ \t]*$/, '').replace(/\n+$/, '');
+          const trailingComment = !hasSemi && /\/\/|\/\*/.test(value.slice(tailEnd));
+          if (trailingComment && value[tailEnd] !== '\n') return null;
+          const beforeEnd = hasSemi ? value.slice(0, tailEnd - 1) : trailingComment ? value.slice(0, tailEnd) : value.replace(/\n[ \t]*$/, '').replace(/\n+$/, '');
           const leading = /^([ \t]*)([\s\S]*)$/.exec(beforeEnd);
           if (skipTriviaBack(beforeEnd, beforeEnd.length, true) !== beforeEnd.length ||
               ((leading[1].length > 1 || leading[2].startsWith('\n')) && /^(?:async|function|class)(?![\w$])/.test(leading[2].trimStart()))) return null;

@@ -815,6 +815,14 @@ function compile(input, options = {}) {
           } catch {}
         }
       }
+      if (code === null && !experimentalDecorators && origin !== null && !/\.m[jt]s$/i.test(file) &&
+          written.code.startsWith('"use strict";\n') && !/\b(?:import|export)\b/.test(origin) && !/\b(?:import|export)\b/.test(written.code)) {
+        try {
+          new Function('exports', 'require', 'module', '__filename', '__dirname', written.code);
+          if (!sourceMap) return written;
+          return { ...written, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, written.sourceMap.mappings, written.sourceMap.sourcesContent[0], jsx === 'preserve', 'cjs') };
+        } catch {}
+      }
       if (code === null && written.backend === 'pulse' && !written.code.startsWith('#!') &&
           written.code.replace(/(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g, '').trim() === '') {
         const hasComments = written.code.trim() !== '';
