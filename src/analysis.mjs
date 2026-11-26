@@ -767,21 +767,21 @@ export async function analyzeNodeAsync(project, files, options) {
     if (cached) {
       const restored = restoreNodeCheckpointMutant(site, cached);
       done++;
-      return { ...restored, fromCache: true };
+      return restored;
     }
     const mutant = await attempt({ trial });
     const built = buildNodeTrialResult(site, mutant, baseline);
+    if (options.checkpointStore) {
+      options.checkpointStore.record(checkpointKeyForTrial(built.result), built.result, built.diagnostic ?? undefined);
+    }
     done++;
     options.onProgress?.(`Mutants: ${done}/${entries.length} completed`);
-    return { ...built, fromCache: false };
+    return built;
   });
-  for (const { result, diagnostic, fromCache } of outcomes) {
+  for (const { result, diagnostic } of outcomes) {
     report.mutants.push(result);
     if (result.status === 'error') report.evaluation = 'incomplete';
     if (diagnostic) report.diagnostics.push(diagnostic);
-    if (!fromCache && options.checkpointStore) {
-      options.checkpointStore.record(checkpointKeyForTrial(result), result, diagnostic ?? undefined);
-    }
   }
   return report;
 }
