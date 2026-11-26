@@ -96,6 +96,30 @@ static void check_template_and_space_runs(void)
       assert(nl == true);
     }
   }
+  /* Verify newlines AFTER the first non-whitespace stop byte do not set `newline`,
+     while newlines strictly BEFORE the stop byte do. */
+  for (unsigned stop = 0; stop < 16; stop++) {
+    for (unsigned nl_lane = 0; nl_lane < 16; nl_lane++) {
+      if (nl_lane == stop) continue;
+      for (unsigned k = 0; k < 2; k++) {
+        memset(buf, ' ', sizeof(buf));
+        buf[stop] = 'x';
+        buf[nl_lane] = k == 0 ? '\n' : '\r';
+        bool nl = false;
+        assert(tmt_space_run(buf, &nl) == stop);
+        assert(nl == (nl_lane < stop));
+      }
+    }
+  }
+  /* Verify multiple stop bytes in `tmt_template_run` always return the earliest lane. */
+  for (unsigned first = 0; first < 16; first++) {
+    for (unsigned second = first + 1; second < 16; second++) {
+      memset(buf, 'a', sizeof(buf));
+      buf[first] = '$';
+      buf[second] = '`';
+      assert(tmt_template_run(buf) == first);
+    }
+  }
   puts("SIMD template and whitespace runs matched all bytes in every lane");
 }
 

@@ -242,6 +242,9 @@ theorem skipAsciiLineBlock (bytes : List UInt8) (point : MapPoint)
 
 -- Template-literal static text scan: bytes other than `` ` `` (96), `$` (36), and `\` (92)
 -- only advance `offset` by 1 and leave every other parser-state field untouched.
+-- Scope: proves prefix-skip equivalence for already-classified safe bytes; SIMD mask
+-- extraction, first-stop-lane selection, and 16-byte bounds are verified exhaustively
+-- in `native/pulse/test.c`.
 def templatePlain (byte : UInt8) : Bool :=
   byte != 96 && byte != 36 && byte != 92
 
@@ -253,10 +256,13 @@ theorem skipTemplateRun (bytes : List UInt8) (offset : Nat)
   | cons b rest ih =>
     simp only [List.all_cons, Bool.and_eq_true] at safe
     rw [List.foldl_cons, if_pos safe.1, ih (offset + 1) safe.2]
+    simp only [List.length_cons]
     omega
 
 -- Whitespace run in `trivia_from`: skipping spaces/tabs/LF/CR advances `position` by the count
 -- and sets `newline` iff `cursor.newline` was already true or any skipped byte is LF/CR.
+-- Scope: same prefix-skip abstraction as `skipTemplateRun`; SIMD lane masks and
+-- newline-before-stop filtering are verified exhaustively in `native/pulse/test.c`.
 def asciiSpace (byte : UInt8) : Bool :=
   byte == 32 || byte == 9 || byte == 10 || byte == 13
 

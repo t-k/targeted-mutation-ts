@@ -435,8 +435,14 @@ function lowerDownlevel(code, year) {
       const after = tokens[chainEndIdx];
       if (after && (after.value === '?.' || after.value === '=' || after.value === '++' || after.value === '--' || after.type === 'tpl' || after.type === 'tplHead')) return null;
       if (prev2 && prev2.value === '(' && after && after.value === ')') {
-        const beforeParen = i > 2 ? tokens[i - 3] : null;
-        const afterParen = tokens[chainEndIdx + 1];
+        let openIdx = i - 2;
+        let closeIdx = chainEndIdx;
+        while (openIdx >= 0 && closeIdx < tokens.length && tokens[openIdx].value === '(' && tokens[closeIdx].value === ')') {
+          openIdx--;
+          closeIdx++;
+        }
+        const beforeParen = openIdx >= 0 ? tokens[openIdx] : null;
+        const afterParen = tokens[closeIdx];
         if (beforeParen && (beforeParen.value === 'delete' || beforeParen.value === 'new')) return null;
         if (afterParen && (afterParen.value === '(' || afterParen.value === '[' || afterParen.value === '.' || afterParen.value === '?.' || afterParen.type === 'tpl' || afterParen.type === 'tplHead')) return null;
       }
