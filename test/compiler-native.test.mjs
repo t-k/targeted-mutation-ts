@@ -72,7 +72,8 @@ test('native grammar declines module and syntax hazards', () => {
   }
   assert.notEqual(compile(forms.Arrow, { file: 'source.cts' }).backend, 'pulse');
   assert.equal(compile(forms.Arrow, { target: 'es2018' }).backend, 'pulse');
-  assert.notEqual(compile(forms.Arrow + '\nexport const next = value ?? 1;', { target: 'es2018' }).backend, 'pulse');
+  assert.equal(compile(forms.Arrow + '\nexport const next = value ?? 1;', { target: 'es2018' }).backend, 'pulse');
+  assert.notEqual(compile(forms.Arrow + '\nexport const next = value(1) ?? 1;', { target: 'es2018' }).backend, 'pulse');
 });
 
 test('the module emitter erases comments inside a delimited arrow parameter annotation', async () => {

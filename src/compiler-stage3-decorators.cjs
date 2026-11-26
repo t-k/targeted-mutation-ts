@@ -244,8 +244,8 @@ function lowerStage3Decorators(addon, code) {
     const bodyEnd = skipBalanced(code, pos, '{', '}');
     if (bodyEnd < 0 || bodyEnd > end) return null;
     const bodyInner = code.slice(pos + 1, bodyEnd - 1);
-    // Decline member decorators, static blocks, or nested `@` inside the class body.
-    if (bodyInner.includes('@') || /\bstatic\s*\{/.test(bodyInner)) return null;
+    // Decline member decorators or any `static` members/blocks (static field / static block / addInitializer ordering).
+    if (bodyInner.includes('@') || /\bstatic\b/.test(bodyInner)) return null;
     // Ensure nothing follows the class closing brace besides trivia/semicolons.
     const trailing = code.slice(bodyEnd, end).replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, '').trim();
     if (trailing !== '' && trailing !== ';') return null;
@@ -284,8 +284,14 @@ function lowerStage3Decorators(addon, code) {
   // Scripts without imports/exports get `"use strict";\n` from TypeScript when lowering decorators; decline scripts for now.
   if (!isModule) return null;
 
-  let out = esDecorateHelper + runInitializersHelper;
+  let shebang = '';
   let last = 0;
+  if (code.startsWith('#!')) {
+    const nl = code.indexOf('\n');
+    last = nl < 0 ? code.length : nl + 1;
+    shebang = code.slice(0, last);
+  }
+  let out = shebang + esDecorateHelper + runInitializersHelper;
   for (const [start, end, rep] of edits) {
     out += code.slice(last, start) + rep;
     last = end;

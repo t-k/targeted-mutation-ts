@@ -3296,8 +3296,14 @@ test('Stage 3 standard ES class decorators lower natively with __esDecorate for 
         target: ts.ScriptTarget[target.toUpperCase()], module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true, experimentalDecorators: false } }).outputText;
       assert.deepEqual(inspect(ts, r.code, 'dec.ts'), inspect(ts, expected, 'dec.ts'), `${target}: ${source}`);
     }
-    // Member decorators and reserved-name collisions decline cleanly to TypeScript.
+    // Member decorators, static fields/blocks, and reserved-name collisions decline cleanly to TypeScript.
     assert.equal(compile(Buffer.from('declare const M: any;\nexport class C { @M m() {} }\n'), { file: 'dec.ts', target }).backend, 'typescript');
+    assert.equal(compile(Buffer.from('declare const Dec: any;\n@Dec\nexport class C { static x = 1; }\n'), { file: 'dec.ts', target }).backend, 'typescript');
+    assert.equal(compile(Buffer.from('declare const Dec: any;\n@Dec\nexport class C { static /* c */ { } }\n'), { file: 'dec.ts', target }).backend, 'typescript');
     assert.equal(compile(Buffer.from('declare const Dec: any;\nconst _classThis = 1;\n@Dec\nexport class C {}\n'), { file: 'dec.ts', target }).backend, 'typescript');
+    // Shebang stays before emitted helpers.
+    const sb = compile(Buffer.from('#!/usr/bin/env node\ndeclare const Dec: any;\n@Dec\nexport class C {}\n'), { file: 'dec.ts', target });
+    assert.equal(sb.backend, 'pulse');
+    assert.ok(sb.code.startsWith('#!/usr/bin/env node\n'));
   }
 });

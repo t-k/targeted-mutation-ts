@@ -32,6 +32,7 @@ export { Bar };
 export * from "./re";
 `,
     `export async function fetchItem(id: string, retries: number = 3): Promise<string> { return id; }\n`,
+    `export function cmp(a: number = 1 < 2 ? 3 : 4, b: number = 5): void {}\n`,
     `export type Pair = [number, string];\nexport const origin: Pair = [0, ""];\n`,
   ];
 
@@ -65,4 +66,21 @@ test('emitDeclaration falls back to TypeScript when inference, classes, or unsup
   const localRef = emitDeclaration('type Local = number;\nexport const x: Local = 1;\n', { file: 'a.ts' });
   assert.equal(localRef.backend, 'typescript');
   assert.equal(localRef.diagnostics.length, 0);
+
+  // Review round 43 regressions: defaulted-before-required param, multi-declarator local, `$` local,
+  // omitted semicolon, `<` in default expr, syntax error, TSX angle assertion, reference directive, shadowed type param.
+  for (const [src, file = 'a.ts', expectDiag = false] of [
+    ['export function f(a: number = 1, b: string): void {}\n'],
+    ['const a = 1, b = 2;\nexport { b };\n'],
+    ['const x$ = 1;\nexport { x$ };\n'],
+    ['export const x: number = 1\nexport const y: number = 2;\n'],
+    ['export const x: number = ;\n', 'a.ts', true],
+    ['export const x: number = <number>1;\n', 'a.tsx', true],
+    ['/// <reference types="node" preserve="true" />\nexport const x: number = 1;\n'],
+    ['import type { T } from "./x";\nexport interface Box<T> { item: T; }\n'],
+  ]) {
+    const r = emitDeclaration(src, { file });
+    assert.equal(r.backend, 'typescript', src);
+    if (expectDiag) assert.ok(r.diagnostics.length > 0, src);
+  }
 });

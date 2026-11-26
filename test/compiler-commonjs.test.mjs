@@ -565,4 +565,9 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   // Dynamic import inside a Stage 3 decorated module declines to TypeScript (TS does not lower import() inside decorators).
   const decDyn = compile(Buffer.from('import { Dec } from "./d";\n@Dec({ load: () => import("./x") })\nexport class Foo {}\n'), { file: 'a.ts', module: 'cjs' });
   assert.equal(decDyn.backend, 'typescript');
+  // Review round 43 regressions: top-level await in block with Stage 3 decorator & order-independent import() + member decorator.
+  const awaitInBlock = compile(Buffer.from('const d = (c: any) => c;\n@d export class C {}\nif (true) { await 0; }\n'), { file: 'a.ts', module: 'cjs' });
+  assert.equal(awaitInBlock.backend, 'typescript');
+  const dynBeforeMemberDec = compile(Buffer.from('const d = (m: any) => m;\nexport const p = import("./x");\nexport class C { @d m() {} }\n'), { file: 'a.ts', module: 'cjs' });
+  assert.equal(dynBeforeMemberDec.backend, 'typescript');
 });

@@ -165,35 +165,43 @@ function scanStmtEnd(text, pos) {
     else if (c === '}') { if (brace === 0) return -1; brace--; }
     else if (c === '[') bracket++;
     else if (c === ']') { if (bracket === 0) return -1; bracket--; }
+    else if ((c === '\n' || c === '\r') && paren === 0 && brace === 0 && bracket === 0) return -1;
     else if (c === ';' && paren === 0 && brace === 0 && bracket === 0) return i + 1;
   }
   return -1;
 }
 
 // Formats a function parameter list for `.d.ts`: requires explicit types on every parameter,
-// rejects destructuring or `this` or decorators, and converts `a: T = default` to `a?: T`.
+// rejects destructuring, comments, `this`, decorators, or defaulted-before-required parameters,
+// and converts trailing `a: T = default` to `a?: T`.
 function formatParams(paramText) {
   const trimmed = paramText.trim();
   if (trimmed === '') return '';
-  const parts = [];
-  let start = 0, paren = 0, brace = 0, bracket = 0, angle = 0;
+  if (/\/\/|\/\*/.test(trimmed)) return null;
+  const parsed = [];
+  let start = 0, paren = 0, brace = 0, bracket = 0, angle = 0, inDefault = false;
   for (let i = 0; i <= trimmed.length; i++) {
     const c = trimmed[i];
     if (i < trimmed.length) {
       if (c === '"' || c === "'" || c === '`') return null;
       if (c === '=' && trimmed[i + 1] === '>') { i++; continue; }
+      if (c === '=' && paren === 0 && brace === 0 && bracket === 0 && angle === 0 && trimmed[i + 1] !== '=') {
+        inDefault = true;
+        continue;
+      }
       if (c === '(') { paren++; continue; }
       if (c === ')') { paren--; continue; }
       if (c === '{') { brace++; continue; }
       if (c === '}') { brace--; continue; }
       if (c === '[') { bracket++; continue; }
       if (c === ']') { bracket--; continue; }
-      if (c === '<') { angle++; continue; }
-      if (c === '>') { if (angle > 0) angle--; continue; }
+      if (!inDefault && c === '<') { angle++; continue; }
+      if (!inDefault && c === '>') { if (angle > 0) angle--; continue; }
     }
     if (i === trimmed.length || (c === ',' && paren === 0 && brace === 0 && bracket === 0 && angle === 0)) {
       const seg = trimmed.slice(start, i).trim();
       start = i + 1;
+      inDefault = false;
       if (seg === '') continue;
       const m = /^(\.\.\.)?([A-Za-z_$][\w$]*)(\?)?\s*:\s*([\s\S]+)$/.exec(seg);
       if (!m) return null;
@@ -205,14 +213,23 @@ function formatParams(paramText) {
       if (rest && hasDefault) return null;
       const typeStr = (hasDefault ? typeAndDefault.slice(0, eqPos) : typeAndDefault).trim();
       if (!typeStr) return null;
-      parts.push(`${rest || ''}${name}${opt || (hasDefault ? '?' : '')}: ${typeStr}`);
+      parsed.push({ rest: rest || '', name, opt: !!opt, hasDefault, typeStr });
     }
   }
-  return parts.join(', ');
+  // If a defaulted parameter precedes any required parameter, decline so TypeScript emits `T | undefined`.
+  let seenOptional = false;
+  for (const p of parsed) {
+    if (p.opt || p.hasDefault) seenOptional = true;
+    else if (seenOptional && !p.rest) return null;
+  }
+  return parsed.map(p => `${p.rest}${p.name}${p.opt || p.hasDefault ? '?' : ''}: ${p.typeStr}`).join(', ');
 }
 
-function emitNativeDts(source) {
-  if (/[^\x00-\x7f]/.test(source) || source.includes('@') || source.includes('\\u')) return null;
+function emitNativeDts(source, file) {
+  if (/[^\x00-\x7f]/.test(source) || source.includes('@') || source.includes('\\u') || source.includes('///')) return null;
+  // Validate full TypeScript/TSX syntax natively via Pulse before emitting declarations.
+  const check = require('./compiler.cjs').compile(Buffer.from(source), { file });
+  if (check.backend !== 'pulse' || check.code === null || check.diagnostics.length > 0) return null;
   const imports = []; // { raw, names: string[], spec }
   const decls = [];
   const localNames = new Set();
@@ -363,15 +380,17 @@ function emitNativeDts(source) {
     }
 
     // 3. Non-exported top-level declarations (const/let/var/function): skip if unreferenced in emitted decls.
-    const lvm = /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)\b/.exec(source.slice(pos));
+    const lvm = /^(?:const|let|var)\s+([A-Za-z_$][\w$]*)(?![\w$])/.exec(source.slice(pos));
     if (lvm) {
       const end = scanStmtEnd(source, pos);
       if (end < 0) return null;
+      // Decline comma-separated multi-declarators so secondary bindings cannot be dropped.
+      if (/,/.test(source.slice(pos + lvm[0].length, end).replace(/\([^)]*\)|\[[^\]]*\]|\{[^}]*\}|"[^"]*"|'[^']*'/g, ''))) return null;
       localNames.add(lvm[1]);
       pos = end;
       continue;
     }
-    const lfm = /^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*/.exec(source.slice(pos));
+    const lfm = /^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)(?![\w$])\s*/.exec(source.slice(pos));
     if (lfm) {
       const braceAt = source.indexOf('{', pos);
       if (braceAt < 0) return null;
@@ -394,10 +413,18 @@ function emitNativeDts(source) {
     }
   }
 
-  // Keep only imports whose bindings are referenced in the emitted declarations.
+  // Keep only imports whose bindings are referenced in the emitted declarations; decline if a type parameter shadows an import.
   const keptImports = [];
   for (const imp of imports) {
-    const used = imp.items.filter(it => new RegExp(`(?<![\\w$.])${it.local.replace(/\$/g, '\\$')}(?![\\w$])`).test(body));
+    const used = [];
+    for (const it of imp.items) {
+      const esc = it.local.replace(/\$/g, '\\$');
+      if (new RegExp(`<[^>]*\\b${esc}(?![\\w$])`).test(body) &&
+          new RegExp(`\\b(?:interface|type|function)\\s+[A-Za-z_$][\\w$]*\\s*<[^>]*${esc}(?![\\w$])`).test(body)) {
+        return null;
+      }
+      if (new RegExp(`(?<![\\w$.])${esc}(?![\\w$])`).test(body)) used.push(it);
+    }
     if (used.length === 0) continue;
     keptImports.push(`import ${imp.isType ? 'type ' : ''}{ ${used.map(u => u.raw).join(', ')} } from ${imp.spec};`);
   }
@@ -414,7 +441,7 @@ function emitDeclaration(input, options = {}) {
   const source = Buffer.isBuffer(input) ? input.toString('utf8') : typeof input === 'string' ? input : null;
   if (source === null) throw new TypeError('Expected a string or Buffer');
 
-  const native = emitNativeDts(source);
+  const native = emitNativeDts(source, file);
   if (native !== null) {
     return { backend: 'native', code: native, diagnostics: [] };
   }

@@ -140,7 +140,8 @@ function scanCodeIdentifiers(text, visit) {
       }
       const name = text.slice(at, end);
       const inTopClass = braces.length === 1 && braces[0] === 'class';
-      if (visit(name, at, prev, braces.length, inTopClass) === false) return false;
+      const inClassMethod = braces.length >= 2 && braces[0] === 'class';
+      if (visit(name, at, prev, braces.length, inTopClass, inClassMethod) === false) return false;
       if (name === 'class' && prev !== '.') expectClassBody = true;
       prev = prev === '.' ? 'id' : (prev === 'for' && name === 'await') ? 'await-for' : name;
       at = end;
@@ -360,7 +361,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
     for (const name of names) if (!helpers.has(name) || pos < helpers.get(name)) helpers.set(name, pos);
   };
   const exportsOfLists = [];
-  let front = '', hasStage3Decorator = false, hasTopLevelAwait = false;
+  let front = '', hasStage3Decorator = false, hasAwaitOutsideMethod = false, hasDynamicImport = false;
 
   // Helpers that the lowering of legacy decorators wrote in front of the module.
   const ownHelpers = {};
@@ -808,8 +809,8 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   // stays is exported by value, so nothing may write or shadow it.
   const inEdit = position => edits.some(([first, last, replacement]) => position >= first && position < last && replacement !== undefined);
   const referenceAt = new Map(references.map(reference => [reference.first, reference]));
-  const scanned = scanCodeIdentifiers(text, (name, at, prevToken, depth, inTopClass) => {
-    if (name === 'await' && depth === 0 && prevToken !== '.') hasTopLevelAwait = true;
+  const scanned = scanCodeIdentifiers(text, (name, at, prevToken, depth, inTopClass, inClassMethod) => {
+    if (name === 'await' && !inClassMethod && prevToken !== '.') hasAwaitOutsideMethod = true;
     if (prevToken === '@' || text[at - 1] === '@') hasStage3Decorator = true;
     if (name === 'exports' && prevToken !== '.') {
       const [one] = followers(text, at + name.length);
@@ -819,7 +820,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       const [one, , , nextAt] = followers(text, at + 6);
       if (one === '.') return false;
       if (one === '(') {
-        if (hasStage3Decorator) return false;
+        hasDynamicImport = true;
         const dyn = new RegExp(`^\\((${quoted})\\)`).exec(text.slice(nextAt, nextAt + 300));
         if (dyn !== null) {
           need(at, '__createBinding', '__setModuleDefault', '__importStar');
@@ -1014,7 +1015,8 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   const verifyText = hasStage3Decorator ? result.replace(/@\(0, ([A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*)\)/g, '@$1') : result;
   if (addon.moduleRecords(Buffer.from(verifyText)) === null) return null;
   if (hasStage3Decorator) {
-    if (hasTopLevelAwait) return null;
+    if (hasAwaitOutsideMethod || hasDynamicImport) return null;
+    if (/\bawait\b/.test(result) && /\bstatic\s*(?:\/\*[\s\S]*?\*\/|\/\/[^\n]*\n|\s)*\{/.test(result)) return null;
     for (const w of ['exports', 'require', 'module', '__filename', '__dirname']) {
       if (declarations.has(w)) return null;
     }
