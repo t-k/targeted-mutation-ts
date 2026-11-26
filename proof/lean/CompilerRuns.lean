@@ -318,6 +318,8 @@ theorem skipIdentRun (bytes : List UInt8) (offset : Nat)
     omega
 
 -- Horizontal whitespace run (`' '` or `'\t'`) for `tmt_hspace_run` in `TmtPulseScan_scan_class`.
+-- Scope: proves prefix-skip equivalence for already-classified horizontal-space bytes; SIMD
+-- first-stop-lane selection and 16-byte bounds are verified exhaustively in `native/pulse/test.c`.
 def asciiHorizontalSpace (byte : UInt8) : Bool :=
   byte == 32 || byte == 9
 

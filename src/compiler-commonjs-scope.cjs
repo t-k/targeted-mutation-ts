@@ -7,7 +7,7 @@
 // or null whenever scoping cannot be proven with certainty (caller declines to TypeScript).
 
 const REGEX_AFTER = new Set([
-  '', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~',
+  '', '(', '[', '{', '${', ',', ';', ':', '?', '=', '==', '!=', '...', '!', '&', '|', '^', '~',
   '<', '>', '+', '-', '*', '%', '/', '=>', ')ctrl',
   'return', 'throw', 'case', 'yield', 'await', 'typeof', 'void', 'delete',
   'in', 'instanceof', 'new', 'else', 'do',

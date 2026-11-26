@@ -661,6 +661,8 @@ test('CommonJS local-scope import shadowing compiles natively and matches TypeSc
     'export function f() {}\nif (true)\n  [f] = [123] as any;\n',
     'export function f() {}\ndebugger\n[f] = [123] as any;\n',
     'export function f() {}\ndo {} while (false)\n[f] = [123] as any;\n',
+    'export declare const x: number;\nexport const y = (0 !== /\\// as any) ? x : 0;\n',
+    'export declare const x: number;\nexport const y = [...(/\\//.exec("/") ?? []), x];\n',
   ]) {
     assert.equal(compile(Buffer.from(src), { file: 'shadow.ts', module: 'cjs' }).backend, 'typescript', src);
   }
