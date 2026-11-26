@@ -175,9 +175,6 @@ test('modules that are left to TypeScript for CommonJS output', () => {
     ['export const m = (x: string) => import(x);', 'a dynamic import with a computed specifier'],
     ['export const u = import.meta.url;', 'import.meta'],
     ['import d, * as all from "./d";\nd; all;', 'a default and a namespace import together'],
-    ['import g from "./x/";\ng;', 'a specifier that ends in a slash'],
-    ['import g from "..";\ng;', 'a specifier without a name'],
-    ['import { x } from "./$";\nexport default x;', 'a specifier with only punctuation in its last part'],
     ['import { dec } from "./d";\n@dec()\nexport class C {}', 'an unlowered decorator referencing an import'],
     ['import d from "./d";\nexport { d };', 'a default import in an export list'],
     ['import { a } from "./a";\nexport const b = 1;\nconst a_1 = 2;\nvoid [a, a_1];', 'a word that TypeScript would have to avoid'],
@@ -427,6 +424,13 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   assert.equal(noSemiArrowDoc.backend, 'pulse');
   const urlSpec = sameAsTypeScript('import { x } from "https://example.com/mod.ts";\nexport const y = x;\n');
   assert.equal(urlSpec.backend, 'pulse');
+  // Dot, trailing-slash, and punctuation-only specifiers match TypeScript's exact generated module names.
+  for (const spec of ['.', '..', './', '../', '../../src/', './$', './a$']) {
+    const r = sameAsTypeScript(`import { x } from "${spec}";\nexport const y = x;\n`);
+    assert.equal(r.backend, 'pulse', spec);
+  }
+  const awaitNewline = sameAsTypeScript('import { f } from "./dep";\nexport async function g() { return await\n  f(); }\n');
+  assert.equal(awaitNewline.backend, 'pulse');
 
   // Exported enum followed by a JSDoc comment before the next declaration stays native.
   const enumDoc = sameAsTypeScript('export enum Level { H2 = "h2", H3 = "h3" }\n/** doc */\nexport interface Item { level: Level }\n');

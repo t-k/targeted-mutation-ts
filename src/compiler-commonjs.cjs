@@ -275,7 +275,9 @@ function members(text) {
 
 // The name TypeScript derives from a module specifier, before the number that makes it unique.
 function specifierName(specifier) {
-  return specifier.slice(specifier.lastIndexOf('/') + 1).replace(/^(\d)/, '_$1').replace(/\W/g, '_');
+  const trimmed = specifier.replace(/\/+$/, '');
+  const seg = trimmed.slice(trimmed.lastIndexOf('/') + 1);
+  return seg.replace(/^(\d)/, '_$1').replace(/\W/g, '_');
 }
 
 // A name as it may stand in the source in front of a non-null mark, with white space or comments between.
@@ -333,10 +335,8 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   const moduleName = specifier => {
     const base = specifierName(specifier.slice(1, -1));
     if (/[^\x20-\x7e]/.test(specifier)) return null;
-    // A specifier without an ASCII letter or digit in its last part is named in a way that is not reproduced here.
-    if (!/[A-Za-z0-9]/.test(specifier.slice(specifier.lastIndexOf('/') + 1))) return null;
     for (let number = 1; ; number++) {
-      const name = `${base}_${number}`;
+      const name = base.endsWith('_') ? `${base}${number}` : `${base}_${number}`;
       if (taken.has(name)) continue;
       // A word of the source (including erased types) with this spelling would make TypeScript choose another number.
       const clash = new RegExp(`(?<![\\w$])${name.replace(/\$/g, '\\$')}(?![\\w$])`);
@@ -520,7 +520,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
             edits.push([end + found.index, end + found.index + found[0].length, `})(${name} || (exports.${name} = ${name} = {}))${semi}`]);
             kept.set(name, { statement: index, kind: 'filled' });
           } else {
-            if (/[^\s;]/.test(text.slice(names[0].last, end))) return null;
+            if (/[^\s;]/.test(text.slice(names[0].last, end).replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, ''))) return null;
             edits.push([first, end, ';\n']);
             renamed.set(name, { text: `exports.${name}`, statement: index, kind: 'variable' });
           }
@@ -666,7 +666,8 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           const prev = skipTriviaBack(text, at, false);
           if (prev < 0) {
             if (prevToken !== '' && !'([{,;:?=!&|^~<>+-*%/'.includes(prevToken[0]) && prevToken !== '=>') return false;
-          } else if (text.slice(prev, at).includes('\n') && prev > 0 && /[\w$)\]}'"`\x80-\xff]/.test(text[prev - 1])) return false;
+          } else if (text.slice(prev, at).includes('\n') && prev > 0 && /[\w$)\]}'"`\x80-\xff]/.test(text[prev - 1]) &&
+              !['else', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'case'].includes(prevToken)) return false;
         }
       }
       edits.push([at, at + name.length, reference.shorthand ? `${name}: ${target.text}` : value]);
