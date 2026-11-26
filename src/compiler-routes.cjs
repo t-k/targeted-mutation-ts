@@ -1000,9 +1000,27 @@ function compile(input, options = {}) {
     const stable = snapshot(input);
     const innerFile = file.replace(/\.[cm]([jt]s)$/i, '.$1');
     const written = compile(stable, { ...options, file: innerFile, module: 'preserve' });
-    // An exported ambient declaration leaves no text, yet TypeScript reads its name through `exports`.
-    const ambient = (Buffer.isBuffer(stable) ? stable.includes('declare') : typeof stable === 'string' && stable.includes('declare')) &&
-      /\bexport\b(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)*declare\b/.test(Buffer.isBuffer(stable) ? stable.latin1Slice() : stable);
+    // An exported ambient value declaration leaves no text, yet TypeScript reads its name through `exports`.
+    // Type-only `export declare interface/type` or unreferenced ambient value names do not change CJS output.
+    const rawOrigin = Buffer.isBuffer(stable) ? stable.latin1Slice() : typeof stable === 'string' ? stable : '';
+    let ambient = false;
+    if (written.code !== null && rawOrigin.includes('declare')) {
+      const ambRe = /\bexport\b(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)*declare\b/g;
+      let m;
+      while ((m = ambRe.exec(rawOrigin)) !== null) {
+        const rest = rawOrigin.slice(m.index + m[0].length, m.index + m[0].length + 200);
+        const head = /^\s+(?:(interface|type)\b|(?:const\s+enum|abstract\s+class|async\s+function\*?|const|let|var|function\*?|class|enum|namespace|module)\s+([A-Za-z_$][\w$]*))/.exec(rest);
+        if (head === null) { ambient = true; break; }
+        if (head[1] !== undefined) continue; // `export declare interface` / `export declare type`
+        const name = head[2];
+        // Decline if the ambient declaration has multiple declarators (e.g. `export declare const a: T, b: U`) or is referenced in emitted code.
+        if (rest.slice(head[0].length).match(/^\s*(?::[^;,\n]*)?,/)) { ambient = true; break; }
+        if (written.code.includes(name) && new RegExp(`(?<![\\w$])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(written.code)) {
+          ambient = true;
+          break;
+        }
+      }
+    }
     if (!ambient && written.code !== null && (written.backend === 'pulse' || written.backend === 'javascript') && written.diagnostics.length === 0 &&
         (!sourceMap || written.sourceMap)) {
       const addon = loadModuleAddon();

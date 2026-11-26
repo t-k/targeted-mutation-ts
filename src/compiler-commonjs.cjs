@@ -963,7 +963,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       const before = text[at - 1], reference = referenceAt.get(at);
       if (target !== undefined) {
         if (target.declaration === at || inEdit(at)) return;
-        if (shadowedSpans !== null && target.kind !== 'variable' && isInShadowedSpan(shadowedSpans, name, at)) return;
+        if (shadowedSpans !== null && isInShadowedSpan(shadowedSpans, name, at)) return;
         const isDecoratorHead = prevToken === '@' || before === '@';
         if (isDecoratorHead) {
           if (!(depth === 0 || inTopClass || !isShadowedLocal(name))) return false;
@@ -975,7 +975,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
             if (one === ':' || prevToken === 'break' || prevToken === 'continue' || prevToken === 'static' ||
                 (inTopClass && (one === '=' || one === ';')) ||
                 (one === '(' && prevToken !== 'function' && prevToken !== 'function*')) return;
-            if (shadowedSpans === null && target.kind !== 'variable') {
+            if (shadowedSpans === null) {
               if (shadowCandidates === null) shadowCandidates = new Set();
               shadowCandidates.add(name);
               return;
@@ -1007,6 +1007,9 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           }
         }
         edits.push([at, at + name.length, reference && reference.shorthand ? `${name}: ${target.text}` : value]);
+      } else if (shadowedSpans !== null && (local.kind === 'function' || local.kind === 'class') &&
+          direct.has(order[local.statement]) && isInShadowedSpan(shadowedSpans, name, at)) {
+        return;
       } else if (reference === undefined && (local.kind === 'function' || local.kind === 'class' || local.kind === 'mutable' || local.kind === 'constant')) {
         // A name in an object that is assigned to, a loop variable, or a shadowing declaration in a block
         // is not among the references. Only its own declaration (and the self-name of a lowered decorated
@@ -1019,6 +1022,11 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           const [one, , , nextAt] = followers(text, at + name.length);
           if (one === ':' || prevToken === 'break' || prevToken === 'continue' || prevToken === 'static' ||
               (one === '(' && prevToken !== 'function' && prevToken !== 'function*')) return;
+          if (shadowedSpans === null && (local.kind === 'function' || local.kind === 'class') && direct.has(order[local.statement])) {
+            if (shadowCandidates === null) shadowCandidates = new Set();
+            shadowCandidates.add(name);
+            return;
+          }
           if (one === '}' || one === ',' || one === '=' || one === ']' || one === ')' || one === ';' || one === '{' || one === '(') return false;
           if (precededByDecl(prevToken)) return false;
           if (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) return false;

@@ -622,6 +622,9 @@ test('CommonJS local-scope import shadowing compiles natively and matches TypeSc
     'import { a } from "./a";\nexport function f() { const g = 1 * (function a() { return 1; } as any); return [g, a]; }\n',
     'import { a } from "./a";\nexport function f() { const g = async function a() { return a; }; return [g, a]; }\n',
     'import { a } from "./a";\ndeclare function g(x: any): void;\nexport function f() { g(a)\n  { return a; } }\nexport const shadow = (a: number) => a;\n',
+    'export function alias(table: any, alias: string) { return [table, alias]; }\n',
+    'export const value = 1;\nexport function use(value: number) { return value + 1; }\nexport const outer = value;\n',
+    'export declare namespace Foo { export interface Bar { x: number } }\nexport declare interface Baz { y: string }\nexport declare type Qux = number;\nexport const ok = 1;\n',
   ]) {
     assert.equal(sameAsTypeScript(src).backend, 'pulse', src);
   }
