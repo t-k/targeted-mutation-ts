@@ -341,27 +341,30 @@ function parsePattern(tokens, idx, limit, matchClose, watchedNames) {
 
 function findArrowExprEnd(tokens, startIdx, matchClose, text) {
   let i = startIdx;
+  let ternaryDepth = 0;
   while (i < tokens.length) {
     const t = tokens[i];
+    if (t.value === ',' || t.value === ';' || t.value === ')' || t.value === ']' || t.value === '}') {
+      return i > startIdx ? tokens[i - 1].end : -1;
+    }
+    if (t.value === ':') {
+      if (ternaryDepth === 0) return i > startIdx ? tokens[i - 1].end : -1;
+      ternaryDepth--;
+      i++;
+      continue;
+    }
+    // Decline conservatively when an unbracketed arrow body crosses a line break (avoids ASI / multiline operator ambiguity).
+    if (i > startIdx && text.slice(tokens[i - 1].end, t.start).includes('\n')) {
+      return -1;
+    }
     if (t.value === '(' || t.value === '[' || t.value === '{' || t.value === '${') {
       const close = matchClose[i];
       if (close < 0) return -1;
       i = close + 1;
       continue;
     }
-    if (t.value === ',' || t.value === ';' || t.value === ')' || t.value === ']' || t.value === '}') {
-      return i > startIdx ? tokens[i - 1].end : -1;
-    }
-    // Conservative ASI check: if a newline separates two tokens that can end a statement
-    if (i > startIdx && text.slice(tokens[i - 1].end, t.start).includes('\n')) {
-      const prevV = tokens[i - 1].value;
-      const curV = t.value;
-      const prevEndsExpr = tokens[i - 1].type === 'id' || tokens[i - 1].type === 'num' || tokens[i - 1].type === 'str' ||
-        tokens[i - 1].type === 'tpl' || tokens[i - 1].type === 'regex' || prevV === ')' || prevV === ']' || prevV === '}' || prevV === '++' || prevV === '--';
-      const curContinues = curV === '.' || curV === '?.' || curV === '?' || curV === ':' || curV === '&&' || curV === '||' || curV === '??' ||
-        curV === '+' || curV === '-' || curV === '*' || curV === '/' || curV === '%' || curV === '==' || curV === '===' || curV === '!=' || curV === '!==' ||
-        curV === '<' || curV === '>' || curV === '&' || curV === '|' || curV === '^' || curV === '(' || curV === '[' || curV === '`';
-      if (prevEndsExpr && !curContinues) return tokens[i - 1].end;
+    if (t.value === '?') {
+      ternaryDepth++;
     }
     i++;
   }
@@ -375,6 +378,7 @@ function collectShadowedSpans(text, watchedNames) {
 
   // Match all (), [], {}, ${...}
   const matchClose = new Int32Array(tokens.length).fill(-1);
+  const matchOpen = new Int32Array(tokens.length).fill(-1);
   const stack = [];
   for (let i = 0; i < tokens.length; i++) {
     const v = tokens[i].value;
@@ -386,9 +390,27 @@ function collectShadowedSpans(text, watchedNames) {
       const ov = tokens[open].value;
       if ((ov === '(' && v !== ')') || (ov === '[' && v !== ']') || ((ov === '{' || ov === '${') && v !== '}')) return null;
       matchClose[open] = i;
+      matchOpen[i] = open;
     }
   }
   if (stack.length !== 0) return null;
+
+  const isPrecededByDecorator = (toks, idx) => {
+    let k = idx - 1;
+    if (k < 0) return false;
+    // Walk backwards through `@Dec`, `@a.b(...)`, `@(expr)`
+    if (toks[k].value === ')') {
+      const open = matchOpen[k];
+      if (open < 0) return false;
+      k = open - 1;
+    }
+    while (k >= 0) {
+      if (toks[k].value === '@') return true;
+      if (toks[k].type === 'id' || toks[k].value === '.') { k--; continue; }
+      break;
+    }
+    return false;
+  };
 
   // Reject dynamic scope (`eval`, `with`).
   for (let i = 0; i < tokens.length; i++) {
@@ -450,7 +472,14 @@ function collectShadowedSpans(text, watchedNames) {
       if (!after) continue;
       const isArrow = after.value === '=>';
       const isCatch = i > 0 && tokens[i - 1].type === 'id' && !tokens[i - 1].afterDot && tokens[i - 1].value === 'catch';
-      const isBlockFn = after.value === '{' && !isCatch;
+      // For `(...) { ... }`, distinguish a function/method parameter list from a call followed by a block on the next line (`g(a)\n{ ... }`).
+      const isFnKeywordHead =
+        (i >= 1 && tokens[i - 1].type === 'id' && !tokens[i - 1].afterDot && tokens[i - 1].value === 'function') ||
+        (i >= 2 && tokens[i - 1].value === '*' && tokens[i - 2].type === 'id' && !tokens[i - 2].afterDot && tokens[i - 2].value === 'function') ||
+        (i >= 2 && tokens[i - 1].type === 'id' && tokens[i - 2].type === 'id' && !tokens[i - 2].afterDot && tokens[i - 2].value === 'function') ||
+        (i >= 3 && tokens[i - 1].type === 'id' && tokens[i - 2].value === '*' && tokens[i - 3].type === 'id' && !tokens[i - 3].afterDot && tokens[i - 3].value === 'function');
+      const isSameLineMethod = after.value === '{' && !isCatch && !text.slice(tokens[close].end, after.start).includes('\n');
+      const isBlockFn = after.value === '{' && !isCatch && (isFnKeywordHead || isSameLineMethod);
       if (!isArrow && !isCatch && !isBlockFn) continue;
 
       // Quick scan inside `(...)` to see if any watched name appears at all.
@@ -658,26 +687,47 @@ function collectShadowedSpans(text, watchedNames) {
       if (bodyClose < 0) return null;
 
       // Distinguish declaration (block-scoped) vs named expression (self-scoped to body).
-      // Note: a decorated class declaration `@Dec(...) class Name {}` is preceded by the decorator's `)` or identifier.
-      const prevTok = i > 0 ? tokens[i - 1] : null;
+      // Look before `async` when checking `async function name() {}`.
+      let headIdx = i;
+      if (t.value === 'function' && headIdx > 0 && tokens[headIdx - 1].type === 'id' && !tokens[headIdx - 1].afterDot && tokens[headIdx - 1].value === 'async') {
+        headIdx--;
+      }
+      const prevTok = headIdx > 0 ? tokens[headIdx - 1] : null;
+      let isDecl = false;
       let isExpr = false;
-      if (prevTok) {
+      if (!prevTok) {
+        isDecl = true;
+      } else if (prevTok.value === ':') {
+        // Ambiguous between `case 0: function a(){}` / label vs object property / ternary expression: decline safely.
+        return null;
+      } else if (prevTok.value === ';' || prevTok.value === '{' || prevTok.value === '}' ||
+          (prevTok.value === ')' && prevTok.ctrl) ||
+          (prevTok.type === 'id' && !prevTok.afterDot && (prevTok.value === 'else' || prevTok.value === 'export' || prevTok.value === 'default'))) {
+        isDecl = true;
+      } else if (t.value === 'class' && isPrecededByDecorator(tokens, headIdx)) {
+        isDecl = true;
+      } else {
         const pv = prevTok.value;
-        if (pv === '=' || pv === '(' || pv === '[' || pv === ',' || pv === ':' || pv === '?' || pv === '=>' ||
-            pv === '+' || pv === '-' || pv === '!' || pv === '~' || pv === '&&' || pv === '||' || pv === '??' ||
-            (prevTok.type === 'id' && (pv === 'return' || pv === 'throw' || pv === 'yield' || pv === 'await' || pv === 'new' || pv === 'typeof' || pv === 'void' || pv === 'in' || pv === 'instanceof'))) {
+        if (pv === '=' || pv === '(' || pv === '[' || pv === ',' || pv === '?' || pv === '=>' ||
+            pv === '+' || pv === '-' || pv === '*' || pv === '/' || pv === '%' || pv === '!' || pv === '~' ||
+            pv === '&' || pv === '|' || pv === '^' || pv === '<' || pv === '>' ||
+            pv === '==' || pv === '===' || pv === '!=' || pv === '!==' ||
+            pv === '&&' || pv === '||' || pv === '??' ||
+            (prevTok.type === 'id' && !prevTok.afterDot && (pv === 'return' || pv === 'throw' || pv === 'yield' ||
+              pv === 'await' || pv === 'new' || pv === 'typeof' || pv === 'void' || pv === 'in' || pv === 'instanceof'))) {
           isExpr = true;
+        } else {
+          return null;
         }
       }
-      const isDecl = !isExpr;
       if (isDecl && braceStack.length > 0) {
         const blockOpen = braceStack[braceStack.length - 1];
         const blockClose = braceEnds[braceEnds.length - 1];
-        for (let k = blockOpen + 1; k < i; k++) {
+        for (let k = blockOpen + 1; k < headIdx; k++) {
           if (tokens[k].type === 'id' && !tokens[k].afterDot && tokens[k].value === nameTok.value) return null;
         }
         addSpan(nameTok.value, nameTok.start, tokens[blockClose].end);
-      } else if (!isDecl) {
+      } else if (isExpr) {
         addSpan(nameTok.value, nameTok.start, tokens[bodyClose].end);
       }
     }

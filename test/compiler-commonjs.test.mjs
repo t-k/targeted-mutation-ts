@@ -618,6 +618,10 @@ test('CommonJS local-scope import shadowing compiles natively and matches TypeSc
     'import { a } from "./a";\nexport function f() { try { return a; } catch (a) { return a; } }\n',
     'import { a } from "./a";\nexport const f = function a() { return typeof a; };\nexport const top = a;\n',
     'import { Dec, Use, Filter } from "./d";\nexport function suite() { @Dec() class Filter {} @Use(Filter) class Sub {} return [Filter, Sub]; }\nexport const top = Filter;\n',
+    'import { a } from "./a";\nexport const f = false ? a => a : a;\n',
+    'import { a } from "./a";\nexport function f() { const g = 1 * (function a() { return 1; } as any); return [g, a]; }\n',
+    'import { a } from "./a";\nexport function f() { const g = async function a() { return a; }; return [g, a]; }\n',
+    'import { a } from "./a";\ndeclare function g(x: any): void;\nexport function f() { g(a)\n  { return a; } }\nexport const shadow = (a: number) => a;\n',
   ]) {
     assert.equal(sameAsTypeScript(src).backend, 'pulse', src);
   }
@@ -630,12 +634,16 @@ test('CommonJS local-scope import shadowing compiles natively and matches TypeSc
   new Function('exports', 'require', 'module', compiled.code)(mod.exports, () => ({ val: 42 }), mod);
   assert.deepEqual(mod.exports.run(), [6, 5, 42]);
 
-  // Complex/ambiguous scoping cases safely decline to TypeScript.
+  // Complex/ambiguous scoping cases safely decline to TypeScript (including review round 48 counterexamples).
   for (const src of [
     'import { a } from "./a";\nexport function f() { var a = 1; return a; }\nvoid a;\n',
     'import { a } from "./a";\nexport function f(x = a, a = 1) { return [x, a]; }\nvoid a;\n',
     'import { a } from "./a";\nexport function f() { const g = () => a; const a = 1; return g(); }\nvoid a;\n',
     'import { a } from "./a";\nexport function f(a: number) { return eval("a"); }\nvoid a;\n',
+    'import { a } from "./a";\nexport function f() { const g = (a: number) => a\n  { return a; } }\n',
+    'import { a } from "./a";\nexport const f = (a: any) => typeof\n  a;\n',
+    'import { a } from "./a";\nexport const f = (a: any) => "x"\n  in a;\n',
+    'import { a } from "./a";\nexport function f() { switch (0) { case 0: function a() {} return a; } }\n',
   ]) {
     assert.equal(compile(Buffer.from(src), { file: 'shadow.ts', module: 'cjs' }).backend, 'typescript', src);
   }

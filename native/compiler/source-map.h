@@ -41,10 +41,10 @@ static inline bool tmt_map_reserve(tmt_map_writer *map, size_t extra) {
   return true;
 }
 
-/* The caller reserves seven bytes, the longest encoding of a 32-bit value. */
+/* The caller reserves seven bytes; `value` is a difference of uint32_t coordinates (at most 7 VLQ bytes). */
 static inline char *tmt_map_vlq_ptr(char *p, int64_t value) {
   static const char digits[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-  uint64_t bits = value < 0 ? ((uint64_t)(-value) << 1) | 1 : (uint64_t)value << 1;
+  uint64_t bits = value < 0 ? (((uint64_t)(-(value + 1)) + 1ULL) << 1) | 1ULL : (uint64_t)value << 1;
   if (__builtin_expect(bits < 32, 1)) {
     *p++ = digits[bits];
     return p;
