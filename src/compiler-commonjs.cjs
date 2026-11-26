@@ -25,8 +25,141 @@ const forms = {
   classHead: new RegExp(`^class(?:\\s+(?!extends\\b)(${word}))?\\s*(?:\\{|extends\\b)`),
   variableHead: new RegExp(`^(const|let|var)\\s+(${word})\\s*(=(?![=>])|;|$)`),
 };
-// Words of the CommonJS text itself, and words whose meaning in it differs from a module's.
-const reserved = /(?<![\w$.])(?:exports|default_1|__importStar|__importDefault|__exportStar|__createBinding|__setModuleDefault)(?![\w$])|\bimport\s*[.(]/;
+// Words whose meaning in CommonJS differs from a module's (checked in real code or raw text).
+const reserved = /(?<![\w$.])(?:default_1|__importStar|__importDefault|__exportStar|__createBinding|__setModuleDefault)(?![\w$])|\bimport\s*[.(]/;
+
+const regexAfter = new Set(['', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~', '<', '>', '+', '-', '*', '%', '/', '=>', ')ctrl',
+  'return', 'throw', 'case', 'yield', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'of', 'new', 'else', 'do']);
+
+// Walks `text` lexically, invoking `visit(name, at, prevToken)` for every identifier in code (skipping
+// comments, strings, template literal text and regular expressions). Returns false on ambiguous syntax or
+// when `visit` returns false.
+function scanCodeIdentifiers(text, visit) {
+  const braces = [], parens = [];
+  let prev = '', at = 0;
+  const skipTemplate = pos => {
+    while (pos < text.length) {
+      const c = text[pos];
+      if (c === '\\') { pos += 2; continue; }
+      if (c === '`') { prev = 'lit'; return pos + 1; }
+      if (c === '$' && text[pos + 1] === '{') { braces.push('template'); prev = '${'; return pos + 2; }
+      pos++;
+    }
+    return -1;
+  };
+  while (at < text.length) {
+    const c = text[at];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\v' || c === '\f') { at++; continue; }
+    if (c === '/' && text[at + 1] === '/') {
+      const end = text.indexOf('\n', at + 2);
+      at = end < 0 ? text.length : end + 1;
+      continue;
+    }
+    if (c === '/' && text[at + 1] === '*') {
+      const end = text.indexOf('*/', at + 2);
+      if (end < 0) return false;
+      at = end + 2;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      at++;
+      while (at < text.length && text[at] !== c) {
+        if (text[at] === '\\') at += 2;
+        else if (text[at] === '\n') return false;
+        else at++;
+      }
+      if (at >= text.length) return false;
+      at++;
+      prev = 'lit';
+      continue;
+    }
+    if (c === '`') {
+      at = skipTemplate(at + 1);
+      if (at < 0) return false;
+      continue;
+    }
+    if (c === '}') {
+      if (braces.length > 0 && braces[braces.length - 1] === 'template') {
+        braces.pop();
+        at = skipTemplate(at + 1);
+        if (at < 0) return false;
+        continue;
+      }
+      if (braces.length > 0) braces.pop();
+      prev = '}';
+      at++;
+      continue;
+    }
+    if (c === '{') { braces.push('{'); prev = '{'; at++; continue; }
+    if (c === '(') {
+      parens.push(prev === 'if' || prev === 'while' || prev === 'for' || prev === 'with' || prev === 'await-for');
+      prev = '(';
+      at++;
+      continue;
+    }
+    if (c === ')') {
+      prev = parens.pop() ? ')ctrl' : ')';
+      at++;
+      continue;
+    }
+    if (c === '/') {
+      if (prev === '}' || prev === '++' || prev === '--') return false;
+      if (regexAfter.has(prev)) {
+        at++;
+        let inClass = false;
+        while (at < text.length) {
+          const rc = text[at];
+          if (rc === '\\') { at += 2; continue; }
+          if (rc === '\n') return false;
+          if (inClass) { if (rc === ']') inClass = false; }
+          else if (rc === '[') inClass = true;
+          else if (rc === '/') { at++; break; }
+          at++;
+        }
+        while (at < text.length && /[a-z]/i.test(text[at])) at++;
+        prev = 'lit';
+        continue;
+      }
+      at += text[at + 1] === '=' ? 2 : 1;
+      prev = '/';
+      continue;
+    }
+    const code = text.charCodeAt(at);
+    if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95 || code === 36) {
+      let end = at + 1;
+      while (end < text.length) {
+        const u = text.charCodeAt(end);
+        if ((u >= 65 && u <= 90) || (u >= 97 && u <= 122) || (u >= 48 && u <= 57) || u === 95 || u === 36) end++;
+        else break;
+      }
+      const name = text.slice(at, end);
+      if (visit(name, at, prev) === false) return false;
+      prev = prev === '.' ? 'id' : (prev === 'for' && name === 'await') ? 'await-for' : name;
+      at = end;
+      continue;
+    }
+    if (code >= 48 && code <= 57) {
+      at++;
+      while (at < text.length) {
+        const u = text.charCodeAt(at);
+        if ((u >= 48 && u <= 57) || (u >= 65 && u <= 90) || (u >= 97 && u <= 122) || u === 95 || u === 46) {
+          if ((u === 69 || u === 101) && (text[at + 1] === '+' || text[at + 1] === '-')) at += 2;
+          else at++;
+        } else break;
+      }
+      prev = 'lit';
+      continue;
+    }
+    if (c === '.' && text[at + 1] === '.' && text[at + 2] === '.') { prev = '...'; at += 3; continue; }
+    if (c === '?' && text[at + 1] === '.' && !(text.charCodeAt(at + 2) >= 48 && text.charCodeAt(at + 2) <= 57)) { prev = '.'; at += 2; continue; }
+    if (c === '=' && text[at + 1] === '>') { prev = '=>'; at += 2; continue; }
+    if ((c === '+' && text[at + 1] === '+') || (c === '-' && text[at + 1] === '-')) { prev = c + c; at += 2; continue; }
+    if (c === '*') { prev = prev === 'function' ? 'function*' : '*'; at++; continue; }
+    prev = c;
+    at++;
+  }
+  return true;
+}
 
 // An object that is assigned to, in parentheses, and a loop whose head takes a value apart.
 const objectTarget = /\(\s*\{[\s\S]{0,2000}?\}\s*=(?![=>])/;
@@ -198,8 +331,8 @@ function toCommonJs(addon, code, source, experimentalDecorators = false) {
   const moduleName = specifier => {
     const base = specifierName(specifier.slice(1, -1));
     if (/[^\x20-\x7e]/.test(specifier)) return null;
-    // A specifier without a letter or digit in its last part is named in a way that is not reproduced here.
-    if (!/[\w$]/.test(specifier.slice(specifier.lastIndexOf('/') + 1))) return null;
+    // A specifier without an ASCII letter or digit in its last part is named in a way that is not reproduced here.
+    if (!/[A-Za-z0-9]/.test(specifier.slice(specifier.lastIndexOf('/') + 1))) return null;
     for (let number = 1; ; number++) {
       const name = `${base}_${number}`;
       if (taken.has(name)) continue;
@@ -289,13 +422,18 @@ function toCommonJs(addon, code, source, experimentalDecorators = false) {
         edits.push([first, last, `exports.${match[1]} = __importStar(require(${match[2]}));`]);
       } else if ((match = forms.from.exec(statement))) {
         const pairs = members(match[1]);
-        if (pairs === null || pairs.length === 0 || pairs.some(([source, exported]) => source === 'default' || exported === 'default')) return null;
+        if (pairs === null || pairs.length === 0) return null;
         const name = moduleName(match[2]);
         if (name === null) return null;
         let lines = `var ${name} = require(${match[2]});`;
-        for (const [source, exported] of pairs) {
+        for (const [sourceName, exported] of pairs) {
           cleared.push(exported);
-          lines += `\nObject.defineProperty(exports, "${exported}", { enumerable: true, get: function () { return ${name}.${source}; } });`;
+          if (sourceName === 'default') {
+            need('__importDefault');
+            lines += `\nObject.defineProperty(exports, "${exported}", { enumerable: true, get: function () { return __importDefault(${name}).default; } });`;
+          } else {
+            lines += `\nObject.defineProperty(exports, "${exported}", { enumerable: true, get: function () { return ${name}.${sourceName}; } });`;
+          }
         }
         edits.push([first, last, lines]);
       } else if ((match = forms.list.exec(statement))) {
@@ -375,9 +513,10 @@ function toCommonJs(addon, code, source, experimentalDecorators = false) {
           if (keyword !== 'const') return null;
           // Blanks behind the value (including before a newline or semicolon) or in front of a function are
           // where an assertion was erased; TypeScript does not take a value under an assertion for a function.
-          const withoutNextIndent = value.replace(/\n[ \t]*$/, '');
-          const leading = /^([ \t]*)([\s\S]*)$/.exec(withoutNextIndent);
-          if (/\s$/.test(withoutNextIndent.replace(/;$/, '')) ||
+          const hasSemi = /;\s*$/.test(value);
+          const beforeEnd = hasSemi ? value.replace(/;\s*$/, '') : value.replace(/\n[ \t]*$/, '').replace(/\n+$/, '');
+          const leading = /^([ \t]*)([\s\S]*)$/.exec(beforeEnd);
+          if (/\s$/.test(beforeEnd) ||
               ((leading[1].length > 1 || leading[2].startsWith('\n')) && /^(?:async\s+function|function|class)(?![\w$])/.test(leading[2].trimStart()))) return null;
           edits.push([first, at, '']);
           behind(index, `exports.${name} = ${name};`);
@@ -439,32 +578,45 @@ function toCommonJs(addon, code, source, experimentalDecorators = false) {
   }
 
   const targeted = position => targets.some(([first, last]) => position >= first && position < last);
-  // Every occurrence of a renamed name has to be one that the parser read as an expression, a property behind
-  // a dot, or the declaration itself. A local name that stays is exported by value, so nothing may write it.
+  // Every occurrence of a renamed name in code has to be one that the parser read as an expression, a
+  // property behind a dot, a property key/label/method name, or the declaration itself. A local name that
+  // stays is exported by value, so nothing may write or shadow it.
   const inEdit = position => edits.some(([first, last, replacement]) => position >= first && position < last && replacement !== undefined);
   const referenceAt = new Map(references.map(reference => [reference.first, reference]));
-  const scan = /[A-Za-z_$][\w$]*/g;
-  for (let match; (match = scan.exec(text)) !== null;) {
-    const name = match[0], at = match.index;
+  const scanned = scanCodeIdentifiers(text, (name, at, prevToken) => {
+    if (name === 'exports' && prevToken !== '.') {
+      const [one] = followers(text, at + name.length);
+      if (one !== ':') return false;
+    }
     const target = renamed.get(name), local = target === undefined ? kept.get(name) : undefined;
-    if (target === undefined && local === undefined) continue;
+    if (target === undefined && local === undefined) return;
+    if (prevToken === '.') return;
     const before = text[at - 1], reference = referenceAt.get(at);
-    if (before === '.' && text[at - 2] !== '.') continue;
     if (target !== undefined) {
-      if (target.declaration === at || inEdit(at)) continue;
-      if (reference === undefined || reference.last !== at + name.length) return null;
+      if (target.declaration === at || inEdit(at)) return;
+      if (prevToken === '@' || before === '@') return false;
+      if (reference === undefined || reference.last !== at + name.length) {
+        // Non-reference identifier in code: safe when it is a property key/label (`name:`), a method or
+        // accessor definition (`name(` not after `function`/`function*`), a label jump, or a static member.
+        if (reference === undefined) {
+          const [one] = followers(text, at + name.length);
+          if (one === ':' || prevToken === 'break' || prevToken === 'continue' || prevToken === 'static' ||
+              (one === '(' && prevToken !== 'function' && prevToken !== 'function*')) return;
+        }
+        return false;
+      }
       const [one, two, three, nextAt] = followers(text, at + name.length);
-      if (/[\x80-\xff\\]/.test(one) || before === '@') return null;
-      if (target.kind !== 'variable' && (writes(text, at, one, two, three) || targeted(at))) return null;
+      if (/[\x80-\xff\\]/.test(one)) return false;
+      if (target.kind !== 'variable' && (writes(text, at, one, two, three) || targeted(at))) return false;
       // An optional call is written by TypeScript with parentheses that end the chain; it is left to it.
       if (one === '?' && two === '.') {
         const afterOpt = skipTrivia(text, nextAt + 2);
-        if (afterOpt < 0 || text[afterOpt] === '(' || text[afterOpt] === '`') return null;
+        if (afterOpt < 0 || text[afterOpt] === '(' || text[afterOpt] === '`') return false;
       }
       let called = false, prev = at;
       if (one === '(' || one === '`') {
         prev = skipTriviaBack(text, at, false);
-        if (prev < 0) return null;
+        if (prev < 0) return false;
         called = !/(?<![\w$.])new$/.test(text.slice(Math.max(0, prev - 16), prev));
       }
       let value = called ? `(0, ${target.text})` : target.text;
@@ -473,41 +625,45 @@ function toCommonJs(addon, code, source, experimentalDecorators = false) {
         // statement of a list starts, a semicolon is written; elsewhere the call has to follow, on its
         // line, something that cannot be the end of a statement.
         if (starts.has(at) || listed.has(at)) value = ';' + value;
-        else if (text.slice(prev, at).includes('\n') && prev > 0 && /[\w$)\]}'"`\x80-\xff]/.test(text[prev - 1])) return null;
+        else if (text.slice(prev, at).includes('\n') && prev > 0 && /[\w$)\]}'"`\x80-\xff]/.test(text[prev - 1])) return false;
       }
       edits.push([at, at + name.length, reference.shorthand ? `${name}: ${target.text}` : value]);
     } else if (reference === undefined && (local.kind === 'function' || local.kind === 'class' || local.kind === 'mutable' || local.kind === 'constant')) {
       // A name in an object that is assigned to, a loop variable, or a shadowing declaration in a block
       // is not among the references. Only its own declaration (and the self-name of a lowered decorated
-      // class expression), a property key, and prose are harmless.
+      // class expression), a property key, label, or method name are harmless.
       const decl = declarations.get(name);
       const isSelfClassName = local.kind === 'mutable' && decl !== undefined && at > decl.first && at < endOf(local.statement) &&
         /^\s*=\s*class\s+$/.test(text.slice(decl.last, at));
       if (at !== decl?.first && !isSelfClassName && !inEdit(at)) {
+        if (prevToken === '@' || before === '@') return false;
         const [one, , , nextAt] = followers(text, at + name.length);
-        if (one === '}' || one === ',' || one === '=' || one === ']' || one === ')' || one === ';' || one === '{' || one === '(') return null;
-        if (precededByDecl(text, at)) return null;
-        if (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) return null;
+        if (one === ':' || prevToken === 'break' || prevToken === 'continue' || prevToken === 'static' ||
+            (one === '(' && prevToken !== 'function' && prevToken !== 'function*')) return;
+        if (one === '}' || one === ',' || one === '=' || one === ']' || one === ')' || one === ';' || one === '{' || one === '(') return false;
+        if (precededByDecl(text, at)) return false;
+        if (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) return false;
       }
     } else if (reference !== undefined && local.kind === 'mutable') {
       const [one, two, three, nextAt] = followers(text, at + name.length);
-      if (loopTarget.test(text) || (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt)))) return null;
+      if (loopTarget.test(text) || (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt)))) return false;
       if (targets.some(([first, last]) => first === at && last === at + name.length) && one === '=' && two !== '=' && two !== '>') {
         edits.push([at, at, local.exported.slice().reverse().map(exported => `exports.${exported} = `).join('')]);
-      } else if (writes(text, at, one, two, three) || targeted(at)) return null;
+      } else if (writes(text, at, one, two, three) || targeted(at)) return false;
     } else if (reference !== undefined && local.kind === 'filled') {
       // The variable of a lowered enum or namespace is written only by the function that fills it.
       const [one, two, three] = followers(text, at + name.length);
-      if (statementOf(at) !== local.statement + 1 && (writes(text, at, one, two, three) || targeted(at))) return null;
+      if (statementOf(at) !== local.statement + 1 && (writes(text, at, one, two, three) || targeted(at))) return false;
     } else if (reference !== undefined && (local.kind === 'function' || local.kind === 'class')) {
       // A function or a class is exported by value: an assignment to it would have to write the export too.
       const [one, two, three, nextAt] = followers(text, at + name.length);
-      if (writes(text, at, one, two, three) || targeted(at)) return null;
+      if (writes(text, at, one, two, three) || targeted(at)) return false;
       // The head of a loop and a parenthesized object are the targets that the parser does not report.
-      if ((nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) || loopTarget.test(text)) return null;
-      if (objectTarget.test(text) && (one === ',' || one === '}')) return null;
+      if ((nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) || loopTarget.test(text)) return false;
+      if (objectTarget.test(text) && (one === ',' || one === '}')) return false;
     }
-  }
+  });
+  if (!scanned) return null;
 
   // A non-null mark on a name keeps TypeScript from writing a call of it as `(0, f)()`, and the mark is gone
   // from the text that is read here.

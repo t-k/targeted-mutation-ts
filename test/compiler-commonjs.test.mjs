@@ -129,6 +129,14 @@ test('forms of CommonJS output: declarations that stay, hoisting, helpers and na
   native('import { a, b } from "./ab";\nexport { a, b as c };\na(b);');
   // An older target, where the module itself is written as for ESNext.
   assert.equal(sameAsTypeScript('import { a } from "./a";\nexport const b = a + 1;', 'module.ts', { target: 'es2019' }).backend, 'pulse');
+  // Imported names in comments, strings, templates, regexes, property keys, methods, labels and dot accesses stay native.
+  native('import { a } from "./a";\n// mentions a and exports\n/* block a */\nexport const o = { a: "a", s: `a ${a}`, r: /a/, a() { return a; } };');
+  native('import { a } from "./a";\nclass C { static a = 1; a() { return a; } get b() { return this\n  .a(); } }\nexport { C };');
+  native('import { a } from "./a";\nexport const f = () => {\n  a: for (let i = 0; i < 1; i++) { break a; }\n  return a;\n};\n\nexport const g = 1;');
+  // Re-exporting default and renaming to default.
+  native('export { default } from "./d";');
+  native('export { default as Foo, a } from "./d";');
+  native('export { a as default } from "./d";');
 });
 
 test('modules that are left to TypeScript for CommonJS output', () => {
@@ -145,8 +153,6 @@ test('modules that are left to TypeScript for CommonJS output', () => {
     ['export /*gap*/ declare const d: number;\nexport default d;', 'an ambient export behind a comment'],
     ['const a: number = 1;\nconsole.log(a);', 'a script'],
     ['import { a } from "./a";\nexport function f(a: number) { return a; }\nvoid a;', 'a parameter with the name of an import'],
-    ['import { a } from "./a";\nexport const o = { a: 1, b: a };', 'a key with the name of an import'],
-    ['import { a } from "./a";\n// calls a\nexport const b = a;', 'a comment with the name of an import'],
     ['export function f() {}\nf = null as any;', 'an assignment to an exported function'],
     ['export class A {}\n[A] = [null as any];', 'an array target with an exported class'],
     ['export function f() {}\nlet o: any;\n({ f } = o);', 'an object target with an exported function'],
@@ -163,8 +169,9 @@ test('modules that are left to TypeScript for CommonJS output', () => {
     ['import d, * as all from "./d";\nd; all;', 'a default and a namespace import together'],
     ['import g from "./x/";\ng;', 'a specifier that ends in a slash'],
     ['import g from "..";\ng;', 'a specifier without a name'],
+    ['import { x } from "./$";\nexport default x;', 'a specifier with only punctuation in its last part'],
+    ['import { dec } from "./d";\n@dec()\nexport class C {}', 'an unlowered decorator referencing an import'],
     ['import { default as d } from "./d";\nd;', 'default as a named import'],
-    ['export { default } from "./d";', 'default in a re-export'],
     ['import d from "./d";\nexport { d };', 'a default import in an export list'],
     ['import { a } from "./a";\nexport const b = 1;\nconst a_1 = 2;\nvoid [a, a_1];', 'a word that TypeScript would have to avoid'],
     ['import { a } from "./a";\ndeclare const x: any;\nx\n  a()\nexport {};', 'never'],
