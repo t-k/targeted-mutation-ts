@@ -246,12 +246,14 @@ const escapedKeywords = new Set([
   'get', 'set', 'from', 'of', 'as', 'accessor', 'using', 'abstract', 'declare', 'override', 'readonly', 'satisfies',
 ]);
 
-const regexKeywords = new Set(['return', 'throw', 'case', 'yield', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do']);
+const regexKeywords = new Set(['return', 'throw', 'case', 'default', 'yield', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do']);
 
-// Checks for `\u` escapes in code that spell a JS/TS keyword (which V8 may accept in some contextual
-// positions like `st\u0061tic` fields while TypeScript reports TS1260).
+// Checks in code (skipping strings, comments, template text, and regular expressions) for:
+// - `\u` escapes spelling a JS/TS keyword or Unicode 16/17 letter (`TS1260` / Unicode version divergence)
+// - unescaped Unicode 16/17 identifier letters (`newerLetter`)
+// - `>` followed by `(`, `` ` ``, or `/` (TypeScript generic-call vs JS relational-expression ambiguity)
 function hasEscapedKeyword(text) {
-  if (!text.includes('\\u')) return false;
+  if (!text.includes('\\u') && !/[^\x00-\x7f]/.test(text) && !text.includes('>')) return false;
   const braces = [];
   let prev = '';
   const skipTpl = pos => {
@@ -294,27 +296,49 @@ function hasEscapedKeyword(text) {
       prev = '}';
       continue;
     }
-    if (c === '/' && (prev === '' || '([{,;:?=!&|^~<>+-*%'.includes(prev) || regexKeywords.has(prev))) {
+    if (c === '=' && text[at + 1] === '>') { prev = '=>'; at++; continue; }
+    if (c === '>') {
+      let next = at + 1;
+      while (next < text.length) {
+        const ch = text[next];
+        if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') { next++; continue; }
+        if (ch === '/' && text[next + 1] === '/') { next += 2; while (next < text.length && text[next] !== '\n' && text[next] !== '\r') next++; continue; }
+        if (ch === '/' && text[next + 1] === '*') { const e = text.indexOf('*/', next + 2); if (e < 0) return true; next = e + 2; continue; }
+        break;
+      }
+      const follower = text[next];
+      if (follower === '(' || follower === '`' || follower === '/') return true;
+      prev = '>';
+      continue;
+    }
+    if (c === '/' && (prev === '' || '([{,;:?=!&|^~<>+-*%'.includes(prev) || prev === '=>' || prev === '...' || regexKeywords.has(prev))) {
       at++;
-      let inClass = false;
+      let inClass = false, closed = false;
       while (at < text.length) {
         const rc = text[at];
         if (rc === '\\') { at += 2; continue; }
         if (rc === '\n' || rc === '\r') return true;
         if (inClass) { if (rc === ']') inClass = false; }
         else if (rc === '[') inClass = true;
-        else if (rc === '/') break;
+        else if (rc === '/') { closed = true; break; }
         at++;
       }
+      if (!closed) return true;
       prev = 'lit';
       continue;
     }
-    if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || c === '_' || c === '$' || (c === '\\' && text[at + 1] === 'u')) {
+    if (c === '.' && text[at + 1] === '.' && text[at + 2] === '.') { prev = '...'; at += 2; continue; }
+    const u0 = c.charCodeAt(0);
+    if ((u0 >= 65 && u0 <= 90) || (u0 >= 97 && u0 <= 122) || u0 === 95 || u0 === 36 || u0 >= 128 || (c === '\\' && text[at + 1] === 'u')) {
       const start = at;
-      let hasEsc = false;
+      let hasEsc = false, hasHigh = u0 >= 128;
       while (at < text.length) {
-        const ch = text[at];
-        if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch === '_' || ch === '$') { at++; continue; }
+        const ch = text[at], u = ch.charCodeAt(0);
+        if ((u >= 65 && u <= 90) || (u >= 97 && u <= 122) || (u >= 48 && u <= 57) || u === 95 || u === 36 || u >= 128) {
+          if (u >= 128) hasHigh = true;
+          at++;
+          continue;
+        }
         if (ch === '\\' && text[at + 1] === 'u') {
           hasEsc = true;
           if (text[at + 2] === '{') { const end = text.indexOf('}', at + 3); if (end < 0) return true; at = end + 1; }
@@ -331,9 +355,18 @@ function hasEscapedKeyword(text) {
           if (!Number.isFinite(cp) || cp > 0x10ffff) { invalid = true; return ''; }
           return String.fromCodePoint(cp);
         });
-        if (invalid || escapedKeywords.has(decoded) || newerLetter(decoded)) return true;
+        if (invalid || newerLetter(decoded)) return true;
+        if (escapedKeywords.has(decoded)) {
+          let next = at;
+          while (next < text.length && (text[next] === ' ' || text[next] === '\t' || text[next] === '\n' || text[next] === '\r')) next++;
+          const follower = text[next];
+          const isProp = prev === '.' || (follower === ':' && (prev === '{' || prev === ',')) ||
+            (follower === '(' && (prev === '{' || prev === ',' || prev === ';' || prev === '}' || prev === 'static' || prev === 'get' || prev === 'set' || prev === 'async' || prev === '*'));
+          if (!isProp) return true;
+        }
         prev = 'id';
       } else {
+        if (hasHigh && newerLetter(raw)) return true;
         prev = prev === '.' ? 'id' : raw;
       }
       at--;
@@ -347,8 +380,8 @@ function hasEscapedKeyword(text) {
 // A .ts/.mts file that contains no TypeScript syntax and passes V8's parser can be published natively
 // when it avoids the few ES2025/Unicode forms that V8 accepts and TypeScript 6.0.3 rejects.
 function validJavaScriptTsModule(addon, source, text, file, format, directive = false, sourceMap = false) {
-  if (hasEscapedKeyword(text) || newerLetter(text) ||
-      />\s*[(`\/]|\bnew(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*import\b|\bimport(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*(?:\.(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*(?:source|defer)|source|defer)\b|\?\.[^\n;]*#|\bfor\b[^\n]*\[[^\]]*\bin\b/.test(text)) {
+  if (hasEscapedKeyword(text) ||
+      /\bnew(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*import\b|\bimport(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*(?:\.(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*(?:source|defer)|source|defer)\b|\?\.[^\n;]*#|\bfor\b[^\n]*\[[^\]]*\bin\b/.test(text)) {
     return null;
   }
   const validators = javascriptValidators();
