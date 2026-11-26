@@ -696,13 +696,142 @@ const targetYears = new Map([['es6', 2015], ['es2015', 2015], ['es2016', 2016], 
 // text the slash in front of them may close a regular expression.
 const newerForms = [
   [2022, /\bclass\b|\.\s*#/],
-  [2021, /\|\|=|&&=|\?\?=|(?<![\w$])\d[\w.]*_/],
+  [2021, /\|\|=|&&=|\?\?=/],
   [2020, /\?\.|\?\?|\bexport\b(?!\s*(?:[{A-Za-z_$]|\*\s*from\b))/],
   [2019, /\bcatch\b(?!\s*\()/],
   [2018, /\.\.\.|\bfor\b(?!\s*\()|\basync\b(?:\s*function\b)?\s*[*\/]/],
   [2017, /\basync\b|\bawait\b/],
   [2016, /(?<!^[ \t]*\/\**)\*\*/m],
 ];
+
+// Lowers ES2021 numeric separators (`1_000`, `0xff_ff`, `0b10_10`, `1_000.5_5e1_0`, `1_000n`) in compiled JS
+// for targets below ES2021 while skipping strings, comments, template text, and regular expressions.
+function lowerNumericSeparators(code, year) {
+  const regexAfter = new Set(['', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~', '<', '>', '+', '-', '*', '%', '/', '=>', ')ctrl',
+    'return', 'throw', 'case', 'yield', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do']);
+  const braces = [], parens = [];
+  let prev = '', at = 0, out = '', last = 0;
+  const skipTpl = pos => {
+    while (pos < code.length) {
+      const c = code[pos];
+      if (c === '\\') { pos += 2; continue; }
+      if (c === '`') { prev = 'lit'; return pos + 1; }
+      if (c === '$' && code[pos + 1] === '{') { braces.push('tpl'); prev = '${'; return pos + 2; }
+      pos++;
+    }
+    return -1;
+  };
+  while (at < code.length) {
+    const c = code[at];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { at++; continue; }
+    if (c === '/' && code[at + 1] === '/') {
+      const end = code.indexOf('\n', at + 2);
+      at = end < 0 ? code.length : end + 1;
+      continue;
+    }
+    if (c === '/' && code[at + 1] === '*') {
+      const end = code.indexOf('*/', at + 2);
+      if (end < 0) return null;
+      at = end + 2;
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      at++;
+      while (at < code.length && code[at] !== c) {
+        if (code[at] === '\\') at += 2;
+        else if (code[at] === '\n' || code[at] === '\r') return null;
+        else at++;
+      }
+      if (at >= code.length) return null;
+      at++;
+      prev = 'lit';
+      continue;
+    }
+    if (c === '`') { at = skipTpl(at + 1); if (at < 0) return null; continue; }
+    if (c === '}') {
+      if (braces.length > 0 && braces[braces.length - 1] === 'tpl') {
+        braces.pop();
+        at = skipTpl(at + 1);
+        if (at < 0) return null;
+        continue;
+      }
+      if (braces.length > 0) braces.pop();
+      prev = '}';
+      at++;
+      continue;
+    }
+    if (c === '{') { braces.push('{'); prev = '{'; at++; continue; }
+    if (c === '(') {
+      parens.push(prev === 'if' || prev === 'while' || prev === 'for' || prev === 'with' || prev === 'await-for');
+      prev = '(';
+      at++;
+      continue;
+    }
+    if (c === ')') { prev = parens.pop() ? ')ctrl' : ')'; at++; continue; }
+    if (c === '/') {
+      if (prev === '}' || prev === '++' || prev === '--' || prev === 'of' || prev === 'debugger' || prev === 'break' || prev === 'continue') return null;
+      if (regexAfter.has(prev)) {
+        at++;
+        let inClass = false;
+        while (at < code.length) {
+          const rc = code[at];
+          if (rc === '\\') { at += 2; continue; }
+          if (rc === '\n' || rc === '\r') return null;
+          if (inClass) { if (rc === ']') inClass = false; }
+          else if (rc === '[') inClass = true;
+          else if (rc === '/') { at++; break; }
+          at++;
+        }
+        while (at < code.length && /[a-z]/i.test(code[at])) at++;
+        prev = 'lit';
+        continue;
+      }
+      at += code[at + 1] === '=' ? 2 : 1;
+      prev = '/';
+      continue;
+    }
+    const ch = code.charCodeAt(at);
+    if ((ch >= 65 && ch <= 90) || (ch >= 97 && ch <= 122) || ch === 95 || ch === 36 || ch >= 128) {
+      const start = at;
+      at++;
+      while (at < code.length) {
+        const u = code.charCodeAt(at);
+        if ((u >= 65 && u <= 90) || (u >= 97 && u <= 122) || (u >= 48 && u <= 57) || u === 95 || u === 36 || u >= 128) at++;
+        else break;
+      }
+      const word = code.slice(start, at);
+      prev = prev === '.' ? 'id' : (prev === 'for' && word === 'await') ? 'await-for' : word;
+      continue;
+    }
+    if ((ch >= 48 && ch <= 57) || (c === '.' && code.charCodeAt(at + 1) >= 48 && code.charCodeAt(at + 1) <= 57)) {
+      const start = at;
+      const radix = c === '0' && (code[at + 1] === 'x' || code[at + 1] === 'X' || code[at + 1] === 'b' || code[at + 1] === 'B' || code[at + 1] === 'o' || code[at + 1] === 'O');
+      at += radix ? 2 : 1;
+      while (at < code.length) {
+        const u = code.charCodeAt(at);
+        if ((u >= 48 && u <= 57) || (u >= 65 && u <= 90) || (u >= 97 && u <= 122) || u === 95 || u === 46) {
+          if (!radix && (u === 69 || u === 101) && (code[at + 1] === '+' || code[at + 1] === '-')) at += 2;
+          else at++;
+        } else break;
+      }
+      const lit = code.slice(start, at);
+      if (lit.endsWith('n') && year < 2020) return null;
+      if (lit.includes('_')) {
+        out += code.slice(last, start) + lit.replace(/_/g, '');
+        last = at;
+      }
+      prev = 'lit';
+      continue;
+    }
+    if (c === '.' && code[at + 1] === '.' && code[at + 2] === '.') { prev = '...'; at += 3; continue; }
+    if (c === '?' && code[at + 1] === '.' && !(code.charCodeAt(at + 2) >= 48 && code.charCodeAt(at + 2) <= 57)) { prev = '.'; at += 2; continue; }
+    if (c === '=' && code[at + 1] === '>') { prev = '=>'; at += 2; continue; }
+    if ((c === '+' && code[at + 1] === '+') || (c === '-' && code[at + 1] === '-')) { prev = c + c; at += 2; continue; }
+    prev = c;
+    at++;
+  }
+  return last === 0 ? code : out + code.slice(last);
+}
 const comment = '(?:[ \\t]|/\\*(?:[^*]|\\*(?!/))*\\*/)';
 // `using name =`, `using name:` and the head of a loop. English text with these words in this order is
 // taken for a declaration too, and such a file goes to TypeScript.
@@ -853,8 +982,20 @@ function compile(input, options = {}) {
     }
     return compile(stable, { ...options, [commonJsDeclined]: true });
   }
-  if (targetYears.has(target) && mode === 'transform' && !experimentalDecorators && writtenAsNewest(snapshot(input), jsxFile, targetYears.get(target))) {
-    return compile(input, { ...options, target: 'esnext' });
+  if (targetYears.has(target) && mode === 'transform' && !experimentalDecorators) {
+    const year = targetYears.get(target);
+    const stable = snapshot(input);
+    if (writtenAsNewest(stable, jsxFile, year)) {
+      const hasNumSep = year < 2021 && /(?<![\w$])(?:\d[\w.]*_|\.\d[\d_]*_)/.test(Buffer.isBuffer(stable) ? stable.latin1Slice() : String(stable));
+      if (!hasNumSep) return compile(stable, { ...options, target: 'esnext' });
+      if (!sourceMap && jsx !== 'preserve') {
+        const result = compile(stable, { ...options, target: 'esnext' });
+        if ((result.backend === 'pulse' || result.backend === 'javascript') && result.code !== null && result.diagnostics.length === 0) {
+          const lowered = lowerNumericSeparators(result.code, year);
+          if (lowered !== null) return { ...result, code: lowered };
+        }
+      }
+    }
   }
   // Decorators of TypeScript's earlier design are lowered to helper calls. A source without an at sign holds
   // none, and compiles as without the option; any other is lowered by TypeScript.

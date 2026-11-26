@@ -169,7 +169,7 @@ test('modules that are left to TypeScript for CommonJS output', () => {
     ['export function f() {}\nfor (f of []) {}', 'a loop that assigns an exported function'],
     ['export const { a, b } = { a: 1, b: 2 };', 'a pattern'],
     ['export let count: number;\nfor (count of [1, 2]) {}', 'a loop that assigns an exported variable'],
-    ['export const a = 1, b = 2;', 'two declarators'],
+    ['export const a = 1, b = () => 2;', 'two declarators with a function-like value'],
     ['export let f = () => 1;\nf = () => 2;', 'a function-like value in a variable that can change'],
     ['const exports = 1;\nexport { exports as e };', 'the word exports'],
     ['export const m = (x: string) => import(x);', 'a dynamic import with a computed specifier'],
@@ -521,4 +521,10 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   const deepNs = 'export namespace N { export let K = 1; export const a = K; export const f = ' +
     '('.repeat(63) + '(x=[])=>x' + ')'.repeat(63) + '; }\n';
   assert.equal(compile(Buffer.from(deepNs), { file: 'a.ts' }).backend, 'pulse');
+
+  // Multi-declarator `export const/let/var a = e1, b = e2;` compiles natively when values are non-function-like.
+  const multiDecl = sameAsTypeScript('export const a = 1, b = a + 2, c = (3, 4);\n');
+  assert.equal(multiDecl.backend, 'pulse');
+  const multiDeclDeclined = sameAsTypeScript('export let a = 1, b;\n');
+  assert.equal(multiDeclDeclined.backend, 'typescript');
 });

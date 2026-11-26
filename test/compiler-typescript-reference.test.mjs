@@ -3134,7 +3134,9 @@ test('each target compiles natively up to the forms of its year', () => {
     ['declare const b: number | undefined;\nexport const a = b ?? 1;', 2020],
     ['export * as parts from "./parts";', 2020],
     ['let a: number | undefined;\na ||= 1;\na &&= 2;\na ??= 3;\nexport { a };', 2021],
-    ['export const n: number = 1_000 + 0xff_ff;', 2021],
+    ['export const n: number = 1_000 + 0xff_ff;', 2015],
+    ['export const s: string = "1_000"; export const d = 1_000.2_5e1_0 + 0b1010_0101;', 2015],
+    ['export const big = 1_000n;', 2020],
     ['export class A { x = 1; static s = 2; }', 2022],
     ['export const A = class { m() { return 1; } };', 2022],
   ];

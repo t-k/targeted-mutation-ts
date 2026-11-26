@@ -502,7 +502,29 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       } else if ((match = forms.variableHead.exec(rest))) {
         const [, keyword, name, next] = match;
         const names = declared.filter(entry => entry.first >= first && entry.first < end);
-        if (names.length !== 1 || names[0].name !== name || names[0].first !== at + match[0].indexOf(name, keyword.length)) return null;
+        if (names.length === 0 || names[0].name !== name || names[0].first !== at + match[0].indexOf(name, keyword.length)) return null;
+        if (names.length > 1) {
+          const declEdits = [];
+          for (let i = 0; i < names.length; i++) {
+            const entry = names[i];
+            if (i > 0) {
+              const beforeName = skipTriviaBack(text, entry.first, true);
+              if (beforeName <= 0 || text[beforeName - 1] !== ',') return null;
+            }
+            const [eq1, eq2, , eqAt] = followers(text, entry.last);
+            if (eq1 !== '=' || eq2 === '=' || eq2 === '>') return null;
+            const initEnd = i + 1 < names.length ? skipTriviaBack(text, names[i + 1].first, true) - 1 : end;
+            if (initEnd <= eqAt + 1) return null;
+            if (valueShape(addon, text.slice(eqAt + 1, initEnd)) !== 'other') return null;
+            declEdits.push([i === 0 ? first : entry.first, entry.last, `exports.${entry.name}`]);
+          }
+          for (const edit of declEdits) edits.push(edit);
+          for (const entry of names) {
+            cleared.push(entry.name);
+            renamed.set(entry.name, { text: `exports.${entry.name}`, statement: index, kind: 'variable', declaration: entry.first });
+          }
+          continue;
+        }
         cleared.push(name);
         if (next !== '=') {
           // A declaration without a value. The lowering of an enum or a namespace writes one in front of the
