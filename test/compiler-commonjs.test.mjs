@@ -120,6 +120,9 @@ test('forms of CommonJS output: declarations that stay, hoisting, helpers and na
   // Directives stay in front, and a rewritten call that starts a statement gets a semicolon.
   native('"use client";\n/** note */\nimport { run } from "./run";\nconst a = 1\nrun()\nfunction f() {\n  const b = 2\n  run()\n  if (a) run()\n  return () => {\n    run() }\n}\nexport { f }');
   native('import { jsx } from "./own";\nexport const view = <div title="t">{jsx}</div>;', 'module.tsx');
+  // The JSX runtime is required before the code that uses it, wherever the module's first export stands.
+  native('const a = <div>text</div>;\nconsole.log(a);\nexport {};', 'module.tsx');
+  native('const a = <div>text</div>;\nexport const b = <p>{a}</p>;', 'module.tsx');
   // Type arguments in front of a call leave blanks, and the call is still one.
   native('import { make } from "./make";\nexport const made = make<string,\n  number>(1);');
   // An exported name that a re-export list takes from an import is read through a getter.

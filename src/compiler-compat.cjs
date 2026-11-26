@@ -21,7 +21,10 @@ function invalidModuleSyntax(ts, file, diagnostics) {
 
 function commonJsError(code, file) {
   try {
-    require('node:vm').compileFunction(code, ['exports', 'require', 'module', '__filename', '__dirname'], { filename: file });
+    // The Function constructor reads the same grammar as Node's compile function, which for some invalid
+    // texts ends the process while it decorates the error with the source line.
+    // An interpreter line is read as a comment, as it is at the start of a file.
+    new Function('exports', 'require', 'module', '__filename', '__dirname', code.startsWith('#!') ? '//' + code : code);
     return null;
   } catch (error) {
     if (!(error instanceof SyntaxError)) throw error;

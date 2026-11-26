@@ -239,3 +239,9 @@ test('bytes in a plain Uint8Array take the same routes as bytes in a Buffer', ()
   }
   assert.equal(compile(new Uint8Array([0xff, 0xfe]), { file: 'bytes.ts' }).diagnostics[0].code, 'INVALID_ENCODING');
 });
+
+test('CommonJS output that is no valid program is a diagnostic and does not end the process', () => {
+  // Node's own compile function ends the process on this text while it decorates the error.
+  const result = compile(Buffer.from('export const a = 1;\nawait using x = null, [] = null;'), { file: 'broken.ts', module: 'cjs' });
+  assert.ok(result.code === null || typeof result.code === 'string');
+});

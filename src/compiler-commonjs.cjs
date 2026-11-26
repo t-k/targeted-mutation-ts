@@ -85,6 +85,8 @@ function toCommonJs(addon, code, source) {
   // One byte per character, so that the parser's offsets index the text.
   const text = bytes.latin1Slice();
   if (reserved.test(text) || text.includes('\r')) return null;
+  // The CommonJS dialect of TypeScript (`export =`, `import x = require()`) is written without the module's head.
+  if (/\bexport\s*=|\bimport\s+[\w$]+\s*=/.test(source) || /(?<![\w$.])module\s*\.\s*exports\b/.test(text)) return null;
   const records = addon.moduleRecords?.(bytes);
   if (!records) return null;
 
@@ -140,6 +142,7 @@ function toCommonJs(addon, code, source) {
   // A set keeps the order of first use; the helpers that others rest on are sorted to the front at the end.
   const need = (...names) => { for (const name of names) helpers.add(name); };
   const exportsOfLists = [];
+  let front = '';
 
   for (let index = 0; index < order.length; index++) {
     const first = order[index], end = endOf(index);
@@ -170,7 +173,16 @@ function toCommonJs(addon, code, source) {
             if (renamed.has(local)) return null;
             renamed.set(local, { text: `${name}.${imported}`, statement: index, kind: 'import' });
           }
-          edits.push([first, last, `const ${name} = ${value};`]);
+          // The import of the JSX runtime is written by the emitter where the module's first import or export
+          // stands, which may be behind code that uses it. Imports are in force before any code, so the
+          // order is free there; here the call of require has to come first, where TypeScript writes it.
+          // (TypeScript orders the import of createElement differently; such a module is left to it.)
+          if (pairs.some(([imported, local]) => local.startsWith('_tmt') && imported === 'createElement')) return null;
+          if (pairs.some(([, local]) => local.startsWith('_tmt')) && index !== 0) {
+            if (front !== '') return null;
+            front = `const ${name} = ${value};\n`;
+            edits.push([first, last, ';']);
+          } else edits.push([first, last, `const ${name} = ${value};`]);
         }
       } else if ((match = forms.star.exec(statement))) {
         need('__createBinding', '__exportStar');
@@ -398,13 +410,10 @@ function toCommonJs(addon, code, source) {
   if (cleared.length !== 0) head += cleared.slice().reverse().map(name => `exports.${name}`).join(' = ') + ' = void 0;\n';
   // Functions are exported in the order of the statements that export them.
   for (const [, line] of hoisted.sort((a, b) => a[0] - b[0])) head += line + '\n';
-  const result = Buffer.from(head + prelude.slice(hashbang.length) + body, 'latin1').toString();
-  // The text is read as a function body, as Node reads a CommonJS module.
-  try {
-    require('node:vm').compileFunction(result.startsWith('#!') ? '//' + result : result, ['exports', 'require', 'module', '__filename', '__dirname']);
-  } catch {
-    return null;
-  }
+  const result = Buffer.from(head + front + prelude.slice(hashbang.length) + body, 'latin1').toString();
+  // The text is read once more by the parser before it is returned. (Node's own compile function is not
+  // asked: for some invalid texts it ends the process while it decorates the error.)
+  if (addon.moduleRecords(Buffer.from(result)) === null) return null;
   return result;
 }
 
