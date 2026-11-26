@@ -514,4 +514,11 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   assert.equal(destrDefault.backend, 'pulse');
   const arrowDefault = sameAsTypeScript('import { DEF } from "./dep";\nexport const g = (x = DEF) => x;\n');
   assert.equal(arrowDefault.backend, 'pulse');
+  // Review round 39 regressions: computed pattern key preserves prior bindings, and depth-63 defaults stay accepted.
+  const addon = require('../build/compiler-module.node');
+  assert.equal(addon.moduleRecords(Buffer.from('export function f({ a, [(b)]: a }) {}')), null);
+  assert.notEqual(addon.moduleRecords(Buffer.from('export function f({ a, [(b)]: b }) {}')), null);
+  const deepNs = 'export namespace N { export let K = 1; export const a = K; export const f = ' +
+    '('.repeat(63) + '(x=[])=>x' + ')'.repeat(63) + '; }\n';
+  assert.equal(compile(Buffer.from(deepNs), { file: 'a.ts' }).backend, 'pulse');
 });

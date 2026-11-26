@@ -3241,7 +3241,7 @@ and arrow_parameter_list (input:tape) (state:parser_state) (floor used:names_use
     let! delimiter = (fun () -> peek input st.offset) in
     let! st =
       (fun () -> if initialized && equal.status = 0ul && equal.arrow_defaults_allowed &&
-          (st.status <> 0ul || (delimiter <> 44uy && delimiter <> 41uy) || (input.capture_references && fuel <> 0ul)) then
+          (st.status <> 0ul || (delimiter <> 44uy && delimiter <> 41uy) || (input.capture_references && U32.(fuel >^ 1ul))) then
         if fuel = 0ul then ret input (failed equal 3ul)
         else
           // Speculation starts after the live names and candidates. Disable recursive speculation into defaults.
@@ -4861,11 +4861,12 @@ and pattern_names (input:tape) (state:parser_state) (base:names_base) (floor use
         (fun () -> if close = 93uy then pattern_binding_at input st base floor used fuel depth
         else
           let! after = (fun () -> if byte = 91uy && input.capture_references && st.status = 0ul && fuel <> 0ul then
-              let! inside = (fun () -> skip input { st with offset = next st.offset; in_allowed = true }) in
+              let local_names = if base = binding_region_width then used else st.local_names in
+              let! inside = (fun () -> skip input { st with offset = next st.offset; local_names; in_allowed = true }) in
               let! value = (fun () -> comparison input inside (minus fuel 1ul)) in
               let! close_b = (fun () -> skip input value.parser) in
               let! closed = (fun () -> consume input close_b 93uy) in
-              skip input { closed with in_allowed = st.in_allowed }
+              skip input { closed with local_names = st.local_names; in_allowed = st.in_allowed }
             else
               let! key = (fun () -> if G.decimal_digit byte || byte = 46uy then number_end input st.offset
                 else if byte = 91uy then computed_property_name input st
@@ -4881,7 +4882,7 @@ and pattern_names (input:tape) (state:parser_state) (base:names_base) (floor use
         else
           let! simple = (fun () -> simple_default input equal) in
           let! delimiter = (fun () -> peek input simple.offset) in
-          if (not input.capture_references || fuel = 0ul || not equal.arrow_defaults_allowed) && simple.status = 0ul && (delimiter = 44uy || delimiter = close) then ret input simple
+          if (not input.capture_references || U32.(fuel <=^ 1ul) || not equal.arrow_defaults_allowed) && simple.status = 0ul && (delimiter = 44uy || delimiter = close) then ret input simple
           else if fuel = 0ul || not equal.arrow_defaults_allowed then ret input (failed equal 1ul)
           else
             let local_names = if base = binding_region_width then bound.used else equal.local_names in

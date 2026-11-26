@@ -9973,6 +9973,8 @@ TmtPulseParser_pattern_names(
               TmtPulseParser_parser_state value41;
               if (value2 == 91U && input.capture_references && value.status == 0U && fuel != 0U)
               {
+                uint32_t
+                local_names = base == TmtPulseMemory_binding_region_width ? used : value.local_names;
                 TmtPulseParser_parser_state
                 value4 =
                   TmtPulseParser_skip(input,
@@ -9982,7 +9984,7 @@ TmtPulseParser_pattern_names(
                         .count = value.count,
                         .depth = value.depth,
                         .status = value.status,
-                        .local_names = value.local_names,
+                        .local_names = local_names,
                         .await_allowed = value.await_allowed,
                         .yield_allowed = value.yield_allowed,
                         .jsx_allowed = value.jsx_allowed,
@@ -10011,7 +10013,7 @@ TmtPulseParser_pattern_names(
                         .count = value7.count,
                         .depth = value7.depth,
                         .status = value7.status,
-                        .local_names = value7.local_names,
+                        .local_names = value.local_names,
                         .await_allowed = value7.await_allowed,
                         .yield_allowed = value7.yield_allowed,
                         .jsx_allowed = value7.jsx_allowed,
@@ -10074,7 +10076,7 @@ TmtPulseParser_pattern_names(
               uint8_t value8 = TmtPulseMemory_peek(input, value7.offset);
               if
               (
-                (!input.capture_references || fuel == 0U || !value5.arrow_defaults_allowed) &&
+                (!input.capture_references || fuel <= 1U || !value5.arrow_defaults_allowed) &&
                   value7.status == 0U
                 && (value8 == 44U || value8 == close)
               )
@@ -10487,7 +10489,7 @@ TmtPulseParser_arrow_parameter_list(
           (
             value4 && equal.status == 0U && equal.arrow_defaults_allowed &&
               (value5.status != 0U || value6 != 44U && value6 != 41U ||
-                input.capture_references && fuel != 0U)
+                input.capture_references && fuel > 1U)
           )
           {
             if (fuel == 0U)
