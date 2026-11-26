@@ -66,7 +66,7 @@ test('removed profiles and empty flags are rejected and PICT profile-dispatch ma
     assert.equal(unknown.status, 1, removed);
     assert.equal(unknown.stderr, 'Expected --mutators targeted|full\n');
   }
-  assert.equal(analyze('--runner=').stderr, 'Expected --runner vitest|playwright\n');
+  assert.equal(analyze('--runner=').stderr, 'Expected --runner vitest|playwright|node\n');
   for (const profile of ['targeted', 'full']) {
     const witnesses = analyze('--mutators', profile, '--witnesses');
     assert.equal(witnesses.status, 1);

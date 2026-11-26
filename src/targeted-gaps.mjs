@@ -76,6 +76,10 @@ export function targetedGap(mutant, seen) {
   if (!mutant.targeted || mutant.status !== 'survived' || (!seen && !advice[mutant.mutatorName])) return null;
   const common = {
     site: mutant.id, location: mutant.location, rule: mutant.mutatorName, expression: mutant.original,
+    ...(mutant.targeted?.equivalenceHint ? {
+      equivalenceHint: mutant.targeted.equivalenceHint,
+      equivalenceReason: mutant.targeted.equivalenceReason,
+    } : {}),
     mutations: [{ rule: mutant.mutatorName, edit: mutant.edit, replacement: mutant.replacement, evidence: mutant.evidence,
       ...(mutant.source ? { source: mutant.source } : {}) }],
   };

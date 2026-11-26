@@ -1,0 +1,6 @@
+# Rounding equivalence (Math.floor <-> Math.trunc) and timeout reason model
+ArgShape: NonNegativeLiteral, LengthProp, NonNegDivPositiveLiteral, NonNegDivVar, SignedVar, NegativeLiteral, MathMaxNonNeg
+RoundingPair: FloorToTrunc, TruncToFloor, FloorToCeil, FloorToRound
+MutantOutcome: Survived, Killed, TimeoutHitLimit, TimeoutWallClock, TimeoutWorkerHung
+
+IF [RoundingPair] IN {"FloorToCeil", "FloorToRound"} THEN [ArgShape] IN {"NonNegativeLiteral", "LengthProp", "SignedVar"};

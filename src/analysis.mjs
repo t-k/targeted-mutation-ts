@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mjs';
 import { comparisonThresholdSites } from './prototype.mjs';
@@ -7,6 +8,8 @@ import { marginGaps, thresholdGaps } from './threshold.mjs';
 import { extractLoopCounterNonNegative, extractReachability, filterReachableThresholdGap, isBoundaryReachable } from './reachability.mjs';
 import { checkpointKeyForTrial } from './checkpoint.mjs';
 import { shiftedReplacement, tightenComparison } from './displacement.mjs';
+import { inParallel } from './in-parallel.mjs';
+import { runNodeTest, runNodeTestAsync } from './node-test.mjs';
 import { failedTests } from './vitest-reporter.mjs';
 import { canonicalPath, inside, runVitest, runVitestAsync, withCopy } from './vitest.mjs';
 import { createProbePreloadCheck, freshProbeBinding, instrument, installProbe, rewrite } from './probe.mjs';
@@ -46,7 +49,11 @@ function builtInSites(comparisons, input, file, dialect, selected, options = {})
       !(mutant.operatorSwap && focused.has(mutant.operatorSwap.join(':'))) &&
       !(mutant.targeted?.form === 'left' && droppedLeft.has(`${mutant.edit[0]}:${mutant.edit[1]}`)))
     .map(mutant => ({ rule: mutant.mutatorName, original: mutant.original, replacement: mutant.replacement, edit: mutant.edit,
-      left: [mutant.edit[0], mutant.edit[0]], right: [mutant.edit[1], mutant.edit[1]], source: mutant.source, unobserved: true }));
+      left: [mutant.edit[0], mutant.edit[0]], right: [mutant.edit[1], mutant.edit[1]], source: mutant.source, unobserved: true,
+      ...(mutant.targeted?.equivalenceHint ? {
+        equivalenceHint: mutant.targeted.equivalenceHint,
+        equivalenceReason: mutant.targeted.equivalenceReason,
+      } : {}) }));
 }
 
 function withProfileSites(comparisons, input, file, { mutators, dialect, 'exclude-rule': excludeRules }, selected, typeEquivalence = null) {
@@ -173,24 +180,34 @@ export function sourceTrials(root, subjects, options) {
   const runner = options.runner === 'playwright'
     ? (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root,
       tests: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) })
-    : (workspace, temp, settings) => runVitest(workspace, temp, {
-      ...settings, config: options.config, testFiles: options.test, testProjects: options.testProjects, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
+    : options.runner === 'node'
+      ? (workspace, temp, settings) => runNodeTest(workspace, temp, {
+        testFiles: options.test,
+        timeout: ((settings?.isBaseline ? (options['baseline-timeout'] ?? options.timeout) : options.timeout) ?? 60) * 1000,
+      })
+      : (workspace, temp, settings) => runVitest(workspace, temp, {
+        ...settings, config: options.config, testFiles: options.test, testProjects: options.testProjects, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
   return settings => makeAttempt(root, subjects, runner, options['copy-exclude'], new Map(), settings);
 }
 
-// Asynchronous Vitest plain-source runs, so independent witness checks can run side by side.
+// Asynchronous plain-source runs, so independent witness checks, undo trials, and Node trials can run side by side.
 export function sourceTrialsAsync(root, subjects, options) {
-  const runner = (workspace, temp, settings) => runVitestAsync(workspace, temp, {
-    ...settings, config: options.config, testFiles: options.test, testProjects: options.testProjects, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
+  const runner = options.runner === 'node'
+    ? (workspace, temp, settings) => runNodeTestAsync(workspace, temp, {
+      testFiles: options.test,
+      timeout: ((settings?.isBaseline ? (options['baseline-timeout'] ?? options.timeout) : options.timeout) ?? 60) * 1000,
+    })
+    : (workspace, temp, settings) => runVitestAsync(workspace, temp, {
+      ...settings, config: options.config, testFiles: options.test, testProjects: options.testProjects, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
   return settings => withCopy(root, async (workspace, temp) => {
-    const { trial, witness, collect } = settings ?? {};
+    const { trial, witness, collect, isBaseline } = settings ?? {};
     for (const subject of subjects) {
       const file = inside(workspace, subject.file);
       if (sha(readFileSync(file)) !== subject.digest) throw new Error(`Source changed during analysis: ${subject.file}`);
       if (trial?.site.location.file === subject.file) writeFileSync(file, rewrite(subject.input, trial.source?.edit ?? trial.edit, trial.source?.replacement ?? trial.replacement));
     }
     if (witness?.rewrite) writeFileSync(inside(workspace, witness.rewrite.file), witness.rewrite.content);
-    const result = await runner(workspace, temp, { product: true });
+    const result = await runner(workspace, temp, { product: true, isBaseline });
     if (collect) {
       const path = resolve(workspace, collect);
       return { ...result, collected: existsSync(path) ? readFileSync(path, 'utf8') : '' };
@@ -548,8 +565,13 @@ function analyzePlaywright(root, subjects, report, options, specification) {
   const baseline = attempt({ isBaseline: true });
   report.baseline = playwrightSummary(baseline);
   if (baseline.status !== 'passed') {
-    return { ...report, evaluation: 'baseline_error',
-      baseline: { ...report.baseline, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } };
+    return { ...report, evaluation: 'baseline_error', baseline: {
+      ...report.baseline,
+      ...(baseline.status === 'timeout' ? { timeoutSeconds: baselineTimeoutSeconds } : {}),
+      ...(baseline.files?.length ? { files: baseline.files } : {}),
+      ...(baseline.fileErrors?.length ? { fileErrors: baseline.fileErrors } : {}),
+      output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline),
+    } };
   }
 
   report.evaluation = 'evaluated';
@@ -565,6 +587,7 @@ function analyzePlaywright(root, subjects, report, options, specification) {
       const result = {
         site: site.id, location: site.location, rule: site.rule, operator: site.operator, original: site.original, edit: site.edit,
         replacement: site.replacement, status: verdict(mutant, baseline), evidence: 'reexecuted', run: playwrightSummary(mutant),
+        ...(mutant.statusReason ? { statusReason: mutant.statusReason } : {}),
       };
       if (result.status === 'killed') result.tests = mutant.tests.filter(test => test.status === 'failed').map(testcase);
       if (options.audit) {
@@ -593,6 +616,172 @@ function analyzePlaywright(root, subjects, report, options, specification) {
         });
       }
     }
+  }
+  return report;
+}
+
+function nodeBaselineError(baseline, timeoutSeconds) {
+  const errors = baseline.errors?.length
+    ? baseline.errors
+    : (baseline.statusReason ? [baseline.statusReason] : []);
+  return {
+    status: baseline.status,
+    ...(baseline.status === 'timeout' ? { timeoutSeconds } : {}),
+    ...(baseline.statusReason ? { statusReason: baseline.statusReason } : {}),
+    ...(baseline.files?.length ? { files: baseline.files } : {}),
+    ...(baseline.fileErrors?.length ? { fileErrors: baseline.fileErrors } : {}),
+    output: baseline.output,
+    errors,
+    failedTests: failedTests(baseline),
+  };
+}
+
+function restoreNodeCheckpointMutant(site, cached) {
+  const { diagnostic, ...outcome } = cached;
+  return {
+    result: {
+      site: site.id,
+      location: site.location,
+      rule: site.rule,
+      operator: site.operator,
+      original: site.original,
+      edit: site.edit,
+      replacement: site.replacement,
+      ...outcome,
+      evidence: outcome.evidence ?? 'checkpoint',
+    },
+    diagnostic: diagnostic ?? null,
+  };
+}
+
+function buildNodeTrialResult(site, mutant, baseline) {
+  const status = verdict(mutant, baseline);
+  const result = {
+    site: site.id,
+    location: site.location,
+    rule: site.rule,
+    operator: site.operator,
+    original: site.original,
+    edit: site.edit,
+    replacement: site.replacement,
+    status,
+    evidence: 'reexecuted',
+    ...(mutant.statusReason ? { statusReason: mutant.statusReason } : {}),
+    ...(status === 'killed' ? { tests: mutant.tests.filter(test => test.status === 'failed').map(testcase) } : {}),
+  };
+  const diagnostic = status === 'survived'
+    ? {
+      kind: 'SURVIVED',
+      site: site.id,
+      location: site.location,
+      rule: site.rule,
+      ...(site.original !== undefined ? { expression: site.original } : {}),
+      ...(site.equivalenceHint ? { equivalenceHint: site.equivalenceHint, equivalenceReason: site.equivalenceReason } : {}),
+      mutations: [{
+        rule: site.rule,
+        edit: site.edit,
+        replacement: site.replacement,
+        evidence: 'reexecuted',
+        ...(site.original !== undefined ? { original: site.original } : {}),
+      }],
+    }
+    : null;
+  return { result, diagnostic };
+}
+
+function collectNodeSites(subjects, options) {
+  const entries = [];
+  for (const subject of subjects) {
+    for (const site of subject.sites) {
+      if (options.shardKeys && !options.shardKeys.has(
+        `${site.location.file}:${site.location.start}:${site.location.end}:${site.rule}:${site.replacement}`,
+      )) continue;
+      entries.push({ subject, site, trial: { site, edit: site.edit, replacement: site.replacement, source: site.source } });
+    }
+  }
+  return entries;
+}
+
+function analyzeNode(root, subjects, report, options) {
+  const baselineTimeoutSeconds = options['baseline-timeout'] ?? options.timeout ?? 60;
+  const attempt = sourceTrials(root, subjects, options);
+  options.onProgress?.('Running baseline tests...');
+  const baseline = attempt({ isBaseline: true });
+  if (baseline.status !== 'passed') {
+    return { ...report, evaluation: 'baseline_error', baseline: nodeBaselineError(baseline, baselineTimeoutSeconds) };
+  }
+  report.baseline = { status: 'passed', tests: baseline.tests.length };
+  report.evaluation = 'evaluated';
+  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false });
+  const entries = collectNodeSites(subjects, options);
+  options.onProgress?.(`Baseline passed (${baseline.tests.length} tests). Running ${entries.length} mutant(s)...`);
+  let done = 0;
+  for (const { site, trial } of entries) {
+    const cached = options.checkpointStore?.get(checkpointKeyForTrial({ ...site, location: site.location }));
+    if (cached) {
+      const { result, diagnostic } = restoreNodeCheckpointMutant(site, cached);
+      report.mutants.push(result);
+      if (diagnostic) report.diagnostics.push(diagnostic);
+      done++;
+      continue;
+    }
+    const mutant = attempt({ trial });
+    const { result, diagnostic } = buildNodeTrialResult(site, mutant, baseline);
+    report.mutants.push(result);
+    if (result.status === 'error') report.evaluation = 'incomplete';
+    if (diagnostic) report.diagnostics.push(diagnostic);
+    if (options.checkpointStore) options.checkpointStore.record(checkpointKeyForTrial(result), result, diagnostic ?? undefined);
+    done++;
+    options.onProgress?.(`Mutants: ${done}/${entries.length} completed`);
+  }
+  return report;
+}
+
+export async function analyzeNodeAsync(project, files, options) {
+  const root = canonicalPath(project);
+  const { subjects, extraction } = collectComparisons(root, files, options);
+  const report = { schemaVersion: 1, runner: 'node', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
+  if (['targeted', 'full'].includes(options.mutators)) report.mutators = options.mutators;
+  if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
+    report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
+  }
+  if (!subjects.length) return report;
+
+  const baselineTimeoutSeconds = options['baseline-timeout'] ?? options.timeout ?? 60;
+  const attempt = sourceTrialsAsync(root, subjects, options);
+  options.onProgress?.('Running baseline tests...');
+  const baseline = await attempt({ isBaseline: true });
+  if (baseline.status !== 'passed') {
+    return { ...report, evaluation: 'baseline_error', baseline: nodeBaselineError(baseline, baselineTimeoutSeconds) };
+  }
+  report.baseline = { status: 'passed', tests: baseline.tests.length };
+  report.evaluation = 'evaluated';
+  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false });
+
+  const entries = collectNodeSites(subjects, options);
+  const concurrency = options.concurrency ?? Math.max(1, Math.min(4, availableParallelism() - 1));
+  options.onProgress?.(`Baseline passed (${baseline.tests.length} tests). Running ${entries.length} mutant(s)...`);
+  let done = 0;
+  const outcomes = await inParallel(entries, concurrency, async ({ site, trial }) => {
+    const cached = options.checkpointStore?.get(checkpointKeyForTrial({ ...site, location: site.location }));
+    if (cached) {
+      const restored = restoreNodeCheckpointMutant(site, cached);
+      done++;
+      return restored;
+    }
+    const mutant = await attempt({ trial });
+    const built = buildNodeTrialResult(site, mutant, baseline);
+    if (options.checkpointStore) {
+      options.checkpointStore.record(checkpointKeyForTrial(built.result), built.result, built.diagnostic ?? undefined);
+    }
+    done++;
+    options.onProgress?.(`Mutants: ${done}/${entries.length} completed`);
+    return built;
+  });
+  for (const { result, diagnostic } of outcomes) {
+    report.mutants.push(result);
+    if (result.status === 'error') report.evaluation = 'incomplete';
+    if (diagnostic) report.diagnostics.push(diagnostic);
   }
   return report;
 }
@@ -628,6 +817,7 @@ export function prepareAnalysis(project, files, options) {
 
   const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
   if (report.runner === 'playwright') return { report: analyzePlaywright(root, subjects, report, options, specification) };
+  if (report.runner === 'node') return { report: analyzeNode(root, subjects, report, options) };
   const baselineTimeoutSeconds = options['baseline-timeout'] ?? options.timeout ?? 60;
   // Keep single-worker trace ordering when --deterministic or --audit compares trace replay order index-by-index.
   const baselineWorkers = (options.deterministic || options.audit) ? 1 : (options['baseline-workers'] ?? 1);
@@ -652,6 +842,8 @@ export function prepareAnalysis(project, files, options) {
     return { report: { ...report, evaluation: 'baseline_error', baseline: {
       status: baseline.status,
       ...(baseline.status === 'timeout' ? { timeoutSeconds } : {}),
+      ...(baseline.files?.length ? { files: baseline.files } : {}),
+      ...(baseline.fileErrors?.length ? { fileErrors: baseline.fileErrors } : {}),
       output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline),
     } } };
   }
@@ -703,6 +895,8 @@ export function completeAnalysis({ root, report, options, attempt, baseline, tra
       const actual = known ? known.status : verdict(source, baseline);
       if (!predicted) {
         result.status = actual;
+        const reason = known?.statusReason ?? source?.statusReason;
+        if (reason) result.statusReason = reason;
         if (actual === 'killed') result.tests = known ? known.tests : source.tests.filter(test => test.status === 'failed').map(testcase);
       }
 

@@ -20,6 +20,7 @@ export function snapshotVitestRun(root, modules, unhandled, reason) {
   const canonicalRoot = safeCanonicalPath(root);
   const errors = [...unhandled];
   const moduleErrors = [];
+  const fileErrors = [];
   const tests = [];
   const files = [];
   for (const module of modules) {
@@ -33,8 +34,13 @@ export function snapshotVitestRun(root, modules, unhandled, reason) {
     if (loadErrors.length && moduleTests.length === 0 && !module.task?.result?.hooks && !(diag && diag.collectDuration > 0)) {
       moduleErrors.push(...loadErrors);
     }
+    for (const err of loadErrors) fileErrors.push({ file, message: String(err?.message ?? err) });
     errors.push(...loadErrors);
-    for (const suite of module.children.allSuites()) errors.push(...suite.errors());
+    for (const suite of module.children.allSuites()) {
+      const suiteErrors = suite.errors();
+      for (const err of suiteErrors) fileErrors.push({ file, message: String(err?.message ?? err) });
+      errors.push(...suiteErrors);
+    }
     for (const test of moduleTests) {
       const result = test.result();
       tests.push({
@@ -50,7 +56,7 @@ export function snapshotVitestRun(root, modules, unhandled, reason) {
     }
   }
   const timeout = tests.some(test => test.timeout) || errors.some(error => vitestTimeoutMessage.test(error.message ?? ''));
-  return { tests, modules: files, errors: errors.map(error => error.message), moduleErrors: moduleErrors.map(error => error.message), timeout, reason };
+  return { tests, modules: files, errors: errors.map(error => error.message), moduleErrors: moduleErrors.map(error => error.message), fileErrors, timeout, reason };
 }
 
 // How long each test and each test file's collection took, for ordering later work by cost.
