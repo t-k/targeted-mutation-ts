@@ -210,8 +210,8 @@ theorem enumSignedValue (word : BitVec 32) :
   rw [BitVec.toInt_eq_msb_cond]
   rfl
 
--- Source-map SIMD runs: pure ASCII bytes without LF/CR advance offset and UTF-16 column by 1 each
--- without changing line, and 16-byte runs of ASCII spaces over such bytes emit no segment.
+-- Source-map SIMD seek run: 16 pure ASCII bytes without LF/CR preserve `line` and advance
+-- both `offset` and UTF-16 `column` by 16.
 def asciiLinePlain (byte : UInt8) : Bool :=
   byte < 128 && byte != 10 && byte != 13
 

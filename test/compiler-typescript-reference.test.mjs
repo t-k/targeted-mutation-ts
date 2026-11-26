@@ -3211,10 +3211,15 @@ test('each target compiles natively up to the forms of its year', () => {
   assert.match(optCall.code, /data\.trim\/\* keep \*\/\(\)/);
   assert.deepEqual(inspect(ts, optCall.code, 'year.ts'), inspect(ts, ts.transpileModule('export const f = (data: any) => data?.trim/* keep */();\n', {
     fileName: 'year.ts', compilerOptions: { target: ts.ScriptTarget.ES2019, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true } }).outputText, 'year.ts'));
-  // Review round 44: keyword property after `?.` followed by division + `class` declines below ES2022.
+  // Review round 44 & 46: keyword property after `?.` followed by division + `class`,
+  // inline `extends class {}` / `extends function () {}`, and `async` field before newline decline below ES2022.
   for (const src of [
     'export const y = ({ return: 1 })?.return / class { static n = 2 }.n / 2;\n',
     'export const y = ({ if: () => 1 })?.if() / class { static n = 2 }.n / 2;\n',
+    'export class A extends class {} { x = 1; }\n',
+    'export class A extends function () {} { static {} }\n',
+    'export class A { async\nm() {} }\n',
+    'export class A { async /*\n*/ m() {} }\n',
   ]) {
     assert.equal(compile(Buffer.from(src), { file: 'year.ts', target: 'es2021' }).backend, 'typescript', src);
   }

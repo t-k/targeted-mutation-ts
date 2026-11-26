@@ -244,7 +244,7 @@ function findClose(tokens, openIdx) {
 
 // Checks whether the `class` at `classIdx` has only methods, constructors, and getters/setters
 // (no class fields, static blocks, or private members), whose emit is identical from ES2015 to ESNext.
-function isMethodOnlyClass(tokens, classIdx) {
+function isMethodOnlyClass(tokens, classIdx, code) {
   let braceIdx = -1;
   let parenDepth = 0, bracketDepth = 0;
   for (let i = classIdx + 1; i < tokens.length; i++) {
@@ -253,8 +253,10 @@ function isMethodOnlyClass(tokens, classIdx) {
     else if (v === ')') { if (parenDepth === 0) return false; parenDepth--; }
     else if (v === '[') bracketDepth++;
     else if (v === ']') { if (bracketDepth === 0) return false; bracketDepth--; }
-    else if (v === '{' && parenDepth === 0 && bracketDepth === 0) { braceIdx = i; break; }
-    else if (v === ';' && parenDepth === 0 && bracketDepth === 0) return false;
+    else if (parenDepth === 0 && bracketDepth === 0) {
+      if (v === '{') { braceIdx = i; break; }
+      if (v === ';' || v === 'class' || v === 'function' || v === '=>') return false;
+    }
   }
   if (braceIdx < 0) return false;
   const closeBrace = findClose(tokens, braceIdx);
@@ -262,13 +264,16 @@ function isMethodOnlyClass(tokens, classIdx) {
   let i = braceIdx + 1;
   while (i < closeBrace) {
     if (tokens[i].value === ';') { i++; continue; }
-    // Optional modifiers: static, async, get, set, *
+    // Optional modifiers: static, async (no line terminator before next token), *, get/set
     if (tokens[i].type === 'id' && tokens[i].value === 'static') {
       if (i + 1 < closeBrace && tokens[i + 1].value === '{') return false; // static block
       if (i + 1 < closeBrace && tokens[i + 1].value !== '(') i++;
     }
     if (i < closeBrace && tokens[i].type === 'id' && tokens[i].value === 'async') {
-      if (i + 1 < closeBrace && tokens[i + 1].value !== '(') i++;
+      if (i + 1 < closeBrace && tokens[i + 1].value !== '(') {
+        if (/[\r\n]/.test(code.slice(tokens[i].end, tokens[i + 1].start))) return false;
+        i++;
+      }
     }
     if (i < closeBrace && tokens[i].value === '*') i++;
     if (i < closeBrace && tokens[i].type === 'id' && (tokens[i].value === 'get' || tokens[i].value === 'set')) {
@@ -314,7 +319,7 @@ function lowerDownlevel(code, year) {
       if (t.type === 'id' && t.value === 'class' &&
           (!prev || (prev.value !== '.' && prev.value !== '?.')) &&
           (!next || next.value !== ':')) {
-        if (!isMethodOnlyClass(tokens, i)) return null;
+        if (!isMethodOnlyClass(tokens, i, code)) return null;
       }
     }
   }
