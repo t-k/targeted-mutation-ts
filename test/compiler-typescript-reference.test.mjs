@@ -3257,3 +3257,27 @@ test('pure-JavaScript .ts modules and scripts validated by V8 publish natively w
     assert.equal(badId.code, null, module);
   }
 });
+
+test('downlevel review round 42 regressions match TypeScript in AST and runtime behavior', () => {
+  for (const [target, source, expectNative] of [
+    ['es2019', 'declare function g(): any;\ndeclare const a: any;\nexport function f() { g()\na?.b; }', false],
+    ['es2019', 'export function f(a: any) { return (a?.b)(); }', false],
+    ['es2019', 'export function f(a: any) { return delete (a?.b); }', false],
+    ['es2019', 'export function f(a: any) { a ||= `x${1}`; return a; }', true],
+    ['es2019', 'export function f(a: any) { a ||= /a;b/; return a; }', true],
+    ['es2019', 'export function f(a: any, b: any) { switch (a) { case a ||= b: return 1; } }', false],
+    ['es2019', 'export function f(\\u0061: any) { return \\u0061?.x; }', false],
+    ['es2019', 'export const x = ev\\u0061l?.("1");', false],
+    ['es2015', 'export function f(a: any, b: any) { return a ** b`x`; }', false],
+  ]) {
+    const r = compile(Buffer.from(source), { file: 'r42.ts', target });
+    assert.equal(r.backend !== 'typescript', expectNative, `${target}: ${source}`);
+    const expected = ts.transpileModule(source, { fileName: 'r42.ts', compilerOptions: {
+      target: ts.ScriptTarget[target.toUpperCase()], module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true } }).outputText;
+    assert.deepEqual(inspect(ts, r.code, 'r42.ts'), inspect(ts, expected, 'r42.ts'), `${target}: ${source}`);
+  }
+  // Comment preservation in exponentiation lowering.
+  const commentExp = compile(Buffer.from('export const x = 2 /*x*/ ** /*y*/ 3;\n'), { file: 'r42.ts', target: 'es2015' });
+  assert.equal(commentExp.backend, 'pulse');
+  assert.match(commentExp.code, /Math\.pow\(2 \/\*x\*\/, \/\*y\*\/ 3\)/);
+});

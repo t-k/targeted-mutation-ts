@@ -542,4 +542,15 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
     const r = sameAsTypeScript(src);
     assert.equal(r.backend, 'pulse', src);
   }
+  // Review round 42 regressions: self-referencing/hoisted/imported destructuring RHS and commented assertion dynamic import.
+  for (const src of [
+    'export const { a } = a;\n',
+    'export const { a, b } = b;\n',
+    'src = { a: 1, b: 2 }; export const { a, b } = src; export var src: any;\n',
+    'import { thing } from "./d"; export const { a, b } = thing;\n',
+    'import { base } from "./cfg"; export function load() { base; return import(/* hi */ <string>"./x"); }\n',
+  ]) {
+    const r = sameAsTypeScript(src);
+    assert.equal(r.backend, 'typescript', src);
+  }
 });

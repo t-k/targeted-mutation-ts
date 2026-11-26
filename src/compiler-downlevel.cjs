@@ -9,6 +9,8 @@
 
 const regexAfter = new Set([
   '', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~', '<', '>', '+', '-', '*', '%', '/', '=>', ')ctrl', '...',
+  '||=', '&&=', '??=', '**=', '??', '**', '==', '!=', '===', '!==', '<=', '>=', '<<', '>>', '>>>', '&&', '||',
+  '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>=',
   'return', 'throw', 'case', 'default', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do',
 ]);
 
@@ -29,18 +31,18 @@ function tokenize(code) {
     while (at < code.length && code[at] !== '\n' && code[at] !== '\r') at++;
     tokens.push({ type: 'shebang', value: code.slice(start, at), start, end: at });
   }
-  const skipTpl = pos => {
+  const skipTpl = (pos, isTail) => {
     const start = pos - 1;
     while (pos < code.length) {
       const c = code[pos];
       if (c === '\\') { pos += 2; continue; }
       if (c === '`') {
-        tokens.push({ type: 'tpl', value: code.slice(start, pos + 1), start, end: pos + 1 });
+        tokens.push({ type: isTail ? 'tplTail' : 'tpl', value: code.slice(start, pos + 1), start, end: pos + 1 });
         prev = 'lit';
         return pos + 1;
       }
       if (c === '$' && code[pos + 1] === '{') {
-        tokens.push({ type: 'tplHead', value: code.slice(start, pos + 2), start, end: pos + 2 });
+        tokens.push({ type: isTail ? 'tplMid' : 'tplHead', value: code.slice(start, pos + 2), start, end: pos + 2 });
         braces.push('tpl');
         prev = '${';
         return pos + 2;
@@ -77,14 +79,14 @@ function tokenize(code) {
       continue;
     }
     if (c === '`') {
-      at = skipTpl(at + 1);
+      at = skipTpl(at + 1, false);
       if (at < 0) return null;
       continue;
     }
     if (c === '}') {
       if (braces.length > 0 && braces[braces.length - 1] === 'tpl') {
         braces.pop();
-        at = skipTpl(at + 1);
+        at = skipTpl(at + 1, true);
         if (at < 0) return null;
         continue;
       }
@@ -211,7 +213,8 @@ function scanExprEnd(tokens, from, stopSet, code, forbidTop) {
       return -1;
     }
     if (t.value === '(' || t.value === '[' || t.value === '{' || t.type === 'tplHead') { depth++; continue; }
-    if (t.value === ')' || t.value === ']' || t.value === '}') {
+    if (t.type === 'tplMid') continue;
+    if (t.value === ')' || t.value === ']' || t.value === '}' || t.type === 'tplTail') {
       if (depth === 0) return i;
       depth--;
       continue;
@@ -230,7 +233,8 @@ function findClose(tokens, openIdx) {
   for (let i = openIdx; i < tokens.length; i++) {
     const v = tokens[i].value;
     if (v === '(' || v === '[' || v === '{' || tokens[i].type === 'tplHead') depth++;
-    else if (v === ')' || v === ']' || v === '}') {
+    else if (tokens[i].type === 'tplMid') continue;
+    else if (v === ')' || v === ']' || v === '}' || tokens[i].type === 'tplTail') {
       depth--;
       if (depth === 0) return v === close ? i : -1;
     }
@@ -240,6 +244,7 @@ function findClose(tokens, openIdx) {
 
 function lowerDownlevel(code, year) {
   if (year >= 2021) return code;
+  if (code.includes('\\u')) return null;
   const tokens = tokenize(code);
   if (tokens === null) return null;
 
@@ -255,7 +260,7 @@ function lowerDownlevel(code, year) {
       (idx + 1 >= tokens.length || tokens[idx + 1].value !== '.'))) return null;
 
   const edits = []; // [start, end, replacement]
-  const stmtStarts = new Set([';', '{', '}', ',', '(', '=>', 'return', 'throw', 'case', 'else', 'do']);
+  const stmtStarts = new Set([';', '{', '}', ',', '(', '=>', 'return', 'throw', 'else', 'do']);
   const forbidInNullishRhs = new Set(['||', '&&', '?', ':', '=', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '<<=', '>>=', '>>>=', '=>']);
   const expUnsafePrev = new Set(['.', '?.', '++', '--', '**', '+', '-', '!', '~', 'typeof', 'void', 'delete', 'await', 'new', 'yield']);
 
@@ -328,12 +333,21 @@ function lowerDownlevel(code, year) {
         chainEndIdx = closeIdx + 1;
         access = code.slice(next.start, tokens[closeIdx].end);
       } else return null;
-      // Decline chained continuations (`a?.b?.c`, `a?.b.c`, `a?.b()`, `a?.b = 1`) so TypeScript handles temps/short-circuiting.
+      // Decline chained continuations (`a?.b?.c`, `a?.b.c`, `a?.b()`, `a?.b = 1`) and parenthesized
+      // call/delete (`(a?.b)()`, `delete (a?.b)`) so TypeScript handles temps/short-circuiting/`this`.
       const after = tokens[chainEndIdx];
       if (after && (after.value === '?.' || after.value === '.' || after.value === '(' || after.value === '[' || after.value === '=' || after.value === '++' || after.value === '--' || after.type === 'tpl' || after.type === 'tplHead')) return null;
+      if (prev2 && prev2.value === '(' && after && after.value === ')') {
+        const beforeParen = i > 2 ? tokens[i - 3] : null;
+        const afterParen = tokens[chainEndIdx + 1];
+        if (beforeParen && (beforeParen.value === 'delete' || beforeParen.value === 'new')) return null;
+        if (afterParen && (afterParen.value === '(' || afterParen.value === '[' || afterParen.value === '.' || afterParen.value === '?.' || afterParen.type === 'tpl' || afterParen.type === 'tplHead')) return null;
+      }
       const id = prev.value;
       const safeUnwrapped = (!prev2 || new Set(['=', '(', '[', ',', ';', ':', '?', 'return', '=>', '{']).has(prev2.value)) &&
         (!after || new Set([';', ',', ')', ']', '}', ':']).has(after.value));
+      // Never prepend `(` after a newline (would break ASI, e.g. `g()\na?.b;`).
+      if (!safeUnwrapped && prev2 && /[\r\n]/.test(code.slice(prev2.end, prev.start))) return null;
       const core = `${id} === null || ${id} === void 0 ? void 0 : ${id}${access}`;
       edits.push([prev.start, tokens[chainEndIdx - 1].end, safeUnwrapped ? core : `(${core})`]);
       i = chainEndIdx - 1;
@@ -363,8 +377,12 @@ function lowerDownlevel(code, year) {
       const rhsOk = next && ((next.type === 'num' && !next.value.endsWith('n')) || (next.type === 'id' && !keywords.has(next.value)));
       if (!lhsOk || !rhsOk) return null;
       if (prev2 && expUnsafePrev.has(prev2.value)) return null;
-      if (after && (after.value === '**' || after.value === '.' || after.value === '?.' || after.value === '(' || after.value === '[' || after.value === '++' || after.value === '--')) return null;
-      edits.push([prev.start, next.end, `Math.pow(${prev.value}, ${next.value})`]);
+      if (after && (after.value === '**' || after.value === '.' || after.value === '?.' || after.value === '(' || after.value === '[' || after.value === '++' || after.value === '--' || after.type === 'tpl' || after.type === 'tplHead')) return null;
+      const mid1 = code.slice(prev.end, t.start).trim();
+      const mid2 = code.slice(t.end, next.start).trim();
+      const lhsOut = mid1 ? `${prev.value} ${mid1}` : prev.value;
+      const rhsOut = mid2 ? `${mid2} ${next.value}` : next.value;
+      edits.push([prev.start, next.end, `Math.pow(${lhsOut}, ${rhsOut})`]);
       i += 1;
       continue;
     }

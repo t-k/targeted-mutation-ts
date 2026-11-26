@@ -677,9 +677,15 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         let rhsStmts = 0;
         for (let j = 0; j < rhsCheck.length; j += 5) rhsStmts += rhsCheck[j] === 72;
         if (rhsStmts !== 1) return null;
-        const plainId = new RegExp(`^${word}$`).test(rhsExpr) && !renamed.has(rhsExpr) && !kept.has(rhsExpr) &&
-          !['this', 'true', 'false', 'null', 'undefined', 'NaN', 'Infinity'].includes(rhsExpr);
+        const isIdentRhs = new RegExp(`^${word}$`).test(rhsExpr);
+        if (isIdentRhs) {
+          if (bindings.some(b => b.local === rhsExpr) || renamed.has(rhsExpr) || kept.has(rhsExpr)) return null;
+          const esc = rhsExpr.replace(/\$/g, '\\$');
+          if (new RegExp(`(?<![\\w$.])(?:export\\s+(?:var|let|const|function|class|async\\s+function)\\s+(?:\\*\\s*)?${esc}|import\\b[^;\\n]*\\b${esc})(?![\\w$])`).test(text)) return null;
+        }
+        const plainId = isIdentRhs && !['this', 'true', 'false', 'null', 'undefined', 'NaN', 'Infinity'].includes(rhsExpr);
         if (plainId) {
+          if (spans !== null) return null;
           const assigns = bindings.map(b => b.prop !== undefined ? `exports.${b.local} = ${rhsExpr}.${b.prop}` : `exports.${b.local} = ${rhsExpr}[${b.index}]`).join(', ');
           edits.push([first, eqAt + 1 + rhsEnd, assigns]);
         } else {
@@ -784,9 +790,11 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           // unless erased assertion blanks stand around it.
           const specMatch = new RegExp(`^(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n]*\\n)*(${quoted})(?:\\n[ \\t]*)*$`).exec(inner);
           if (specMatch === null) return false;
-          // Ensure no erased prefix assertion (more than 1 space before the quote on the same line without a comment).
+          // Ensure no erased prefix assertion (more than 1 space before the quote on the same line, including after a comment).
           const beforeSpec = inner.slice(0, inner.indexOf(specMatch[1]));
-          if (!/\/[/*]/.test(beforeSpec) && /[ \t]{2,}/.test(beforeSpec)) return false;
+          const afterLastLine = beforeSpec.slice(beforeSpec.lastIndexOf('\n') + 1);
+          const afterLastComment = afterLastLine.includes('*/') ? afterLastLine.slice(afterLastLine.lastIndexOf('*/') + 2) : afterLastLine;
+          if (afterLastLine.includes('*/') ? afterLastComment.length > 1 : (!beforeSpec.includes('\n') && afterLastLine.length > 1)) return false;
           need(at, '__createBinding', '__setModuleDefault', '__importStar');
           edits.push([at, nextAt + 1, 'Promise.resolve().then(() => __importStar(require(']);
           edits.push([closeParen, closeParen + 1, ')))']);
