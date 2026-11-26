@@ -3503,6 +3503,10 @@ test('F178 official spec suite push: Test262 99.88%, TS compiler/conformance 98.
     ['r55-bad-import-type-obj.ts', 'let x: import({x: +});\n'],
     ['r55-bad-esc-get-num.ts', 'class C { \\u0067et 1() {} }\n'],
     ['r55-bad-esc-static-esc.ts', 'class C { \\u0073tatic \\u006d() {} }\n'],
+    ['r55-bad-mapped-stmt.ts', 'type T = { a: 1; [K in string; const a = 1]: V };\n'],
+    ['r55-bad-index-escape.ts', 'class C { [x: string = 1); const y = (2]: number }\n'],
+    ['r55-bad-ambient-bare-await.ts', 'export declare namespace N { export var static: any; }\nawait;\n'],
+    ['r55-bad-ambient-bare-await.tsx', 'export declare namespace N { export var static: any; }\nawait;\n'],
   ]) {
     const tm = ts.transpileModule(source, {
       fileName: file,
@@ -3516,10 +3520,13 @@ test('F178 official spec suite push: Test262 99.88%, TS compiler/conformance 98.
   // Review Round 55 AST/module-mode equivalence regressions:
   for (const [file, source] of [
     ['r55-import-type-and-dyn.ts', 'type T = import(Foo); const p = import(Foo);\n'],
+    ['r55-typeof-import-type-and-dyn.ts', 'type T = typeof import(Foo); const p = typeof import(Foo);\n'],
     ['r55-new-meta-and-target.ts', 'function f(){new.foo;new.target;}\n'],
     ['r55-new-meta-and-str.ts', 'function f(){new.foo;} const s="new.target";\n'],
     ['r55-only-ambient-export.ts', 'export declare namespace N { export var static: any; }\nconst x = 1;\n'],
     ['r55-only-ambient-export.tsx', 'export declare namespace N { export var static: any; }\nconst x = 1;\n'],
+    ['r55-only-ambient-export-await.ts', 'export declare namespace N { export var static: any; }\nawait foo();\n'],
+    ['r55-only-ambient-export-await.tsx', 'export declare namespace N { export var static: any; }\nawait foo();\n'],
   ]) {
     const r = sameAsTypeScript(source, file);
     if (file.startsWith('r55-only-ambient-export')) {

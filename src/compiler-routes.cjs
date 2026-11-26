@@ -1636,10 +1636,14 @@ function compile(input, options = {}) {
                       : eraseLoweredModule(addon, lowered, file, format, directive);
                     if (result && result.code !== null) {
                       const hadModBeforeAmb = ambPre !== cjsPre.code && tsLower.hasTopLevelModuleSyntax(cjsPre.code);
-                      if ((cjsPre.hasCjsModule || hadModBeforeAmb) && result.code.startsWith('"use strict";\n') && !/^\s*["']use strict["']/.test(text)) {
+                      if (hadModBeforeAmb && !tsLower.hasTopLevelModuleSyntax(work)) {
+                        const modCheck = strip(result.code + '\nexport {};', file);
+                        if (modCheck.code === null || /(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(result.code)) result = null;
+                      }
+                      if (result && (cjsPre.hasCjsModule || hadModBeforeAmb) && result.code.startsWith('"use strict";\n') && !/^\s*["']use strict["']/.test(text)) {
                         result = { ...result, code: result.code.slice('"use strict";\n'.length) };
                       }
-                      return result;
+                      if (result) return result;
                     }
                   }
                   }
@@ -1659,8 +1663,10 @@ function compile(input, options = {}) {
                       const hadModBeforeAmb = ambPre !== cjsPre.code && tsLower.hasTopLevelModuleSyntax(cjsPre.code);
                       const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(jsxLowered);
                       if (hadModBeforeAmb && !isMod) {
-                        const stripped = strip(jsxLowered, file);
-                        if (stripped.code !== null) return stripped;
+                        const modStripped = strip(jsxLowered + '\nexport {};', file);
+                        if (modStripped.code !== null && !/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(modStripped.code) && modStripped.code.endsWith('\nexport {};')) {
+                          return { ...modStripped, code: modStripped.code.slice(0, -'\nexport {};'.length) };
+                        }
                       }
                       const jsRes = isMod
                         ? eraseModule(addon, jsxLowered, file, format, false)
@@ -1673,7 +1679,8 @@ function compile(input, options = {}) {
                         if (relaxed !== null) {
                           const workBuf = Buffer.from(relaxed);
                           if (hadModBeforeAmb && !isMod) {
-                            return { backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] };
+                            const modCheck = strip(relaxed + '\nexport {};', file);
+                            if (modCheck.code !== null && !/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(relaxed)) return { backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] };
                           }
                           if (isMod) {
                             if (hasModuleMarker(addon, relaxed, workBuf) || tsLower.hasTopLevelModuleSyntax(relaxed)) {
@@ -1745,8 +1752,10 @@ function compile(input, options = {}) {
                         const workDir = directive || (ambPre !== cjsPre.code && loadDirectAddon()?.leadingTripleSlash(workBuf) === 1);
                         const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
                         if (hadModBeforeAmb && !isMod) {
-                          const stripped = strip(work, file);
-                          if (stripped.code !== null) return stripped;
+                          const modStripped = strip(work + '\nexport {};', file);
+                          if (modStripped.code !== null && !/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(modStripped.code) && modStripped.code.endsWith('\nexport {};')) {
+                            return { ...modStripped, code: modStripped.code.slice(0, -'\nexport {};'.length) };
+                          }
                         }
                         const loweredRes = isMod
                           ? eraseModule(addon, work, file, format, property)
@@ -1775,7 +1784,8 @@ function compile(input, options = {}) {
                           const workBuf = Buffer.from(relaxed);
                           const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
                           if (hadModBeforeAmb && !isMod) {
-                            return { backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] };
+                            const modCheck = strip(relaxed + '\nexport {};', file);
+                            if (modCheck.code !== null && !/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(relaxed)) return { backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] };
                           }
                           if (isMod) {
                             if (!/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(work) && (hasModuleMarker(addon, relaxed, workBuf) || tsLower.hasTopLevelModuleSyntax(relaxed))) {
@@ -1826,8 +1836,10 @@ function compile(input, options = {}) {
                     const hadModBeforeAmb = ambPre !== cjsPre.code && tsLower.hasTopLevelModuleSyntax(cjsPre.code);
                     const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
                     if (hadModBeforeAmb && !isMod) {
-                      const stripped = strip(work, file);
-                      if (stripped.code !== null) return stripped;
+                      const modStripped = strip(work + '\nexport {};', file);
+                      if (modStripped.code !== null && !/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(modStripped.code) && modStripped.code.endsWith('\nexport {};')) {
+                        return { ...modStripped, code: modStripped.code.slice(0, -'\nexport {};'.length) };
+                      }
                     }
                     const loweredRes = isMod
                       ? eraseModule(addon, work, file, format, false)

@@ -3153,7 +3153,17 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     let work = source.replace(/(\[[ \t]*)(?:public|private|protected|static)([ \t]+[A-Za-z_$][\w$]*[ \t]*:)/g, '$1$2');
     let invalidInit = false;
     work = work.replace(/(\[[ \t]*[A-Za-z_$][\w$]*[ \t]*:[ \t]*[A-Za-z_$][\w$]*)[ \t]*=([^\]\n]+)(?=\])/g, (m, head, init) => {
-      try { stripTypeScriptTypes(`(${init});`); return head; }
+      const itoks = tokenize(init);
+      if (!itoks || itoks.length === 0) { invalidInit = true; return m; }
+      let dP = 0, dB = 0, dBr = 0;
+      for (const tk of itoks) {
+        if (tk.text === '(') dP++; else if (tk.text === ')') { if (--dP < 0) { invalidInit = true; return m; } }
+        else if (tk.text === '[') dB++; else if (tk.text === ']') { if (--dB < 0) { invalidInit = true; return m; } }
+        else if (tk.text === '{') dBr++; else if (tk.text === '}') { if (--dBr < 0) { invalidInit = true; return m; } }
+        else if (dP === 0 && dB === 0 && dBr === 0 && (tk.text === ';' || tk.text === ',')) { invalidInit = true; return m; }
+      }
+      if (dP !== 0 || dB !== 0 || dBr !== 0) { invalidInit = true; return m; }
+      try { stripTypeScriptTypes(`const __tmt_i__ = (${init});`); return head; }
       catch { invalidInit = true; return m; }
     });
     if (!invalidInit && work !== source) {
@@ -3194,8 +3204,10 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
   if (errMsg.includes("Expected ')', got 'ident'") && /:[ \t]*import[ \t]*\(/.test(source) && !source.includes('__tmt_it__')) {
     let invalidObj = false;
     const work = source.replace(/(:[ \t]*import[ \t]*\()(\{[^}]*\})(\))/g, (m, pre, obj, post) => {
-      try { stripTypeScriptTypes(`type __tmt_it__ = ${obj};`); return `${pre}"__tmt_it__"${post}`; }
-      catch { invalidObj = true; return m; }
+      try {
+        if (stripTypeScriptTypes(`type __tmt_it__ = (${obj});`).trim() !== '') { invalidObj = true; return m; }
+        return `${pre}"__tmt_it__"${post}`;
+      } catch { invalidObj = true; return m; }
     });
     if (!invalidObj && work !== source) {
       const stripped = tryStrip(work);
@@ -3207,8 +3219,10 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
   if (errMsg.includes("Expected ']', got 'in'") && /\btype\b/.test(source)) {
     let invalidRhs = false;
     const work = source.replace(/\[[ \t]*[A-Za-z_$][\w$]*[ \t]+in[ \t]+([^\]\n]+)\][ \t]*:/g, (m, rhs) => {
-      try { stripTypeScriptTypes(`type __tmt_mt__ = ${rhs};`); return '[__k: string]:'; }
-      catch { invalidRhs = true; return m; }
+      try {
+        if (stripTypeScriptTypes(`type __tmt_mt__ = (${rhs});`).trim() !== '') { invalidRhs = true; return m; }
+        return '[__k: string]:';
+      } catch { invalidRhs = true; return m; }
     });
     if (!invalidRhs && work !== source) {
       const stripped = tryStrip(work);
@@ -3279,8 +3293,9 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
       for (let i = 1; i < toks.length - 3; i++) {
         if (toks[i].type === 'id' && toks[i].text === 'import' && toks[i + 1].text === '(' &&
             toks[i + 2].type === 'id' && toks[i + 3].text === ')') {
-          const prev = toks[i - 1].text;
-          const isTypeEq = prev === '=' && i >= 3 && (toks[i - 3]?.text === 'type' || toks[i - 2]?.text === '>');
+          const prevIdx = toks[i - 1].text === 'typeof' && i >= 2 ? i - 2 : i - 1;
+          const prev = toks[prevIdx].text;
+          const isTypeEq = prev === '=' && prevIdx >= 2 && (toks[prevIdx - 2]?.text === 'type' || toks[prevIdx - 1]?.text === '>');
           if (prev === ':' || prev === '<' || prev === '|' || prev === '&' || prev === 'extends' || isTypeEq) {
             edits.push({ start: toks[i + 2].start, end: toks[i + 2].end, text: '"__tmt_it__"' });
           }
