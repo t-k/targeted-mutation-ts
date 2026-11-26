@@ -293,7 +293,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   if (reserved.test(text) || /(?<![\w$.])default_1(?![\w$])/.test(source) || text.includes('\r') ||
       text.includes('\xe2\x80\xa8') || text.includes('\xe2\x80\xa9')) return null;
   // The CommonJS dialect of TypeScript (`export =`, `import x = require()`) is written without the module's head.
-  if (/\bexport\s*=|\bimport\s+[\w$]+\s*=/.test(source) || /(?<![\w$.])module\s*\.\s*exports\b/.test(text)) return null;
+  if (/\bexport\s*=|\bimport\s+[\w$]+\s*=/.test(source)) return null;
   const records = addon.moduleRecords?.(bytes);
   if (!records) return null;
 
@@ -544,7 +544,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           const beforeEnd = hasSemi ? value.slice(0, tailEnd - 1) : trailingComment ? value.slice(0, tailEnd) : value.replace(/\n[ \t]*$/, '').replace(/\n+$/, '');
           const leading = /^([ \t]*)([\s\S]*)$/.exec(beforeEnd);
           if (skipTriviaBack(beforeEnd, beforeEnd.length, true) !== beforeEnd.length ||
-              ((leading[1].length > 1 || leading[2].startsWith('\n')) && /^(?:async|function|class)(?![\w$])/.test(leading[2].trimStart()))) return null;
+              ((leading[1].length > 1 || leading[2].startsWith('\n')) && /^(?:async(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)+function|function|class)(?![\w$])/.test(leading[2].trimStart()))) return null;
           edits.push([first, at, '']);
           behind(index, `exports.${name} = ${name};`);
         } else edits.push([first, names[0].last, `exports.${name}`]);

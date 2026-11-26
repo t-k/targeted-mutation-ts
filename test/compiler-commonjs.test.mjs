@@ -441,6 +441,11 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   const longType = `export const v: { ${Array.from({ length: 40 }, (_, i) => `k${i}: number`).join('; ')} } = {} as any;\nexport const u = 1;\n`;
   const longTypeRes = sameAsTypeScript(longType);
   assert.equal(longTypeRes.backend, 'pulse');
+  // Multiline `export const f =\n  async () => ...` and strings/code mentioning `module.exports` stay native.
+  const multiAsync = sameAsTypeScript('export const f =\n  async (x: number) => x + 1;\nexport const g = 1;\n');
+  assert.equal(multiAsync.backend, 'pulse');
+  const modExportsStr = sameAsTypeScript('export const s = "module.exports = 1";\nexport const g = 1;\n');
+  assert.equal(modExportsStr.backend, 'pulse');
 
   // Exported enum followed by a JSDoc comment before the next declaration stays native.
   const enumDoc = sameAsTypeScript('export enum Level { H2 = "h2", H3 = "h3" }\n/** doc */\nexport interface Item { level: Level }\n');
