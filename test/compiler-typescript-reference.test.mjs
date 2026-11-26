@@ -3200,9 +3200,14 @@ test('each target compiles natively up to the forms of its year', () => {
   assert.equal(compile(Buffer.from('export const a: string = "\u00a0";'), { file: 'year.ts', target: 'es2021' }).backend, 'typescript');
   assert.equal(compile(Buffer.from('export const a: string = "\u00a0";'), { file: 'year.ts', target: 'es2022' }).backend, 'pulse');
   assert.equal(compile(Buffer.from('export const a: string = "\u00a0";'), { file: 'year.ts' }).backend, 'pulse');
-  // A word of a newer form in a comment is enough to leave the file with TypeScript, while tokenized downlevel skips strings.
-  assert.equal(compile(Buffer.from('// no class here\nexport const a: number = 1;'), { file: 'year.ts', target: 'es2020' }).backend, 'typescript');
+  // Tokenized downlevel skips comments and strings for `class` and `??`, while real classes below ES2022 still defer.
+  assert.equal(compile(Buffer.from('// no class here\nexport const a: number = 1;'), { file: 'year.ts', target: 'es2020' }).backend, 'pulse');
   assert.equal(compile(Buffer.from('export const a: string = "x ?? y";'), { file: 'year.ts', target: 'es2019' }).backend, 'pulse');
+  // Single-step optional method call `id?.m(args)` lowers natively below ES2020.
+  const optCall = compile(Buffer.from('export const f = (data: any) => data?.trim();\n'), { file: 'year.ts', target: 'es2019' });
+  assert.equal(optCall.backend, 'pulse');
+  assert.deepEqual(inspect(ts, optCall.code, 'year.ts'), inspect(ts, ts.transpileModule('export const f = (data: any) => data?.trim();\n', {
+    fileName: 'year.ts', compilerOptions: { target: ts.ScriptTarget.ES2019, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true } }).outputText, 'year.ts'));
   // A private name outside a class is an error that TypeScript prints differently per target.
   assert.equal(compile(Buffer.from('declare const x: any;\nx.#bar = 1;\nexport {};'), { file: 'year.ts', target: 'es2021' }).backend, 'typescript');
 });

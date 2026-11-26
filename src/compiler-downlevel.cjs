@@ -243,10 +243,26 @@ function findClose(tokens, openIdx) {
 }
 
 function lowerDownlevel(code, year) {
-  if (year >= 2021) return code;
+  if (year >= 2022) return code;
   if (code.includes('\\u')) return null;
   const tokens = tokenize(code);
   if (tokens === null) return null;
+
+  // Below ES2022, any real `class` keyword token in code (outside strings/comments/property names)
+  // declines to TypeScript (useDefineForClassFields / static blocks / private fields).
+  if (year < 2022) {
+    for (let i = 0; i < tokens.length; i++) {
+      const t = tokens[i];
+      const prev = i > 0 ? tokens[i - 1] : null;
+      const next = tokens[i + 1];
+      if (t.type === 'id' && t.value === 'class' &&
+          (!prev || (prev.value !== '.' && prev.value !== '?.')) &&
+          (!next || next.value !== ':')) {
+        return null;
+      }
+    }
+  }
+  if (year >= 2021) return code;
 
   const needLogAssign = year < 2021;
   const needNullish = year < 2020;
@@ -323,6 +339,18 @@ function lowerDownlevel(code, year) {
       if (next.type === 'id') {
         chainEndIdx = i + 2;
         access = `.${next.value}`;
+        // Allow a single method call `id?.prop(args)` or chained property `.prop2` when no nested downlevel ops appear.
+        const nextAfter = tokens[chainEndIdx];
+        if (nextAfter && nextAfter.value === '(') {
+          const closeIdx = findClose(tokens, chainEndIdx);
+          if (closeIdx < 0) return null;
+          for (let k = chainEndIdx + 1; k < closeIdx; k++) {
+            const v = tokens[k].value;
+            if (v === '?.' || v === '??' || v === '||=' || v === '&&=' || v === '??=' || (needExp && (v === '**' || v === '**='))) return null;
+          }
+          access += code.slice(nextAfter.start, tokens[closeIdx].end);
+          chainEndIdx = closeIdx + 1;
+        }
       } else if (next.value === '(' || next.value === '[') {
         const closeIdx = findClose(tokens, i + 1);
         if (closeIdx < 0) return null;

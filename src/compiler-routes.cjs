@@ -728,7 +728,7 @@ const targetYears = new Map([['es6', 2015], ['es2015', 2015], ['es2016', 2016], 
 // or a comment. Two stars are an operator unless they open a comment at the start of a line: behind other
 // text the slash in front of them may close a regular expression.
 const newerForms = [
-  [2022, /\bclass\b|\.\s*#/],
+  [2022, /\.\s*#/],
   [2018, /\.\.\.|\bfor\b(?!\s*\()|\basync\b(?:\s*function\b)?\s*[*\/]/],
   [2017, /\basync\b|\bawait\b/],
 ];
@@ -1079,8 +1079,9 @@ function compile(input, options = {}) {
       const raw = year < 2024 ? (Buffer.isBuffer(stable) ? stable.latin1Slice() : String(stable)) : '';
       const needsStage3 = year >= 2022 && year < 2024 && raw.includes('@');
       const needsOlder = year < 2021 && (/(?<![\w$])(?:\d[\w.]*_|\.\d[\d_]*_)/.test(raw) || (year < 2019 && /\bcatch\b(?!\s*\()/.test(raw)));
-      const needsDown = year < 2021 && (
-        /\|\|=|&&=|\?\?=/.test(raw) ||
+      const needsDown = year < 2022 && (
+        /\bclass\b/.test(raw) ||
+        (year < 2021 && /\|\|=|&&=|\?\?=/.test(raw)) ||
         (year < 2020 && /\?\.|\?\?/.test(raw)) ||
         (year < 2016 && /(?<!^[ \t]*\/\**)\*\*/m.test(raw))
       );
