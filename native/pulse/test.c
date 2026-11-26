@@ -67,8 +67,23 @@ static void check_map_runs(void)
       to[lane] = (uint8_t)byte;
       const bool word = ((byte | 32u) - 'a') < 26u || (byte - '0') < 10u || byte == '_' || byte == '$';
       assert(tmt_map_word_run(from, to) == word);
+      assert(tmt_map_word_count(from, to) == (word ? 16U : lane));
       from[lane] = (uint8_t)(byte ^ 1u);
       assert(!tmt_map_word_run(from, to));
+      assert(tmt_map_word_count(from, to) == lane);
+
+      memset(from, 'a', sizeof(from));
+      from[lane] = (uint8_t)byte;
+      const bool line_plain = byte < 128u && byte != '\n' && byte != '\r';
+      assert(tmt_ascii_line_count(from) == (line_plain ? 16U : lane));
+
+      memset(from, 'a', sizeof(from));
+      memset(to, ' ', sizeof(to));
+      from[lane] = (uint8_t)byte;
+      assert(tmt_map_blank_count(from, to) == (line_plain ? 16U : lane));
+      from[lane] = 'a';
+      to[lane] = (uint8_t)byte;
+      assert(tmt_map_blank_count(from, to) == (byte == ' ' ? 16U : lane));
     }
   }
   puts("SIMD source-map runs matched all bytes in every lane");

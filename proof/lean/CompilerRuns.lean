@@ -282,4 +282,20 @@ theorem skipSpaceRun (bytes : List UInt8) (cursor : CommentCursor)
     cases cursor
     simp [commentStep, Bool.or_assoc, Nat.add_assoc, Nat.add_comm 1]
 
+-- Variable-length prefix skip for `tmt_ascii_line_count`, `tmt_map_blank_count`, and
+-- `tmt_map_word_count`: any prefix `bytes` whose elements all satisfy `asciiLinePlain`
+-- advances `offset` and `column` by `bytes.length` without changing `line`.
+theorem skipAsciiLinePrefix (bytes : List UInt8) (point : MapPoint)
+    (safe : bytes.all asciiLinePlain = true) :
+    bytes.foldl mapSeekStep point =
+      { point with offset := point.offset + bytes.length, column := point.column + bytes.length } := by
+  induction bytes generalizing point with
+  | nil => cases point; simp
+  | cons b rest ih =>
+    simp only [List.all_cons, Bool.and_eq_true] at safe
+    rw [List.foldl_cons, ih _ safe.2]
+    cases point
+    simp only [mapSeekStep, safe.1, ↓reduceIte, List.length_cons]
+    congr 1 <;> omega
+
 end CompilerRuns

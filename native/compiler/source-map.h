@@ -42,15 +42,24 @@ static inline bool tmt_map_reserve(tmt_map_writer *map, size_t extra) {
 }
 
 /* The caller reserves seven bytes, the longest encoding of a 32-bit value. */
-static inline void tmt_map_vlq(tmt_map_writer *map, int64_t value) {
+static inline char *tmt_map_vlq_ptr(char *p, int64_t value) {
   static const char digits[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   uint64_t bits = value < 0 ? ((uint64_t)(-value) << 1) | 1 : (uint64_t)value << 1;
+  if (__builtin_expect(bits < 32, 1)) {
+    *p++ = digits[bits];
+    return p;
+  }
   do {
     unsigned digit = bits & 31;
     bits >>= 5;
     if (bits) digit |= 32;
-    map->text[map->length++] = digits[digit];
+    *p++ = digits[digit];
   } while (bits);
+  return p;
+}
+
+static inline void tmt_map_vlq(tmt_map_writer *map, int64_t value) {
+  map->length = (size_t)(tmt_map_vlq_ptr(map->text + map->length, value) - map->text);
 }
 
 static inline bool tmt_map_word(uint8_t byte) {
@@ -112,11 +121,13 @@ static inline bool tmt_map_seek(tmt_map_source *cursor, const uint8_t *source, s
     if (!tmt_map_mark(cursor)) return false;
 #if (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))) && !defined(TMT_SCALAR_SCANS)
     if (target - cursor->at.offset >= 16 &&
-        ((cursor->at.offset + 16) >> 12) == (cursor->at.offset >> 12) &&
-        tmt_ascii_line_run(source + cursor->at.offset)) {
-      cursor->at.column += 16;
-      cursor->at.offset += 16;
-      continue;
+        ((cursor->at.offset + 16) >> 12) == (cursor->at.offset >> 12)) {
+      const unsigned n = tmt_ascii_line_count(source + cursor->at.offset);
+      if (n != 0U) {
+        cursor->at.column += n;
+        cursor->at.offset += n;
+        continue;
+      }
     }
 #endif
     const size_t terminator = tmt_map_terminator(source, size, cursor->at.offset);
@@ -158,10 +169,13 @@ static TMT_MAP_COLD char *tmt_run_mappings(const uint8_t *source, size_t size, c
     if (next < done || next > length) goto mismatch;
     while (done < next) {
 #if (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))) && !defined(TMT_SCALAR_SCANS)
-      if (!mapped && next - done >= 16 && tmt_ascii_line_run(code + done)) {
-        done += 16;
-        generated += 16;
-        continue;
+      if (!mapped && next - done >= 16) {
+        const unsigned n = tmt_ascii_line_count(code + done);
+        if (n != 0U) {
+          done += n;
+          generated += n;
+          continue;
+        }
       }
 #endif
       const size_t terminator = tmt_map_terminator(code, length, done);
@@ -194,20 +208,26 @@ static TMT_MAP_COLD char *tmt_run_mappings(const uint8_t *source, size_t size, c
       if (!tmt_map_mark(&cursor)) goto mismatch;
 #if (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))) && !defined(TMT_SCALAR_SCANS)
       if (run.length - at >= 16 && ((cursor.at.offset + 16) >> 12) == (cursor.at.offset >> 12)) {
-        if (to_bytes[at] == ' ' && tmt_map_blank_run(from_bytes + at, to_bytes + at)) {
-          generated += 16;
-          cursor.at.column += 16;
-          cursor.at.offset += 16;
-          at += 15;
-          boundary = true;
-          continue;
+        if (to_bytes[at] == ' ' && to_bytes[at + 1] == ' ') {
+          const unsigned n = tmt_map_blank_count(from_bytes + at, to_bytes + at);
+          if (n != 0U) {
+            generated += n;
+            cursor.at.column += n;
+            cursor.at.offset += n;
+            at += n - 1;
+            boundary = true;
+            continue;
+          }
         }
-        if (!boundary && word && tmt_map_word_run(from_bytes + at, to_bytes + at)) {
-          generated += 16;
-          cursor.at.column += 16;
-          cursor.at.offset += 16;
-          at += 15;
-          continue;
+        if (!boundary && word && to_bytes[at] == from_bytes[at] && to_bytes[at] < 0x80 && tmt_map_word(to_bytes[at])) {
+          const unsigned n = tmt_map_word_count(from_bytes + at, to_bytes + at);
+          if (n != 0U) {
+            generated += n;
+            cursor.at.column += n;
+            cursor.at.offset += n;
+            at += n - 1;
+            continue;
+          }
         }
       }
 #endif
@@ -263,11 +283,15 @@ static TMT_MAP_COLD char *tmt_run_mappings(const uint8_t *source, size_t size, c
         const bool kind = tmt_map_word(to);
         if (boundary || kind != word) {
           if (!tmt_map_reserve(&map, 30)) goto mismatch;
-          if (!first) map.text[map.length++] = ',';
-          tmt_map_vlq(&map, (int64_t)generated - last_generated);
-          map.text[map.length++] = 'A';
-          tmt_map_vlq(&map, (int64_t)cursor.at.line - last_line);
-          tmt_map_vlq(&map, (int64_t)cursor.at.column - last_original);
+          char *p = map.text + map.length;
+          if (!first) *p++ = ',';
+          p = tmt_map_vlq_ptr(p, (int64_t)generated - last_generated);
+          *p++ = 'A';
+          const int64_t dline = (int64_t)cursor.at.line - last_line;
+          if (__builtin_expect(dline == 0, 1)) *p++ = 'A';
+          else p = tmt_map_vlq_ptr(p, dline);
+          p = tmt_map_vlq_ptr(p, (int64_t)cursor.at.column - last_original);
+          map.length = (size_t)(p - map.text);
           last_generated = generated;
           last_line = cursor.at.line;
           last_original = cursor.at.column;

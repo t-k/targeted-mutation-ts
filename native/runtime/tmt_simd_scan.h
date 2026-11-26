@@ -59,17 +59,32 @@ static inline bool tmt_ascii_line_run(const uint8_t *source) {
   return vmaxvq_u8(blocked) == 0;
 }
 
-/* Whether sixteen output bytes are ASCII spaces over ASCII non-line-break source bytes. */
-static inline bool tmt_map_blank_run(const uint8_t *from, const uint8_t *to) {
+/* Counts leading pure-ASCII non-LF/CR bytes in a 16-byte window (0..16). */
+static inline unsigned tmt_ascii_line_count(const uint8_t *source) {
+  const uint8x16_t bytes = vld1q_u8(source);
+  uint8x16_t blocked = vcgeq_u8(bytes, vdupq_n_u8(128));
+  blocked = vorrq_u8(blocked, vorrq_u8(vceqq_u8(bytes, vdupq_n_u8('\n')), vceqq_u8(bytes, vdupq_n_u8('\r'))));
+  const uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(blocked), 4)), 0);
+  return mask ? (unsigned)(__builtin_ctzll(mask) >> 2) : 16U;
+}
+
+/* Counts leading ASCII spaces in `to` over ASCII non-LF/CR bytes in `from` (0..16). */
+static inline unsigned tmt_map_blank_count(const uint8_t *from, const uint8_t *to) {
   const uint8x16_t f = vld1q_u8(from);
   const uint8x16_t t = vld1q_u8(to);
   uint8x16_t bad = vorrq_u8(vcgeq_u8(f, vdupq_n_u8(128)), vmvnq_u8(vceqq_u8(t, vdupq_n_u8(' '))));
   bad = vorrq_u8(bad, vorrq_u8(vceqq_u8(f, vdupq_n_u8('\n')), vceqq_u8(f, vdupq_n_u8('\r'))));
-  return vmaxvq_u8(bad) == 0;
+  const uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(bad), 4)), 0);
+  return mask ? (unsigned)(__builtin_ctzll(mask) >> 2) : 16U;
 }
 
-/* Whether sixteen bytes are identical ASCII identifier/word bytes (`[A-Za-z0-9_$]`). */
-static inline bool tmt_map_word_run(const uint8_t *from, const uint8_t *to) {
+/* Whether sixteen output bytes are ASCII spaces over ASCII non-line-break source bytes. */
+static inline bool tmt_map_blank_run(const uint8_t *from, const uint8_t *to) {
+  return tmt_map_blank_count(from, to) == 16U;
+}
+
+/* Counts leading identical ASCII identifier/word bytes (`[A-Za-z0-9_$]`) in a 16-byte window (0..16). */
+static inline unsigned tmt_map_word_count(const uint8_t *from, const uint8_t *to) {
   const uint8x16_t f = vld1q_u8(from);
   const uint8x16_t t = vld1q_u8(to);
   const uint8x16_t lower = vorrq_u8(t, vdupq_n_u8(32));
@@ -77,7 +92,14 @@ static inline bool tmt_map_word_run(const uint8_t *from, const uint8_t *to) {
   const uint8x16_t is_digit = vcltq_u8(vsubq_u8(t, vdupq_n_u8('0')), vdupq_n_u8(10));
   const uint8x16_t is_extra = vorrq_u8(vceqq_u8(t, vdupq_n_u8('_')), vceqq_u8(t, vdupq_n_u8('$')));
   const uint8x16_t ok = vandq_u8(vceqq_u8(f, t), vorrq_u8(vorrq_u8(is_alpha, is_digit), is_extra));
-  return vminvq_u8(ok) != 0;
+  const uint8x16_t bad = vmvnq_u8(ok);
+  const uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(bad), 4)), 0);
+  return mask ? (unsigned)(__builtin_ctzll(mask) >> 2) : 16U;
+}
+
+/* Whether sixteen bytes are identical ASCII identifier/word bytes (`[A-Za-z0-9_$]`). */
+static inline bool tmt_map_word_run(const uint8_t *from, const uint8_t *to) {
+  return tmt_map_word_count(from, to) == 16U;
 }
 
 /* Counts leading bytes in a 16-byte template-literal window before `` ` ``, `$`, or `\`. */
@@ -182,21 +204,31 @@ static inline __m128i tmt_sse_u8_le(__m128i bytes, uint8_t limit) {
   return _mm_cmpeq_epi8(_mm_subs_epu8(bytes, _mm_set1_epi8((char)limit)), _mm_setzero_si128());
 }
 
-static inline bool tmt_ascii_line_run(const uint8_t *source) {
+static inline unsigned tmt_ascii_line_count(const uint8_t *source) {
   const __m128i bytes = _mm_loadu_si128((const __m128i *)source);
   const __m128i endings = _mm_or_si128(_mm_cmpeq_epi8(bytes, _mm_set1_epi8('\n')), _mm_cmpeq_epi8(bytes, _mm_set1_epi8('\r')));
-  return _mm_movemask_epi8(_mm_or_si128(bytes, endings)) == 0;
+  const unsigned mask = (unsigned)_mm_movemask_epi8(_mm_or_si128(bytes, endings));
+  return mask ? (unsigned)__builtin_ctz(mask) : 16U;
 }
 
-static inline bool tmt_map_blank_run(const uint8_t *from, const uint8_t *to) {
+static inline bool tmt_ascii_line_run(const uint8_t *source) {
+  return tmt_ascii_line_count(source) == 16U;
+}
+
+static inline unsigned tmt_map_blank_count(const uint8_t *from, const uint8_t *to) {
   const __m128i f = _mm_loadu_si128((const __m128i *)from);
   const __m128i t = _mm_loadu_si128((const __m128i *)to);
   const __m128i not_space = _mm_xor_si128(_mm_cmpeq_epi8(t, _mm_set1_epi8(' ')), _mm_set1_epi8(-1));
   const __m128i endings = _mm_or_si128(_mm_cmpeq_epi8(f, _mm_set1_epi8('\n')), _mm_cmpeq_epi8(f, _mm_set1_epi8('\r')));
-  return _mm_movemask_epi8(_mm_or_si128(f, _mm_or_si128(not_space, endings))) == 0;
+  const unsigned mask = (unsigned)_mm_movemask_epi8(_mm_or_si128(f, _mm_or_si128(not_space, endings)));
+  return mask ? (unsigned)__builtin_ctz(mask) : 16U;
 }
 
-static inline bool tmt_map_word_run(const uint8_t *from, const uint8_t *to) {
+static inline bool tmt_map_blank_run(const uint8_t *from, const uint8_t *to) {
+  return tmt_map_blank_count(from, to) == 16U;
+}
+
+static inline unsigned tmt_map_word_count(const uint8_t *from, const uint8_t *to) {
   const __m128i f = _mm_loadu_si128((const __m128i *)from);
   const __m128i t = _mm_loadu_si128((const __m128i *)to);
   const __m128i lower = _mm_or_si128(t, _mm_set1_epi8(32));
@@ -204,7 +236,12 @@ static inline bool tmt_map_word_run(const uint8_t *from, const uint8_t *to) {
   const __m128i is_digit = tmt_sse_u8_le(_mm_sub_epi8(t, _mm_set1_epi8('0')), 9);
   const __m128i is_extra = _mm_or_si128(_mm_cmpeq_epi8(t, _mm_set1_epi8('_')), _mm_cmpeq_epi8(t, _mm_set1_epi8('$')));
   const __m128i ok = _mm_and_si128(_mm_cmpeq_epi8(f, t), _mm_or_si128(_mm_or_si128(is_alpha, is_digit), is_extra));
-  return _mm_movemask_epi8(ok) == 0xffff;
+  const unsigned bad = (~(unsigned)_mm_movemask_epi8(ok)) & 0xffffU;
+  return bad ? (unsigned)__builtin_ctz(bad) : 16U;
+}
+
+static inline bool tmt_map_word_run(const uint8_t *from, const uint8_t *to) {
+  return tmt_map_word_count(from, to) == 16U;
 }
 
 static inline unsigned tmt_template_run(const uint8_t *source) {
