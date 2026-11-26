@@ -3203,11 +3203,19 @@ test('each target compiles natively up to the forms of its year', () => {
   // Tokenized downlevel skips comments and strings for `class` and `??`, while real classes below ES2022 still defer.
   assert.equal(compile(Buffer.from('// no class here\nexport const a: number = 1;'), { file: 'year.ts', target: 'es2020' }).backend, 'pulse');
   assert.equal(compile(Buffer.from('export const a: string = "x ?? y";'), { file: 'year.ts', target: 'es2019' }).backend, 'pulse');
-  // Single-step optional method call `id?.m(args)` lowers natively below ES2020.
-  const optCall = compile(Buffer.from('export const f = (data: any) => data?.trim();\n'), { file: 'year.ts', target: 'es2019' });
+  // Single-step optional method call `id?.m(args)` lowers natively below ES2020, preserving comments.
+  const optCall = compile(Buffer.from('export const f = (data: any) => data?.trim/* keep */();\n'), { file: 'year.ts', target: 'es2019' });
   assert.equal(optCall.backend, 'pulse');
-  assert.deepEqual(inspect(ts, optCall.code, 'year.ts'), inspect(ts, ts.transpileModule('export const f = (data: any) => data?.trim();\n', {
+  assert.match(optCall.code, /data\.trim\/\* keep \*\/\(\)/);
+  assert.deepEqual(inspect(ts, optCall.code, 'year.ts'), inspect(ts, ts.transpileModule('export const f = (data: any) => data?.trim/* keep */();\n', {
     fileName: 'year.ts', compilerOptions: { target: ts.ScriptTarget.ES2019, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true } }).outputText, 'year.ts'));
+  // Review round 44: keyword property after `?.` followed by division + `class` declines below ES2022.
+  for (const src of [
+    'export const y = ({ return: 1 })?.return / class { static n = 2 }.n / 2;\n',
+    'export const y = ({ if: () => 1 })?.if() / class { static n = 2 }.n / 2;\n',
+  ]) {
+    assert.equal(compile(Buffer.from(src), { file: 'year.ts', target: 'es2021' }).backend, 'typescript', src);
+  }
   // A private name outside a class is an error that TypeScript prints differently per target.
   assert.equal(compile(Buffer.from('declare const x: any;\nx.#bar = 1;\nexport {};'), { file: 'year.ts', target: 'es2021' }).backend, 'typescript');
 });

@@ -36,7 +36,7 @@ const regexAfter = new Set(['', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!
 // when `visit` returns false.
 function scanCodeIdentifiers(text, visit) {
   const braces = [], parens = [];
-  let prev = '', at = 0, expectClassBody = false, seenAsync = false;
+  let prev = '', at = 0, expectClassBody = false, asyncParenDepth = -1;
   const skipTemplate = pos => {
     while (pos < text.length) {
       const c = text[pos];
@@ -91,9 +91,10 @@ function scanCodeIdentifiers(text, visit) {
       continue;
     }
     if (c === '{') {
-      braces.push(expectClassBody ? 'class' : seenAsync ? 'async' : '{');
+      const isAsyncBody = asyncParenDepth === parens.length && (prev === ')' || prev === '=>');
+      braces.push(expectClassBody ? 'class' : isAsyncBody ? 'async' : '{');
       expectClassBody = false;
-      seenAsync = false;
+      if (isAsyncBody) asyncParenDepth = -1;
       prev = '{';
       at++;
       continue;
@@ -106,6 +107,7 @@ function scanCodeIdentifiers(text, visit) {
     }
     if (c === ')') {
       prev = parens.pop() ? ')ctrl' : ')';
+      if (parens.length < asyncParenDepth) asyncParenDepth = -1;
       at++;
       continue;
     }
@@ -140,12 +142,12 @@ function scanCodeIdentifiers(text, visit) {
         else break;
       }
       const name = text.slice(at, end);
-      const inTopClass = braces.length === 1 && braces[0] === 'class';
-      const inAsyncFn = braces.includes('async') || (seenAsync && prev === '=>');
+      const inTopClass = braces.length === 1 && braces[0] === 'class' && parens.length === 0;
+      const inAsyncFn = braces.includes('async') || (asyncParenDepth === parens.length && prev === '=>');
       if (visit(name, at, prev, braces.length, inTopClass, inAsyncFn) === false) return false;
-      if (name === 'class' && prev !== '.') { expectClassBody = true; seenAsync = false; }
-      else if (name === 'async' && prev !== '.') seenAsync = true;
-      else if (name === 'if' || name === 'while' || name === 'for' || name === 'switch' || name === 'try' || name === 'catch' || name === 'finally' || name === 'else' || name === 'do' || name === 'static') seenAsync = false;
+      if (name === 'class' && prev !== '.') { expectClassBody = true; asyncParenDepth = -1; }
+      else if (name === 'async' && prev !== '.') asyncParenDepth = parens.length;
+      else if (name === 'if' || name === 'while' || name === 'for' || name === 'switch' || name === 'try' || name === 'catch' || name === 'finally' || name === 'else' || name === 'do' || name === 'static') asyncParenDepth = -1;
       prev = prev === '.' ? 'id' : (prev === 'for' && name === 'await') ? 'await-for' : name;
       at = end;
       continue;
@@ -168,7 +170,7 @@ function scanCodeIdentifiers(text, visit) {
     if (c === '=' && text[at + 1] === '>') { prev = '=>'; at += 2; continue; }
     if ((c === '+' && text[at + 1] === '+') || (c === '-' && text[at + 1] === '-')) { prev = c + c; at += 2; continue; }
     if (c === '*') { prev = prev === 'function' ? 'function*' : '*'; at++; continue; }
-    if (c === ';') seenAsync = false;
+    if (c === ';') asyncParenDepth = -1;
     prev = c;
     at++;
   }
@@ -303,7 +305,7 @@ function hasMarkedRenamed(source, renamed) {
   for (let bang = source.indexOf('!'); bang >= 0; bang = source.indexOf('!', bang + 1)) {
     if (source[bang + 1] === '=') continue;
     const end = skipTriviaBack(source, bang, false);
-    if (end < 0) {
+    if (end < 0 || source.slice(end, bang).includes('*/')) {
       for (const name of renamed.keys()) if (marked(name).test(source)) return true;
       return false;
     }
@@ -866,6 +868,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
     const shadowed =
       new RegExp(`\\b(?:const|let|var|function|class|catch)\\b[^;\\n=(){]{0,200}?(?<![\\w$.])${esc}(?![\\w$])`).test(bodyNoImports) ||
       new RegExp(`\\b(?:const|let|var|catch)\\s*[\\[{][^;\\n=]{0,200}?(?<![\\w$.])${esc}(?![\\w$])`).test(bodyNoImports) ||
+      new RegExp(`[\\(,]\\s*(?:\\.\\.\\.)?${esc}(?![\\w$])\\s*[,)=]`).test(bodyNoImports) ||
       new RegExp(`\\([^)]{0,400}?(?<![\\w$.])${esc}(?![\\w$])[^)]{0,400}?\\)\\s*(?:=>|\\{)`).test(bodyNoImports) ||
       new RegExp(`(?<![\\w$.])${esc}\\s*=>`).test(bodyNoImports);
     shadowedCache.set(name, shadowed);

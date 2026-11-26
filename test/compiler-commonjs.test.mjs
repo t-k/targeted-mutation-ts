@@ -582,4 +582,11 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   // Shadowed local decorator binding declines cleanly to TypeScript.
   const shadowedDec = compile(Buffer.from('import { Dec } from "./d";\nexport function run(Dec: any) { @Dec() class Local {} return Local; }\n'), { file: 'a.ts', module: 'cjs' });
   assert.equal(shadowedDec.backend, 'typescript');
+  // Review round 44 regressions: method param after parenthesized default, block comment with `/*` before `!`,
+  // `async` identifier before `{ await }` vs destructured async method param.
+  assert.equal(compile(Buffer.from('import { Dec } from "./d";\nexport class C { m(x = (0), Dec = () => () => {}) { @Dec() class Local {} return Local; } }\n'), { file: 'a.ts', module: 'cjs' }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('import { f } from "./d";\nexport const x = f /* a /* b */!();\n'), { file: 'a.ts', module: 'cjs' }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('const d = (c: any) => c;\n@d export class C {}\nlet async: any;\nasync && { x: await 0 };\n'), { file: 'a.ts', module: 'cjs' }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('const d = (c: any) => c;\n@d export class C {}\nconst async = 1;\nasync\n{ await Promise.resolve(); }\n'), { file: 'a.ts', module: 'cjs' }).backend, 'typescript');
+  assert.equal(sameAsTypeScript('import { Dec } from "./d";\n@Dec()\nexport class C { async m({ x }: any) { await x; } }\n').backend, 'pulse');
 });

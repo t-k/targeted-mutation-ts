@@ -152,7 +152,7 @@ function tokenize(code) {
       }
       const value = code.slice(start, at);
       tokens.push({ type: 'id', value, start, end: at });
-      prev = prev === '.' ? 'id' : (prev === 'for' && value === 'await') ? 'await-for' : value;
+      prev = (prev === '.' || prev === '?.') ? 'id' : (prev === 'for' && value === 'await') ? 'await-for' : value;
       continue;
     }
     if ((ch >= 48 && ch <= 57) || (c === '.' && code.charCodeAt(at + 1) >= 48 && code.charCodeAt(at + 1) <= 57)) {
@@ -348,7 +348,7 @@ function lowerDownlevel(code, year) {
             const v = tokens[k].value;
             if (v === '?.' || v === '??' || v === '||=' || v === '&&=' || v === '??=' || (needExp && (v === '**' || v === '**='))) return null;
           }
-          access += code.slice(nextAfter.start, tokens[closeIdx].end);
+          access += code.slice(next.end, tokens[closeIdx].end);
           chainEndIdx = closeIdx + 1;
         }
       } else if (next.value === '(' || next.value === '[') {
