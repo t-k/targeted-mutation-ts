@@ -601,7 +601,7 @@ function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects
     ? [`--maxWorkers=${workers}`, '--maxConcurrency=1']
     : ['--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism'];
   const cacheArgs = vitestCacheCliArgs(vitestVersion, fsModuleCacheDir);
-  return { report, testsToRun, product, args: [
+  return { report, testsToRun, product, timeout, args: [
     supervisor, resolve(temp, 'vitest.pid'), String(timeout),
     vitest, 'run', ...workerArgs, ...cacheArgs,
     ...configuration, ...projectArgs, ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]),
@@ -622,8 +622,10 @@ function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects
   } };
 }
 
-function vitestOutcome(root, { report, testsToRun, product }, result) {
-  if (result.status === 124 || result.error?.code === 'ETIMEDOUT') return { status: 'timeout', output: result.stderr ?? '' };
+function vitestOutcome(root, { report, testsToRun, product, timeout = 60_000 }, result) {
+  if (result.status === 124 || result.error?.code === 'ETIMEDOUT') {
+    return { status: 'timeout', statusReason: `Vitest timed out after ${Math.round(timeout / 1000)}s`, output: result.stderr ?? '' };
+  }
   if (result.error || !existsSync(report)) {
     return { status: 'error', output: result.error?.message ?? (result.stderr + result.stdout) };
   }
@@ -637,16 +639,26 @@ function vitestOutcome(root, { report, testsToRun, product }, result) {
       if (missing.length || unexpected.length) {
         const detail = `${result.stderr ?? ''}${result.stdout ?? ''}`.trim();
         return { status: 'error', output: `Vitest test selection mismatch (missing: ${missing.join(', ') || 'none'}; unexpected: ${unexpected.join(', ') || 'none'})${detail ? '\n' + detail : ''}`,
-          errors: data.errors };
+          files: data.modules ?? [], errors: data.errors, fileErrors: data.fileErrors ?? [] };
       }
     }
     const failed = data.tests.filter(test => test.status === 'failed');
     const complete = data.reason === 'passed' || data.reason === 'failed';
-    const status = (data.timeout || failed.some(test => test.timeout)) ? 'timeout'
+    const isTimeout = Boolean(data.timeout || failed.some(test => test.timeout));
+    const status = isTimeout ? 'timeout'
       : !complete || data.errors.length ? 'error'
         : result.status === 1 && failed.length ? 'failed'
           : result.status === 0 && data.tests.some(test => test.status === 'passed') && !failed.length ? 'passed' : 'error';
-    return { status, tests: data.tests, errors: data.errors, moduleErrors: data.moduleErrors ?? [], output: result.stderr + result.stdout };
+    return {
+      status,
+      ...(isTimeout ? { statusReason: 'Vitest test timeout' } : {}),
+      tests: data.tests,
+      files: data.modules ?? [],
+      errors: data.errors,
+      moduleErrors: data.moduleErrors ?? [],
+      fileErrors: data.fileErrors ?? [],
+      output: result.stderr + result.stdout,
+    };
   }
   const tests = data.testResults.flatMap(file => file.assertionResults.map(assertion => ({
     file: relative(root, file.name),

@@ -102,11 +102,18 @@ export function classifyPlaywright(report, exitCode, workspace) {
   for (const root of report.suites) walk(root);
 
   const failed = tests.some(test => test.status === 'failed');
+  const files = [...new Set(tests.map(test => test.file).filter(Boolean))].sort();
+  const fileErrors = report.errors
+    .filter(error => error?.location?.file)
+    .map(error => ({
+      file: workspace ? relative(workspace, resolve(report.config.rootDir, error.location.file)) : error.location.file,
+      message: String(error.message ?? error),
+    }));
   const status = report.errors.length || incomplete || !tests.length ? 'error'
     : timeout ? 'timeout' : unstable ? 'unstable'
       : exitCode === 0 && !failed && tests.some(test => test.status === 'passed') ? 'passed'
         : exitCode === 1 && failed ? 'failed' : 'error';
-  return { status, tests, errors: report.errors.map(error => error.message) };
+  return { status, tests, files, errors: report.errors.map(error => error.message), fileErrors };
 }
 
 // Playwright takes test files as patterns, so a path is passed with its pattern characters escaped.
@@ -136,7 +143,9 @@ export function runPlaywright(root, temp, { config, projects = [], tests = [], t
   const runnerPid = existsSync(pid) ? Number(readFileSync(pid, 'utf8')) : undefined;
   const serverPid = existsSync(server) ? Number(readFileSync(server, 'utf8')) : undefined;
   const metadata = { output, attempt, runnerPid, serverPid };
-  if (child.status === 124 || child.error?.code === 'ETIMEDOUT') return { status: 'timeout', ...metadata };
+  if (child.status === 124 || child.error?.code === 'ETIMEDOUT') {
+    return { status: 'timeout', statusReason: `Playwright timed out after ${Math.round(timeout / 1000)}s`, ...metadata };
+  }
   if (child.error || !existsSync(report)) return { status: 'error', ...metadata };
   try {
     return { ...classifyPlaywright(JSON.parse(readFileSync(report, 'utf8')), child.status, root), ...metadata };

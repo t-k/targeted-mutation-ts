@@ -67,7 +67,7 @@ npm install --save-dev targeted-mutation
 Requirements:
 
 - Node.js 22.18 or later in the 22 line, or 24.11 or later.
-- [Vitest](https://vitest.dev/) or [Playwright](https://playwright.dev/) installed in the project or its workspace. Releases are tested with Vitest 4 and 5, and Playwright 1.65.
+- [Vitest](https://vitest.dev/), [Playwright](https://playwright.dev/), or Node's built-in `node:test` runner (`--runner node`, requires no extra test runner package). Releases are tested with Vitest 4 and 5, Playwright 1.65, and `node:test` on Node 22 and 24.
 - Any platform supported by Node.js, including macOS, Linux (glibc and musl/Alpine), and Windows. On macOS (arm64, x64) and Linux with glibc (arm64, x64), npm installs the matching prebuilt binary package automatically as an accelerator for extraction and Lean-checked replay. On other platforms, `analyze` and `extract` fall back automatically to the bundled TypeScript parser and JavaScript threshold evaluator.
 
 The tool copies the project to a temporary directory and runs the project's own test code and configuration there. Run it only on code you trust, as you would run the test suite.
@@ -87,6 +87,7 @@ npx targeted-mutation analyze --format sarif       # emit SARIF 2.1.0 for GitHub
 npx targeted-mutation analyze --write-baseline tmt-baseline.json  # save stable finding IDs
 npx targeted-mutation analyze --baseline tmt-baseline.json        # suppress already-recorded findings
 npx targeted-mutation analyze --checkpoint .tmt-checkpoint.jsonl  # resume interrupted runs safely
+npx targeted-mutation analyze --runner node --test 'test/*.test.mjs' . src/app.mjs  # run directly against Node's built-in node:test runner
 npx targeted-mutation analyze --exclude-rule nullish-equality/v1 --copy-exclude-gitignore --test 'src/lib/**/*.test.ts'
 ```
 

@@ -33,6 +33,89 @@ function isNonNegativeExpr(node, ts) {
   return false;
 }
 
+// Soundly checks whether an AST expression always produces a non-negative number (or NaN / ±Infinity,
+// where Math.floor and Math.trunc also agree). Never treats potentially string-valued expressions as numeric.
+export function isProvablyNonNegativeNode(node, ts = loadTypeScript(), depth = 0) {
+  if (!node || depth > 12) return false;
+  node = stripParens(node, ts);
+  if (!node) return false;
+  if (ts.isNumericLiteral(node)) {
+    const value = Number(node.text);
+    return Number.isFinite(value) && value >= 0;
+  }
+  if (isNonNegativeExpr(node, ts)) return true;
+  if (ts.isCallExpression(node) && !ts.isOptionalChain(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'Math' &&
+      ts.isIdentifier(node.expression.name)) {
+    const fn = node.expression.name.text;
+    const args = node.arguments;
+    if (fn === 'sqrt' || fn === 'hypot' || fn === 'clz32') return true;
+    if (fn === 'max' && args.length >= 1 && !args.some(ts.isSpreadElement)) {
+      return args.some(arg => isProvablyNonNegativeNode(arg, ts, depth + 1));
+    }
+    if (fn === 'min' && args.length >= 1 && !args.some(ts.isSpreadElement)) {
+      return args.every(arg => isProvablyNonNegativeNode(arg, ts, depth + 1));
+    }
+    if (['floor', 'ceil', 'round', 'trunc'].includes(fn) && args.length === 1 && !ts.isSpreadElement(args[0])) {
+      return isProvablyNonNegativeNode(args[0], ts, depth + 1);
+    }
+  }
+  if (ts.isBinaryExpression(node)) {
+    const op = node.operatorToken.kind;
+    if (op === ts.SyntaxKind.GreaterThanGreaterThanGreaterThanToken) return true;
+    if (op === ts.SyntaxKind.PercentToken) {
+      return isProvablyNonNegativeNode(node.left, ts, depth + 1);
+    }
+    if (op === ts.SyntaxKind.PlusToken || op === ts.SyntaxKind.AsteriskToken || op === ts.SyntaxKind.SlashToken) {
+      return isProvablyNonNegativeNode(node.left, ts, depth + 1) && isProvablyNonNegativeNode(node.right, ts, depth + 1);
+    }
+  }
+  if (ts.isConditionalExpression(node)) {
+    return isProvablyNonNegativeNode(node.whenTrue, ts, depth + 1) && isProvablyNonNegativeNode(node.whenFalse, ts, depth + 1);
+  }
+  return false;
+}
+
+function isNonNegativeDomainNode(node, ts, depth = 0) {
+  if (!node || depth > 12) return false;
+  node = stripParens(node, ts);
+  if (!node || ts.isNumericLiteral(node)) return false;
+  return isProvablyNonNegativeNode(node, ts, depth);
+}
+
+// Classify whether `Math.floor(arg)` and `Math.trunc(arg)` are provably equivalent or likely equivalent.
+export function classifyRoundingEquivalence(argNode, ts = loadTypeScript()) {
+  const node = stripParens(argNode, ts);
+  if (!node) return null;
+  if (isProvablyNonNegativeNode(node, ts)) {
+    return {
+      kind: 'equivalent',
+      reason: 'Equivalent mutant: argument is provably non-negative, so Math.floor and Math.trunc return the same value',
+    };
+  }
+  if (ts.isBinaryExpression(node)) {
+    const op = node.operatorToken.kind;
+    if ((op === ts.SyntaxKind.SlashToken || op === ts.SyntaxKind.AsteriskToken) &&
+        (isNonNegativeDomainNode(node.left, ts) || isNonNegativeDomainNode(node.right, ts))) {
+      return {
+        kind: 'likely-equivalent',
+        reason: 'likely equivalent: Math.floor and Math.trunc agree on non-negative values; only a negative divisor or factor makes this expression negative',
+      };
+    }
+  }
+  return null;
+}
+
+export function classifyRoundingEquivalenceText(exprText, ts = loadTypeScript()) {
+  if (typeof exprText !== 'string' || !exprText.trim()) return null;
+  const sf = ts.createSourceFile('round.ts', `(${exprText});`, ts.ScriptTarget.Latest, true);
+  if (sf.parseDiagnostics.length || sf.statements.length !== 1 || !ts.isExpressionStatement(sf.statements[0])) {
+    return null;
+  }
+  return classifyRoundingEquivalence(sf.statements[0].expression, ts);
+}
+
 // Extract a sound integer reachability constraint from the outer operator of a comparison's LHS.
 export function extractReachability(lhsText, ts = loadTypeScript()) {
   if (typeof lhsText !== 'string' || !lhsText.trim()) return null;

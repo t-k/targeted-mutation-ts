@@ -249,7 +249,10 @@ try {
     subjectKey(project, relative(workspace, file)))));
   if (!passed.length || tests.size !== passed.length || passed.some(test => !coveredModules.has(subjectKey(test.project, test.file))) ||
       baseline.snapshot.errors.length || baseline.snapshot.reason !== 'passed') {
-    record({ baseline: { status: 'error', errors: baseline.snapshot.errors,
+    record({ baseline: { status: 'error',
+      ...(baseline.snapshot.modules?.length ? { files: baseline.snapshot.modules } : {}),
+      ...(baseline.snapshot.fileErrors?.length ? { fileErrors: baseline.snapshot.fileErrors } : {}),
+      errors: baseline.snapshot.errors,
       output: baseline.snapshot.tests.flatMap(test => test.failures).join('\n'),
       failedTests: failedTests(baseline.snapshot) } });
   } else {

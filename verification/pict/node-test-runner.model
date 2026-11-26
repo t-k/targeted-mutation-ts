@@ -1,0 +1,7 @@
+# node:test runner event classification and verdict model
+Outcome: Passed, FailedAssertion, ModuleLoadError, HookError, Timeout, MalformedReport, MissingFiles
+Structure: Flat, NestedDescribe, DuplicateNames, SkippedAndTodo
+Inventory: MatchesBaseline, MissingTest, ExtraTest, RenamedTest
+
+IF [Outcome] IN {"ModuleLoadError", "Timeout", "MalformedReport", "MissingFiles"} THEN [Inventory] = "MatchesBaseline";
+IF [Outcome] = "HookError" THEN [Structure] IN {"Flat", "NestedDescribe"};

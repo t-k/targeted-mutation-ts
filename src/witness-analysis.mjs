@@ -171,8 +171,14 @@ export async function analyzeWitnesses(project, files, options) {
   // Each candidate, and each contract after them, is tried in copies of its own, several at a time.
   // The report keeps the candidates' order whatever order they finish in.
   const concurrency = options.concurrency ?? Math.max(1, Math.min(8, availableParallelism() - 1));
-  if (baseline.status !== 'passed') return { ...report, evaluation: 'baseline_error',
-    baseline: { status: baseline.status, errors: baseline.errors, output: baseline.output, failedTests: failedTests(baseline) } };
+  if (baseline.status !== 'passed') {
+    return { ...report, evaluation: 'baseline_error', baseline: {
+      status: baseline.status,
+      ...(baseline.files?.length ? { files: baseline.files } : {}),
+      ...(baseline.fileErrors?.length ? { fileErrors: baseline.fileErrors } : {}),
+      errors: baseline.errors, output: baseline.output, failedTests: failedTests(baseline),
+    } };
+  }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
   const testFiles = new Set(baseline.tests.map(test => test.file));
   const fixtureSources = [...testFiles].flatMap(file => {

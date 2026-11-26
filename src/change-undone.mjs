@@ -439,8 +439,12 @@ export function analyzeUndoneChanges(project, files, options, run = { sourceTria
   const baseline = options.existingBaseline?.plain === true && options.existingBaseline.status === 'passed' && Array.isArray(options.existingBaseline.tests)
     ? options.existingBaseline : attempt();
   if (baseline.status !== 'passed') {
-    return { ...report, evaluation: 'baseline_error',
-      baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } };
+    return { ...report, evaluation: 'baseline_error', baseline: {
+      status: baseline.status,
+      ...(baseline.files?.length ? { files: baseline.files } : {}),
+      ...(baseline.fileErrors?.length ? { fileErrors: baseline.fileErrors } : {}),
+      output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline),
+    } };
   }
   report.evaluation = 'evaluated';
   // A file the suite runs as a test is not the program: its assertions stay as they are in every trial.
@@ -478,8 +482,12 @@ export async function analyzeUndoneChangesAsync(project, files, options, run = d
   const baseline = options.existingBaseline?.plain === true && options.existingBaseline.status === 'passed' && Array.isArray(options.existingBaseline.tests)
     ? options.existingBaseline : await attempt();
   if (baseline.status !== 'passed') {
-    return { ...report, evaluation: 'baseline_error',
-      baseline: { status: baseline.status, output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline) } };
+    return { ...report, evaluation: 'baseline_error', baseline: {
+      status: baseline.status,
+      ...(baseline.files?.length ? { files: baseline.files } : {}),
+      ...(baseline.fileErrors?.length ? { fileErrors: baseline.fileErrors } : {}),
+      output: baseline.output, errors: baseline.errors, failedTests: failedTests(baseline),
+    } };
   }
   report.evaluation = 'evaluated';
   const testFiles = new Set(baseline.tests.map(entry => entry.file));

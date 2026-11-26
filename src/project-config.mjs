@@ -169,6 +169,7 @@ export async function loadProjectConfig(project, { allowCodeConfig = true } = {}
 export function mergeProjectConfig(configObj, cliValues, cliFiles) {
   if (!configObj) return { files: cliFiles, values: cliValues };
   const values = { ...cliValues };
+  if (values.runner === undefined && typeof configObj.runner === 'string') values.runner = configObj.runner;
   if (values.mutators === undefined && typeof configObj.mutators === 'string') values.mutators = configObj.mutators;
   if (values.timeout === undefined && configObj.timeout !== undefined) values.timeout = String(configObj.timeout);
   if (values['baseline-timeout'] === undefined && configObj.baselineTimeout !== undefined) values['baseline-timeout'] = String(configObj.baselineTimeout);

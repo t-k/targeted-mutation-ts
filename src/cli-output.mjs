@@ -44,6 +44,7 @@ Profiles (analyze):
   --audit                       Re-run predicted trials against the rewritten source.
   --displace-thresholds         Also try displaced thresholds (Vitest only).
   --concurrency N               Vitest workers that share the mutations (default: CPU count minus one).
+                                With --runner node: concurrent mutant processes (default: up to 4).
                                 With --witnesses: suite runs side by side (default: up to 8).
   --verify-trials N             Run N of the mutations decided inside workers again in fresh Vitest runs and
                                 report any verdict that differs.
@@ -51,7 +52,8 @@ Profiles (analyze):
                                 inside a running worker. Slower; for suites that leave state behind.
 
 Runner (analyze):
-  --runner vitest|playwright    Test runner (default: vitest).
+  --runner vitest|playwright|node
+                                Test runner (default: vitest).
   --config FILE                 Runner configuration file inside the project.
   --test FILE                   Run only this test file or glob. Repeatable. With --related, narrows related tests.
   --related                     Select only Vitest test files related to the target source files.
@@ -113,11 +115,20 @@ function describeEdit(mutant) {
   return `${name}: replace with ${firstLine(mutant.replacement)}`;
 }
 
+function formatCollectedFiles(files, limit = 10) {
+  if (!Array.isArray(files) || !files.length) return null;
+  const shown = files.slice(0, limit).map(printable);
+  const more = files.length - shown.length;
+  return `  Collected test files (${files.length}): ${shown.join(', ')}${more > 0 ? `, and ${more} more` : ''}`;
+}
+
 function describeBaseline(baseline = {}) {
+  const collectedLine = formatCollectedFiles(baseline.files);
   if (baseline.status === 'timeout') {
     const limit = baseline.timeoutSeconds !== undefined ? ` after ${baseline.timeoutSeconds}s` : '';
     const lines = [
       `The baseline test suite timed out${limit} before any edit.`,
+      ...(collectedLine ? [collectedLine] : []),
       '  Try increasing the limit with --baseline-timeout <seconds> (or --timeout <seconds>), enabling --baseline-workers <N>, or narrowing the suite with --test <file|glob>.',
     ];
     if (baseline.output?.trim()) {
@@ -126,12 +137,23 @@ function describeBaseline(baseline = {}) {
     return lines;
   }
   const lines = [`The test suite did not pass before any edit (baseline ${baseline.status ?? 'unknown'}). Fix it and run again.`];
+  if (collectedLine) lines.push(collectedLine);
   for (const failed of baseline.failedTests ?? []) {
     lines.push(`  FAILED ${printable(failed.file)} > ${printable(failed.name)}`);
     for (const failure of failed.failures ?? []) lines.push(`    ${firstLine(failure)}`);
   }
-  for (const error of baseline.errors ?? []) lines.push(`  ERROR ${firstLine(error)}`);
-  if (!baseline.failedTests?.length && !baseline.errors?.length && baseline.output?.trim()) {
+  const seenFileErrorMessages = new Set();
+  for (const entry of baseline.fileErrors ?? []) {
+    const msg = firstLine(entry.message);
+    seenFileErrorMessages.add(msg);
+    lines.push(`  ERROR ${printable(entry.file)}: ${msg}`);
+  }
+  for (const error of baseline.errors ?? []) {
+    const msg = firstLine(error);
+    if (seenFileErrorMessages.has(msg)) continue;
+    lines.push(`  ERROR ${msg}`);
+  }
+  if (!baseline.failedTests?.length && !baseline.fileErrors?.length && !baseline.errors?.length && baseline.output?.trim()) {
     lines.push(...printable(baseline.output).trim().split('\n').slice(-20).map(line => `  ${line}`));
   }
   return lines;
@@ -166,7 +188,7 @@ function describeGap(gap) {
     else if (gap.missing && gap.uncertain) {
       lines.push(`  add ${printable(gap.missing)}, or an assertion that tells them apart: the recording cannot tell whether a test has such an input`);
     } else if (gap.missing) lines.push(`  add ${printable(gap.missing)}`);
-    else lines.push(...formatAssertionDetails(gap));
+    else if (gap.kind !== 'SURVIVED') lines.push(...formatAssertionDetails(gap));
   } else if (gap.kind === 'ASSERTION GAP') {
     const edit = gap.mutations?.[0];
     if (edit) {
@@ -199,6 +221,9 @@ function describeGap(gap) {
       lines.push(`  ${printable(gap.strengthens.file)} > ${printable(gap.strengthens.test)} calls \`${printable(gap.strengthens.call)}\` without pinning its result: ` +
         `it gives ${printable(gap.strengthens.original)}, and ${printable(gap.strengthens.edited)} with the edit`);
     }
+  }
+  if (gap.equivalenceHint) {
+    lines.push(`  note: ${printable(gap.equivalenceReason ?? gap.equivalenceHint)}`);
   }
   if (gap.suggestedTest) lines.push(`  suggested test: ${printable(gap.suggestedTest)}`);
   if (gap.weakened) {
@@ -254,7 +279,10 @@ export function renderText(report, { verbose = false, onlyGaps = false } = {}) {
   if (!onlyGaps || isListed) {
     for (const mutant of mutants) {
       if (!verbose && !isListed && mutant.status === 'killed') continue;
-      lines.push(`${at(mutant.location)}  ${mutant.status}  ${describeEdit(mutant)}`);
+      const reason = mutant.statusReason && ['timeout', 'error', 'unstable', 'ignored', 'load_error', 'unsupported'].includes(mutant.status)
+        ? `  (${firstLine(mutant.statusReason)})`
+        : '';
+      lines.push(`${at(mutant.location)}  ${mutant.status}  ${describeEdit(mutant)}${reason}`);
     }
   }
   const gaps = report.diagnostics ?? [];

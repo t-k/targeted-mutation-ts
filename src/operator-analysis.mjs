@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { analyze, baselineRunSymbol, completeAnalysis, prepareAnalysis } from './analysis.mjs';
+import { analyze, analyzeNodeAsync, baselineRunSymbol, completeAnalysis, prepareAnalysis } from './analysis.mjs';
 import { checkpointKeyForTrial, computeCampaignContext, openCheckpoint } from './checkpoint.mjs';
 import { analyzeConventional } from './conventional.mjs';
 import { suppressEnclosingDiagnostics } from './enclosing-suppression.mjs';
@@ -52,7 +52,11 @@ function sessionVerdicts(session, extras = []) {
         : swaps.get(`${trial.site.location.file}:${trial.edit[0]}:${trial.replacement}`);
     if (mutant && !definitive.has(mutant.status)) return undefined;
     // The focused analysis decides between unreached and survived from its own recorded comparisons.
-    return mutant && { status: mutant.status === 'unreached' ? 'survived' : mutant.status, tests: mutant.tests };
+    return mutant && {
+      status: mutant.status === 'unreached' ? 'survived' : mutant.status,
+      tests: mutant.tests,
+      ...(mutant.statusReason ? { statusReason: mutant.statusReason } : {}),
+    };
   };
 }
 
@@ -110,7 +114,7 @@ async function besideSession(project, files, options, run, profile, stopsSession
 // Vitest (without --audit): built-in mutations run in one switched session with per-test coverage while
 // comparison tracing prepares boundaries and thresholds, and the session's verdicts answer shared edits.
 // Playwright, --audit, and Vitest setups the session cannot drive rewrite the source for each mutation instead.
-export async function analyzeOperators(project, files, options, run = { analyze, prepareAnalysis, completeAnalysis, analyzeConventional }) {
+export async function analyzeOperators(project, files, options, run = { analyze, analyzeNodeAsync, prepareAnalysis, completeAnalysis, analyzeConventional }) {
   const profile = options.mutators ?? 'targeted';
   const shardSelection = options.shard ? computeShardSelection(project, files, { ...options, mutators: profile }) : null;
   let checkpointStore = null;
@@ -139,6 +143,11 @@ export async function analyzeOperators(project, files, options, run = { analyze,
     const out = run.analyze(project, files, { ...runOptions, mutators: profile });
     return carryBaseline(finalize({ ...out, mutators: profile, operatorExecution: 'source-rewrite' }), out);
   };
+  if (runOptions.runner === 'node') {
+    const runnerFn = run.analyzeNodeAsync ?? analyzeNodeAsync;
+    const out = await runnerFn(project, files, { ...runOptions, mutators: profile });
+    return carryBaseline(finalize({ ...out, mutators: profile, operatorExecution: 'source-rewrite' }), out);
+  }
   if (runOptions.runner === 'playwright' || runOptions.audit) return rewriting();
   const { prepared, ended, stopped, extras, report: session, error } = await besideSession(project, files, runOptions, run, profile,
     report => report.evaluation === 'baseline_error' || report.extraction.some(file => file.path === 'diagnostic'));

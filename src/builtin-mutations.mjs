@@ -1,5 +1,6 @@
 import { mutatePattern } from './regex-mutations.mjs';
 import { tmtIgnoreLines } from './baseline.mjs';
+import { classifyRoundingEquivalence } from './reachability.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
 
 // The built-in mutation set follows the StrykerJS mutators, found here in the TypeScript syntax tree.
@@ -151,7 +152,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const start = begin(node);
     if (extra?.targeted && unprobed.some(([from, to]) => from <= start && node.end <= to)) return;
     for (let line = lineOf(start); line <= lineOf(node.end); line++) if (!selected(line + 1)) return;
-    const ignored = ignoreReason(name, lineOf(start), from);
+    const ignored = extra?.ignored ?? ignoreReason(name, lineOf(start), from);
     // A shift switch is not a mutation of the set, so it does not count for the rules about statement removals.
     if (ignored === undefined && extra?.shift === undefined && extra?.targeted === undefined) live++;
     mutations.push({ name, start, end: node.end, replacement, ...(placement ?? expressionPlacement(node, replacement)), ...extra,
@@ -324,9 +325,13 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const statement = ts.isExpressionStatement(node.parent);
     const boolean = onlyTruthUsed(node);
     const spans = operands.map(operand => [begin(operand), operand.end]);
-    return (rule, form, replacement, more) => add(rule, node, replacement, { kind: 'observed', placement: [begin(node), node.end], statement,
-      leading: !statement && begin(node) === statementStart, mutated: ` ${replacement} ` },
-    { targeted: { operator, form, boolean, left: source(operands[0]), ...shared, ...more }, operands: spans });
+    return (rule, form, replacement, more) => {
+      const { ignored, ...targetedMore } = more ?? {};
+      return add(rule, node, replacement, { kind: 'observed', placement: [begin(node), node.end], statement,
+        leading: !statement && begin(node) === statementStart, mutated: ` ${replacement} ` },
+      { targeted: { operator, form, boolean, left: source(operands[0]), ...shared, ...targetedMore }, operands: spans,
+        ...(ignored === undefined ? {} : { ignored }) });
+    };
   }
 
   // A different precedence would regroup an unparenthesized operand, so operands keep their own group.
@@ -518,7 +523,18 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
         probed(node, name, [args[0], args[1]])(targetedRules.extreme, name === 'max' ? 'min' : 'max', rename(node, callee.name, name === 'max' ? 'min' : 'max'));
       } else if (roundingSwaps.has(name) && args.length === 1) {
         const edit = probed(node, name, [args[0]]);
-        for (const swap of roundingSwaps.get(name)) edit(targetedRules.rounding, swap, rename(node, callee.name, swap));
+        const roundingEq = (name === 'floor' || name === 'trunc') ? classifyRoundingEquivalence(args[0], ts) : null;
+        for (const swap of roundingSwaps.get(name)) {
+          const isFloorTrunc = (name === 'floor' && swap === 'trunc') || (name === 'trunc' && swap === 'floor');
+          if (isFloorTrunc && roundingEq?.kind === 'equivalent') {
+            edit(targetedRules.rounding, swap, rename(node, callee.name, swap), { ignored: roundingEq.reason });
+          } else if (isFloorTrunc && roundingEq?.kind === 'likely-equivalent') {
+            edit(targetedRules.rounding, swap, rename(node, callee.name, swap),
+              { equivalenceHint: 'likely-equivalent', equivalenceReason: roundingEq.reason });
+          } else {
+            edit(targetedRules.rounding, swap, rename(node, callee.name, swap));
+          }
+        }
       }
     } else if ((name === 'sort' || name === 'toSorted') && args.length === 1 && ascending(args[0])) {
       // Without its comparison a sort orders numbers as text: 10 before 9.

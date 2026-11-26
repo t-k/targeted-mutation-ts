@@ -86,6 +86,7 @@ export function renderSarif(report, { version = '0.0.0' } = {}) {
       properties: {
         kind: diagnostic.kind ?? 'GAP',
         ...(diagnostic.rule ? { rule: diagnostic.rule } : {}),
+        ...(diagnostic.equivalenceHint ? { equivalenceHint: diagnostic.equivalenceHint } : {}),
         ...(diagnostic.suggestedTest ? { suggestedTest: diagnostic.suggestedTest } : {}),
         ...(diagnostic.weakened ? { weakened: diagnostic.weakened } : {}),
       },

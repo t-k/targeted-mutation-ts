@@ -112,7 +112,7 @@ test('--concurrency and --isolated-trials are checked before anything runs', () 
   for (const excluded of [['--audit'], ['--runner', 'playwright']]) {
     const run = cli('analyze', 'fixtures/eligibility', ...excluded, '--concurrency', '2');
     assert.equal(run.status, 1);
-    assert.match(run.stderr, /--concurrency applies to Vitest sessions and to --witnesses/);
+    assert.match(run.stderr, /--concurrency applies to Vitest sessions, --runner node, and --witnesses/);
   }
   assert.match(cli('analyze', 'fixtures/eligibility', '--verify-trials', 'some').stderr, /Expected --verify-trials to be a count/);
   assert.match(cli('analyze', 'fixtures/eligibility', '--audit', '--verify-trials', '2').stderr, /apply to Vitest sessions/);
