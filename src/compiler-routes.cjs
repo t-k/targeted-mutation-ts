@@ -242,7 +242,7 @@ const escapedKeywords = new Set([
   'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else',
   'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof', 'new',
   'null', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with',
-  'yield', 'let', 'static', 'implements', 'interface', 'package', 'private', 'protected', 'public', 'async',
+  'yield', 'let', 'static', 'private', 'async',
   'get', 'set', 'from', 'of', 'as', 'accessor', 'using', 'abstract', 'declare', 'override', 'readonly', 'satisfies',
 ]);
 
@@ -398,7 +398,7 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
 // A .ts/.mts file that contains no TypeScript syntax and passes V8's parser (or Node's strict-identity
 // strip check with TS 6.0.3 compatibility guards) can be published natively when it avoids the few
 // ES2025/Unicode/legacy forms that V8/SWC accept and TypeScript 6.0.3 rejects.
-const tsRejectsInStripIdentity = /\\[1-9]|\\0[0-9]|\b0\d*_|0[bBoOxX]_|\._|\bfor\s*\([^;)]*;[^;)]*\)|\{\s*(?:while|for|if|return|class|function|var|let|const|default|extends|yield|await|false|true|null)\s*[,}]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|\bawait\s*[;),}]|\b(?:var|let|const|class|new)\s+await\b|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|\bthis\s*=(?!=)|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
+const tsRejectsInStripIdentity = /\\[1-9]|\\0[0-9]|\b0\d*_|0[bBoOxX]_|\._|\bfor\s*\([^;()]*;[^;()]*\)|\bfor[ \t]*\([ \t]*let[ \t]*;|\{\s*(?:while|for|if|return|class|function|var|const|default|extends|this|yield|await|false|true|null)\s*[,}]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|(?:^|[;\r\n{])[ \t]*await[ \t]*[:=;]|(?:^|[\r\n])[ \t]*var[ \t]+await\b|@\(\s*await\s*\)|(?:\bvoid|\breturn)[ \t]+await[ \t]*[;,}]|\bawait[ \t]*=>|\bnew[ \t]+await\b|\basync\b[^;\n]*=[ \t]*(?:\([ \t]*await[ \t]*\)[ \t]*=>|await[ \t]*[),])|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
 
 function hasInvalidRegexLiteral(text) {
   if (!text.includes('/')) return false;
@@ -423,9 +423,12 @@ function hasDuplicateTopLevelLexical(text) {
 }
 
 function validJavaScriptTsModule(addon, source, text, file, format, directive = false, sourceMap = false) {
+  const noComments = (text.includes('/*') || text.includes('//'))
+    ? text.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*/g, (m, str) => str || ' ')
+    : text;
   if (hasEscapedKeyword(text, false) ||
-      /\bnew(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*)*import\b|\bimport(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*)*(?:\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*)*source|source\b|defer\b(?![ \t]*(?:\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/[ \t]*)*\*))|\?\.[^\n;]*#/.test(text) ||
-      require('./compiler-ts-lower.cjs').hasForBracketIn(text)) {
+      /\bnew\s+import\b|\bimport\s+(?:source\b|defer\b(?![ \t]*\*))|\?\.[^\n;]*#/.test(noComments) ||
+      require('./compiler-ts-lower.cjs').hasForBracketIn(noComments)) {
     return null;
   }
   const validators = javascriptValidators();
@@ -436,7 +439,8 @@ function validJavaScriptTsModule(addon, source, text, file, format, directive = 
     code = text;
   } else if (genericCallSafe && !sourceMap && format === 'preserve' && !/\b(?:import|export)\b/.test(text) && validators.validScript(text)) {
     code = strictScript(text, file, directive);
-  } else if (!sourceMap && format === 'preserve' && !directive && /\b(?:import|export)\b/.test(text) && !tsRejectsInStripIdentity.test(text)) {
+  } else if (!sourceMap && format === 'preserve' && !directive && /\b(?:import|export)\b/.test(text) &&
+      !text.includes('<!--') && !text.includes('-->') && !tsRejectsInStripIdentity.test(noComments)) {
     // 1. Sloppy-mode pure-JS body with trailing `export {};` (common in Test262 module harnesses):
     //    V8's script parser validates the body when it has no octal/await/HTML-comment module hazards.
     const trail = /^([\s\S]*)\nexport \{\};\n?$/.exec(text);
