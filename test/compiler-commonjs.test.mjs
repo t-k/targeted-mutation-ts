@@ -527,4 +527,7 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   assert.equal(multiDecl.backend, 'pulse');
   const multiDeclDeclined = sameAsTypeScript('export let a = 1, b;\n');
   assert.equal(multiDeclDeclined.backend, 'typescript');
+  // Review round 40: trailing empty destructuring in multi-declarator declines cleanly.
+  const multiEmptyDestr = sameAsTypeScript('export const a = 1, b = 2, {} = JSON.parse("null");\n');
+  assert.equal(multiEmptyDestr.backend, 'typescript');
 });

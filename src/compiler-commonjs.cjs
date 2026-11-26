@@ -515,7 +515,16 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
             if (eq1 !== '=' || eq2 === '=' || eq2 === '>') return null;
             const initEnd = i + 1 < names.length ? skipTriviaBack(text, names[i + 1].first, true) - 1 : end;
             if (initEnd <= eqAt + 1) return null;
-            if (valueShape(addon, text.slice(eqAt + 1, initEnd)) !== 'other') return null;
+            const initText = text.slice(eqAt + 1, initEnd);
+            if (valueShape(addon, initText) !== 'other') return null;
+            // Verify each initializer is a single AssignmentExpression (rejecting trailing empty destructuring `, {} = ...`).
+            let trimEnd = skipTriviaBack(initText, initText.length, true);
+            if (trimEnd > 0 && initText[trimEnd - 1] === ';') trimEnd--;
+            const checkRecs = trimEnd > 0 ? addon.moduleRecords(Buffer.from(`export default ${initText.slice(0, trimEnd)}\n;`)) : null;
+            if (checkRecs === null) return null;
+            let checkStmts = 0;
+            for (let j = 0; j < checkRecs.length; j += 5) checkStmts += checkRecs[j] === 72;
+            if (checkStmts !== 1) return null;
             declEdits.push([i === 0 ? first : entry.first, entry.last, `exports.${entry.name}`]);
           }
           for (const edit of declEdits) edits.push(edit);

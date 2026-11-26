@@ -707,10 +707,14 @@ const newerForms = [
 // Lowers ES2021 numeric separators (`1_000`, `0xff_ff`, `0b10_10`, `1_000.5_5e1_0`, `1_000n`) in compiled JS
 // for targets below ES2021 while skipping strings, comments, template text, and regular expressions.
 function lowerNumericSeparators(code, year) {
-  const regexAfter = new Set(['', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~', '<', '>', '+', '-', '*', '%', '/', '=>', ')ctrl',
-    'return', 'throw', 'case', 'yield', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do']);
+  const regexAfter = new Set(['', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~', '<', '>', '+', '-', '*', '%', '/', '=>', ')ctrl', '...',
+    'return', 'throw', 'case', 'default', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do']);
+  const numLit = /0[xX][0-9a-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?|\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?[\d_]+)?n?|\.\d[\d_]*(?:[eE][+-]?[\d_]+)?/y;
   const braces = [], parens = [];
   let prev = '', at = 0, out = '', last = 0;
+  if (code.startsWith('#!')) {
+    while (at < code.length && code[at] !== '\n' && code[at] !== '\r') at++;
+  }
   const skipTpl = pos => {
     while (pos < code.length) {
       const c = code[pos];
@@ -725,8 +729,8 @@ function lowerNumericSeparators(code, year) {
     const c = code[at];
     if (c === ' ' || c === '\t' || c === '\n' || c === '\r') { at++; continue; }
     if (c === '/' && code[at + 1] === '/') {
-      const end = code.indexOf('\n', at + 2);
-      at = end < 0 ? code.length : end + 1;
+      at += 2;
+      while (at < code.length && code[at] !== '\n' && code[at] !== '\r') at++;
       continue;
     }
     if (c === '/' && code[at + 1] === '*') {
@@ -769,19 +773,20 @@ function lowerNumericSeparators(code, year) {
     }
     if (c === ')') { prev = parens.pop() ? ')ctrl' : ')'; at++; continue; }
     if (c === '/') {
-      if (prev === '}' || prev === '++' || prev === '--' || prev === 'of' || prev === 'debugger' || prev === 'break' || prev === 'continue') return null;
+      if (prev === '}' || prev === '++' || prev === '--' || prev === 'of' || prev === 'debugger' || prev === 'break' || prev === 'continue' || prev === 'await' || prev === 'yield') return null;
       if (regexAfter.has(prev)) {
         at++;
-        let inClass = false;
+        let inClass = false, closed = false;
         while (at < code.length) {
           const rc = code[at];
           if (rc === '\\') { at += 2; continue; }
           if (rc === '\n' || rc === '\r') return null;
           if (inClass) { if (rc === ']') inClass = false; }
           else if (rc === '[') inClass = true;
-          else if (rc === '/') { at++; break; }
+          else if (rc === '/') { at++; closed = true; break; }
           at++;
         }
+        if (!closed) return null;
         while (at < code.length && /[a-z]/i.test(code[at])) at++;
         prev = 'lit';
         continue;
@@ -804,22 +809,16 @@ function lowerNumericSeparators(code, year) {
       continue;
     }
     if ((ch >= 48 && ch <= 57) || (c === '.' && code.charCodeAt(at + 1) >= 48 && code.charCodeAt(at + 1) <= 57)) {
-      const start = at;
-      const radix = c === '0' && (code[at + 1] === 'x' || code[at + 1] === 'X' || code[at + 1] === 'b' || code[at + 1] === 'B' || code[at + 1] === 'o' || code[at + 1] === 'O');
-      at += radix ? 2 : 1;
-      while (at < code.length) {
-        const u = code.charCodeAt(at);
-        if ((u >= 48 && u <= 57) || (u >= 65 && u <= 90) || (u >= 97 && u <= 122) || u === 95 || u === 46) {
-          if (!radix && (u === 69 || u === 101) && (code[at + 1] === '+' || code[at + 1] === '-')) at += 2;
-          else at++;
-        } else break;
-      }
-      const lit = code.slice(start, at);
+      numLit.lastIndex = at;
+      const m = numLit.exec(code);
+      if (m === null) return null;
+      const lit = m[0];
       if (lit.endsWith('n') && year < 2020) return null;
       if (lit.includes('_')) {
-        out += code.slice(last, start) + lit.replace(/_/g, '');
-        last = at;
+        out += code.slice(last, at) + lit.replace(/_/g, '');
+        last = numLit.lastIndex;
       }
+      at = numLit.lastIndex;
       prev = 'lit';
       continue;
     }
