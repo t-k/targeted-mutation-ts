@@ -409,8 +409,8 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
           }
           const follower = text[next] || '';
           const fc = follower.charCodeAt(0);
-          const followerIsMemberOrDecl = (fc >= 65 && fc <= 90) || (fc >= 97 && fc <= 122) || fc === 95 || fc === 36 || fc >= 128 ||
-            follower === '[' || follower === '*' || follower === '#' || follower === '"' || follower === "'" ||
+          const followerIsMemberOrDecl = (fc >= 65 && fc <= 90) || (fc >= 97 && fc <= 122) || (fc >= 48 && fc <= 57) || fc === 95 || fc === 36 || fc >= 128 ||
+            follower === '[' || follower === '*' || follower === '#' || follower === '"' || follower === "'" || follower === '\\' ||
             (decoded === 'async' && follower === '(') || (decoded === 'let' && follower === '{' && prev !== 'class');
           const isForAsyncOf = decoded === 'async' && prev === '(' && /^of\b/.test(text.slice(next, next + 4));
           const isAsiModifierField = sawNewline && (decoded === 'accessor' || decoded === 'async' || ((decoded === 'get' || decoded === 'set') && follower === '*'));
@@ -1635,7 +1635,8 @@ function compile(input, options = {}) {
                       ? { backend: 'pulse', code: lowered.code, sourceMap: null, diagnostics: [] }
                       : eraseLoweredModule(addon, lowered, file, format, directive);
                     if (result && result.code !== null) {
-                      if (cjsPre.hasCjsModule && result.code.startsWith('"use strict";\n') && !/^\s*["']use strict["']/.test(text)) {
+                      const hadModBeforeAmb = ambPre !== cjsPre.code && tsLower.hasTopLevelModuleSyntax(cjsPre.code);
+                      if ((cjsPre.hasCjsModule || hadModBeforeAmb) && result.code.startsWith('"use strict";\n') && !/^\s*["']use strict["']/.test(text)) {
                         result = { ...result, code: result.code.slice('"use strict";\n'.length) };
                       }
                       return result;
@@ -1655,10 +1656,15 @@ function compile(input, options = {}) {
                       if (nsPost !== null) jsxLowered = nsPost.code;
                     }
                     if (!hasEscapedKeyword(jsxLowered, false) && !hasTsRejectsInNodeStrip(jsxLowered)) {
+                      const hadModBeforeAmb = ambPre !== cjsPre.code && tsLower.hasTopLevelModuleSyntax(cjsPre.code);
                       const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(jsxLowered);
+                      if (hadModBeforeAmb && !isMod) {
+                        const stripped = strip(jsxLowered, file);
+                        if (stripped.code !== null) return stripped;
+                      }
                       const jsRes = isMod
                         ? eraseModule(addon, jsxLowered, file, format, false)
-                        : eraseScript(addon, jsxLowered, Buffer.from(jsxLowered), file, directive, true);
+                        : (!hadModBeforeAmb ? eraseScript(addon, jsxLowered, Buffer.from(jsxLowered), file, directive, true) : null);
                       if (jsRes && jsRes.code !== null && jsRes.backend !== 'node-transform') return jsRes;
                       const probe = strip(jsxLowered, file);
                       const msg = probe.diagnostics[0]?.message ?? '';
@@ -1666,6 +1672,9 @@ function compile(input, options = {}) {
                         const relaxed = tsLower.stripWithSwcRelaxations(jsxLowered, msg);
                         if (relaxed !== null) {
                           const workBuf = Buffer.from(relaxed);
+                          if (hadModBeforeAmb && !isMod) {
+                            return { backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] };
+                          }
                           if (isMod) {
                             if (hasModuleMarker(addon, relaxed, workBuf) || tsLower.hasTopLevelModuleSyntax(relaxed)) {
                               const verified = verifyRuntimeExports({ backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] }, file, addon, workBuf);
@@ -1730,13 +1739,18 @@ function compile(input, options = {}) {
                     if (ppPre !== null) {
                       let work = ppPre.code;
                       let changed = decPre.changed || cjsPre.changed || ambPre !== cjsPre.code || nsPre.changed || ppPre.changed;
+                      const hadModBeforeAmb = ambPre !== cjsPre.code && tsLower.hasTopLevelModuleSyntax(cjsPre.code);
                       if (changed) {
                         const workBuf = Buffer.from(work);
                         const workDir = directive || (ambPre !== cjsPre.code && loadDirectAddon()?.leadingTripleSlash(workBuf) === 1);
                         const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
+                        if (hadModBeforeAmb && !isMod) {
+                          const stripped = strip(work, file);
+                          if (stripped.code !== null) return stripped;
+                        }
                         const loweredRes = isMod
                           ? eraseModule(addon, work, file, format, property)
-                          : eraseScript(addon, work, workBuf, file, workDir, true);
+                          : (!hadModBeforeAmb ? eraseScript(addon, work, workBuf, file, workDir, true) : null);
                         if (loweredRes) return loweredRes;
                         if (cjsPre.hasCjsModule && !tsLower.hasTopLevelModuleSyntax(work)) {
                           const stripped = strip(work, file);
@@ -1752,14 +1766,17 @@ function compile(input, options = {}) {
                           const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(ang);
                           const angRes = isMod
                             ? eraseModule(addon, ang, file, format, property)
-                            : eraseScript(addon, ang, angBuf, file, directive);
-                          if (angRes) return angRes;
+                            : (hadModBeforeAmb ? strip(ang, file) : eraseScript(addon, ang, angBuf, file, directive));
+                          if (angRes && angRes.code !== null) return angRes;
                         }
                       } else if (msg) {
                         const relaxed = tsLower.stripWithSwcRelaxations(work, msg);
                         if (relaxed !== null) {
                           const workBuf = Buffer.from(relaxed);
                           const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
+                          if (hadModBeforeAmb && !isMod) {
+                            return { backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] };
+                          }
                           if (isMod) {
                             if (!/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(work) && (hasModuleMarker(addon, relaxed, workBuf) || tsLower.hasTopLevelModuleSyntax(relaxed))) {
                               const verified = verifyRuntimeExports({ backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] }, file, addon, workBuf);
@@ -1806,10 +1823,15 @@ function compile(input, options = {}) {
                   const ppPre = tsLower.lowerParameterProperties(nsPre.code);
                   if (ppPre !== null && (cjsPre.changed || ambPre !== text || nsPre.changed || ppPre.changed)) {
                     const work = ppPre.code;
+                    const hadModBeforeAmb = ambPre !== cjsPre.code && tsLower.hasTopLevelModuleSyntax(cjsPre.code);
                     const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
+                    if (hadModBeforeAmb && !isMod) {
+                      const stripped = strip(work, file);
+                      if (stripped.code !== null) return stripped;
+                    }
                     const loweredRes = isMod
                       ? eraseModule(addon, work, file, format, false)
-                      : eraseScript(addon, work, Buffer.from(work), file, true, true);
+                      : (!hadModBeforeAmb ? eraseScript(addon, work, Buffer.from(work), file, true, true) : null);
                     if (loweredRes) return loweredRes;
                     if (cjsPre.hasCjsModule && !tsLower.hasTopLevelModuleSyntax(work)) {
                       const stripped = strip(work, file);

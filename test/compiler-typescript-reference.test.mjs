@@ -3496,8 +3496,34 @@ test('F178 official spec suite push: Test262 99.88%, TS compiler/conformance 98.
     ['f178-bad-esc-get-asi.ts', 'class C { \\u0067\\u0065\\u0074\na = 1; }\nexport {};\n'],
     ['f178-bad-ctor-field.ts', 'class C { constructor; }\n'],
     ['f178-bad-await-using-arr.ts', '{ await using [a] = null; }\nexport {};\n'],
+    // Review Round 55 negative syntax rejections:
+    ['r55-bad-mapped.ts', 'type T = { a: 1; [K in +]: V };\n'],
+    ['r55-bad-mapped.tsx', 'export const x = <div/>;\ntype T = { a: 1; [K in +]: V };\n'],
+    ['r55-bad-index-init.ts', 'class C { [x: string = +]: number }\n'],
+    ['r55-bad-import-type-obj.ts', 'let x: import({x: +});\n'],
+    ['r55-bad-esc-get-num.ts', 'class C { \\u0067et 1() {} }\n'],
+    ['r55-bad-esc-static-esc.ts', 'class C { \\u0073tatic \\u006d() {} }\n'],
   ]) {
+    const tm = ts.transpileModule(source, {
+      fileName: file,
+      reportDiagnostics: true,
+      compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true, jsx: ts.JsxEmit.ReactJSX },
+    });
+    assert.ok((tm.diagnostics || []).some(d => d.category === ts.DiagnosticCategory.Error), `TS must reject: ${file}`);
     const r = compile(Buffer.from(source), { file });
     assert.equal(r.code, null, `must reject invalid TS: ${file}`);
+  }
+  // Review Round 55 AST/module-mode equivalence regressions:
+  for (const [file, source] of [
+    ['r55-import-type-and-dyn.ts', 'type T = import(Foo); const p = import(Foo);\n'],
+    ['r55-new-meta-and-target.ts', 'function f(){new.foo;new.target;}\n'],
+    ['r55-new-meta-and-str.ts', 'function f(){new.foo;} const s="new.target";\n'],
+    ['r55-only-ambient-export.ts', 'export declare namespace N { export var static: any; }\nconst x = 1;\n'],
+    ['r55-only-ambient-export.tsx', 'export declare namespace N { export var static: any; }\nconst x = 1;\n'],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    if (file.startsWith('r55-only-ambient-export')) {
+      assert.ok(!r.code.includes('"use strict"'), `must not emit "use strict" in module ${file}`);
+    }
   }
 });

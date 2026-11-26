@@ -3120,20 +3120,43 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
   }
 
   // `Unexpected token 'ident'. Expected target` (`new.targ`)
-  if (errMsg.includes('Expected target') && !source.includes('__tmt_nt__')) {
-    const m = /\bnew[ \t]*\.[ \t]*([A-Za-z_$][\w$]*)/.exec(source);
-    if (m && m[1] !== 'target') {
-      const work = source.replace(/\bnew([ \t]*\.[ \t]*)([A-Za-z_$][\w$]*)/g, 'new$1target');
-      const stripped = tryStrip(work);
-      if (stripped !== null) return stripped.replace(/\bnew([ \t]*\.[ \t]*)target/g, `new$1${m[1]}`);
+  if (errMsg.includes('Expected target') && !source.includes('__tmt_nt_')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const saved = [];
+      for (let i = 0; i < toks.length - 2; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'new' && toks[i - 1]?.text !== '.' &&
+            toks[i + 1].type === 'punc' && toks[i + 1].text === '.' &&
+            toks[i + 2].type === 'id' && toks[i + 2].text !== 'target') {
+          const ph = `/*__tmt_nt_${saved.length}__*/target`;
+          saved.push([ph, toks[i + 2].text]);
+          edits.push({ start: toks[i + 2].start, end: toks[i + 2].end, text: ph });
+          i += 2;
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        let stripped = tryStrip(work);
+        if (stripped !== null) {
+          for (const [ph, orig] of saved) stripped = stripped.replace(ph, () => orig);
+          return stripped;
+        }
+      }
     }
   }
 
   // `Expected ']', got 'ident'` / `Expected ']', got '='` in index signature (`[public x: string]: any`, `[a: string = ""]: number`)
   if (errMsg.includes("Expected ']', got 'ident'") || errMsg.includes("Expected ']', got '='")) {
     let work = source.replace(/(\[[ \t]*)(?:public|private|protected|static)([ \t]+[A-Za-z_$][\w$]*[ \t]*:)/g, '$1$2');
-    work = work.replace(/(\[[ \t]*[A-Za-z_$][\w$]*[ \t]*:[ \t]*[A-Za-z_$][\w$]*)[ \t]*=[^\]\n]+(?=\])/g, '$1');
-    if (work !== source) {
+    let invalidInit = false;
+    work = work.replace(/(\[[ \t]*[A-Za-z_$][\w$]*[ \t]*:[ \t]*[A-Za-z_$][\w$]*)[ \t]*=([^\]\n]+)(?=\])/g, (m, head, init) => {
+      try { stripTypeScriptTypes(`(${init});`); return head; }
+      catch { invalidInit = true; return m; }
+    });
+    if (!invalidInit && work !== source) {
       const stripped = tryStrip(work);
       if (stripped !== null) return stripped;
     }
@@ -3168,18 +3191,26 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
   }
 
   // `Expected ')', got 'ident'` (`import({x: 12})` in type position)
-  if (errMsg.includes("Expected ')', got 'ident'") && /:[ \t]*import[ \t]*\(/.test(source)) {
-    const work = source.replace(/(:[ \t]*import[ \t]*\()\{[^}]*\}(\))/g, '$1"__tmt__"$2');
-    if (work !== source) {
+  if (errMsg.includes("Expected ')', got 'ident'") && /:[ \t]*import[ \t]*\(/.test(source) && !source.includes('__tmt_it__')) {
+    let invalidObj = false;
+    const work = source.replace(/(:[ \t]*import[ \t]*\()(\{[^}]*\})(\))/g, (m, pre, obj, post) => {
+      try { stripTypeScriptTypes(`type __tmt_it__ = ${obj};`); return `${pre}"__tmt_it__"${post}`; }
+      catch { invalidObj = true; return m; }
+    });
+    if (!invalidObj && work !== source) {
       const stripped = tryStrip(work);
-      if (stripped !== null) return stripped;
+      if (stripped !== null && !stripped.includes('"__tmt_it__"')) return stripped;
     }
   }
 
   // `Expected ']', got 'in'` (mixed properties + mapped type in `type T = { a: 1; [K in U]: V }`)
   if (errMsg.includes("Expected ']', got 'in'") && /\btype\b/.test(source)) {
-    const work = source.replace(/\[[ \t]*[A-Za-z_$][\w$]*[ \t]+in[ \t]+[^\]\n]+\][ \t]*:/g, '[__k: string]:');
-    if (work !== source) {
+    let invalidRhs = false;
+    const work = source.replace(/\[[ \t]*[A-Za-z_$][\w$]*[ \t]+in[ \t]+([^\]\n]+)\][ \t]*:/g, (m, rhs) => {
+      try { stripTypeScriptTypes(`type __tmt_mt__ = ${rhs};`); return '[__k: string]:'; }
+      catch { invalidRhs = true; return m; }
+    });
+    if (!invalidRhs && work !== source) {
       const stripped = tryStrip(work);
       if (stripped !== null) return stripped;
     }
@@ -3240,12 +3271,28 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     }
   }
 
-  // `literal in an import type should be string literal` (`import(T)`)
-  if (errMsg.includes('literal in an import type should be string literal')) {
-    const work = source.replace(/\bimport[ \t]*\([ \t]*[A-Za-z_$][\w$.]*[ \t]*\)/g, 'import("__tmt__")');
-    if (work !== source) {
-      const stripped = tryStrip(work);
-      if (stripped !== null) return stripped;
+  // `literal in an import type should be string literal` (`import(T)` in type position only)
+  if (errMsg.includes('literal in an import type should be string literal') && !source.includes('__tmt_it__')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 1; i < toks.length - 3; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'import' && toks[i + 1].text === '(' &&
+            toks[i + 2].type === 'id' && toks[i + 3].text === ')') {
+          const prev = toks[i - 1].text;
+          const isTypeEq = prev === '=' && i >= 3 && (toks[i - 3]?.text === 'type' || toks[i - 2]?.text === '>');
+          if (prev === ':' || prev === '<' || prev === '|' || prev === '&' || prev === 'extends' || isTypeEq) {
+            edits.push({ start: toks[i + 2].start, end: toks[i + 2].end, text: '"__tmt_it__"' });
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && !stripped.includes('"__tmt_it__"')) return stripped;
+      }
     }
   }
 
