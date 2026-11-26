@@ -242,9 +242,10 @@ const escapedKeywords = new Set([
   'await', 'break', 'case', 'catch', 'class', 'const', 'continue', 'debugger', 'default', 'delete', 'do', 'else',
   'enum', 'export', 'extends', 'false', 'finally', 'for', 'function', 'if', 'import', 'in', 'instanceof', 'new',
   'null', 'return', 'super', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'var', 'void', 'while', 'with',
-  'yield', 'let', 'static', 'private', 'async',
-  'get', 'set', 'from', 'of', 'as', 'accessor', 'using', 'abstract', 'declare', 'override', 'readonly', 'satisfies',
+  'yield', 'from', 'of', 'as', 'using', 'abstract', 'declare', 'override', 'readonly', 'satisfies',
 ]);
+
+const contextualModifierEscapes = new Set(['static', 'async', 'get', 'set', 'let', 'private', 'accessor']);
 
 const regexKeywords = new Set(['return', 'throw', 'case', 'default', 'yield', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do']);
 
@@ -380,7 +381,40 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
           const isProp = prev === '.' ||
             (follower === ':' && (prev === ',' || (prev === '{' && decoded !== 'await' && decoded !== 'yield'))) ||
             (follower === '(' && (prev === '{' || prev === ',' || prev === ';' || prev === '}' || prev === 'static' || prev === 'get' || prev === 'set' || prev === 'async' || prev === '*'));
-          if (!isProp) return true;
+          const isEscapedBinding = (decoded === 'await' || decoded === 'yield') &&
+            (prev === 'var' || prev === 'let' || prev === 'const' || prev === 'class' || prev === 'function') &&
+            (follower === ';' || follower === ',' || follower === '=' || follower === '{' || follower === ')' || follower === '}' || !follower);
+          if (!isProp && !isEscapedBinding) return true;
+        } else if (contextualModifierEscapes.has(decoded)) {
+          let next = at;
+          let sawNewline = false;
+          while (next < text.length) {
+            const nc = text[next];
+            if (nc === ' ' || nc === '\t') { next++; continue; }
+            if (nc === '\n' || nc === '\r') { sawNewline = true; next++; continue; }
+            if (nc === '/' && text[next + 1] === '/') {
+              const nl = text.indexOf('\n', next + 2);
+              sawNewline = true;
+              next = nl < 0 ? text.length : nl + 1;
+              continue;
+            }
+            if (nc === '/' && text[next + 1] === '*') {
+              const end = text.indexOf('*/', next + 2);
+              if (end < 0) return true;
+              if (text.slice(next + 2, end).includes('\n') || text.slice(next + 2, end).includes('\r')) sawNewline = true;
+              next = end + 2;
+              continue;
+            }
+            break;
+          }
+          const follower = text[next] || '';
+          const fc = follower.charCodeAt(0);
+          const followerIsMemberOrDecl = (fc >= 65 && fc <= 90) || (fc >= 97 && fc <= 122) || fc === 95 || fc === 36 || fc >= 128 ||
+            follower === '[' || follower === '*' || follower === '#' || follower === '"' || follower === "'" ||
+            (decoded === 'async' && follower === '(') || (decoded === 'let' && follower === '{' && prev !== 'class');
+          const isForAsyncOf = decoded === 'async' && prev === '(' && /^of\b/.test(text.slice(next, next + 4));
+          const isAsiModifierField = sawNewline && (decoded === 'accessor' || decoded === 'async' || ((decoded === 'get' || decoded === 'set') && follower === '*'));
+          if (followerIsMemberOrDecl && prev !== '.' && !isForAsyncOf && !isAsiModifierField) return true;
         }
         prev = 'id';
       } else {
@@ -398,7 +432,26 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
 // A .ts/.mts file that contains no TypeScript syntax and passes V8's parser (or Node's strict-identity
 // strip check with TS 6.0.3 compatibility guards) can be published natively when it avoids the few
 // ES2025/Unicode/legacy forms that V8/SWC accept and TypeScript 6.0.3 rejects.
-const tsRejectsInStripIdentity = /\\[1-9]|\\0[0-9]|\b0\d*_|0[bBoOxX]_|\._|\bfor\s*\([^;()]*;[^;()]*\)|\bfor[ \t]*\([ \t]*let[ \t]*;|\{\s*(?:while|for|if|return|class|function|var|const|default|extends|this|yield|await|false|true|null)\s*[,}]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|(?:^|[;\r\n{])[ \t]*await[ \t]*[:=;]|(?:^|[\r\n])[ \t]*var[ \t]+await\b|@\(\s*await\s*\)|(?:\bvoid|\breturn)[ \t]+await[ \t]*[;,}]|\bawait[ \t]*=>|\bnew[ \t]+await\b|\basync\b[^;\n]*=[ \t]*(?:\([ \t]*await[ \t]*\)[ \t]*=>|await[ \t]*[),])|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
+const tsRejectsInStripIdentity = /\b0\d*_|0[bBoOxX]_|\._|\bfor\s*\([^;()]*;[^;()]*\)|\bfor[ \t]*\([ \t]*let[ \t]*;|\{\s*(?:while|for|if|return|class|function|var|const|default|extends|this|yield|await|false|true|null)\s*[,}]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|(?:^|[;\r\n{])[ \t]*await[ \t]*[:=;]|(?:^|[\r\n])[ \t]*var[ \t]+await\b|@\(\s*await\s*\)|\bvoid[ \t]+await[ \t]*[;,}]|\bawait[ \t]*=>|\bnew[ \t]+await\b|\basync\b[^;\n]*=[ \t]*(?:\([ \t]*await[ \t]*\)[ \t]*=>|await[ \t]*[),])|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
+
+function hasOctalStringEscape(text) {
+  if (!text.includes('\\')) return false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '"' || c === "'" || c === '`') {
+      const q = c;
+      i++;
+      while (i < text.length && text[i] !== q) {
+        if (text[i] === '\\') {
+          const n = text[i + 1];
+          if ((n >= '1' && n <= '9') || (n === '0' && text[i + 2] >= '0' && text[i + 2] <= '9')) return true;
+          i += 2;
+        } else i++;
+      }
+    }
+  }
+  return false;
+}
 
 function hasInvalidRegexLiteral(text) {
   if (!text.includes('/')) return false;
@@ -426,8 +479,11 @@ function validJavaScriptTsModule(addon, source, text, file, format, directive = 
   const noComments = (text.includes('/*') || text.includes('//'))
     ? text.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*/g, (m, str) => str || ' ')
     : text;
+  const noCommentsOrStrings = (noComments.includes('"') || noComments.includes("'"))
+    ? noComments.replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '""')
+    : noComments;
   if (hasEscapedKeyword(text, false) ||
-      /\bnew\s+import\b|\bimport\s+(?:source\b|defer\b(?![ \t]*\*))|\?\.[^\n;]*#/.test(noComments) ||
+      /\bnew\s+import\b|\bimport\s+(?:source\b|defer\b(?![ \t]*\*))|\?\.[^\n;]*#/.test(noCommentsOrStrings) ||
       require('./compiler-ts-lower.cjs').hasForBracketIn(noComments)) {
     return null;
   }
@@ -440,14 +496,14 @@ function validJavaScriptTsModule(addon, source, text, file, format, directive = 
   } else if (genericCallSafe && !sourceMap && format === 'preserve' && !/\b(?:import|export)\b/.test(text) && validators.validScript(text)) {
     code = strictScript(text, file, directive);
   } else if (!sourceMap && format === 'preserve' && !directive && /\b(?:import|export)\b/.test(text) &&
-      !text.includes('<!--') && !text.includes('-->') && !tsRejectsInStripIdentity.test(noComments) &&
-      !(/\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(noComments) && !/\bfunction\b/.test(noComments))) {
+      !text.includes('<!--') && !text.includes('-->') && !hasOctalStringEscape(noComments) && !tsRejectsInStripIdentity.test(noComments) &&
+      !(/\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(noComments) && !/\bfunction\b|\basync[ \t]*\([ \t]*await[ \t]*\)[ \t]*=>/.test(noComments))) {
     // 1. Sloppy-mode pure-JS body with trailing `export {};` (common in Test262 module harnesses):
     //    V8's script parser validates the body when it has no octal/await/HTML-comment module hazards.
     const trail = /^([\s\S]*)\nexport \{\};\n?$/.exec(text);
     if (genericCallSafe && trail !== null && !/\b(?:import|export|await)\b|\b0[0-9]|\\[1-7]|\\0[0-9]/.test(trail[1]) && validators.validScript(trail[1])) {
       code = text;
-    } else if (!/[\u200c\u200d\u2028\u2029]/.test(text) && !hasDuplicateTopLevelLexical(text) &&
+    } else if (!/[\u2028\u2029]/.test(text) && !hasDuplicateTopLevelLexical(text) &&
         !(/[^\x00-\x7f]/.test(text) && /\bexport\s*\{\s*[^}\s]/.test(text)) &&
         !/\bconstructor\s*\([^)]*\b(?:public|private|protected|readonly)\b/.test(text) &&
         (text.includes('export {};') || text.includes('---*/') || !hasInvalidRegexLiteral(text))) {
@@ -647,7 +703,7 @@ const tsRejectsInNodeStrip = /\\u003[0-9]|\\u\{0*3[0-9]\}|\?\.[^\n;]*#|\bstatic(
 
 function hasTsRejectsInNodeStrip(source) {
   if (tsRejectsInNodeStrip.test(source) || require('./compiler-ts-lower.cjs').hasForBracketIn(source)) return true;
-  if (/\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(source) && !/\bfunction\b/.test(source)) return true;
+  if (/\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(source) && !/\bfunction\b/.test(source) && !/\basync[ \t]*\([ \t]*await[ \t]*\)[ \t]*(?::[^\n]*?)?=>/.test(source)) return true;
   // TypeScript rejects multiple `/// <amd-module` directives in one file.
   if (source.includes('<amd-module')) {
     const m = source.match(/\/\/\/[ \t\f\v]*<amd-module\b/gi);
@@ -1599,8 +1655,28 @@ function compile(input, options = {}) {
                       if (nsPost !== null) jsxLowered = nsPost.code;
                     }
                     if (!hasEscapedKeyword(jsxLowered, false) && !hasTsRejectsInNodeStrip(jsxLowered)) {
-                      const jsRes = eraseModule(addon, jsxLowered, file, format, false);
+                      const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(jsxLowered);
+                      const jsRes = isMod
+                        ? eraseModule(addon, jsxLowered, file, format, false)
+                        : eraseScript(addon, jsxLowered, Buffer.from(jsxLowered), file, directive, true);
                       if (jsRes && jsRes.code !== null && jsRes.backend !== 'node-transform') return jsRes;
+                      const probe = strip(jsxLowered, file);
+                      const msg = probe.diagnostics[0]?.message ?? '';
+                      if (msg) {
+                        const relaxed = tsLower.stripWithSwcRelaxations(jsxLowered, msg);
+                        if (relaxed !== null) {
+                          const workBuf = Buffer.from(relaxed);
+                          if (isMod) {
+                            if (hasModuleMarker(addon, relaxed, workBuf) || tsLower.hasTopLevelModuleSyntax(relaxed)) {
+                              const verified = verifyRuntimeExports({ backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] }, file, addon, workBuf);
+                              if (verified.code !== null) return verified;
+                            }
+                          } else {
+                            const code = sloppyStrictScript(relaxed, file, directive);
+                            if (code !== null) return { backend: 'node-strip', code, sourceMap: null, diagnostics: [] };
+                          }
+                        }
+                      }
                     }
                   }
                 }
@@ -1717,7 +1793,7 @@ function compile(input, options = {}) {
         if ((format === 'preserve' || !/\/\/\/[ \t\f\v]*<amd-module\b/i.test(text)) &&
             !/\/\/\/[ \t\f\v]*<reference\b(?![ \t]+(?:path|types|lib|no-default-lib)[ \t]*=(?:"[^"\r\n]*"|'[^'\r\n]*')(?:[ \t]+[a-z-]+[ \t]*=(?:"[^"\r\n]*"|'[^'\r\n]*'))*[ \t]*\/>)/.test(text)) {
           let result = /\b(?:import|export)\b/.test(text) ? eraseModule(addon, text, file, format, false) : null;
-          if (!result && format === 'preserve') result = eraseScript(addon, text, source, file, true);
+          if (!result && format === 'preserve') result = eraseScript(addon, text, source, file, true, true);
           if (result) return result;
           if (format === 'preserve' && !hasEscapedKeyword(text, false) && /\b(?:namespace|module|enum|require|export|constructor)\b/.test(text)) {
             const tsLower = require('./compiler-ts-lower.cjs');
@@ -1726,16 +1802,19 @@ function compile(input, options = {}) {
               const ambPre = tsLower.eraseValidatedAmbientBlocks(cjsPre.code);
               if (ambPre !== null) {
                 const nsPre = tsLower.lowerNamespacesAndEnums(ambPre);
-                if (nsPre !== null && (cjsPre.changed || ambPre !== text || nsPre.changed)) {
-                  const work = nsPre.code;
-                  const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
-                  const loweredRes = isMod
-                    ? eraseModule(addon, work, file, format, false)
-                    : eraseScript(addon, work, Buffer.from(work), file, true, true);
-                  if (loweredRes) return loweredRes;
-                  if (cjsPre.hasCjsModule && !tsLower.hasTopLevelModuleSyntax(work)) {
-                    const stripped = strip(work, file);
-                    if (stripped.code !== null) return stripped;
+                if (nsPre !== null) {
+                  const ppPre = tsLower.lowerParameterProperties(nsPre.code);
+                  if (ppPre !== null && (cjsPre.changed || ambPre !== text || nsPre.changed || ppPre.changed)) {
+                    const work = ppPre.code;
+                    const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
+                    const loweredRes = isMod
+                      ? eraseModule(addon, work, file, format, false)
+                      : eraseScript(addon, work, Buffer.from(work), file, true, true);
+                    if (loweredRes) return loweredRes;
+                    if (cjsPre.hasCjsModule && !tsLower.hasTopLevelModuleSyntax(work)) {
+                      const stripped = strip(work, file);
+                      if (stripped.code !== null) return stripped;
+                    }
                   }
                 }
               }

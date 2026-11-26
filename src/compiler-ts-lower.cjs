@@ -385,8 +385,11 @@ function eraseValidatedAmbientBlocks(source, isJsx = false) {
         return null;
       }
     }
-    const blank = source.slice(t.start, tokens[closeIdx].end).replace(/[^\r\n]/g, ' ');
-    edits.push({ start: t.start, end: tokens[closeIdx].end, text: blank });
+    const eraseStart = (i > 0 && tokens[i - 1].type === 'id' && tokens[i - 1].text === 'export' &&
+      tokens[i - 2]?.text !== '.' && !hasNewlineBetween(source, tokens[i - 1].end, t.start))
+      ? tokens[i - 1].start : t.start;
+    const blank = source.slice(eraseStart, tokens[closeIdx].end).replace(/[^\r\n]/g, ' ');
+    edits.push({ start: eraseStart, end: tokens[closeIdx].end, text: blank });
     i = closeIdx;
   }
   if (edits.length === 0) return source;
@@ -1087,7 +1090,7 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         if (kw.text === 'default') {
           const afterDef = toks[idx + 1];
           if (afterDef && (afterDef.text === 'class' || afterDef.text === 'function') &&
-              (toks[idx + 2]?.text === '{' || toks[idx + 2]?.text === '(')) {
+              (toks[idx + 2]?.text === '{' || toks[idx + 2]?.text === '(' || toks[idx + 2]?.text === 'extends' || toks[idx + 2]?.text === '*')) {
             let k = idx + 2;
             while (k < toks.length && toks[k].text !== '{') k++;
             const close = k < toks.length ? findMatchingBrace(toks, k) : -1;
@@ -1398,7 +1401,7 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
 // to ESNext TypeScript output (`x;\nconstructor(x = 1) { this.x = x; ... }`).
 // Conservatively declines constructors containing `super(`, decorators, or `override` modifiers.
 function lowerParameterProperties(source) {
-  if (!/\bconstructor\s*\(/.test(source) || !/\b(?:public|private|protected|readonly)\b/.test(source)) {
+  if (!/\bconstructor\s*\(/.test(source) || !/\b(?:public|private|protected|readonly|override)\b/.test(source)) {
     return { code: source, changed: false };
   }
   const toks = tokenize(source);
@@ -1447,7 +1450,6 @@ function lowerParameterProperties(source) {
       let hasMod = false;
       while (j < p.length && p[j].type === 'id' &&
           (p[j].text === 'public' || p[j].text === 'private' || p[j].text === 'protected' || p[j].text === 'readonly' || p[j].text === 'override')) {
-        if (p[j].text === 'override') { abort = true; break; }
         hasMod = true;
         j++;
       }
@@ -1773,11 +1775,11 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     let work = '', pos = 0;
     for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
     work += source.slice(pos);
-    try {
-      let stripped = stripTypeScriptTypes(work);
+    let stripped = tryStrip(work);
+    if (stripped !== null) {
       for (const [ph, orig] of saved) stripped = stripped.replace(ph, () => orig);
       return stripped;
-    } catch { return null; }
+    }
   }
 
   if (errMsg.includes('A `set` accessor must have exactly one parameter')) {
@@ -1830,9 +1832,8 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     let work = '', pos = 0;
     for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
     work += source.slice(pos);
-    try {
-      const stripped = stripTypeScriptTypes(work);
-      if (stripped.length !== work.length) return null;
+    const stripped = tryStrip(work);
+    if (stripped !== null && stripped.length === work.length) {
       let out = '', p = 0;
       for (const off of offsets) {
         if (stripped.slice(off, off + 5) === 'let  ') {
@@ -1842,7 +1843,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
       }
       out += stripped.slice(p);
       return out;
-    } catch { return null; }
+    }
   }
 
   if (errMsg.includes('`await` cannot be used as an identifier') || errMsg.includes('Expected ident')) {
@@ -1970,10 +1971,8 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     let work = '', pos = 0;
     for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
     work += source.slice(pos);
-    try {
-      const stripped = stripTypeScriptTypes(work);
-      return stripped.replace(/\/\*__tmt_rp__\*\//g, '...');
-    } catch { return null; }
+    const stripped = tryStrip(work);
+    if (stripped !== null) return stripped.replace(/\/\*__tmt_rp__\*\//g, '...');
   }
 
   if (errMsg.includes('A parameter property is only allowed in a constructor')) {
@@ -1993,11 +1992,13 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
         }
       }
     }
-    if (edits.length === 0) return null;
-    let work = '', pos = 0;
-    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
-    work += source.slice(pos);
-    try { return stripTypeScriptTypes(work); } catch { return null; }
+    if (edits.length > 0) {
+      let work = '', pos = 0;
+      for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+      work += source.slice(pos);
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
+    }
   }
 
   // `The 'with' statement is not supported` in TS script/module -> temporarily replace `with` with `if`
@@ -2688,7 +2689,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     }
   }
 
-  // `Expected ']', got ','`: trailing comma in index signature `[key: string,]: T;`
+  // `Expected ']', got ','`: trailing comma or multi-parameter index signature `[key: string,]: T;` / `[p1: string, p2: number]: T;`
   if (errMsg.includes("Expected ']', got ','")) {
     const toks = tokenize(source);
     if (toks) {
@@ -2696,6 +2697,18 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
       for (let i = 1; i < toks.length - 2; i++) {
         if (toks[i].text === ',' && toks[i + 1].text === ']' && toks[i + 2].text === ':') {
           edits.push({ start: toks[i].start, end: toks[i].end, text: ' ' });
+        } else if (toks[i].text === '[' && toks[i + 1].type === 'id' && toks[i + 2]?.text === ':') {
+          let k = i + 3, dB = 1, commaIdx = -1;
+          while (k < toks.length && dB > 0) {
+            if (toks[k].text === '[') dB++;
+            else if (toks[k].text === ']') { if (--dB === 0) break; }
+            else if (dB === 1 && toks[k].text === ',' && commaIdx < 0) commaIdx = k;
+            k++;
+          }
+          if (dB === 0 && commaIdx > i && toks[k]?.text === ']') {
+            edits.push({ start: toks[commaIdx].start, end: toks[k].start, text: source.slice(toks[commaIdx].start, toks[k].start).replace(/[^\r\n]/g, ' ') });
+            i = k;
+          }
         }
       }
       if (edits.length > 0) {
@@ -3035,6 +3048,254 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
         const stripped = tryStrip(work);
         if (stripped !== null) return stripped.replace(/__tmt_cf__/g, 'constructor');
       }
+    }
+  }
+
+  // `Rest element must be final element` / `Expected ',', got '='` / `Expected ',', got ':'` in rest pattern
+  if (errMsg.includes('Rest element must be final element') || errMsg.includes("Expected ',', got '='") || errMsg.includes("Expected ',', got ':'")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const offsets = [];
+      for (let i = 0; i < toks.length; i++) {
+        if (toks[i].type === 'punc' && toks[i].text === '...') {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: '   ' });
+          offsets.push(toks[i].start);
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const off of offsets) {
+            if (stripped.slice(off, off + 3) === '   ') {
+              out += stripped.slice(p, off) + '...';
+              p = off + 3;
+            }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `An implementation cannot be declared in ambient contexts` (`export declare class Foo { bar() {} }`)
+  if (errMsg.includes('An implementation cannot be declared in ambient contexts') && /\bdeclare[ \t]+(?:abstract[ \t]+)?class\b/.test(source)) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 2; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'declare' && toks[i - 1]?.text !== '.') {
+          let k = i + 1;
+          if (toks[k]?.text === 'abstract') k++;
+          if (toks[k]?.text !== 'class') continue;
+          while (k < toks.length && toks[k].text !== '{') k++;
+          if (k >= toks.length) continue;
+          const closeCls = findMatchingBrace(toks, k);
+          if (closeCls < 0) continue;
+          for (let m = k + 1; m < closeCls; m++) {
+            if (toks[m].text === '{') {
+              const cm = findMatchingBrace(toks, m);
+              if (cm > m && cm < closeCls) {
+                edits.push({ start: toks[m].start, end: toks[cm].end, text: ';' + source.slice(toks[m].start + 1, toks[cm].end).replace(/[^\r\n]/g, ' ') });
+                m = cm;
+              }
+            }
+          }
+          i = closeCls;
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Unexpected token 'ident'. Expected target` (`new.targ`)
+  if (errMsg.includes('Expected target') && !source.includes('__tmt_nt__')) {
+    const m = /\bnew[ \t]*\.[ \t]*([A-Za-z_$][\w$]*)/.exec(source);
+    if (m && m[1] !== 'target') {
+      const work = source.replace(/\bnew([ \t]*\.[ \t]*)([A-Za-z_$][\w$]*)/g, 'new$1target');
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped.replace(/\bnew([ \t]*\.[ \t]*)target/g, `new$1${m[1]}`);
+    }
+  }
+
+  // `Expected ']', got 'ident'` / `Expected ']', got '='` in index signature (`[public x: string]: any`, `[a: string = ""]: number`)
+  if (errMsg.includes("Expected ']', got 'ident'") || errMsg.includes("Expected ']', got '='")) {
+    let work = source.replace(/(\[[ \t]*)(?:public|private|protected|static)([ \t]+[A-Za-z_$][\w$]*[ \t]*:)/g, '$1$2');
+    work = work.replace(/(\[[ \t]*[A-Za-z_$][\w$]*[ \t]*:[ \t]*[A-Za-z_$][\w$]*)[ \t]*=[^\]\n]+(?=\])/g, '$1');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
+    }
+  }
+
+  // `Expected ',', got '('` (`interface I extends foo() {}`)
+  if (errMsg.includes("Expected ',', got '('") && /\binterface\b/.test(source)) {
+    const work = source.replace(/(\binterface[ \t]+[A-Za-z_$][\w$]*[ \t]+extends[ \t]+[A-Za-z_$][\w$.]*)\(\)/g, '$1');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
+    }
+  }
+
+  // `The 'type' modifier cannot be used on a named export when 'export type'`
+  if (errMsg.includes("The 'type' modifier cannot be used on a named export")) {
+    const work = source.replace(/(\bexport[ \t]+type[ \t]*\{[^}]*)\btype([ \t]+)/g, '$1    $2');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
+    }
+  }
+
+  // `Unexpected token '?'. Expected an identifier` (`?number`, `Array.<number>`)
+  if (errMsg.includes('Unexpected token `?`. Expected an identifier')) {
+    let work = source.replace(/\b([A-Za-z_$][\w$]*)\.</g, '$1<');
+    work = work.replace(/(:[ \t]*)\?(?=[A-Za-z_$])/g, '$1 ');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
+    }
+  }
+
+  // `Expected ')', got 'ident'` (`import({x: 12})` in type position)
+  if (errMsg.includes("Expected ')', got 'ident'") && /:[ \t]*import[ \t]*\(/.test(source)) {
+    const work = source.replace(/(:[ \t]*import[ \t]*\()\{[^}]*\}(\))/g, '$1"__tmt__"$2');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
+    }
+  }
+
+  // `Expected ']', got 'in'` (mixed properties + mapped type in `type T = { a: 1; [K in U]: V }`)
+  if (errMsg.includes("Expected ']', got 'in'") && /\btype\b/.test(source)) {
+    const work = source.replace(/\[[ \t]*[A-Za-z_$][\w$]*[ \t]+in[ \t]+[^\]\n]+\][ \t]*:/g, '[__k: string]:');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
+    }
+  }
+
+  // `Expected '{', got 'ident'` (mixed named + unnamed tuple members `[a: number, string]`)
+  if (errMsg.includes("Expected '{', got 'ident'") && /\btype\b/.test(source)) {
+    const work = source.replace(/([\[,][ \t]*)[A-Za-z_$][\w$]*\??[ \t]*:(?=[ \t]*[A-Za-z_$(\[{])/g, '$1');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
+    }
+  }
+
+  // `Expected '{', got '!'` (`!string` JSDoc non-nullable type in type alias)
+  if (errMsg.includes("Expected '{', got '!'") && /\btype\b/.test(source)) {
+    const work = source.replace(/([:=|&(\[<,][ \t]*)!(?=[A-Za-z_$(\[{])/g, '$1 ');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
+    }
+  }
+
+  // `Class constructor can't be an accessor.` (`get constructor()`, `set constructor(v)`)
+  if (errMsg.includes("Class constructor can't be an accessor") && !source.includes('__tmt_ca__')) {
+    const work = source.replace(/\b(get|set)([ \t]+)constructor(?=[ \t]*\()/g, '$1$2__tmt_ca__');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped.replace(/__tmt_ca__/g, 'constructor');
+    }
+  }
+
+  // `Invalid 'super()'` (`new super(...)`)
+  if (errMsg.includes('Invalid `super()`') && !source.includes('__tmt_sp__')) {
+    const work = source.replace(/\bnew([ \t]+)super(?=[ \t]*\()/g, 'new$1__tmt_sp__');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped.replace(/__tmt_sp__/g, 'super');
+    }
+  }
+
+  // `A switch block cannot have multiple defaults`
+  if (errMsg.includes('A switch block cannot have multiple defaults') && !source.includes('__tmt_df__')) {
+    let seen = false;
+    const work = source.replace(/\bdefault([ \t]*):/g, (m, sp) => { if (!seen) { seen = true; return m; } return `case __tmt_df__${sp}:`; });
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped.replace(/case __tmt_df__([ \t]*):/g, 'default$1:');
+    }
+  }
+
+  // `LineBreak cannot follow 'throw'`
+  if (errMsg.includes("LineBreak cannot follow 'throw'") && !source.includes('__tmt_th__')) {
+    const work = source.replace(/\bthrow([ \t]*\r?\n)/g, 'throw /*__tmt_th__*/ 0;$1');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped.replace(/throw \/\*__tmt_th__\*\/ 0;/g, 'throw');
+    }
+  }
+
+  // `literal in an import type should be string literal` (`import(T)`)
+  if (errMsg.includes('literal in an import type should be string literal')) {
+    const work = source.replace(/\bimport[ \t]*\([ \t]*[A-Za-z_$][\w$.]*[ \t]*\)/g, 'import("__tmt__")');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
+    }
+  }
+
+  // `Expected ';', got 'ident'`: accessibility modifier inside interface/object type (`interface I { private x: string; }`)
+  if (errMsg.includes("Expected ';', got 'ident'")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 2; i++) {
+        const isTypeBlock = (toks[i].type === 'id' && (toks[i].text === 'interface' || toks[i].text === 'type') && toks[i - 1]?.text !== '.') ||
+          (toks[i].text === ':' && toks[i + 1].text === '{');
+        if (!isTypeBlock) continue;
+        let k = i + 1;
+        while (k < toks.length && toks[k].text !== '{' && toks[k].text !== ';') k++;
+        if (k >= toks.length || toks[k].text !== '{') continue;
+        const closeBr = findMatchingBrace(toks, k);
+        if (closeBr < 0) continue;
+        for (let m = k + 1; m < closeBr - 1; m++) {
+          if (toks[m].type === 'id' && (toks[m].text === 'public' || toks[m].text === 'private' || toks[m].text === 'protected') &&
+              toks[m + 1].type === 'id' && !hasNewlineBetween(source, toks[m].end, toks[m + 1].start)) {
+            edits.push({ start: toks[m].start, end: toks[m].end, text: ' '.repeat(toks[m].end - toks[m].start) });
+          }
+        }
+        i = closeBr;
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `'public' modifier cannot appear on a type parameter`
+  if (errMsg.includes('modifier cannot appear on a type parameter')) {
+    const work = source.replace(/(<[ \t]*)(?:public|private|protected|readonly)([ \t]+)/g, '$1$2');
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
+    }
+  }
+
+  // `Unexpected token 'ident'. Expected * for generator`: disallowed/duplicate class modifiers (`override accessor`, `abstract override`, etc.)
+  if (errMsg.includes('Expected * for generator')) {
+    const work = source.replace(/\b(?:override|abstract|readonly|declare)([ \t]+)(?=accessor\b|override\b|static\b)/g, (m, sp) => ' '.repeat(m.length - sp.length) + sp);
+    if (work !== source) {
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
     }
   }
 
@@ -4190,6 +4451,56 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     }
   }
 
+  // `Nullish coalescing operator(??) requires parens when mixing with` (`a ?? b || c`) -> `??` -> `||`, strip, restore
+  if (errMsg.includes('Nullish coalescing operator(??) requires parens')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const offsets = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].text === '?' && toks[i + 1].text === '?' && toks[i].end === toks[i + 1].start) {
+          edits.push({ start: toks[i].start, end: toks[i + 1].end, text: '||' });
+          offsets.push(toks[i].start);
+          i++;
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null && stripped.length === work.length) {
+          let out = '', p = 0;
+          for (const off of offsets) {
+            if (stripped.slice(off, off + 2) === '||') { out += stripped.slice(p, off) + '??'; p = off + 2; }
+          }
+          out += stripped.slice(p);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `'arguments' is only allowed in functions and class methods` -> rename `arguments` -> `__tmt_ar__`, strip, restore
+  if (errMsg.includes("'arguments' is only allowed in functions") && !source.includes('__tmt_ar__')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'arguments' && toks[i - 1]?.text !== '.') {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: '__tmt_ar__' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped.replace(/__tmt_ar__/g, 'arguments');
+      }
+    }
+  }
+
   // `An object member cannot be declared optional` (`{ a? }`) -> erase `?` to space
   if (errMsg.includes('An object member cannot be declared optional')) {
     const toks = tokenize(source);
@@ -4515,11 +4826,11 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     let work = '', pos = 0;
     for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
     work += source.slice(pos);
-    try {
-      let stripped = stripTypeScriptTypes(work);
+    let stripped = tryStrip(work);
+    if (stripped !== null) {
       for (const [ph, orig] of saved) stripped = stripped.replace(ph, () => orig);
       return stripped;
-    } catch { return null; }
+    }
   }
 
   // `Return statement is not allowed here` -> wrap in a function, strip, and unwrap
@@ -5107,11 +5418,11 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     let work = '', pos = 0;
     for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
     work += source.slice(pos);
-    try {
-      let stripped = stripTypeScriptTypes(work);
+    let stripped = tryStrip(work);
+    if (stripped !== null) {
       for (const [ph, orig] of saved) stripped = stripped.replace(ph, () => orig);
       return stripped;
-    } catch { return null; }
+    }
   }
 
   // `Trailing comma is not allowed` (empty `var;` / `let;` / `const;`) & `Unexpected token '<eof>'. Expected yield, an identifier`
@@ -5361,11 +5672,12 @@ function validPureJsWithSwcRelaxations(source, errMsg, depth = 0) {
         edits.push({ start: toks[i].start, end: toks[i].end, text: '   ' });
       }
     }
-    if (edits.length === 0) return false;
-    let work = '', pos = 0;
-    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
-    work += source.slice(pos);
-    return checkId(work);
+    if (edits.length > 0) {
+      let work = '', pos = 0;
+      for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+      work += source.slice(pos);
+      if (checkId(work)) return true;
+    }
   }
 
   // 6. Invalid assignment LHS (`a?.b = 1`, `f() = 1`, `++f()`, `1 = 2`, `1 += 2`) in pure JS:
@@ -5412,17 +5724,18 @@ function validPureJsWithSwcRelaxations(source, errMsg, depth = 0) {
       }
       if (assignOps.has(op)) {
         const prev = toks[i - 1];
-        if (lhsEnds.has(prev.text) || prev.type === 'num' || prev.type === 'str' || prev.type === 'tpl') {
+        if (lhsEnds.has(prev.text) || prev.type === 'num' || prev.type === 'str' || prev.type === 'tpl' || prev.type === 'regex') {
           edits.push({ start: t.start, end: toks[endIdx].end, text: '==' });
         }
       }
       i = endIdx;
     }
-    if (edits.length === 0) return false;
-    let work = '', pos = 0;
-    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
-    work += source.slice(pos);
-    return checkId(work);
+    if (edits.length > 0) {
+      let work = '', pos = 0;
+      for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+      work += source.slice(pos);
+      if (checkId(work)) return true;
+    }
   }
 
   // 7. `import()` / `import.defer()` / `import.source()` with 0 or 3+ arguments
@@ -5483,11 +5796,12 @@ function validPureJsWithSwcRelaxations(source, errMsg, depth = 0) {
         (next && [')', ',', ';', '=', ']', '}', '.', '(', '['].includes(next.text));
       if (isIdentUse) edits.push({ start: toks[i].start, end: toks[i].end, text: '__tmt_lt__' });
     }
-    if (edits.length === 0) return false;
-    let work = '', pos = 0;
-    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
-    work += source.slice(pos);
-    return checkId(work);
+    if (edits.length > 0) {
+      let work = '', pos = 0;
+      for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+      work += source.slice(pos);
+      if (checkId(work)) return true;
+    }
   }
 
   // 10. `` `await` cannot be used as an identifier in an async context ``
@@ -5687,11 +6001,12 @@ function validPureJsWithSwcRelaxations(source, errMsg, depth = 0) {
         if (checkId(work)) return true;
       }
     }
-    if (errMsg.includes('Expected ident') && /\byield\b/.test(source) && !source.includes('__tmt_yd__')) {
+    if ((errMsg.includes('Expected ident') || errMsg.includes('Expression expected')) && /\byield\b/.test(source) && !source.includes('__tmt_yd__')) {
       const edits = [];
       for (let i = 0; i < toks.length; i++) {
         if (toks[i].type === 'id' && toks[i].text === 'yield' && toks[i - 1]?.text !== '.') {
           if (toks[i - 1]?.text === 'let' && hasNewlineBetween(source, toks[i - 1].end, toks[i].start)) return false;
+          if (toks[i + 1]?.text === '*') return false;
           edits.push({ start: toks[i].start, end: toks[i].end, text: '__tmt_yd__' });
         }
       }
@@ -5774,7 +6089,6 @@ function validPureJsWithSwcRelaxations(source, errMsg, depth = 0) {
       work += source.slice(pos);
       if (checkId(work)) return true;
     }
-    return false;
   }
 
   // 16. `Unexpected token '('. Expected meta` / `Import is not allowed here` (`import.unknown(...)`, `typeof import.source`)
@@ -5947,11 +6261,12 @@ function validPureJsWithSwcRelaxations(source, errMsg, depth = 0) {
         edits.push({ start: t.start, end: t.end, text: '==' });
       }
     }
-    if (edits.length === 0) return false;
-    let work = '', pos = 0;
-    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
-    work += source.slice(pos);
-    return checkId(work);
+    if (edits.length > 0) {
+      let work = '', pos = 0;
+      for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+      work += source.slice(pos);
+      if (checkId(work)) return true;
+    }
   }
 
   // 25. `'const' declarations must be initialized` (`const a;` -> `let   a;`)
@@ -6002,6 +6317,280 @@ function validPureJsWithSwcRelaxations(source, errMsg, depth = 0) {
   }
   if (errMsg.includes('Using declaration only allows identifiers') || errMsg.includes('Using declaration is not allowed in for-in loop')) {
     const work = source.replace(/\b(?:await[ \t]+)?using(?=[ \t]+[{[\w$])/g, 'const');
+    if (work !== source && checkId(work)) return true;
+  }
+
+  // 28. `Nullish coalescing operator(??) requires parens when mixing with` (`a ?? b || c`)
+  if (errMsg.includes('Nullish coalescing operator(??) requires parens')) {
+    const work = source.replace(/\?\?/g, '||');
+    if (work !== source && checkId(work)) return true;
+  }
+  // 29. `Tagged template literal is not allowed in optional chain.` (`null?.fn`hello``) / `Expected ident` (`a?.\n`hello``)
+  if (errMsg.includes('Tagged template literal is not allowed in optional chain') ||
+      (errMsg.includes('Expected ident') && source.includes('?.') && source.includes('`'))) {
+    const work = source.replace(/\?\.(?=[ \t\r\n]*`)/g, '  ').replace(/\?\./g, '. ');
+    if (work !== source && checkId(work)) return true;
+  }
+  // 30. `Rest element must be final element` / `Trailing comma isn't permitted after a rest element`
+  if (errMsg.includes('Rest element must be final element') || errMsg.includes("Trailing comma isn't permitted after a rest element")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].text === '...') edits.push({ start: toks[i].start, end: toks[i].end, text: '   ' });
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        if (checkId(work)) return true;
+      }
+    }
+  }
+  // 31. `Classes may not have a non-static field named 'constructor'`
+  if (errMsg.includes("field named 'constructor'") && !source.includes('__tmt_cf__')) {
+    const work = source.replace(/(["'])constructor\1/g, '$1__tmt_cf__$1');
+    if (work !== source && checkId(work)) return true;
+  }
+  // 32. `Invalid 'super()'` (`super.#x`)
+  if (errMsg.includes('Invalid `super()`') && !source.includes('__tmt_sp__')) {
+    const work = source.replace(/\bsuper(?=[ \t]*\.[ \t]*#)/g, 'this ');
+    if (work !== source && checkId(work)) return true;
+  }
+  // 33. `Constructor can't be an async function` (including `async *constructor`)
+  if (errMsg.includes("Constructor can't be an async function")) {
+    const work = source.replace(/\basync(?=[ \t]*\*?[ \t]*constructor\b)/g, '     ').replace(/\*(?=[ \t]*constructor\b)/g, ' ');
+    if (work !== source && checkId(work)) return true;
+  }
+  // 34. `LineBreak cannot follow 'throw'`
+  if (errMsg.includes("LineBreak cannot follow 'throw'")) {
+    const work = source.replace(/\bthrow[ \t]*\r?\n[ \t]*/g, 'throw ');
+    if (work !== source && checkId(work)) return true;
+  }
+  // 35. `Invalid use of 'arguments' in strict mode` (SWC also emits this for `eval = 42`)
+  if (errMsg.includes("Invalid use of 'arguments'") && !source.includes('__tmt_ar__')) {
+    const work = source.replace(/\b(?:arguments|eval)\b/g, '__tmt_ar__');
+    if (work !== source && checkId(work)) return true;
+  }
+  // 36. `Unexpected line break between arrow head and arrow`
+  if (errMsg.includes('Unexpected line break between arrow head and arrow')) {
+    const work = source.replace(/[\r\n]+([ \t]*=>)/g, ' $1');
+    if (work !== source && checkId(work)) return true;
+  }
+  // 37. `Expected '{', got 'await'` / `'static'` / `'yield'` / `'<lexing error>'` / `Expected ident` (`class aw\u0061it {}`)
+  if ((errMsg.includes("Expected '{', got 'await'") || errMsg.includes("Expected '{', got 'static'") || errMsg.includes("Expected '{', got 'yield'") ||
+       errMsg.includes("Expected '{', got '<lexing error>'") || errMsg.includes('Expected ident') ||
+       errMsg.includes('Unexpected token `let`. Expected let is reserved')) && !source.includes('__tmt_cn__')) {
+    const work = source.replace(/\bclass([ \t]+)(?:await|static|yield|let|[A-Za-z_$\\u{}\w]*\\u(?:\{[0-9a-fA-F]+\}|[0-9a-fA-F]{4})[A-Za-z_$\\u{}\w]*)(?=[ \t\r\n]*(?:\{|extends\b))/g, 'class$1__tmt_cn__');
+    if (work !== source && checkId(work)) return true;
+  }
+  // 38. `Cannot assign to this` / `Not a pattern` (`0, [[(x, y)]] = [[]];`, `0, [{ get x() {} }] = [{}];`)
+  if (errMsg.includes('Cannot assign to this') || errMsg.includes('Not a pattern')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 1; i < toks.length - 1; i++) {
+        if (toks[i].text === '=' && toks[i + 1].text !== '=' && toks[i + 1].text !== '>' &&
+            (toks[i - 1].text === ']' || toks[i - 1].text === '}')) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: '==' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        if (checkId(work)) return true;
+      }
+    }
+  }
+  // 39. Invalid `for [await] (<lhs> in|of <rhs>)` destructuring/LHS patterns:
+  //     Keep `<lhs>` validated as an expression via `for [await] (__tmt_fl__ of ((<lhs>), (<rhs>)))`.
+  if ((errMsg.includes('The left-hand side of an assignment expression') ||
+       errMsg.includes('Cannot assign to this') || errMsg.includes('Not a pattern') ||
+       errMsg.includes('Rest element must be final') || errMsg.includes("Trailing comma isn't permitted after a rest") ||
+       errMsg.includes('A rest parameter cannot have an initializer') ||
+       errMsg.includes('cannot be a destructuring pattern')) && !source.includes('__tmt_fl__')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 3; i++) {
+        if (toks[i].type !== 'id' || toks[i].text !== 'for') continue;
+        let pIdx = i + 1;
+        if (toks[pIdx]?.text === 'await') pIdx++;
+        if (toks[pIdx]?.text !== '(') continue;
+        const cp = findMatchingParen(toks, pIdx);
+        if (cp < 0) continue;
+        const first = toks[pIdx + 1];
+        if (!first || first.text === 'var' || first.text === 'let' || first.text === 'const' || first.text === 'using') continue;
+        let dP = 0, dB = 0, dBr = 0, inIdx = -1;
+        for (let k = pIdx + 1; k < cp; k++) {
+          const tk = toks[k];
+          if (tk.text === '(') dP++; else if (tk.text === ')') dP--;
+          else if (tk.text === '[') dB++; else if (tk.text === ']') dB--;
+          else if (tk.text === '{') dBr++; else if (tk.text === '}') dBr--;
+          else if (dP === 0 && dB === 0 && dBr === 0 && tk.type === 'id' && (tk.text === 'in' || tk.text === 'of')) { inIdx = k; break; }
+        }
+        if (inIdx > pIdx + 1 && inIdx + 1 < cp) {
+          const lhs = source.slice(toks[pIdx + 1].start, toks[inIdx - 1].end);
+          const rhs = source.slice(toks[inIdx + 1].start, toks[cp - 1].end);
+          const safeLhs = errMsg.includes('cannot be a destructuring pattern') ? lhs.replace(/\byield\b/g, '__tmt_yd__') : lhs;
+          edits.push({ start: toks[pIdx + 1].start, end: toks[cp - 1].end, text: `__tmt_fl__ of ((${safeLhs}), (${rhs}))` });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        if (checkId(work)) return true;
+      }
+    }
+  }
+  // 40. `Expression expected`: line break before `=>` (`var af = x\n=> {};`)
+  if (errMsg.includes('Expression expected') && /[\r\n]+[ \t]*=>/.test(source)) {
+    const work = source.replace(/[\r\n]+([ \t]*=>)/g, ' $1');
+    if (work !== source && checkId(work)) return true;
+  }
+  // 41. `Expected ';', got 'ident'` (`for await (using x = obj of []) {}`) / `Expected ';', got ')'` (`for (let x = 3 in {}) {}`)
+  if (errMsg.includes("Expected ';', got 'ident'") || errMsg.includes("Expected ';', got ')'")) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 4; i++) {
+        if (toks[i].type !== 'id' || toks[i].text !== 'for') continue;
+        let pIdx = i + 1;
+        if (toks[pIdx]?.text === 'await') pIdx++;
+        if (toks[pIdx]?.text !== '(') continue;
+        const cp = findMatchingParen(toks, pIdx);
+        if (cp < 0) continue;
+        let kwIdx = pIdx + 1;
+        if (toks[kwIdx]?.text === 'await' && toks[kwIdx + 1]?.text === 'using') {
+          edits.push({ start: toks[kwIdx].start, end: toks[kwIdx + 1].end, text: 'const' });
+          kwIdx += 1;
+        } else if (toks[kwIdx]?.text === 'using') {
+          edits.push({ start: toks[kwIdx].start, end: toks[kwIdx].end, text: 'const' });
+        } else if (toks[kwIdx]?.text !== 'var' && toks[kwIdx]?.text !== 'let' && toks[kwIdx]?.text !== 'const') {
+          continue;
+        }
+        let dP = 0, dB = 0, dBr = 0, cutIdx = -1, inIdx = -1;
+        for (let k = kwIdx + 1; k < cp; k++) {
+          const tk = toks[k];
+          if (tk.text === '(') dP++; else if (tk.text === ')') dP--;
+          else if (tk.text === '[') dB++; else if (tk.text === ']') dB--;
+          else if (tk.text === '{') dBr++; else if (tk.text === '}') dBr--;
+          else if (dP === 0 && dB === 0 && dBr === 0) {
+            if ((tk.text === '=' || tk.text === ',') && cutIdx < 0) cutIdx = k;
+            else if (tk.type === 'id' && (tk.text === 'in' || tk.text === 'of')) { inIdx = k; break; }
+          }
+        }
+        if (cutIdx > 0 && inIdx > cutIdx) {
+          edits.push({ start: toks[cutIdx].start, end: toks[inIdx].start, text: ' ' });
+        }
+      }
+      if (edits.length > 0) {
+        edits.sort((a, b) => a.start - b.start);
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        if (checkId(work)) return true;
+      }
+    }
+  }
+  // 42. `import.source.X` (`Expected ';', got '.'`, `Expected ',', got '.'`, `Expected ')', got '.'`)
+  if ((errMsg.includes("got '.'") && source.includes('import.source')) && !source.includes('__tmt_is__')) {
+    const work = source.replace(/\bimport[ \t]*\.[ \t]*source\b/g, '__tmt_is__');
+    if (work !== source && checkId(work)) return true;
+  }
+  // 43. `` `let` cannot be used as an identifier in strict mode `` (`for (using let of []) {}`)
+  if (errMsg.includes('`let` cannot be used as an identifier in strict mode') && !source.includes('__tmt_lt__')) {
+    const work = source.replace(/\b(?:await[ \t]+)?using([ \t]+)let\b/g, 'const$1__tmt_lt__');
+    if (work !== source && checkId(work)) return true;
+  }
+  // 44. Misc Test262 SWC semantic rejections accepted by TS 6.0.3
+  if (errMsg.includes('Unexpected escape sequence in reserved word: yield') && !source.includes('__tmt_yd__')) {
+    const work = source.replace(/(?:y|\\u0079|\\u\{0*79\})(?:i|\\u0069|\\u\{0*69\})(?:e|\\u0065|\\u\{0*65\})(?:l|\\u006[cC]|\\u\{0*6[cC]\})(?:d|\\u0064|\\u\{0*64\})/g, '__tmt_yd__');
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes("'arguments' is only allowed in functions") && !source.includes('__tmt_ar__')) {
+    const work = source.replace(/\barguments\b|(?:a|\\u0061|\\u\{0*61\})(?:r|\\u0072|\\u\{0*72\})(?:g|\\u0067|\\u\{0*67\})(?:u|\\u0075|\\u\{0*75\})(?:m|\\u006[dD]|\\u\{0*6[dD]\})(?:e|\\u0065|\\u\{0*65\})(?:n|\\u006[eE]|\\u\{0*6[eE]\})(?:t|\\u0074|\\u\{0*74\})(?:s|\\u0073|\\u\{0*73\})/g, '__tmt_ar__');
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes('Expected meta') && source.includes('\\u')) {
+    const work = source.replace(/\bimport[ \t]*\.[ \t]*(?:m|\\u006[dD]|\\u\{0*6[dD]\})(?:e|\\u0065|\\u\{0*65\})(?:t|\\u0074|\\u\{0*74\})(?:a|\\u0061|\\u\{0*61\})/g, 'import.meta');
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes("await isn't allowed in non-async function") && !source.includes('__tmt_aw__')) {
+    const work = source.replace(/\bawait(?=[ \t]*\()/g, '__tmt_aw__');
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes("Expected '(', got '}'") && /\basync[ \t]+async\b/.test(source)) {
+    const work = source.replace(/\basync([ \t]+)async\b/g, 'async:$1async');
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes('A string literal cannot be used as an exported binding without') && !source.includes('__tmt_ex__')) {
+    const work = source.replace(/(\bexport[ \t]*\{[ \t]*)(["'][^"']*["'])([ \t]+as[ \t]+)/g, '$1__tmt_ex__$3');
+    if (work !== source && checkId(work)) return true;
+  }
+  if ((errMsg.includes("Expected ';', '}' or <eof>") || errMsg.includes('Expression expected')) && /\busing[ \t]*\{/.test(source)) {
+    const work = source.replace(/\b(?:await[ \t]+)?using(?=[ \t]*\{)/g, 'const');
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes('Expression expected') && !source.includes('__tmt_kw__') && /\b(?:public|private|protected|package|interface|implements)[ \t]*=/.test(source)) {
+    const work = source.replace(/\b(?:public|private|protected|package|interface|implements)(?=[ \t]*=)/g, '__tmt_kw__');
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes("Expected ',', got 'ident'") && /\([ \t]*yield[ \t]+/.test(source)) {
+    const work = source.replace(/\([ \t]*yield[ \t]+([A-Za-z_$][\w$]*)[ \t]*\)[ \t]*=(?![=>])/g, '($1) ==');
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes('is already declared') && errMsg.startsWith('Label ') && !source.includes('__tmt_lb_')) {
+    let idx = 0;
+    const work = source.replace(/\b([A-Za-z_$][\w$]*)[ \t]*:(?=[ \t\r\n]*(?:\{|for\b|while\b|do\b|switch\b|if\b|try\b|with\b|[A-Za-z_$]))/g, (m, lb) => `__tmt_lb_${idx++}__:`);
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes('Duplicated regular expression flag')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (const t of toks) {
+        if (t.type === 'regex') {
+          const sl = t.text.lastIndexOf('/');
+          const flags = [...new Set(t.text.slice(sl + 1))].join('');
+          if (flags.length !== t.text.length - sl - 1) {
+            edits.push({ start: t.start + sl + 1, end: t.end, text: flags });
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        if (checkId(work)) return true;
+      }
+    }
+  }
+  if (errMsg.includes('A switch block cannot have multiple defaults')) {
+    let seen = false;
+    const work = source.replace(/\bdefault[ \t]*:/g, (m) => { if (!seen) { seen = true; return m; } return 'case 0:'; });
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes('Generator or async function cannot be labelled') || errMsg.includes("Expected ';', '}' or <eof>")) {
+    const work = source.replace(/(?<=^|[;\r\n{])[ \t]*[A-Za-z_$][\w$]*[ \t]*:(?=[ \t\r\n]*(?:function\b|async\b|let\b|const\b|class\b))/g, '');
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes('A rest parameter cannot have an initializer')) {
+    const work = source.replace(/\.\.\.([A-Za-z_$][\w$]*)[ \t]*=/g, '$1 =');
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes('assignment property is invalid syntax')) {
+    const work = source.replace(/\{([ \t]*[A-Za-z_$][\w$]*)[ \t]*=/g, '{$1:');
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes('`yield` cannot be used as an identifier in strict mode') && !source.includes('__tmt_yd__')) {
+    const work = source.replace(/\byield\b/g, '__tmt_yd__');
+    if (work !== source && checkId(work)) return true;
+  }
+  if (errMsg.includes('The left-hand side of a `for...in` statement cannot be a destructuring') && !source.includes('__tmt_fi__')) {
+    const work = source.replace(/\bfor[ \t]*\([ \t]*(?:var|let|const)[ \t]*(\{[^}]*\}|\[[^\]]*\])[ \t]*=[ \t]*[^)]*?\bin\b/g, 'for (var __tmt_fi__ in');
     if (work !== source && checkId(work)) return true;
   }
 

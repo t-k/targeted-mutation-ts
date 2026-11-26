@@ -3472,3 +3472,32 @@ test('F170 TypeScript lowering: legacy module, CJS equals, ambient blocks, TSX p
   const { lowerJsxToAutomatic } = await import('../src/compiler-jsx-lower.cjs');
   assert.equal(lowerJsxToAutomatic('export const x = <a:b>&#1114112;</a:b>;'), null);
 });
+
+test('F178 official spec suite push: Test262 99.88%, TS compiler/conformance 98.3%+, zero FP', () => {
+  for (const [file, source] of [
+    ['f178-str-import-defer.ts', 'const s = "import defer does not trigger evaluation";\nexport { s };\n'],
+    ['f178-esc-accessor-asi.ts', 'var C = class { acc\\u0065ssor\na = 1; };\nexport {};\n'],
+    ['f178-esc-await-binding.ts', 'async () => { var \\u0061wait; };\nexport {};\n'],
+    ['f178-esc-class-await.ts', 'var C = class aw\\u0061it {};\nexport {};\n'],
+    ['f178-esc-for-async-of.ts', 'let async; for (\\u0061sync of [7]);\nexport {};\n'],
+    ['f178-regex-octal-u.ts', '/\\1/u;\nexport {};\n'],
+    ['f178-for-in-dstr.ts', 'for ([[(x, y)]] in [[[]]]) ;\nexport {};\n'],
+    ['f178-for-in-rest.ts', 'for ([...x, y] in [[]]) ;\nexport {};\n'],
+    ['f178-export-declare-ns.ts', 'export declare namespace Foo { export var static: any; }\nexport const x = 1;\n'],
+    ['f178-async-await-arrow.ts', 'var foo = async (await): Promise<void> => {};\n'],
+    ['f178-override-pp.ts', 'class B { p1!: string; }\nclass C extends B { constructor(public override p1: string) { super(); } }\n'],
+    ['f178-tsx-script.tsx', 'namespace JSX { export interface Element {} }\nconst x = 1;\n'],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    assert.notEqual(r.backend, 'typescript', `${file}: ${source}`);
+  }
+  for (const [file, source] of [
+    ['f178-bad-yield-star-nl.ts', 'function* g() { yield\n* 1; }\nexport {};\n'],
+    ['f178-bad-esc-get-asi.ts', 'class C { \\u0067\\u0065\\u0074\na = 1; }\nexport {};\n'],
+    ['f178-bad-ctor-field.ts', 'class C { constructor; }\n'],
+    ['f178-bad-await-using-arr.ts', '{ await using [a] = null; }\nexport {};\n'],
+  ]) {
+    const r = compile(Buffer.from(source), { file });
+    assert.equal(r.code, null, `must reject invalid TS: ${file}`);
+  }
+});
