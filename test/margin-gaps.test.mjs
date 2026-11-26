@@ -142,6 +142,75 @@ test('marginGap falls back to the opposite safe direction when the preferred shi
   assert.deepEqual(checkedMarginGaps([{ operator: '>=', pairs }]), [expected]);
 });
 
+test('bounded margins match exhaustive shift enumeration', () => {
+  const rows = readFileSync(new URL('../verification/pict/self-tmt-margin-bounds.tsv', import.meta.url), 'utf8')
+    .trim().split(/\r?\n/).slice(1);
+  const expected = [];
+  const requests = rows.map(row => {
+    const [opName, difference, domain] = row.split('\t');
+    const operator = opSymbols[opName];
+    const diff = Number(difference);
+    const min = domain === 'Nonnegative' ? 0 : -2;
+    const max = domain === 'Nonpositive' ? 0 : 2;
+    const pairs = [[10 + diff, 10]];
+    const candidates = Array.from({ length: max - min + 1 }, (_, index) => min + index);
+    const feasible = candidates.filter(shift => evalOp(operator, diff, shift) === evalOp(operator, diff, 0));
+    const preferred = operator === '>' || operator === '<=' ? 1 : -1;
+    const alternate = [preferred, -preferred].find(shift => feasible.includes(shift));
+    let gap = null;
+    if (candidates.includes(diff) && alternate !== undefined) {
+      const witness = [-1, 0, 1].find(value => evalOp(operator, value, 0) !== evalOp(operator, value, alternate));
+      gap = { interval: [feasible[0], feasible.at(-1)], alternate, witness,
+        expected: evalOp(operator, witness, 0), mutant: evalOp(operator, witness, alternate) };
+    }
+    assert.deepEqual(marginGap(pairs, operator, min, max), gap, row);
+    expected.push(gap);
+    return { pairs, operator, min, max };
+  });
+  assert.deepEqual(checkedMarginGaps(requests), expected);
+});
+
+test('rejects malformed margin pairs and domains that exclude zero', () => {
+  const valid = { pairs: [[3, 1]], min: -3, max: 3 };
+  const requests = [
+    { ...valid, operator: '==' },
+    { ...valid, min: 1 },
+    { ...valid, pairs: [[0, 3]], max: -1 },
+    { ...valid, min: -3.5 },
+    { ...valid, pairs: null },
+    { ...valid, pairs: [[3, 1, 0]] },
+    { ...valid, pairs: [{ 0: 3, 1: 1, length: 2 }] },
+    { ...valid, pairs: [['3', 1]] },
+    { ...valid, pairs: [[3, '1']] },
+    { ...valid, pairs: [[3, 1n]] },
+  ];
+  for (const { pairs, operator, min, max } of requests) {
+    assert.equal(marginGap(pairs, operator, min, max), null);
+  }
+  assert.deepEqual(checkedMarginGaps(requests), requests.map(() => null));
+});
+
+test('checked margins keep the closest differences and independent safe RHS bounds', () => {
+  const min = Number.MIN_SAFE_INTEGER;
+  const max = Number.MAX_SAFE_INTEGER;
+  const requests = [
+    { pairs: [[8, 10], [9, 10], [13, 10], [12, 10], [14, 10]] },
+    { pairs: [[6, 10], [11, 10], [min + 5, min]] },
+    { pairs: [[9, 10], [15, 10], [max - 5, max]], operator: '<=' },
+    { pairs: [[0, -1]] },
+    { pairs: [[0, 1]], operator: '<=' },
+  ];
+  const expected = [
+    { interval: [0, 2], alternate: 1, witness: 0, expected: true, mutant: false },
+    { interval: [0, 1], alternate: 1, witness: 0, expected: true, mutant: false },
+    { interval: [-1, 0], alternate: -1, witness: 0, expected: true, mutant: false },
+    { interval: [min + 1, 1], alternate: -1, witness: -1, expected: false, mutant: true },
+    { interval: [-1, max - 1], alternate: 1, witness: 1, expected: false, mutant: true },
+  ];
+  assert.deepEqual(checkedMarginGaps(requests), expected);
+  assert.deepEqual(requests.map(({ pairs, operator }) => marginGap(pairs, operator)), expected);
+});
+
 test('end-to-end Vitest reports comparison-margin/v1 INPUT GAP with feasibleMargins for varying-RHS comparison', () => {
   const root = mkdtempSync(join(tmpdir(), 'tmt-margin-e2e-'));
   try {

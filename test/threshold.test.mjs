@@ -71,6 +71,30 @@ test('safe integer endpoints and a real zero are handled exactly', () => {
   assert.equal(thresholdGap(1, [0, 1]), null);
 });
 
+test('rejects unsupported operators, invalid bounds, and out-of-domain observations', () => {
+  const valid = { threshold: 1, observations: [0], min: -3, max: 3 };
+  const requests = [
+    { ...valid, operator: '==' },
+    { ...valid, min: Number.MIN_SAFE_INTEGER - 1 },
+    { ...valid, max: 3.5 },
+    { ...valid, threshold: 1.5 },
+    { ...valid, threshold: -4 },
+    { ...valid, threshold: 4 },
+    { ...valid, observations: [0, -4] },
+    { ...valid, observations: [0, 4] },
+  ];
+  for (const { threshold, observations, min, max, operator } of requests) {
+    assert.equal(thresholdGap(threshold, observations, min, max, operator), null);
+  }
+  assert.deepEqual(checkedThresholdGaps(requests), requests.map(() => null));
+});
+
+test('the checked threshold keeps zero as the greatest observation below the boundary', () => {
+  const requests = [[0, -1, 2], [-1, 0, 2]].map(observations => ({ threshold: 2, observations, min: -3, max: 3 }));
+  const expected = { interval: [1, 2], alternate: 1, witness: 1, expected: false, mutant: true };
+  assert.deepEqual(checkedThresholdGaps(requests), [expected, expected]);
+});
+
 test('compiled threshold gaps match the exhaustive oracle in one batch', () => {
   const requests = [];
   const domain = [-2, -1, 0, 1, 2];

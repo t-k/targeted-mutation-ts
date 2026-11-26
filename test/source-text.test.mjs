@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { byteOffsets } from '../src/source-text.mjs';
+import { byteOffsets, normalize, optionsFor } from '../src/source-text.mjs';
 
 function reference(source) {
   const offsets = Array(source.length + 1).fill(0);
@@ -31,4 +32,34 @@ test('UTF-8 offset slots agree with Buffer across adjacent encoding boundaries',
     }
   }
   assert.deepEqual([...byteOffsets('')], [0]);
+});
+
+test('source options resolve filename defaults and validate explicit overrides', () => {
+  const rows = readFileSync(new URL('../verification/pict/self-tmt-source-options.tsv', import.meta.url), 'utf8')
+    .trim().split(/\r?\n/).slice(1);
+  const files = { Js: 'source.js', Jsx: 'source.jsx', Tsx: 'source.tsx', TsxBackup: 'source.tsx.bak' };
+  for (const row of rows) {
+    const [file, dialect, mode] = row.split('\t');
+    const options = {
+      file: files[file],
+      dialect: dialect === 'Default' ? undefined : dialect === 'Empty' ? '' : dialect.toLowerCase(),
+      mode: mode === 'Default' ? undefined : mode === 'Empty' ? '' : mode.toLowerCase(),
+    };
+    if (['Invalid', 'Empty'].includes(dialect) || ['Invalid', 'Empty'].includes(mode)) {
+      assert.throws(() => optionsFor(options), /Expected ts\/tsx and script\/module/, row);
+    } else {
+      assert.deepEqual(optionsFor(options), {
+        dialect: options.dialect ?? (file === 'Jsx' || file === 'Tsx' ? 'tsx' : 'ts'),
+        mode: options.mode ?? 'module',
+      }, row);
+    }
+  }
+});
+
+test('normalization preserves a leading BOM and rejects malformed UTF-8 and UTF-16', () => {
+  const text = '\uFEFFé🧪';
+  assert.equal(normalize(text), text);
+  assert.equal(normalize(Buffer.from(text)), text);
+  assert.equal(normalize(Buffer.from([0xc3, 0x28])), null);
+  assert.equal(normalize('\uD800'), null);
 });

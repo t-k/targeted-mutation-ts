@@ -9,6 +9,7 @@ import {
   findingId,
   loadBaseline,
   parseBaseline,
+  serializeBaseline,
   tmtIgnoreLines,
   writeBaseline,
 } from '../src/baseline.mjs';
@@ -63,6 +64,20 @@ describe('tmt:ignore inline suppression', () => {
     const lines = tmtIgnoreLines('export const a = (x: number) => x >= 10; // tmt:ignore');
     assert.equal(lines.get(0), 'Ignored using tmt:ignore');
   });
+
+  it('uses the closing line of a multiline directive to locate the suppressed statement', () => {
+    const source = [
+      'const first = 0;',
+      '/* tmt:ignore before statement',
+      '*/',
+      'const second = 1;',
+      '/* tmt:ignore inline',
+      '*/ const third = 2;',
+      'const fourth = 3;',
+      'const fifth = 4; /* tmt:ignore tail */',
+    ].join('\r\n');
+    assert.deepEqual(tmtIgnoreLines(source), new Map([[3, 'before statement'], [5, 'inline'], [7, 'tail']]));
+  });
 });
 
 describe('baseline v2 stable IDs and suppression', () => {
@@ -113,6 +128,50 @@ describe('baseline v2 stable IDs and suppression', () => {
   it('rejects malformed or unsupported baseline versions', () => {
     assert.throws(() => parseBaseline('{invalid'), /Invalid baseline JSON/);
     assert.throws(() => parseBaseline(JSON.stringify({ version: 99, findings: [] })), /Unsupported baseline format/);
+  });
+
+  it('accepts legacy arrays and version 2 findings as IDs', () => {
+    assert.deepEqual(parseBaseline('[]'), new Set());
+    assert.deepEqual(parseBaseline('["first","first","second"]'), new Set(['first', 'second']));
+    assert.deepEqual(parseBaseline('{"version":2,"findings":["first",{"id":"second"}]}'), new Set(['first', 'second']));
+  });
+
+  it('rejects invalid containers and IDs with the appropriate format error', () => {
+    for (const value of [null, 2, {}, { version: 2, findings: {} }]) {
+      assert.throws(() => parseBaseline(JSON.stringify(value)), /Unsupported baseline format/);
+    }
+    assert.throws(() => parseBaseline('["valid",9]'), /Invalid legacy baseline array/);
+    for (const entry of [null, {}, { id: 0 }, { id: '' }, '']) {
+      assert.throws(() => parseBaseline(JSON.stringify({ version: 2, findings: [entry] })), /Invalid baseline entry/);
+    }
+  });
+
+  it('serializes canonical paths and code for explicit and mutation-only findings', () => {
+    const windows = { ...diagA, location: { file: 'src\\lib\\cart.ts' }, expression: ' count\t??\n10 ' };
+    const posix = { ...diagA, location: { file: 'src/lib/cart.ts' } };
+    const original = { mutations: [{ original: 'a * b', rule: 'arithmetic-swap/v1', replacement: 'a + b' }] };
+    const edits = { mutations: [{ rule: 'first', replacement: 'a' }, { replacement: 'b' }] };
+    const findings = serializeBaseline([windows, original, edits, {}]).findings;
+    assert.deepEqual(findings, [
+      { id: findingId(posix), kind: diagA.kind, file: 'src/lib/cart.ts', rule: diagA.rule, code: 'count ?? 10' },
+      { id: findingId(original), kind: 'GAP', file: '', rule: 'arithmetic-swap/v1', code: 'a * b' },
+      { id: findingId(edits), kind: 'GAP', file: '', rule: 'first', code: 'first:a|:b' },
+      { id: findingId({}), kind: 'GAP', file: '', rule: undefined, code: '' },
+    ]);
+  });
+
+  it('keeps assigned IDs and numbers unassigned duplicates before applying a baseline', () => {
+    const assigned = { ...diagA, findingId: 'x' };
+    const emptyId = { ...diagA, findingId: '' };
+    const report = { diagnostics: [assigned, emptyId, diagAMoved, diagA] };
+    const ids = [assigned.findingId, findingId(diagA, 0), findingId(diagA, 1), findingId(diagA, 2)];
+    for (const baseline of [undefined, new Set()]) {
+      const result = applyBaseline(report, baseline);
+      assert.deepEqual(result, { diagnostics: report.diagnostics.map((finding, index) => ({ ...finding, findingId: ids[index] })) });
+    }
+    const filtered = applyBaseline(report, new Set([ids[0], ids[2]]));
+    assert.deepEqual(filtered.diagnostics.map(diagnostic => diagnostic.findingId), [ids[1], ids[3]]);
+    assert.deepEqual(filtered.suppressed, { baseline: 2, ids: [ids[0], ids[2]] });
   });
 
   it('covers every PICT row in verification/pict/baseline-suppression.tsv', () => {
