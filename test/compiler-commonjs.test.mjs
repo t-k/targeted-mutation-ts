@@ -506,4 +506,12 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   const trailSpecMap = compile(Buffer.from('import "x" /* "x" */;\nexport const a = 1;\n'), { file: 'a.ts', module: 'cjs', sourceMap: true });
   assert.equal(trailSpecMap.backend, 'pulse');
   assert.ok(trailSpecMap.sourceMap.mappings.length > 0);
+
+  // Reference capture in computed class keys, destructuring defaults/computed keys, and arrow defaults.
+  const compClassKey = sameAsTypeScript('import { Trait, Key } from "./dep";\nexport class C { [Trait] = true; [Key.sym]() { return 1; } }\n');
+  assert.equal(compClassKey.backend, 'pulse');
+  const destrDefault = sameAsTypeScript('import { DEF, KEY } from "./dep";\nexport function f(opts: any) { const { a = DEF, [KEY]: b } = opts; return [a, b]; }\n');
+  assert.equal(destrDefault.backend, 'pulse');
+  const arrowDefault = sameAsTypeScript('import { DEF } from "./dep";\nexport const g = (x = DEF) => x;\n');
+  assert.equal(arrowDefault.backend, 'pulse');
 });

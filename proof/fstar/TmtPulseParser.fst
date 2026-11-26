@@ -3241,7 +3241,7 @@ and arrow_parameter_list (input:tape) (state:parser_state) (floor used:names_use
     let! delimiter = (fun () -> peek input st.offset) in
     let! st =
       (fun () -> if initialized && equal.status = 0ul && equal.arrow_defaults_allowed &&
-          (st.status <> 0ul || (delimiter <> 44uy && delimiter <> 41uy)) then
+          (st.status <> 0ul || (delimiter <> 44uy && delimiter <> 41uy) || (input.capture_references && fuel <> 0ul)) then
         if fuel = 0ul then ret input (failed equal 3ul)
         else
           // Speculation starts after the live names and candidates. Disable recursive speculation into defaults.
@@ -4647,7 +4647,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
     let! key = (fun () -> class_member_key input { st with offset = member_head.at }) in
     // A computed key that is neither a name nor a string is an assignment expression in brackets. It is
     // evaluated where the class stands, so it is read in the state of the class body.
-    let! key = (fun () -> if key.computed && key.after_key.status <> 0ul && st.status = 0ul && fuel <> 0ul then
+    let! key = (fun () -> if key.computed && (key.after_key.status <> 0ul || input.capture_references) && st.status = 0ul && fuel <> 0ul then
         let! inside = (fun () -> skip input { st with offset = next key.first; in_allowed = true }) in
         let! value = (fun () -> comparison input inside (minus fuel 1ul)) in
         let! close = (fun () -> skip input value.parser) in
@@ -4860,10 +4860,17 @@ and pattern_names (input:tape) (state:parser_state) (base:names_base) (floor use
       let! bound =
         (fun () -> if close = 93uy then pattern_binding_at input st base floor used fuel depth
         else
-          let! key = (fun () -> if G.decimal_digit byte || byte = 46uy then number_end input st.offset
-            else if byte = 91uy then computed_property_name input st
-            else property_name input st) in
-          let! after = (fun () -> skip input (from_cursor st key)) in
+          let! after = (fun () -> if byte = 91uy && input.capture_references && st.status = 0ul && fuel <> 0ul then
+              let! inside = (fun () -> skip input { st with offset = next st.offset; in_allowed = true }) in
+              let! value = (fun () -> comparison input inside (minus fuel 1ul)) in
+              let! close_b = (fun () -> skip input value.parser) in
+              let! closed = (fun () -> consume input close_b 93uy) in
+              skip input { closed with in_allowed = st.in_allowed }
+            else
+              let! key = (fun () -> if G.decimal_digit byte || byte = 46uy then number_end input st.offset
+                else if byte = 91uy then computed_property_name input st
+                else property_name input st) in
+              skip input (from_cursor st key)) in
           (let! anf_value_7 = (fun () -> same input after.offset 58uy) in if anf_value_7 then
             let! target = (fun () -> (let! anf_value_8 = (fun () -> (consume input after 58uy)) in skip input anf_value_8)) in
             pattern_binding_at input target base floor used fuel depth
@@ -4874,7 +4881,7 @@ and pattern_names (input:tape) (state:parser_state) (base:names_base) (floor use
         else
           let! simple = (fun () -> simple_default input equal) in
           let! delimiter = (fun () -> peek input simple.offset) in
-          if simple.status = 0ul && (delimiter = 44uy || delimiter = close) then ret input simple
+          if (not input.capture_references || fuel = 0ul || not equal.arrow_defaults_allowed) && simple.status = 0ul && (delimiter = 44uy || delimiter = close) then ret input simple
           else if fuel = 0ul || not equal.arrow_defaults_allowed then ret input (failed equal 1ul)
           else
             let local_names = if base = binding_region_width then bound.used else equal.local_names in
