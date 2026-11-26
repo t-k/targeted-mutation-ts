@@ -725,6 +725,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         if (hasSemi) rhsEnd = skipTriviaBack(rhsRaw, rhsEnd - 1, true);
         if (rhsEnd <= 0) return null;
         const rhsExpr = rhsRaw.slice(0, rhsEnd).trim();
+        if (/\/\/[^\n]*$/.test(rhsExpr)) return null;
         const rhsCheck = addon.moduleRecords(Buffer.from(`export default ${rhsExpr}\n;`));
         if (rhsCheck === null) return null;
         let rhsStmts = 0;
@@ -1029,7 +1030,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   let body = '', position = order[0], next = 0;
   for (let index = 0; index < order.length; index++) {
     const end = endOf(index);
-    while (next < edits.length && edits[next][0] < end) {
+    while (next < edits.length && (edits[next][0] < end || (index + 1 === order.length && edits[next][0] === end))) {
       const [first, last, replacement, specCopy] = edits[next++];
       if (first < position) return null;
       if (bodySpans !== null) {

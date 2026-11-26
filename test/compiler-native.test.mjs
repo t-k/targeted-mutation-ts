@@ -70,7 +70,7 @@ test('native grammar declines module and syntax hazards', () => {
   ]) {
     assert.notEqual(compile(input).backend, 'pulse', JSON.stringify(input));
   }
-  assert.notEqual(compile(forms.Arrow, { file: 'source.cts' }).backend, 'pulse');
+  assert.equal(compile(forms.Arrow, { file: 'source.cts' }).backend, 'pulse');
   assert.equal(compile(forms.Arrow, { target: 'es2018' }).backend, 'pulse');
   assert.equal(compile(forms.Arrow + '\nexport const next = value ?? 1;', { target: 'es2018' }).backend, 'pulse');
   assert.notEqual(compile(forms.Arrow + '\nexport const next = value(1) ?? 1;', { target: 'es2018' }).backend, 'pulse');

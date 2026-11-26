@@ -600,4 +600,12 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
     assert.equal(sameAsTypeScript(src).backend, 'pulse', src);
   }
   assert.equal(compile(Buffer.from('export const f = <any>\n  function () {};\nexport default f.name;\n'), { file: 'a.ts', module: 'cjs' }).backend, 'typescript');
+  // Review round 45 bonus: EOF destructuring export without trailing newline or with trailing line comment.
+  assert.equal(sameAsTypeScript('export const [f, g] = [1, 2]').backend, 'pulse');
+  const eofSingle = compile(Buffer.from('export const [f] = [1]'), { file: 'a.ts', module: 'cjs' });
+  assert.equal(eofSingle.backend, 'pulse');
+  const eofMod = { exports: {} };
+  new Function('exports', 'require', 'module', eofSingle.code)(eofMod.exports, () => ({}), eofMod);
+  assert.equal(eofMod.exports.f, 1);
+  assert.equal(sameAsTypeScript('export const [f] = [1] // end').backend, 'typescript');
 });
