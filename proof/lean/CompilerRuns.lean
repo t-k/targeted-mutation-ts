@@ -298,4 +298,23 @@ theorem skipAsciiLinePrefix (bytes : List UInt8) (point : MapPoint)
     simp only [mapSeekStep, safe.1, ↓reduceIte, List.length_cons]
     congr 1 <;> omega
 
+-- ASCII identifier-continue run (`[A-Za-z0-9_$]`) for `tmt_ident_run` in `TmtPulseScan_scan_class`.
+-- Scope: proves prefix-skip equivalence for already-classified identifier bytes; SIMD lane masks
+-- and 16-byte bounds are verified exhaustively in `native/pulse/test.c`.
+def asciiIdentContinue (byte : UInt8) : Bool :=
+  (byte >= 65 && byte <= 90) || (byte >= 97 && byte <= 122) ||
+  (byte >= 48 && byte <= 57) || byte == 95 || byte == 36
+
+theorem skipIdentRun (bytes : List UInt8) (offset : Nat)
+    (safe : bytes.all asciiIdentContinue = true) :
+    bytes.foldl (fun pos b => if asciiIdentContinue b then pos + 1 else pos) offset =
+      offset + bytes.length := by
+  induction bytes generalizing offset with
+  | nil => simp
+  | cons b rest ih =>
+    simp only [List.all_cons, Bool.and_eq_true] at safe
+    rw [List.foldl_cons, if_pos safe.1, ih (offset + 1) safe.2]
+    simp only [List.length_cons]
+    omega
+
 end CompilerRuns

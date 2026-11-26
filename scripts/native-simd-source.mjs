@@ -71,6 +71,31 @@ export function simdSource(root, original, scratch, scalar) {
     const position = start + at + anchor.length - scalar.length - 6;
     source = source.slice(0, position) + fast + source.slice(position);
   }
+  // Optional SIMD fast-path for ASCII identifier scanning (`code == 1U`) in `TmtPulseScan_scan_class`.
+  const scanStart = source.indexOf('\nuint32_t TmtPulseScan_scan_class(');
+  if (scanStart >= 0) {
+    const scanEnd = source.indexOf('\n}\n', scanStart);
+    if (scanEnd >= 0) {
+      const scanBody = source.slice(scanStart, scanEnd);
+      if (createHash('sha256').update(scanBody).digest('hex') === 'ae7d121996e7294adf69c2c4b821fff4606fe2cb44a14c68c3ba79a51d9ab38b') {
+        const anchor = '  uint32_t cursor = start;\n';
+        const at = scanBody.indexOf(anchor);
+        if (at >= 0) {
+          const pos = scanStart + at + anchor.length;
+          const fast = `${simd}  if (code == 1U) {
+    while (cursor < size && size - cursor >= 16U) {
+      const unsigned skipped = tmt_ident_run(source + cursor);
+      cursor += skipped;
+      if (skipped < 16U) return cursor;
+    }
+  }
+#endif
+`;
+          source = source.slice(0, pos) + fast + source.slice(pos);
+        }
+      }
+    }
+  }
   const output = resolve(scratch, 'Custard.simd.c');
   const header = simd + '#include "tmt_simd_scan.h"\n#endif\n';
   writeFileSync(output, source.replace(include, include + header));

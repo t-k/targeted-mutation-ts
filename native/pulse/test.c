@@ -68,6 +68,7 @@ static void check_map_runs(void)
       const bool word = ((byte | 32u) - 'a') < 26u || (byte - '0') < 10u || byte == '_' || byte == '$';
       assert(tmt_map_word_run(from, to) == word);
       assert(tmt_map_word_count(from, to) == (word ? 16U : lane));
+      assert(tmt_ident_run(to) == (word ? 16U : lane));
       from[lane] = (uint8_t)(byte ^ 1u);
       assert(!tmt_map_word_run(from, to));
       assert(tmt_map_word_count(from, to) == lane);

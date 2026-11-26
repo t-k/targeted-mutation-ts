@@ -102,6 +102,18 @@ static inline bool tmt_map_word_run(const uint8_t *from, const uint8_t *to) {
   return tmt_map_word_count(from, to) == 16U;
 }
 
+/* Counts leading ASCII identifier-continue bytes (`[A-Za-z0-9_$]`) in a 16-byte window (0..16). */
+static inline unsigned tmt_ident_run(const uint8_t *source) {
+  const uint8x16_t t = vld1q_u8(source);
+  const uint8x16_t lower = vorrq_u8(t, vdupq_n_u8(32));
+  const uint8x16_t is_alpha = vcltq_u8(vsubq_u8(lower, vdupq_n_u8('a')), vdupq_n_u8(26));
+  const uint8x16_t is_digit = vcltq_u8(vsubq_u8(t, vdupq_n_u8('0')), vdupq_n_u8(10));
+  const uint8x16_t is_extra = vorrq_u8(vceqq_u8(t, vdupq_n_u8('_')), vceqq_u8(t, vdupq_n_u8('$')));
+  const uint8x16_t bad = vmvnq_u8(vorrq_u8(vorrq_u8(is_alpha, is_digit), is_extra));
+  const uint64_t mask = vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(vreinterpretq_u16_u8(bad), 4)), 0);
+  return mask ? (unsigned)(__builtin_ctzll(mask) >> 2) : 16U;
+}
+
 /* Counts leading bytes in a 16-byte template-literal window before `` ` ``, `$`, or `\`. */
 static inline unsigned tmt_template_run(const uint8_t *source) {
   const uint8x16_t b = vld1q_u8(source);
@@ -242,6 +254,17 @@ static inline unsigned tmt_map_word_count(const uint8_t *from, const uint8_t *to
 
 static inline bool tmt_map_word_run(const uint8_t *from, const uint8_t *to) {
   return tmt_map_word_count(from, to) == 16U;
+}
+
+static inline unsigned tmt_ident_run(const uint8_t *source) {
+  const __m128i t = _mm_loadu_si128((const __m128i *)source);
+  const __m128i lower = _mm_or_si128(t, _mm_set1_epi8(32));
+  const __m128i is_alpha = tmt_sse_u8_le(_mm_sub_epi8(lower, _mm_set1_epi8('a')), 25);
+  const __m128i is_digit = tmt_sse_u8_le(_mm_sub_epi8(t, _mm_set1_epi8('0')), 9);
+  const __m128i is_extra = _mm_or_si128(_mm_cmpeq_epi8(t, _mm_set1_epi8('_')), _mm_cmpeq_epi8(t, _mm_set1_epi8('$')));
+  const __m128i ok = _mm_or_si128(_mm_or_si128(is_alpha, is_digit), is_extra);
+  const unsigned bad = (~(unsigned)_mm_movemask_epi8(ok)) & 0xffffU;
+  return bad ? (unsigned)__builtin_ctz(bad) : 16U;
 }
 
 static inline unsigned tmt_template_run(const uint8_t *source) {
