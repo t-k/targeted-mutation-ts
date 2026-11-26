@@ -899,15 +899,41 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   // An identifier followed by `.`, `(`, or `[` inside an assignment LHS (`browser.rootEl = 1`, `configs[dirname(p)] = 1`)
   // or used as a computed property index (`entity[SIGNAL] = 1`, `(getter)[SIGNAL] = 1`) is evaluated as an expression
   // rather than assigned as a binding.
-  const nonExprKeywords = new Set(['return', 'yield', 'await', 'case', 'throw', 'delete', 'typeof', 'void', 'in', 'of', 'instanceof', 'new', 'else', 'do']);
+  const nonExprKeywords = new Set(['return', 'yield', 'await', 'case', 'throw', 'delete', 'typeof', 'void', 'in', 'of', 'instanceof', 'new', 'else', 'do', 'debugger', 'break', 'continue']);
+  const ctrlParenKeywords = new Set(['if', 'while', 'for', 'with']);
   const isComputedIndex = (position, prevToken, nextChar) => {
     if (prevToken !== '[' || nextChar !== ']') return false;
     const brEnd = skipTriviaBack(text, position, false);
     if (brEnd <= 0 || text[brEnd - 1] !== '[') return false;
     const beforeBr = skipTriviaBack(text, brEnd - 1, false);
     if (beforeBr <= 0) return false;
+    // Reject line breaks before `[` to avoid confusing ASI-terminated statements (`debugger\n[f] = [1]`) with indexing.
+    if (text.slice(beforeBr, brEnd - 1).includes('\n')) return false;
     const ch = text.charCodeAt(beforeBr - 1);
-    if (ch === 41 || ch === 93) return true; // `)[key] =` or `][key] =`
+    if (ch === 93) return true; // `][key] =`
+    if (ch === 41) { // `)[key] =`: ensure the `)` does not close a control-flow header (`if (...) [f] = [1]`).
+      let depth = 0, p = beforeBr - 1;
+      while (p >= 0) {
+        const u = text.charCodeAt(p);
+        if (u === 41) depth++;
+        else if (u === 40) { depth--; if (depth === 0) break; }
+        else if (u === 34 || u === 39 || u === 96 || (u === 47 && p > 0 && (text.charCodeAt(p - 1) === 42 || text.charCodeAt(p - 1) === 47))) return false;
+        p--;
+      }
+      if (p < 0 || depth !== 0) return false;
+      const beforeOpen = skipTriviaBack(text, p, false);
+      if (beforeOpen > 0 && ID_CONT[text.charCodeAt(beforeOpen - 1)]) {
+        let s = beforeOpen - 1;
+        while (s > 0 && ID_CONT[text.charCodeAt(s - 1)]) s--;
+        const kw = text.slice(s, beforeOpen);
+        if (ctrlParenKeywords.has(kw)) return false;
+        if (kw === 'await') {
+          const beforeAwait = skipTriviaBack(text, s, false);
+          if (beforeAwait >= 3 && text.slice(beforeAwait - 3, beforeAwait) === 'for' && (beforeAwait === 3 || !ID_CONT[text.charCodeAt(beforeAwait - 4)])) return false;
+        }
+      }
+      return true;
+    }
     if (ID_CONT[ch]) {
       let s = beforeBr - 1;
       while (s > 0 && ID_CONT[text.charCodeAt(s - 1)]) s--;

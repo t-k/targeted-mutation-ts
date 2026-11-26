@@ -657,6 +657,10 @@ test('CommonJS local-scope import shadowing compiles natively and matches TypeSc
     'const d = (c: any) => c;\n@d export class C {}\nconst async: any = { if() {} };\nasync?.if()\n{ await 0; }\n',
     'import { SIGNAL } from "./s";\n[SIGNAL] = [1];\nexport {};\n',
     'export const fn = function () {} as any\n\ntype T = number;\n',
+    'export function f() {}\nif (true) [f] = [123] as any;\n',
+    'export function f() {}\nif (true)\n  [f] = [123] as any;\n',
+    'export function f() {}\ndebugger\n[f] = [123] as any;\n',
+    'export function f() {}\ndo {} while (false)\n[f] = [123] as any;\n',
   ]) {
     assert.equal(compile(Buffer.from(src), { file: 'shadow.ts', module: 'cjs' }).backend, 'typescript', src);
   }
