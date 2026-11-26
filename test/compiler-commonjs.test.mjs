@@ -413,4 +413,17 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   assert.equal(arrowAsTrailing.backend, 'typescript');
   const asyncParam = sameAsTypeScript('export const fn = async => async + 1;\nexport const k = 1;\n');
   assert.equal(asyncParam.backend, 'pulse');
+
+  // Type-only modules emit CJS __esModule natively (with or without comments and source maps); type-only scripts do not.
+  const typeOnlyMod = sameAsTypeScript('/* license */\nexport interface Foo { a: number }\n');
+  assert.equal(typeOnlyMod.backend, 'pulse');
+  const typeOnlyMap = compile(Buffer.from('export type T = number;\n'), { file: 'a.ts', module: 'cjs', sourceMap: true });
+  assert.equal(typeOnlyMap.backend, 'pulse');
+  assert.equal(typeOnlyMap.sourceMap.mappings, '');
+  const typeOnlyScript = sameAsTypeScript('interface ScriptOnly { a: number }\n');
+  assert.equal(typeOnlyScript.backend, 'typescript');
+
+  // Exported enum followed by a JSDoc comment before the next declaration stays native.
+  const enumDoc = sameAsTypeScript('export enum Level { H2 = "h2", H3 = "h3" }\n/** doc */\nexport interface Item { level: Level }\n');
+  assert.equal(enumDoc.backend, 'pulse');
 });

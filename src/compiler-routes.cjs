@@ -810,6 +810,15 @@ function compile(input, options = {}) {
         const strict = strictScript(written.code, file, false);
         if (strict !== null) code = strict;
       }
+      if (code === null && written.backend === 'pulse' && !written.code.startsWith('#!') &&
+          written.code.replace(/(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g, '').trim() === '') {
+        const esm = compile(stable, { ...options, file: innerFile, module: 'esm', sourceMap: false });
+        if (esm.backend === 'pulse' && esm.code !== null && esm.code.trimEnd().endsWith('export {};')) {
+          const emptyModule = '"use strict";\nObject.defineProperty(exports, "__esModule", { value: true });\n';
+          if (!sourceMap) return { ...written, code: emptyModule };
+          return { ...written, code: emptyModule, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, '', written.sourceMap.sourcesContent[0], jsx === 'preserve', 'cjs') };
+        }
+      }
       if (code !== null) {
         if (!sourceMap) return { ...written, code };
         const mappings = require('./compiler-legacy-maps.cjs').composeCommonJsMappings(Buffer.from(written.code), Buffer.from(code), spans, written.sourceMap.mappings, code);

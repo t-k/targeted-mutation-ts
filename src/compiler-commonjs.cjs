@@ -502,13 +502,21 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           // A declaration without a value. The lowering of an enum or a namespace writes one in front of the
           // function that fills the object; TypeScript then keeps the variable and exports it where it is made.
           const filled = index + 1 < order.length ? text.slice(end, endOf(index + 1)) : '';
-          const tail = new RegExp(`\\}\\)\\(${name.replace(/\$/g, '\\$')}\\s*\\|\\|\\s*\\(${name.replace(/\$/g, '\\$')}\\s*=\\s*\\{\\}\\)\\);?\\s*$`);
+          let filledEnd = filled !== '' ? skipTriviaBack(filled, filled.length, true) : -1;
+          while (filledEnd > 0 && filled[filledEnd - 1] === ';') {
+            const prev = skipTriviaBack(filled, filledEnd - 1, true);
+            if (prev < 0) { filledEnd = -1; break; }
+            filledEnd = prev;
+          }
+          const filledHead = filledEnd > 0 ? filled.slice(0, filledEnd) : '';
+          const tail = new RegExp(`\\}\\)\\(${name.replace(/\$/g, '\\$')}\\s*\\|\\|\\s*\\(${name.replace(/\$/g, '\\$')}\\s*=\\s*\\{\\}\\)\\)$`);
           const spelled = name.replace(/\$/g, '\\$');
           const lowered = new RegExp(`(?<![\\w$.])(?:enum|namespace|module)\\s+${spelled}(?![\\w$])`).test(source) && !new RegExp(`(?<![\\w$.])(?:var|let|const)\\s+${spelled}(?![\\w$])`).test(source);
-          if (keyword === 'var' && lowered && filled.startsWith(`(function (${name})`) && tail.test(filled)) {
+          if (keyword === 'var' && lowered && filledHead.startsWith(`(function (${name})`) && tail.test(filledHead)) {
             edits.push([first, at, '']);
-            const found = tail.exec(filled);
-            edits.push([end + found.index, end + found.index + found[0].trimEnd().length, `})(${name} || (exports.${name} = ${name} = {}));`]);
+            const found = tail.exec(filledHead);
+            const semi = filled[filledEnd] === ';' ? '' : ';';
+            edits.push([end + found.index, end + found.index + found[0].length, `})(${name} || (exports.${name} = ${name} = {}))${semi}`]);
             kept.set(name, { statement: index, kind: 'filled' });
           } else {
             if (/[^\s;]/.test(text.slice(names[0].last, end))) return null;
