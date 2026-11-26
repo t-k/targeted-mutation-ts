@@ -32,119 +32,52 @@ const reserved = /(?<![\w$.])(?:default_1|__importStar|__importDefault|__exportS
 const regexAfter = new Set(['', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~', '<', '>', '+', '-', '*', '%', '/', '=>', ')ctrl',
   'return', 'throw', 'case', 'yield', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do']);
 
-// Walks `text` lexically, invoking `visit(name, at, prevToken)` for every identifier in code (skipping
-// comments, strings, template literal text and regular expressions). Returns false on ambiguous syntax or
-// when `visit` returns false.
+// Precomputed ASCII character-class tables for hot-loop lexical scanning (zero string allocations).
+const ID_START = new Uint8Array(256);
+const ID_CONT = new Uint8Array(256);
+const IS_WS = new Uint8Array(256);
+for (let u = 65; u <= 90; u++) { ID_START[u] = 1; ID_CONT[u] = 1; }
+for (let u = 97; u <= 122; u++) { ID_START[u] = 1; ID_CONT[u] = 1; }
+for (let u = 48; u <= 57; u++) { ID_CONT[u] = 1; }
+ID_START[95] = 1; ID_CONT[95] = 1; // _
+ID_START[36] = 1; ID_CONT[36] = 1; // $
+IS_WS[32] = 1; IS_WS[9] = 1; IS_WS[10] = 1; IS_WS[11] = 1; IS_WS[12] = 1;
+
+// Walks `text` lexically, invoking `visit(name, at, prevToken, depth, inTopClass, inAsyncFn)` for every
+// identifier in code (skipping comments, strings, template literal text and regular expressions).
+// Returns false on ambiguous syntax or when `visit` returns false.
 function scanCodeIdentifiers(text, visit) {
+  const len = text.length;
   const braces = [], parens = [];
-  let prev = '', at = 0, expectClassBody = false, asyncParenDepth = -1;
+  let prev = '', at = 0, expectClassBody = false, asyncParenDepth = -1, asyncDepth = 0;
   const skipTemplate = pos => {
-    while (pos < text.length) {
-      const c = text[pos];
-      if (c === '\\') { pos += 2; continue; }
-      if (c === '`') { prev = 'lit'; return pos + 1; }
-      if (c === '$' && text[pos + 1] === '{') { braces.push('template'); prev = '${'; return pos + 2; }
+    while (pos < len) {
+      const u = text.charCodeAt(pos);
+      if (u === 92) { pos += 2; continue; } // '\'
+      if (u === 96) { prev = 'lit'; return pos + 1; } // '`'
+      if (u === 36 && text.charCodeAt(pos + 1) === 123) { braces.push('template'); prev = '${'; return pos + 2; } // '${'
       pos++;
     }
     return -1;
   };
-  while (at < text.length) {
-    const c = text[at];
-    if (c === ' ' || c === '\t' || c === '\n' || c === '\v' || c === '\f') { at++; continue; }
-    if (c === '/' && text[at + 1] === '/') {
-      const end = text.indexOf('\n', at + 2);
-      at = end < 0 ? text.length : end + 1;
-      continue;
-    }
-    if (c === '/' && text[at + 1] === '*') {
-      const end = text.indexOf('*/', at + 2);
-      if (end < 0) return false;
-      at = end + 2;
-      continue;
-    }
-    if (c === '"' || c === "'") {
+  while (at < len) {
+    let u = text.charCodeAt(at);
+    if (IS_WS[u]) {
       at++;
-      while (at < text.length && text[at] !== c) {
-        if (text[at] === '\\') at += 2;
-        else if (text[at] === '\n') return false;
-        else at++;
-      }
-      if (at >= text.length) return false;
-      at++;
-      prev = 'lit';
+      while (at < len && IS_WS[text.charCodeAt(at)]) at++;
       continue;
     }
-    if (c === '`') {
-      at = skipTemplate(at + 1);
-      if (at < 0) return false;
-      continue;
-    }
-    if (c === '}') {
-      if (braces.length > 0 && braces[braces.length - 1] === 'template') {
-        braces.pop();
-        at = skipTemplate(at + 1);
-        if (at < 0) return false;
-        continue;
-      }
-      if (braces.length > 0) braces.pop();
-      prev = '}';
-      at++;
-      continue;
-    }
-    if (c === '{') {
-      const isAsyncBody = asyncParenDepth === parens.length && (prev === ')' || prev === '=>');
-      braces.push(expectClassBody ? 'class' : isAsyncBody ? 'async' : '{');
-      expectClassBody = false;
-      if (isAsyncBody) asyncParenDepth = -1;
-      prev = '{';
-      at++;
-      continue;
-    }
-    if (c === '(') {
-      parens.push(prev === 'if' || prev === 'while' || prev === 'for' || prev === 'with' || prev === 'await-for');
-      prev = '(';
-      at++;
-      continue;
-    }
-    if (c === ')') {
-      prev = parens.pop() ? ')ctrl' : ')';
-      if (parens.length < asyncParenDepth) asyncParenDepth = -1;
-      at++;
-      continue;
-    }
-    if (c === '/') {
-      if (prev === '}' || prev === '++' || prev === '--' || prev === 'of' || prev === 'debugger' || prev === 'break' || prev === 'continue') return false;
-      if (regexAfter.has(prev)) {
-        at++;
-        let inClass = false;
-        while (at < text.length) {
-          const rc = text[at];
-          if (rc === '\\') { at += 2; continue; }
-          if (rc === '\n') return false;
-          if (inClass) { if (rc === ']') inClass = false; }
-          else if (rc === '[') inClass = true;
-          else if (rc === '/') { at++; break; }
-          at++;
-        }
-        while (at < text.length && /[a-z]/i.test(text[at])) at++;
-        prev = 'lit';
-        continue;
-      }
-      at += text[at + 1] === '=' ? 2 : 1;
-      prev = '/';
-      continue;
-    }
-    const code = text.charCodeAt(at);
-    if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95 || code === 36) {
+    if (ID_START[u]) {
       let end = at + 1;
-      while (end < text.length) {
-        const u = text.charCodeAt(end);
-        if ((u >= 65 && u <= 90) || (u >= 97 && u <= 122) || (u >= 48 && u <= 57) || u === 95 || u === 36) end++;
-        else break;
+      while (end < len && ID_CONT[text.charCodeAt(end)]) end++;
+      if (prev === '.') {
+        prev = 'id';
+        at = end;
+        continue;
       }
       const name = text.slice(at, end);
       const inTopClass = braces.length === 1 && braces[0] === 'class' && parens.length === 0;
-      const inAsyncFn = braces.includes('async') || (asyncParenDepth === parens.length && prev === '=>');
+      const inAsyncFn = asyncDepth > 0 || (asyncParenDepth === parens.length && prev === '=>');
       if (visit(name, at, prev, braces.length, inTopClass, inAsyncFn) === false) return false;
       if (name === 'class' && prev !== '.') { expectClassBody = true; asyncParenDepth = -1; }
       else if (name === 'async' && prev !== '.') asyncParenDepth = parens.length;
@@ -153,26 +86,125 @@ function scanCodeIdentifiers(text, visit) {
       at = end;
       continue;
     }
-    if (code >= 48 && code <= 57) {
-      const radixPrefix = c === '0' && (text[at + 1] === 'x' || text[at + 1] === 'X' || text[at + 1] === 'b' || text[at + 1] === 'B' || text[at + 1] === 'o' || text[at + 1] === 'O');
+    if (u === 47) { // '/'
+      const u1 = text.charCodeAt(at + 1);
+      if (u1 === 47) { // '//'
+        const end = text.indexOf('\n', at + 2);
+        at = end < 0 ? len : end + 1;
+        continue;
+      }
+      if (u1 === 42) { // '/*'
+        const end = text.indexOf('*/', at + 2);
+        if (end < 0) return false;
+        at = end + 2;
+        continue;
+      }
+      if (prev === '}' || prev === '++' || prev === '--' || prev === 'of' || prev === 'debugger' || prev === 'break' || prev === 'continue') return false;
+      if (regexAfter.has(prev)) {
+        at++;
+        let inClass = false;
+        while (at < len) {
+          const rc = text.charCodeAt(at);
+          if (rc === 92) { at += 2; continue; } // '\'
+          if (rc === 10) return false; // '\n'
+          if (inClass) { if (rc === 93) inClass = false; } // ']'
+          else if (rc === 91) inClass = true; // '['
+          else if (rc === 47) { at++; break; } // '/'
+          at++;
+        }
+        while (at < len) {
+          const fc = text.charCodeAt(at);
+          if ((fc >= 65 && fc <= 90) || (fc >= 97 && fc <= 122)) at++;
+          else break;
+        }
+        prev = 'lit';
+        continue;
+      }
+      at += u1 === 61 ? 2 : 1; // '/=' vs '/'
+      prev = '/';
+      continue;
+    }
+    if (u === 34 || u === 39) { // '"' or "'"
       at++;
-      while (at < text.length) {
-        const u = text.charCodeAt(at);
-        if ((u >= 48 && u <= 57) || (u >= 65 && u <= 90) || (u >= 97 && u <= 122) || u === 95 || u === 46) {
-          if (!radixPrefix && (u === 69 || u === 101) && (text[at + 1] === '+' || text[at + 1] === '-')) at += 2;
-          else at++;
+      while (at < len) {
+        const sc = text.charCodeAt(at);
+        if (sc === u) break;
+        if (sc === 92) at += 2;
+        else if (sc === 10) return false;
+        else at++;
+      }
+      if (at >= len) return false;
+      at++;
+      prev = 'lit';
+      continue;
+    }
+    if (u === 96) { // '`'
+      at = skipTemplate(at + 1);
+      if (at < 0) return false;
+      continue;
+    }
+    if (u === 125) { // '}'
+      if (braces.length > 0 && braces[braces.length - 1] === 'template') {
+        braces.pop();
+        at = skipTemplate(at + 1);
+        if (at < 0) return false;
+        continue;
+      }
+      if (braces.length > 0 && braces.pop() === 'async') asyncDepth--;
+      prev = '}';
+      at++;
+      continue;
+    }
+    if (u === 123) { // '{'
+      const isAsyncBody = asyncParenDepth === parens.length && (prev === ')' || prev === '=>');
+      if (expectClassBody) braces.push('class');
+      else if (isAsyncBody) { braces.push('async'); asyncDepth++; }
+      else braces.push('{');
+      expectClassBody = false;
+      if (isAsyncBody) asyncParenDepth = -1;
+      prev = '{';
+      at++;
+      continue;
+    }
+    if (u === 40) { // '('
+      parens.push(prev === 'if' || prev === 'while' || prev === 'for' || prev === 'with' || prev === 'await-for');
+      prev = '(';
+      at++;
+      continue;
+    }
+    if (u === 41) { // ')'
+      prev = parens.pop() ? ')ctrl' : ')';
+      if (parens.length < asyncParenDepth) asyncParenDepth = -1;
+      at++;
+      continue;
+    }
+    if (u >= 48 && u <= 57) { // '0'..'9'
+      const u1 = text.charCodeAt(at + 1);
+      const radixPrefix = u === 48 && (u1 === 120 || u1 === 88 || u1 === 98 || u1 === 66 || u1 === 111 || u1 === 79);
+      at++;
+      while (at < len) {
+        const nc = text.charCodeAt(at);
+        if ((nc >= 48 && nc <= 57) || (nc >= 65 && nc <= 90) || (nc >= 97 && nc <= 122) || nc === 95 || nc === 46) {
+          if (!radixPrefix && (nc === 69 || nc === 101)) {
+            const sign = text.charCodeAt(at + 1);
+            if (sign === 43 || sign === 45) { at += 2; continue; }
+          }
+          at++;
         } else break;
       }
       prev = 'lit';
       continue;
     }
-    if (c === '.' && text[at + 1] === '.' && text[at + 2] === '.') { prev = '...'; at += 3; continue; }
-    if (c === '?' && text[at + 1] === '.' && !(text.charCodeAt(at + 2) >= 48 && text.charCodeAt(at + 2) <= 57)) { prev = '.'; at += 2; continue; }
-    if (c === '=' && text[at + 1] === '>') { prev = '=>'; at += 2; continue; }
-    if ((c === '+' && text[at + 1] === '+') || (c === '-' && text[at + 1] === '-')) { prev = c + c; at += 2; continue; }
-    if (c === '*') { prev = prev === 'function' ? 'function*' : '*'; at++; continue; }
-    if (c === ';') asyncParenDepth = -1;
-    prev = c;
+    if (u === 46 && text.charCodeAt(at + 1) === 46 && text.charCodeAt(at + 2) === 46) { prev = '...'; at += 3; continue; }
+    if (u === 63 && text.charCodeAt(at + 1) === 46) {
+      const u2 = text.charCodeAt(at + 2);
+      if (!(u2 >= 48 && u2 <= 57)) { prev = '.'; at += 2; continue; }
+    }
+    if (u === 61 && text.charCodeAt(at + 1) === 62) { prev = '=>'; at += 2; continue; }
+    if ((u === 43 && text.charCodeAt(at + 1) === 43) || (u === 45 && text.charCodeAt(at + 1) === 45)) { prev = u === 43 ? '++' : '--'; at += 2; continue; }
+    if (u === 42) { prev = prev === 'function' ? 'function*' : '*'; at++; continue; }
+    if (u === 59) asyncParenDepth = -1;
+    prev = text[at];
     at++;
   }
   return true;
@@ -348,7 +380,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   }
 
   const starts = new Set(), listed = new Set(), targets = [], moduleEnds = new Map(), defaults = new Map(), direct = new Set();
-  const declared = [], references = [], shorthand = new Set(), classBodies = [];
+  const declared = [], referenceAt = new Map(), classBodies = [];
   for (let index = 0; index < records.length; index += 5) {
     const kind = records[index], first = records[index + 1], last = records[index + 2];
     if (first >= bytes.length || last > bytes.length) continue;
@@ -361,7 +393,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
     else if (kind === 67) direct.add(first);
     else if (kind === 61) declared.push({ name: text.slice(first, last), first, last, kind: records[index + 3], isFunction: records[index + 4] === 1 });
     else if (kind === 43 || kind === 62) {
-      references.push({ first, last, shorthand: kind === 62 });
+      referenceAt.set(first, last * 2 + (kind === 62 ? 1 : 0));
     } else if (kind === 33 || kind === 40 || kind === 41) return null;
   }
   const order = [...starts].sort((a, b) => a - b);
@@ -898,7 +930,6 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   };
   const checkLoopTarget = () => (hasLoopTarget ??= loopTarget.test(text));
   const checkObjectTarget = () => (hasObjectTarget ??= objectTarget.test(text));
-  const referenceAt = new Map(references.map(reference => [reference.first, reference]));
   const isInShadowedSpan = (spansMap, name, pos) => {
     const list = spansMap.get(name);
     if (list === undefined) return false;
@@ -974,7 +1005,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         const isDecoratorHead = prevToken === '@' || before === '@';
         if (isDecoratorHead) {
           if (!(depth === 0 || inTopClass || !isShadowedLocal(name))) return false;
-        } else if (reference === undefined || reference.last !== at + name.length) {
+        } else if (reference === undefined || Math.floor(reference / 2) !== at + name.length) {
           // Non-reference identifier in code: safe when it is a property key/label (`name:`), a method or
           // accessor definition (`name(` not after `function`/`function*`), a label jump, or a static member.
           if (reference === undefined) {
@@ -1013,7 +1044,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
                 !['else', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'case'].includes(prevToken)) return false;
           }
         }
-        edits.push([at, at + name.length, reference && reference.shorthand ? `${name}: ${target.text}` : value]);
+        edits.push([at, at + name.length, reference !== undefined && (reference & 1) === 1 ? `${name}: ${target.text}` : value]);
       } else if (shadowedSpans !== null && (local.kind === 'function' || local.kind === 'class') &&
           direct.has(order[local.statement]) && isInShadowedSpan(shadowedSpans, name, at)) {
         return;
