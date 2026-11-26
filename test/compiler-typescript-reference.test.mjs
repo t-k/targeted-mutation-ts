@@ -3131,6 +3131,7 @@ test('each target compiles natively up to the forms of its year', () => {
     ['export function f(g: () => void) { try { g(); } catch { g(); } }', 2015],
     ['export function f(g: () => void) { try { g(); } catch /* none */ { g(); } }', 2015],
     ['export function f(g: () => void) { const _a = 1; try { g(); } catch { g(); return _a; } }', 2015],
+    ['export function f() { const _\\u0061 = 42; try { throw 1; } catch { return _\\u0061; } }', 2019],
     ['declare const b: { c?: number } | undefined;\nexport const a = b?.c;', 2020],
     ['declare const b: number | undefined;\nexport const a = b ?? 1;', 2020],
     ['export * as parts from "./parts";', 2015],

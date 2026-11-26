@@ -680,9 +680,9 @@ function mappedScript(input, options) {
 // their words and signs, wherever they stand (a comment or a string that holds one sends the file to
 // TypeScript):
 //   below ES2022  a class (fields, private names and static blocks all need one) and any private name
-//   below ES2021  `||=`, `&&=`, `??=` and a numeric separator
-//   below ES2020  `?.`, `??` and `export * as`
-//   below ES2019  a `catch` without a binding
+//   below ES2021  `||=`, `&&=`, `??=` (numeric separators are lowered natively by `lowerOlderTarget`)
+//   below ES2020  `?.` and `??` (`export * as` is kept/lowered identically across all targets)
+//   below ES2019  optional `catch` bindings are lowered natively by `lowerOlderTarget` when unambiguous
 //   below ES2018  `...` (an object may spread or collect), `for await`, an async generator, JSX (whose
 //                 attributes become an object that may spread), and a template next to a doubtful escape
 //   below ES2017  `async` and `await`
@@ -713,7 +713,7 @@ function lowerOlderTarget(code, year) {
   const lowerCatch = year < 2019 && /\bcatch\b(?!\s*\()/.test(code);
   let catchName = null;
   if (lowerCatch) {
-    if (/\b(?:eval|with)\b/.test(code)) return null;
+    if (code.includes('\\u') || /\b(?:eval|with)\b/.test(code)) return null;
     for (let i = 0; i < 26; i++) {
       const cand = '_' + String.fromCharCode(97 + i);
       if (!new RegExp(`(?<![\\w$])${cand}(?![\\w$])`).test(code)) { catchName = cand; break; }
