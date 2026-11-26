@@ -377,8 +377,11 @@ function hasEscapedKeyword(text) {
   return false;
 }
 
-// A .ts/.mts file that contains no TypeScript syntax and passes V8's parser can be published natively
-// when it avoids the few ES2025/Unicode forms that V8 accepts and TypeScript 6.0.3 rejects.
+// A .ts/.mts file that contains no TypeScript syntax and passes V8's parser (or Node's strict-identity
+// strip check with TS 6.0.3 compatibility guards) can be published natively when it avoids the few
+// ES2025/Unicode/legacy forms that V8/SWC accept and TypeScript 6.0.3 rejects.
+const tsRejectsInStripIdentity = /\\[1-9]|\\0[0-9]|\b0\d*_|0[bBoOxX]_|\._|\bfor\s*\([^;)]*;[^;)]*\)|\{\s*(?:default|extends|yield|await|false|true|null)\s*[,}]|\bawait\s*[;),}]|\b(?:var|let|const|class|new)\s+await\b|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|\bthis\s*=(?!=)|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)/;
+
 function validJavaScriptTsModule(addon, source, text, file, format, directive = false, sourceMap = false) {
   if (hasEscapedKeyword(text) ||
       /\bnew(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*import\b|\bimport(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*(?:\.(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*(?:source|defer)|source|defer)\b|\?\.[^\n;]*#|\bfor\b[^\n]*\[[^\]]*\bin\b/.test(text)) {
@@ -391,6 +394,18 @@ function validJavaScriptTsModule(addon, source, text, file, format, directive = 
     code = text;
   } else if (!sourceMap && format === 'preserve' && !/\b(?:import|export)\b/.test(text) && validators.validScript(text)) {
     code = strictScript(text, file, directive);
+  } else if (!sourceMap && format === 'preserve' && !directive && /\b(?:import|export)\b/.test(text) && !tsRejectsInStripIdentity.test(text)) {
+    // 1. Sloppy-mode pure-JS body with trailing `export {};` (common in Test262 module harnesses):
+    //    V8's script parser validates the body when it has no octal/await/HTML-comment module hazards.
+    const trail = /^([\s\S]*)\nexport \{\};\n?$/.exec(text);
+    if (trail !== null && !/\b(?:import|export|await)\b|\b0[0-9]|\\[1-7]|\\0[0-9]/.test(trail[1]) && validators.validScript(trail[1])) {
+      code = text;
+    } else if (!/\\u|[\u200c\u200d\u2028\u2029]/.test(text)) {
+      // 2. Pure-JS module that passes Node's stripTypeScriptTypes verbatim (identity output) while
+      //    avoiding all SWC/TS 6.0.3 syntax divergences checked above (hasEscapedKeyword already ran).
+      const stripped = strip(text, file);
+      if (stripped.code === text) code = text;
+    }
   }
   if (code === null) return null;
   if (!sourceMap) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
