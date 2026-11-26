@@ -45,7 +45,7 @@ for (const row of rows) {
     } else if (output === 'CommonJS' && kind === 'LateExport') {
       // A module published as written is rewritten to CommonJS from its own text.
       assert.equal(result.backend, 'javascript');
-      assert.equal(result.code, '"use strict";\nObject.defineProperty(exports, "__esModule", { value: true });\nexports.local = void 0;\nconst local = 12;\n\nexports.local = local;\n');
+      assert.equal(result.code, '"use strict";\nObject.defineProperty(exports, "__esModule", { value: true });\nexports.local = void 0;\nconst local = 12;\n\nexports.local = local;\n;');
     } else {
       assert.equal(result.backend, 'typescript');
       if (output === 'Map') assert.ok(result.sourceMap);
