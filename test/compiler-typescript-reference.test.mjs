@@ -3340,7 +3340,7 @@ test('Stage 3 standard ES class decorators lower natively with __esDecorate for 
   }
 });
 
-test('F170 TypeScript lowering: legacy module, CJS equals, ambient blocks, TSX pre-pass, and SWC relaxations', () => {
+test('F170 TypeScript lowering: legacy module, CJS equals, ambient blocks, TSX pre-pass, and SWC relaxations', async () => {
   for (const [file, source] of [
     ['mod.ts', 'module A.B { export const x = 1; export function f() { return 2; } }\n'],
     ['cjs.ts', 'import fs = require("node:fs");\nexport = fs;\n'],
@@ -3443,8 +3443,32 @@ test('F170 TypeScript lowering: legacy module, CJS equals, ambient blocks, TSX p
     ['bad-for-semi.ts', 'for (a; b\n)\nexport {};\n'],
     ['bad-async-fn-lhs.ts', '(async function foo() {} = 1);\nexport {};\n'],
     ['bad-let-nl-yield.ts', 'function f() { let\nyield 0; }\nexport {};\n'],
+    // Review Round 54 negative syntax rejections:
+    ['r54-f-await.ts', 'export {}; f(await);\n'],
+    ['r54-jsx-bad-ta.tsx', 'export const x = <div<,>/>;\n'],
+    ['r54-jsx-empty-ns-attr.tsx', 'export const x = <div a:=""/>;\n'],
+    ['r54-enum-spaced-shift.ts', 'export enum E { A = 1 < < 2 }\n'],
   ]) {
     const r = compile(Buffer.from(source), { file });
     assert.equal(r.code, null, `must reject invalid TS: ${file}`);
   }
+  // Review Round 54 semantic/AST equivalence & crash-safety regressions:
+  for (const [file, source] of [
+    ['r54-jsx-entities.tsx', 'export const x = <a:b>&nbsp; &amp;lt;</a:b>;\n'],
+    ['r54-jsx-dup-key.tsx', 'declare function a(): any; declare function b(): any;\nexport const x = <a:b key={a()} key={b()} />;\n'],
+    ['r54-jsx-comma.tsx', 'declare const a: any, b: any;\nexport const x = <div a={(a, b)} key={a, b} {...a, b}>{a, b}</div>;\nexport const y = <div a={a, b} />;\n'],
+    ['r54-jsx-regex.tsx', 'export const x = <a:b>{/[=<x/>]/.source}</a:b>;\n'],
+    ['r54-jsx-str-pragma.tsx', 'const s = "/* @jsxImportSource fake */";\nexport const x = <a:b/>;\n'],
+    ['r54-jsx-directive.tsx', '"use client";\nexport const x = <a:b/>;\n'],
+    ['r54-enum-paren-str.ts', 'export enum E { A = ("x") }\n'],
+    ['r54-enum-hex-key.ts', 'export enum E { 0x10 = 2 }\n'],
+  ]) {
+    sameAsTypeScript(source, file);
+  }
+  // Deeply nested JSX must not throw RangeError (Maximum call stack size exceeded)
+  const deepJsx = 'export const x = ' + '<a:b>'.repeat(400) + '<a:b/>' + '</a:b>'.repeat(400) + ';\n';
+  assert.doesNotThrow(() => compile(Buffer.from(deepJsx), { file: 'r54-deep.tsx' }));
+  // Out-of-range numeric JSX entity must not crash the JSX fallback lowerer
+  const { lowerJsxToAutomatic } = await import('../src/compiler-jsx-lower.cjs');
+  assert.equal(lowerJsxToAutomatic('export const x = <a:b>&#1114112;</a:b>;'), null);
 });

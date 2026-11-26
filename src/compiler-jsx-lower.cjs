@@ -51,33 +51,70 @@ function cleanJsxText(raw) {
   return parts.length > 0 ? parts.join(' ') : null;
 }
 
+const NAMED_JSX_ENTITIES = new Map([
+  ['amp', '&'], ['lt', '<'], ['gt', '>'], ['quot', '"'], ['apos', "'"], ['nbsp', '\u00a0'],
+  ['copy', '\u00a9'], ['reg', '\u00ae'], ['trade', '\u2122'], ['mdash', '\u2014'], ['ndash', '\u2013'],
+  ['hellip', '\u2026'], ['bull', '\u2022'], ['lsquo', '\u2018'], ['rsquo', '\u2019'], ['ldquo', '\u201c'], ['rdquo', '\u201d'],
+]);
+
+// Single-pass JSX character reference decoder.
+// Returns `null` for unknown named entities or out-of-range numeric code points so the caller falls back to TypeScript.
 function decodeJsxEntities(str) {
   if (!str.includes('&')) return str;
-  return str
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)));
+  let invalid = false;
+  const out = str.replace(/&(?:([A-Za-z][A-Za-z0-9]*)|#(\d+)|#x([0-9a-fA-F]+));/g, (full, named, dec, hex) => {
+    if (named !== undefined) {
+      const mapped = NAMED_JSX_ENTITIES.get(named);
+      if (mapped === undefined) { invalid = true; return full; }
+      return mapped;
+    }
+    const digits = dec !== undefined ? dec : hex;
+    if (digits.length > 8) { invalid = true; return full; }
+    const cp = parseInt(digits, dec !== undefined ? 10 : 16);
+    if (!Number.isInteger(cp) || cp < 0 || cp > 0x10FFFF) { invalid = true; return full; }
+    return String.fromCodePoint(cp);
+  });
+  return invalid ? null : out;
+}
+
+// Wrap a comma-operator expression (`a, b`) in parentheses when placed in an object property, call argument, or array element.
+function wrapIfTopLevelComma(expr) {
+  let dP = 0, dB = 0, dBr = 0;
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    if (ch === '"' || ch === "'" || ch === '`') {
+      i++;
+      while (i < expr.length && expr[i] !== ch) { if (expr[i] === '\\') i += 2; else i++; }
+      continue;
+    }
+    if (ch === '/' && expr[i + 1] === '/') {
+      const nl = expr.indexOf('\n', i + 2);
+      if (nl < 0) break;
+      i = nl;
+      continue;
+    }
+    if (ch === '/' && expr[i + 1] === '*') {
+      const end = expr.indexOf('*/', i + 2);
+      if (end < 0) break;
+      i = end + 1;
+      continue;
+    }
+    if (ch === '(') dP++;
+    else if (ch === ')') dP--;
+    else if (ch === '[') dB++;
+    else if (ch === ']') dB--;
+    else if (ch === '{') dBr++;
+    else if (ch === '}') dBr--;
+    else if (ch === ',' && dP === 0 && dB === 0 && dBr === 0) {
+      return `(${expr})`;
+    }
+  }
+  return expr;
 }
 
 function lowerJsxToAutomatic(source) {
   if (!source.includes('<') || source.includes('\u2028') || source.includes('\u2029')) return null;
   if (/\b(?:_jsx|_jsxs|_Fragment)\b/.test(source)) return null;
-  // Bail if an explicit `@jsxRuntime classic` pragma is present inside a block comment.
-  let importSource = 'react';
-  if (/\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\//.test(source)) {
-    const comments = source.match(/\/\*[\s\S]*?\*\//g) || [];
-    for (const cm of comments) {
-      if (/(?:^|[\r\n\/\*])[ \t]*@jsxRuntime[ \t]+classic\b/i.test(cm)) return null;
-    }
-    for (const cm of comments) {
-      const m = /(?:^|[\r\n]|\/\*+)[ \t]*\*?[ \t]*@jsxImportSource[ \t]+([^\s*]+)/i.exec(cm);
-      if (m) { importSource = m[1]; break; }
-    }
-  }
 
   const n = source.length;
   let usedJsx = false;
@@ -85,6 +122,49 @@ function lowerJsxToAutomatic(source) {
   let usedFragment = false;
   let loweredAny = false;
   let failed = false;
+  let jsxDepth = 0;
+  let importSource = 'react';
+  let sawImportSourcePragma = false;
+
+  // Bail if the file starts with a directive prologue (e.g. `"use client";`) so TypeScript keeps it ahead of the helper import.
+  {
+    let p = 0;
+    while (p < n) {
+      const c = source[p];
+      if (c === ' ' || c === '\t' || c === '\r' || c === '\n') { p++; continue; }
+      if (c === '/' && source[p + 1] === '/') { const nl = source.indexOf('\n', p + 2); p = nl < 0 ? n : nl + 1; continue; }
+      if (c === '/' && source[p + 1] === '*') { const end = source.indexOf('*/', p + 2); if (end < 0) return null; p = end + 2; continue; }
+      break;
+    }
+    if (p < n && (source[p] === '"' || source[p] === "'")) return null;
+  }
+
+  function inspectBlockCommentPragma(cm) {
+    if (/(?:^|[\r\n\/\*])[ \t]*@jsxRuntime[ \t]+classic\b/i.test(cm)) { failed = true; return; }
+    if (!sawImportSourcePragma) {
+      const m = /(?:^|[\r\n]|\/\*+)[ \t]*\*?[ \t]*@jsxImportSource[ \t]+([^\s*]+)/i.exec(cm);
+      if (m) { importSource = m[1]; sawImportSourcePragma = true; }
+    }
+  }
+
+  function skipRegexLiteral(pos) {
+    let j = pos + 1;
+    let inClass = false;
+    while (j < n) {
+      const rc = source[j];
+      if (rc === '\\') { j += 2; continue; }
+      if (rc === '\n' || rc === '\r') return -1;
+      if (inClass) { if (rc === ']') inClass = false; }
+      else if (rc === '[') inClass = true;
+      else if (rc === '/') {
+        j++;
+        while (j < n && /[a-zA-Z]/.test(source[j])) j++;
+        return j;
+      }
+      j++;
+    }
+    return -1;
+  }
 
   function skipWs(pos) {
     while (pos < n) {
@@ -131,6 +211,15 @@ function lowerJsxToAutomatic(source) {
         out += source.slice(i, end + 2);
         i = end + 2;
         continue;
+      }
+      if (ch === '/' && EXPR_PREFIX.has(prev)) {
+        const rxEnd = skipRegexLiteral(i);
+        if (rxEnd > i) {
+          out += source.slice(i, rxEnd);
+          i = rxEnd;
+          prev = 'lit';
+          continue;
+        }
       }
       if (ch === '"' || ch === "'") {
         let j = i + 1;
@@ -219,7 +308,7 @@ function lowerJsxToAutomatic(source) {
     return false;
   }
 
-  // Skip balanced `<...>` type arguments on a JSX opening tag `<Comp<T, U> ...>`
+  // Skip and validate balanced `<...>` type arguments on a JSX opening tag `<Comp<T, U> ...>`
   function skipTypeArgs(pos) {
     if (source[pos] !== '<') return pos;
     let i = pos + 1, d = 1;
@@ -233,11 +322,19 @@ function lowerJsxToAutomatic(source) {
       i++;
     }
     if (d !== 0) { failed = true; return n; }
+    const rawArgs = source.slice(pos, i);
+    try {
+      require('node:module').stripTypeScriptTypes(`type __tmt_ta__ = __F__${rawArgs};`);
+    } catch {
+      failed = true;
+      return n;
+    }
     return i;
   }
 
   function parseJsxElement(pos) {
-    if (source[pos] !== '<') { failed = true; return { code: '', next: pos }; }
+    if (++jsxDepth > 128) { failed = true; return { code: '', next: n }; }
+    if (source[pos] !== '<') { jsxDepth--; failed = true; return { code: '', next: pos }; }
     let i = pos + 1;
     let isFragment = false;
     let tagName = '';
@@ -292,15 +389,25 @@ function lowerJsxToAutomatic(source) {
           if (failed) return { code: '', next: n };
           const trimmed = emb.expr.trim();
           if (!trimmed.startsWith('...') || /^\.\.\.\s*\{/.test(trimmed)) { failed = true; return { code: '', next: n }; }
-          props.push(trimmed);
+          const spreadArg = trimmed.slice(3).trim();
+          if (!spreadArg) { failed = true; return { code: '', next: n }; }
+          props.push(`...${wrapIfTopLevelComma(spreadArg)}`);
           sawSpread = true;
           i = emb.next;
           continue;
         }
         if (!isIdentStart(source[i])) { failed = true; return { code: '', next: n }; }
         const aStart = i;
-        while (i < n && (isJsxNamePart(source[i]) || source[i] === ':')) i++;
-        const attrName = source.slice(aStart, i);
+        while (i < n && isJsxNamePart(source[i])) i++;
+        let attrName = source.slice(aStart, i);
+        if (source[i] === ':') {
+          i++;
+          if (!isIdentStart(source[i] || '')) { failed = true; return { code: '', next: n }; }
+          const lStart = i;
+          while (i < n && isJsxNamePart(source[i])) i++;
+          if (source[i] === ':') { failed = true; return { code: '', next: n }; }
+          attrName = attrName + ':' + source.slice(lStart, i);
+        }
         const propKey = /^[A-Za-z_$][\w$]*$/.test(attrName) ? attrName : JSON.stringify(attrName);
         i = skipWs(i);
         let valCode = 'true';
@@ -311,14 +418,16 @@ function lowerJsxToAutomatic(source) {
             const sStart = i;
             while (i < n && source[i] !== q) i++;
             if (i >= n) { failed = true; return { code: '', next: n }; }
-            valCode = JSON.stringify(decodeJsxEntities(source.slice(sStart, i)));
+            const decoded = decodeJsxEntities(source.slice(sStart, i));
+            if (decoded === null) { failed = true; return { code: '', next: n }; }
+            valCode = JSON.stringify(decoded);
             i++;
           } else if (source[i] === '{') {
             const emb = parseEmbeddedExpr(i);
             if (failed) return { code: '', next: n };
             const trimmed = emb.expr.trim();
             if (!trimmed) { failed = true; return { code: '', next: n }; }
-            valCode = trimmed;
+            valCode = wrapIfTopLevelComma(trimmed);
             i = emb.next;
           } else if (source[i] === '<') {
             const sub = parseJsxElement(i);
@@ -331,7 +440,7 @@ function lowerJsxToAutomatic(source) {
           }
         }
         if (attrName === 'key') {
-          if (sawSpread) { failed = true; return { code: '', next: n }; } // TS uses createElement when key follows spread
+          if (sawSpread || keyExpr !== null) { failed = true; return { code: '', next: n }; }
           keyExpr = valCode;
         } else {
           props.push(`${propKey}: ${valCode}`);
@@ -369,7 +478,13 @@ function lowerJsxToAutomatic(source) {
           if (failed) return { code: '', next: n };
           const cleaned = emb.expr.replace(/\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*/g, '').trim();
           if (cleaned.length > 0) {
-            children.push(emb.expr.trim());
+            const trimmed = emb.expr.trim();
+            if (trimmed.startsWith('...')) {
+              const sp = trimmed.slice(3).trim();
+              children.push(`...${wrapIfTopLevelComma(sp)}`);
+            } else {
+              children.push(wrapIfTopLevelComma(trimmed));
+            }
           }
           i = emb.next;
           continue;
@@ -383,12 +498,15 @@ function lowerJsxToAutomatic(source) {
         const rawText = source.slice(tStart, i);
         const cleaned = cleanJsxText(rawText);
         if (cleaned !== null) {
-          children.push(JSON.stringify(decodeJsxEntities(cleaned)));
+          const decoded = decodeJsxEntities(cleaned);
+          if (decoded === null) { failed = true; return { code: '', next: n }; }
+          children.push(JSON.stringify(decoded));
         }
       }
       if (!closed) { failed = true; return { code: '', next: n }; }
     }
 
+    jsxDepth--;
     if (failed) return { code: '', next: n };
     loweredAny = true;
 
@@ -441,10 +559,23 @@ function lowerJsxToAutomatic(source) {
     if (ch === '/' && source[i + 1] === '*') {
       const end = source.indexOf('*/', i + 2);
       if (end < 0) return null;
-      if (source.slice(i, end + 2).includes('\n')) sawNewline = true;
-      out += source.slice(i, end + 2);
+      const cm = source.slice(i, end + 2);
+      inspectBlockCommentPragma(cm);
+      if (failed) return null;
+      if (cm.includes('\n')) sawNewline = true;
+      out += cm;
       i = end + 2;
       continue;
+    }
+    if (ch === '/' && (EXPR_PREFIX.has(prev) || sawNewline)) {
+      const rxEnd = skipRegexLiteral(i);
+      if (rxEnd > i) {
+        out += source.slice(i, rxEnd);
+        i = rxEnd;
+        prev = 'lit';
+        sawNewline = false;
+        continue;
+      }
     }
     if (ch === '"' || ch === "'") {
       let j = i + 1;

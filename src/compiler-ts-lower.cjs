@@ -538,10 +538,14 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
   function parseShift() {
     let v = parseAdd();
     while (v !== null && pos + 1 < toks.length) {
-      if (toks[pos].text === '<' && toks[pos + 1].text === '<') { pos += 2; const r = parseAdd(); v = r === null ? null : (v << r); }
-      else if (toks[pos].text === '>' && toks[pos + 1].text === '>' && toks[pos + 2]?.text === '>') { pos += 3; const r = parseAdd(); v = r === null ? null : (v >>> r); }
-      else if (toks[pos].text === '>' && toks[pos + 1].text === '>') { pos += 2; const r = parseAdd(); v = r === null ? null : (v >> r); }
-      else break;
+      if (toks[pos].text === '<' && toks[pos + 1].text === '<' && toks[pos].end === toks[pos + 1].start) {
+        pos += 2; const r = parseAdd(); v = r === null ? null : (v << r);
+      } else if (toks[pos].text === '>' && toks[pos + 1].text === '>' && toks[pos + 2]?.text === '>' &&
+          toks[pos].end === toks[pos + 1].start && toks[pos + 1].end === toks[pos + 2].start) {
+        pos += 3; const r = parseAdd(); v = r === null ? null : (v >>> r);
+      } else if (toks[pos].text === '>' && toks[pos + 1].text === '>' && toks[pos].end === toks[pos + 1].start) {
+        pos += 2; const r = parseAdd(); v = r === null ? null : (v >> r);
+      } else break;
     }
     return v;
   }
@@ -563,7 +567,7 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
   }
   function parsePow() {
     const v = parseUnary();
-    if (v !== null && pos + 1 < toks.length && toks[pos].text === '*' && toks[pos + 1].text === '*') {
+    if (v !== null && pos + 1 < toks.length && toks[pos].text === '*' && toks[pos + 1].text === '*' && toks[pos].end === toks[pos + 1].start) {
       pos += 2;
       const r = parsePow();
       return r === null ? null : Math.pow(v, r);
@@ -585,6 +589,11 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
       return Number.isNaN(n) ? null : n;
     }
     if (toks[pos].type === 'str' || toks[pos].type === 'tpl') {
+      // Only coerce string/template to number when an explicit numeric operator is present in the expression
+      // (prevents `("x")` from turning into `NaN`).
+      if (!toks.some(t => t.type === 'punc' && (t.text === '-' || t.text === '*' || t.text === '/' || t.text === '%' || t.text === '~' || t.text === '&' || t.text === '|' || t.text === '^' || t.text === '+'))) {
+        return null;
+      }
       const sv = decodeSimpleStringToken(toks[pos++]);
       return sv !== null ? Number(sv) : null;
     }
@@ -674,10 +683,15 @@ function lowerEnumBody(name, bodySource, sharedEnv = null, allowComputed = false
     if (m.length === 0) continue;
     const keyTok = m[0];
     let propKey;
-    if (keyTok.type === 'id') propKey = JSON.stringify(keyTok.text);
-    else if (keyTok.type === 'str') propKey = keyTok.text;
-    else if (keyTok.type === 'num') propKey = JSON.stringify(keyTok.text);
-    else if (keyTok.type === 'punc' && keyTok.text === '[') {
+    let revVal;
+    if (keyTok.type === 'id') { propKey = JSON.stringify(keyTok.text); revVal = propKey; }
+    else if (keyTok.type === 'str') { propKey = keyTok.text; revVal = propKey; }
+    else if (keyTok.type === 'num') {
+      const nVal = Number(keyTok.text.replace(/_/g, ''));
+      if (!Number.isFinite(nVal)) return null;
+      propKey = String(nVal);
+      revVal = String(nVal);
+    } else if (keyTok.type === 'punc' && keyTok.text === '[') {
       // Computed enum member key `[expr] = val`
       let closeB = -1, d = 0;
       for (let bi = 0; bi < m.length; bi++) {
@@ -713,10 +727,10 @@ function lowerEnumBody(name, bodySource, sharedEnv = null, allowComputed = false
     if (m.length === 1) {
       if (nextNum === null) {
         if (!allowComputed) return null;
-        lines.push(`    ${name}[${name}[${propKey}] = void 0] = ${propKey};`);
+        lines.push(`    ${name}[${name}[${propKey}] = void 0] = ${revVal};`);
         continue;
       }
-      lines.push(`    ${name}[${name}[${propKey}] = ${nextNum}] = ${propKey};`);
+      lines.push(`    ${name}[${name}[${propKey}] = ${nextNum}] = ${revVal};`);
       if (keyTok.type === 'id') env.set(keyTok.text, { kind: 'num', value: nextNum });
       nextNum++;
     } else if (m.length >= 3 && m[1].type === 'punc' && m[1].text === '=') {
@@ -728,12 +742,12 @@ function lowerEnumBody(name, bodySource, sharedEnv = null, allowComputed = false
         if (keyTok.type === 'id') env.set(keyTok.text, ev);
         nextNum = null;
       } else if (ev.kind === 'num') {
-        lines.push(`    ${name}[${name}[${propKey}] = ${ev.value}] = ${propKey};`);
+        lines.push(`    ${name}[${name}[${propKey}] = ${ev.value}] = ${revVal};`);
         const envKey = keyTok.type === 'id' ? keyTok.text : decodeSimpleStringToken(keyTok);
         if (envKey !== null && !ev.nonFinite) env.set(envKey, ev);
         nextNum = ev.nonFinite ? null : ev.value + 1;
       } else {
-        lines.push(`    ${name}[${name}[${propKey}] = ${ev.raw}] = ${propKey};`);
+        lines.push(`    ${name}[${name}[${propKey}] = ${ev.raw}] = ${revVal};`);
         const envKey = keyTok.type === 'id' ? keyTok.text : decodeSimpleStringToken(keyTok);
         if (envKey !== null) env.set(envKey, { kind: 'computed' });
         nextNum = null;
@@ -1268,7 +1282,7 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
             }
             if (new RegExp(`(?<![\\w$.])${varName}(?![\\w$])`).test(rest)) {
               if (/\bimport\s+[A-Za-z_$][\w$]*\s*=/.test(rest) ||
-                  new RegExp(`\\b(?:var|let|const|function|class|enum|namespace|module)\\s+${varName}\\b|\\([^)]*\\b${varName}\\b|\\b${varName}\\s*:`).test(rest)) {
+                  new RegExp(`\\b(?:var|let|const|function|class|enum|namespace|module)\\s+${varName}\\b|\\((?:[^)=]*,)?\\s*${varName}\\b|\\b${varName}\\s*:`).test(rest)) {
                 return null;
               }
               exportedVars.push({ name: varName, stmtStart: t.start, stmtEnd: toks[endIdx].end });
@@ -4108,6 +4122,70 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
           for (const [ph, orig] of saved) out = out.replace(ph, () => orig);
           return out;
         }
+      }
+    }
+  }
+
+  // `Cannot assign to this` (`({...{}} = {})`, `for ([""] of [[""]]) {}`) -> mask invalid destructuring target, strip, restore
+  if (errMsg.includes('Cannot assign to this') && !source.includes('__tmt_dt_')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      const saved = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].text === '...' && (toks[i + 1].text === '{' || toks[i + 1].text === '[' || toks[i + 1].text === '(')) {
+          const open = toks[i + 1].text;
+          const closeCh = open === '{' ? '}' : open === '[' ? ']' : ')';
+          let k = i + 2, d = 1;
+          while (k < toks.length && d > 0) {
+            if (toks[k].text === open) d++;
+            else if (toks[k].text === closeCh) d--;
+            k++;
+          }
+          if (d === 0) {
+            const orig = source.slice(toks[i + 1].start, toks[k - 1].end);
+            const ph = `__tmt_dt_${saved.length}__`;
+            saved.push([ph, orig]);
+            edits.push({ start: toks[i + 1].start, end: toks[k - 1].end, text: ph });
+            i = k - 1;
+          }
+        } else if (toks[i].type === 'str' && toks[i - 1]?.text === '[' && toks[i + 1]?.text === ']') {
+          const ph = `__tmt_dt_${saved.length}__`;
+          saved.push([ph, toks[i].text]);
+          edits.push({ start: toks[i].start, end: toks[i].end, text: ph });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) {
+          let out = stripped;
+          for (const [ph, orig] of saved) out = out.replace(ph, () => orig);
+          return out;
+        }
+      }
+    }
+  }
+
+  // `Expected '{', got '<eof>'` / `Expression expected`: empty `extends` clause (`class C extends {}`, `class C extends implements A {}`)
+  if (errMsg.includes("Expected '{', got '<eof>'") || errMsg.includes('Expression expected')) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'extends' && toks[i - 1]?.text !== '.' &&
+            (toks[i + 1].text === '{' || toks[i + 1].text === 'implements')) {
+          edits.push({ start: toks[i].start, end: toks[i].end, text: '       ' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
       }
     }
   }

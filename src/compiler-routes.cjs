@@ -440,7 +440,8 @@ function validJavaScriptTsModule(addon, source, text, file, format, directive = 
   } else if (genericCallSafe && !sourceMap && format === 'preserve' && !/\b(?:import|export)\b/.test(text) && validators.validScript(text)) {
     code = strictScript(text, file, directive);
   } else if (!sourceMap && format === 'preserve' && !directive && /\b(?:import|export)\b/.test(text) &&
-      !text.includes('<!--') && !text.includes('-->') && !tsRejectsInStripIdentity.test(noComments)) {
+      !text.includes('<!--') && !text.includes('-->') && !tsRejectsInStripIdentity.test(noComments) &&
+      !(/\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(noComments) && !/\bfunction\b/.test(noComments))) {
     // 1. Sloppy-mode pure-JS body with trailing `export {};` (common in Test262 module harnesses):
     //    V8's script parser validates the body when it has no octal/await/HTML-comment module hazards.
     const trail = /^([\s\S]*)\nexport \{\};\n?$/.exec(text);
@@ -646,6 +647,7 @@ const tsRejectsInNodeStrip = /\\u003[0-9]|\\u\{0*3[0-9]\}|\?\.[^\n;]*#|\bstatic(
 
 function hasTsRejectsInNodeStrip(source) {
   if (tsRejectsInNodeStrip.test(source) || require('./compiler-ts-lower.cjs').hasForBracketIn(source)) return true;
+  if (/\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(source) && !/\bfunction\b/.test(source)) return true;
   // TypeScript rejects multiple `/// <amd-module` directives in one file.
   if (source.includes('<amd-module')) {
     const m = source.match(/\/\/\/[ \t\f\v]*<amd-module\b/gi);
