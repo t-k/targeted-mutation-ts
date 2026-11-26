@@ -576,7 +576,7 @@ test('JavaScript published as written receives a map that leads every position t
   assert.equal(compile(Buffer.from('#!/usr/bin/env node\nexport const a = 1;\n'), { file: 'bin.mjs', sourceMap: true }).backend, 'typescript');
   assert.equal(compile(Buffer.from('export const e = <div/>;\n'), { file: 'view.jsx', sourceMap: true }).backend, 'typescript');
   assert.equal(compile(Buffer.from('const a = ;\n'), { file: 'broken.js', sourceMap: true }).code, null);
-  assert.equal(compile(Buffer.from('const a = 1;\nmodule.exports = a;\n'), { file: 'common.cjs', sourceMap: true }).backend, 'typescript');
+  identity('const a = 1;\nmodule.exports = a;\n', 'common.cjs', 1);
 });
 
 test('source maps for CommonJS output, jsx: preserve, and non-ASCII identifiers are faithful', () => {

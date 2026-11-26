@@ -796,7 +796,7 @@ function compile(input, options = {}) {
       const toCjs = require('./compiler-commonjs.cjs').toCommonJs;
       let code = addon && origin !== null ? toCjs(addon, written.code, origin, experimentalDecorators, spans) : null;
       if (code === null && !sourceMap && addon && origin !== null && /[^\x00-\x7f]/.test(written.code) &&
-          !/[^\x00-\x7f](?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*!(?!=)/.test(origin) && !/\b(?:from|import)\s*["'][^"'\n]*[^\x00-\x7f]/.test(written.code)) {
+          !/[^\x00-\x7f][\w$\x80-\xff]*(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*!(?!=)/.test(origin) && !/\b(?:from|import)\s*["'][^"'\n]*[^\x00-\x7f]/.test(written.code)) {
         const writtenBytes = Buffer.from(written.code);
         const copy = asciiSpelling(writtenBytes, written.code);
         if (copy !== null && copy.wellFormed) {

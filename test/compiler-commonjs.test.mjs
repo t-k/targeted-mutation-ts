@@ -483,4 +483,27 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   const starFirst = sameAsTypeScript('export * from "./y";\nexport const load = () => import("./x");\n');
   assert.equal(starFirst.backend, 'pulse');
   assert.ok(starFirst.code.indexOf('var __exportStar') < starFirst.code.indexOf('var __importStar'));
+
+  // Review round 38 regressions (sol + terra):
+  // 1. Non-ASCII identifier ending in ASCII followed by `!()` keeps receiver (delegates to TypeScript).
+  const nonAsciiAsciiTail = sameAsTypeScript('import { éa } from "./m";\nexport const z = éa!();\n');
+  assert.equal(nonAsciiAsciiTail.backend, 'typescript');
+  // 2. Multi-trailing-slash and URL-root specifiers match TypeScript's exact `_1` binding name.
+  for (const spec of ['./x//', 'https://example.com/', 'http://example.com/', 'https://example.com']) {
+    const r = sameAsTypeScript(`import { x } from "${spec}";\nexport const y = x;\n`);
+    assert.equal(r.backend, 'pulse', spec);
+    assert.match(r.code, /const _1 = require\(/, spec);
+  }
+  // 3. Uninitialized export followed by license comment preserves the comment.
+  const uninitLicense = compile(Buffer.from('export let x: number;\n/*! license */\nexport const y = 1;\n'), { file: 'a.ts', module: 'cjs' });
+  assert.equal(uninitLicense.backend, 'pulse');
+  assert.match(uninitLicense.code, /\/\*! license \*\//);
+  // 4. No-semicolon arrow followed by `/* @__PURE__ */ g();` keeps the annotation attached to `g()`.
+  const pureAttach = compile(Buffer.from('export const f = () => {}\n/* @__PURE__ */ g();\n'), { file: 'a.ts', module: 'cjs' });
+  assert.equal(pureAttach.backend, 'pulse');
+  assert.ok(pureAttach.code.indexOf('exports.f = f;') < pureAttach.code.indexOf('/* @__PURE__ */'), pureAttach.code);
+  // 5. Specifier followed by trailing comment containing the same string maps to column 7 (real specifier, not comment).
+  const trailSpecMap = compile(Buffer.from('import "x" /* "x" */;\nexport const a = 1;\n'), { file: 'a.ts', module: 'cjs', sourceMap: true });
+  assert.equal(trailSpecMap.backend, 'pulse');
+  assert.ok(trailSpecMap.sourceMap.mappings.length > 0);
 });

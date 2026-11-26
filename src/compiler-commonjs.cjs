@@ -275,7 +275,8 @@ function members(text) {
 
 // The name TypeScript derives from a module specifier, before the number that makes it unique.
 function specifierName(specifier) {
-  const trimmed = specifier.replace(/\/+$/, '');
+  if (/^[a-zA-Z]+:\/\/[^/]*\/?$/.test(specifier)) return '';
+  const trimmed = specifier.replace(/\/$/, '');
   const seg = trimmed.slice(trimmed.lastIndexOf('/') + 1);
   return seg.replace(/^(\d)/, '_$1').replace(/\W/g, '_');
 }
@@ -382,7 +383,11 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       const statement = rawStatement.replace(/"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, m => m[0] === '"' || m[0] === "'" ? m : ' ').trim();
       let match;
       const editWithSpec = (replacement, spec) => {
-        const specAt = text.lastIndexOf(spec, last - spec.length);
+        let specOff = -1;
+        const scan = /"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g;
+        const slice = text.slice(first, last);
+        for (let m; (m = scan.exec(slice)) !== null; ) if (m[0] === spec) specOff = m.index;
+        const specAt = specOff >= 0 ? first + specOff : -1;
         const repAt = replacement.indexOf(spec);
         edits.push(specAt >= first && specAt + spec.length <= last && repAt >= 0 ?
           [first, last, replacement, [repAt, specAt, spec.length]] : [first, last, replacement]);
@@ -521,7 +526,9 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
             kept.set(name, { statement: index, kind: 'filled' });
           } else {
             if (/[^\s;]/.test(text.slice(names[0].last, end).replace(/\/\/[^\n]*|\/\*[\s\S]*?\*\//g, ''))) return null;
-            edits.push([first, end, ';\n']);
+            const afterName = skipTrivia(text, names[0].last);
+            const declEnd = afterName >= 0 && afterName < end && text[afterName] === ';' ? afterName + 1 : names[0].last;
+            edits.push([first, declEnd, ';']);
             renamed.set(name, { text: `exports.${name}`, statement: index, kind: 'variable' });
           }
           continue;
@@ -546,7 +553,8 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           if (skipTriviaBack(beforeEnd, beforeEnd.length, true) !== beforeEnd.length ||
               ((leading[1].length > 1 || leading[2].startsWith('\n')) && /^(?:async(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)+function|function|class)(?![\w$])/.test(leading[2].trimStart()))) return null;
           edits.push([first, at, '']);
-          behind(index, `exports.${name} = ${name};`);
+          if (trailingComment) edits.push([equals + tailEnd, equals + tailEnd, `;\nexports.${name} = ${name};`]);
+          else behind(index, `exports.${name} = ${name};`);
         } else edits.push([first, names[0].last, `exports.${name}`]);
         renamed.set(name, { text: `exports.${name}`, statement: index, kind: 'variable', declaration: names[0].first });
       } else return null;
