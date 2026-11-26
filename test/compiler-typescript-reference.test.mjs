@@ -3339,3 +3339,31 @@ test('Stage 3 standard ES class decorators lower natively with __esDecorate for 
     assert.ok(sb.code.startsWith('#!/usr/bin/env node\n'));
   }
 });
+
+test('F170 TypeScript lowering: legacy module, CJS equals, ambient blocks, TSX pre-pass, and SWC relaxations', () => {
+  for (const [file, source] of [
+    ['mod.ts', 'module A.B { export const x = 1; export function f() { return 2; } }\n'],
+    ['cjs.ts', 'import fs = require("node:fs");\nexport = fs;\n'],
+    ['amb.ts', 'declare module "pkg" { export function f(): void; }\nconst v: number = 1;\n'],
+    ['tsx-cjs.tsx', '// @jsx: preserve\nimport React = require("react");\nconst el = <div />;\n'],
+    ['tsx-amb.tsx', '// @jsx: preserve\ndeclare module JSX { interface Element {} }\nconst el = <div />;\n'],
+    ['dec-expr.ts', 'declare var dec: any;\nconst C = (@dec class {});\n'],
+    ['non-es-dec.ts', 'declare function dec<T>(t: T): T;\n@dec\ninterface I {}\n'],
+    ['relax-eval.ts', 'class C { f(arguments: any) { return arguments; } }\n'],
+    ['relax-const.ts', 'const x: number;\n'],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    assert.notEqual(r.backend, 'typescript', `${file}: ${source}`);
+  }
+  // Invalid syntax inside declare module, reserved type alias names, and malformed references must be rejected.
+  for (const [file, source] of [
+    ['bad-amb.ts', 'declare module M { export extension class C {} }\nconst x = 1;\n'],
+    ['bad-res.ts', 'declare module debugger {}\nexport const x = 1;\n'],
+    ['bad-type.ts', 'type void = number;\n'],
+    ['bad-ref.ts', '/// <reference path="unclosed.ts />\nclass C {}\n'],
+    ['bad-var.ts', 'type T<in in> = T;\n'],
+  ]) {
+    const r = compile(Buffer.from(source), { file });
+    assert.equal(r.code, null, `must reject invalid TS: ${file}`);
+  }
+});
