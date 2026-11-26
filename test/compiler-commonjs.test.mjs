@@ -184,9 +184,11 @@ test('modules that are left to TypeScript for CommonJS output', () => {
   // A call on its own line behind something that may end a statement is not written here.
   const unsure = compile(Buffer.from('import { a } from "./a";\ndeclare const x: any;\nif (x)\n  a()\nexport {};'), { file: 'module.ts', module: 'cjs' });
   assert.equal(unsure.backend, 'typescript');
-  // Files with a module extension, a source map and legacy decorators keep the TypeScript route.
+  // Files with a module extension keep the TypeScript route; a source map is emitted natively.
   assert.equal(compile(Buffer.from('export const a = 1;'), { file: 'module.mts', module: 'cjs' }).backend, 'typescript');
-  assert.equal(compile(Buffer.from('export const a: number = 1;'), { file: 'module.ts', module: 'cjs', sourceMap: true }).backend, 'typescript');
+  const mappedCjs = compile(Buffer.from('import { b } from "./b";\nexport const a: number = b;\n'), { file: 'module.ts', module: 'cjs', sourceMap: true });
+  assert.equal(mappedCjs.backend, 'pulse');
+  assert.equal(mappedCjs.sourceMap.file, 'module.js');
 });
 
 test('the CommonJS text runs like TypeScript\'s', () => {

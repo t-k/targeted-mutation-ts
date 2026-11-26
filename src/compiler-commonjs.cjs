@@ -282,7 +282,7 @@ function specifierName(specifier) {
 const marked = name => new RegExp(`(?<![\\w$])(?<!(?<!\\.\\.)\\.)${name.replace(/\$/g, '\\$')}(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n]*\\n)*!(?!=)`);
 
 // `source` is the text the module was compiled from, as a string of bytes.
-function toCommonJs(addon, code, source, experimentalDecorators = false) {
+function toCommonJs(addon, code, source, experimentalDecorators = false, spans = null) {
   const bytes = Buffer.from(code);
   if (bytes.length > 1048576) return null;
   // One byte per character, so that the parser's offsets index the text.
@@ -670,19 +670,29 @@ function toCommonJs(addon, code, source, experimentalDecorators = false) {
   for (const name of renamed.keys()) if (source.includes('!') && marked(name).test(source)) return null;
   if (cleared.length > 50 || new Set(cleared).size !== cleared.length) return null;
   edits.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const bodySpans = spans === null ? null : [];
   let body = '', position = order[0], next = 0;
   for (let index = 0; index < order.length; index++) {
     const end = endOf(index);
     while (next < edits.length && edits[next][0] < end) {
       const [first, last, replacement] = edits[next++];
       if (first < position) return null;
+      if (bodySpans !== null) {
+        if (first > position) bodySpans.push([first - position, position]);
+        if (replacement.length > 0) bodySpans.push([replacement.length, -1]);
+      }
       body += text.slice(position, first) + replacement;
       position = last;
     }
     if (position > end) return null;
+    if (bodySpans !== null && end > position) bodySpans.push([end - position, position]);
     body += text.slice(position, end);
     position = end;
-    if (after.has(index)) body += (/[;}\s]$/.test(body.trimEnd().slice(-1)) || body.trim() === '' ? '\n' : ';\n') + after.get(index);
+    if (after.has(index)) {
+      const added = (/[;}\s]$/.test(body.trimEnd().slice(-1)) || body.trim() === '' ? '\n' : ';\n') + after.get(index);
+      if (bodySpans !== null) bodySpans.push([added.length, -1]);
+      body += added;
+    }
   }
   const prelude = text.slice(0, order[0]);
   const hashbang = prelude.startsWith('#!') ? prelude.slice(0, prelude.indexOf('\n') + 1 || prelude.length) : '';
@@ -697,17 +707,40 @@ function toCommonJs(addon, code, source, experimentalDecorators = false) {
     prologueEnd = order[directives] + found[0].length;
   }
   const prologue = text.slice(order[0], prologueEnd);
-  if (prologue !== '') body = body.slice(prologue.length);
-  let head = hashbang + (strict ? '' : '"use strict";\n') + (prologue === '' ? '' : prologue.trimEnd().replace(/;?$/, ';') + '\n');
-  for (const name of [...helpers].sort((a, b) => helperRank[a] - helperRank[b])) head += ownHelpers[name] ?? helperText[name];
-  head += temporaries + 'Object.defineProperty(exports, "__esModule", { value: true });\n';
-  if (cleared.length !== 0) head += cleared.slice().reverse().map(name => `exports.${name}`).join(' = ') + ' = void 0;\n';
+  if (prologue !== '') {
+    body = body.slice(prologue.length);
+    if (bodySpans !== null) {
+      let drop = prologue.length;
+      while (drop > 0 && bodySpans.length > 0) {
+        const [len, at] = bodySpans[0];
+        if (len <= drop) { drop -= len; bodySpans.shift(); }
+        else { bodySpans[0] = [len - drop, at < 0 ? -1 : at + drop]; drop = 0; }
+      }
+    }
+  }
+  const strictLine = strict ? '' : '"use strict";\n';
+  const prologueText = prologue === '' ? '' : prologue.trimEnd().replace(/;?$/, ';') + '\n';
+  let headAfterPrologue = '';
+  for (const name of [...helpers].sort((a, b) => helperRank[a] - helperRank[b])) headAfterPrologue += ownHelpers[name] ?? helperText[name];
+  headAfterPrologue += temporaries + 'Object.defineProperty(exports, "__esModule", { value: true });\n';
+  if (cleared.length !== 0) headAfterPrologue += cleared.slice().reverse().map(name => `exports.${name}`).join(' = ') + ' = void 0;\n';
   // Functions are exported in the order of the statements that first export them, keeping aliases together.
-  for (const [, line] of hoisted.sort((a, b) => a[0] - b[0] || (a[2] ?? a[0]) - (b[2] ?? b[0]))) head += line + '\n';
-  const result = Buffer.from(head + front + prelude.slice(hashbang.length) + body, 'latin1').toString();
+  for (const [, line] of hoisted.sort((a, b) => a[0] - b[0] || (a[2] ?? a[0]) - (b[2] ?? b[0]))) headAfterPrologue += line + '\n';
+  const head = hashbang + strictLine + prologueText + headAfterPrologue;
+  const preludeRest = prelude.slice(hashbang.length);
+  const result = Buffer.from(head + front + preludeRest + body, 'latin1').toString();
   // The text is read once more by the parser before it is returned. (Node's own compile function is not
   // asked: for some invalid texts it ends the process while it decorates the error.)
   if (addon.moduleRecords(Buffer.from(result)) === null) return null;
+  if (spans !== null) {
+    if (hashbang.length > 0) spans.push([hashbang.length, 0]);
+    if (strictLine.length > 0) spans.push([strictLine.length, -1]);
+    if (prologueText.length > 0) spans.push([prologueText.length, -1]);
+    if (headAfterPrologue.length > 0) spans.push([headAfterPrologue.length, -1]);
+    if (front.length > 0) spans.push([front.length, -1]);
+    if (preludeRest.length > 0) spans.push([preludeRest.length, hashbang.length]);
+    for (const entry of bodySpans) spans.push(entry);
+  }
   return result;
 }
 

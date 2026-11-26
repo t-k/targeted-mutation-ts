@@ -17,11 +17,12 @@ function mappedTypeScript(input, file, flags, addon) {
 }
 
 // The fields other than the mappings follow the map TypeScript writes for the same name.
-function sourceMapObject(file, mappings, text) {
+function sourceMapObject(file, mappings, text, preserveJsx = false) {
   const name = file.slice(file.lastIndexOf('/') + 1);
   const module = name.endsWith('.mts');
+  const jsxOut = preserveJsx && name.endsWith('.tsx');
   const width = module || name.endsWith('.tsx') ? 4 : 3;
-  return { version: 3, file: name.slice(0, -width) + (module ? '.mjs' : '.js'), sourceRoot: '', sources: [name], names: [],
+  return { version: 3, file: name.slice(0, -width) + (module ? '.mjs' : jsxOut ? '.jsx' : '.js'), sourceRoot: '', sources: [name], names: [],
     mappings, sourcesContent: [text] };
 }
 

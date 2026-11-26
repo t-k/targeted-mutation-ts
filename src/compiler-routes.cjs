@@ -238,7 +238,7 @@ function restoreNames(code, spellings, derived = false) {
   return code.replace(/[A-Za-z0-9_$]+/g, word => originals.get(word) ?? word);
 }
 
-function highByteNames(addon, source, text, file, format) {
+function highByteNames(addon, source, text, file, format, sourceMap = false) {
   const copy = asciiSpelling(source, text);
   if (copy === null) return null;
   const { renamed, spellings, wellFormed } = copy;
@@ -249,12 +249,30 @@ function highByteNames(addon, source, text, file, format) {
     let erasureOnly = true;
     for (let at = 0; at < restored.length && erasureOnly; at++) {
       // Every byte that the copy changed is put back: those outside ASCII, and the first byte of a word
-      // that is no identifier, which the copy spells as a digit.
+      // that is no identifier, which the copy spells as a digit. An erased multibyte scalar receives the
+      // same UTF-16-preserving blank that the native emitter writes, so projection source maps align.
       if (restored[at] === renamed[at]) { if (source[at] !== renamed[at]) restored[at] = source[at]; }
-      else if (restored[at] !== 32) erasureOnly = false;
+      else if (restored[at] === 32) {
+        if (source[at] >= 0xC2) {
+          const width = source[at] < 0xE0 ? 2 : source[at] < 0xF0 ? 3 : 4;
+          if (at + width <= restored.length && restored[at + 1] === 32 && (width < 3 || restored[at + 2] === 32) && (width < 4 || restored[at + 3] === 32)) {
+            if (width === 2) { restored[at] = 0xC2; restored[at + 1] = 0xA0; }
+            else if (width === 3) { restored[at] = 0xE2; restored[at + 1] = 0x80; restored[at + 2] = 0x82; }
+            else { restored[at] = 0x20; restored[at + 1] = 0xEF; restored[at + 2] = 0xBB; restored[at + 3] = 0xBF; }
+            at += width - 1;
+          }
+        }
+      } else erasureOnly = false;
     }
-    if (erasureOnly) return { backend: 'pulse', code: restored.toString(), sourceMap: null, diagnostics: [] };
+    if (erasureOnly) {
+      if (!sourceMap) return { backend: 'pulse', code: restored.toString(), sourceMap: null, diagnostics: [] };
+      if (file.includes('\\') || source[0] === 0xEF) return null;
+      const mappings = addon.projectionMappings?.(source, restored);
+      if (typeof mappings !== 'string') return null;
+      return { backend: 'pulse', code: restored.toString(), sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, mappings, text), diagnostics: [] };
+    }
   }
+  if (sourceMap) return null;
   // A copy that the emitter lowered: the text it wrote is the lowering of the copy, and the names are put back
   // word by word. A spelling holds two capital letters side by side for every character it stands for, which
   // no word the emitter writes of its own does, and the copy holds no byte outside ASCII, so neither does
@@ -634,17 +652,25 @@ function compile(input, options = {}) {
   const jsxFile = /\.[jt]sx$/i.test(file);
   // CommonJS output of a module: the module is compiled as such, and its imports and exports are then
   // written the way TypeScript writes them. A file with a CommonJS extension keeps the TypeScript route.
-  if (format === 'cjs' && module === 'cjs' && mode === 'transform' && !sourceMap && !options[commonJsDeclined] && !/\.[cm][jt]s$/i.test(file)) {
+  if (format === 'cjs' && module === 'cjs' && mode === 'transform' && (!sourceMap || !file.includes('\\')) && !options[commonJsDeclined] && !/\.[cm][jt]s$/i.test(file)) {
     const stable = snapshot(input);
     const written = compile(stable, { ...options, module: 'preserve' });
     // An exported ambient declaration leaves no text, yet TypeScript reads its name through `exports`.
     const ambient = (Buffer.isBuffer(stable) ? stable.includes('declare') : typeof stable === 'string' && stable.includes('declare')) &&
       /\bexport\b(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)*declare\b/.test(Buffer.isBuffer(stable) ? stable.latin1Slice() : stable);
-    if (!ambient && written.code !== null && (written.backend === 'pulse' || written.backend === 'javascript') && written.diagnostics.length === 0) {
+    if (!ambient && written.code !== null && (written.backend === 'pulse' || written.backend === 'javascript') && written.diagnostics.length === 0 &&
+        (!sourceMap || written.sourceMap)) {
       const addon = loadModuleAddon();
       const origin = Buffer.isBuffer(stable) ? stable.latin1Slice() : typeof stable === 'string' ? Buffer.from(stable).latin1Slice() : null;
-      const code = addon && origin !== null ? require('./compiler-commonjs.cjs').toCommonJs(addon, written.code, origin, experimentalDecorators) : null;
-      if (code !== null) return { ...written, code };
+      const spans = sourceMap ? [] : null;
+      const code = addon && origin !== null ? require('./compiler-commonjs.cjs').toCommonJs(addon, written.code, origin, experimentalDecorators, spans) : null;
+      if (code !== null) {
+        if (!sourceMap) return { ...written, code };
+        const mappings = require('./compiler-legacy-maps.cjs').composeCommonJsMappings(Buffer.from(written.code), Buffer.from(code), spans, written.sourceMap.mappings, code);
+        if (mappings !== null) {
+          return { ...written, code, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, mappings, written.sourceMap.sourcesContent[0], jsx === 'preserve') };
+        }
+      }
     }
     return compile(stable, { ...options, [commonJsDeclined]: true });
   }
@@ -721,14 +747,45 @@ function compile(input, options = {}) {
       if (result.code !== null && result.backend !== 'typescript') return result;
     }
   }
-  if (sourceMap && typed && jsx !== 'preserve' && target === 'esnext' && format !== 'cjs') {
-    // The entry calls the same function, so both callers publish the same result.
+  if (sourceMap && typed && target === 'esnext' && format !== 'cjs') {
     const mapper = loadModuleAddon();
-    const result = mapper ? require('./compiler-maps.cjs').mappedTypeScript(input, file,
-      (format === 'esm' ? 2 : 0) | (jsxFile ? 1 : 0) | (jsxFile && jsx === 'classic' ? 4 : 0), mapper) : undefined;
-    if (result !== undefined) return result;
-    const script = mappedScript(input, options);
-    if (script !== undefined) return script;
+    if (jsx === 'preserve' && jsxFile && !file.includes('\\')) {
+      const stable = snapshot(input);
+      const source = Buffer.isBuffer(stable) ? stable : typeof stable === 'string' && stable.isWellFormed() ? Buffer.from(stable) : null;
+      if (mapper && source !== null && source[0] !== 0xEF && (validUtf8 ??= require('node:buffer').isUtf8)(source) &&
+          loadDirectAddon()?.leadingTripleSlash(source) === 0) {
+        if (source.includes('<')) {
+          const kept = mapper.lower(source, true, true, 2, true);
+          if (kept !== null && typeof kept !== 'string') {
+            const mappings = mapper.projectionMappings?.(source, Buffer.from(kept.code));
+            if (typeof mappings === 'string') {
+              return { backend: 'pulse', code: kept.code, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, mappings, source.toString(), true), diagnostics: [] };
+            }
+          }
+        } else {
+          const result = require('./compiler-maps.cjs').mappedTypeScript(source, file, (format === 'esm' ? 2 : 0) | 1, mapper);
+          if (result !== undefined) {
+            return { ...result, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, result.sourceMap.mappings, result.sourceMap.sourcesContent[0], true) };
+          }
+        }
+      }
+    } else if (jsx !== 'preserve') {
+      // The entry calls the same function, so both callers publish the same result.
+      const result = mapper ? require('./compiler-maps.cjs').mappedTypeScript(input, file,
+        (format === 'esm' ? 2 : 0) | (jsxFile ? 1 : 0) | (jsxFile && jsx === 'classic' ? 4 : 0), mapper) : undefined;
+      if (result !== undefined) return result;
+      const script = mappedScript(input, options);
+      if (script !== undefined) return script;
+      if (mapper && !jsxFile && !file.includes('\\')) {
+        const stable = snapshot(input);
+        const source = Buffer.isBuffer(stable) ? stable : typeof stable === 'string' && stable.isWellFormed() ? Buffer.from(stable) : null;
+        if (source !== null && source.length <= 1048576 && source[0] !== 0xEF && (validUtf8 ??= require('node:buffer').isUtf8)(source) &&
+            loadDirectAddon()?.leadingTripleSlash(source) === 0) {
+          const named = highByteNames(mapper, source, typeof stable === 'string' ? stable : source.toString(), file, format, true);
+          if (named !== null) return named;
+        }
+      }
+    }
   }
   let direct;
   if (typed && !jsxFile && target === 'esnext' && format !== 'cjs' && !sourceMap &&

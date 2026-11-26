@@ -579,3 +579,59 @@ test('JavaScript published as written receives a map that leads every position t
   assert.equal(compile(Buffer.from('const a = ;\n'), { file: 'broken.js', sourceMap: true }).code, null);
   assert.equal(compile(Buffer.from('const a = 1;\nmodule.exports = a;\n'), { file: 'common.cjs', sourceMap: true }).backend, 'typescript');
 });
+
+test('source maps for CommonJS output, jsx: preserve, and non-ASCII identifiers are faithful', () => {
+  // 1. CommonJS output (.ts, .tsx, .js, and legacy decorators + CJS).
+  for (const [source, file, extra = {}] of [
+    ['import { helper } from "./dep";\nexport const value: number = helper(1) + 2;\nexport function greet(name: string): string { return name + value; }\n', 'mod.ts'],
+    ['import defaultFn from "./dep";\nexport const fn = (x: number) => defaultFn(x);\nexport default class Box { id: number = 1; }\n', 'dir/box.ts'],
+    ['import { helper } from "./dep";\nexport const View = ({ id }: { id: string }) => <div data-id={id}>{helper(id)}</div>;\n', 'View.tsx'],
+    ['import { helper } from "./dep";\nexport const x = helper(1);\n', 'plain.js'],
+    ['import { dec } from "./dec";\n@dec()\nexport class Svc {\n  run(x: number): number { return x + 1; }\n}\n', 'svc.ts', { experimentalDecorators: true }],
+  ]) {
+    const opts = { file, module: 'cjs', sourceMap: true, ...extra };
+    const result = compile(Buffer.from(source), opts);
+    assert.equal(result.backend, file.endsWith('.js') ? 'javascript' : 'pulse', file);
+    assert.equal(result.code, compile(Buffer.from(source), { file, module: 'cjs', ...extra }).code, file);
+    const ref = JSON.parse(ts.transpileModule(source, { fileName: file, compilerOptions: {
+      target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.CommonJS,
+      jsx: extra.jsx === 'preserve' ? ts.JsxEmit.Preserve : ts.JsxEmit.ReactJSX,
+      sourceMap: true, inlineSources: true, ...(extra.experimentalDecorators ? { experimentalDecorators: true } : {}),
+    } }).sourceMapText);
+    for (const key of ['version', 'file', 'sourceRoot', 'sources', 'names', 'sourcesContent']) {
+      assert.deepEqual(result.sourceMap[key], ref[key], `${file}:${key}`);
+    }
+    assert.ok(assertSegmentsFaithful(source, result) >= 4, file);
+  }
+
+  // 2. jsx: 'preserve' (.tsx with and without JSX elements).
+  for (const [source, file] of [
+    ['export const View = <Box<string> id="a">{1 as number}</Box>;\n', 'src/View.tsx'],
+    ['export const value: number = 42;\n', 'src/NoJsx.tsx'],
+  ]) {
+    const result = compile(Buffer.from(source), { file, jsx: 'preserve', sourceMap: true });
+    assert.equal(result.backend, 'pulse', file);
+    assert.equal(result.code, compile(Buffer.from(source), { file, jsx: 'preserve' }).code, file);
+    assert.equal(result.sourceMap.file, file.slice(file.lastIndexOf('/') + 1).replace(/\.tsx$/, '.jsx'));
+    assert.deepEqual(result.sourceMap.sources, [file.slice(file.lastIndexOf('/') + 1)]);
+    assert.deepEqual(result.sourceMap.sourcesContent, [source]);
+    assert.ok(assertSegmentsFaithful(source, result, true) >= 5, file);
+  }
+
+  // 3. Non-ASCII identifiers (BMP and CJK) with type erasure.
+  for (const [source, file] of [
+    ['export const café: number = 1;\nexport function 合計(値: number): number { return 値 + café; }\n', 'unicode.ts'],
+    ['export const données: { clé: string } = { clé: "ok" };\n', 'dir/fr.mts'],
+  ]) {
+    const result = compile(Buffer.from(source), { file, sourceMap: true });
+    assert.equal(result.backend, 'pulse', file);
+    assert.equal(result.code, compile(Buffer.from(source), { file }).code, file);
+    const ref = JSON.parse(ts.transpileModule(source, { fileName: file, compilerOptions: {
+      target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, sourceMap: true, inlineSources: true,
+    } }).sourceMapText);
+    for (const key of ['version', 'file', 'sourceRoot', 'sources', 'names', 'sourcesContent']) {
+      assert.deepEqual(result.sourceMap[key], ref[key], `${file}:${key}`);
+    }
+    assert.ok(assertSegmentsFaithful(source, result, true) >= 5, file);
+  }
+});

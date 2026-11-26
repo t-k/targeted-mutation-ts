@@ -141,4 +141,128 @@ function composeLegacyMappings(source, rewritten, spans, mappings, code) {
   return out.join(';');
 }
 
+// Composes a map of an ECMAScript module (`esmMappings`, mapping `esmBytes` to the original source) with the
+// pieces (`spans`: `[byteLength, esmByteOffset]`, `-1` for generated text) that `toCommonJs` assembled into
+// `cjsBytes`. Returns the VLQ mappings string from `cjsCode` to the original source, or null if invalid.
+function composeCommonJsMappings(esmBytes, cjsBytes, spans, esmMappings, cjsCode) {
+  const esmCode = esmBytes.toString();
+  const esmLines = esmMappings.split(';');
+  const esmStarts = lineStarts(esmCode);
+  if (esmLines.length > esmStarts.length) return null;
+  const decoded = [];
+  const state = { line: 0, column: 0 };
+  for (const line of esmLines) {
+    const segments = decodeLine(line, state);
+    if (segments === null) return null;
+    decoded.push(segments);
+  }
+  const cjsRows = cjsCode.split(/\r\n|[\n\r\u2028\u2029]/);
+  const out = Array.from({ length: cjsRows.length }, () => '');
+  const lastCol = new Int32Array(cjsRows.length);
+  const hasSeg = new Uint8Array(cjsRows.length);
+  let previousLine = 0, previousColumn = 0, unmapped = true;
+  const put = (row, col, sLine, sCol) => {
+    if (row >= cjsRows.length) return;
+    if (sLine < 0) {
+      if (unmapped) return;
+      if (hasSeg[row] && col <= lastCol[row]) return;
+      unmapped = true;
+      out[row] += (hasSeg[row] ? ',' : '') + encode(col - lastCol[row]);
+      lastCol[row] = col;
+      hasSeg[row] = 1;
+      return;
+    }
+    if (hasSeg[row] && col <= lastCol[row]) return;
+    out[row] += (hasSeg[row] ? ',' : '') + encode(col - lastCol[row]) + 'A' + encode(sLine - previousLine) + encode(sCol - previousColumn);
+    previousLine = sLine;
+    previousColumn = sCol;
+    lastCol[row] = col;
+    hasSeg[row] = 1;
+    unmapped = false;
+  };
+  let cjsRow = 0, cjsCol = 0, cjsByte = 0;
+  let esmCharCounted = 0, esmByteCounted = 0, esmRow = 0;
+  const advanceCjs = str => {
+    for (let i = 0; i < str.length; i++) {
+      const u = str.charCodeAt(i);
+      if (u === 10 || u === 0x2028 || u === 0x2029) { cjsRow++; cjsCol = 0; }
+      else if (u === 13) { if (str.charCodeAt(i + 1) === 10) i++; cjsRow++; cjsCol = 0; }
+      else cjsCol++;
+    }
+  };
+  for (const [byteLen, esmByteAt] of spans) {
+    if (byteLen === 0) continue;
+    const chunk = cjsBytes.toString('utf8', cjsByte, cjsByte + byteLen);
+    cjsByte += byteLen;
+    if (esmByteAt < 0) {
+      put(cjsRow, cjsCol, -1, 0);
+      advanceCjs(chunk);
+      continue;
+    }
+    if (esmByteAt < esmByteCounted) { esmCharCounted = 0; esmByteCounted = 0; esmRow = 0; }
+    esmCharCounted += esmBytes.toString('utf8', esmByteCounted, esmByteAt).length;
+    esmByteCounted = esmByteAt;
+    let esmPos = esmCharCounted;
+    while (esmRow + 1 < esmStarts.length && esmStarts[esmRow + 1] <= esmPos) esmRow++;
+    while (esmRow > 0 && esmStarts[esmRow] > esmPos) esmRow--;
+    let offset = 0;
+    while (offset < chunk.length) {
+      let lineEnd = offset;
+      while (lineEnd < chunk.length) {
+        const u = chunk.charCodeAt(lineEnd);
+        if (u === 10 || u === 13 || u === 0x2028 || u === 0x2029) break;
+        lineEnd++;
+      }
+      const sliceLen = lineEnd - offset;
+      const esmColStart = esmPos - esmStarts[esmRow];
+      const esmColEnd = esmColStart + sliceLen;
+      const segs = esmRow < decoded.length ? decoded[esmRow] : [];
+      if (sliceLen > 0) {
+        // Find active segment at esmColStart.
+        let active = null, firstAfter = segs.length;
+        for (let i = 0; i < segs.length; i++) {
+          if (segs[i][0] < esmColStart) active = segs[i];
+          else { firstAfter = i; break; }
+        }
+        const nextSegCol = firstAfter < segs.length ? Math.min(segs[firstAfter][0], esmColEnd) : esmColEnd;
+        if (active !== null && esmColStart < nextSegCol) {
+          if (active.length === 1) put(cjsRow, cjsCol, -1, 0);
+          else {
+            let tok = 0;
+            while (esmColStart + tok < nextSegCol) {
+              const u = chunk.charCodeAt(offset + tok);
+              if (u !== 32 && u !== 9) break;
+              tok++;
+            }
+            if (esmColStart + tok < nextSegCol) {
+              put(cjsRow, cjsCol + tok, active[1], active[2] + (esmColStart + tok - active[0]));
+            }
+          }
+        }
+        for (let i = firstAfter; i < segs.length && segs[i][0] < esmColEnd; i++) {
+          const seg = segs[i];
+          const targetCol = cjsCol + (seg[0] - esmColStart);
+          if (seg.length === 1) put(cjsRow, targetCol, -1, 0);
+          else put(cjsRow, targetCol, seg[1], seg[2]);
+        }
+      }
+      if (lineEnd < chunk.length) {
+        const nl = chunk.charCodeAt(lineEnd) === 13 && chunk.charCodeAt(lineEnd + 1) === 10 ? 2 : 1;
+        offset = lineEnd + nl;
+        esmPos += sliceLen + nl;
+        esmRow++;
+        cjsRow++;
+        cjsCol = 0;
+      } else {
+        cjsCol += sliceLen;
+        offset = lineEnd;
+        esmPos += sliceLen;
+      }
+    }
+  }
+  if (cjsByte !== cjsBytes.length) return null;
+  return out.join(';');
+}
+
 exports.composeLegacyMappings = composeLegacyMappings;
+exports.composeCommonJsMappings = composeCommonJsMappings;
