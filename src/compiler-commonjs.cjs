@@ -525,8 +525,13 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           if (keyword !== 'const') return null;
           // Blanks behind the value (including before a newline or semicolon) or in front of a function are
           // where an assertion was erased; TypeScript does not take a value under an assertion for a function.
-          const hasSemi = /;\s*$/.test(value);
-          const beforeEnd = hasSemi ? value.replace(/;\s*$/, '') : value.replace(/\n[ \t]*$/, '').replace(/\n+$/, '');
+          const headAt = skipTrivia(value, 0);
+          if (headAt < 0 || /\/\/|\/\*/.test(value.slice(0, headAt))) return null;
+          const tailEnd = skipTriviaBack(value, value.length, true);
+          if (tailEnd < 0) return null;
+          const hasSemi = tailEnd > 0 && value[tailEnd - 1] === ';';
+          if (!hasSemi && /\/\/|\/\*/.test(value.slice(tailEnd))) return null;
+          const beforeEnd = hasSemi ? value.slice(0, tailEnd - 1) : value.replace(/\n[ \t]*$/, '').replace(/\n+$/, '');
           const leading = /^([ \t]*)([\s\S]*)$/.exec(beforeEnd);
           if (/\s$/.test(beforeEnd) ||
               ((leading[1].length > 1 || leading[2].startsWith('\n')) && /^(?:async\s+function|function|class)(?![\w$])/.test(leading[2].trimStart()))) return null;
@@ -788,26 +793,41 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
 // TypeScript keeps the declaration of such a variable, so that the value takes the variable's name. The
 // parser is asked through small texts built around the value. Null when the answer is not certain.
 function valueShape(addon, value) {
-  const trimmed = value.replace(/;?\s*$/, '');
-  if (trimmed.includes('//') || trimmed.includes('/*')) return null;
-  const head = trimmed.trimStart();
+  const headAt = skipTrivia(value, 0);
+  if (headAt < 0) return null;
+  const head = value.slice(headAt).replace(/;?\s*$/, '');
   const reads = text => addon.moduleRecords(Buffer.from(text));
-  if (/^(?:async\s+function|function|class)(?![\w$])/.test(head)) {
+  const afterAsync = /^async(?![\w$])/.test(head) ? skipTrivia(head, 5) : -1;
+  const isAsyncFn = afterAsync >= 0 && /^function(?![\w$])/.test(head.slice(afterAsync));
+  if (isAsyncFn || /^(?:function|class)(?![\w$])/.test(head)) {
     // As the value of `export default`, a function or class is a declaration that ends at its brace; what
     // follows it begins another statement or is an error.
-    const records = reads(`export default ${head};`);
+    const records = reads(`export default ${head}\n;`);
     if (records === null) return 'other';
     let statements = 0;
     for (let index = 0; index < records.length; index += 5) statements += records[index] === 72;
     return statements === 1 ? 'function' : 'other';
   }
-  const arrowLike = new RegExp(`^(?:async\\s+)?${word}\\s*=>`).test(head) ? true : /^(?:\(|async\s*\()/.test(head) ? undefined : false;
-  if (arrowLike === true) return 'function';
-  if (arrowLike === false) return 'other';
+  if (afterAsync >= 0) {
+    if (head.slice(afterAsync, afterAsync + 2) === '=>') return 'function';
+    const param = new RegExp(`^${word}`).exec(head.slice(afterAsync));
+    if (param !== null) {
+      const [one, two] = followers(head, afterAsync + param[0].length);
+      if (one === '=' && two === '>') return 'function';
+    }
+    if (head[afterAsync] !== '(') return 'other';
+  } else if (head[0] !== '(') {
+    const param = new RegExp(`^${word}`).exec(head);
+    if (param !== null) {
+      const [one, two] = followers(head, param[0].length);
+      if (one === '=' && two === '>') return 'function';
+    }
+    return 'other';
+  }
   // An arrow function cannot be the operand of a sum; a parenthesized value or a call can.
-  if (reads(`1 + ${head};`) !== null) return 'other';
+  if (reads(`1 + ${head}\n;`) !== null) return 'other';
   // What is left is an arrow function or an assignment to a parenthesized target, which `async` cannot lead.
-  return reads(head.startsWith('async') ? `${head};` : `async ${head};`) !== null ? 'function' : null;
+  return reads(afterAsync >= 0 ? `${head}\n;` : `async ${head}\n;`) !== null ? 'function' : null;
 }
 
 module.exports = { toCommonJs };

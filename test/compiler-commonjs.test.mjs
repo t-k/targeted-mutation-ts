@@ -403,4 +403,14 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   // Commented `import = require` or `export =` in a type-only file still emits __esModule.
   sameAsTypeScript('/* import x = require("a") */\nexport interface T { a: number }\n');
   sameAsTypeScript('/* export = foo */\nexport interface T { a: number }\n');
+
+  // Exported variable initializers with comments or URLs stay native and preserve assertion declines.
+  const urlInit = sameAsTypeScript('export const cfg = { url: "https://example.com" };\nexport const k = 1;\n');
+  assert.equal(urlInit.backend, 'pulse');
+  const arrowComment = sameAsTypeScript('export const fn = () => {\n  // inside comment\n  return 1;\n}; // trailing\nexport const k = 1;\n');
+  assert.equal(arrowComment.backend, 'pulse');
+  const arrowAsTrailing = sameAsTypeScript('export const fn = function () {} as any; // trailing\nexport const k = 1;\n');
+  assert.equal(arrowAsTrailing.backend, 'typescript');
+  const asyncParam = sameAsTypeScript('export const fn = async => async + 1;\nexport const k = 1;\n');
+  assert.equal(asyncParam.backend, 'pulse');
 });
