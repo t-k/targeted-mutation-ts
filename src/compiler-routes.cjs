@@ -697,24 +697,53 @@ const targetYears = new Map([['es6', 2015], ['es2015', 2015], ['es2016', 2016], 
 const newerForms = [
   [2022, /\bclass\b|\.\s*#/],
   [2021, /\|\|=|&&=|\?\?=/],
-  [2020, /\?\.|\?\?|\bexport\b(?!\s*(?:[{A-Za-z_$]|\*\s*from\b))/],
-  [2019, /\bcatch\b(?!\s*\()/],
+  [2020, /\?\.|\?\?/],
   [2018, /\.\.\.|\bfor\b(?!\s*\()|\basync\b(?:\s*function\b)?\s*[*\/]/],
   [2017, /\basync\b|\bawait\b/],
   [2016, /(?<!^[ \t]*\/\**)\*\*/m],
 ];
 
-// Lowers ES2021 numeric separators (`1_000`, `0xff_ff`, `0b10_10`, `1_000.5_5e1_0`, `1_000n`) in compiled JS
-// for targets below ES2021 while skipping strings, comments, template text, and regular expressions.
-function lowerNumericSeparators(code, year) {
+// Lowers ES2021 numeric separators (`1_000`, `0xff_ff`, `0b10_10`, `1_000.5_5e1_0`, `1_000n`) for targets
+// below ES2021 and ES2019 optional catch bindings (`catch { ... }` -> `catch (_a) { ... }`) for targets
+// below ES2019 in compiled JS while skipping strings, comments, template text, regexes, and shebangs.
+function lowerOlderTarget(code, year) {
   const regexAfter = new Set(['', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~', '<', '>', '+', '-', '*', '%', '/', '=>', ')ctrl', '...',
     'return', 'throw', 'case', 'default', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do']);
   const numLit = /0[xX][0-9a-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?|\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?[\d_]+)?n?|\.\d[\d_]*(?:[eE][+-]?[\d_]+)?/y;
+  const lowerCatch = year < 2019 && /\bcatch\b(?!\s*\()/.test(code);
+  let catchName = null;
+  if (lowerCatch) {
+    if (/\b(?:eval|with)\b/.test(code)) return null;
+    for (let i = 0; i < 26; i++) {
+      const cand = '_' + String.fromCharCode(97 + i);
+      if (!new RegExp(`(?<![\\w$])${cand}(?![\\w$])`).test(code)) { catchName = cand; break; }
+    }
+    if (catchName === null) return null;
+  }
   const braces = [], parens = [];
-  let prev = '', at = 0, out = '', last = 0;
+  let prev = '', at = 0, out = '', last = 0, catchCount = 0;
   if (code.startsWith('#!')) {
     while (at < code.length && code[at] !== '\n' && code[at] !== '\r') at++;
   }
+  const skipTrivia = pos => {
+    while (pos < code.length) {
+      const ch = code[pos];
+      if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') { pos++; continue; }
+      if (ch === '/' && code[pos + 1] === '/') {
+        pos += 2;
+        while (pos < code.length && code[pos] !== '\n' && code[pos] !== '\r') pos++;
+        continue;
+      }
+      if (ch === '/' && code[pos + 1] === '*') {
+        const end = code.indexOf('*/', pos + 2);
+        if (end < 0) return -1;
+        pos = end + 2;
+        continue;
+      }
+      break;
+    }
+    return pos;
+  };
   const skipTpl = pos => {
     while (pos < code.length) {
       const c = code[pos];
@@ -805,6 +834,16 @@ function lowerNumericSeparators(code, year) {
         else break;
       }
       const word = code.slice(start, at);
+      if (lowerCatch && word === 'catch' && prev !== '.' && prev !== '#' && code[start - 1] !== '#') {
+        const nextAt = skipTrivia(at);
+        if (nextAt < 0) return null;
+        if (code[nextAt] === '{') {
+          if (++catchCount > 1) return null;
+          const pad = nextAt > at && /[\s]/.test(code[nextAt - 1]) ? '' : ' ';
+          out += code.slice(last, nextAt) + pad + `(${catchName}) `;
+          last = nextAt;
+        }
+      }
       prev = prev === '.' ? 'id' : (prev === 'for' && word === 'await') ? 'await-for' : word;
       continue;
     }
@@ -985,12 +1024,13 @@ function compile(input, options = {}) {
     const year = targetYears.get(target);
     const stable = snapshot(input);
     if (writtenAsNewest(stable, jsxFile, year)) {
-      const hasNumSep = year < 2021 && /(?<![\w$])(?:\d[\w.]*_|\.\d[\d_]*_)/.test(Buffer.isBuffer(stable) ? stable.latin1Slice() : String(stable));
-      if (!hasNumSep) return compile(stable, { ...options, target: 'esnext' });
+      const raw = year < 2021 ? (Buffer.isBuffer(stable) ? stable.latin1Slice() : String(stable)) : '';
+      const needsLower = year < 2021 && (/(?<![\w$])(?:\d[\w.]*_|\.\d[\d_]*_)/.test(raw) || (year < 2019 && /\bcatch\b(?!\s*\()/.test(raw)));
+      if (!needsLower) return compile(stable, { ...options, target: 'esnext' });
       if (!sourceMap && jsx !== 'preserve') {
         const result = compile(stable, { ...options, target: 'esnext' });
         if ((result.backend === 'pulse' || result.backend === 'javascript') && result.code !== null && result.diagnostics.length === 0) {
-          const lowered = lowerNumericSeparators(result.code, year);
+          const lowered = lowerOlderTarget(result.code, year);
           if (lowered !== null) return { ...result, code: lowered };
         }
       }
