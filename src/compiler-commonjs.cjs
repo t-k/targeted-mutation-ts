@@ -40,13 +40,20 @@ function followers(text, at) {
 
 // Whether a name is the target of an assignment or of an update, by the signs around it.
 function writes(text, at, one, two, three) {
+  if (one === ')') {
+    // A name in parentheses is written through them: the signs behind the closing ones count.
+    let end = at;
+    while (end < text.length && /[\w$]/.test(text[end])) end++;
+    while (end < text.length && /[\s)]/.test(text[end])) end++;
+    [one, two, three] = [text[end] ?? '', text[end + 1] ?? '', text[end + 2] ?? ''];
+  }
   const pair = one + two;
   if (one === '=' && two !== '=' && two !== '>') return true;
   if (pair === '++' || pair === '--') return true;
   if (two === '=' && /[-+*/%&|^]/.test(one)) return true;
   if (three === '=' && ['**', '<<', '>>', '&&', '||', '??'].includes(pair)) return true;
   if (pair === '>>' && three === '>') return true;
-  const leading = text.slice(Math.max(0, at - 8), at).trimEnd();
+  const leading = text.slice(Math.max(0, at - 64), at).replace(/[\s(]+$/, '');
   return leading.endsWith('++') || leading.endsWith('--');
 }
 
@@ -65,21 +72,14 @@ function members(text) {
 
 // The name TypeScript derives from a module specifier, before the number that makes it unique.
 function specifierName(specifier) {
-  const base = specifier.slice(specifier.lastIndexOf('/') + 1);
-  let name = '', valid = true;
-  for (let index = 0; index < base.length; index++) {
-    const character = base[index];
-    if (/[\w$]/.test(character)) {
-      // A digit in front is kept behind an underscore.
-      if (!valid || (index === 0 && /[0-9]/.test(character))) name += '_';
-      name += character;
-      valid = true;
-    } else valid = false;
-  }
-  return name || '_';
+  return specifier.slice(specifier.lastIndexOf('/') + 1).replace(/^(\d)/, '_$1').replace(/\W/g, '_');
 }
 
-function toCommonJs(addon, code) {
+// A name as it may stand in the source in front of a non-null mark, with white space or comments between.
+const marked = name => new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n]*\\n)*!(?!=)`);
+
+// `source` is the text the module was compiled from, as a string of bytes.
+function toCommonJs(addon, code, source) {
   const bytes = Buffer.from(code);
   if (bytes.length > 1048576) return null;
   // One byte per character, so that the parser's offsets index the text.
@@ -163,7 +163,7 @@ function toCommonJs(addon, code) {
           const name = moduleName(specifier);
           if (name === null) return null;
           let value = `require(${specifier})`;
-          if (defaultName !== undefined && list !== undefined) { need('__createBinding', '__setModuleDefault', '__importStar'); value = `__importStar(${value})`; }
+          if (defaultName !== undefined && pairs.length !== 0) { need('__createBinding', '__setModuleDefault', '__importStar'); value = `__importStar(${value})`; }
           else if (defaultName !== undefined) { need('__importDefault'); value = `__importDefault(${value})`; }
           if (defaultName !== undefined) renamed.set(defaultName, { text: `${name}.default`, statement: index, kind: 'default' });
           for (const [imported, local] of pairs) {
@@ -193,9 +193,10 @@ function toCommonJs(addon, code) {
       } else if ((match = forms.list.exec(statement))) {
         const pairs = members(match[1]);
         if (pairs === null) return null;
-        exportsOfLists.push(...pairs.map(([local, exported]) => ({ local, exported })));
+        exportsOfLists.push(...pairs.map(([local, exported], item) => ({ local, exported, at: first + item / 1024 })));
         for (const [, exported] of pairs) cleared.push(exported);
-        edits.push([first, last, '']);
+        // The statement leaves a semicolon, so that the statements around it stay apart.
+        edits.push([first, last, ';']);
       } else return null;
       continue;
     }
@@ -208,7 +209,7 @@ function toCommonJs(addon, code) {
         const name = match[1] ?? 'default_1';
         if (match[1] === undefined) edits.push([valueAt + match[0].length - 1, valueAt + match[0].length - 1, ' default_1']);
         edits.push([first, valueAt, '']);
-        hoisted.push(`exports.default = ${name};`);
+        hoisted.push([first, `exports.default = ${name};`]);
         if (match[1] !== undefined) kept.set(name, { statement: index, kind: 'function' });
       } else if ((match = forms.classHead.exec(value))) {
         const name = match[1] ?? 'default_1';
@@ -227,7 +228,7 @@ function toCommonJs(addon, code) {
       let match;
       if ((match = forms.functionHead.exec(rest)) && match[1] !== undefined) {
         edits.push([first, at, '']);
-        hoisted.push(`exports.${match[1]} = ${match[1]};`);
+        hoisted.push([first, `exports.${match[1]} = ${match[1]};`]);
         kept.set(match[1], { statement: index, kind: 'function' });
       } else if ((match = forms.classHead.exec(rest)) && match[1] !== undefined) {
         edits.push([first, at, '']);
@@ -244,14 +245,16 @@ function toCommonJs(addon, code) {
           // function that fills the object; TypeScript then keeps the variable and exports it where it is made.
           const filled = index + 1 < order.length ? text.slice(end, endOf(index + 1)) : '';
           const tail = new RegExp(`\\}\\)\\(${name.replace(/\$/g, '\\$')}\\s*\\|\\|\\s*\\(${name.replace(/\$/g, '\\$')}\\s*=\\s*\\{\\}\\)\\);?\\s*$`);
-          if (keyword === 'var' && filled.startsWith(`(function (${name})`) && tail.test(filled)) {
+          const spelled = name.replace(/\$/g, '\\$');
+          const lowered = new RegExp(`(?<![\\w$.])(?:enum|namespace|module)\\s+${spelled}(?![\\w$])`).test(source) && !new RegExp(`(?<![\\w$.])(?:var|let|const)\\s+${spelled}(?![\\w$])`).test(source);
+          if (keyword === 'var' && lowered && filled.startsWith(`(function (${name})`) && tail.test(filled)) {
             edits.push([first, at, '']);
             const found = tail.exec(filled);
             edits.push([end + found.index, end + found.index + found[0].trimEnd().length, `})(${name} || (exports.${name} = ${name} = {}));`]);
             kept.set(name, { statement: index, kind: 'filled' });
           } else {
             if (/[^\s;]/.test(text.slice(names[0].last, end))) return null;
-            edits.push([first, end, '']);
+            edits.push([first, end, ';\n']);
             renamed.set(name, { text: `exports.${name}`, statement: index, kind: 'variable' });
           }
           continue;
@@ -262,6 +265,10 @@ function toCommonJs(addon, code) {
         if (shape === null) return null;
         if (shape === 'function') {
           if (keyword !== 'const') return null;
+          // Blanks behind the value or in front of a function are where an assertion was erased; TypeScript
+          // does not take a value under an assertion for a function.
+          const parts = /^([ \t]*)([\s\S]*?)([ \t]*);?\s*$/.exec(value);
+          if (parts[3] !== '' || (parts[1].length > 1 && /^(?:async\s+function|function|class)(?![\w$])/.test(parts[2]))) return null;
           edits.push([first, at, '']);
           behind(index, `exports.${name} = ${name};`);
         } else edits.push([first, names[0].last, `exports.${name}`]);
@@ -275,7 +282,7 @@ function toCommonJs(addon, code) {
 
   // The names of a braced export list. A function is exported at the top; any other name behind the
   // statement that declares it; an imported name through a getter behind its import.
-  for (const { local, exported } of exportsOfLists) {
+  for (const { local, exported, at: listed } of exportsOfLists) {
     const source = renamed.get(local);
     if (source !== undefined) {
       if (source.kind !== 'import') return null;
@@ -288,7 +295,7 @@ function toCommonJs(addon, code) {
     if (statement < 0 || direct.has(order[statement]) || defaults.has(order[statement]) || moduleEnds.has(order[statement])) return null;
     const head = text.slice(order[statement], declaration.first);
     if (declaration.isFunction && /^(?:async\s+)?function\s*\*?\s*$/.test(head)) {
-      hoisted.push(`exports.${exported} = ${local};`);
+      hoisted.push([listed, `exports.${exported} = ${local};`]);
       cleared.splice(cleared.indexOf(exported), 1);
       kept.set(local, { statement, kind: 'function' });
     } else if (/^const\s+$/.test(head) || /^class\s+$/.test(head)) {
@@ -315,7 +322,9 @@ function toCommonJs(addon, code) {
       const [one, two, three] = followers(text, at + name.length);
       if (one === '/' || /[\x80-\xff\\]/.test(one) || before === '@') return null;
       if (target.kind !== 'variable' && (writes(text, at, one, two, three) || targeted(at))) return null;
-      const called = (one === '(' || one === '`' || (one === '?' && two === '.' && (three === '(' || three === '`'))) && !/(?<![\w$.])new\s*$/.test(text.slice(Math.max(0, at - 16), at));
+      // An optional call is written by TypeScript with parentheses that end the chain; it is left to it.
+      if (one === '?' && two === '.' && /^\?\.\s*[(`]/.test(text.slice(at + name.length).trimStart())) return null;
+      const called = (one === '(' || one === '`') && !/(?<![\w$.])new\s*$/.test(text.slice(Math.max(0, at - 16), at));
       let value = called ? `(0, ${target.text})` : target.text;
       if (called) {
         // The parenthesis would continue a statement in front that ends without a semicolon. Where a
@@ -330,10 +339,16 @@ function toCommonJs(addon, code) {
       edits.push([at, at + name.length, reference.shorthand ? `${name}: ${target.text}` : value]);
     } else if (reference === undefined && (local.kind === 'function' || local.kind === 'class')) {
       // A name in an object that is assigned to is a target, and is not among the references.
+      // Only its declaration, a key and a word of prose are harmless; behind a brace, a comma or an equals
+      // sign it may be such a target.
       const [one] = followers(text, at + name.length);
-      if ((one === '}' || one === ',' || one === '=') && (objectTarget.test(text) || loopTarget.test(text))) return null;
+      if (at !== declarations.get(name)?.first && !inEdit(at) && (one === '}' || one === ',' || one === '=' || one === ']' || one === ')')) return null;
       // So is the variable of a loop.
       if (/^(?:of|in)(?![\w$])/.test(text.slice(at + name.length).trimStart()) && /\(\s*$/.test(text.slice(Math.max(0, at - 40), at))) return null;
+    } else if (reference !== undefined && local.kind === 'filled') {
+      // The variable of a lowered enum or namespace is written only by the function that fills it.
+      const [one, two, three] = followers(text, at + name.length);
+      if (statementOf(at) !== local.statement + 1 && (writes(text, at, one, two, three) || targeted(at))) return null;
     } else if (reference !== undefined && (local.kind === 'function' || local.kind === 'class')) {
       // A function or a class is exported by value: an assignment to it would have to write the export too.
       const [one, two, three] = followers(text, at + name.length);
@@ -344,6 +359,9 @@ function toCommonJs(addon, code) {
     }
   }
 
+  // A non-null mark on a name keeps TypeScript from writing a call of it as `(0, f)()`, and the mark is gone
+  // from the text that is read here.
+  for (const name of renamed.keys()) if (source.includes('!') && marked(name).test(source)) return null;
   if (cleared.length > 50 || new Set(cleared).size !== cleared.length) return null;
   edits.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
   let body = '', position = order[0], next = 0;
@@ -378,7 +396,8 @@ function toCommonJs(addon, code) {
   for (const name of [...helpers].sort((a, b) => helperRank[a] - helperRank[b])) head += helperText[name];
   head += 'Object.defineProperty(exports, "__esModule", { value: true });\n';
   if (cleared.length !== 0) head += cleared.slice().reverse().map(name => `exports.${name}`).join(' = ') + ' = void 0;\n';
-  for (const line of hoisted) head += line + '\n';
+  // Functions are exported in the order of the statements that export them.
+  for (const [, line] of hoisted.sort((a, b) => a[0] - b[0])) head += line + '\n';
   const result = Buffer.from(head + prelude.slice(hashbang.length) + body, 'latin1').toString();
   // The text is read as a function body, as Node reads a CommonJS module.
   try {

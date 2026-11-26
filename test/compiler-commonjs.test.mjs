@@ -73,15 +73,16 @@ test('CommonJS output of a module has the syntax tree of TypeScript\'s', () => {
   const [header, ...rows] = readFileSync(new URL('../verification/pict/compiler-commonjs.tsv', import.meta.url), 'utf8')
     .trim().split('\n').map(line => line.split('\t'));
   assert.equal(rows.length, 118);
-  let native = 0;
   for (const cells of rows) {
     const row = Object.fromEntries(header.map((name, index) => [name, cells[index]]));
     const source = moduleOf(row);
     const result = sameAsTypeScript(source);
-    if (result.backend === 'pulse') native++;
+    // An optional call is left to TypeScript, and so is the nested use, whose function has a parameter with
+    // the name of the import (a namespace import is not rewritten, so neither matters for it). Every other
+    // row is written here.
+    const declined = (row.Use === 'OptionalCall' && row.Import !== 'Namespace' && row.Import !== 'Bare') || (row.Use === 'Nested' && row.Import !== 'Bare' && row.Import !== 'Namespace');
+    assert.equal(result.backend, declined ? 'typescript' : 'pulse', source);
   }
-  // Nearly every row is written here; the count guards against the route falling silent.
-  assert.ok(native >= 100, String(native));
 });
 
 test('forms of CommonJS output: declarations that stay, hoisting, helpers and names of modules', () => {
@@ -95,6 +96,17 @@ test('forms of CommonJS output: declarations that stay, hoisting, helpers and na
   native('export let count: number;\ncount = 3; count += 1; --count;\nexport var flag;\nflag ||= true;\n[count] = [1];');
   // Functions are exported before anything runs; classes behind their declaration.
   native('first();\nexport function first() { return second(); }\nexport async function* second() { yield 1; }\nexport class Third extends Object {}\nexport default class {}');
+  // The statements stay apart when one between them leaves nothing.
+  native('export default 1\nexport {};\n+2;');
+  native('export const a = 1\nexport let marker: number;\n+2;\nmarker = a;');
+  // Function exports in the order of the statements that export them.
+  native('export { f };\nfunction f() {}\nexport function g() {}');
+  native('function f() {}\nexport function g() {}\nexport { f, f as h };\nexport default function k() {}');
+  // An empty list beside a default import, and signs in a specifier each become an underscore.
+  native('import d, {} from "./dep";\nexport default d;');
+  native('import { x } from "./x--y";\nimport { z } from "./a.b-c$d";\nexport default [x, z];');
+  // A lowered enum whose variable is read elsewhere.
+  native('export enum E { A }\nexport namespace N { export const v = E.A; }\nexport const all = [E, N, E.A];');
   native('export default function () {}');
   native('export default function named() { return named; }\nnamed();');
   native('export default async () => {};\nexport const other = 1;');
@@ -118,6 +130,16 @@ test('forms of CommonJS output: declarations that stay, hoisting, helpers and na
 
 test('modules that are left to TypeScript for CommonJS output', () => {
   for (const [source, why] of [
+    ['import { f } from "./dep";\nexport default f?. ();', 'an optional call'],
+    ['import { f } from "./dep";\nexport default f!();', 'a call through a non-null mark'],
+    ['import { f } from "./dep";\nexport default f /* sure */ !`t`;', 'a tag through a non-null mark'],
+    ['export let fn: (() => { x: number }) | undefined;\nexport function read() { return fn?.().x; }', 'an optional call with a member behind it'],
+    ['export const fn = function () {} as () => void;\nexport default fn.name;', 'a function under an assertion'],
+    ['export const fn = <() => void>function () {};\nexport default fn.name;', 'a function behind an assertion in front'],
+    ['export function f() { return 1; }\n// @ts-expect-error\n(/* gap */ { f } = { f: () => 2 });', 'an object target behind a comment'],
+    ['export function f() { return 1; }\nlet o: any;\n({ k: [f] } = o);', 'a nested target'],
+    ['export var E: { a?: number } | number | undefined;\n(function (E) {})(E || (E = {}));\nE = 9;', 'a hand-written filling function'],
+    ['export /*gap*/ declare const d: number;\nexport default d;', 'an ambient export behind a comment'],
     ['const a: number = 1;\nconsole.log(a);', 'a script'],
     ['import { a } from "./a";\nexport function f(a: number) { return a; }\nvoid a;', 'a parameter with the name of an import'],
     ['import { a } from "./a";\nexport const o = { a: 1, b: a };', 'a key with the name of an import'],
@@ -165,4 +187,20 @@ test('the CommonJS text runs like TypeScript\'s', () => {
   const ours = run(sameAsTypeScript(source).code), theirs = run(reference(source, 'module.ts'));
   assert.deepEqual(ours.default(), theirs.default());
   assert.deepEqual([ours.count, ours.name, ours.__esModule, Object.keys(ours).sort()], [theirs.count, theirs.name, theirs.__esModule, Object.keys(theirs).sort()]);
+});
+
+test('a function that is exported by value: reading is written here, writing is left to TypeScript', () => {
+  const backend = statement => compile(Buffer.from(`export function f() { return 1; }\ndeclare let x: any;\n${statement}\n`), { file: 'module.ts', module: 'cjs' }).backend;
+  for (const statement of ['(f as any) = 1;', '(f as any) += 1;', '(f as any)++;', '(f as any) **= 2;', '(f as any) >>>= 1;', '(f as any) &&= x;', '(f as any) ||= x;', '(f as any) ??= x;',
+    '(f as any) <<= 1;', '(f as any) -= 1;', '(f as any) %= 2;', '(f as any) |= 1;', '(f as any) ^= 1;', '(f as any) /= 2;', '(f as any) *= 2;']) {
+    assert.equal(backend(statement), 'typescript', statement);
+  }
+  for (const statement of ['// @ts-ignore\nf = x;', '// @ts-ignore\nf++;', '// @ts-ignore\n++f;', '// @ts-ignore\n--f;', '// @ts-ignore\nf--;', '// @ts-ignore\n[f] = x;', '// @ts-ignore\nf ??= x;']) {
+    assert.equal(backend(statement), 'typescript', statement);
+  }
+  for (const statement of ['x = f == x;', 'x = f === x;', 'x = f >= x;', 'x = f <= x;', 'x = f != x;', 'x = [f, f];', 'x = { f, k: f };', 'x = f?.name;', 'x = () => f;', 'x = f ? 1 : 2;',
+    'x = f >> 1;', 'x = f ** 2;', 'x = f && x;', 'x = f ?? x;', 'x = +f + -f;', 'x = (f);', 'if (f) x = 1;']) {
+    assert.equal(backend(statement), 'pulse', statement);
+    sameAsTypeScript(`export function f() { return 1; }\ndeclare let x: any;\n${statement}\n`);
+  }
 });

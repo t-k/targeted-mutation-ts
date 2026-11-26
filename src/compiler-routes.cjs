@@ -639,10 +639,11 @@ function compile(input, options = {}) {
     const written = compile(stable, { ...options, module: 'preserve' });
     // An exported ambient declaration leaves no text, yet TypeScript reads its name through `exports`.
     const ambient = (Buffer.isBuffer(stable) ? stable.includes('declare') : typeof stable === 'string' && stable.includes('declare')) &&
-      /\bexport\s+declare\b/.test(Buffer.isBuffer(stable) ? stable.latin1Slice() : stable);
+      /\bexport\b(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*)*declare\b/.test(Buffer.isBuffer(stable) ? stable.latin1Slice() : stable);
     if (!ambient && written.code !== null && (written.backend === 'pulse' || written.backend === 'javascript') && written.diagnostics.length === 0) {
       const addon = loadModuleAddon();
-      const code = addon ? require('./compiler-commonjs.cjs').toCommonJs(addon, written.code) : null;
+      const origin = Buffer.isBuffer(stable) ? stable.latin1Slice() : typeof stable === 'string' ? Buffer.from(stable).latin1Slice() : null;
+      const code = addon && origin !== null ? require('./compiler-commonjs.cjs').toCommonJs(addon, written.code, origin) : null;
       if (code !== null) return { ...written, code };
     }
     return compile(stable, { ...options, [commonJsDeclined]: true });
