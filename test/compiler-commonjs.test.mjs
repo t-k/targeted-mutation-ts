@@ -431,6 +431,16 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   }
   const awaitNewline = sameAsTypeScript('import { f } from "./dep";\nexport async function g() { return await\n  f(); }\n');
   assert.equal(awaitNewline.backend, 'pulse');
+  // Non-ASCII CJS with `/*! license */` and `!cond` stays native (while `café!()` still declines).
+  const nonAsciiBangSafe = sameAsTypeScript('/*! @license © */\nimport { x } from "./dep";\nexport const y = !x;\n');
+  assert.equal(nonAsciiBangSafe.backend, 'pulse');
+  // Module whose only imports/exports are type-only still keeps runtime statements with __esModule.
+  const typeImportRuntime = sameAsTypeScript('import type { T } from "./t";\nconst v: T = 1 as any;\nconsole.log(v);\n');
+  assert.equal(typeImportRuntime.backend, 'pulse');
+  // Long (>400-byte) erased type annotation before `=` in `export const` stays native.
+  const longType = `export const v: { ${Array.from({ length: 40 }, (_, i) => `k${i}: number`).join('; ')} } = {} as any;\nexport const u = 1;\n`;
+  const longTypeRes = sameAsTypeScript(longType);
+  assert.equal(longTypeRes.backend, 'pulse');
 
   // Exported enum followed by a JSDoc comment before the next declaration stays native.
   const enumDoc = sameAsTypeScript('export enum Level { H2 = "h2", H3 = "h3" }\n/** doc */\nexport interface Item { level: Level }\n');

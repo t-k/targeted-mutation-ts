@@ -483,7 +483,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
     if (direct.has(first)) {
       const gap = /^export\s+/.exec(head);
       if (gap === null) return null;
-      const at = first + gap[0].length, rest = text.slice(at, Math.min(end, at + 400));
+      const at = first + gap[0].length, rest = text.slice(at, Math.min(end, at + 16384));
       let match;
       if ((match = forms.functionHead.exec(rest)) && match[1] !== undefined) {
         edits.push([first, at, '']);

@@ -796,7 +796,7 @@ function compile(input, options = {}) {
       const toCjs = require('./compiler-commonjs.cjs').toCommonJs;
       let code = addon && origin !== null ? toCjs(addon, written.code, origin, experimentalDecorators, spans) : null;
       if (code === null && !sourceMap && addon && origin !== null && /[^\x00-\x7f]/.test(written.code) &&
-          !/!(?!=)/.test(origin) && !/\b(?:from|import)\s*["'][^"'\n]*[^\x00-\x7f]/.test(written.code)) {
+          !/[^\x00-\x7f](?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*!(?!=)/.test(origin) && !/\b(?:from|import)\s*["'][^"'\n]*[^\x00-\x7f]/.test(written.code)) {
         const writtenBytes = Buffer.from(written.code);
         const copy = asciiSpelling(writtenBytes, written.code);
         if (copy !== null && copy.wellFormed) {
@@ -823,16 +823,23 @@ function compile(input, options = {}) {
           return { ...written, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, written.sourceMap.mappings, written.sourceMap.sourcesContent[0], jsx === 'preserve', 'cjs') };
         } catch {}
       }
-      if (code === null && written.backend === 'pulse' && !written.code.startsWith('#!') &&
-          written.code.replace(/(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g, '').trim() === '') {
+      if (code === null && !experimentalDecorators && written.backend === 'pulse' && !written.code.startsWith('#!') &&
+          !/\b(?:import|export)\b/.test(written.code)) {
+        const onlyTrivia = written.code.replace(/(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g, '').trim() === '';
         const hasComments = written.code.trim() !== '';
-        if (!sourceMap || !hasComments) {
+        if (onlyTrivia ? (!sourceMap || !hasComments) : (!sourceMap && !/^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*["']/.test(written.code))) {
           const esm = compile(stable, { ...options, file: innerFile, module: 'esm', sourceMap: false });
           if (esm.backend === 'pulse' && esm.code !== null && esm.code.trimEnd().endsWith('export {};')) {
-            const emptyModule = '"use strict";\nObject.defineProperty(exports, "__esModule", { value: true });\n' +
-              (hasComments ? written.code.trim() + '\n' : '');
-            if (!sourceMap) return { ...written, code: emptyModule };
-            return { ...written, code: emptyModule, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, '', written.sourceMap.sourcesContent[0], jsx === 'preserve', 'cjs') };
+            const head = '"use strict";\nObject.defineProperty(exports, "__esModule", { value: true });\n';
+            const out = onlyTrivia ? head + (hasComments ? written.code.trim() + '\n' : '') : head + written.code;
+            if (onlyTrivia) {
+              if (!sourceMap) return { ...written, code: out };
+              return { ...written, code: out, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, '', written.sourceMap.sourcesContent[0], jsx === 'preserve', 'cjs') };
+            }
+            try {
+              new Function('exports', 'require', 'module', '__filename', '__dirname', out);
+              return { ...written, code: out };
+            } catch {}
           }
         }
       }
