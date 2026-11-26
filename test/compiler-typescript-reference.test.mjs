@@ -3281,3 +3281,23 @@ test('downlevel review round 42 regressions match TypeScript in AST and runtime 
   assert.equal(commentExp.backend, 'pulse');
   assert.match(commentExp.code, /Math\.pow\(2 \/\*x\*\/, \/\*y\*\/ 3\)/);
 });
+
+test('Stage 3 standard ES class decorators lower natively with __esDecorate for ES2022 and ES2023', () => {
+  for (const target of ['es2022', 'es2023']) {
+    for (const source of [
+      'declare const Dec: any;\n@Dec\nexport class Foo { x: number = 1; }\n',
+      'declare const A: any, B: any;\n@A\n@B(1)\nexport class Bar { m(): number { return 1; } }\n',
+      'declare const Dec: any, Base: any;\n@Dec\nexport class Sub extends Base { x = 1; }\n',
+      'declare const Dec: any;\n@Dec\nexport default class Baz { x = 1; }\n',
+    ]) {
+      const r = compile(Buffer.from(source), { file: 'dec.ts', target });
+      assert.equal(r.backend, 'pulse', `${target}: ${source}`);
+      const expected = ts.transpileModule(source, { fileName: 'dec.ts', compilerOptions: {
+        target: ts.ScriptTarget[target.toUpperCase()], module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true, experimentalDecorators: false } }).outputText;
+      assert.deepEqual(inspect(ts, r.code, 'dec.ts'), inspect(ts, expected, 'dec.ts'), `${target}: ${source}`);
+    }
+    // Member decorators and reserved-name collisions decline cleanly to TypeScript.
+    assert.equal(compile(Buffer.from('declare const M: any;\nexport class C { @M m() {} }\n'), { file: 'dec.ts', target }).backend, 'typescript');
+    assert.equal(compile(Buffer.from('declare const Dec: any;\nconst _classThis = 1;\n@Dec\nexport class C {}\n'), { file: 'dec.ts', target }).backend, 'typescript');
+  }
+});

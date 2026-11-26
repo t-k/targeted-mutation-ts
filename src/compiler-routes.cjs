@@ -943,7 +943,7 @@ const doubtfulEscape = /\\(?:[0-9]|x(?![0-9a-fA-F]{2})|u(?![0-9a-fA-F]{4}))/;
 const commonJsDeclined = Symbol('commonJsDeclined');
 
 // Whether a source holds none of the forms that TypeScript writes differently for a target of that year.
-function writtenAsNewest(input, jsxFile, year) {
+function writtenAsNewest(input, jsxFile, year, allowStage3 = false) {
   const bytes = Buffer.isBuffer(input) ? input : typeof input === 'string' ? Buffer.from(input) : null;
   if (bytes === null) return false;
   const using = bytes.includes('using'), accessor = bytes.includes('accessor'), at = bytes.includes(64), hash = bytes.includes(35);
@@ -956,7 +956,7 @@ function writtenAsNewest(input, jsxFile, year) {
   // strings through a helper. Any such escape in a file with a template sends it there.
   if (year < 2018 && bytes.includes(96) && doubtfulEscape.test(text)) return false;
   for (const [since, form] of newerForms) if (year < since && form.test(text)) return false;
-  if (at) {
+  if (at && !allowStage3) {
     // An at sign may stand in a comment or a string: the parser says whether one of them is a decorator.
     const addon = bytes.length <= 1048576 ? loadModuleAddon() : null;
     const records = addon?.legacyDecoratorRecords?.(bytes, false, jsxFile);
@@ -1074,16 +1074,18 @@ function compile(input, options = {}) {
   if (targetYears.has(target) && mode === 'transform' && !experimentalDecorators) {
     const year = targetYears.get(target);
     const stable = snapshot(input);
-    if (writtenAsNewest(stable, jsxFile, year)) {
-      const raw = year < 2021 ? (Buffer.isBuffer(stable) ? stable.latin1Slice() : String(stable)) : '';
+    const allowStage3 = year >= 2022 && year < 2024 && !sourceMap && jsx !== 'preserve';
+    if (writtenAsNewest(stable, jsxFile, year, allowStage3)) {
+      const raw = year < 2024 ? (Buffer.isBuffer(stable) ? stable.latin1Slice() : String(stable)) : '';
+      const needsStage3 = year >= 2022 && year < 2024 && raw.includes('@');
       const needsOlder = year < 2021 && (/(?<![\w$])(?:\d[\w.]*_|\.\d[\d_]*_)/.test(raw) || (year < 2019 && /\bcatch\b(?!\s*\()/.test(raw)));
       const needsDown = year < 2021 && (
         /\|\|=|&&=|\?\?=/.test(raw) ||
         (year < 2020 && /\?\.|\?\?/.test(raw)) ||
         (year < 2016 && /(?<!^[ \t]*\/\**)\*\*/m.test(raw))
       );
-      if (!needsOlder && !needsDown) return compile(stable, { ...options, target: 'esnext' });
-      if (jsx !== 'preserve' && (!needsDown || !sourceMap)) {
+      if (!needsStage3 && !needsOlder && !needsDown) return compile(stable, { ...options, target: 'esnext' });
+      if (jsx !== 'preserve' && (!needsDown || !sourceMap) && (!needsStage3 || !sourceMap)) {
         const result = compile(stable, { ...options, target: 'esnext' });
         if ((result.backend === 'pulse' || result.backend === 'javascript') && result.code !== null && result.diagnostics.length === 0 &&
             (!sourceMap || result.sourceMap)) {
@@ -1091,6 +1093,10 @@ function compile(input, options = {}) {
           let lowered = needsOlder ? lowerOlderTarget(result.code, year, spans) : result.code;
           if (lowered !== null && needsDown) {
             lowered = require('./compiler-downlevel.cjs').lowerDownlevel(lowered, year);
+          }
+          if (lowered !== null && needsStage3) {
+            const addon = loadModuleAddon();
+            lowered = addon ? require('./compiler-stage3-decorators.cjs').lowerStage3Decorators(addon, lowered) : null;
           }
           if (lowered !== null) {
             if (!sourceMap) return { ...result, code: lowered };
