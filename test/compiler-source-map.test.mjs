@@ -587,6 +587,8 @@ test('source maps for CommonJS output, jsx: preserve, and non-ASCII identifiers 
     ['import { helper } from "./dep";\nexport const View = ({ id }: { id: string }) => <div data-id={id}>{helper(id)}</div>;\n', 'View.tsx'],
     ['import { helper } from "./dep";\nexport const x = helper(1);\n', 'plain.js'],
     ['import { dec } from "./dec";\n@dec()\nexport class Svc {\n  run(x: number): number { return x + 1; }\n}\n', 'svc.ts', { experimentalDecorators: true }],
+    ['const val: number = 1;\nexport = val;\n', 'eq.ts'],
+    ['import type { T } from "./t";\nconst v: T = 1 as any;\nconsole.log(v);\n', 'type-erased.ts'],
   ]) {
     const opts = { file, module: 'cjs', sourceMap: true, ...extra };
     const result = compile(Buffer.from(source), opts);
@@ -652,4 +654,12 @@ test('source maps for CommonJS output, jsx: preserve, and non-ASCII identifiers 
   const upperJsx = compile(Buffer.from('export const x = 1;\n'), { file: 'A.JSX', jsx: 'preserve', sourceMap: true });
   assert.equal(upperJsx.backend, 'javascript');
   assert.equal(upperJsx.sourceMap.file, 'A.jsx');
+
+  // 5. Older-target lowering (`1_000_000` and optional `catch {}`) with native source maps.
+  const olderSrc = 'export const limit: number = 1_000_000;\nexport function run(f: () => void) {\n  try { f(); } catch { return limit; }\n}\n';
+  const olderRes = compile(Buffer.from(olderSrc), { file: 'old.ts', target: 'es2018', sourceMap: true });
+  assert.equal(olderRes.backend, 'pulse');
+  assert.match(olderRes.code, /1000000/);
+  assert.match(olderRes.code, /catch \(_a\)/);
+  assert.ok(assertSegmentsFaithful(olderSrc, olderRes) >= 6);
 });

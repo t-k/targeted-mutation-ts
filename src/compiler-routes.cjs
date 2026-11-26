@@ -739,7 +739,8 @@ const newerForms = [
 // Lowers ES2021 numeric separators (`1_000`, `0xff_ff`, `0b10_10`, `1_000.5_5e1_0`, `1_000n`) for targets
 // below ES2021 and ES2019 optional catch bindings (`catch { ... }` -> `catch (_a) { ... }`) for targets
 // below ES2019 in compiled JS while skipping strings, comments, template text, regexes, and shebangs.
-function lowerOlderTarget(code, year) {
+function lowerOlderTarget(code, year, spans = null) {
+  if (spans !== null && /[^\x00-\x7f]/.test(code)) return null;
   const regexAfter = new Set(['', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~', '<', '>', '+', '-', '*', '%', '/', '=>', ')ctrl', '...',
     'return', 'throw', 'case', 'default', 'typeof', 'void', 'delete', 'in', 'instanceof', 'new', 'else', 'do']);
   const numLit = /0[xX][0-9a-fA-F_]+n?|0[bB][01_]+n?|0[oO][0-7_]+n?|\d[\d_]*(?:\.[\d_]*)?(?:[eE][+-]?[\d_]+)?n?|\.\d[\d_]*(?:[eE][+-]?[\d_]+)?/y;
@@ -873,7 +874,12 @@ function lowerOlderTarget(code, year) {
         if (code[nextAt] === '{') {
           if (++catchCount > 1) return null;
           const pad = nextAt > at && /[\s]/.test(code[nextAt - 1]) ? '' : ' ';
-          out += code.slice(last, nextAt) + pad + `(${catchName}) `;
+          const inserted = pad + `(${catchName}) `;
+          if (spans !== null) {
+            if (nextAt > last) spans.push([nextAt - last, last]);
+            spans.push([inserted.length, -1]);
+          }
+          out += code.slice(last, nextAt) + inserted;
           last = nextAt;
         }
       }
@@ -887,7 +893,12 @@ function lowerOlderTarget(code, year) {
       const lit = m[0];
       if (lit.endsWith('n') && year < 2020) return null;
       if (lit.includes('_')) {
-        out += code.slice(last, at) + lit.replace(/_/g, '');
+        const rep = lit.replace(/_/g, '');
+        if (spans !== null) {
+          if (at > last) spans.push([at - last, last]);
+          spans.push([rep.length, at]);
+        }
+        out += code.slice(last, at) + rep;
         last = numLit.lastIndex;
       }
       at = numLit.lastIndex;
@@ -901,7 +912,12 @@ function lowerOlderTarget(code, year) {
     prev = c;
     at++;
   }
-  return last === 0 ? code : out + code.slice(last);
+  if (last === 0) {
+    if (spans !== null && code.length > 0) spans.push([code.length, 0]);
+    return code;
+  }
+  if (spans !== null && code.length > last) spans.push([code.length - last, last]);
+  return out + code.slice(last);
 }
 const comment = '(?:[ \\t]|/\\*(?:[^*]|\\*(?!/))*\\*/)';
 // `using name =`, `using name:` and the head of a loop. English text with these words in this order is
@@ -1004,14 +1020,18 @@ function compile(input, options = {}) {
           if (asciiCjs !== null && !/[^\x00-\x7f]/.test(asciiCjs)) code = restoreNames(asciiCjs, copy.spellings);
         }
       }
-      if (code === null && !sourceMap && !experimentalDecorators && addon && origin !== null &&
+      if (code === null && !experimentalDecorators && addon && origin !== null &&
           /\bexport\s*=/.test(origin) && /\bmodule\.exports\s*=/.test(written.code) &&
           !/\b(?:import|export)\b/.test(written.code) && written.backend === 'pulse') {
         const strict = strictScript(written.code, file, false);
         if (strict !== null) {
           try {
             new Function('exports', 'require', 'module', '__filename', '__dirname', strict.startsWith('#!') ? '//' + strict : strict);
-            code = strict;
+            if (!sourceMap) return { ...written, code: strict };
+            if (!written.code.startsWith('#!') && (strict === written.code || strict === '"use strict";\n' + written.code)) {
+              const shifted = (strict === written.code ? '' : ';') + written.sourceMap.mappings;
+              return { ...written, code: strict, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, shifted, written.sourceMap.sourcesContent[0], jsx === 'preserve', 'cjs') };
+            }
           } catch {}
         }
       }
@@ -1027,7 +1047,7 @@ function compile(input, options = {}) {
           !/\b(?:import|export)\b/.test(written.code)) {
         const onlyTrivia = written.code.replace(/(?:\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g, '').trim() === '';
         const hasComments = written.code.trim() !== '';
-        if (onlyTrivia ? (!sourceMap || !hasComments) : (!sourceMap && !/^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*["']/.test(written.code))) {
+        if (onlyTrivia ? (!sourceMap || !hasComments) : !/^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\n]*\n)*["']/.test(written.code)) {
           const esm = compile(stable, { ...options, file: innerFile, module: 'esm', sourceMap: false });
           if (esm.backend === 'pulse' && esm.code !== null && esm.code.trimEnd().endsWith('export {};')) {
             const head = '"use strict";\nObject.defineProperty(exports, "__esModule", { value: true });\n';
@@ -1038,7 +1058,8 @@ function compile(input, options = {}) {
             }
             try {
               new Function('exports', 'require', 'module', '__filename', '__dirname', out);
-              return { ...written, code: out };
+              if (!sourceMap) return { ...written, code: out };
+              return { ...written, code: out, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, ';;' + written.sourceMap.mappings, written.sourceMap.sourcesContent[0], jsx === 'preserve', 'cjs') };
             } catch {}
           }
         }
@@ -1060,11 +1081,19 @@ function compile(input, options = {}) {
       const raw = year < 2021 ? (Buffer.isBuffer(stable) ? stable.latin1Slice() : String(stable)) : '';
       const needsLower = year < 2021 && (/(?<![\w$])(?:\d[\w.]*_|\.\d[\d_]*_)/.test(raw) || (year < 2019 && /\bcatch\b(?!\s*\()/.test(raw)));
       if (!needsLower) return compile(stable, { ...options, target: 'esnext' });
-      if (!sourceMap && jsx !== 'preserve') {
+      if (jsx !== 'preserve') {
         const result = compile(stable, { ...options, target: 'esnext' });
-        if ((result.backend === 'pulse' || result.backend === 'javascript') && result.code !== null && result.diagnostics.length === 0) {
-          const lowered = lowerOlderTarget(result.code, year);
-          if (lowered !== null) return { ...result, code: lowered };
+        if ((result.backend === 'pulse' || result.backend === 'javascript') && result.code !== null && result.diagnostics.length === 0 &&
+            (!sourceMap || result.sourceMap)) {
+          const spans = sourceMap ? [] : null;
+          const lowered = lowerOlderTarget(result.code, year, spans);
+          if (lowered !== null) {
+            if (!sourceMap) return { ...result, code: lowered };
+            const mappings = require('./compiler-legacy-maps.cjs').composeCommonJsMappings(Buffer.from(result.code), Buffer.from(lowered), spans, result.sourceMap.mappings, lowered);
+            if (mappings !== null) {
+              return { ...result, code: lowered, sourceMap: { ...result.sourceMap, mappings } };
+            }
+          }
         }
       }
     }
