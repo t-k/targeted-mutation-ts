@@ -167,12 +167,12 @@ test('modules that are left to TypeScript for CommonJS output', () => {
     ['export class A {}\n[A] = [null as any];', 'an array target with an exported class'],
     ['export function f() {}\nlet o: any;\n({ f } = o);', 'an object target with an exported function'],
     ['export function f() {}\nfor (f of []) {}', 'a loop that assigns an exported function'],
-    ['export const { a, b } = { a: 1, b: 2 };', 'a pattern'],
+    ['export const { a = 1, b } = { b: 2 };', 'a pattern with default'],
     ['export let count: number;\nfor (count of [1, 2]) {}', 'a loop that assigns an exported variable'],
     ['export const a = 1, b = () => 2;', 'two declarators with a function-like value'],
     ['export let f = () => 1;\nf = () => 2;', 'a function-like value in a variable that can change'],
     ['const exports = 1;\nexport { exports as e };', 'the word exports'],
-    ['export const m = (x: string) => import(x);', 'a dynamic import with a computed specifier'],
+    ['export const m = (x: string) => import(x, { with: { type: "json" } });', 'a dynamic import with attributes'],
     ['export const u = import.meta.url;', 'import.meta'],
     ['import d, * as all from "./d";\nd; all;', 'a default and a namespace import together'],
     ['import { dec } from "./d";\n@dec()\nexport class C {}', 'an unlowered decorator referencing an import'],
@@ -530,4 +530,16 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
   // Review round 40: trailing empty destructuring in multi-declarator declines cleanly.
   const multiEmptyDestr = sameAsTypeScript('export const a = 1, b = 2, {} = JSON.parse("null");\n');
   assert.equal(multiEmptyDestr.backend, 'typescript');
+
+  // Destructuring exports (object & array, plain identifier & call RHS) and dynamic `import(expr)`.
+  for (const src of [
+    'const obj = { a: 1, b: 2 };\nexport const { a, b: c } = obj;\n',
+    'export const { a, b } = getObj();\nexport const tag = 1;\n',
+    'const arr = [1, 2, 3];\nexport const [x, , y] = arr;\n',
+    'export const [x, y] = getArr();\nexport const tag = 1;\n',
+    'import { base } from "./cfg";\nexport const load = (p: string) => import(base + p);\n',
+  ]) {
+    const r = sameAsTypeScript(src);
+    assert.equal(r.backend, 'pulse', src);
+  }
 });

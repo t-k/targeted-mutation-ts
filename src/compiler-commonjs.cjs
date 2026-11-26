@@ -374,6 +374,47 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
     edits.push([order[lead], endOf(lead), '']);
     lead++;
   }
+  function findMatchingParen(pos) {
+    let depth = 0, i = pos;
+    while (i < text.length) {
+      const c = text[i];
+      if (c === '/' && text[i + 1] === '/') { const e = text.indexOf('\n', i + 2); i = e < 0 ? text.length : e + 1; continue; }
+      if (c === '/' && text[i + 1] === '*') { const e = text.indexOf('*/', i + 2); if (e < 0) return -1; i = e + 2; continue; }
+      if (c === '"' || c === "'") {
+        i++;
+        while (i < text.length && text[i] !== c) { if (text[i] === '\\') i += 2; else if (text[i] === '\n') return -1; else i++; }
+        if (i >= text.length) return -1;
+        i++;
+        continue;
+      }
+      if (c === '`') return -1;
+      if (c === '(' || c === '[' || c === '{') { depth++; i++; continue; }
+      if (c === ')' || c === ']' || c === '}') {
+        depth--;
+        if (depth === 0) return c === ')' ? i : -1;
+        if (depth < 0) return -1;
+        i++;
+        continue;
+      }
+      if (c === ',' && depth === 1) return -1;
+      i++;
+    }
+    return -1;
+  }
+
+  let tempIndex = 0;
+  const freshTemp = () => {
+    if (/\b(?:eval|with)\b/.test(text)) return null;
+    while (tempIndex < 26) {
+      const cand = '_' + String.fromCharCode(97 + tempIndex++);
+      if (!new RegExp(`(?<![\\w$])${cand}(?![\\w$])`).test(text) && !new RegExp(`(?<![\\w$])${cand}(?![\\w$])`).test(source)) {
+        temporaries += `var ${cand};\n`;
+        return cand;
+      }
+    }
+    return null;
+  };
+
   for (let index = lead; index < order.length; index++) {
     const first = order[index], end = endOf(index);
     if (moduleEnds.has(first)) {
@@ -588,6 +629,71 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
           else behind(index, `exports.${name} = ${name};`);
         } else edits.push([first, names[0].last, `exports.${name}`]);
         renamed.set(name, { text: `exports.${name}`, statement: index, kind: 'variable', declaration: names[0].first });
+      } else if (/^(?:const|let|var)\s*[\[{]/.test(rest)) {
+        // Flat destructuring export: `export const { a, b: c } = expr;` or `export const [a, , b] = expr;`.
+        const patMatch = /^(const|let|var)\s*([\[{])/.exec(rest);
+        const openAt = at + patMatch[0].length - 1;
+        const closeChar = patMatch[2] === '{' ? '}' : ']';
+        let closeAt = -1;
+        for (let i = openAt + 1; i < end; i++) {
+          const ch = text[i];
+          if (ch === '{' || ch === '[' || ch === '=' || ch === '.' || ch === '"' || ch === "'" || ch === '`') { closeAt = -1; break; }
+          if (ch === closeChar) { closeAt = i; break; }
+        }
+        if (closeAt < 0) return null;
+        const [eq1, eq2, , eqAt] = followers(text, closeAt + 1);
+        if (eq1 !== '=' || eq2 === '=' || eq2 === '>') return null;
+        const innerPat = text.slice(openAt + 1, closeAt).replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ' ');
+        const bindings = [];
+        if (patMatch[2] === '{') {
+          for (const part of innerPat.split(',')) {
+            const m = part.trim();
+            if (m === '') continue;
+            const pair = new RegExp(`^(${word})(?:\\s*:\\s*(${word}))?$`).exec(m);
+            if (pair === null) return null;
+            bindings.push({ prop: pair[1], local: pair[2] ?? pair[1] });
+          }
+        } else {
+          let idx = 0;
+          const parts = innerPat.split(',');
+          for (let i = 0; i < parts.length; i++) {
+            const m = parts[i].trim();
+            if (m === '') { idx++; continue; }
+            if (!new RegExp(`^${word}$`).test(m)) return null;
+            bindings.push({ index: idx++, local: m });
+          }
+        }
+        const names = declared.filter(entry => entry.first >= first && entry.first < end);
+        if (bindings.length === 0 || names.length !== bindings.length) return null;
+        const rhsRaw = text.slice(eqAt + 1, end);
+        let rhsEnd = skipTriviaBack(rhsRaw, rhsRaw.length, true);
+        if (rhsEnd <= 0) return null;
+        const hasSemi = rhsRaw[rhsEnd - 1] === ';';
+        if (hasSemi) rhsEnd = skipTriviaBack(rhsRaw, rhsEnd - 1, true);
+        if (rhsEnd <= 0) return null;
+        const rhsExpr = rhsRaw.slice(0, rhsEnd).trim();
+        const rhsCheck = addon.moduleRecords(Buffer.from(`export default ${rhsExpr}\n;`));
+        if (rhsCheck === null) return null;
+        let rhsStmts = 0;
+        for (let j = 0; j < rhsCheck.length; j += 5) rhsStmts += rhsCheck[j] === 72;
+        if (rhsStmts !== 1) return null;
+        const plainId = new RegExp(`^${word}$`).test(rhsExpr) && !renamed.has(rhsExpr) && !kept.has(rhsExpr) &&
+          !['this', 'true', 'false', 'null', 'undefined', 'NaN', 'Infinity'].includes(rhsExpr);
+        if (plainId) {
+          const assigns = bindings.map(b => b.prop !== undefined ? `exports.${b.local} = ${rhsExpr}.${b.prop}` : `exports.${b.local} = ${rhsExpr}[${b.index}]`).join(', ');
+          edits.push([first, eqAt + 1 + rhsEnd, assigns]);
+        } else {
+          const tmp = freshTemp();
+          if (tmp === null) return null;
+          const assigns = bindings.map(b => b.prop !== undefined ? `exports.${b.local} = ${tmp}.${b.prop}` : `exports.${b.local} = ${tmp}[${b.index}]`).join(', ');
+          edits.push([first, eqAt + 1, `${tmp} =`]);
+          edits.push([eqAt + 1 + rhsEnd, eqAt + 1 + rhsEnd, `, ${assigns}`]);
+        }
+        for (let i = 0; i < bindings.length; i++) {
+          const local = bindings[i].local;
+          cleared.push(local);
+          renamed.set(local, { text: `exports.${local}`, statement: index, kind: 'variable', declaration: names[i].first });
+        }
       } else return null;
       continue;
     }
@@ -659,13 +765,36 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       if (one === '.') return false;
       if (one === '(') {
         const dyn = new RegExp(`^\\((${quoted})\\)`).exec(text.slice(nextAt, nextAt + 300));
-        if (dyn === null) return false;
+        if (dyn !== null) {
+          need(at, '__createBinding', '__setModuleDefault', '__importStar');
+          const spec = dyn[1];
+          const rep = `Promise.resolve().then(() => __importStar(require(${spec})))`;
+          const specAt = text.indexOf(spec, nextAt);
+          const repAt = rep.indexOf(spec);
+          edits.push([at, nextAt + dyn[0].length, rep, [repAt, specAt, spec.length]]);
+          return;
+        }
+        const closeParen = findMatchingParen(nextAt);
+        if (closeParen < 0) return false;
+        const inner = text.slice(nextAt + 1, closeParen);
+        const innerStripped = inner.replace(/"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*'|\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, m => m[0] === '"' || m[0] === "'" ? m : ' ').trim();
+        if (innerStripped === '') return false;
+        if (new RegExp(`^${quoted}$`).test(innerStripped)) {
+          // A commented string literal like `import(/* webpackChunkName: "x" */ "./x")` is a plain literal
+          // unless erased assertion blanks stand around it.
+          const specMatch = new RegExp(`^(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n]*\\n)*(${quoted})(?:\\n[ \\t]*)*$`).exec(inner);
+          if (specMatch === null) return false;
+          // Ensure no erased prefix assertion (more than 1 space before the quote on the same line without a comment).
+          const beforeSpec = inner.slice(0, inner.indexOf(specMatch[1]));
+          if (!/\/[/*]/.test(beforeSpec) && /[ \t]{2,}/.test(beforeSpec)) return false;
+          need(at, '__createBinding', '__setModuleDefault', '__importStar');
+          edits.push([at, nextAt + 1, 'Promise.resolve().then(() => __importStar(require(']);
+          edits.push([closeParen, closeParen + 1, ')))']);
+          return;
+        }
         need(at, '__createBinding', '__setModuleDefault', '__importStar');
-        const spec = dyn[1];
-        const rep = `Promise.resolve().then(() => __importStar(require(${spec})))`;
-        const specAt = text.indexOf(spec, nextAt);
-        const repAt = rep.indexOf(spec);
-        edits.push([at, nextAt + dyn[0].length, rep, [repAt, specAt, spec.length]]);
+        edits.push([at, nextAt + 1, 'Promise.resolve(`${']);
+        edits.push([closeParen, closeParen + 1, '}`).then(s => __importStar(require(s)))']);
         return;
       }
     }
