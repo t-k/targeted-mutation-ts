@@ -3111,7 +3111,7 @@ test('each target compiles natively up to the forms of its year', () => {
   const forms = [
     ['/** doc */\nexport function f(a: number[]): number { for (const x of a) g(x); try { g(1); } catch (e) { g(e); } return a.length; }\ndeclare function g(x: unknown): void;', 2015],
     ['export enum E { A }\nnamespace N { export const x: number = E.A; }\nexport const n = N.x;', 2015],
-    ['export const p: number = 2 ** 3;', 2016],
+    ['export const p: number = 2 ** 3;', 2015],
     ['export async function f(): Promise<number> { return await g(); }\ndeclare function g(): Promise<number>;', 2017],
     ['declare const p: object;\nexport const o = { ...p };', 2018],
     ['export function f(...rest: number[]) { return rest; }', 2018],
@@ -3123,19 +3123,23 @@ test('each target compiles natively up to the forms of its year', () => {
     ['export const f = async function\n* () { yield 1; };', 2018],
     ['export /* c */ * as parts from "./parts";', 2015],
     ['export // c\n * as parts from "./parts";', 2015],
-    ['declare const b: number;\nexport const a = b /* c */** 2;', 2016],
-    ['declare const b: number;\nexport const a = 2 **/* c */ b;', 2016],
-    ['let a = 2;\na **= 2;\nexport { a };', 2016],
+    ['declare const b: number;\nexport const a = b /* c */** 2;', 2015],
+    ['declare const b: number;\nexport const a = 2 **/* c */ b;', 2015],
+    ['let a = 2;\na **= 2;\nexport { a };', 2015],
+    ['export const p: number = 2 ** 3 ** 2;', 2016],
     ['export * from "./parts";\nexport { a } from "./a";\nexport default 1;', 2015],
     ['  /*****\n * banner\n */\nexport const a: string = `t${1}` + "\\u0041\\x41";', 2015],
     ['export function f(g: () => void) { try { g(); } catch { g(); } }', 2015],
     ['export function f(g: () => void) { try { g(); } catch /* none */ { g(); } }', 2015],
     ['export function f(g: () => void) { const _a = 1; try { g(); } catch { g(); return _a; } }', 2015],
     ['export function f() { const _\\u0061 = 42; try { throw 1; } catch { return _\\u0061; } }', 2019],
-    ['declare const b: { c?: number } | undefined;\nexport const a = b?.c;', 2020],
-    ['declare const b: number | undefined;\nexport const a = b ?? 1;', 2020],
+    ['declare const b: { c?: number } | undefined;\nexport const a = b?.c;', 2015],
+    ['declare const b: { c?: { d?: number } } | undefined;\nexport const a = b?.c?.d;', 2020],
+    ['declare const b: number | undefined;\nexport const a = b ?? 1;', 2015],
+    ['declare function f(): number | undefined;\nexport const a = f() ?? 1;', 2020],
     ['export * as parts from "./parts";', 2015],
-    ['let a: number | undefined;\na ||= 1;\na &&= 2;\na ??= 3;\nexport { a };', 2021],
+    ['let a: number | undefined;\na ||= 1;\na &&= 2;\na ??= 3;\nexport { a };', 2015],
+    ['declare const o: { a?: number };\no.a ||= 1;', 2021],
     ['export const n: number = 1_000 + 0xff_ff;', 2015],
     ['export const s: string = "1_000"; export const d = 1_000.2_5e1_0 + 0b1010_0101;', 2015],
     ['export const big = 1_000n;', 2020],
@@ -3165,8 +3169,14 @@ test('each target compiles natively up to the forms of its year', () => {
     const jsx = compile(Buffer.from('export const e = <a b={1 as number} />;'), { file: 'year.tsx', target });
     assert.equal(jsx.backend === 'typescript', year < 2018, target);
   }
-  // A doc comment is no exponentiation, but two stars inside one are taken for it.
-  assert.equal(compile(Buffer.from('/** a ** b */\nexport const a: number = 1;'), { file: 'year.ts', target: 'es2015' }).backend, 'typescript');
+  // A doc comment with two stars inside compiles natively once tokenized.
+  assert.notEqual(compile(Buffer.from('/** a ** b */\nexport const a: number = 1;'), { file: 'year.ts', target: 'es2015' }).backend, 'typescript');
+  // Shadowed Math declines exponentiation lowering to TypeScript.
+  assert.equal(compile(Buffer.from('const Math = { pow: () => 0 };\nexport const a = 2 ** 3;'), { file: 'year.ts', target: 'es2015' }).backend, 'typescript');
+  // Direct vs indirect eval optional call declines to TypeScript.
+  assert.equal(compile(Buffer.from('export const a = eval?.("1");'), { file: 'year.ts', target: 'es2019' }).backend, 'typescript');
+  // Mixed ?? and || declines to TypeScript.
+  assert.equal(compile(Buffer.from('declare const a: any, b: any, c: any;\nexport const x = a ?? b || c;'), { file: 'year.ts', target: 'es2019' }).backend, 'typescript');
   // Two stars behind the slash that closes a regular expression are the operator.
   const regex = 'var r = /**// /**/asdf /;';
   const lowered = compile(Buffer.from(regex), { file: 'year.js', target: 'es2015' });
@@ -3190,9 +3200,9 @@ test('each target compiles natively up to the forms of its year', () => {
   assert.equal(compile(Buffer.from('export const a: string = "\u00a0";'), { file: 'year.ts', target: 'es2021' }).backend, 'typescript');
   assert.equal(compile(Buffer.from('export const a: string = "\u00a0";'), { file: 'year.ts', target: 'es2022' }).backend, 'pulse');
   assert.equal(compile(Buffer.from('export const a: string = "\u00a0";'), { file: 'year.ts' }).backend, 'pulse');
-  // A word of a newer form in a comment or a string is enough to leave the file with TypeScript.
+  // A word of a newer form in a comment is enough to leave the file with TypeScript, while tokenized downlevel skips strings.
   assert.equal(compile(Buffer.from('// no class here\nexport const a: number = 1;'), { file: 'year.ts', target: 'es2020' }).backend, 'typescript');
-  assert.equal(compile(Buffer.from('export const a: string = "x ?? y";'), { file: 'year.ts', target: 'es2019' }).backend, 'typescript');
+  assert.equal(compile(Buffer.from('export const a: string = "x ?? y";'), { file: 'year.ts', target: 'es2019' }).backend, 'pulse');
   // A private name outside a class is an error that TypeScript prints differently per target.
   assert.equal(compile(Buffer.from('declare const x: any;\nx.#bar = 1;\nexport {};'), { file: 'year.ts', target: 'es2021' }).backend, 'typescript');
 });

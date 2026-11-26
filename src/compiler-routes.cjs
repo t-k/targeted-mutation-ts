@@ -729,11 +729,8 @@ const targetYears = new Map([['es6', 2015], ['es2015', 2015], ['es2016', 2016], 
 // text the slash in front of them may close a regular expression.
 const newerForms = [
   [2022, /\bclass\b|\.\s*#/],
-  [2021, /\|\|=|&&=|\?\?=/],
-  [2020, /\?\.|\?\?/],
   [2018, /\.\.\.|\bfor\b(?!\s*\()|\basync\b(?:\s*function\b)?\s*[*\/]/],
   [2017, /\basync\b|\bawait\b/],
-  [2016, /(?<!^[ \t]*\/\**)\*\*/m],
 ];
 
 // Lowers ES2021 numeric separators (`1_000`, `0xff_ff`, `0b10_10`, `1_000.5_5e1_0`, `1_000n`) for targets
@@ -1079,14 +1076,22 @@ function compile(input, options = {}) {
     const stable = snapshot(input);
     if (writtenAsNewest(stable, jsxFile, year)) {
       const raw = year < 2021 ? (Buffer.isBuffer(stable) ? stable.latin1Slice() : String(stable)) : '';
-      const needsLower = year < 2021 && (/(?<![\w$])(?:\d[\w.]*_|\.\d[\d_]*_)/.test(raw) || (year < 2019 && /\bcatch\b(?!\s*\()/.test(raw)));
-      if (!needsLower) return compile(stable, { ...options, target: 'esnext' });
-      if (jsx !== 'preserve') {
+      const needsOlder = year < 2021 && (/(?<![\w$])(?:\d[\w.]*_|\.\d[\d_]*_)/.test(raw) || (year < 2019 && /\bcatch\b(?!\s*\()/.test(raw)));
+      const needsDown = year < 2021 && (
+        /\|\|=|&&=|\?\?=/.test(raw) ||
+        (year < 2020 && /\?\.|\?\?/.test(raw)) ||
+        (year < 2016 && /(?<!^[ \t]*\/\**)\*\*/m.test(raw))
+      );
+      if (!needsOlder && !needsDown) return compile(stable, { ...options, target: 'esnext' });
+      if (jsx !== 'preserve' && (!needsDown || !sourceMap)) {
         const result = compile(stable, { ...options, target: 'esnext' });
         if ((result.backend === 'pulse' || result.backend === 'javascript') && result.code !== null && result.diagnostics.length === 0 &&
             (!sourceMap || result.sourceMap)) {
           const spans = sourceMap ? [] : null;
-          const lowered = lowerOlderTarget(result.code, year, spans);
+          let lowered = needsOlder ? lowerOlderTarget(result.code, year, spans) : result.code;
+          if (lowered !== null && needsDown) {
+            lowered = require('./compiler-downlevel.cjs').lowerDownlevel(lowered, year);
+          }
           if (lowered !== null) {
             if (!sourceMap) return { ...result, code: lowered };
             const mappings = require('./compiler-legacy-maps.cjs').composeCommonJsMappings(Buffer.from(result.code), Buffer.from(lowered), spans, result.sourceMap.mappings, lowered);
