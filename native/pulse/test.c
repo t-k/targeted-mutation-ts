@@ -48,6 +48,32 @@ static void check_type_blocks(void)
   puts("SIMD type masking matched all bytes in every lane");
 }
 
+static void check_map_runs(void)
+{
+  uint8_t from[16], to[16];
+  for (unsigned lane = 0; lane < 16; lane++) {
+    for (unsigned byte = 0; byte < 256; byte++) {
+      memset(from, 'a', sizeof(from));
+      memset(to, ' ', sizeof(to));
+      from[lane] = (uint8_t)byte;
+      const bool ascii_line = byte < 128 && byte != '\n' && byte != '\r';
+      assert(tmt_ascii_line_run(from) == ascii_line);
+      assert(tmt_map_blank_run(from, to) == ascii_line);
+      to[lane] = (uint8_t)byte;
+      assert(tmt_map_blank_run(from, to) == (ascii_line && byte == ' '));
+      memset(from, 'a', sizeof(from));
+      memset(to, 'a', sizeof(to));
+      from[lane] = (uint8_t)byte;
+      to[lane] = (uint8_t)byte;
+      const bool word = ((byte | 32u) - 'a') < 26u || (byte - '0') < 10u || byte == '_' || byte == '$';
+      assert(tmt_map_word_run(from, to) == word);
+      from[lane] = (uint8_t)(byte ^ 1u);
+      assert(!tmt_map_word_run(from, to));
+    }
+  }
+  puts("SIMD source-map runs matched all bytes in every lane");
+}
+
 /* The scalar block comment loop stops at a terminator and, before its first line break, at a line break start. */
 static unsigned comment_run_reference(const uint8_t *bytes, bool newline)
 {
@@ -338,6 +364,7 @@ int main(int argc, char **argv)
 #if defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))
   check_jsx_blocks();
   check_type_blocks();
+  check_map_runs();
   check_comment_runs();
 #endif
 #if defined(__aarch64__)

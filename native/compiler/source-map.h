@@ -15,10 +15,12 @@
 #include <string.h>
 
 #include "lowering.h"
+#include "tmt_simd_scan.h"
 
-/* Map code runs only when a map is requested. Keeping it out of line and cold keeps it off the pages a default compile touches. */
+/* Map code runs only when a map is requested. Keeping it out of line keeps it off the pages a default compile touches,
+ * while avoiding `cold` so the compiler still optimizes its inner loops for throughput. */
 #if defined(__GNUC__) || defined(__clang__)
-#define TMT_MAP_COLD __attribute__((noinline, cold, unused))
+#define TMT_MAP_COLD __attribute__((noinline, unused))
 #else
 #define TMT_MAP_COLD
 #endif
@@ -108,6 +110,15 @@ static inline bool tmt_map_seek(tmt_map_source *cursor, const uint8_t *source, s
   }
   while (cursor->at.offset < target) {
     if (!tmt_map_mark(cursor)) return false;
+#if (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))) && !defined(TMT_SCALAR_SCANS)
+    if (target - cursor->at.offset >= 16 &&
+        ((cursor->at.offset + 16) >> 12) == (cursor->at.offset >> 12) &&
+        tmt_ascii_line_run(source + cursor->at.offset)) {
+      cursor->at.column += 16;
+      cursor->at.offset += 16;
+      continue;
+    }
+#endif
     const size_t terminator = tmt_map_terminator(source, size, cursor->at.offset);
     if (terminator) {
       cursor->at.offset += (uint32_t)terminator;
@@ -146,6 +157,13 @@ static TMT_MAP_COLD char *tmt_run_mappings(const uint8_t *source, size_t size, c
     const size_t next = index < count ? runs[index].out : length;
     if (next < done || next > length) goto mismatch;
     while (done < next) {
+#if (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))) && !defined(TMT_SCALAR_SCANS)
+      if (!mapped && next - done >= 16 && tmt_ascii_line_run(code + done)) {
+        done += 16;
+        generated += 16;
+        continue;
+      }
+#endif
       const size_t terminator = tmt_map_terminator(code, length, done);
       if (terminator) {
         if (done + terminator > next || !tmt_map_reserve(&map, 1)) goto mismatch;
@@ -173,8 +191,27 @@ static TMT_MAP_COLD char *tmt_run_mappings(const uint8_t *source, size_t size, c
     const uint8_t *from_bytes = source + run.src, *to_bytes = code + done;
     bool boundary = true, word = false;
     for (size_t at = 0; at < run.length; at++) {
-      const uint8_t from = from_bytes[at], to = to_bytes[at];
       if (!tmt_map_mark(&cursor)) goto mismatch;
+#if (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))) && !defined(TMT_SCALAR_SCANS)
+      if (run.length - at >= 16 && ((cursor.at.offset + 16) >> 12) == (cursor.at.offset >> 12)) {
+        if (to_bytes[at] == ' ' && tmt_map_blank_run(from_bytes + at, to_bytes + at)) {
+          generated += 16;
+          cursor.at.column += 16;
+          cursor.at.offset += 16;
+          at += 15;
+          boundary = true;
+          continue;
+        }
+        if (!boundary && word && tmt_map_word_run(from_bytes + at, to_bytes + at)) {
+          generated += 16;
+          cursor.at.column += 16;
+          cursor.at.offset += 16;
+          at += 15;
+          continue;
+        }
+      }
+#endif
+      const uint8_t from = from_bytes[at], to = to_bytes[at];
       if (from >= 0xC2) {
         /* The eraser writes U+00A0, U+2002 or a space and U+FEFF over a scalar of two, three or four bytes. */
         static const uint8_t blanks[5][4] = { { 0 }, { 0 }, { 0xC2, 0xA0 }, { 0xE2, 0x80, 0x82 }, { ' ', 0xEF, 0xBB, 0xBF } };

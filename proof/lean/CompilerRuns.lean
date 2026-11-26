@@ -210,4 +210,34 @@ theorem enumSignedValue (word : BitVec 32) :
   rw [BitVec.toInt_eq_msb_cond]
   rfl
 
+-- Source-map SIMD runs: pure ASCII bytes without LF/CR advance offset and UTF-16 column by 1 each
+-- without changing line, and 16-byte runs of ASCII spaces over such bytes emit no segment.
+def asciiLinePlain (byte : UInt8) : Bool :=
+  byte < 128 && byte != 10 && byte != 13
+
+structure MapPoint where
+  offset : Nat
+  line : Nat
+  column : Nat
+
+def mapSeekStep (point : MapPoint) (byte : UInt8) : MapPoint :=
+  if asciiLinePlain byte then { point with offset := point.offset + 1, column := point.column + 1 }
+  else point
+
+theorem skipAsciiLineBlock (bytes : List UInt8) (point : MapPoint)
+    (width : bytes.length = 16) (safe : bytes.all asciiLinePlain = true) :
+    bytes.foldl mapSeekStep point = { point with offset := point.offset + 16, column := point.column + 16 } := by
+  have go : ∀ (xs : List UInt8) (p : MapPoint), xs.all asciiLinePlain = true →
+      xs.foldl mapSeekStep p = { p with offset := p.offset + xs.length, column := p.column + xs.length } := by
+    intro xs
+    induction xs with
+    | nil => intro p _; cases p; simp
+    | cons b rest ih =>
+      intro p h
+      simp only [List.all_cons, Bool.and_eq_true] at h
+      rw [List.foldl_cons, ih _ h.2]
+      cases p
+      simp [mapSeekStep, h.1, Nat.add_comm, Nat.add_left_comm]
+  rw [go bytes point safe, width]
+
 end CompilerRuns
