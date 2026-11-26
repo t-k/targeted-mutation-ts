@@ -3154,7 +3154,9 @@ test('each target compiles natively up to the forms of its year', () => {
     ['#!/usr/bin/env -S node 1_0\nexport const x = 1_0;', 2015],
     ['// comment\rexport const x = 1_0;', 2015],
     ['export class A { x = 1; static s = 2; }', 2022],
-    ['export const A = class { m() { return 1; } };', 2022],
+    ['export const A = class { m() { return 1; } };', 2015],
+    ['export class M { constructor(x: number) { this.x = x; } m() { return this.x; } static s() { return 1; } get g() { return 2; } }', 2015],
+    ['export class P { constructor(public x: number) {} }', 2022],
   ];
   const years = { es2015: 2015, es6: 2015, es2016: 2016, es2017: 2017, es2018: 2018, es2019: 2019, es2020: 2020, es2021: 2021, es2022: 2022, es2023: 2023 };
   for (const [target, year] of Object.entries(years)) {

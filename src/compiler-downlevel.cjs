@@ -242,14 +242,70 @@ function findClose(tokens, openIdx) {
   return -1;
 }
 
+// Checks whether the `class` at `classIdx` has only methods, constructors, and getters/setters
+// (no class fields, static blocks, or private members), whose emit is identical from ES2015 to ESNext.
+function isMethodOnlyClass(tokens, classIdx) {
+  let braceIdx = -1;
+  let parenDepth = 0, bracketDepth = 0;
+  for (let i = classIdx + 1; i < tokens.length; i++) {
+    const v = tokens[i].value;
+    if (v === '(') parenDepth++;
+    else if (v === ')') { if (parenDepth === 0) return false; parenDepth--; }
+    else if (v === '[') bracketDepth++;
+    else if (v === ']') { if (bracketDepth === 0) return false; bracketDepth--; }
+    else if (v === '{' && parenDepth === 0 && bracketDepth === 0) { braceIdx = i; break; }
+    else if (v === ';' && parenDepth === 0 && bracketDepth === 0) return false;
+  }
+  if (braceIdx < 0) return false;
+  const closeBrace = findClose(tokens, braceIdx);
+  if (closeBrace < 0) return false;
+  let i = braceIdx + 1;
+  while (i < closeBrace) {
+    if (tokens[i].value === ';') { i++; continue; }
+    // Optional modifiers: static, async, get, set, *
+    if (tokens[i].type === 'id' && tokens[i].value === 'static') {
+      if (i + 1 < closeBrace && tokens[i + 1].value === '{') return false; // static block
+      if (i + 1 < closeBrace && tokens[i + 1].value !== '(') i++;
+    }
+    if (i < closeBrace && tokens[i].type === 'id' && tokens[i].value === 'async') {
+      if (i + 1 < closeBrace && tokens[i + 1].value !== '(') i++;
+    }
+    if (i < closeBrace && tokens[i].value === '*') i++;
+    if (i < closeBrace && tokens[i].type === 'id' && (tokens[i].value === 'get' || tokens[i].value === 'set')) {
+      if (i + 1 < closeBrace && tokens[i + 1].value !== '(') i++;
+    }
+    if (i >= closeBrace) return false;
+    // Member name: identifier, string, number, or computed `[expr]`
+    if (tokens[i].value === '[') {
+      const closeBracket = findClose(tokens, i);
+      if (closeBracket < 0 || closeBracket >= closeBrace) return false;
+      i = closeBracket + 1;
+    } else if (tokens[i].type === 'id' || tokens[i].type === 'str' || tokens[i].type === 'num') {
+      i++;
+    } else {
+      return false;
+    }
+    // Must be followed by `(params) { body }` (a method/constructor/accessor, not a field).
+    if (i >= closeBrace || tokens[i].value !== '(') return false;
+    const closeParen = findClose(tokens, i);
+    if (closeParen < 0 || closeParen >= closeBrace) return false;
+    i = closeParen + 1;
+    if (i >= closeBrace || tokens[i].value !== '{') return false;
+    const closeBody = findClose(tokens, i);
+    if (closeBody < 0 || closeBody >= closeBrace) return false;
+    i = closeBody + 1;
+  }
+  return true;
+}
+
 function lowerDownlevel(code, year) {
   if (year >= 2022) return code;
   if (code.includes('\\u')) return null;
   const tokens = tokenize(code);
   if (tokens === null) return null;
 
-  // Below ES2022, any real `class` keyword token in code (outside strings/comments/property names)
-  // declines to TypeScript (useDefineForClassFields / static blocks / private fields).
+  // Below ES2022, any real `class` keyword token in code must be a method-only class
+  // (classes with fields, static blocks, or parameter properties decline to TypeScript).
   if (year < 2022) {
     for (let i = 0; i < tokens.length; i++) {
       const t = tokens[i];
@@ -258,7 +314,7 @@ function lowerDownlevel(code, year) {
       if (t.type === 'id' && t.value === 'class' &&
           (!prev || (prev.value !== '.' && prev.value !== '?.')) &&
           (!next || next.value !== ':')) {
-        return null;
+        if (!isMethodOnlyClass(tokens, i)) return null;
       }
     }
   }
