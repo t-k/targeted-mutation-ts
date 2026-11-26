@@ -1900,11 +1900,11 @@ let simple_annotation (input:tape) (#frame:slprop) (state:parser_state) : Tot (s
   let! annotation = (fun () -> same input #frame st.offset 58uy) in
   if st.status <> 0ul then read_ret input #frame (st)
   else if not annotation then read_ret input #frame (state)
-  else annotation_type input #frame { st with offset = next st.offset } 16ul 64ul
+  else annotation_type input #frame { st with offset = next st.offset } 32ul 64ul
 
 let result_annotation (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! st = (fun () -> skip input #frame state) in
-  (let! anf_value_1 = (fun () -> same input #frame st.offset 58uy) in if anf_value_1 then (let! anf_value_2 = (fun () -> (consume input #frame st 58uy)) in result_type input #frame anf_value_2 16ul)
+  (let! anf_value_1 = (fun () -> same input #frame st.offset 58uy) in if anf_value_1 then (let! anf_value_2 = (fun () -> (consume input #frame st 58uy)) in result_type input #frame anf_value_2 32ul)
   else read_ret input #frame (st))
 
 let capture_parsed_annotation (input:tape) (state typed:parser_state) (kind:U32.t)
@@ -1922,7 +1922,7 @@ let capture_annotation (input:tape) (state:parser_state) (result:bool)
   capture_parsed_annotation input state typed 7ul
 
 let expression_type_arguments (input:tape) (#frame:slprop) (state:parser_state) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
-  (let! anf_value_1 = (fun () -> (consume input #frame state 60uy)) in type_list input #frame anf_value_1 16ul 64ul 62uy false)
+  (let! anf_value_1 = (fun () -> (consume input #frame state 60uy)) in type_list input #frame anf_value_1 32ul 64ul 62uy false)
 
 let call_type_arguments (input:tape) (state:parser_state) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
   let! arguments = (fun () -> expression_type_arguments input state) in
@@ -1933,7 +1933,7 @@ let call_type_arguments (input:tape) (state:parser_state) : Tot (stt parser_stat
 
 let optional_type_parameters (input:tape) (#frame:slprop) (state:parser_state) (allow_variance:bool) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   if state.status <> 0ul then read_ret input #frame (state)
-  else (let! anf_value_1 = (fun () -> same input #frame state.offset 60uy) in if anf_value_1 then (let! anf_value_2 = (fun () -> (consume input #frame state 60uy)) in type_parameters input #frame anf_value_2 16ul 64ul allow_variance)
+  else (let! anf_value_1 = (fun () -> same input #frame state.offset 60uy) in if anf_value_1 then (let! anf_value_2 = (fun () -> (consume input #frame state 60uy)) in type_parameters input #frame anf_value_2 32ul 64ul allow_variance)
   else read_ret input #frame (state))
 
 let capture_type_parameters (input:tape) (state:parser_state) (allow_variance:bool) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
@@ -2039,7 +2039,7 @@ let generic_arrow_head (input:tape) (#frame:slprop) (state:parser_state) : Tot (
         else if byte = 44uy || byte = 61uy then read_ret input #frame (true)
         else if byte = 101uy then keyword input #frame tail.offset 7ul 0x657874656e6473uL
         else read_ret input #frame (false))) in
-  if eligible then type_parameters input #frame head 16ul 64ul false else read_ret input #frame (failed head 1ul)
+  if eligible then type_parameters input #frame head 32ul 64ul false else read_ret input #frame (failed head 1ul)
 
 let async_modifier (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt cursor (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   (let! anf_value_1 = (fun () -> same input #frame start 97uy) in if anf_value_1 then
@@ -2248,7 +2248,7 @@ let labeled_loop_start (input:tape) (#frame:slprop) (state:parser_state)
     let! kind = (fun () -> statement_kind input #frame start.offset) in
     read_ret input #frame (if kind = 2ul || kind = 3ul || kind = 4ul then start else failed start 1ul)
 
-// A label in front of a block, an if, a try or a switch.
+// A label in front of a block, an if, a try, a switch, or a simple statement (expression, return, throw, break, etc.).
 let labeled_block_start (input:tape) (#frame:slprop) (state:parser_state)
   : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! named = (fun () -> name input #frame state.offset false false) in
@@ -2257,7 +2257,7 @@ let labeled_block_start (input:tape) (#frame:slprop) (state:parser_state)
   if start.status <> 0ul then read_ret input #frame start
   else
     let! kind = (fun () -> statement_kind input #frame start.offset) in
-    read_ret input #frame (if kind = 1ul || kind = 5ul || kind = 6ul || kind = 7ul then start else failed start 1ul)
+    read_ret input #frame (if kind = 0ul || kind = 1ul || kind = 5ul || kind = 6ul || kind = 7ul then start else failed start 1ul)
 
 let local_width (input:tape) (#frame:slprop) (start:U32.t) : Tot (stt U32.t (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! first = (fun () -> peek input #frame start) in
@@ -2302,7 +2302,7 @@ let admissible_type_binding (input:tape) (#frame:slprop) (first last:U32.t) : To
 
 let type_alias_tail (input:tape) (#frame:slprop) (state:parser_state) (before_brace:bool) : Tot (stt parser_state (input_ready input ** frame) (fun _ -> input_ready input ** frame)) =
   let! st = (fun () -> (let! anf_value_1 = (fun () -> (optional_type_parameters input #frame state true)) in skip input #frame anf_value_1)) in
-  let! alias = (fun () -> (let! anf_value_2 = (fun () -> (consume input #frame st 61uy)) in annotation_type input #frame anf_value_2 16ul 256ul)) in
+  let! alias = (fun () -> (let! anf_value_2 = (fun () -> (consume input #frame st 61uy)) in annotation_type input #frame anf_value_2 32ul 256ul)) in
   statement_end input #frame alias alias.offset before_brace
 
 let rec interface_bases (input:tape) (#frame:slprop) (state:parser_state) (remaining:U32.t)
@@ -2313,7 +2313,7 @@ let rec interface_bases (input:tape) (#frame:slprop) (state:parser_state) (remai
     let! named = (fun () -> name input #frame st.offset false false) in
     if not named.ok then read_ret input #frame (failed st 1ul)
     else
-      let! ending = (fun () -> (let! anf_value_1 = (fun () -> (type_reference input #frame st 16ul)) in skip input #frame anf_value_1)) in
+      let! ending = (fun () -> (let! anf_value_1 = (fun () -> (type_reference input #frame st 32ul)) in skip input #frame anf_value_1)) in
       (let! anf_value_2 = (fun () -> same input #frame ending.offset 44uy) in if anf_value_2 then
         (let! anf_value_3 = (fun () -> (consume input #frame ending 44uy)) in interface_bases input #frame anf_value_3 (minus remaining 1ul))
       else read_ret input #frame (ending))
@@ -2719,7 +2719,7 @@ let left_shift_type_ambiguity (input:tape) (#frame:slprop) (start tail:parser_st
     read_ret input #frame (after.status <> 0ul || after.offset <> tail.offset)
   else if byte <> 124uy && byte <> 38uy then read_ret input #frame false
   else
-    let! annotation = (fun () -> annotation_type input #frame start 16ul 64ul) in
+    let! annotation = (fun () -> annotation_type input #frame start 32ul 64ul) in
     let! greater = (fun () -> skip input #frame annotation) in
     let! closing = (fun () -> if greater.status = 0ul then same input #frame greater.offset 62uy else read_ret input #frame false) in
     if not closing then read_ret input #frame false
@@ -2813,7 +2813,7 @@ let rec type_arguments_end_at_call_close (input:tape) (#frame:slprop) (state:par
   if start.status <> 0ul || remaining = 0ul then read_ret input #frame false
   else if byte = 41uy then read_ret input #frame true
   else
-    let! value = (fun () -> delimited_type input #frame start 16ul) in
+    let! value = (fun () -> delimited_type input #frame start 32ul) in
     let! tail = (fun () -> skip input #frame value) in
     let! byte = (fun () -> peek input #frame tail.offset) in
     if tail.status <> 0ul then read_ret input #frame false
@@ -2873,7 +2873,7 @@ let simple_less_argument (input:tape) (#frame:slprop) (start comma:parser_state)
 // shift operator to the scanner, as in <<T>(x: T) => T>f. Kind 31 is erased only when it lies on one line.
 let angle_assertion_head (input:tape) (st:parser_state) : Tot (stt parser_state (heap input) (fun _ -> heap input)) =
   let start_pos = st.offset in
-  let! typed = (fun () -> annotation_type input { st with offset = next start_pos } 16ul 64ul) in
+  let! typed = (fun () -> annotation_type input { st with offset = next start_pos } 32ul 64ul) in
   let! closing = (fun () -> skip input typed) in
   let! closed = (fun () -> consume input closing 62uy) in
   let! gap = (fun () -> trivia input closed.offset) in
@@ -2885,10 +2885,10 @@ let class_index_signature (input:tape) (st:parser_state) : Tot (stt parser_state
   let! head = (fun () -> read_bracket_type_key input st) in
   if not head.index_signature then ret input (failed st 1ul)
   else
-    let! key_type = (fun () -> (let! colon = (fun () -> consume input head.key_end 58uy) in annotation_type input colon 16ul 64ul)) in
+    let! key_type = (fun () -> (let! colon = (fun () -> consume input head.key_end 58uy) in annotation_type input colon 32ul 64ul)) in
     let! last = (fun () -> (let! closing = (fun () -> skip input key_type) in consume input closing 93uy)) in
     let! value = (fun () -> (let! colon = (fun () -> skip input last) in consume input colon 58uy)) in
-    let! typed = (fun () -> annotation_type input value 16ul 64ul) in
+    let! typed = (fun () -> annotation_type input value 32ul 64ul) in
     statement_end input typed typed.offset true
 
 // The end of a declaration with several declarators. A declarator whose value holds a less-than comparison may
@@ -3040,13 +3040,16 @@ let rec atom (input:tape) (current:parser_state) (fuel:U32.t)
                   let! boundary = (fun () -> trivia input path.offset) in
                   ret input (path, boundary)) in
               let tail = from_cursor named boundary in
-              // new Name!(...) asserts that the constructor is defined. The mark is erased like any other.
+              // new Name!(...) or new a!.b(...) asserts that the operand is defined. The mark is erased like any other.
               let! bang = (fun () -> if input.capture_types && not boundary.newline then same input tail.offset 33uy else ret input false) in
               let! equality = (fun () -> if bang then same input (next tail.offset) 61uy else ret input false) in
-              let! tail = (fun () -> if bang && not equality then
-                  (let! recorded = (fun () -> record_jsx_span input { tail with offset = next tail.offset } 12ul tail.offset (next tail.offset)) in
-                    skip input recorded)
-                else ret input tail) in
+              let! named, boundary = (fun () -> if bang && not equality then
+                  let! recorded = (fun () -> record_jsx_span input { tail with offset = next tail.offset } 12ul tail.offset (next tail.offset)) in
+                  let! after_bang = (fun () -> qualified_name input recorded 64ul) in
+                  let! after_gap = (fun () -> trivia input after_bang.offset) in
+                  ret input (after_bang, after_gap)
+                else ret input (named, boundary)) in
+              let tail = from_cursor named boundary in
               let! typed = (fun () -> same input tail.offset 60uy) in
               let before_arguments = tail in
               let! tail = (fun () -> if typed && tail.offset = named.offset then call_type_arguments input tail else ret input (tail)) in
@@ -3278,7 +3281,7 @@ and plain_arrow_parameters (input:tape) (state:parser_state) (fuel:U32.t)
       let! colon = (fun () -> same input st.offset 58uy) in
       let! result =
         (fun () -> if colon && not after.newline then
-          (let! anf_value_2 = (fun () -> (consume input st 58uy)) in result_type input anf_value_2 16ul)
+          (let! anf_value_2 = (fun () -> (consume input st 58uy)) in result_type input anf_value_2 32ul)
         else ret input (params.names.state)) in
       let! body = (fun () -> arrow_token input result) in
       let! body = (fun () -> if input.capture_types && colon && not after.newline then
@@ -3407,7 +3410,7 @@ and binary_tail (input:tape) (lhs:parsed) (fuel:U32.t) (minimum:precedence) (rem
     if assertion then
       if remaining = 0ul then ret input (empty_range (failed st 3ul))
       else
-        let! asserted = (fun () -> annotation_type input { st with offset = plus st.offset type_width } 16ul 64ul) in
+        let! asserted = (fun () -> annotation_type input { st with offset = plus st.offset type_width } 32ul 64ul) in
         let! suffix = (fun () -> if asserted.status = 0ul then trivia input asserted.offset
           else ret input { at = asserted.offset; ok = false; newline = false }) in
         (let! anf_value_3 = (fun () -> ambiguous_assertion_update input (from_cursor asserted suffix)) in if anf_value_3 then ret input (empty_range (failed asserted 1ul))
@@ -3897,13 +3900,13 @@ and declarator_value (input:tape) (state:parser_state) (fuel:U32.t) (optional:bo
       let! bang = (fun () -> consume input tail 33uy) in
       let! bang = (fun () -> record_jsx_span input bang 12ul tail.offset bang.offset) in
       let! colon = (fun () -> skip input bang) in
-      let! annotation = (fun () -> (let! anf_value_2 = (fun () -> (consume input colon 58uy)) in annotation_type input anf_value_2 16ul 64ul)) in
+      let! annotation = (fun () -> (let! anf_value_2 = (fun () -> (consume input colon 58uy)) in annotation_type input anf_value_2 32ul 64ul)) in
       let! annotation = (fun () -> record_jsx_span input annotation 7ul colon.offset annotation.offset) in
       let! next_token = (fun () -> skip input annotation) in
       (let! anf_value_3 = (fun () -> same input next_token.offset 61uy) in if anf_value_3 then ret input (empty_range (failed next_token 1ul))
       else ret input (empty_range annotation))
     else
-      let! annotation = (fun () -> if byte = 58uy then (let! anf_value_4 = (fun () -> (consume input tail 58uy)) in annotation_type input anf_value_4 16ul 64ul) else ret input (state)) in
+      let! annotation = (fun () -> if byte = 58uy then (let! anf_value_4 = (fun () -> (consume input tail 58uy)) in annotation_type input anf_value_4 32ul 64ul) else ret input (state)) in
       let! annotation = (fun () -> if input.capture_types && byte = 58uy then
         record_jsx_span input annotation 7ul tail.offset annotation.offset else ret input annotation) in
       let! st = (fun () -> if byte = 58uy then skip input annotation else ret input (tail)) in
@@ -4331,7 +4334,12 @@ and control_statement (input:tape) (state:parser_state) (fuel:U32.t) (in_functio
         let plain = match jumps with | NoJump -> 0uy | BreakOnly -> 1uy | LoopJump -> 2uy | _ -> 3uy in
         let! block = (fun () -> if opening.status <> 0ul && plain <> 3uy && input.capture_types then labeled_block_start input state
           else ret input (failed state 1ul)) in
-        if block.status = 0ul then control_statement input block (minus fuel 1ul) in_function (BlockLabel state.offset plain) floor used allow_var
+        if block.status = 0ul then
+          let! bkind = (fun () -> statement_kind input block.offset) in
+          if bkind = 0ul then
+            let! stmt = (fun () -> simple_statement input block in_function (BlockLabel state.offset plain) (minus fuel 1ul)) in
+            ret input { state = stmt; used }
+          else control_statement input block (minus fuel 1ul) in_function (BlockLabel state.offset plain) floor used allow_var
         else if opening.status <> 0ul then ret input { state = ordinary; used }
         else
           let! context, valid = (fun () -> match jumps with
@@ -4448,7 +4456,7 @@ and function_parameters (input:tape) (state:parser_state) (floor used:names_used
       let! mark = (fun () -> peek input colon.offset) in
       let bare = mark = 41uy || mark = 44uy in
       let! typed = (fun () -> if not constructor && bare then ret input colon
-        else (let! anf_value_4 = (fun () -> consume input colon 58uy) in annotation_type input anf_value_4 16ul 64ul)) in
+        else (let! anf_value_4 = (fun () -> consume input colon 58uy) in annotation_type input anf_value_4 32ul 64ul)) in
       let! end_ = (fun () -> skip input typed) in
       let! comma = (fun () -> same input end_.offset 44uy) in
       if comma then
@@ -4694,7 +4702,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
               else skip input { tail with offset = next tail.offset }
               else ret input tail) in
             let! annotation = (fun () -> consume input colon 58uy) in
-            let! typed = (fun () -> annotation_type input annotation 16ul 64ul) in
+            let! typed = (fun () -> annotation_type input annotation 32ul 64ul) in
             statement_end input typed typed.offset true) in
         let! closed = (fun () -> record_jsx_span input { closed with count = st.count } 21ul st.offset closed.offset) in
         class_members input closed fuel (minus remaining 1ul) derived seen_constructor kind no_overload
@@ -4725,7 +4733,7 @@ and class_members (input:tape) (state:parser_state) (fuel remaining:U32.t) (deri
             let! optional = (fun () -> if kind = AmbientClass || member_head.ok then same input tail.offset 63uy else ret input false) in
             let! tail = (fun () -> if optional then (let! mark = (fun () -> consume input tail 63uy) in skip input mark) else ret input tail) in
             let! annotation = (fun () -> consume input tail 58uy) in
-            let! typed = (fun () -> annotation_type input annotation 16ul 64ul) in
+            let! typed = (fun () -> annotation_type input annotation 32ul 64ul) in
             let! following = (fun () -> skip input typed) in
             let! initializer = (fun () -> same input following.offset 61uy) in
             if initializer then ret input (failed following 1ul)
@@ -4911,10 +4919,14 @@ and collection_head (input:tape) (state:parser_state) (allow_in local_var:bool) 
       else ret input false) in
     let! bound = (fun () -> if constant || lexical || var_pattern then pattern_binding input start binding_region_width mark mark fuel
       else if width = 0ul && (byte = 91uy || byte = 123uy) then
-        // for ([a, b] of list) and for ({ a, b } of list): the target is read as the literal it looks like.
+        // for ([a, b] of list) and for ({ a = 1, b } of list): try the literal form first, then cover assignment members for defaults.
         let! target = (fun () -> atom input { start with in_allowed = false } fuel) in
         let st = { target.parser with in_allowed = start.in_allowed } in
-        ret input { state = if target.target = ArrayTarget || target.target = ObjectTarget then st else failed st 1ul; used = mark }
+        if st.status = 0ul && (target.target = ArrayTarget || target.target = ObjectTarget) then ret input { state = st; used = mark }
+        else if byte = 123uy && fuel <> 0ul then
+          let! cover = (fun () -> cover_assignment_members input { start with offset = next start.offset; in_allowed = false } (minus fuel 1ul) 64ul) in
+          ret input { state = { cover with in_allowed = start.in_allowed }; used = mark }
+        else ret input { state = failed st 1ul; used = mark }
       else
         let! target = (fun () -> name input start.offset false true) in
         let! follower = (fun () -> if target.ok then peek input target.at else ret input 0uy) in
@@ -4952,7 +4964,7 @@ and parameter_prefix (input:tape) (state:parser_state) (floor used:names_used) (
       let! delimiter = (fun () -> peek input colon.offset) in
       if G.identifier_start first && (delimiter = 44uy || delimiter = 41uy) then ret input colon
       else
-        let! typed = (fun () -> (let! anf_value_3 = (fun () -> consume input colon 58uy) in annotation_type input anf_value_3 16ul 64ul)) in
+        let! typed = (fun () -> (let! anf_value_3 = (fun () -> consume input colon 58uy) in annotation_type input anf_value_3 32ul 64ul)) in
         record_jsx_span input typed 7ul colon.offset typed.offset
     else capture_annotation input tail false)) in
   (let! anf_value_4 = (fun () -> (let! anf_value_5 = (fun () -> skip input typed) in ret input ({ bound with state = anf_value_5 }))) in ret input ({ names = anf_value_4; non_simple = first = 123uy || first = 91uy }))
@@ -5304,7 +5316,7 @@ let rec ambient_declarators (input:tape) (decl:named_state) (remaining:U32.t)
   let! st = (fun () -> skip input decl.state) in
   let! colon = (fun () -> same input st.offset 58uy) in
   let! annotation = (fun () -> if colon then
-      (let! opened = (fun () -> consume input st 58uy) in annotation_type input opened 16ul 64ul)
+      (let! opened = (fun () -> consume input st 58uy) in annotation_type input opened 32ul 64ul)
     else ret input decl.state) in
   let! tail = (fun () -> skip input annotation) in
   let! comma = (fun () -> same input tail.offset 44uy) in
@@ -5456,7 +5468,7 @@ let ambient_global_var (input:tape) (#frame:slprop) (st:parser_state) (width:U32
   let! named = (fun () -> name input #frame start.offset false true) in
   let! colon = (fun () -> skip input #frame (from_cursor start named)) in
   let! typed = (fun () -> consume input #frame colon 58uy) in
-  let! annotation = (fun () -> annotation_type input #frame typed 16ul 64ul) in
+  let! annotation = (fun () -> annotation_type input #frame typed 32ul 64ul) in
   statement_end input #frame annotation annotation.offset true
 
 let ambient_global_function (input:tape) (#frame:slprop) (st:parser_state)
@@ -5470,7 +5482,7 @@ let ambient_global_function (input:tape) (#frame:slprop) (st:parser_state)
   let! params = (fun () -> signature_parameters input #frame head 15ul 1ul head.offset empty_signature_names) in
   let! colon = (fun () -> skip input #frame params) in
   let! typed = (fun () -> consume input #frame colon 58uy) in
-  let! annotation = (fun () -> result_type input #frame typed 16ul) in
+  let! annotation = (fun () -> result_type input #frame typed 32ul) in
   statement_end input #frame annotation annotation.offset true
 
 let rec global_augmentation_members (input:tape) (#frame:slprop) (state:parser_state) (remaining:U32.t) (family:U8.t)
@@ -5533,7 +5545,7 @@ let rec ambient_value_names (input:tape) (state:parser_state) (remaining:U32.t)
     let! st = (fun () -> skip input declared) in
     let! colon = (fun () -> same input st.offset 58uy) in
     let! annotation = (fun () -> if colon then
-        (let! opened = (fun () -> consume input st 58uy) in annotation_type input opened 16ul 64ul)
+        (let! opened = (fun () -> consume input st 58uy) in annotation_type input opened 32ul 64ul)
       else ret input declared) in
     let! tail = (fun () -> skip input annotation) in
     let! comma = (fun () -> same input tail.offset 44uy) in
@@ -5812,7 +5824,7 @@ let rec runtime_namespace_members (input:tape) (state:parser_state) (floor used:
           else ret input (failed named 1ul)) in
         let! colon = (fun () -> if after_name.status = 0ul then same input after_name.offset 58uy else ret input false) in
         let! annotated = (fun () -> if colon then
-            (let! opened = (fun () -> consume input after_name 58uy) in annotation_type input opened 16ul 64ul)
+            (let! opened = (fun () -> consume input after_name 58uy) in annotation_type input opened 32ul 64ul)
           else ret input after_name) in
         let! bare_end = (fun () -> if annotated.status = 0ul then skip input annotated else ret input annotated) in
         let! bare = (fun () -> if bare_end.status = 0ul then same input bare_end.offset 59uy else ret input false) in
@@ -5989,7 +6001,7 @@ let module_declaration (input:tape) (state:parser_state) (used:names_used) (expo
           else if width = 9ul then interface_tail input st
           else type_alias_tail input st false
         else
-          let! annotation = (fun () -> (let! anf_value_1 = (fun () -> (consume input st 58uy)) in annotation_type input anf_value_1 16ul 64ul)) in
+          let! annotation = (fun () -> (let! anf_value_1 = (fun () -> (consume input st 58uy)) in annotation_type input anf_value_1 32ul 64ul)) in
           statement_end input annotation annotation.offset false) in
       let! result =
         (fun () -> if input.capture_types && head.ambient_declaration then
@@ -6252,7 +6264,7 @@ let default_declaration (input:tape) (state:parser_state) (declaration_start:U32
         if not angle then ret input (failed state 1ul)
         else
           let! start = (fun () -> consume input state 60uy) in
-          let! typed = (fun () -> annotation_type input start 16ul 64ul) in
+          let! typed = (fun () -> annotation_type input start 32ul 64ul) in
           let! close = (fun () -> skip input typed) in
           let! after = (fun () -> consume input close 62uy) in
           // The angle-bracket assertion stays in the source. Kind 29 withholds it from publication.

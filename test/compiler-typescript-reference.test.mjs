@@ -1134,16 +1134,16 @@ test('import attributes with any single key and a non-null mark on a constructor
     'export const s = p ? new W!(u, p) : new a.b.W!();',
     'export const s = new W!;',
     'export const s = new W! (u);',
+    'export const s = new W!.x();',
+    'export const s = new W!<T>(u);',
   ]) {
     assert.equal(sameAsTypeScript(source, 'attributes.ts').backend, 'pulse', source);
   }
   for (const source of [
     'import j from "./a.json" with { type: 1 };\nexport { j };',
     'import j from "./a.json" with { type: "json", type: "x" };\nexport { j };',
-    'export const s = new W!.x();',
     'export const s = new W\n!(u);',
     'export const s = new W != u;',
-    'export const s = new W!<T>(u);',
     'export const s = new W![0](u);',
     'export const s = new W!!(u);',
   ]) {
@@ -3181,4 +3181,26 @@ test('each target compiles natively up to the forms of its year', () => {
   assert.equal(compile(Buffer.from('export const a: string = "x ?? y";'), { file: 'year.ts', target: 'es2019' }).backend, 'typescript');
   // A private name outside a class is an error that TypeScript prints differently per target.
   assert.equal(compile(Buffer.from('declare const x: any;\nx.#bar = 1;\nexport {};'), { file: 'year.ts', target: 'es2021' }).backend, 'typescript');
+});
+
+test('lifted syntax limits: for-of object defaults, new a!.b(), labeled simple statements, and deeper type nesting', () => {
+  const cases = [
+    'declare const x: any;\nlet a: number;\nfor ({ a = 1 } of x) {}\nexport { a };\n',
+    'declare const x: any;\nlet a: any, c: any, r: any;\nfor ({ a = 1, b: c = 2, ...r } of x) {}\nexport { a, c, r };\n',
+    'declare const a: any;\nexport const v = new a!.b();\n',
+    'declare const a: any;\nexport const v = new a!.b.c<number>();\n',
+    'export function f() { lbl: 1 + 2; }\n',
+    'export function f() { lbl: break lbl; }\n',
+    `export type Deep = ${'Array<'.repeat(24)}number${'>'.repeat(24)};\nexport const x: Deep = [] as any;\n`,
+  ];
+  for (const source of cases) {
+    const result = compile(Buffer.from(source), { file: 'lifted.ts' });
+    assert.equal(result.backend, 'pulse', source);
+    const expected = ts.transpileModule(source, { fileName: 'lifted.ts', compilerOptions: {
+      target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true } }).outputText;
+    assert.deepEqual(inspect(ts, result.code, 'lifted.ts'), inspect(ts, expected, 'lifted.ts'), source);
+  }
+  // A lexical declaration behind a label is invalid and must not be published natively.
+  const bad = compile(Buffer.from('export function f() { lbl: const x = 1; }\n'), { file: 'lifted.ts' });
+  assert.equal(bad.backend, 'typescript');
 });
