@@ -1515,7 +1515,42 @@ function compile(input, options = {}) {
               if (ambPre !== null) {
                 const nsPre = /\b(?:namespace|module|enum)\b/.test(ambPre) ? tsLower.lowerNamespacesAndEnums(ambPre, true) : { code: ambPre, changed: false };
                 let work = nsPre ? nsPre.code : ambPre;
-                const maskedWork = work.replace(/(\/\/[ \t]*)@jsx([A-Za-z]*[ \t]*:)/gi, '$1_jsx$2');
+                // Mask only leading/top-level line-comment TS harness directives (`// @jsx: ...`), never strings/templates.
+                let maskedWork = work;
+                if (/\/\/[ \t]*@jsx[A-Za-z]*[ \t]*:/i.test(work)) {
+                  let out = '', at = 0;
+                  while (at < work.length) {
+                    const ch = work[at];
+                    if (ch === '/' && work[at + 1] === '/') {
+                      const nl = work.indexOf('\n', at + 2);
+                      const end = nl < 0 ? work.length : nl;
+                      out += work.slice(at, end).replace(/^(\/\/[ \t]*)@jsx([A-Za-z]*[ \t]*:)/i, '$1_jsx$2');
+                      at = end;
+                      continue;
+                    }
+                    if (ch === '/' && work[at + 1] === '*') {
+                      const end = work.indexOf('*/', at + 2);
+                      const next = end < 0 ? work.length : end + 2;
+                      out += work.slice(at, next);
+                      at = next;
+                      continue;
+                    }
+                    if (ch === '"' || ch === "'" || ch === '`') {
+                      let j = at + 1;
+                      while (j < work.length && work[j] !== ch) {
+                        if (work[j] === '\\') j += 2;
+                        else j++;
+                      }
+                      const next = j < work.length ? j + 1 : work.length;
+                      out += work.slice(at, next);
+                      at = next;
+                      continue;
+                    }
+                    out += ch;
+                    at++;
+                  }
+                  maskedWork = out;
+                }
                 if (cjsPre.changed || ambPre !== text || (nsPre && nsPre.changed) || maskedWork !== work) {
                   work = maskedWork;
                   // If erasing an ambient block exposed a leading string directive (e.g. "use client";),

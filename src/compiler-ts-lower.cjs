@@ -544,14 +544,6 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
       const n = Number(toks[pos++].text.replace(/_/g, ''));
       return Number.isFinite(n) ? n : null;
     }
-    if (toks[pos].type === 'str' && toks[pos + 1]?.text === '.' && toks[pos + 2]?.text === 'length') {
-      const lit = toks[pos].text;
-      try {
-        const strVal = lit.startsWith('"') ? JSON.parse(lit) : lit.slice(1, -1);
-        pos += 3;
-        return strVal.length;
-      } catch { return null; }
-    }
     if (toks[pos].type === 'id' && env.has(toks[pos].text)) {
       const prev = env.get(toks[pos++].text);
       return prev.kind === 'num' ? prev.value : null;
@@ -561,13 +553,6 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
   const val = parseOr();
   if (val !== null && pos === toks.length && Number.isFinite(val)) {
     return { kind: 'num', value: val, raw: s };
-  }
-  // Syntactically string template or string concatenation (`"a" + "b"`, `` `${x}` ``) -> string enum member (no reverse mapping)
-  if (allowComputed && (toks[0].type === 'tpl' || (toks[0].type === 'str' && toks.length > 1 && toks[1].text === '+'))) {
-    for (const t of toks) {
-      if (t.type === 'id' && (env.has(t.text) || (enumName && t.text === enumName))) return null;
-    }
-    return { kind: 'str', raw: s };
   }
   if (allowComputed && !/['"`]/.test(s) && !s.includes('**')) {
     for (const t of toks) {
@@ -1434,7 +1419,16 @@ function eraseAngleBracketAssertions(source) {
 // stripTypeScriptTypes on the copy (preserving full TS syntax validation), and restores the original text.
 function stripWithSwcRelaxations(source, errMsg, depth = 0) {
   if (!errMsg || depth > 2) return null;
-  if (/\b(?:await|yield)[ \t]*=>/.test(source)) return null;
+  if (source.includes('await') || source.includes('yield')) {
+    const checkToks = tokenize(source);
+    if (checkToks) {
+      for (let i = 0; i < checkToks.length - 1; i++) {
+        if (checkToks[i].type === 'id' && (checkToks[i].text === 'await' || checkToks[i].text === 'yield') && checkToks[i + 1].text === '=>') {
+          return null;
+        }
+      }
+    }
+  }
   const tryStrip = (work) => {
     try {
       return stripTypeScriptTypes(work);
@@ -1500,7 +1494,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     work += source.slice(pos);
     try {
       let stripped = stripTypeScriptTypes(work);
-      for (const [ph, orig] of saved) stripped = stripped.replace(ph, orig);
+      for (const [ph, orig] of saved) stripped = stripped.replace(ph, () => orig);
       return stripped;
     } catch { return null; }
   }
@@ -1675,7 +1669,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     work += source.slice(pos);
     try {
       let stripped = stripTypeScriptTypes(work);
-      for (const [ph, orig] of saved) stripped = stripped.replace(ph + ' ', orig);
+      for (const [ph, orig] of saved) stripped = stripped.replace(ph + ' ', () => orig);
       return stripped;
     } catch { return null; }
   }
@@ -2356,7 +2350,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     work += source.slice(pos);
     try {
       let stripped = stripTypeScriptTypes(work);
-      for (const [ph, orig] of saved) stripped = stripped.replace(ph, orig);
+      for (const [ph, orig] of saved) stripped = stripped.replace(ph, () => orig);
       return stripped;
     } catch { return null; }
   }
@@ -2948,7 +2942,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     work += source.slice(pos);
     try {
       let stripped = stripTypeScriptTypes(work);
-      for (const [ph, orig] of saved) stripped = stripped.replace(ph, orig);
+      for (const [ph, orig] of saved) stripped = stripped.replace(ph, () => orig);
       return stripped;
     } catch { return null; }
   }

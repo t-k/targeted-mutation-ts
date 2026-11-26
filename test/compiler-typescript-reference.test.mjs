@@ -3399,8 +3399,17 @@ test('F170 TypeScript lowering: legacy module, CJS equals, ambient blocks, TSX p
     ['bad-double-inc.ts', 'let x = 1;\n++x++;\n'],
     ['bad-for-let-of.ts', 'for (let of []) {}\n'],
     ['bad-import-type-defer.ts', 'import type defer * as ns from "./a";\n'],
+    ['bad-yield-comment-arrow.ts', 'function* g(a: any = yield /*x*/ => yield) {}\n'],
   ]) {
     const r = compile(Buffer.from(source), { file });
     assert.equal(r.code, null, `must reject invalid TS: ${file}`);
   }
+  // Review Round 53 regressions: TSX string with `// @jsx:`, `$&` in for-of init, enum `.length` and string-concat comparison.
+  sameAsTypeScript('// @jsx: preserve\nconst s = "// @jsx: keep";\nconst el = <div>{s}</div>;\n', 'tsx-str-jsx.tsx');
+  assert.match(compile(Buffer.from('// @jsx: preserve\nconst s = "// @jsx: keep";\nconst el = <div>{s}</div>;\n'), { file: 'tsx-str-jsx.tsx' }).code, /\/\/ @jsx: keep/);
+  sameAsTypeScript("for (var a = '$&', b = \"$'$$\" of []) {}\n", 'for-of-dollar.ts');
+  sameAsTypeScript("enum E { A = 'abc'.length, B }\n", 'enum-len.ts');
+  sameAsTypeScript("enum E { A = '\\n'.length, B }\n", 'enum-len-esc.ts');
+  sameAsTypeScript("enum E { A = 'a' + 1 }\n", 'enum-str-fold.ts');
+  sameAsTypeScript("enum E { A = 'a' + 'b' === 'ab' }\n", 'enum-str-cmp.ts');
 });
