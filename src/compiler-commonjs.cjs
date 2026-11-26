@@ -32,11 +32,64 @@ const reserved = /(?<![\w$.])(?:exports|default_1|__importStar|__importDefault|_
 const objectTarget = /\(\s*\{[\s\S]{0,2000}?\}\s*=(?![=>])/;
 const loopTarget = /\bfor\s*(?:await\s*)?\(\s*[\[{]/;
 
-// The first three characters behind a name that are not white space.
+// Skips white space and comments starting at `at`. Returns -1 on an unterminated block comment.
+function skipTrivia(text, at) {
+  while (at < text.length) {
+    const ch = text[at];
+    if (ch === ' ' || ch === '\n' || ch === '\t') { at++; continue; }
+    if (ch === '/' && text[at + 1] === '/') {
+      const end = text.indexOf('\n', at + 2);
+      at = end < 0 ? text.length : end + 1;
+      continue;
+    }
+    if (ch === '/' && text[at + 1] === '*') {
+      const end = text.indexOf('*/', at + 2);
+      if (end < 0) return -1;
+      at = end + 2;
+      continue;
+    }
+    break;
+  }
+  return at;
+}
+
+// The first three characters behind a name that are not white space or comments.
 function followers(text, at) {
   // Erased type arguments leave a run of blanks of any length behind a name.
-  while (at < text.length && (text[at] === ' ' || text[at] === '\n' || text[at] === '\t')) at++;
-  return [text[at] ?? '', text[at + 1] ?? '', text[at + 2] ?? ''];
+  at = skipTrivia(text, at);
+  if (at < 0) return ['', '', ''];
+  return [text[at] ?? '', text[at + 1] ?? '', text[at + 2] ?? '', at];
+}
+
+// Skips white space and block comments backwards from `at`, returning the index right after the preceding
+// non-trivia character, or -1 if a comment boundary is ambiguous.
+function skipTriviaBack(text, at, includeOpenParen = false) {
+  let pos = at;
+  while (pos > 0) {
+    const ch = text[pos - 1];
+    if (ch === ' ' || ch === '\t' || (includeOpenParen && ch === '(')) { pos--; continue; }
+    if (ch === '\n') {
+      const lineStart = text.lastIndexOf('\n', pos - 2) + 1;
+      const line = text.slice(lineStart, pos - 1);
+      const slash = line.indexOf('//');
+      if (slash >= 0) {
+        const before = line.slice(0, slash);
+        if (/['"`]|\/\*/.test(before)) return -1;
+        pos = lineStart + slash;
+        continue;
+      }
+      pos--;
+      continue;
+    }
+    if (ch === '/' && pos >= 2 && text[pos - 2] === '*') {
+      const start = text.lastIndexOf('/*', pos - 3);
+      if (start < 0) return -1;
+      pos = start;
+      continue;
+    }
+    break;
+  }
+  return pos;
 }
 
 // Whether a name is the target of an assignment or of an update, by the signs around it.
@@ -45,7 +98,12 @@ function writes(text, at, one, two, three) {
     // A name in parentheses is written through them: the signs behind the closing ones count.
     let end = at;
     while (end < text.length && /[\w$]/.test(text[end])) end++;
-    while (end < text.length && /[\s)]/.test(text[end])) end++;
+    for (;;) {
+      end = skipTrivia(text, end);
+      if (end < 0) return true;
+      if (text[end] === ')') { end++; continue; }
+      break;
+    }
     [one, two, three] = [text[end] ?? '', text[end + 1] ?? '', text[end + 2] ?? ''];
   }
   const pair = one + two;
@@ -54,8 +112,18 @@ function writes(text, at, one, two, three) {
   if (two === '=' && /[-+*/%&|^]/.test(one)) return true;
   if (three === '=' && ['**', '<<', '>>', '&&', '||', '??'].includes(pair)) return true;
   if (pair === '>>' && three === '>') return true;
-  const leading = text.slice(Math.max(0, at - 64), at).replace(/[\s(]+$/, '');
-  return leading.endsWith('++') || leading.endsWith('--');
+  const before = skipTriviaBack(text, at, true);
+  if (before < 0) return true;
+  const leading = text.slice(Math.max(0, before - 2), before);
+  return leading === '++' || leading === '--';
+}
+
+// Whether a non-reference occurrence of a name is immediately preceded by a declaration keyword.
+function precededByDecl(text, at) {
+  const before = skipTriviaBack(text, at, false);
+  if (before < 0) return true;
+  const head = text.slice(Math.max(0, before - 16), before);
+  return /(?<![\w$.])(?:const|let|var|class|function|catch)$/.test(head);
 }
 
 // The members of a braced list: [local, exported] pairs, or null for a member that is not two plain names.
@@ -77,15 +145,16 @@ function specifierName(specifier) {
 }
 
 // A name as it may stand in the source in front of a non-null mark, with white space or comments between.
-const marked = name => new RegExp(`(?<![\\w$.])${name.replace(/\$/g, '\\$')}(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n]*\\n)*!(?!=)`);
+// A single dot in front is a property access, while three dots (`...f!()`) are a spread before the name.
+const marked = name => new RegExp(`(?<![\\w$])(?<!(?<!\\.\\.)\\.)${name.replace(/\$/g, '\\$')}(?:\\s|/\\*[\\s\\S]*?\\*/|//[^\\n]*\\n)*!(?!=)`);
 
 // `source` is the text the module was compiled from, as a string of bytes.
-function toCommonJs(addon, code, source) {
+function toCommonJs(addon, code, source, experimentalDecorators = false) {
   const bytes = Buffer.from(code);
   if (bytes.length > 1048576) return null;
   // One byte per character, so that the parser's offsets index the text.
   const text = bytes.latin1Slice();
-  if (reserved.test(text) || text.includes('\r')) return null;
+  if (reserved.test(text) || /(?<![\w$.])default_1(?![\w$])/.test(source) || text.includes('\r')) return null;
   // The CommonJS dialect of TypeScript (`export =`, `import x = require()`) is written without the module's head.
   if (/\bexport\s*=|\bimport\s+[\w$]+\s*=/.test(source) || /(?<![\w$.])module\s*\.\s*exports\b/.test(text)) return null;
   const records = addon.moduleRecords?.(bytes);
@@ -134,8 +203,9 @@ function toCommonJs(addon, code, source) {
     for (let number = 1; ; number++) {
       const name = `${base}_${number}`;
       if (taken.has(name)) continue;
-      // A word of the source with this spelling would make TypeScript choose another number.
-      if (new RegExp(`(?<![\\w$])${name.replace(/\$/g, '\\$')}(?![\\w$])`).test(text)) return null;
+      // A word of the source (including erased types) with this spelling would make TypeScript choose another number.
+      const clash = new RegExp(`(?<![\\w$])${name.replace(/\$/g, '\\$')}(?![\\w$])`);
+      if (clash.test(text) || clash.test(source)) return null;
       taken.add(name);
       return name;
     }
@@ -148,12 +218,16 @@ function toCommonJs(addon, code, source) {
   // Helpers that the lowering of legacy decorators wrote in front of the module.
   const ownHelpers = {};
   let lead = 0;
-  for (; lead < order.length; lead++) {
-    const found = /^var (__decorate|__metadata|__param) = /.exec(text.slice(order[lead], order[lead] + 24));
-    if (found === null) break;
-    ownHelpers[found[1]] = text.slice(order[lead], endOf(lead)).trimEnd() + '\n';
-    helpers.add(found[1]);
-    edits.push([order[lead], endOf(lead), '']);
+  if (experimentalDecorators) {
+    for (; lead < order.length; lead++) {
+      const statement = text.slice(order[lead], endOf(lead));
+      const found = /^var (__decorate|__metadata|__param) = \(this && this\.\1\) \|\| /.exec(statement);
+      if (found === null) break;
+      if (new RegExp(`(?<![\\w$.])${found[1]}(?![\\w$])`).test(source)) return null;
+      ownHelpers[found[1]] = statement.trimEnd() + '\n';
+      helpers.add(found[1]);
+      edits.push([order[lead], endOf(lead), '']);
+    }
   }
   // The temporaries of decorator metadata are declared behind those helpers, and stay in front of the head.
   let temporaries = '';
@@ -187,16 +261,20 @@ function toCommonJs(addon, code, source) {
           if (defaultName !== undefined && pairs.length !== 0) { need('__createBinding', '__setModuleDefault', '__importStar'); value = `__importStar(${value})`; }
           else if (defaultName !== undefined) { need('__importDefault'); value = `__importDefault(${value})`; }
           if (defaultName !== undefined) renamed.set(defaultName, { text: `${name}.default`, statement: index, kind: 'default' });
+          let pairOrder = 0;
           for (const [imported, local] of pairs) {
             if (renamed.has(local)) return null;
-            renamed.set(local, { text: `${name}.${imported}`, statement: index, kind: 'import' });
+            renamed.set(local, { text: `${name}.${imported}`, statement: index, kind: 'import', order: pairOrder++ });
           }
           // The import of the JSX runtime is written by the emitter where the module's first import or export
           // stands, which may be behind code that uses it. Imports are in force before any code, so the
           // order is free there; here the call of require has to come first, where TypeScript writes it.
           // (TypeScript orders the import of createElement differently; such a module is left to it.)
-          if (pairs.some(([imported, local]) => local.startsWith('_tmt') && imported === 'createElement')) return null;
-          if (pairs.some(([, local]) => local.startsWith('_tmt')) && index !== 0) {
+          const generatedJsxImport = pairs.length !== 0 && pairs.every(([imported, local]) =>
+            local.startsWith('_tmt') && !source.includes(local) &&
+            (imported === 'jsx' || imported === 'jsxs' || imported === 'Fragment' || imported === 'jsxDEV' || imported === 'createElement'));
+          if (generatedJsxImport && pairs.some(([imported]) => imported === 'createElement')) return null;
+          if (generatedJsxImport && index !== 0) {
             if (front !== '') return null;
             front = `const ${name} = ${value};\n`;
             edits.push([first, last, ';']);
@@ -295,10 +373,12 @@ function toCommonJs(addon, code, source) {
         if (shape === null) return null;
         if (shape === 'function') {
           if (keyword !== 'const') return null;
-          // Blanks behind the value or in front of a function are where an assertion was erased; TypeScript
-          // does not take a value under an assertion for a function.
-          const parts = /^([ \t]*)([\s\S]*?)([ \t]*);?\s*$/.exec(value);
-          if (parts[3] !== '' || (parts[1].length > 1 && /^(?:async\s+function|function|class)(?![\w$])/.test(parts[2]))) return null;
+          // Blanks behind the value (including before a newline or semicolon) or in front of a function are
+          // where an assertion was erased; TypeScript does not take a value under an assertion for a function.
+          const withoutNextIndent = value.replace(/\n[ \t]*$/, '');
+          const leading = /^([ \t]*)([\s\S]*)$/.exec(withoutNextIndent);
+          if (/\s$/.test(withoutNextIndent.replace(/;$/, '')) ||
+              ((leading[1].length > 1 || leading[2].startsWith('\n')) && /^(?:async\s+function|function|class)(?![\w$])/.test(leading[2].trimStart()))) return null;
           edits.push([first, at, '']);
           behind(index, `exports.${name} = ${name};`);
         } else edits.push([first, names[0].last, `exports.${name}`]);
@@ -310,13 +390,24 @@ function toCommonJs(addon, code, source) {
     if (/^(?:import\b(?!\s*[.(])|export\b)/.test(head) || head.startsWith('@')) return null;
   }
 
-  // The names of a braced export list. A function is exported at the top; any other name behind the
-  // statement that declares it; an imported name through a getter behind its import.
+  // The names of a braced export list. A function is exported at the top (grouped at its first export);
+  // any other name behind the statement that declares it; an imported name through a getter behind its import
+  // in the order of the import's specifiers.
+  const hoistedAt = new Map();
+  for (const [at, line] of hoisted) {
+    const match = /^exports\.[\w$]+ = ([\w$]+);$/.exec(line);
+    if (match && !hoistedAt.has(match[1])) hoistedAt.set(match[1], at);
+  }
+  const gettersByStatement = new Map();
+  let listSeq = 0;
   for (const { local, exported, at: listed } of exportsOfLists) {
+    const seq = listSeq++;
     const source = renamed.get(local);
     if (source !== undefined) {
       if (source.kind !== 'import') return null;
-      behind(source.statement, `Object.defineProperty(exports, "${exported}", { enumerable: true, get: function () { return ${source.text}; } });`);
+      let list = gettersByStatement.get(source.statement);
+      if (list === undefined) { list = []; gettersByStatement.set(source.statement, list); }
+      list.push([source.order, seq, `Object.defineProperty(exports, "${exported}", { enumerable: true, get: function () { return ${source.text}; } });`]);
       continue;
     }
     const declaration = declarations.get(local);
@@ -325,7 +416,8 @@ function toCommonJs(addon, code, source) {
     if (statement < 0 || direct.has(order[statement]) || defaults.has(order[statement]) || moduleEnds.has(order[statement])) return null;
     const head = text.slice(order[statement], declaration.first);
     if (declaration.isFunction && /^(?:async\s+)?function\s*\*?\s*$/.test(head)) {
-      hoisted.push([listed, `exports.${exported} = ${local};`]);
+      if (!hoistedAt.has(local)) hoistedAt.set(local, listed);
+      hoisted.push([hoistedAt.get(local), `exports.${exported} = ${local};`, listed]);
       cleared.splice(cleared.indexOf(exported), 1);
       kept.set(local, { statement, kind: 'function' });
     } else if (/^const\s+$/.test(head) || /^class\s+$/.test(head)) {
@@ -333,12 +425,17 @@ function toCommonJs(addon, code, source) {
       if (!kept.has(local)) kept.set(local, { statement, kind: head.startsWith('class') ? 'class' : 'constant' });
     } else if (/^(?:let|var)\s+$/.test(head) && declared.filter(entry => entry.first >= order[statement] && entry.first < endOf(statement)).length === 1) {
       // A variable that may be assigned again, as the class of a legacy decorator is: its export follows the
-      // declaration, and every assignment writes the export too.
-      behind(statement, `exports.${exported} = ${local};`);
+      // declaration when it has an initializer, and every assignment writes the export too.
+      const [initOne, initTwo] = followers(text, declaration.last);
+      if (initOne === '=' && initTwo !== '=') behind(statement, `exports.${exported} = ${local};`);
       if (!kept.has(local)) kept.set(local, { statement, kind: 'mutable', exported: [] });
       if (kept.get(local).kind !== 'mutable') return null;
       kept.get(local).exported.push(exported);
     } else return null;
+  }
+  for (const [statement, list] of gettersByStatement) {
+    list.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    for (const [, , line] of list) behind(statement, line);
   }
 
   const targeted = position => targets.some(([first, last]) => position >= first && position < last);
@@ -356,35 +453,45 @@ function toCommonJs(addon, code, source) {
     if (target !== undefined) {
       if (target.declaration === at || inEdit(at)) continue;
       if (reference === undefined || reference.last !== at + name.length) return null;
-      const [one, two, three] = followers(text, at + name.length);
-      if (one === '/' || /[\x80-\xff\\]/.test(one) || before === '@') return null;
+      const [one, two, three, nextAt] = followers(text, at + name.length);
+      if (/[\x80-\xff\\]/.test(one) || before === '@') return null;
       if (target.kind !== 'variable' && (writes(text, at, one, two, three) || targeted(at))) return null;
       // An optional call is written by TypeScript with parentheses that end the chain; it is left to it.
-      if (one === '?' && two === '.' && /^\?\.\s*[(`]/.test(text.slice(at + name.length).trimStart())) return null;
-      const called = (one === '(' || one === '`') && !/(?<![\w$.])new\s*$/.test(text.slice(Math.max(0, at - 16), at));
+      if (one === '?' && two === '.') {
+        const afterOpt = skipTrivia(text, nextAt + 2);
+        if (afterOpt < 0 || text[afterOpt] === '(' || text[afterOpt] === '`') return null;
+      }
+      let called = false, prev = at;
+      if (one === '(' || one === '`') {
+        prev = skipTriviaBack(text, at, false);
+        if (prev < 0) return null;
+        called = !/(?<![\w$.])new$/.test(text.slice(Math.max(0, prev - 16), prev));
+      }
       let value = called ? `(0, ${target.text})` : target.text;
       if (called) {
         // The parenthesis would continue a statement in front that ends without a semicolon. Where a
         // statement of a list starts, a semicolon is written; elsewhere the call has to follow, on its
         // line, something that cannot be the end of a statement.
         if (starts.has(at) || listed.has(at)) value = ';' + value;
-        else {
-          const lead = /(\S?)([ \t]*\n\s*)?$/.exec(text.slice(Math.max(0, at - 200), at));
-          if (lead[2] !== undefined && /[\w$)\]}'"`\x80-\xff]/.test(lead[1])) return null;
-        }
+        else if (text.slice(prev, at).includes('\n') && prev > 0 && /[\w$)\]}'"`\x80-\xff]/.test(text[prev - 1])) return null;
       }
       edits.push([at, at + name.length, reference.shorthand ? `${name}: ${target.text}` : value]);
-    } else if (reference === undefined && (local.kind === 'function' || local.kind === 'class' || local.kind === 'mutable')) {
-      // A name in an object that is assigned to is a target, and is not among the references.
-      // Only its declaration, a key and a word of prose are harmless; behind a brace, a comma or an equals
-      // sign it may be such a target.
-      const [one] = followers(text, at + name.length);
-      if (at !== declarations.get(name)?.first && !inEdit(at) && (one === '}' || one === ',' || one === '=' || one === ']' || one === ')')) return null;
-      // So is the variable of a loop.
-      if (/^(?:of|in)(?![\w$])/.test(text.slice(at + name.length).trimStart()) && /\(\s*$/.test(text.slice(Math.max(0, at - 40), at))) return null;
+    } else if (reference === undefined && (local.kind === 'function' || local.kind === 'class' || local.kind === 'mutable' || local.kind === 'constant')) {
+      // A name in an object that is assigned to, a loop variable, or a shadowing declaration in a block
+      // is not among the references. Only its own declaration (and the self-name of a lowered decorated
+      // class expression), a property key, and prose are harmless.
+      const decl = declarations.get(name);
+      const isSelfClassName = local.kind === 'mutable' && decl !== undefined && at > decl.first && at < endOf(local.statement) &&
+        /^\s*=\s*class\s+$/.test(text.slice(decl.last, at));
+      if (at !== decl?.first && !isSelfClassName && !inEdit(at)) {
+        const [one, , , nextAt] = followers(text, at + name.length);
+        if (one === '}' || one === ',' || one === '=' || one === ']' || one === ')' || one === ';' || one === '{' || one === '(') return null;
+        if (precededByDecl(text, at)) return null;
+        if (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) return null;
+      }
     } else if (reference !== undefined && local.kind === 'mutable') {
-      const [one, two, three] = followers(text, at + name.length);
-      if (one === '/' || loopTarget.test(text) || /^(?:of|in)(?![\w$])/.test(text.slice(at + name.length).trimStart())) return null;
+      const [one, two, three, nextAt] = followers(text, at + name.length);
+      if (loopTarget.test(text) || (nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt)))) return null;
       if (targets.some(([first, last]) => first === at && last === at + name.length) && one === '=' && two !== '=' && two !== '>') {
         edits.push([at, at, local.exported.slice().reverse().map(exported => `exports.${exported} = `).join('')]);
       } else if (writes(text, at, one, two, three) || targeted(at)) return null;
@@ -394,11 +501,11 @@ function toCommonJs(addon, code, source) {
       if (statementOf(at) !== local.statement + 1 && (writes(text, at, one, two, three) || targeted(at))) return null;
     } else if (reference !== undefined && (local.kind === 'function' || local.kind === 'class')) {
       // A function or a class is exported by value: an assignment to it would have to write the export too.
-      const [one, two, three] = followers(text, at + name.length);
-      if (one === '/' || writes(text, at, one, two, three) || targeted(at)) return null;
+      const [one, two, three, nextAt] = followers(text, at + name.length);
+      if (writes(text, at, one, two, three) || targeted(at)) return null;
       // The head of a loop and a parenthesized object are the targets that the parser does not report.
-      if (/^(?:of|in)(?![\w$])/.test(text.slice(at + name.length).trimStart()) || loopTarget.test(text)) return null;
-      if (objectTarget.test(text) && (one === ',' || one === '}') ) return null;
+      if ((nextAt !== undefined && /^(?:of|in)(?![\w$])/.test(text.slice(nextAt))) || loopTarget.test(text)) return null;
+      if (objectTarget.test(text) && (one === ',' || one === '}')) return null;
     }
   }
 
@@ -439,8 +546,8 @@ function toCommonJs(addon, code, source) {
   for (const name of [...helpers].sort((a, b) => helperRank[a] - helperRank[b])) head += ownHelpers[name] ?? helperText[name];
   head += temporaries + 'Object.defineProperty(exports, "__esModule", { value: true });\n';
   if (cleared.length !== 0) head += cleared.slice().reverse().map(name => `exports.${name}`).join(' = ') + ' = void 0;\n';
-  // Functions are exported in the order of the statements that export them.
-  for (const [, line] of hoisted.sort((a, b) => a[0] - b[0])) head += line + '\n';
+  // Functions are exported in the order of the statements that first export them, keeping aliases together.
+  for (const [, line] of hoisted.sort((a, b) => a[0] - b[0] || (a[2] ?? a[0]) - (b[2] ?? b[0]))) head += line + '\n';
   const result = Buffer.from(head + front + prelude.slice(hashbang.length) + body, 'latin1').toString();
   // The text is read once more by the parser before it is returned. (Node's own compile function is not
   // asked: for some invalid texts it ends the process while it decorates the error.)

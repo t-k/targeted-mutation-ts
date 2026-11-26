@@ -239,3 +239,59 @@ test('CommonJS output of modules with legacy decorators', () => {
     assert.equal(same(source).backend, 'typescript', source);
   }
 });
+
+test('CommonJS review round 34 regressions match TypeScript in syntax and behavior', () => {
+  // Cases that must be handled natively and match TypeScript's exact AST and runtime semantics.
+  for (const [source, expectedBackend, options = {}] of [
+    ['import { f } from "./dep";\nexport default f?. /* gap */ ();', 'typescript'],
+    ['import { f } from "./dep";\nexport default [...f!()];', 'typescript'],
+    ['import { f } from "./dep";\nexport default (// new\n  f());', 'pulse'],
+    ['export const f = function () {} as () => void\n;\nexport default f.name;', 'typescript'],
+    ['let x = 1; export { x }; { let x; x = 2; }', 'typescript'],
+    ['function dec(target: Function) {}\n@dec export class C {}\n{ let C; C = 2; }', 'typescript', { experimentalDecorators: true }],
+    ['const x = 1; export { x }; { const x = 2; }', 'typescript'],
+    ['class C {} export { C }; { class C {} }', 'typescript'],
+    ['var x = 0; export { x }; for (var x of [1]) {}', 'typescript'],
+    ['export function f() { return 1; }\n// @ts-expect-error\n({ f /* gap */ } = { f: () => 2 });', 'typescript'],
+    ['let x = 1; export { x }; ++ /* gap */ x;', 'typescript'],
+    ['import "./dep"; let x: number; export { x };', 'pulse'],
+    ['console.log("before"); import { x as _tmtUser } from "./dep"; export default _tmtUser;', 'pulse'],
+    ['var __decorate = Object.hasOwn(this, "__esModule"); export default __decorate;', 'pulse'],
+    ['import { a, b } from "./dep"; export { b, a };', 'pulse'],
+    ['export { f as a }; export function b() {} export { f as c }; function f() {}', 'pulse'],
+    ['type default_1 = number; export default function () {}', 'typescript'],
+    ['type dep_1 = number; import { a } from "./dep"; export default a;', 'typescript'],
+  ]) {
+    const result = compile(Buffer.from(source), { file: 'a.ts', module: 'cjs', ...options });
+    assert.equal(result.backend, expectedBackend, source);
+    const expected = ts.transpileModule(source, { fileName: 'a.ts', compilerOptions: {
+      target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.CommonJS, verbatimModuleSyntax: true, ...options } }).outputText;
+    assert.deepEqual(shape(result.code), shape(expected), source);
+  }
+  // Verify exact order of re-export getters and hoisted function aliases at runtime.
+  const run = (code, deps = {}) => {
+    const mod = { exports: {} };
+    new Function('exports', 'require', 'module', code)(mod.exports, id => deps[id] ?? {}, mod);
+    return mod.exports;
+  };
+  const getterSrc = 'import { a, b } from "./dep"; export { b, a };';
+  const getterOurs = compile(Buffer.from(getterSrc), { file: 'a.ts', module: 'cjs' }).code;
+  const getterTheirs = reference(getterSrc, 'a.ts');
+  assert.ok(getterOurs.indexOf('"a"') < getterOurs.indexOf('"b"'), getterOurs);
+  assert.deepEqual(Object.keys(run(getterOurs, { './dep': { a: 1, b: 2 } })), Object.keys(run(getterTheirs, { './dep': { a: 1, b: 2 } })));
+  const hoistSrc = 'export { f as a }; export function b() {} export { f as c }; function f() {}';
+  const hoistOurs = compile(Buffer.from(hoistSrc), { file: 'a.ts', module: 'cjs' }).code;
+  const hoistTheirs = reference(hoistSrc, 'a.ts');
+  assert.deepEqual(Object.keys(run(hoistOurs)), Object.keys(run(hoistTheirs)));
+  // Verify uninitialized export-list binding does not overwrite a circular dependency write.
+  const uninitSrc = 'import "./dep"; let x: number; export { x };';
+  const uninitOurs = compile(Buffer.from(uninitSrc), { file: 'a.ts', module: 'cjs' }).code;
+  const uninitTheirs = reference(uninitSrc, 'a.ts');
+  const runCircular = code => {
+    const mod = { exports: {} };
+    new Function('exports', 'require', 'module', code)(mod.exports, () => { mod.exports.x = 9; }, mod);
+    return mod.exports.x;
+  };
+  assert.equal(runCircular(uninitOurs), 9);
+  assert.equal(runCircular(uninitTheirs), 9);
+});

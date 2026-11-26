@@ -643,7 +643,7 @@ function compile(input, options = {}) {
     if (!ambient && written.code !== null && (written.backend === 'pulse' || written.backend === 'javascript') && written.diagnostics.length === 0) {
       const addon = loadModuleAddon();
       const origin = Buffer.isBuffer(stable) ? stable.latin1Slice() : typeof stable === 'string' ? Buffer.from(stable).latin1Slice() : null;
-      const code = addon && origin !== null ? require('./compiler-commonjs.cjs').toCommonJs(addon, written.code, origin) : null;
+      const code = addon && origin !== null ? require('./compiler-commonjs.cjs').toCommonJs(addon, written.code, origin, experimentalDecorators) : null;
       if (code !== null) return { ...written, code };
     }
     return compile(stable, { ...options, [commonJsDeclined]: true });
