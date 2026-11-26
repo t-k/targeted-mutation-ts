@@ -175,7 +175,6 @@ test('modules that are left to TypeScript for CommonJS output', () => {
     ['export const m = (x: string) => import(x, { with: { type: "json" } });', 'a dynamic import with attributes'],
     ['export const u = import.meta.url;', 'import.meta'],
     ['import d, * as all from "./d";\nd; all;', 'a default and a namespace import together'],
-    ['import { dec } from "./d";\n@dec()\nexport class C {}', 'an unlowered decorator referencing an import'],
     ['import d from "./d";\nexport { d };', 'a default import in an export list'],
     ['import { a } from "./a";\nexport const b = 1;\nconst a_1 = 2;\nvoid [a, a_1];', 'a word that TypeScript would have to avoid'],
     ['import { a } from "./a";\ndeclare const x: any;\nx\n  a()\nexport {};', 'never'],
@@ -553,4 +552,17 @@ test('CommonJS extensions: dynamic import, default-as named import, and export =
     const r = sameAsTypeScript(src);
     assert.equal(r.backend, 'typescript', src);
   }
+  // Stage 3 standard ES decorators in CommonJS (target ESNext): preserved on class and member declarations.
+  for (const src of [
+    'import { Dec, M, val } from "./d";\n@Dec(val)\nexport class Foo {\n  @M()\n  x = 1;\n}\n',
+    'import { Dec } from "./d";\n@Dec\nexport default class Foo {}\n',
+    'import { Dec } from "./d";\n@Dec\nexport default class {}\n',
+    'import { Dec } from "./d";\n@Dec\nclass Bar {}\nexport { Bar };\n',
+  ]) {
+    const r = sameAsTypeScript(src);
+    assert.equal(r.backend, 'pulse', src);
+  }
+  // Dynamic import inside a Stage 3 decorated module declines to TypeScript (TS does not lower import() inside decorators).
+  const decDyn = compile(Buffer.from('import { Dec } from "./d";\n@Dec({ load: () => import("./x") })\nexport class Foo {}\n'), { file: 'a.ts', module: 'cjs' });
+  assert.equal(decDyn.backend, 'typescript');
 });

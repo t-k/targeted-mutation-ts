@@ -36,7 +36,7 @@ const regexAfter = new Set(['', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!
 // when `visit` returns false.
 function scanCodeIdentifiers(text, visit) {
   const braces = [], parens = [];
-  let prev = '', at = 0;
+  let prev = '', at = 0, expectClassBody = false;
   const skipTemplate = pos => {
     while (pos < text.length) {
       const c = text[pos];
@@ -90,7 +90,13 @@ function scanCodeIdentifiers(text, visit) {
       at++;
       continue;
     }
-    if (c === '{') { braces.push('{'); prev = '{'; at++; continue; }
+    if (c === '{') {
+      braces.push(expectClassBody ? 'class' : '{');
+      expectClassBody = false;
+      prev = '{';
+      at++;
+      continue;
+    }
     if (c === '(') {
       parens.push(prev === 'if' || prev === 'while' || prev === 'for' || prev === 'with' || prev === 'await-for');
       prev = '(';
@@ -133,7 +139,9 @@ function scanCodeIdentifiers(text, visit) {
         else break;
       }
       const name = text.slice(at, end);
-      if (visit(name, at, prev) === false) return false;
+      const inTopClass = braces.length === 1 && braces[0] === 'class';
+      if (visit(name, at, prev, braces.length, inTopClass) === false) return false;
+      if (name === 'class' && prev !== '.') expectClassBody = true;
       prev = prev === '.' ? 'id' : (prev === 'for' && name === 'await') ? 'await-for' : name;
       at = end;
       continue;
@@ -299,12 +307,13 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   if (!records) return null;
 
   const starts = new Set(), listed = new Set(), targets = [], moduleEnds = new Map(), defaults = new Map(), direct = new Set();
-  const declared = [], references = [], shorthand = new Set();
+  const declared = [], references = [], shorthand = new Set(), classBodies = [];
   for (let index = 0; index < records.length; index += 5) {
     const kind = records[index], first = records[index + 1], last = records[index + 2];
     if (kind === 72) starts.add(first);
     else if (kind === 76) listed.add(first);
     else if (kind === 74) targets.push([first, last]);
+    else if (kind === 24) classBodies.push([first, last]);
     else if (kind === 9) moduleEnds.set(first, last);
     else if (kind === 66) defaults.set(first, last);
     else if (kind === 67) direct.add(first);
@@ -351,7 +360,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
     for (const name of names) if (!helpers.has(name) || pos < helpers.get(name)) helpers.set(name, pos);
   };
   const exportsOfLists = [];
-  let front = '';
+  let front = '', hasStage3Decorator = false, hasTopLevelAwait = false;
 
   // Helpers that the lowering of legacy decorators wrote in front of the module.
   const ownHelpers = {};
@@ -703,8 +712,46 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       } else return null;
       continue;
     }
+    // Stage 3 decorated class statements (`@Dec export class C {}`, `@Dec export default class C {}`, `@Dec class C {}`).
+    if (head.startsWith('@')) {
+      hasStage3Decorator = true;
+      let handled = false;
+      for (const expPos of direct) {
+        if (expPos > first && expPos < end) {
+          const expHead = text.slice(expPos, Math.min(end, expPos + 400));
+          const gap = /^export\s+/.exec(expHead);
+          if (gap === null) return null;
+          const at = expPos + gap[0].length, rest = text.slice(at, Math.min(end, at + 400));
+          const match = forms.classHead.exec(rest);
+          if (match === null || match[1] === undefined) return null;
+          edits.push([expPos, at, '']);
+          cleared.push(match[1]);
+          behind(index, `exports.${match[1]} = ${match[1]};`);
+          kept.set(match[1], { statement: index, kind: 'class' });
+          handled = true;
+          break;
+        }
+      }
+      if (handled) continue;
+      for (const [expPos, valueAt] of defaults) {
+        if (expPos > first && expPos < end) {
+          const value = text.slice(valueAt, Math.min(end, valueAt + 400));
+          const match = forms.classHead.exec(value);
+          if (match === null) return null;
+          const name = match[1] ?? 'default_1';
+          if (match[1] === undefined) edits.push([valueAt + 5, valueAt + 5, ' default_1']);
+          edits.push([expPos, valueAt, '']);
+          behind(index, `exports.default = ${name};`);
+          if (match[1] !== undefined) kept.set(name, { statement: index, kind: 'class' });
+          handled = true;
+          break;
+        }
+      }
+      if (handled) continue;
+      continue;
+    }
     // Any other statement that begins with one of the two words is a form that is not written here.
-    if (/^(?:import\b(?!\s*[.(])|export\b)/.test(head) || head.startsWith('@')) return null;
+    if (/^(?:import\b(?!\s*[.(])|export\b)/.test(head)) return null;
   }
 
   // The names of a braced export list. A function is exported at the top (grouped at its first export);
@@ -737,9 +784,9 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       hoisted.push([hoistedAt.get(local), `exports.${exported} = ${local};`, listed]);
       cleared.splice(cleared.indexOf(exported), 1);
       kept.set(local, { statement, kind: 'function' });
-    } else if (/^const\s+$/.test(head) || /^class\s+$/.test(head)) {
+    } else if (/^const\s+$/.test(head) || /^class\s+$/.test(head) || (head.startsWith('@') && /\bclass\s+$/.test(head))) {
       behind(statement, `exports.${exported} = ${local};`);
-      if (!kept.has(local)) kept.set(local, { statement, kind: head.startsWith('class') ? 'class' : 'constant' });
+      if (!kept.has(local)) kept.set(local, { statement, kind: (head.startsWith('class') || head.startsWith('@')) ? 'class' : 'constant' });
     } else if (/^(?:let|var)\s+$/.test(head) && declared.filter(entry => entry.first >= order[statement] && entry.first < endOf(statement)).length === 1) {
       // A variable that may be assigned again, as the class of a legacy decorator is: its export follows the
       // declaration when it has an initializer, and every assignment writes the export too.
@@ -761,7 +808,9 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   // stays is exported by value, so nothing may write or shadow it.
   const inEdit = position => edits.some(([first, last, replacement]) => position >= first && position < last && replacement !== undefined);
   const referenceAt = new Map(references.map(reference => [reference.first, reference]));
-  const scanned = scanCodeIdentifiers(text, (name, at, prevToken) => {
+  const scanned = scanCodeIdentifiers(text, (name, at, prevToken, depth, inTopClass) => {
+    if (name === 'await' && depth === 0 && prevToken !== '.') hasTopLevelAwait = true;
+    if (prevToken === '@' || text[at - 1] === '@') hasStage3Decorator = true;
     if (name === 'exports' && prevToken !== '.') {
       const [one] = followers(text, at + name.length);
       if (one !== ':') return false;
@@ -770,6 +819,7 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
       const [one, , , nextAt] = followers(text, at + 6);
       if (one === '.') return false;
       if (one === '(') {
+        if (hasStage3Decorator) return false;
         const dyn = new RegExp(`^\\((${quoted})\\)`).exec(text.slice(nextAt, nextAt + 300));
         if (dyn !== null) {
           need(at, '__createBinding', '__setModuleDefault', '__importStar');
@@ -812,8 +862,10 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
     const before = text[at - 1], reference = referenceAt.get(at);
     if (target !== undefined) {
       if (target.declaration === at || inEdit(at)) return;
-      if (prevToken === '@' || before === '@') return false;
-      if (reference === undefined || reference.last !== at + name.length) {
+      const isDecoratorHead = prevToken === '@' || before === '@';
+      if (isDecoratorHead) {
+        if (!(depth === 0 || inTopClass)) return false;
+      } else if (reference === undefined || reference.last !== at + name.length) {
         // Non-reference identifier in code: safe when it is a property key/label (`name:`), a method or
         // accessor definition (`name(` not after `function`/`function*`), a label jump, or a static member.
         if (reference === undefined) {
@@ -841,12 +893,12 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
         else {
           const prev = skipTriviaBack(text, at, false);
           if (prev < 0) {
-            if (prevToken !== '' && !'([{,;:?=!&|^~<>+-*%/'.includes(prevToken[0]) && prevToken !== '=>') return false;
+            if (prevToken !== '' && !'([{,;:?=!&|^~<>+-*%/@'.includes(prevToken[0]) && prevToken !== '=>') return false;
           } else if (text.slice(prev, at).includes('\n') && prev > 0 && /[\w$)\]}'"`\x80-\xff]/.test(text[prev - 1]) &&
               !['else', 'await', 'typeof', 'void', 'delete', 'in', 'instanceof', 'case'].includes(prevToken)) return false;
         }
       }
-      edits.push([at, at + name.length, reference.shorthand ? `${name}: ${target.text}` : value]);
+      edits.push([at, at + name.length, reference && reference.shorthand ? `${name}: ${target.text}` : value]);
     } else if (reference === undefined && (local.kind === 'function' || local.kind === 'class' || local.kind === 'mutable' || local.kind === 'constant')) {
       // A name in an object that is assigned to, a loop variable, or a shadowing declaration in a block
       // is not among the references. Only its own declaration (and the self-name of a lowered decorated
@@ -959,10 +1011,18 @@ function toCommonJs(addon, code, source, experimentalDecorators = false, spans =
   const result = Buffer.from(head + front + preludeRest + body, 'latin1').toString();
   // The text is read once more by the parser and checked against Node's CommonJS wrapper grammar
   // (catching top-level await or wrapper-parameter clashes) before it is returned.
-  if (addon.moduleRecords(Buffer.from(result)) === null) return null;
-  try {
-    new Function('exports', 'require', 'module', '__filename', '__dirname', result.startsWith('#!') ? '//' + result : result);
-  } catch { return null; }
+  const verifyText = hasStage3Decorator ? result.replace(/@\(0, ([A-Za-z_$][\w$]*\.[A-Za-z_$][\w$]*)\)/g, '@$1') : result;
+  if (addon.moduleRecords(Buffer.from(verifyText)) === null) return null;
+  if (hasStage3Decorator) {
+    if (hasTopLevelAwait) return null;
+    for (const w of ['exports', 'require', 'module', '__filename', '__dirname']) {
+      if (declarations.has(w)) return null;
+    }
+  } else {
+    try {
+      new Function('exports', 'require', 'module', '__filename', '__dirname', result.startsWith('#!') ? '//' + result : result);
+    } catch { return null; }
+  }
   if (spans !== null) {
     if (hashbang.length > 0) spans.push([hashbang.length, 0]);
     if (strictLine.length > 0) spans.push([strictLine.length, -1]);
