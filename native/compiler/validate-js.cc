@@ -506,22 +506,44 @@ static void emit_fast_module_impl(const v8::FunctionCallbackInfo<v8::Value>& arg
     if (input_str->IsOneByte()) {
       size = chars;
       if (in_buf.size() < size) in_buf.resize(size < 65536 ? 65536 : size);
+#if V8_MAJOR_VERSION >= 13
       input_str->WriteOneByteV2(isolate, 0, static_cast<uint32_t>(size), in_buf.data(), 0);
+#else
+      input_str->WriteOneByte(isolate, in_buf.data(), 0, static_cast<int>(size), v8::String::NO_NULL_TERMINATION);
+#endif
       if (ascii_prefix(in_buf.data(), size) != size) {
         if (mapped) return;
+#if V8_MAJOR_VERSION >= 13
         const size_t utf8_len = input_str->Utf8LengthV2(isolate);
+#else
+        const size_t utf8_len = static_cast<size_t>(input_str->Utf8Length(isolate));
+#endif
         if (utf8_len < min_size || utf8_len > max_size) return;
         if (in_buf.size() < utf8_len) in_buf.resize(utf8_len < 65536 ? 65536 : utf8_len);
+#if V8_MAJOR_VERSION >= 13
         input_str->WriteUtf8V2(isolate, reinterpret_cast<char *>(in_buf.data()), utf8_len, 0);
+#else
+        input_str->WriteUtf8(isolate, reinterpret_cast<char *>(in_buf.data()), static_cast<int>(utf8_len), nullptr,
+                             v8::String::NO_NULL_TERMINATION);
+#endif
         size = utf8_len;
         ascii = false;
       }
     } else {
+#if V8_MAJOR_VERSION >= 13
       const size_t utf8_len = input_str->Utf8LengthV2(isolate);
+#else
+      const size_t utf8_len = static_cast<size_t>(input_str->Utf8Length(isolate));
+#endif
       if (utf8_len < min_size || utf8_len > max_size) return;
       if (in_buf.size() < utf8_len) in_buf.resize(utf8_len < 65536 ? 65536 : utf8_len);
+#if V8_MAJOR_VERSION >= 13
       input_str->WriteUtf8V2(isolate, reinterpret_cast<char *>(in_buf.data()), utf8_len,
                              v8::String::WriteFlags::kReplaceInvalidUtf8);
+#else
+      input_str->WriteUtf8(isolate, reinterpret_cast<char *>(in_buf.data()), static_cast<int>(utf8_len), nullptr,
+                           v8::String::NO_NULL_TERMINATION | v8::String::REPLACE_INVALID_UTF8);
+#endif
       /* Decline lone surrogates (replaced with U+FFFD) and JS Unicode line terminators U+2028/U+2029 */
       if (contains(in_buf.data(), utf8_len, "\xef\xbf\xbd") ||
           contains(in_buf.data(), utf8_len, "\xe2\x80\xa8") ||

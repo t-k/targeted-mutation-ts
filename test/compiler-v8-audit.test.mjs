@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
-import { summarizeValidation } from '../scripts/audit-compiler-v8.mjs';
+import { selectAuditCases, summarizeValidation } from '../scripts/audit-compiler-v8.mjs';
 
 const rows = readFileSync(new URL('../verification/pict/compiler-v8-audit.tsv', import.meta.url), 'utf8')
   .trimEnd().split(/\r?\n/).slice(1);
@@ -45,4 +45,45 @@ test('a certification decision applies only to the next verdict of the same phas
   assert.throws(() => summarizeValidation('TMT_V8_CASE\t0\nTMT_V8_CERTIFIED\tts\t1\nTMT_V8_AUDIT\ttsx\taccepted\t-1\n', cases));
   assert.throws(() => summarizeValidation('TMT_V8_CASE\t0\nTMT_V8_CERTIFIED\tts\t2\nTMT_V8_AUDIT\tts\taccepted\t-1\n', cases));
   assert.throws(() => summarizeValidation('TMT_V8_CASE\t0\nTMT_V8_CERTIFIED\tts\t1\nTMT_V8_CASE\t1\n', cases));
+});
+
+test('selectAuditCases skips unsupported V8 features and records skip reasons', () => {
+  const encode = source => Buffer.from(source, 'utf8').toString('base64');
+  const sample = [
+    { file: 'plain.ts', source: encode('export const x: number = 1;\n') },
+    { file: 'string-using.ts', source: encode('export const label = "using resources";\n') },
+    { file: 'comment-using.ts', source: encode('// using resources\nexport const n = 1;\n') },
+    { file: 'template-using.ts', source: encode('export const s = `using resources ${1}`;\n') },
+    { file: 'accessor.ts', source: encode('export class C { accessor x = 1; }\n') },
+    { file: 'using.ts', source: encode('using d = { [Symbol.dispose]() {} }; export {};\n') },
+    { file: 'using-comment-gap.ts', source: encode('using/* gap */ d = { [Symbol.dispose]() {} }; export {};\n') },
+    { file: 'using-unicode.ts', source: encode('using Ω = { [Symbol.dispose]() {} }; export {};\n') },
+    { file: 'await-using.ts', source: encode('export async function f() { await using d = x; }\n') },
+  ];
+  const node24 = selectAuditCases(sample, { supportsUsing: true });
+  assert.deepEqual(node24.cases.map(entry => entry.file), [
+    'plain.ts',
+    'string-using.ts',
+    'comment-using.ts',
+    'template-using.ts',
+    'using.ts',
+    'using-comment-gap.ts',
+    'using-unicode.ts',
+    'await-using.ts',
+  ]);
+  assert.deepEqual(node24.skipped, { total: 1, reasons: { 'v8-unsupported-accessor': 1 } });
+  assert.equal(node24.cases.length + node24.skipped.total, sample.length);
+
+  const node22 = selectAuditCases(sample, { supportsUsing: false });
+  assert.deepEqual(node22.cases.map(entry => entry.file), [
+    'plain.ts',
+    'string-using.ts',
+    'comment-using.ts',
+    'template-using.ts',
+  ]);
+  assert.deepEqual(node22.skipped, {
+    total: 5,
+    reasons: { 'v8-unsupported-accessor': 1, 'v8-unsupported-using': 4 },
+  });
+  assert.equal(node22.cases.length + node22.skipped.total, sample.length);
 });

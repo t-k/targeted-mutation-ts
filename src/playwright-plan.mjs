@@ -2,9 +2,9 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import vm from 'node:vm';
-import ts from 'typescript';
 import { completeAnalysis, prepareAnalysisFromTrace } from './analysis.mjs';
 import { prepareBuiltinSwitches, targetedOrBoundary } from './builtin-switches.mjs';
+import { compile } from './compiler.mjs';
 import { comparisonRecordsToTrace } from './playwright-bridge.mjs';
 import { changedReach, indexAgreement, indexCoverage, indexReach } from './standard-plan.mjs';
 import { targetedGap } from './targeted-gaps.mjs';
@@ -262,9 +262,16 @@ export function simulatePlaywrightMatrixRow({ realm, ruleClass, testBehavior, ex
         ...(mutatorsProfile === 'targeted' ? { keep: targetedOrBoundary } : {}),
       },
     );
-    const instrumentedJs = ts.transpileModule(sources[0].output, {
-      compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.CommonJS },
-    }).outputText;
+    const compiled = compile(sources[0].output, {
+      file: relFile,
+      target: 'esnext',
+      module: 'cjs',
+    });
+    if (typeof compiled.code !== 'string') {
+      const detail = (compiled.diagnostics ?? []).map((d) => d.message ?? String(d)).join('; ');
+      throw new Error(`Failed to compile instrumented Playwright subject (${relFile}): ${detail}`);
+    }
+    const instrumentedJs = compiled.code;
 
     const test1 = { id: 'pw-1', project: 'chromium', file: 'e2e/app.spec.ts', name: 'checks behavior', status: 'passed' };
     const passedTests = new Map([['pw-1', test1]]);

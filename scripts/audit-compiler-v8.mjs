@@ -150,14 +150,178 @@ function worker(cases, mode) {
   }
 }
 
-// Compare the audit build with the ordinary build and summarize every validation event.
-export function auditCases(allCases, options = {}) {
+const idStart = /^[\p{ID_Start}$_]/u;
+const idContinue = /^[\p{ID_Continue}$\u200c\u200d]/u;
+
+let cachedWorkerSupportsUsing;
+function workerSupportsUsing() {
+  if (cachedWorkerSupportsUsing !== undefined) return cachedWorkerSupportsUsing;
+  const probe = spawnSync(process.execPath, [
+    '--no-compilation-cache',
+    '-e',
+    'new Function("using d = { [Symbol.dispose]() {} };"); new Function("async () => { await using d = { [Symbol.asyncDispose]() {} }; }");',
+  ], { stdio: 'ignore', timeout: 10_000 });
+  cachedWorkerSupportsUsing = probe.status === 0;
+  return cachedWorkerSupportsUsing;
+}
+
+function readIdentifier(source, index) {
+  const first = idStart.exec(source.slice(index, index + 2));
+  if (!first) return null;
+  let end = index + first[0].length;
+  while (end < source.length) {
+    const next = idContinue.exec(source.slice(end, end + 2));
+    if (!next) break;
+    end += next[0].length;
+  }
+  return { word: source.slice(index, end), end };
+}
+
+function skipHorizontalTrivia(source, index) {
+  let i = index;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === ' ' || ch === '\t' || ch === '\f' || ch === '\v' || ch === '\u00a0' || ch === '\ufeff') {
+      i++;
+    } else if (ch === '/' && source[i + 1] === '*') {
+      const close = source.indexOf('*/', i + 2);
+      if (close === -1) return source.length;
+      if (/[\r\n\u2028\u2029]/.test(source.slice(i + 2, close))) return -1;
+      i = close + 2;
+    } else {
+      break;
+    }
+  }
+  return i;
+}
+
+function hasUsingDeclaration(source) {
+  let i = 0;
+  let prevChar = '';
+  const templateDepths = [];
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === '/' && source[i + 1] === '/') {
+      i += 2;
+      while (i < source.length && source[i] !== '\n' && source[i] !== '\r') i++;
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '*') {
+      const close = source.indexOf('*/', i + 2);
+      i = close === -1 ? source.length : close + 2;
+      continue;
+    }
+    if (ch === '\'' || ch === '"') {
+      const quote = ch;
+      i++;
+      while (i < source.length) {
+        if (source[i] === '\\') { i += 2; continue; }
+        if (source[i] === quote) { i++; break; }
+        i++;
+      }
+      prevChar = quote;
+      continue;
+    }
+    if (ch === '`') {
+      i++;
+      while (i < source.length) {
+        if (source[i] === '\\') { i += 2; continue; }
+        if (source[i] === '`') { i++; break; }
+        if (source[i] === '$' && source[i + 1] === '{') {
+          templateDepths.push(0);
+          i += 2;
+          break;
+        }
+        i++;
+      }
+      prevChar = '`';
+      continue;
+    }
+    if (templateDepths.length) {
+      if (ch === '{') {
+        templateDepths[templateDepths.length - 1]++;
+        prevChar = '{';
+        i++;
+        continue;
+      }
+      if (ch === '}') {
+        if (templateDepths[templateDepths.length - 1] === 0) {
+          templateDepths.pop();
+          i++;
+          while (i < source.length) {
+            if (source[i] === '\\') { i += 2; continue; }
+            if (source[i] === '`') { i++; break; }
+            if (source[i] === '$' && source[i + 1] === '{') {
+              templateDepths.push(0);
+              i += 2;
+              break;
+            }
+            i++;
+          }
+          prevChar = '`';
+          continue;
+        }
+        templateDepths[templateDepths.length - 1]--;
+        prevChar = '}';
+        i++;
+        continue;
+      }
+    }
+    const ident = readIdentifier(source, i);
+    if (ident) {
+      if (ident.word === 'using' && prevChar !== '.') {
+        const after = skipHorizontalTrivia(source, ident.end);
+        if (after !== -1 && after < source.length &&
+            (idStart.test(source.slice(after, after + 2)) || source.startsWith('\\u', after))) {
+          return true;
+        }
+      }
+      prevChar = 'a';
+      i = ident.end;
+      continue;
+    }
+    if (!/\s/.test(ch)) prevChar = ch;
+    i++;
+  }
+  return false;
+}
+
+function unsupportedV8Feature(source, supportsUsing) {
   // V8 does not parse accessor fields yet, so it cannot judge a source that holds one: the audit build would
   // refuse what the certified parse accepts. Such a source rests on that parse alone, as one with decorators does.
-  const cases = allCases.filter(test => !/\baccessor[ \t]+[#\w$\["']/.test(Buffer.from(test.source, 'base64').toString()));
+  if (/\baccessor[ \t]+[#\w$\["']/.test(source)) return 'v8-unsupported-accessor';
+  // On Node 22 (V8 12.x), explicit resource management (`using` / `await using`) is disabled by default.
+  if (!supportsUsing && hasUsingDeclaration(source)) return 'v8-unsupported-using';
+  return null;
+}
+
+export function selectAuditCases(allCases, { supportsUsing = workerSupportsUsing() } = {}) {
+  const cases = [];
+  const reasons = {};
+  let total = 0;
+  for (const test of allCases) {
+    const source = Buffer.from(test.source, 'base64').toString();
+    const reason = unsupportedV8Feature(source, supportsUsing);
+    if (reason) {
+      reasons[reason] = (reasons[reason] ?? 0) + 1;
+      total++;
+    } else {
+      cases.push(test);
+    }
+  }
+  return { cases, skipped: { total, reasons } };
+}
+
+// Compare the audit build with the ordinary build and summarize every validation event.
+export function auditCases(allCases, options = {}) {
+  const { cases, skipped } = selectAuditCases(allCases);
   const { output, trace } = worker(cases, '--audit-worker');
   assert.deepEqual(output, worker(cases, '--ordinary-worker').output, 'The audit and ordinary builds disagree');
-  return summarizeValidation(trace, cases, options);
+  return {
+    audited: cases.length,
+    skipped,
+    ...summarizeValidation(trace, cases, options),
+  };
 }
 
 // The guard objected to these published projections. Each must have the syntax TypeScript emits,
