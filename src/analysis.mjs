@@ -178,8 +178,16 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
 // and `attempt({ trial })` one edit, each in a fresh copy of the project.
 export function sourceTrials(root, subjects, options) {
   const runner = options.runner === 'playwright'
-    ? (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root,
-      tests: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) })
+    ? (workspace, temp, settings) => {
+      const effectiveTimeout = settings?.isBaseline ? (options['baseline-timeout'] ?? options.timeout) : options.timeout;
+      return runPlaywright(workspace, temp, {
+        config: options.config,
+        projects: options.project,
+        original: root,
+        tests: options.test,
+        ...(effectiveTimeout ? { timeout: effectiveTimeout * 1000 } : {}),
+      });
+    }
     : options.runner === 'node'
       ? (workspace, temp, settings) => runNodeTest(workspace, temp, {
         testFiles: options.test,
@@ -942,12 +950,20 @@ export function prepareAnalysisFromTrace(project, files, options, recordedBaseli
     : rawTrials;
 
   const overflowSites = recordedBaseline.overflowSites ?? new Set();
+  const serverStaticKeys = new Set(recordedBaseline.serverStaticComparisonKeys ?? []);
+  const serverStaticSites = new Set();
+  for (const subject of subjects) {
+    for (const site of subject.sites) {
+      const at = (site.operatorEdit ?? site.edit)[0];
+      if (serverStaticKeys.has(`${subject.file}:${at}`)) serverStaticSites.add(site.id);
+    }
+  }
   const coverage = new Map();
   if (trace && options.deterministic && deterministicStable) {
     const byKey = recordedBaseline.deterministicCoverageByKey ?? {};
     for (const subject of subjects) {
       for (const site of subject.sites) {
-        if (overflowSites.has(site.id)) continue;
+        if (overflowSites.has(site.id) || serverStaticSites.has(site.id)) continue;
         const at = (site.operatorEdit ?? site.edit)[0];
         const rawCounts = byKey[`${subject.file}:${at}`];
         if (!rawCounts || typeof rawCounts !== 'object') continue;
@@ -960,15 +976,18 @@ export function prepareAnalysisFromTrace(project, files, options, recordedBaseli
     }
   }
   const eligibleTrials = trials.map(trial =>
-    overflowSites.has(trial.site.id) ? { ...trial, observation: { ...trial.observation, complete: false } } : trial);
+    (overflowSites.has(trial.site.id) || serverStaticSites.has(trial.site.id))
+      ? { ...trial, observation: { ...trial.observation, complete: false } }
+      : trial);
   const skips = leanSkips(eligibleTrials, baseline, !!(options.deterministic && deterministicStable), coverage);
-  return { root, report, options, attempt, baseline, traced: { status: 'passed', trace }, trace, trials, skips, subjects, specification };
+  return { root, report, options, attempt, baseline, traced: { status: 'passed', trace }, trace, trials, skips, subjects, specification, serverStaticSites };
 }
 
 // Runs the planned trials. `settled` answers a trial that another run already decided: it returns
 // { status, tests } for the same edit, or nothing when this analysis has to run the edit itself.
-export function completeAnalysis({ root, report, options, attempt, baseline, traced, trace, trials, skips }, settled = () => undefined) {
+export function completeAnalysis({ root, report, options, attempt, baseline, traced, trace, trials, skips, serverStaticSites }, settled = () => undefined) {
   report.evaluation = 'evaluated';
+  let plainFallbackBaseline = null;
 
   for (const [index, trial] of trials.entries()) {
     const predicted = skips.has(index);
@@ -982,7 +1001,21 @@ export function completeAnalysis({ root, report, options, attempt, baseline, tra
     if (!predicted || options.audit) {
       const known = options.audit ? undefined : settled(trial);
       const source = known ? null : attempt({ trial });
-      const actual = known ? known.status : verdict(source, baseline);
+      let referenceBaseline = baseline;
+      if (!known && report.runner === 'playwright' && report[baselineRunSymbol]?.plain === false) {
+        if (!plainFallbackBaseline) {
+          plainFallbackBaseline = attempt({ isBaseline: true });
+          if (plainFallbackBaseline?.status === 'passed') {
+            Object.defineProperty(report, baselineRunSymbol, {
+              value: { status: plainFallbackBaseline.status, tests: plainFallbackBaseline.tests, plain: true },
+              enumerable: false,
+              configurable: true,
+            });
+          }
+        }
+        if (plainFallbackBaseline?.status === 'passed') referenceBaseline = plainFallbackBaseline;
+      }
+      const actual = known ? known.status : verdict(source, referenceBaseline);
       if (!predicted) {
         result.status = actual;
         const reason = known?.statusReason ?? source?.statusReason;
@@ -999,7 +1032,7 @@ export function completeAnalysis({ root, report, options, attempt, baseline, tra
     }
 
     // Operator edits are never traced, so reach is unknown and a surviving run stands as survived.
-    if (result.status === 'survived' && !site.unobserved &&
+    if (result.status === 'survived' && !site.unobserved && !serverStaticSites?.has(site.id) &&
         (report.instrumented.stable === false || trial.observation.rows.length === 0)) {
       result.sourceVerdict = 'survived';
       result.status = report.instrumented.stable === false ? 'unstable'

@@ -229,7 +229,19 @@ function supervisePlaywrightSession(workspace, temp, manifest, limit, signal) {
   });
 }
 
-function terminateRecordedPids(pidsFile) {
+export function readPidStartSignature(pid) {
+  if (process.platform === 'win32' || !Number.isInteger(pid) || pid <= 1) return null;
+  try {
+    const res = spawnSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 1500 });
+    if (res.status !== 0) return null;
+    const sig = String(res.stdout ?? '').trim();
+    return sig || null;
+  } catch {
+    return null;
+  }
+}
+
+export function terminateRecordedPids(pidsFile, { readStartSignature = readPidStartSignature } = {}) {
   if (!pidsFile || !existsSync(pidsFile)) return;
   let lines = [];
   try {
@@ -237,15 +249,23 @@ function terminateRecordedPids(pidsFile) {
   } catch {
     return;
   }
-  const pids = new Set();
+  const pidEntries = new Map();
   for (const line of lines) {
     try {
       const parsed = JSON.parse(line);
       if (Number.isInteger(parsed?.pid) && parsed.pid > 1 && parsed.pid !== process.pid) {
-        pids.add(parsed.pid);
+        const lstart = typeof parsed.lstart === 'string' && parsed.lstart.trim() ? parsed.lstart.trim() : null;
+        if (!pidEntries.has(parsed.pid) || lstart) {
+          pidEntries.set(parsed.pid, lstart);
+        }
       }
     } catch {}
   }
+  const matchesIdentity = (pid, expectedLstart) => {
+    if (!expectedLstart || process.platform === 'win32') return true;
+    const current = readStartSignature(pid);
+    return Boolean(current && current === expectedLstart);
+  };
   const signalPid = (pid, sig) => {
     if (process.platform !== 'win32') {
       try { process.kill(-pid, sig); } catch {}
@@ -253,21 +273,23 @@ function terminateRecordedPids(pidsFile) {
     try { process.kill(pid, sig); } catch {}
   };
   const alive = [];
-  for (const pid of pids) {
+  for (const [pid, expectedLstart] of pidEntries) {
     try {
       process.kill(pid, 0);
+      if (!matchesIdentity(pid, expectedLstart)) continue;
       signalPid(pid, 'SIGTERM');
-      alive.push(pid);
+      alive.push([pid, expectedLstart]);
     } catch {}
   }
   if (!alive.length) return;
   const deadline = Date.now() + 300;
   while (Date.now() < deadline) {
-    if (alive.every(pid => { try { process.kill(pid, 0); return false; } catch { return true; } })) return;
+    if (alive.every(([pid]) => { try { process.kill(pid, 0); return false; } catch { return true; } })) return;
   }
-  for (const pid of alive) {
+  for (const [pid, expectedLstart] of alive) {
     try {
       process.kill(pid, 0);
+      if (!matchesIdentity(pid, expectedLstart)) continue;
       signalPid(pid, 'SIGKILL');
     } catch {}
   }

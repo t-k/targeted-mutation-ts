@@ -38,9 +38,20 @@ function ${cover}() {
 ${loadedComparisons.length ? `function ${cmp}(site, op, lhs, rhs) {
   var scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
   var state = scope[scope.Symbol.for('targeted-mutation-ts/session')];
-  var rec = state && state.phase === 'baseline';
+  var rec = state && (state.phase === 'baseline' || state.phase === 'boot');
   var safe = rec && typeof lhs === 'number' && typeof rhs === 'number' && lhs % 1 === 0 && rhs % 1 === 0 &&
     lhs >= -9007199254740991 && lhs <= 9007199254740991 && rhs >= -9007199254740991 && rhs <= 9007199254740991;
+  function diffCmp(a1, b1, a2, b2) {
+    var r1 = ((a1 % 4) + 4) % 4, q1 = (a1 - r1) / 4;
+    var s1 = ((b1 % 4) + 4) % 4, p1 = (b1 - s1) / 4;
+    var dq1 = q1 - p1, dr1 = r1 - s1;
+    if (dr1 < 0) { dq1 -= 1; dr1 += 4; }
+    var r2 = ((a2 % 4) + 4) % 4, q2 = (a2 - r2) / 4;
+    var s2 = ((b2 % 4) + 4) % 4, p2 = (b2 - s2) / 4;
+    var dq2 = q2 - p2, dr2 = r2 - s2;
+    if (dr2 < 0) { dq2 -= 1; dr2 += 4; }
+    return dq1 < dq2 ? -1 : dq1 > dq2 ? 1 : dr1 < dr2 ? -1 : dr1 > dr2 ? 1 : 0;
+  }
   var result, threw = true;
   try {
     result = op === '<' ? lhs < rhs : op === '<=' ? lhs <= rhs : op === '>' ? lhs > rhs : lhs >= rhs;
@@ -48,28 +59,28 @@ ${loadedComparisons.length ? `function ${cmp}(site, op, lhs, rhs) {
     return result;
   } finally {
     if (rec) {
-      var map = ns.comparisons || (ns.comparisons = {});
-      var test = ns.currentTestId || '';
-      var byTest = map[site] || (map[site] = {});
-      var slot = byTest[test] || (byTest[test] = { rows: [], overflow: false, invalid: false });
-      if (threw || !safe) {
-        slot.invalid = true;
-      } else if (slot.rows.length < 1024) {
-        slot.rows.push([lhs, rhs, result]);
-      } else {
-        slot.overflow = true;
-        var bi = scope.BigInt;
-        var diff = bi(lhs) - bi(rhs);
-        var ex = slot.extrema || (slot.extrema = {});
-        if (slot.rows.length > 0 && rhs !== slot.rows[0][1] && !ex.altRhs) ex.altRhs = [lhs, rhs, result];
-        if (result) {
-          if (!ex.minTrue || diff < bi(ex.minTrue[0]) - bi(ex.minTrue[1])) ex.minTrue = [lhs, rhs, true];
-          if (!ex.maxTrue || diff > bi(ex.maxTrue[0]) - bi(ex.maxTrue[1])) ex.maxTrue = [lhs, rhs, true];
+      try {
+        var map = ns.comparisons || (ns.comparisons = {});
+        var test = state.phase === 'boot' ? '' : (ns.currentTestId || '');
+        var byTest = map[site] || (map[site] = {});
+        var slot = byTest[test] || (byTest[test] = { rows: [], overflow: false, invalid: false });
+        if (threw || !safe) {
+          slot.invalid = true;
+        } else if (slot.rows.length < 1024) {
+          slot.rows.push([lhs, rhs, result]);
         } else {
-          if (!ex.minFalse || diff < bi(ex.minFalse[0]) - bi(ex.minFalse[1])) ex.minFalse = [lhs, rhs, false];
-          if (!ex.maxFalse || diff > bi(ex.maxFalse[0]) - bi(ex.maxFalse[1])) ex.maxFalse = [lhs, rhs, false];
+          slot.overflow = true;
+          var ex = slot.extrema || (slot.extrema = {});
+          if (slot.rows.length > 0 && rhs !== slot.rows[0][1] && !ex.altRhs) ex.altRhs = [lhs, rhs, result];
+          if (result) {
+            if (!ex.minTrue || diffCmp(lhs, rhs, ex.minTrue[0], ex.minTrue[1]) < 0) ex.minTrue = [lhs, rhs, true];
+            if (!ex.maxTrue || diffCmp(lhs, rhs, ex.maxTrue[0], ex.maxTrue[1]) > 0) ex.maxTrue = [lhs, rhs, true];
+          } else {
+            if (!ex.minFalse || diffCmp(lhs, rhs, ex.minFalse[0], ex.minFalse[1]) < 0) ex.minFalse = [lhs, rhs, false];
+            if (!ex.maxFalse || diffCmp(lhs, rhs, ex.maxFalse[0], ex.maxFalse[1]) > 0) ex.maxFalse = [lhs, rhs, false];
+          }
         }
-      }
+      } catch (ignoreRecErr) {}
     }
   }
 }

@@ -12,8 +12,6 @@ import { runnerPackage } from './vitest.mjs';
 
 const selfUrl = import.meta.url;
 const selfFlag = `--import ${selfUrl}`;
-// Strip the worker preload ONLY once we are inside Playwright's actual worker process (`workerProcessEntry`),
-// never in intermediate supervisor or CLI processes so forked test workers always inherit it.
 const isPlaywrightWorker = process.argv.some(arg => typeof arg === 'string' && arg.includes('workerProcessEntry'));
 if (isPlaywrightWorker && process.env.NODE_OPTIONS?.includes(selfUrl)) {
   process.env.NODE_OPTIONS = process.env.NODE_OPTIONS
@@ -61,10 +59,10 @@ function publishState(spec, currentTestId) {
 
 export async function harvestOrigins(origins, authToken = token) {
   const snapshots = [];
-  let serverCooperating = false;
-  for (const origin of origins ?? []) {
+  const list = origins ?? [];
+  let cooperatedCount = 0;
+  for (const origin of list) {
     try {
-      // Never follow redirects so `x-tmt-token` cannot be forwarded to an external host.
       const res = await fetch(`${origin}/__tmt_harvest__`, {
         headers: { 'x-tmt-token': authToken },
         redirect: 'error',
@@ -72,14 +70,15 @@ export async function harvestOrigins(origins, authToken = token) {
       });
       if (res.ok && res.headers.get('x-tmt-harvested') === '1') {
         const body = await res.json();
-        serverCooperating = true;
+        cooperatedCount++;
         if (body?.snapshot) snapshots.push(body.snapshot);
       }
     } catch {
       // Server may have redirected, exited, or be a static non-Node server.
     }
   }
-  return { snapshots, serverCooperating };
+  const serverCooperating = list.length > 0 && cooperatedCount === list.length;
+  return { snapshots, serverCooperating, cooperatedCount, totalOrigins: list.length };
 }
 
 function buildBrowserInitScript(bindingName, spec, testId) {
@@ -97,30 +96,34 @@ function buildBrowserInitScript(bindingName, spec, testId) {
     try { delete globalThis[cfg.bindingName]; } catch {}
     const sessionSym = Symbol.for('targeted-mutation-ts/session');
     const flushSym = Symbol.for('targeted-mutation-ts/flush');
-    try {
-      Object.defineProperty(globalThis, sessionSym, { value: { phase: cfg.phase }, enumerable: false, writable: true, configurable: true });
-    } catch {
-      globalThis[sessionSym] = { phase: cfg.phase };
-    }
-    let ns = globalThis.__stryker__;
-    if (!ns) {
-      ns = {};
+    const syncSym = Symbol.for('targeted-mutation-ts/sync');
+    function applyCfg(c) {
       try {
-        Object.defineProperty(globalThis, '__stryker__', { value: ns, enumerable: false, writable: true, configurable: true });
+        Object.defineProperty(globalThis, sessionSym, { value: { phase: c.phase }, enumerable: false, writable: true, configurable: true });
       } catch {
-        globalThis.__stryker__ = ns;
+        globalThis[sessionSym] = { phase: c.phase };
       }
+      let ns = globalThis.__stryker__;
+      if (!ns) {
+        ns = {};
+        try {
+          Object.defineProperty(globalThis, '__stryker__', { value: ns, enumerable: false, writable: true, configurable: true });
+        } catch {
+          globalThis.__stryker__ = ns;
+        }
+      }
+      ns.currentTestId = c.testId;
+      ns.activeMutant = c.activeMutant;
+      ns.shift = c.shift || 0;
+      ns.hitLimit = c.hitLimit;
+      ns.hitCount = ns.hitCount || 0;
+      ns.mutantCoverage = ns.mutantCoverage || { static: {}, perTest: {} };
+      ns.observed = ns.observed || {};
+      ns.comparisons = ns.comparisons || {};
+      ns.loadedComparisons = ns.loadedComparisons || [];
+      ns.loadedFiles = ns.loadedFiles || [];
     }
-    ns.currentTestId = cfg.testId;
-    ns.activeMutant = cfg.activeMutant;
-    ns.shift = cfg.shift || 0;
-    ns.hitLimit = cfg.hitLimit;
-    ns.hitCount = ns.hitCount || 0;
-    ns.mutantCoverage = ns.mutantCoverage || { static: {}, perTest: {} };
-    ns.observed = ns.observed || {};
-    ns.comparisons = ns.comparisons || {};
-    ns.loadedComparisons = ns.loadedComparisons || [];
-    ns.loadedFiles = ns.loadedFiles || [];
+    applyCfg(cfg);
     function flush() {
       if (typeof push !== 'function') return;
       const cur = globalThis.__stryker__;
@@ -149,8 +152,10 @@ function buildBrowserInitScript(bindingName, spec, testId) {
     }
     try {
       Object.defineProperty(globalThis, flushSym, { value: flush, enumerable: false, writable: true, configurable: true });
+      Object.defineProperty(globalThis, syncSym, { value: applyCfg, enumerable: false, writable: true, configurable: true });
     } catch {
       globalThis[flushSym] = flush;
+      globalThis[syncSym] = applyCfg;
     }
     if (typeof addEventListener === 'function') {
       addEventListener('pagehide', () => { flush(); }, true);
@@ -168,6 +173,9 @@ if (isPlaywrightWorker && workspace && recordsFile && token) {
   if (testTypeSym && pw.test[testTypeSym]?.fixtures) {
     const instrumentedContexts = new WeakSet();
     const instrumentedPages = new WeakSet();
+    // Persistent worker-wide set of manually created contexts (`browser.newContext()` in `beforeAll`, etc.)
+    // so reused pages across tests always flush into the currently active test's bucket!
+    const openManualContexts = new Set();
     let bootChecked = false;
     let activeTestSlot = null;
 
@@ -181,10 +189,26 @@ if (isPlaywrightWorker && workspace && recordsFile && token) {
       }
     }
 
+    async function syncPageFrames(page, spec, testId) {
+      if (!page || (typeof page.isClosed === 'function' && page.isClosed())) return;
+      const syncPayload = {
+        phase: spec.phase ?? 'baseline',
+        testId,
+        activeMutant: spec.activeMutant,
+        shift: spec.shift ?? 0,
+        hitLimit: spec.hitLimit,
+      };
+      for (const frame of page.frames()) {
+        await frame.evaluate(nextCfg => {
+          const fn = globalThis[Symbol.for('targeted-mutation-ts/sync')];
+          if (typeof fn === 'function') fn(nextCfg);
+        }, syncPayload).catch(() => {});
+      }
+    }
+
     function wrapPageLifecycle(page) {
       if (!page || instrumentedPages.has(page)) return;
       instrumentedPages.add(page);
-      // Flush observations and await CDP binding receipt BEFORE closing or programmatically navigating a page!
       for (const method of ['close', 'goto', 'reload', 'goBack', 'goForward', 'setContent']) {
         if (typeof page[method] !== 'function') continue;
         const orig = page[method].bind(page);
@@ -195,19 +219,28 @@ if (isPlaywrightWorker && workspace && recordsFile && token) {
       }
     }
 
-    async function instrumentContext(ctx, spec, testId, bucket) {
+    async function instrumentContext(ctx, initialSpec, initialTestId, fallbackBucket) {
       if (!ctx || instrumentedContexts.has(ctx)) return;
       instrumentedContexts.add(ctx);
       const bindingName = `__tmtPush_${randomBytes(8).toString('hex')}`;
+      // Route browser flushes dynamically to `activeTestSlot` so contexts reused across tests attribute each
+      // test's evaluations to that test rather than a closed earlier test bucket.
       await ctx.exposeBinding(bindingName, (_source, payload) => {
         if (payload && typeof payload === 'object') {
-          mergeRealmSnapshots(bucket, payload, { defaultTestId: testId });
+          const targetBucket = activeTestSlot?.bucket ?? fallbackBucket;
+          const targetTestId = activeTestSlot?.testId ?? initialTestId;
+          if (targetBucket) mergeRealmSnapshots(targetBucket, payload, { defaultTestId: targetTestId });
         }
       });
-      await ctx.addInitScript({ content: buildBrowserInitScript(bindingName, spec, testId) });
+      await ctx.addInitScript({ content: buildBrowserInitScript(bindingName, initialSpec, initialTestId) });
       for (const existingPage of ctx.pages()) wrapPageLifecycle(existingPage);
       if (typeof ctx.on === 'function') {
-        ctx.on('page', page => wrapPageLifecycle(page));
+        ctx.on('page', page => {
+          wrapPageLifecycle(page);
+          if (activeTestSlot) {
+            syncPageFrames(page, activeTestSlot.spec, activeTestSlot.testId).catch(() => {});
+          }
+        });
       }
     }
 
@@ -223,7 +256,6 @@ if (isPlaywrightWorker && workspace && recordsFile && token) {
         const spec = readTrialSpec();
         const testId = testInfo.testId;
         const bucket = createEmptyBucket();
-        const manualContexts = [];
         let serverBootStatic = undefined;
         let serverCooperating = false;
 
@@ -231,9 +263,9 @@ if (isPlaywrightWorker && workspace && recordsFile && token) {
           bootChecked = true;
           const bootBucket = createEmptyBucket();
           const bootHarvest = await harvestOrigins(spec.origins);
-          serverCooperating ||= bootHarvest.serverCooperating;
+          const spoolHad = drainSpoolDirectory(spoolDir, bootBucket);
+          serverCooperating = bootHarvest.serverCooperating || (bootHarvest.totalOrigins === 0 && spoolHad);
           for (const snap of bootHarvest.snapshots) mergeRealmSnapshots(bootBucket, snap);
-          if (drainSpoolDirectory(spoolDir, bootBucket)) serverCooperating = true;
           serverBootStatic = bootBucket.mutantCoverage.static;
           for (const item of bootBucket.loadedComparisons) {
             if (!bucket.loadedComparisons.includes(item)) bucket.loadedComparisons.push(item);
@@ -249,26 +281,40 @@ if (isPlaywrightWorker && workspace && recordsFile && token) {
         } else if (!bootChecked) {
           bootChecked = true;
           const preHarvest = await harvestOrigins(spec.origins);
-          serverCooperating ||= preHarvest.serverCooperating;
-          drainSpoolDirectory(spoolDir, createEmptyBucket());
+          serverCooperating = preHarvest.serverCooperating;
+          if (spec.phase === 'trial') {
+            // Preserve server-startup `hitCount` during isolated trials so `serverStatic` activation is verified!
+            for (const snap of preHarvest.snapshots) mergeRealmSnapshots(bucket, snap);
+            drainSpoolDirectory(spoolDir, bucket);
+          } else {
+            drainSpoolDirectory(spoolDir, createEmptyBucket());
+          }
         }
 
-        const slot = { spec, testId, bucket, manualContexts };
+        // Flush any stale data on reused manual contexts before switching to `testId`, then sync `testId` + trial spec.
+        for (const ctx of openManualContexts) {
+          await flushContextFrames(ctx);
+          for (const page of ctx.pages()) await syncPageFrames(page, spec, testId);
+        }
+
+        const slot = { spec, testId, bucket };
         activeTestSlot = slot;
         publishState(spec, testId);
         try {
           await use(slot);
         } finally {
+          for (const ctx of openManualContexts) await flushContextFrames(ctx);
           activeTestSlot = null;
-          for (const ctx of manualContexts) await flushContextFrames(ctx);
           publishState(spec, undefined);
           const harvest = await harvestOrigins(spec.origins);
-          serverCooperating ||= harvest.serverCooperating;
+          const spoolHad = drainSpoolDirectory(spoolDir, bucket, { defaultTestId: testId });
+          if (harvest.totalOrigins > 0) {
+            serverCooperating = harvest.serverCooperating;
+          } else if (spoolHad) {
+            serverCooperating = true;
+          }
           for (const snap of harvest.snapshots) {
             mergeRealmSnapshots(bucket, snap, { defaultTestId: testId });
-          }
-          if (drainSpoolDirectory(spoolDir, bucket, { defaultTestId: testId })) {
-            serverCooperating = true;
           }
           appendFileSync(recordsFile, JSON.stringify({
             testId,
@@ -297,28 +343,33 @@ if (isPlaywrightWorker && workspace && recordsFile && token) {
               return async (...args) => {
                 const ctx = await target.newContext(...args);
                 const cur = activeTestSlot;
-                if (cur) {
-                  await instrumentContext(ctx, cur.spec, cur.testId, cur.bucket);
-                  cur.manualContexts.push(ctx);
-                  const origClose = ctx.close.bind(ctx);
-                  ctx.close = async (...closeArgs) => {
-                    await flushContextFrames(ctx);
-                    return origClose(...closeArgs);
-                  };
-                }
+                const initSpec = cur?.spec ?? readTrialSpec();
+                await instrumentContext(ctx, initSpec, cur?.testId, cur?.bucket);
+                openManualContexts.add(ctx);
+                const origClose = ctx.close.bind(ctx);
+                ctx.close = async (...closeArgs) => {
+                  await flushContextFrames(ctx);
+                  openManualContexts.delete(ctx);
+                  return origClose(...closeArgs);
+                };
                 return ctx;
               };
             }
             if (prop === 'newPage') {
               return async (...args) => {
                 const page = await target.newPage(...args);
+                const ctx = page.context();
                 const cur = activeTestSlot;
-                if (cur) {
-                  const ctx = page.context();
-                  await instrumentContext(ctx, cur.spec, cur.testId, cur.bucket);
-                  wrapPageLifecycle(page);
-                  cur.manualContexts.push(ctx);
-                }
+                const initSpec = cur?.spec ?? readTrialSpec();
+                await instrumentContext(ctx, initSpec, cur?.testId, cur?.bucket);
+                wrapPageLifecycle(page);
+                openManualContexts.add(ctx);
+                const origClose = ctx.close.bind(ctx);
+                ctx.close = async (...closeArgs) => {
+                  await flushContextFrames(ctx);
+                  openManualContexts.delete(ctx);
+                  return origClose(...closeArgs);
+                };
                 return page;
               };
             }

@@ -1,15 +1,27 @@
+import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { join } from 'node:path';
-import { snapshotAndResetNamespace, verifyBridgeToken } from './playwright-bridge.mjs';
+import { isLoopbackRemoteAddress, snapshotAndResetNamespace, verifyBridgeToken } from './playwright-bridge.mjs';
 
 const stateFile = process.env.TMT_PW_STATE_FILE;
 const token = process.env.TMT_PW_TOKEN;
 const spoolDir = process.env.TMT_PW_SPOOL_DIR;
 const pidsFile = process.env.TMT_PW_PIDS_FILE;
 const sessionKey = Symbol.for('targeted-mutation-ts/session');
+
+function readProcessSignature(pid) {
+  if (process.platform === 'win32') return undefined;
+  try {
+    const res = spawnSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 1_000 });
+    const sig = (res.stdout ?? '').trim();
+    return res.status === 0 && sig ? sig : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function ensureNamespace() {
   let ns = globalThis.__stryker__;
@@ -50,10 +62,13 @@ function syncState() {
   }
 }
 
+let recordedSelf = false;
 function recordServerPid() {
-  if (!pidsFile) return;
+  if (!pidsFile || recordedSelf) return;
+  recordedSelf = true;
   try {
-    appendFileSync(pidsFile, JSON.stringify({ kind: 'webServer', pid: process.pid }) + '\n', 'utf8');
+    const lstart = readProcessSignature(process.pid);
+    appendFileSync(pidsFile, JSON.stringify({ kind: 'webServer', pid: process.pid, ...(lstart ? { lstart } : {}) }) + '\n', 'utf8');
   } catch {}
 }
 
@@ -66,7 +81,9 @@ function wrapServerEmit(Proto) {
       recordServerPid();
     }
     if (event === 'request' && req && res) {
-      if (req.url === '/__tmt_harvest__' && verifyBridgeToken(req.headers?.['x-tmt-token'], token)) {
+      if (req.url === '/__tmt_harvest__' &&
+          isLoopbackRemoteAddress(req.socket?.remoteAddress) &&
+          verifyBridgeToken(req.headers?.['x-tmt-token'], token)) {
         syncState();
         const snapshot = snapshotAndResetNamespace(ensureNamespace(), { keepLoaded: true });
         const payload = JSON.stringify({ ok: true, pid: process.pid, snapshot });
@@ -79,17 +96,20 @@ function wrapServerEmit(Proto) {
         return true;
       }
       syncState();
-      // Ignore Playwright's pre-baseline `webServer` readiness probe (`phase === 'boot'`) so healthcheck HTTP pings
-      // neither masquerade as module-load `serverBootStatic` coverage nor record `identity: null` comparison rows.
+      // Ignore Playwright's pre-baseline `webServer` readiness HTTP probe (`phase === 'boot'` inside an HTTP request)
+      // while keeping true top-level module-load (`phase === 'boot'` outside HTTP requests) recorded!
       if (globalThis[sessionKey]?.phase === 'boot') {
         const ns = ensureNamespace();
         const savedStatic = ns.mutantCoverage.static;
         const savedPerTest = ns.mutantCoverage.perTest;
+        const savedPhase = globalThis[sessionKey];
         ns.mutantCoverage = { static: {}, perTest: {} };
+        globalThis[sessionKey] = { phase: 'healthcheck' };
         try {
           return origEmit.call(this, event, req, res, ...rest);
         } finally {
           ns.mutantCoverage = { static: savedStatic, perTest: savedPerTest };
+          globalThis[sessionKey] = savedPhase;
         }
       }
     }

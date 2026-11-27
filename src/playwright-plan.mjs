@@ -15,12 +15,14 @@ export const HIT_LIMIT_RE = /Mutation hit limit reached/;
 export function indexPlaywrightBaseline(records, passedTests, comparisonSubjects = [], timingByTest = new Map()) {
   const serverStaticIds = new Set();
   const loadedFiles = new Set();
-  let serverCooperating = false;
+  let serverCooperating = records?.length > 0;
   let anySwitchActivity = false;
+  const recordedTestIds = new Set();
   const normalized = [];
 
   for (const record of records ?? []) {
-    if (record.serverCooperating) serverCooperating = true;
+    if (record.testId) recordedTestIds.add(record.testId);
+    if (!record.serverCooperating) serverCooperating = false;
     for (const file of record.loadedFiles ?? []) {
       if (typeof file === 'string') loadedFiles.add(file);
     }
@@ -74,7 +76,8 @@ export function indexPlaywrightBaseline(records, passedTests, comparisonSubjects
     normalized,
     serverStaticIds,
     loadedFiles,
-    serverCooperating,
+    recordedTestIds,
+    serverCooperating: Boolean(serverCooperating),
     anySwitchActivity,
     coverageOf,
     planMutant,
@@ -605,6 +608,22 @@ export function simulatePlaywrightMatrixRow({ realm, ruleClass, testBehavior, ex
   }
 }
 
+export function classifyIsolatedStartupFailure({ plan, started, startupHitCount, passedTests, fallbackReason }) {
+  if (plan?.serverStatic && Number(startupHitCount ?? 0) > 0) {
+    return {
+      status: 'killed',
+      killedBy: 'server-startup-error',
+      tests: [...passedTests.values()].map(({ id, project, file, name }) => ({ id, project, file, name })),
+      ...(fallbackReason ? { fallback: fallbackReason } : {}),
+    };
+  }
+  return {
+    status: 'error',
+    statusReason: started?.errors?.[0] ?? 'Playwright webServer failed to start for isolated trial',
+    ...(fallbackReason ? { fallback: fallbackReason } : {}),
+  };
+}
+
 export function assessIsolatedPlaywrightPass({ isoPass, plan, expectedTestIds, passedTests }) {
   if (hasHitLimitFailure(isoPass) || (isoPass.totalHits ?? 0) > plan.hitLimit || HIT_LIMIT_RE.test(isoPass.output ?? '')) {
     return { status: 'timeout', statusReason: 'Mutation hit limit reached' };
@@ -613,7 +632,8 @@ export function assessIsolatedPlaywrightPass({ isoPass, plan, expectedTestIds, p
     return { status: 'timeout', statusReason: isoPass.statusReason ?? 'Playwright test timeout' };
   }
   const failed = (isoPass.tests ?? []).filter(t => t.status === 'failed' && passedTests.has(t.id));
-  const haveHits = plan.serverStatic || (isoPass.totalHits ?? 0) > 0;
+  // Even `serverStatic` trials must prove the active switch fired (`totalHits > 0` harvested from boot/spool/request)!
+  const haveHits = (isoPass.totalHits ?? 0) > 0;
   if (haveHits && failed.length > 0 && !isoPass.unstable && !isoPass.errors?.length) {
     return {
       status: 'killed',

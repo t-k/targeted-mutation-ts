@@ -249,6 +249,7 @@ async function runPlaywrightTargetedSession(project, files, runOptions, run, pro
         baseline: baseEvent.baseline,
         trace: rows,
         overflowSites,
+        serverStaticComparisonKeys: baseEvent.serverStaticComparisonKeys,
         deterministicStable: baseEvent.deterministicStable,
         deterministicCoverageByKey: baseEvent.deterministicCoverageByKey,
       });

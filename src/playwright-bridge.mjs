@@ -45,19 +45,34 @@ export function snapshotAndResetNamespace(ns, { keepLoaded = true } = {}) {
   return snapshot;
 }
 
-function exactDiff(pair) {
-  return BigInt(pair[0]) - BigInt(pair[1]);
+export function compareSafeIntDiff(a1, b1, a2, b2) {
+  const r1 = ((a1 % 4) + 4) % 4;
+  const q1 = (a1 - r1) / 4;
+  const s1 = ((b1 % 4) + 4) % 4;
+  const p1 = (b1 - s1) / 4;
+  let dq1 = q1 - p1;
+  let dr1 = r1 - s1;
+  if (dr1 < 0) { dq1 -= 1; dr1 += 4; }
+
+  const r2 = ((a2 % 4) + 4) % 4;
+  const q2 = (a2 - r2) / 4;
+  const s2 = ((b2 % 4) + 4) % 4;
+  const p2 = (b2 - s2) / 4;
+  let dq2 = q2 - p2;
+  let dr2 = r2 - s2;
+  if (dr2 < 0) { dq2 -= 1; dr2 += 4; }
+
+  return dq1 < dq2 ? -1 : dq1 > dq2 ? 1 : dr1 < dr2 ? -1 : dr1 > dr2 ? 1 : 0;
 }
 
 function updateExtrema(ex, pair) {
   const [lhs, rhs, result] = pair;
-  const diff = exactDiff(pair);
   if (result) {
-    if (!ex.minTrue || diff < exactDiff(ex.minTrue)) ex.minTrue = [lhs, rhs, true];
-    if (!ex.maxTrue || diff > exactDiff(ex.maxTrue)) ex.maxTrue = [lhs, rhs, true];
+    if (!ex.minTrue || compareSafeIntDiff(lhs, rhs, ex.minTrue[0], ex.minTrue[1]) < 0) ex.minTrue = [lhs, rhs, true];
+    if (!ex.maxTrue || compareSafeIntDiff(lhs, rhs, ex.maxTrue[0], ex.maxTrue[1]) > 0) ex.maxTrue = [lhs, rhs, true];
   } else {
-    if (!ex.minFalse || diff < exactDiff(ex.minFalse)) ex.minFalse = [lhs, rhs, false];
-    if (!ex.maxFalse || diff > exactDiff(ex.maxFalse)) ex.maxFalse = [lhs, rhs, false];
+    if (!ex.minFalse || compareSafeIntDiff(lhs, rhs, ex.minFalse[0], ex.minFalse[1]) < 0) ex.minFalse = [lhs, rhs, false];
+    if (!ex.maxFalse || compareSafeIntDiff(lhs, rhs, ex.maxFalse[0], ex.maxFalse[1]) > 0) ex.maxFalse = [lhs, rhs, false];
   }
 }
 
@@ -240,6 +255,11 @@ export function comparisonRecordsToTrace(records, tests, subjects) {
   }
   if (loadedIds.size) rows.unshift({ loaded: [...loadedIds] });
   return { rows, overflowSites };
+}
+
+export function isLoopbackRemoteAddress(remoteAddress) {
+  if (typeof remoteAddress !== 'string') return false;
+  return remoteAddress === '127.0.0.1' || remoteAddress === '::1' || remoteAddress === '::ffff:127.0.0.1';
 }
 
 export async function createPlaywrightCoordinator({ maxBodyBytes = 8 * 1024 * 1024, stateFile, spoolDir } = {}) {

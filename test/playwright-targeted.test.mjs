@@ -389,3 +389,175 @@ test('Round 1 review regressions: per-test control check, isolated inventory/hit
     await new Promise(r => targetSrv.close(r));
   }
 });
+
+test('Round 2 review regressions: BigInt-free extrema, boot-time comparisons, multi-origin cooperation, loopback check, startup error guard, and PID lstart guard', async () => {
+  const { createServer } = await import('node:http');
+  const { spawn } = await import('node:child_process');
+  const { mkdtempSync, rmSync, writeFileSync, mkdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { isLoopbackRemoteAddress } = await import('../src/playwright-bridge.mjs');
+  const { classifyIsolatedStartupFailure, indexPlaywrightBaseline } = await import('../src/playwright-plan.mjs');
+  const { harvestOrigins } = await import('../src/playwright-worker-preload.mjs');
+  const { terminateRecordedPids } = await import('../src/playwright.mjs');
+  const { completeAnalysis, prepareAnalysisFromTrace } = await import('../src/analysis.mjs');
+
+  // 1. Deleted/overwritten `globalThis.BigInt` never breaks target code or overflow extrema tracking.
+  const srcBuf = Buffer.from('export const wide = (a: number, b: number) => a >= b;\n');
+  const rendered = renderBuiltinSwitches(srcBuf, 'src/wide.ts', () => true, {
+    dialect: 'ts',
+    targeted: true,
+    shifts: true,
+    recordComparisons: true,
+    keep: targetedOrBoundary,
+  });
+  const transpiled = ts.transpileModule(rendered.output, {
+    compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  const noBigIntCtx = vm.createContext({
+    exports: {},
+    BigInt: undefined,
+    [Symbol.for('targeted-mutation-ts/session')]: { phase: 'baseline' },
+    __stryker__: { currentTestId: 't1' },
+  });
+  vm.runInContext(transpiled, noBigIntCtx);
+  for (let i = 0; i < 1024; i++) assert.equal(noBigIntCtx.exports.wide(10, 5), true);
+  assert.equal(noBigIntCtx.exports.wide(Number.MAX_SAFE_INTEGER, -1), true);
+  assert.equal(noBigIntCtx.exports.wide(Number.MAX_SAFE_INTEGER, -2), true);
+  assert.equal(noBigIntCtx.exports.wide(-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER), false);
+  const slot = Object.values(Object.values(noBigIntCtx.__stryker__.comparisons)[0])[0];
+  assert.deepEqual([...slot.extrema.maxTrue], [Number.MAX_SAFE_INTEGER, -2, true]);
+  assert.deepEqual([...slot.extrema.minFalse], [-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER, false]);
+
+  // 2. Boot-time (`phase: 'boot'`) comparison records `identity: null` row, preventing `--deterministic` false skip
+  //    and keeping isolated `survived` verdicts as `survived` (never downgraded to `unreached`).
+  const bootDir = mkdtempSync(join(tmpdir(), 'tmt-pw-boot-'));
+  try {
+    mkdirSync(join(bootDir, 'src'), { recursive: true });
+    const bootSrc = 'export const BOOT_OK = 18 >= 18;\nexport const check = (n: number) => n >= 18;\n';
+    writeFileSync(join(bootDir, 'src/boot.ts'), bootSrc, 'utf8');
+    const bootRendered = renderBuiltinSwitches(Buffer.from(bootSrc), 'src/boot.ts', () => true, {
+      dialect: 'ts',
+      targeted: true,
+      shifts: true,
+      recordComparisons: true,
+      keep: targetedOrBoundary,
+    });
+    const bootJs = ts.transpileModule(bootRendered.output, {
+      compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.CommonJS },
+    }).outputText;
+    const bootCtx = vm.createContext({
+      exports: {},
+      [Symbol.for('targeted-mutation-ts/session')]: { phase: 'boot' },
+      __stryker__: {},
+    });
+    vm.runInContext(bootJs, bootCtx);
+    assert.equal(bootCtx.exports.BOOT_OK, true);
+    const bootKeys = Object.keys(bootCtx.__stryker__.comparisons);
+    assert.equal(bootKeys.length, 1, 'boot-time comparison must be recorded during phase === boot');
+
+    const t1 = { id: 't1', project: 'chromium', file: 'e2e/a.spec.ts', name: 'A', status: 'passed' };
+    const passedMap = new Map([['t1', t1]]);
+    const probe = prepareAnalysisFromTrace(bootDir, ['src/boot.ts'], { runner: 'playwright', deterministic: true }, {
+      baseline: { status: 'passed', tests: [t1] },
+      trace: [],
+      deterministicStable: true,
+    });
+    const traceFromBoot = comparisonRecordsToTrace([{
+      comparisons: bootCtx.__stryker__.comparisons,
+      loadedComparisons: bootCtx.__stryker__.loadedComparisons,
+    }], passedMap, probe.subjects);
+    const bootOpOffset = Buffer.from(bootSrc).indexOf('>=');
+    const prepped = prepareAnalysisFromTrace(bootDir, ['src/boot.ts'], { runner: 'playwright', deterministic: true }, {
+      baseline: { status: 'passed', tests: [t1] },
+      trace: traceFromBoot.rows,
+      serverStaticComparisonKeys: [`src/boot.ts:${bootOpOffset}`],
+      deterministicStable: true,
+      deterministicCoverageByKey: {},
+    });
+    assert.equal(prepped.skips.size, 0, 'boot-evaluated comparison must never be predicted-skipped under --deterministic');
+    const finished = completeAnalysis(prepped, () => ({ status: 'survived' }));
+    const bootMutant = finished.mutants.find(m => m.location.line === 1);
+    assert.equal(bootMutant.status, 'survived', 'isolated survived serverStatic comparison must not be downgraded to unreached');
+  } finally {
+    rmSync(bootDir, { recursive: true, force: true });
+  }
+
+  // 3. Loopback remoteAddress enforcement & multi-origin `serverCooperating` requires ALL origins + ALL records.
+  assert.equal(isLoopbackRemoteAddress('127.0.0.1'), true);
+  assert.equal(isLoopbackRemoteAddress('::1'), true);
+  assert.equal(isLoopbackRemoteAddress('::ffff:127.0.0.1'), true);
+  assert.equal(isLoopbackRemoteAddress('192.168.1.25'), false);
+  assert.equal(isLoopbackRemoteAddress('10.0.0.5'), false);
+
+  const coopSrv = createServer((req, res) => {
+    if (req.url === '/__tmt_harvest__' && req.headers['x-tmt-token'] === 'tok') {
+      res.writeHead(200, { 'content-type': 'application/json', 'x-tmt-harvested': '1' }).end(JSON.stringify({
+        cooperating: true,
+        bootStatic: {},
+        snapshot: { hitCount: 0, mutantCoverage: { static: {}, perTest: {} }, observed: {}, comparisons: {}, loadedComparisons: [], loadedFiles: [] },
+      }));
+      return;
+    }
+    res.writeHead(404).end();
+  });
+  const nonCoopSrv = createServer((_req, res) => {
+    res.writeHead(404).end('plain static server');
+  });
+  await new Promise(r => coopSrv.listen(0, '127.0.0.1', r));
+  await new Promise(r => nonCoopSrv.listen(0, '127.0.0.1', r));
+  try {
+    const o1 = `http://127.0.0.1:${coopSrv.address().port}`;
+    const o2 = `http://127.0.0.1:${nonCoopSrv.address().port}`;
+    const multiHarvest = await harvestOrigins([o1, o2], 'tok');
+    assert.equal(multiHarvest.serverCooperating, false, 'mixed Node + non-Node origins must report serverCooperating: false');
+
+    const bothCoop = await harvestOrigins([o1], 'tok');
+    assert.equal(bothCoop.serverCooperating, true);
+
+    const pTests = new Map([['t1', { id: 't1', status: 'passed' }], ['t2', { id: 't2', status: 'passed' }]]);
+    const partialIndexed = indexPlaywrightBaseline([
+      { testId: 't1', serverCooperating: true, loadedFiles: ['src/a.ts'] },
+      { testId: 't2', serverCooperating: false, loadedFiles: ['src/a.ts'] },
+    ], pTests);
+    assert.equal(partialIndexed.serverCooperating, false);
+    assert.deepEqual([...partialIndexed.recordedTestIds], ['t1', 't2']);
+  } finally {
+    await new Promise(r => coopSrv.close(r));
+    await new Promise(r => nonCoopSrv.close(r));
+  }
+
+  // 4. Isolated startup failure without mutant hits (`startupHitCount === 0`) is `error`, NOT `killed`.
+  const pTestsSingle = new Map([['t1', { id: 't1', project: 'chromium', file: 'e2e/a.spec.ts', name: 'A', status: 'passed' }]]);
+  assert.equal(classifyIsolatedStartupFailure({
+    plan: { serverStatic: true },
+    started: { status: 'failed', errors: ['EADDRINUSE'] },
+    startupHitCount: 0,
+    passedTests: pTestsSingle,
+  }).status, 'error');
+  assert.equal(classifyIsolatedStartupFailure({
+    plan: { serverStatic: true },
+    started: { status: 'failed', errors: ['Mutant boot crash'] },
+    startupHitCount: 1,
+    passedTests: pTestsSingle,
+  }).status, 'killed');
+
+  // 5. `terminateRecordedPids` skips recycled PIDs whose `lstart` signature does not match.
+  const pidDir = mkdtempSync(join(tmpdir(), 'tmt-pw-pid-'));
+  const sleeper = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  try {
+    const pidsFile = join(pidDir, 'pids.jsonl');
+    writeFileSync(pidsFile, JSON.stringify({ kind: 'server', pid: sleeper.pid, lstart: 'Mon Jan  1 00:00:00 1999' }) + '\n', 'utf8');
+    terminateRecordedPids(pidsFile, { readStartSignature: () => 'Fri Nov 27 18:50:00 2026' });
+    // Process must STILL be alive because `lstart` mismatched!
+    assert.doesNotThrow(() => process.kill(sleeper.pid, 0));
+
+    // Now match `lstart` -> process is terminated cleanly.
+    writeFileSync(pidsFile, JSON.stringify({ kind: 'server', pid: sleeper.pid, lstart: 'Fri Nov 27 18:50:00 2026' }) + '\n', 'utf8');
+    terminateRecordedPids(pidsFile, { readStartSignature: () => 'Fri Nov 27 18:50:00 2026' });
+    await new Promise(resolveExit => sleeper.once('exit', resolveExit));
+  } finally {
+    try { sleeper.kill('SIGKILL'); } catch {}
+    rmSync(pidDir, { recursive: true, force: true });
+  }
+});

@@ -1,16 +1,18 @@
+import childProcess, { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { comparisonRecordsToTrace, writeAtomicJson } from './playwright-bridge.mjs';
+import { comparisonRecordsToTrace, createEmptyBucket, drainSpoolDirectory, writeAtomicJson } from './playwright-bridge.mjs';
 import {
   assessIsolatedPlaywrightPass,
+  classifyIsolatedStartupFailure,
   classifyPlaywrightWarmTrial,
   effectsFromPlaywrightRecords,
   indexPlaywrightBaseline,
 } from './playwright-plan.mjs';
-import { createPlaywrightConfigWrapper, testFilters } from './playwright.mjs';
+import { createPlaywrightConfigWrapper, readPidStartSignature, testFilters } from './playwright.mjs';
 import { sampleSettled } from './standard-plan.mjs';
 import { sameObservations } from './trace-buffer.mjs';
 import { failedTests } from './vitest-reporter.mjs';
@@ -80,7 +82,8 @@ function escapeLocationPattern(relFile) {
 function recordManagedPid(kind, pid) {
   if (!pidsFile || !Number.isInteger(pid) || pid <= 1) return;
   try {
-    appendFileSync(pidsFile, JSON.stringify({ kind, pid }) + '\n', 'utf8');
+    const lstart = readPidStartSignature(pid);
+    appendFileSync(pidsFile, JSON.stringify({ kind, pid, ...(lstart ? { lstart } : {}) }) + '\n', 'utf8');
   } catch {}
 }
 
@@ -190,6 +193,12 @@ async function runSession() {
   const projectBrowserMap = new Map();
   const activeProjects = (loadedConfig.projects ?? []).filter(proj =>
     !projects.length || projects.includes(proj.project?.name ?? proj.name));
+  const topRepeatEach = Number(loadedConfig.config?.repeatEach ?? loadedConfig.repeatEach ?? 1);
+  if (topRepeatEach > 1 || activeProjects.some(proj => Number((proj.project ?? proj)?.repeatEach ?? 1) > 1)) {
+    record({ unsupportedSession: 'repeat-each-configured' });
+    exitStatus = 0;
+    return;
+  }
   for (const proj of loadedConfig.projects ?? []) {
     const pObj = proj.project ?? proj;
     const name = pObj.name ?? '';
@@ -255,7 +264,18 @@ async function runSession() {
   let serverRunning = false;
   const startManagedServer = async () => {
     const collector = collectSetupReporter();
-    const res = await runner.runGlobalSetup([collector.reporter]);
+    const origSpawn = childProcess.spawn;
+    childProcess.spawn = function trackedSpawn(...args) {
+      const child = origSpawn.apply(this, args);
+      if (child?.pid) recordManagedPid('webServerSpawn', child.pid);
+      return child;
+    };
+    let res;
+    try {
+      res = await runner.runGlobalSetup([collector.reporter]);
+    } finally {
+      childProcess.spawn = origSpawn;
+    }
     serverRunning = res.status === 'passed';
     return { status: res.status, errors: collector.setupErrors, fileErrors: collector.setupFileErrors, output: collector.getOutput() };
   };
@@ -449,9 +469,14 @@ async function runSession() {
   const timingByTest = new Map(baselinePass.tests.map(t => [t.id, t.duration ?? 0]));
   const indexed = indexPlaywrightBaseline(baselinePass.records, passedTests, [], timingByTest);
 
-  // Soundness gate: if `webServer` is NOT a cooperating Node server (`!indexed.serverCooperating`),
-  // then EVERY instrumented subject file must have been observed loading in the browser; otherwise
-  // server-side code could execute unobserved on the non-Node server and be misclassified as `unreached`.
+  // Soundness gate: every passed test must have a corresponding worker harvest record, and if `webServer` is NOT
+  // a cooperating Node server (`!indexed.serverCooperating`), then EVERY instrumented subject file must have been
+  // observed loading in the browser; otherwise server-side code could execute unobserved and be misclassified as `unreached`.
+  if ([...passedTests.keys()].some(id => !indexed.recordedTestIds.has(id))) {
+    record({ unsupportedSession: 'missing-test-records' });
+    exitStatus = 0;
+    return;
+  }
   if (!indexed.anySwitchActivity && mutants.length > 0) {
     record({ unsupportedSession: 'no-runtime-switch-observations' });
     exitStatus = 0;
@@ -461,6 +486,11 @@ async function runSession() {
     record({ unsupportedSession: 'non-cooperating-server-with-unloaded-files' });
     exitStatus = 0;
     return;
+  }
+
+  const serverStaticComparisonKeys = [];
+  for (const [cmpKey, switchId] of shiftSwitches) {
+    if (indexed.planMutant(switchId).serverStatic) serverStaticComparisonKeys.push(cmpKey);
   }
 
   let deterministicStable;
@@ -529,6 +559,7 @@ async function runSession() {
       comparisons: r.comparisons,
       loadedComparisons: r.loadedComparisons,
     })),
+    ...(serverStaticComparisonKeys.length ? { serverStaticComparisonKeys } : {}),
     ...(deterministicStable !== undefined ? { deterministicStable } : {}),
     ...(deterministicCoverageByKey ? { deterministicCoverageByKey } : {}),
   });
@@ -579,6 +610,7 @@ async function runSession() {
       };
     }
 
+    drainSpoolDirectory(spoolDir, createEmptyBucket());
     setSessionMode({
       phase: 'trial',
       activeMutant: activeId,
@@ -588,20 +620,15 @@ async function runSession() {
 
     const started = await startManagedServer();
     if (started.status !== 'passed') {
-      // A server-static mutant that crashes server startup fails every test that depends on the server -> killed if serverStatic, else error.
-      if (plan.serverStatic) {
-        return {
-          status: 'killed',
-          killedBy: 'server-startup-error',
-          tests: [...passedTests.values()].map(({ id, project, file, name }) => ({ id, project, file, name })),
-          ...(fallbackReason ? { fallback: fallbackReason } : {}),
-        };
-      }
-      return {
-        status: 'error',
-        statusReason: started.errors[0] ?? 'Playwright webServer failed to start for isolated trial',
-        ...(fallbackReason ? { fallback: fallbackReason } : {}),
-      };
+      const startupBucket = createEmptyBucket();
+      drainSpoolDirectory(spoolDir, startupBucket);
+      return classifyIsolatedStartupFailure({
+        plan,
+        started,
+        startupHitCount: startupBucket.hitCount,
+        passedTests,
+        fallbackReason,
+      });
     }
 
     const expectedTestIds = plan.serverStatic ? [...passedTests.keys()] : plan.orderedTestIds;
