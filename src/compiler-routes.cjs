@@ -435,20 +435,103 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
 // A .ts/.mts file that contains no TypeScript syntax and passes V8's parser (or Node's strict-identity
 // strip check with TS 6.0.3 compatibility guards) can be published natively when it avoids the few
 // ES2025/Unicode/legacy forms that V8/SWC accept and TypeScript 6.0.3 rejects.
-const tsRejectsInStripIdentity = /\b0\d*_|0[bBoOxX]_|\._|\bfor\s*\([^;()]*;[^;()]*\)|\bfor[ \t]*\([ \t]*let[ \t]*[;=]|\{\s*(?:while|for|if|return|class|function|var|const|default|extends|this|false|true|null)\s*[,}]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|(?:^|[;\r\n{])[ \t]*await[ \t]*[:=;]|@\(\s*await\s*\)|\bvoid[ \t]+await[ \t]*[;,}]|\bawait[ \t]*=>|\bnew[ \t]+await\b|\basync\b[^;\n]*=[ \t]*(?:\([ \t]*await[ \t]*\)[ \t]*=>|await[ \t]*[),])|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
+const tsRejectsInStripIdentity = /\b0\d*_|0[bBoOxX]_|\._|\bfor\s*\([^;()]*;[^;()]*\)|\bfor\s*\(\s*let\s*[;=]|\{\s*(?:while|for|if|return|class|function|var|const|default|extends|this|false|true|null)\s*[,}]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|(?:^|[;\r\n{])[ \t]*await[ \t]*[:=;]|@\(\s*await\s*\)|\bvoid[ \t]+await[ \t]*[;,}]|\bawait[ \t]*=>|\bnew[ \t]+await\b|\basync\b[^;\n]*=[ \t]*(?:\([ \t]*await[ \t]*\)[ \t]*=>|await[ \t]*[),])|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
 
 function hasTsAwaitYieldHazard(noComments) {
-  if (/\{\s*yield\s*[,}]/.test(noComments) && /\bfunction\s*\*|(?:^|[{,;])\s*(?:async\s+)?\*\s*[A-Za-z_$[\]]+/m.test(noComments)) {
-    return true;
-  }
-  if (/\bstatic\s*\{[^=>{}]*(?<!\b(?:var|let|const)\s*)\{\s*await\s*[,}]/.test(noComments)) {
-    return true;
-  }
-  if (/(?:^|[\r\n;])[ \t]*var[ \t]+await\b/.test(noComments)) {
-    if (/(?<!\bvar[ \t]+)\bawait[ \t]*=(?!=)/.test(noComments) ||
-        /\bassert\.\w+\([ \t]*await\b/.test(noComments) ||
-        /@[ \t]*await\b/.test(noComments)) {
-      return true;
+  const hasYieldShorthand = /\{\s*yield\s*[,}]/.test(noComments);
+  const hasAwaitShorthand = /\{\s*await\s*[,}]/.test(noComments);
+  const hasVarAwait = /(?:^|[\r\n;])[ \t]*var[ \t]+await\b/.test(noComments);
+  if (!hasYieldShorthand && !hasAwaitShorthand && !hasVarAwait) return false;
+  const toks = require('./compiler-ts-lower.cjs').tokenize(noComments);
+  if (!toks) return true;
+  if (hasYieldShorthand && toks.some(t => t.text === '*')) return true;
+  if (!hasAwaitShorthand && !hasVarAwait) return false;
+  // Walk tokens tracking enclosing non-async function/method/constructor/arrow scopes.
+  // Top-level (and directly inside `static { ... }` blocks, even nested in `if`/`{}`) has `fnStack.length === 0`.
+  const scopeStack = []; // 'block' | 'fn' | 'async-fn'
+  let inStaticBlock = false;
+  let staticDepth = 0;
+  let pendingFn = null; // 'fn' | 'async-fn' | null
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    const prev = i > 0 ? toks[i - 1] : null;
+    const next = toks[i + 1];
+    if (t.type === 'id' && t.text === 'static' && next?.text === '{') {
+      inStaticBlock = true;
+      staticDepth = scopeStack.length + 1;
+    } else if (t.type === 'id' && t.text === 'function' && prev?.text !== '.') {
+      pendingFn = (prev?.text === 'async') ? 'async-fn' : 'fn';
+    } else if (t.text === '=>') {
+      // Arrow function: treat concise arrow `=> expr` as a non-async fn scope for its immediate expression
+      let isAsync = false;
+      for (let b = i - 1; b >= Math.max(0, i - 12); b--) {
+        if (toks[b].text === ';' || toks[b].text === '{' || toks[b].text === '}') break;
+        if (toks[b].type === 'id' && toks[b].text === 'async') { isAsync = true; break; }
+      }
+      if (next?.text === '{') {
+        pendingFn = isAsync ? 'async-fn' : 'fn';
+      } else if (!isAsync) {
+        // Concise arrow `() => ({ await })`: skip to matching `)` or `;`
+        let dP = 0, dB = 0, dBr = 0, k = i + 1;
+        while (k < toks.length) {
+          const kt = toks[k].text;
+          if (kt === '(') dP++; else if (kt === ')') { if (dP === 0) break; dP--; }
+          else if (kt === '[') dB++; else if (kt === ']') { if (dB === 0) break; dB--; }
+          else if (kt === '{') dBr++; else if (kt === '}') { if (dBr === 0) break; dBr--; }
+          else if (dP === 0 && dB === 0 && dBr === 0 && (kt === ';' || kt === ',')) break;
+          k++;
+        }
+        i = k - 1;
+        continue;
+      }
+    } else if (t.text === '(' && prev && (prev.type === 'id' || prev.text === ']') &&
+        !['if', 'for', 'while', 'switch', 'with', 'catch', 'function'].includes(prev.text)) {
+      // Method/constructor/accessor definition: `foo(...) {`
+      let dP = 1, k = i + 1;
+      while (k < toks.length && dP > 0) {
+        if (toks[k].text === '(') dP++;
+        else if (toks[k].text === ')') dP--;
+        k++;
+      }
+      if (dP === 0 && toks[k]?.text === '{') {
+        const isAsyncMethod = toks[i - 2]?.text === 'async' || (toks[i - 2]?.text === '*' && toks[i - 3]?.text === 'async');
+        // Parameters of a non-async method/constructor can reference `await`!
+        if (!isAsyncMethod) { i = k - 1; pendingFn = 'fn'; continue; }
+        pendingFn = 'async-fn';
+      }
+    } else if (t.text === '{') {
+      scopeStack.push(pendingFn || 'block');
+      pendingFn = null;
+      continue;
+    } else if (t.text === '}') {
+      if (scopeStack.length === staticDepth) inStaticBlock = false;
+      scopeStack.pop();
+      continue;
+    }
+
+    if (t.type === 'id' && t.text === 'await' && prev?.text !== '.') {
+      // Determine innermost enclosing function scope (if any)
+      let inNonAsyncFn = false;
+      for (let s = scopeStack.length - 1; s >= 0; s--) {
+        if (scopeStack[s] === 'fn') { inNonAsyncFn = true; break; }
+        if (scopeStack[s] === 'async-fn') { inNonAsyncFn = false; break; }
+      }
+      if (hasAwaitShorthand && prev?.text === '{' && (next?.text === '}' || next?.text === ',')) {
+        const beforeBrace = i >= 2 ? toks[i - 2] : null;
+        const isVarDestr = beforeBrace && (beforeBrace.text === 'var' || beforeBrace.text === 'let' || beforeBrace.text === 'const');
+        if (!isVarDestr && inStaticBlock && !inNonAsyncFn) return true;
+      }
+      if (hasVarAwait) {
+        const isVarDecl = prev?.text === 'var';
+        if (!isVarDecl && !inNonAsyncFn) {
+          // Top-level or async-fn use of `await` when `var await` is declared (e.g. `f(await, 0)`, `[await]`, `await = 1`)
+          return true;
+        }
+        if (next?.text === '=' && toks[i + 2]?.text !== '=' && !isVarDecl) {
+          // `await = 1` inside a nested function under `async function`
+          if (scopeStack.includes('async-fn')) return true;
+        }
+      }
     }
   }
   return false;
@@ -720,7 +803,7 @@ function decoratedScript(code) {
   return emit !== undefined && emit(Buffer.from(code + '\nexport {};'), true) !== undefined ? code : null;
 }
 
-const tsRejectsInNodeStrip = /\\u003[0-9]|\\u\{0*3[0-9]\}|\?\.[^\n;]*#|\bfor[ \t]*\([ \t]*let[ \t]*[;=]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|=(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*\bawait\b(?![ \t]*[\w$([{'"`!~+-])|@[A-Za-z_$][\w$]*(?:\([^)]*\))?(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*(?:\bthis\b|static\s*\{|\b(?:constructor|enum|function|interface|type|var|let|const|namespace|module|import)\b)|(?<!\bexport\s*)(?<!\)\s*)\{\s*(?:while|for|if|return|class|function|var|let|const|extends)\s*[,}]|\?\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*[A-Za-z_$][\w$]*\s*<[^<>()\n;]*>\s*\(|\bnew(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*import\b|\bimport(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*(?:\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*source|type\s+(?:defer|source)|source)\b|<[^<>\n;]+>\s*\.[A-Za-z_$]|\btype[ \t]+(?:void|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)[ \t]*=|<[^>]*\b(?:in\s+in|out\s+out)\b|\bexport\s+as\s+namespace\b|\bimplements\s*\{|\bdeclare[ \t]+module[ \t]*[\r\n]|\bdeclare[ \t]+(?:module|namespace)[ \t]+(?:break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)\b|\(\s*(?:<[^>]+>\s*)?[A-Za-z_$][\w$]*(?:\s+(?:as|satisfies)\b[^)]*)?\)\s*(?:&&|\|\||\?\?)?=(?![=>])/;
+const tsRejectsInNodeStrip = /\\u003[0-9]|\\u\{0*3[0-9]\}|\?\.[^\n;]*#|\bfor\s*\(\s*let\s*[;=]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|=(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*\bawait\b(?![ \t]*[\w$([{'"`!~+-])|@[A-Za-z_$][\w$]*(?:\([^)]*\))?(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*(?:\bthis\b|static\s*\{|\b(?:constructor|enum|function|interface|type|var|let|const|namespace|module|import)\b)|(?<!\bexport\s*)(?<!\)\s*)\{\s*(?:while|for|if|return|class|function|var|let|const|extends)\s*[,}]|\?\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*[A-Za-z_$][\w$]*\s*<[^<>()\n;]*>\s*\(|\bnew(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*import\b|\bimport(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*(?:\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*source|type\s+(?:defer|source)|source)\b|<[^<>\n;]+>\s*\.[A-Za-z_$]|\btype[ \t]+(?:void|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)[ \t]*=|<[^>]*\b(?:in\s+in|out\s+out)\b|\bexport\s+as\s+namespace\b|\bimplements\s*\{|\bdeclare[ \t]+module[ \t]*[\r\n]|\bdeclare[ \t]+(?:module|namespace)[ \t]+(?:break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)\b|\(\s*(?:<[^>]+>\s*)?[A-Za-z_$][\w$]*(?:\s+(?:as|satisfies)\b[^)]*)?\)\s*(?:&&|\|\||\?\?)?=(?![=>])/;
 
 function hasTsRejectsInNodeStrip(source) {
   const noComments = (source.includes('/*') || source.includes('//'))

@@ -887,7 +887,6 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
     if (!toks) return null;
     const edits = [];
     const declaredVars = new Set();
-    const typeOnlyNamespaces = new Set();
     const enumEnvs = new Map();
     const exportedVars = []; // { name, stmtStart, stmtEnd } for local bare-identifier rewriting inside parentNs
     let depth = 0;
@@ -1045,13 +1044,11 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
 
         if (isTypeOnlyNamespaceBody(bodySrc)) {
           if (!allowTypeOnlyBlank) return null;
-          if (names.length === 1 && !declaredVars.has(names[0])) typeOnlyNamespaces.add(names[0]);
           const blank = src.slice(t.start, toks[closeIdx].end).replace(/[^\r\n]/g, ' ');
           edits.push({ start: t.start, end: toks[closeIdx].end, text: blank });
           i = closeIdx;
           continue;
         }
-        if (names.length === 1) typeOnlyNamespaces.delete(names[0]);
 
         // Lower innermost namespace body, renaming IIFE parameter to `${innerName}_1` if body shadows `innerName`.
         const innerName = names[names.length - 1];
@@ -1325,11 +1322,6 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
           let endIdx = k;
           if (toks[endIdx + 1]?.type === 'punc' && toks[endIdx + 1].text === ';') endIdx++;
           const rhs = src.slice(toks[idx + 3].start, toks[k].end);
-          if (typeOnlyNamespaces.has(rhs.split('.')[0])) {
-            edits.push({ start: t.start, end: toks[endIdx].end, text: src.slice(t.start, toks[endIdx].end).replace(/[^\r\n]/g, ' ') });
-            i = endIdx;
-            continue;
-          }
           const rest = src.slice(0, t.start) + src.slice(toks[endIdx].end);
           if (new RegExp(`(?<![\\w$.])${aliasName}(?![\\w$])`).test(rest)) {
             if (new RegExp(`\\b(?:var|let|const|function|class|enum|namespace|module)\\s+${aliasName}\\b|\\([^)]*\\b${aliasName}\\b|\\b${aliasName}\\s*:`).test(rest)) {
@@ -1380,11 +1372,6 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         }
         const rhs = src.slice(toks[idx + 3].start, toks[k].end);
         if (rhs.split('.').some(part => RESERVED_NS.has(part))) return null;
-        if (typeOnlyNamespaces.has(rhs.split('.')[0])) {
-          edits.push({ start: t.start, end: toks[endIdx].end, text: src.slice(t.start, toks[endIdx].end).replace(/[^\r\n]/g, ' ') });
-          i = endIdx;
-          continue;
-        }
         edits.push({ start: t.start, end: toks[endIdx].end, text: `var ${aliasName} = ${rhs};` });
         i = endIdx;
         continue;
@@ -3457,21 +3444,45 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     }
   }
 
-  // `Unexpected line break between arrow head and arrow`
+  // `Unexpected line break between arrow head and arrow` (code tokens only, never inside strings/templates/regexes)
   if (errMsg.includes('Unexpected line break between arrow head and arrow')) {
-    const work = source.replace(/[\r\n]+([ \t]*=>)/g, ' $1');
-    if (work !== source) {
-      const stripped = tryStrip(work);
-      if (stripped !== null) return stripped;
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 1; i < toks.length; i++) {
+        if (toks[i].type === 'punc' && toks[i].text === '=>' && hasNewlineBetween(source, toks[i - 1].end, toks[i].start)) {
+          edits.push({ start: toks[i - 1].end, end: toks[i].start, text: ' ' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
     }
   }
 
-  // `Expected ident`: tagged template in optional chain (`a?.`hello``) -> TS emits `a`hello``
+  // `Expected ident`: tagged template in optional chain (`a?.`hello``) -> TS emits `a`hello`` (code tokens only)
   if (errMsg.includes('Expected ident') && source.includes('?.') && source.includes('`')) {
-    const work = source.replace(/\?\.(?=[ \t\r\n]*`)/g, '  ');
-    if (work !== source) {
-      const stripped = tryStrip(work);
-      if (stripped !== null) return stripped;
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 2; i++) {
+        if (toks[i].type === 'punc' && toks[i].text === '?' && toks[i + 1].type === 'punc' && toks[i + 1].text === '.' &&
+            toks[i].end === toks[i + 1].start &&
+            (toks[i + 2].type === 'tpl' || (toks[i + 2].type === 'str' && toks[i + 2].text.startsWith('`')))) {
+          edits.push({ start: toks[i].start, end: toks[i + 1].end, text: '  ' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
     }
   }
 

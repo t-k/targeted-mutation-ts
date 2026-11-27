@@ -3559,6 +3559,12 @@ test('F181 official spec suite push: Test262 99.96%, TS compiler/conformance 98.
     ['f181-bad-static-shorthand-await.ts', 'class C { static { ({ await }); } }\nexport {};\n'],
     ['f181-bad-esc-yield-label-gen.ts', 'class C { *m() { yi\\u0065ld: ; } }\nexport {};\n'],
     ['f181-bad-for-using-of.ts', 'for (using of of []) {}\n'],
+    // Review Round 56 negative syntax rejections:
+    ['r56-bad-var-await-call.ts', 'var await; f(await, 0); export {};\n'],
+    ['r56-bad-var-await-arr.ts', 'var await; const a = [await]; export {};\n'],
+    ['r56-bad-static-nested-await.ts', 'class C { static { if (true) { ({ await }); } } } export {};\n'],
+    ['r56-bad-gen-quoted-yield.ts', 'const v = { *"m"() { return { yield }; } }; export {};\n'],
+    ['r56-bad-for-let-nl-eq.ts', 'var let; for (let\n= 3; ; ) break; export {};\n'],
   ]) {
     const tm = ts.transpileModule(source, {
       fileName: file,
@@ -3568,5 +3574,14 @@ test('F181 official spec suite push: Test262 99.96%, TS compiler/conformance 98.
     assert.ok((tm.diagnostics || []).some(d => d.category === ts.DiagnosticCategory.Error), `TS must reject: ${file}`);
     const r = compile(Buffer.from(source), { file });
     assert.equal(r.code, null, `must reject invalid TS: ${file}`);
+  }
+  // Review Round 56 AST/literal preservation regressions:
+  for (const [file, source] of [
+    ['r56-type-only-ns-alias.ts', 'namespace A { export interface X {} }\nimport B = A;\nconsole.log(B);\n'],
+    ['r56-type-only-ns-alias-member.ts', 'namespace A { export type T = number; }\nimport B = A.T;\nconsole.log(B);\n'],
+    ['r56-tagged-tpl-str-lit.ts', 'declare const a: any;\nconst s = "a?.`b`";\nconst r = /a?.`b`/;\nconst x = a?.`c`;\n'],
+    ['r56-arrow-nl-tpl-lit.ts', 'const s = `a\n=>b`;\nconst f = ()\n=> 1;\n'],
+  ]) {
+    sameAsTypeScript(source, file);
   }
 });
