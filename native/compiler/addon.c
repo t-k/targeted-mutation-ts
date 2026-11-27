@@ -705,7 +705,7 @@ static char *emit_multifile_mts(void *ws, uint8_t *source, uint32_t width, size_
     bool c_checked = false, c_complete = false, c_script = false, c_owned = true;
     tmt_parameter_route c_prop = TMT_PARAMETER_NONE;
     char *piece = tmt_emit_annotated_module_ws(ws, source + s, clen_in, TMT_ENUMS_ABSENT, false, true,
-      &clen_out, &c_checked, &c_complete, &c_script, &c_prop, NULL, &c_owned);
+      &clen_out, &c_checked, &c_complete, &c_script, &c_prop, NULL, &c_owned, chunk_start.ok ? chunk_start.at : UINT32_MAX);
     if (piece && c_complete) {
       if (clen_out == clen_in) {
         if (piece != (char *)(source + s)) memcpy(out + s, piece, clen_in);
@@ -792,9 +792,14 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     if (!input_ascii && contains(state->utf8_buf, size, "\xef\xbf\xbd", false)) goto decline;
     source = state->utf8_buf;
   } else {
-    NAPI(napi_get_buffer_info(env, args[0], &bytes, &size));
+    napi_typedarray_type ta_type;
+    napi_value backing;
+    bool ordinary = false;
+    if (napi_get_typedarray_info(env, args[0], &ta_type, &size, &bytes, &backing, NULL) != napi_ok ||
+        ta_type != napi_uint8_array) goto error;
     source = bytes;
-    if (!size || size > source_limit || !unshared_buffer(env, args[0])) goto decline;
+    if (!size || size > source_limit ||
+        napi_is_arraybuffer(env, backing, &ordinary) != napi_ok || !ordinary) goto decline;
     const size_t lead_ascii = ascii_prefix(source, size);
     input_ascii = lead_ascii == size;
     if (!input_ascii && !valid_utf8(source + lead_ascii, size - lead_ascii)) goto decline;
@@ -806,7 +811,8 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
    */
   const uint8_t b0 = source[0];
   const bool maybe_trivia = !((b0 >= 'a' && b0 <= 'z') || (b0 >= 'A' && b0 <= 'Z') || b0 == '_' || b0 == '$');
-  const tmt_triple_slash_kind directive = maybe_trivia && tmt_leading_triple_slash(source, width) ?
+  uint32_t known_first = maybe_trivia ? UINT32_MAX : 0U;
+  const tmt_triple_slash_kind directive = maybe_trivia && tmt_leading_triple_slash_at(source, width, &known_first) ?
     tmt_triple_slash(source, width) : TMT_TRIPLE_SLASH_ABSENT;
   if (directive == TMT_TRIPLE_SLASH_OTHER) goto decline;
   const bool restricted = source[0] == 'e' && directive == TMT_TRIPLE_SLASH_ABSENT;
@@ -853,7 +859,7 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     tmt_parameter_route property;
     output = tmt_emit_annotated_module_ws(state ? state->workspace : NULL, source, width,
       !jsx ? TMT_ENUMS_UNKNOWN : runtime ? TMT_ENUMS_PRESENT : TMT_ENUMS_ABSENT, esm, !esm && !jsx,
-      &length, &checked, &complete, &script, &property, flags & emit_mapped ? &runs : NULL, &output_owned);
+      &length, &checked, &complete, &script, &property, flags & emit_mapped ? &runs : NULL, &output_owned, known_first);
     if (output && complete && !script) goto publish;
     if (!output && !checked && property == TMT_PARAMETER_NONE) {
       output_owned = true;
@@ -886,6 +892,10 @@ decline:
   return result;
 publish:
   {
+    if (!(flags & emit_mapped) && arg_type == napi_string && !output_owned && output == (char *)source && length == size) {
+      free(runs.items);
+      return args[0];
+    }
     const napi_status created = flags & emit_mapped ? create_mapped_result(env, source, size, output, length, &runs, &result) :
       input_ascii ? napi_create_string_latin1(env, output, length, &result) : create_source_string(env, output, length, &result);
     if (output_owned) free(output);

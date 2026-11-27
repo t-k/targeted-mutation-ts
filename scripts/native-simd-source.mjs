@@ -39,16 +39,51 @@ export function simdSource(root, original, scratch, scalar) {
 `;
     source = source.slice(0, position) + fast + source.slice(position);
   }
-  // Optional SIMD fast-paths for multi-byte whitespace runs in `trivia_from` and static text runs in `template_body`.
-  const extraLoops = [
-    ['trivia_from', '7acc224935178f6b09f022c6f46356a7894690134b6bfe067141b8c375b40502',
-      'uint8_t value = TmtPulseMemory_peek(input, at);',
-      `${simd}      if (at < input.size && fuel >= 16U && input.size - at >= 16U && input.source[at] <= 32U && input.source[at + 1] <= 32U) {
+  // Split `TmtPulseParser_trivia_from` into a tiny inlineable ASCII-whitespace fast-path and a
+  // `noinline, cold` slow-path for comments, Unicode line separators, and >=16B whitespace runs.
+  // This keeps hot inlined call sites tiny (better L1I cache) while handling >95% of trivia in a few cycles.
+  const tfStart = source.indexOf('\nTmtPulseParser_trivia_from(');
+  if (tfStart >= 0) {
+    const tfEnd = source.indexOf('\n}\n', tfStart);
+    if (tfEnd >= 0) {
+      const tfBody = source.slice(tfStart, tfEnd);
+      if (createHash('sha256').update(tfBody).digest('hex') === '7acc224935178f6b09f022c6f46356a7894690134b6bfe067141b8c375b40502') {
+        const retStart = source.lastIndexOf('\n', tfStart - 1);
+        const anchor = '    else\n    {\n      uint8_t value = TmtPulseMemory_peek(input, at);';
+        const at = tfBody.indexOf(anchor);
+        if (retStart >= 0 && at >= 0) {
+          const slowSimd = `${simd}      if (at < input.size && fuel >= 16U && input.size - at >= 16U && input.source[at] <= 32U && input.source[at + 1] <= 32U) {
         const unsigned skipped = tmt_space_run(input.source + at, &newline);
         if (skipped != 0U) { at += skipped; fuel -= skipped; continue; }
       }
 #endif
-`],
+`;
+          const slowBody = (tfBody.slice(0, at + anchor.length - 'uint8_t value = TmtPulseMemory_peek(input, at);'.length - 6) +
+            slowSimd + tfBody.slice(at + anchor.length - 'uint8_t value = TmtPulseMemory_peek(input, at);'.length - 6))
+            .replace('\nTmtPulseParser_trivia_from(', '\ntmt_trivia_from_slow(');
+          const slowFn = `\nstatic __attribute__((noinline, cold)) TmtPulseParser_cursor${slowBody}\n}\n`;
+          const fastFn = `\nTmtPulseParser_cursor\nTmtPulseParser_trivia_from(TmtPulseMemory_tape input0, uint32_t at0, bool newline0, uint32_t fuel0)\n{\n  while (at0 < input0.size && fuel0 != 0U) {\n    const uint8_t b = input0.source[at0];\n    if (b == ' ' || b == '\\t') { at0++; fuel0--; continue; }\n    if (b == '\\n' || b == '\\r') { newline0 = true; at0++; fuel0--; continue; }\n    if (b != '/' && b != 226U) return ((TmtPulseParser_cursor){ .at = at0, .ok = true, .newline = newline0 });\n    return tmt_trivia_from_slow(input0, at0, newline0, fuel0);\n  }\n  return ((TmtPulseParser_cursor){ .at = at0, .ok = at0 >= input0.size, .newline = newline0 });\n}\n`;
+          source = source.slice(0, retStart) + slowFn + fastFn + source.slice(tfEnd + 3);
+        }
+      }
+    }
+  }
+  // 256-byte L1-resident LUT for `TmtGrammar_identifier_start` and `TmtGrammar_identifier_continue`.
+  for (const [sig, expected, mask] of [
+    ['\nbool TmtGrammar_identifier_start(', '0e22f25b2c260ce95231f028165a7eea2ffe0a4c686420bb4724669769db8b08', '1U'],
+    ['\nbool TmtGrammar_identifier_continue(', '562f7b272358cb5c2e54bf8db1f81c38a24f01e4df873d08368f5f6854633c89', '2U'],
+  ]) {
+    const s = source.indexOf(sig);
+    if (s < 0) continue;
+    const e = source.indexOf('\n}\n', s);
+    if (e < 0) continue;
+    const body = source.slice(s, e);
+    if (createHash('sha256').update(body).digest('hex') !== expected) continue;
+    const open = body.indexOf('{\n');
+    if (open < 0) continue;
+    source = source.slice(0, s + open) + `{\n  return (tmt_id_lut[ch] & ${mask}) != 0U;` + source.slice(e);
+  }
+  const extraLoops = [
     ['template_body', '270858e67955eed7bc10d9274482b0472740d6c1e04b89a5de603abde024ca20',
       'uint32_t at = state.offset;',
       `${simd}      if (state.offset < input.size && remaining >= 16U && input.size - state.offset >= 16U) {
@@ -88,6 +123,8 @@ export function simdSource(root, original, scratch, scalar) {
       cursor += skipped;
       if (skipped < 16U) return cursor;
     }
+    while (cursor < size && (tmt_id_lut[source[cursor]] & 2U)) cursor++;
+    return cursor;
   } else if (code == 0U) {
     bool dummy_nl = true;
     while (cursor < size && size - cursor >= 16U && source[cursor] <= 32U && source[cursor + 1] <= 32U) {
@@ -95,12 +132,23 @@ export function simdSource(root, original, scratch, scalar) {
       cursor += skipped;
       if (skipped < 16U) return cursor;
     }
-  } else if (code == 3U) {
+    while (cursor < size) {
+      const uint8_t b = source[cursor];
+      if (b != ' ' && b != '\\t' && b != '\\n' && b != '\\r') break;
+      cursor++;
+    }
+    return cursor;
+  } else if (code == 2U) {
+    while (cursor < size && (uint8_t)(source[cursor] - '0') < 10U) cursor++;
+    return cursor;
+  } else {
     while (cursor < size && size - cursor >= 16U && source[cursor] <= 32U && source[cursor + 1] <= 32U) {
       const unsigned skipped = tmt_hspace_run(source + cursor);
       cursor += skipped;
       if (skipped < 16U) return cursor;
     }
+    while (cursor < size && (source[cursor] == ' ' || source[cursor] == '\\t')) cursor++;
+    return cursor;
   }
 #endif
 `;
@@ -183,6 +231,42 @@ export function simdSource(root, original, scratch, scalar) {
         const newLine = '  if (input.capacity) memset(input.marks, 0, (size_t)input.capacity);';
         if (cmBody.includes(oldLine)) {
           source = source.slice(0, cmStart) + cmBody.replace(oldLine, newLine) + source.slice(cmEnd);
+        }
+      }
+    }
+  }
+  // Optional direct-array fast-path in `TmtPulseParser_name_seen`.
+  const nsStart = source.indexOf('\nTmtPulseParser_name_seen(');
+  if (nsStart >= 0) {
+    const nsEnd = source.indexOf('\n}\n', nsStart);
+    if (nsEnd >= 0) {
+      const nsBody = source.slice(nsStart, nsEnd);
+      if (createHash('sha256').update(nsBody).digest('hex') === '9bcb93cbd840c4bc9e69a50ff4dbf183af39d9e81fa1a99400a5fdf96e596b81') {
+        const anchor = '  TmtPulseMemory_tape input = input0;\n';
+        const at = nsBody.indexOf(anchor);
+        if (at >= 0) {
+          const fast = `  if (used0 <= floor0) return false;
+  if (pos0 <= input0.size && input0.size - pos0 >= len0 && base0 <= 6975U && used0 <= 6975U - base0) {
+    const TmtPulseMemory_binding_name *table = input0.bindings + base0;
+    const uint8_t first_byte = len0 ? input0.source[pos0] : 0U;
+    for (uint32_t cur = used0; cur > floor0; ) {
+      cur--;
+      const TmtPulseMemory_binding_name entry = table[cur];
+      const uint32_t elen = TmtPulseParser_minus(entry.span.last, entry.span.first);
+      if (elen != len0) continue;
+      if (!TmtPulseParser_names_overlap(namespace0, entry.namespace0)) continue;
+      if (len0 == 0U) return true;
+      if (entry.span.first <= input0.size && input0.size - entry.span.first >= len0) {
+        if (input0.source[entry.span.first] != first_byte) continue;
+        if (len0 == 1U || memcmp(input0.source + pos0, input0.source + entry.span.first, len0) == 0) return true;
+      } else if (TmtPulseParser_same_bytes(input0, pos0, entry.span.first, len0)) {
+        return true;
+      }
+    }
+    return false;
+  }
+`;
+          source = source.slice(0, nsStart + at) + fast + source.slice(nsStart + at);
         }
       }
     }

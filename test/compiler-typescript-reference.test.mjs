@@ -4190,4 +4190,15 @@ test('R64 workspace reuse, single-pass string ingress, multi-file .mts, and pars
     assert.equal(r.backend, 'pulse');
     assert.equal(r.code, eofSrc);
   }
+
+  // 7. R65: string/template/block-comment containing "@filename:" must not skip validJavaScriptTsModule on .mts
+  for (const jsRegV of [
+    'export const r = /[[a]--[b]]/v; const label = "@filename: demo";\n',
+    'export const r = /[[a]--[b]]/v; const t = `\n// @filename: demo\n`;\n',
+    'export const r = /[[a]--[b]]/v; /*\n// @filename: demo\n*/\n',
+  ]) {
+    const rJsV = compile(jsRegV, { file: 'r65-regv.mts' });
+    assert.equal(rJsV.backend, 'javascript');
+    assert.equal(rJsV.code, jsRegV);
+  }
 });

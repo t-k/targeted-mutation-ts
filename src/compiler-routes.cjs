@@ -893,14 +893,18 @@ function getTsLower() { return _tsLower ??= require('./compiler-ts-lower.cjs'); 
 
 function hasTsRejectsInNodeStrip(source) {
   if (source === _lastCleanRejectSrc) return false;
-  const noComments = (source.includes('/*') || source.includes('//'))
-    ? source.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*/g, (m, str) => str || ' ')
+  const hasBlock = source.includes('/*');
+  const hasLine = source.includes('//');
+  const noComments = (hasBlock || hasLine)
+    ? (!hasBlock && !source.includes('"') && !source.includes("'")
+        ? source.replace(/\/\/[^\r\n\u2028\u2029]*/g, ' ')
+        : source.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*/g, (m, str) => str || ' '))
     : source;
   if (tsRejectsInNodeStrip.test(noComments) || getTsLower().hasForBracketIn(noComments)) return true;
-  if (noComments !== source) {
+  if (noComments !== source && tsRejectsInNodeStrip.test(source)) {
     // Re-check via the regex/template-aware tokenizer whenever a regex or template literal could have
     // masked `//` or `/*` (including quantifiers like `/a*[/*]/` or multi-line `/*` inside `/[/*]/` / `` `/*` ``).
-    let needsTokenCheck = multilineMaskingBlock.test(source) && tsRejectsInNodeStrip.test(source);
+    let needsTokenCheck = multilineMaskingBlock.test(source);
     if (!needsTokenCheck && slashOrTplBeforeComment.test(source)) {
       tsRejectsInNodeStripG.lastIndex = 0;
       let lastLineStart = -1;
@@ -935,7 +939,7 @@ function hasTsRejectsInNodeStrip(source) {
       if (source.includes('@') && tsLower.eraseNonEsDecorators(source)?.changed) return true;
     }
   }
-  if (/\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(noComments) && !/\bfunction\b/.test(noComments) && !/\basync[ \t]*\([ \t]*await[ \t]*\)[ \t]*(?::[^\n]*?)?=>/.test(noComments)) return true;
+  if (noComments.includes('await') && /\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(noComments) && !/\bfunction\b/.test(noComments) && !/\basync[ \t]*\([ \t]*await[ \t]*\)[ \t]*(?::[^\n]*?)?=>/.test(noComments)) return true;
   // TypeScript rejects multiple `/// <amd-module` directives in one file.
   if (source.includes('<amd-module')) {
     const m = source.match(/\/\/\/[ \t\f\v]*<amd-module\b/gi);
@@ -1129,7 +1133,7 @@ function hasStaticPrototypeMember(source) {
 }
 
 function eraseModule(addon, source, file, format, parameterProperty) {
-  if (hasEscapedKeyword(source, false) || hasNbspOutsideStrings(source) || hasTsRejectsInNodeStrip(source) || /(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(source)) return null;
+  if (hasEscapedKeyword(source, false) || hasNbspOutsideStrings(source) || hasTsRejectsInNodeStrip(source) || (source.includes('await') && /(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(source))) return null;
   const work = normalizeAmbientModules(source);
   const transformAllowed = () => !/\benum\b|\bnamespace\b(?![ \t]*:)/.test(work);
   const directTransform = parameterProperty && transformAllowed();
@@ -2057,7 +2061,8 @@ function compile(input, options = {}, declinedNative = false) {
               }
             }
             if (!property && !(alreadyDeclined && format === 'esm' &&
-                /\b(?:interface|declare|namespace|readonly|abstract|implements|override|accessor)\b|\b(?:import|export)[ \t]+type\b/.test(text))) {
+                (/\b(?:interface|declare|namespace|readonly|abstract|implements|override|accessor)\b|\b(?:import|export)[ \t]+type\b/.test(text) ||
+                 (!text.includes('`') && !text.includes('/*') && /^[ \t]*\/\/[ \t]*@filename:/im.test(text))))) {
               const plainJs = validJavaScriptTsModule(addon, source, text, file, format, directive, false);
               if (plainJs) return plainJs;
             }

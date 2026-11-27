@@ -1667,7 +1667,20 @@ static bool module_after_prelude_ws(void *ws, uint8_t *source, uint32_t size, ui
   return (!validate || TmtPulseCompiler_supported_module(input, false)) && (first || find_marker(input, at, false) < input.size);
 }
 
+static bool has_word_bytes(const uint8_t *text, uint32_t size, const char *needle, uint32_t width) {
+  for (uint32_t at = 0; size >= width && size - at >= width; at++) {
+    const uint8_t *found = memchr(text + at, needle[0], size - at - width + 1);
+    if (!found) return false;
+    at = (uint32_t)(found - text);
+    if (!memcmp(text + at, needle, width)) return true;
+  }
+  return false;
+}
+
 bool tmt_module_marker_ws(void *ws, uint8_t *source, uint32_t size, bool validate) {
+  if (!validate && !has_word_bytes(source, size, "import", 6) && !has_word_bytes(source, size, "export", 6)) {
+    return false;
+  }
   const TmtPulseMemory_tape input = { .source = source, .size = size };
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok || first.at == size) return false;
@@ -2940,8 +2953,13 @@ static bool close_namespace_scope(namespace_scope *scope) {
  */
 static bool only_qualified(namespace_scope *scope, TmtPulseMemory_tape input, uint32_t first, uint32_t last, TmtGrammar_span name) {
   const uint32_t width = name.last - name.first;
+  if (!width || last < first || last - first < width) return true;
+  const uint8_t lead = input.source[name.first];
   for (uint32_t at = first; at + width <= last; at++) {
-    if (memcmp(input.source + at, input.source + name.first, width)) continue;
+    const uint8_t *found = memchr(input.source + at, lead, last - width + 1 - at);
+    if (!found) return true;
+    at = (uint32_t)(found - input.source);
+    if (width > 1 && memcmp(input.source + at + 1, input.source + name.first + 1, width - 1)) continue;
     const bool property = at > first + 1 && input.source[at - 1] == '.' && input.source[at - 2] != '.';
     if (property) continue;
     const bool before = at > first && (input.source[at - 1] >= 128 || TmtGrammar_identifier_continue(input.source[at - 1]));
@@ -3527,20 +3545,8 @@ uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, unsigned 
 #endif
 }
 
-#ifdef TMT_V8_VALIDATOR
-static bool has_word_bytes(const uint8_t *text, uint32_t size, const char *needle, uint32_t width) {
-  for (uint32_t at = 0; size >= width && size - at >= width; at++) {
-    const uint8_t *found = memchr(text + at, needle[0], size - at - width + 1);
-    if (!found) return false;
-    at = (uint32_t)(found - text);
-    if (!memcmp(text + at, needle, width)) return true;
-  }
-  return false;
-}
-#endif
-
 char *tmt_emit_annotated_module_ws(void *ws, uint8_t *source, uint32_t size, tmt_enum_hint enums, bool esm, bool allow_script,
-  size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property, tmt_run_log *runs, bool *owned)
+  size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property, tmt_run_log *runs, bool *owned, uint32_t known_first)
 {
   *checked = false;
   *complete = false;
@@ -3558,7 +3564,9 @@ char *tmt_emit_annotated_module_ws(void *ws, uint8_t *source, uint32_t size, tmt
   if (!rws) fresh_workspace(memory);
   else if (size < 4096) memset(memory->marks, 0, sizeof(memory->marks));
   TmtPulseMemory_tape input = with_workspace(source, size, memory);
-  const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
+  const TmtPulseParser_cursor first = known_first <= size
+    ? (TmtPulseParser_cursor){ .at = known_first, .ok = true, .newline = false }
+    : TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok) return NULL;
   uint32_t marker = size;
   bool deferred_marker = false;
@@ -3671,6 +3679,7 @@ char *tmt_emit_annotated_module_ws(void *ws, uint8_t *source, uint32_t size, tmt
   (void)allow_script;
   (void)length;
   (void)runs;
+  (void)known_first;
   return NULL;
 #endif
 }
@@ -3679,7 +3688,7 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property, tmt_run_log *runs)
 {
   return tmt_emit_annotated_module_ws(NULL, source, size, enums, esm, allow_script,
-    length, checked, complete, script, property, runs, NULL);
+    length, checked, complete, script, property, runs, NULL, UINT32_MAX);
 }
 
 bool tmt_unbound_export_ws(void *ws, uint8_t *source, uint32_t size) {
@@ -3820,14 +3829,22 @@ tmt_triple_slash_kind tmt_triple_slash(uint8_t *source, uint32_t size) {
 }
 
 /* Equals a triple slash anywhere in the source and a leading directive, without scanning ordinary files. */
-bool tmt_leading_triple_slash(uint8_t *source, uint32_t size) {
+bool tmt_leading_triple_slash_at(uint8_t *source, uint32_t size, uint32_t *first_at) {
   const TmtPulseMemory_tape input = { .source = source, .size = size };
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
+  if (first_at) *first_at = first.ok ? first.at : UINT32_MAX;
   const uint32_t limit = first.ok ? first.at : size;
-  for (uint32_t index = 0; index + 2 < limit; index++) {
-    if (source[index] == '/' && source[index + 1] == '/' && source[index + 2] == '/') return true;
+  for (uint32_t at = 0; at + 2 < limit; at++) {
+    const uint8_t *found = memchr(source + at, '/', limit - at - 2);
+    if (!found) return false;
+    at = (uint32_t)(found - source);
+    if (source[at + 1] == '/' && source[at + 2] == '/') return true;
   }
   return false;
+}
+
+bool tmt_leading_triple_slash(uint8_t *source, uint32_t size) {
+  return tmt_leading_triple_slash_at(source, size, NULL);
 }
 
 bool tmt_leading_directive(uint8_t *source, uint32_t size) {
