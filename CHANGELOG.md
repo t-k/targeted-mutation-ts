@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.1
+
+- Guide CLI users when `targeted-mutation analyze` receives a file path, glob pattern, or missing source file in place of `[PROJECT]` instead of failing with `ENOTDIR`: print a shell-quoted `targeted-mutation analyze . <file...>` hint (including `--` for leading-dash filenames) for paths inside the current directory and `targeted-mutation analyze <PROJECT> <FILE...>` for paths outside it.
+- Summarize multiline and long expression edits consistently across `--list` candidate rows, mutant status rows, and `INPUT GAP` / `ASSERTION GAP` descriptions by eliding shared prefix/suffix context (accounting for added outer parentheses and preserving literal spacing) so the edited operand or operator remains visible while keeping full source strings in JSON, SARIF, and baseline IDs.
+- Suppress false `ASSERTION GAP` reports on short-circuit conditions:
+  - Statically skip equivalent `nullish-equality/v1` edits on declarative local bindings across De Morgan `typeof x !== "object"` / `typeof x === "object"` and explicit `null`/`undefined` short-circuit chains (barring intervening side effects, `with` statements, or lexical `undefined` bindings including named class expressions) while preserving `differsFor: "null"` (`!== undefined` / `=== undefined`) candidates.
+  - Evaluate forward-only, switch-free pure short-circuit guard steps during baseline probing so leaf differences absorbed by an enclosing side-effect-free condition are classified as `INPUT GAP` (naming the guard the input must decide) rather than false `ASSERTION GAP`, without invoking getters, calls, `ToPrimitive` coercions, monkey-patched `Boolean`, or nested coverage switches.
+
 ## 0.8.0
 
 - Add prebuilt Windows x64 native runtime support (`@targeted-mutation/tmt-win32-x64`) shipping both the native parser addon (`tmt.node`) and the Lean 4 decision executable (`tmt-decide.exe`), installed automatically as an optional dependency on Windows x64 Node.js while preserving the portable TypeScript/JavaScript fallback on other Windows architectures and `--omit=optional` installs.
