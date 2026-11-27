@@ -444,23 +444,20 @@ function hasTsAwaitYieldHazard(noComments) {
   if (!hasYieldShorthand && !hasAwaitShorthand && !hasVarAwait) return false;
   const toks = require('./compiler-ts-lower.cjs').tokenize(noComments);
   if (!toks) return true;
-  if (hasYieldShorthand && toks.some(t => t.text === '*')) return true;
+  if (hasYieldShorthand && toks.some((tk, idx) => tk.text === '*' && (idx === 0 || ['function', '{', ';', '}', ',', 'static', 'async'].includes(toks[idx - 1].text)))) return true;
   if (!hasAwaitShorthand && !hasVarAwait) return false;
-  // Walk tokens tracking enclosing non-async function/method/constructor/arrow scopes.
-  // Top-level (and directly inside `static { ... }` blocks, even nested in `if`/`{}`) has `fnStack.length === 0`.
-  const scopeStack = []; // 'block' | 'fn' | 'async-fn'
-  let inStaticBlock = false;
-  let staticDepth = 0;
-  let pendingFn = null; // 'fn' | 'async-fn' | null
+  // Walk tokens tracking enclosing scopes ('block' | 'static' | 'fn' | 'async-fn').
+  // A 'static' block resets the enclosing function boundary (e.g. `function f() { class C { static { ({ await }); } } }`).
+  const scopeStack = [];
+  let pendingScope = null; // 'static' | 'fn' | 'async-fn' | null
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i];
     const prev = i > 0 ? toks[i - 1] : null;
     const next = toks[i + 1];
     if (t.type === 'id' && t.text === 'static' && next?.text === '{') {
-      inStaticBlock = true;
-      staticDepth = scopeStack.length + 1;
+      pendingScope = 'static';
     } else if (t.type === 'id' && t.text === 'function' && prev?.text !== '.') {
-      pendingFn = (prev?.text === 'async') ? 'async-fn' : 'fn';
+      pendingScope = (prev?.text === 'async') ? 'async-fn' : 'fn';
     } else if (t.text === '=>') {
       // Arrow function: treat concise arrow `=> expr` as a non-async fn scope for its immediate expression
       let isAsync = false;
@@ -469,7 +466,7 @@ function hasTsAwaitYieldHazard(noComments) {
         if (toks[b].type === 'id' && toks[b].text === 'async') { isAsync = true; break; }
       }
       if (next?.text === '{') {
-        pendingFn = isAsync ? 'async-fn' : 'fn';
+        pendingScope = isAsync ? 'async-fn' : 'fn';
       } else if (!isAsync) {
         // Concise arrow `() => ({ await })`: skip to matching `)` or `;`
         let dP = 0, dB = 0, dBr = 0, k = i + 1;
@@ -496,35 +493,34 @@ function hasTsAwaitYieldHazard(noComments) {
       if (dP === 0 && toks[k]?.text === '{') {
         const isAsyncMethod = toks[i - 2]?.text === 'async' || (toks[i - 2]?.text === '*' && toks[i - 3]?.text === 'async');
         // Parameters of a non-async method/constructor can reference `await`!
-        if (!isAsyncMethod) { i = k - 1; pendingFn = 'fn'; continue; }
-        pendingFn = 'async-fn';
+        if (!isAsyncMethod) { i = k - 1; pendingScope = 'fn'; continue; }
+        pendingScope = 'async-fn';
       }
     } else if (t.text === '{') {
-      scopeStack.push(pendingFn || 'block');
-      pendingFn = null;
+      scopeStack.push(pendingScope || 'block');
+      pendingScope = null;
       continue;
     } else if (t.text === '}') {
-      if (scopeStack.length === staticDepth) inStaticBlock = false;
       scopeStack.pop();
       continue;
     }
 
     if (t.type === 'id' && t.text === 'await' && prev?.text !== '.') {
-      // Determine innermost enclosing function scope (if any)
-      let inNonAsyncFn = false;
+      // Determine innermost enclosing boundary ('fn' | 'async-fn' | 'static' | null)
+      let innermost = null;
       for (let s = scopeStack.length - 1; s >= 0; s--) {
-        if (scopeStack[s] === 'fn') { inNonAsyncFn = true; break; }
-        if (scopeStack[s] === 'async-fn') { inNonAsyncFn = false; break; }
+        if (scopeStack[s] !== 'block') { innermost = scopeStack[s]; break; }
       }
+      const inNonAsyncFn = innermost === 'fn';
       if (hasAwaitShorthand && prev?.text === '{' && (next?.text === '}' || next?.text === ',')) {
         const beforeBrace = i >= 2 ? toks[i - 2] : null;
         const isVarDestr = beforeBrace && (beforeBrace.text === 'var' || beforeBrace.text === 'let' || beforeBrace.text === 'const');
-        if (!isVarDestr && inStaticBlock && !inNonAsyncFn) return true;
+        if (!isVarDestr && innermost === 'static') return true;
       }
       if (hasVarAwait) {
         const isVarDecl = prev?.text === 'var';
         if (!isVarDecl && !inNonAsyncFn) {
-          // Top-level or async-fn use of `await` when `var await` is declared (e.g. `f(await, 0)`, `[await]`, `await = 1`)
+          // Top-level, static-block, or async-fn use of `await` when `var await` is declared
           return true;
         }
         if (next?.text === '=' && toks[i + 2]?.text !== '=' && !isVarDecl) {

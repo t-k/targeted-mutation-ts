@@ -3565,6 +3565,8 @@ test('F181 official spec suite push: Test262 99.96%, TS compiler/conformance 98.
     ['r56-bad-static-nested-await.ts', 'class C { static { if (true) { ({ await }); } } } export {};\n'],
     ['r56-bad-gen-quoted-yield.ts', 'const v = { *"m"() { return { yield }; } }; export {};\n'],
     ['r56-bad-for-let-nl-eq.ts', 'var let; for (let\n= 3; ; ) break; export {};\n'],
+    ['r56-bad-fn-static-await.ts', 'function f() { class C { static { ({ await }); } } } export {};\n'],
+    ['r56-bad-nested-static-await.ts', 'class C { static { class D { static {} } ({ await }); } } export {};\n'],
   ]) {
     const tm = ts.transpileModule(source, {
       fileName: file,
@@ -3580,8 +3582,11 @@ test('F181 official spec suite push: Test262 99.96%, TS compiler/conformance 98.
     ['r56-type-only-ns-alias.ts', 'namespace A { export interface X {} }\nimport B = A;\nconsole.log(B);\n'],
     ['r56-type-only-ns-alias-member.ts', 'namespace A { export type T = number; }\nimport B = A.T;\nconsole.log(B);\n'],
     ['r56-tagged-tpl-str-lit.ts', 'declare const a: any;\nconst s = "a?.`b`";\nconst r = /a?.`b`/;\nconst x = a?.`c`;\n'],
+    ['r56-tagged-tpl-if-regex.ts', 'declare const a: any;\nif (true) /a?.`b`/.test("x");\nconst x = a?.`c`;\n'],
     ['r56-arrow-nl-tpl-lit.ts', 'const s = `a\n=>b`;\nconst f = ()\n=> 1;\n'],
+    ['r56-mul-and-shorthand-yield.ts', 'const p = 2 * 3;\n0, { yield } = {};\nexport { p };\n'],
   ]) {
-    sameAsTypeScript(source, file);
+    const r = sameAsTypeScript(source, file);
+    if (file === 'r56-mul-and-shorthand-yield.ts') assert.notEqual(r.backend, 'typescript');
   }
 });

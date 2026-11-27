@@ -10,7 +10,7 @@ const RESERVED_NS = new Set([
 ]);
 
 const REGEX_AFTER = new Set([
-  '', '(', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~', '<', '>', '+', '-',
+  '', '(', ')ctrl', '[', '{', '${', ',', ';', ':', '?', '=', '!', '&', '|', '^', '~', '<', '>', '+', '-',
   '*', '%', '/', '=>', '...', 'return', 'throw', 'case', 'default', 'typeof', 'void', 'delete',
   'in', 'instanceof', 'new', 'else', 'do', 'yield', 'await', 'of',
 ]);
@@ -28,6 +28,7 @@ function isIdentPart(c) {
 function tokenize(source, isJsx = false) {
   const tokens = [];
   const braces = [];
+  const parens = [];
   let prev = '';
   let i = 0;
   const n = source.length;
@@ -162,7 +163,14 @@ function tokenize(source, isJsx = false) {
     }
     const text = source[i];
     tokens.push({ type: 'punc', text, start: i, end: i + 1 });
-    prev = text;
+    if (text === '(') {
+      parens.push(prev === 'if' || prev === 'while' || prev === 'for' || prev === 'with');
+      prev = '(';
+    } else if (text === ')') {
+      prev = parens.pop() ? ')ctrl' : ')';
+    } else {
+      prev = text;
+    }
     i++;
   }
   return tokens;
