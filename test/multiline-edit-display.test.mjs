@@ -240,3 +240,20 @@ test('Issue 2: end-to-end multiline logical candidates stay distinct in --list, 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('Issue 2 review regression: string literals differing only by repeated spaces stay distinct across single-line and multiline edits', () => {
+  const loc = { file: 'src/spaces.ts', line: 2, column: 10 };
+  const text = renderText({
+    runner: 'vitest',
+    evaluation: 'listed',
+    mutants: [
+      { location: loc, rule: 'equality-constant/v1', original: 'x === "a  b"', replacement: '(x, "a  b", true)', status: 'listed' },
+      { location: loc, rule: 'equality-constant/v1', original: 'x === "a b"', replacement: '(x, "a b", true)', status: 'listed' },
+      { location: loc, rule: 'ignored-operand/v1', original: 'x === "a  b" ||\n  x === "a b"', replacement: '(x === "a  b" || (x === "a b", false))', status: 'listed' },
+    ],
+    diagnostics: [],
+  });
+  assert.ok(text.includes('x === "a  b" -> (x, "a  b", true)'), text);
+  assert.ok(text.includes('x === "a b" -> (x, "a b", true)'), text);
+  assert.ok(text.includes('x === "a  b" || x === "a b" -> (x === "a  b" || (x === "a b", false))'), text);
+});

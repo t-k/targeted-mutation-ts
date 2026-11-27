@@ -92,7 +92,8 @@ test('Issue 1: PICT matrix for analyze positional project root and file syntax g
       } else if (firstArg === 'GlobPattern') {
         assert.equal(run.status, 1, label);
         assert.match(run.stderr, /Project directory not found: src\/util\/\*\.ts/, label);
-        assert.match(run.stderr, /targeted-mutation analyze \. "src\/util\/\*\.ts"/, label);
+        const expectedQuoted = process.platform === 'win32' ? '"src/util/*.ts"' : "'src/util/*.ts'";
+        assert.ok(run.stderr.includes(`targeted-mutation analyze . ${expectedQuoted}`), `${label}: ${run.stderr}`);
       } else if (firstArg === 'MissingTsFile') {
         assert.equal(run.status, 1, label);
         assert.match(run.stderr, /Project directory not found: src\/util\/missing\.ts/, label);
@@ -105,5 +106,43 @@ test('Issue 1: PICT matrix for analyze positional project root and file syntax g
   } finally {
     rmSync(scratch, { recursive: true, force: true });
     rmSync(external, { recursive: true, force: true });
+  }
+});
+
+test('Issue 1 review regressions: shell-safe quoting for $, backticks, spaces, leading-dash filenames, and parent-relative globs', () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'tmt-quote-safety-'));
+  try {
+    const literalName = "src/$USER `echo nope` 'quoted'.ts";
+    mkdirSync(join(scratch, 'src'), { recursive: true });
+    writeFileSync(join(scratch, literalName), 'export const v = (n: number) => n >= 1;\n');
+
+    const run = spawnSync(process.execPath, [cli, 'analyze', literalName, '--list'], { cwd: scratch, encoding: 'utf8' });
+    assert.equal(run.status, 1);
+    const match = /targeted-mutation analyze (.+)$/m.exec(run.stderr);
+    assert.ok(match, `Expected command hint in stderr: ${run.stderr}`);
+    if (process.platform !== 'win32') {
+      const parsed = spawnSync('/bin/sh', ['-c', `printf '%s\\0' ${match[1]}`, '--'], {
+        cwd: scratch,
+        encoding: 'utf8',
+        env: { ...process.env, USER: 'EXPANDED_BY_MISTAKE' },
+      });
+      assert.equal(parsed.status, 0, parsed.stderr);
+      const argv = parsed.stdout.split('\0').slice(0, -1);
+      assert.deepEqual(argv, ['.', literalName]);
+    }
+
+    // Leading-dash filename includes `--` so pasting does not parse it as a CLI flag.
+    const dashRun = spawnSync(process.execPath, [cli, 'analyze', '--list', '--', '-missing.ts'], { cwd: scratch, encoding: 'utf8' });
+    assert.equal(dashRun.status, 1);
+    assert.ok(dashRun.stderr.includes('targeted-mutation analyze . -- -missing.ts'), dashRun.stderr);
+
+    // Parent-relative globs and missing source files outside cwd guide `<PROJECT> <FILE...>`.
+    for (const outsideArg of ['../src/*.ts', '../src/missing.ts']) {
+      const outRun = spawnSync(process.execPath, [cli, 'analyze', outsideArg, '--list'], { cwd: scratch, encoding: 'utf8' });
+      assert.equal(outRun.status, 1);
+      assert.match(outRun.stderr, /targeted-mutation analyze <PROJECT> <FILE\.\.\.>/);
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
 });

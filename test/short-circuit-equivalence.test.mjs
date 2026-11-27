@@ -315,3 +315,91 @@ test('Issue 3: non-nullish loose equality with object valueOf side effect preser
   assert.ok(leftFalseGap);
   assert.equal(leftFalseGap.kind, 'ASSERTION GAP', 'Object ToPrimitive coercion side effect must not be absorbed');
 });
+
+test('Issue 3 review regressions: intervening reassignment, undeclared identifiers, global getters, named class undefined, left-side mutation, nested hit counts, and patched Math', async () => {
+  const { renderBuiltinSwitches } = await import('../src/builtin-switches.mjs');
+
+  // 1. Intervening reassignment between preceding guard and nullish check MUST NOT be statically suppressed,
+  //    and named class expression `class undefined` MUST NOT be statically suppressed.
+  const trickyStatic = [
+    'export const reassignAnd = (x: unknown) => typeof x === "object" && ((x = undefined), true) && x != null;\n',
+    'export const reassignOr = (x: unknown) => typeof x !== "object" || ((x = undefined), false) || x == null;\n',
+    'export const undeclaredMid = (x: unknown) => x == null || (missingGlobal === 0) || typeof x !== "object";\n',
+    'export const namedClassUndef = (v: unknown) => { const C = class undefined { static f(x: unknown) { return x === null || x === undefined; } }; return C.f(v); };\n',
+  ];
+  for (const src of trickyStatic) {
+    const nullish = collectMutations(src, 'a.ts', { targeted: true }).filter(m => m.name === 'nullish-equality/v1');
+    assert.ok(
+      nullish.some(m => m.targeted.form === 'strict' || m.targeted.form === 'loose'),
+      `Must keep strict/loose nullish mutant for: ${src.trim()}, got ${JSON.stringify(nullish)}`,
+    );
+  }
+
+  // 2. In-memory baseline probe check:
+  //    - `(x === 0 || missingGlobal === 0) && true` at `x = 0` must NOT throw ReferenceError during baseline!
+  //    - `a === 0 || globalGetter` at `a = 0` must call globalGetter 0 times during baseline!
+  //    - `(a === 0 || b === 0) && true` at `(1, 0)` must record `b === 0` coverage & observed count = 1 (never 2)!
+  const probeSrc = [
+    'function shortUndeclared(x) { return (x === 0 || missingGlobal === 0) && true; }',
+    'function shortGlobalGetter(a) { return a === 0 || globalGetterFlag; }',
+    'function nestedOnce(a, b) { return (a === 0 || b === 0) && true; }',
+    'return { shortUndeclared, shortGlobalGetter, nestedOnce };',
+  ].join('\n');
+  const rendered = renderBuiltinSwitches(Buffer.from(probeSrc), 'probe.mjs', () => true, { targeted: true });
+  const prevStryker = globalThis.__stryker__;
+  const sessionSym = Symbol.for('targeted-mutation-ts/session');
+  const prevSession = globalThis[sessionSym];
+  let getterHits = 0;
+  Object.defineProperty(globalThis, 'globalGetterFlag', {
+    configurable: true,
+    get() { getterHits++; return true; },
+  });
+  try {
+    globalThis.__stryker__ = { currentTestId: 't1' };
+    globalThis[sessionSym] = { phase: 'baseline' };
+    const fns = new Function(rendered.output)();
+    assert.equal(fns.shortUndeclared(0), true);
+    assert.equal(fns.shortGlobalGetter(0), true);
+    assert.equal(getterHits, 0, 'Short-circuited global getter must not run during baseline');
+    assert.equal(fns.nestedOnce(1, 0), true);
+
+    const bMutant = rendered.mutants.find(m => m.original === 'b === 0' && m.replacement === '(b, 0, false)');
+    assert.ok(bMutant);
+    assert.equal(globalThis.__stryker__.mutantCoverage.perTest.t1[bMutant.id], 1, 'Nested RHS coverage must be counted exactly once');
+    const counts = globalThis.__stryker__.observed[bMutant.id].tests.t1;
+    assert.equal(counts[0] + counts[1] + counts[2], 1, 'Nested RHS observation must be recorded exactly once');
+
+    const globalGetterLeft = rendered.mutants.find(m => m.original === 'a === 0' && m.location.line === 2 && m.replacement === '(a, 0, false)');
+    assert.equal(globalThis.__stryker__.observed[globalGetterLeft.id].tests.t1[1], 1, 'Global getter on RHS must keep leaf differ');
+  } finally {
+    delete globalThis.globalGetterFlag;
+    globalThis.__stryker__ = prevStryker;
+    globalThis[sessionSym] = prevSession;
+  }
+
+  // 3. Vitest E2E check for left-variable mutation (`let gate = true; return gate && ((gate = false, a) === 0)`)
+  //    and patched `Math.ceil` side effect (`if (Math.floor(n) || true) return true`): both must remain ASSERTION GAP!
+  const report = runVitestAnalysis({
+    'src/util/databaseId.ts': [
+      'export function mutatesLeftGate(a: number) { let gate = true; return gate && ((gate = false, a) === 0); }',
+      'export function floorInOr(n: number) { if (Math.floor(n) || true) return true; return false; }',
+    ].join('\n') + '\n',
+    'test/databaseId.test.ts': [
+      "import { expect, it } from 'vitest';",
+      "import { floorInOr, mutatesLeftGate } from '../src/util/databaseId.ts';",
+      "it('calls mutatesLeftGate without pinning result', () => { mutatesLeftGate(0); });",
+      "it('calls floorInOr with patched Math.ceil without asserting spy count', () => {",
+      '  const origCeil = Math.ceil;',
+      '  let ceilCalls = 0;',
+      '  Math.ceil = (x: number) => { ceilCalls++; return origCeil(x); };',
+      '  try { expect(floorInOr(0.2)).toBe(true); } finally { Math.ceil = origCeil; }',
+      '});',
+    ].join('\n') + '\n',
+  });
+
+  const gateGap = report.diagnostics.find(d => d.location?.line === 1 && d.mutations?.[0]?.replacement?.endsWith(', false)'));
+  assert.equal(gateGap?.kind, 'ASSERTION GAP', 'Mutated left gate variable must remain ASSERTION GAP');
+
+  const ceilGap = report.diagnostics.find(d => d.location?.line === 2 && d.mutations?.[0]?.replacement === 'Math.ceil(n)');
+  assert.equal(ceilGap?.kind, 'ASSERTION GAP', 'Patched Math.ceil side effect must remain ASSERTION GAP');
+});

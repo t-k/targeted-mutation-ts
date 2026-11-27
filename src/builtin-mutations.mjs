@@ -284,12 +284,12 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     return Boolean(node && ts.isIdentifier(node));
   }
 
-  // Expressions guaranteed by ECMA-262 not to invoke getters, Proxy traps, functions, or ToPrimitive coercions.
+  // Expressions guaranteed by ECMA-262 not to invoke getters, Proxy traps, functions, ReferenceErrors, or ToPrimitive coercions.
   function isPureGuardExpr(node) {
     const inner = strip(node);
     if (!inner) return false;
     if (written(inner)) return true;
-    if (ts.isIdentifier(inner)) return inner.text !== 'undefined' || !isUndefinedBoundAt(inner);
+    if (ts.isIdentifier(inner)) return isSafeGuardIdentifier(inner);
     if (ts.isTypeOfExpression(inner) || ts.isVoidExpression(inner)) return isPureGuardExpr(inner.expression);
     if (ts.isPrefixUnaryExpression(inner) && inner.operator === K.ExclamationToken) return isPureGuardExpr(inner.operand);
     if (ts.isBinaryExpression(inner)) {
@@ -380,7 +380,13 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     if (insideWith(node) || isUndefinedBoundAt(node) || !isSimplePath(subjectNode)) return false;
     const targetText = source(subjectNode);
     const op = operatorOf(node);
-    const pureBetween = (terms, from, to) => {
+    const pureSideEffectFreeBetween = (terms, from, to) => {
+      for (let k = from; k < to; k++) {
+        if (!isPureGuardExpr(terms[k])) return false;
+      }
+      return true;
+    };
+    const pureBooleanBetween = (terms, from, to) => {
       for (let k = from; k < to; k++) {
         if (!isBooleanPureGuardExpr(terms[k])) return false;
       }
@@ -391,15 +397,19 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     if (andChain) {
       const { terms, idx } = andChain;
       if (literalKind === 'null' && differsFor === 'undefined') {
-        if (terms.slice(0, idx).some(t => isTypeofObjectTerm(t, targetText, false))) return true;
+        if (terms.some((t, j) => j < idx && isTypeofObjectTerm(t, targetText, false) && pureSideEffectFreeBetween(terms, j + 1, idx))) {
+          return true;
+        }
         if ((op === '!==' || op === '!=') &&
-            terms.some((t, j) => j > idx && isTypeofObjectTerm(t, targetText, false) && pureBetween(terms, idx + 1, j))) {
+            terms.some((t, j) => j > idx && isTypeofObjectTerm(t, targetText, false) && pureBooleanBetween(terms, idx + 1, j))) {
           return true;
         }
       }
       if (form === 'loose' && op === '!==') {
-        if (terms.slice(0, idx).some(t => isStrictNullishTerm(t, targetText, '!==', differsFor))) return true;
-        if (terms.some((t, j) => j > idx && isStrictNullishTerm(t, targetText, '!==', differsFor) && pureBetween(terms, idx + 1, j))) {
+        if (terms.some((t, j) => j < idx && isStrictNullishTerm(t, targetText, '!==', differsFor) && pureSideEffectFreeBetween(terms, j + 1, idx))) {
+          return true;
+        }
+        if (terms.some((t, j) => j > idx && isStrictNullishTerm(t, targetText, '!==', differsFor) && pureBooleanBetween(terms, idx + 1, j))) {
           return true;
         }
       }
@@ -409,15 +419,19 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     if (orChain) {
       const { terms, idx } = orChain;
       if (literalKind === 'null' && differsFor === 'undefined') {
-        if (terms.slice(0, idx).some(t => isTypeofNotObjectTerm(t, targetText))) return true;
+        if (terms.some((t, j) => j < idx && isTypeofNotObjectTerm(t, targetText) && pureSideEffectFreeBetween(terms, j + 1, idx))) {
+          return true;
+        }
         if ((op === '===' || op === '==') &&
-            terms.some((t, j) => j > idx && isTypeofNotObjectTerm(t, targetText) && pureBetween(terms, idx + 1, j))) {
+            terms.some((t, j) => j > idx && isTypeofNotObjectTerm(t, targetText) && pureBooleanBetween(terms, idx + 1, j))) {
           return true;
         }
       }
       if (form === 'loose' && op === '===') {
-        if (terms.slice(0, idx).some(t => isStrictNullishTerm(t, targetText, '===', differsFor))) return true;
-        if (terms.some((t, j) => j > idx && isStrictNullishTerm(t, targetText, '===', differsFor) && pureBetween(terms, idx + 1, j))) {
+        if (terms.some((t, j) => j < idx && isStrictNullishTerm(t, targetText, '===', differsFor) && pureSideEffectFreeBetween(terms, j + 1, idx))) {
+          return true;
+        }
+        if (terms.some((t, j) => j > idx && isStrictNullishTerm(t, targetText, '===', differsFor) && pureBooleanBetween(terms, idx + 1, j))) {
           return true;
         }
       }
@@ -430,27 +444,36 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     return isTypeofObjectTerm(term, targetText, true);
   }
 
+  // Build forward-only pure guard evaluation steps above `node`. When `cur` is the right-hand operand of an
+  // enclosing `&&`, `||`, or `??`, reaching `node` guarantees the left-hand operand already passed without
+  // short-circuiting, so `L op v === v` identically and `L` is never re-evaluated.
   function enclosingPureGuard(node, canAbsorb) {
     if (!canAbsorb || insideWith(node)) return null;
+    const steps = [];
     let cur = node;
     for (;;) {
       const [parent, child] = up(cur);
       if (ts.isPrefixUnaryExpression(parent) && parent.operator === K.ExclamationToken) {
+        steps.push({ kind: 'not' });
         cur = parent;
         continue;
       }
       if (isLogical(parent)) {
-        const sibling = parent.left === child ? parent.right : parent.left;
-        if (isPureGuardExpr(sibling)) {
+        if (parent.right === child) {
+          cur = parent;
+          continue;
+        }
+        if (parent.left === child && isPureGuardExpr(parent.right)) {
+          steps.push({ kind: 'logical', op: operatorOf(parent), rightSpan: [begin(parent.right), parent.right.end] });
           cur = parent;
           continue;
         }
       }
       break;
     }
-    if (cur === node) return null;
+    if (!steps.some(step => step.kind === 'logical')) return null;
     return {
-      guardSpan: [begin(cur), cur.end],
+      guardSteps: steps,
       guardBoolean: onlyTruthUsed(cur),
       guardExpression: source(cur),
     };
@@ -463,8 +486,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const statement = ts.isExpressionStatement(node.parent);
     const boolean = onlyTruthUsed(node);
     const spans = operands.map(operand => [begin(operand), operand.end]);
-    const canAbsorb = ['===', '!==', '==', '!=', '+', '-', '*', '/', '%', 'max', 'min', 'floor', 'ceil', 'round', 'trunc'].includes(operator) ||
-      Boolean(shared.pureRightGuard);
+    const canAbsorb = ['===', '!==', '==', '!='].includes(operator) || Boolean(shared.pureRightGuard);
     const guardInfo = enclosingPureGuard(node, canAbsorb);
     return (rule, form, replacement, more) => {
       const { ignored, ...targetedMore } = more ?? {};
@@ -594,6 +616,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     if (bindsBoolean === undefined) bindsBoolean = bindsIdentifier('Boolean', /\bBoolean\b/);
     return bindsBoolean;
   }
+  const isModuleFile = ts.isExternalModule(tree) || /\.(?:mjs|mts)$/i.test(file);
   let mayMentionUndefined;
   function bindingNameContains(nameNode, target) {
     if (!nameNode) return false;
@@ -602,6 +625,9 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       return nameNode.elements.some(el => ts.isBindingElement(el) && bindingNameContains(el.name, target));
     }
     return false;
+  }
+  function isNodeInside(inner, outer) {
+    return Boolean(inner && outer && inner.pos >= outer.pos && inner.end <= outer.end);
   }
   function hasHoistedVarInScope(scopeRoot, target) {
     let found = false;
@@ -618,53 +644,91 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     })(scopeRoot);
     return found;
   }
-  function statementsDeclareLexical(stmts, target) {
+  function resolveStatementsDeclaration(stmts, target, refOffset, atScriptRoot) {
     for (const stmt of stmts) {
       if (ts.isVariableStatement(stmt)) {
-        if (stmt.declarationList.declarations.some(d => bindingNameContains(d.name, target))) return true;
-      } else if ((ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt) || ts.isEnumDeclaration(stmt)) &&
-          stmt.name && ts.isIdentifier(stmt.name) && stmt.name.text === target) {
-        return true;
-      } else if (ts.isImportDeclaration(stmt) && stmt.importClause && !stmt.importClause.isTypeOnly) {
-        const clause = stmt.importClause;
-        if (clause.name?.text === target) return true;
-        if (clause.namedBindings) {
-          if (ts.isNamespaceImport(clause.namedBindings) && clause.namedBindings.name.text === target) return true;
-          if (ts.isNamedImports(clause.namedBindings) &&
-              clause.namedBindings.elements.some(el => !el.isTypeOnly && el.name.text === target)) return true;
+        const list = stmt.declarationList;
+        const decl = list.declarations.find(d => bindingNameContains(d.name, target));
+        if (!decl) continue;
+        if ((list.flags & ts.NodeFlags.BlockScoped) === 0) {
+          return atScriptRoot ? 'unsafe' : 'safe';
         }
-      } else if (ts.isImportEqualsDeclaration(stmt) && !stmt.isTypeOnly && stmt.name.text === target) {
-        return true;
+        return decl.end <= refOffset ? 'safe' : 'unsafe';
+      }
+      if (ts.isFunctionDeclaration(stmt) && stmt.name && ts.isIdentifier(stmt.name) && stmt.name.text === target) {
+        return atScriptRoot ? 'unsafe' : 'safe';
+      }
+      if ((ts.isClassDeclaration(stmt) || ts.isEnumDeclaration(stmt)) && stmt.name && ts.isIdentifier(stmt.name) && stmt.name.text === target) {
+        return 'unsafe';
+      }
+      if (ts.isImportDeclaration(stmt) && stmt.importClause && !stmt.importClause.isTypeOnly) {
+        const clause = stmt.importClause;
+        if (clause.name?.text === target) return 'unsafe';
+        if (clause.namedBindings) {
+          if (ts.isNamespaceImport(clause.namedBindings) && clause.namedBindings.name.text === target) return 'unsafe';
+          if (ts.isNamedImports(clause.namedBindings) &&
+              clause.namedBindings.elements.some(el => !el.isTypeOnly && el.name.text === target)) return 'unsafe';
+        }
+      }
+      if (ts.isImportEqualsDeclaration(stmt) && !stmt.isTypeOnly && stmt.name.text === target) {
+        return 'unsafe';
       }
     }
-    return false;
+    return null;
+  }
+  // Classify how `ident` resolves lexically:
+  // - `'safe'`: declarative local/parameter/module binding guaranteed initialized and free of global getters/TDZ
+  // - `'unsafe'`: bound in scope, but potentially in TDZ, script global var, or live import binding
+  // - `'unbound'`: no enclosing declaration (resolves against globalThis or throws ReferenceError)
+  function resolveIdentifierBinding(ident, targetName = ident.text) {
+    const refOffset = begin(ident);
+    for (let cur = ident?.parent; cur; cur = cur.parent) {
+      if (ts.isFunctionLike(cur)) {
+        if (cur.parameters?.some(p => bindingNameContains(p.name, targetName))) {
+          return cur.body && isNodeInside(ident, cur.body) ? 'safe' : 'unsafe';
+        }
+        if (cur.body && hasHoistedVarInScope(cur.body, targetName)) return 'safe';
+        if (cur.name && ts.isIdentifier(cur.name) && cur.name.text === targetName) return 'safe';
+      } else if (ts.isClassLike(cur)) {
+        if (cur.name && ts.isIdentifier(cur.name) && cur.name.text === targetName) return 'unsafe';
+      } else if (ts.isCatchClause(cur)) {
+        if (bindingNameContains(cur.variableDeclaration?.name, targetName)) {
+          return isNodeInside(ident, cur.block) ? 'safe' : 'unsafe';
+        }
+      } else if (ts.isForStatement(cur) || ts.isForInStatement(cur) || ts.isForOfStatement(cur)) {
+        if (cur.initializer && ts.isVariableDeclarationList(cur.initializer) &&
+            cur.initializer.declarations.some(d => bindingNameContains(d.name, targetName))) {
+          return (cur.initializer.flags & ts.NodeFlags.BlockScoped) !== 0 && !isNodeInside(ident, cur.initializer)
+            ? 'safe'
+            : 'unsafe';
+        }
+      } else if (ts.isBlock(cur) || ts.isModuleBlock(cur)) {
+        const hit = resolveStatementsDeclaration(cur.statements, targetName, refOffset, false);
+        if (hit) return hit;
+      } else if (ts.isCaseBlock(cur)) {
+        for (const clause of cur.clauses) {
+          const hit = resolveStatementsDeclaration(clause.statements, targetName, refOffset, false);
+          if (hit) return hit;
+        }
+      } else if (ts.isSourceFile(cur)) {
+        const atScriptRoot = !isModuleFile;
+        const hit = resolveStatementsDeclaration(cur.statements, targetName, refOffset, atScriptRoot);
+        if (hit) return hit;
+        if (hasHoistedVarInScope(cur, targetName)) return atScriptRoot ? 'unsafe' : 'safe';
+      }
+    }
+    return 'unbound';
   }
   function isUndefinedBoundAt(node) {
     if (mayMentionUndefined === undefined) {
       mayMentionUndefined = /\bundefined\b/.test(text) || text.includes('\\u');
     }
     if (!mayMentionUndefined) return false;
-    for (let cur = node?.parent; cur; cur = cur.parent) {
-      if (ts.isFunctionLike(cur)) {
-        if (cur.name && ts.isIdentifier(cur.name) && cur.name.text === 'undefined') return true;
-        if (cur.parameters?.some(p => bindingNameContains(p.name, 'undefined'))) return true;
-        if (cur.body && hasHoistedVarInScope(cur.body, 'undefined')) return true;
-      } else if (ts.isCatchClause(cur)) {
-        if (bindingNameContains(cur.variableDeclaration?.name, 'undefined')) return true;
-      } else if (ts.isForStatement(cur) || ts.isForInStatement(cur) || ts.isForOfStatement(cur)) {
-        if (cur.initializer && ts.isVariableDeclarationList(cur.initializer) &&
-            cur.initializer.declarations.some(d => bindingNameContains(d.name, 'undefined'))) return true;
-      } else if (ts.isBlock(cur) || ts.isModuleBlock(cur)) {
-        if (statementsDeclareLexical(cur.statements, 'undefined')) return true;
-      } else if (ts.isCaseBlock(cur)) {
-        for (const clause of cur.clauses) {
-          if (statementsDeclareLexical(clause.statements, 'undefined')) return true;
-        }
-      } else if (ts.isSourceFile(cur)) {
-        if (statementsDeclareLexical(cur.statements, 'undefined') || hasHoistedVarInScope(cur, 'undefined')) return true;
-      }
-    }
-    return false;
+    return resolveIdentifierBinding(node, 'undefined') !== 'unbound';
+  }
+  function isSafeGuardIdentifier(ident) {
+    if (ident.text === 'undefined') return !isUndefinedBoundAt(ident);
+    return resolveIdentifierBinding(ident, ident.text) === 'safe';
   }
   function insideWith(node) {
     for (let cur = node?.parent; cur; cur = cur.parent) {

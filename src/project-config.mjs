@@ -29,15 +29,22 @@ export function expandProjectGlob(root, pattern) {
 }
 
 const SOURCE_FILE_EXT = /\.(?:[cm]?[jt]sx?)$/i;
-const SHELL_SPECIAL = /[\s*?[\]{}"'`$\\|&;<>()]/;
+const SHELL_SPECIAL = /[\s*?[\]{}"'`$\\|&;<>()!#~]/;
 
 const sanitizeText = value => String(value ?? '').replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
 const formatCliArg = value => {
   const clean = sanitizeText(value);
-  return !clean || SHELL_SPECIAL.test(clean) ? JSON.stringify(clean) : clean;
+  if (!clean) return process.platform === 'win32' ? '""' : "''";
+  if (!SHELL_SPECIAL.test(clean)) return clean;
+  if (process.platform === 'win32') return JSON.stringify(clean);
+  return `'${clean.replaceAll("'", "'\\''")}'`;
 };
-const formatCurrentProjectHint = (firstArg, extraFiles = []) =>
-  `targeted-mutation analyze ${['.', firstArg, ...extraFiles].map(formatCliArg).join(' ')}`;
+const formatCurrentProjectHint = (firstArg, extraFiles = []) => {
+  const fileArgs = [firstArg, ...extraFiles];
+  const needsDoubleDash = fileArgs.some(arg => String(arg ?? '').startsWith('-'));
+  const allArgs = needsDoubleDash ? ['.', '--', ...fileArgs] : ['.', ...fileArgs];
+  return `targeted-mutation analyze ${allArgs.map(formatCliArg).join(' ')}`;
+};
 
 function isRelativeInsideCurrentDir(rawPath) {
   const text = String(rawPath ?? '');
@@ -52,11 +59,17 @@ export function validateAndExpandInputs(project, files = [], options = {}) {
   const projectStat = statSync(project, { throwIfNoEntry: false });
   if (!projectStat) {
     const cleanProject = sanitizeText(project);
-    if (isRelativeInsideCurrentDir(project) && (hasGlobPattern(project) || SOURCE_FILE_EXT.test(project))) {
-      const verb = hasGlobPattern(project) ? 'select source files' : 'analyze files';
+    if (hasGlobPattern(project) || SOURCE_FILE_EXT.test(project)) {
+      if (isRelativeInsideCurrentDir(project)) {
+        const verb = hasGlobPattern(project) ? 'select source files' : 'analyze files';
+        throw new Error(
+          `Project directory not found: ${cleanProject}\n` +
+          `To ${verb} in the current project, pass "." first: ${formatCurrentProjectHint(project, files)}`,
+        );
+      }
       throw new Error(
         `Project directory not found: ${cleanProject}\n` +
-        `To ${verb} in the current project, pass "." first: ${formatCurrentProjectHint(project, files)}`,
+        'Pass the project root directory first: targeted-mutation analyze <PROJECT> <FILE...>',
       );
     }
     throw new Error(`Project directory not found: ${cleanProject}`);

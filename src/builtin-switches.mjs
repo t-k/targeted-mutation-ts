@@ -406,18 +406,24 @@ function ${see}(i, l, r, r2, g) {
         }
       } else if (!logical) {
         same = alike(f, value);
-        if (same === false && gFn && (kind === 'a' || kind === 'm')) {
-          try { if (sameInGuard(value, apply(f, l, r, r2))) { same = true; absorbed = true; } } catch (e) { /* keep false */ }
-        }
       } else if (site[5] || f === 'right' || rawR) {
         // A written right side (or switch-free pure guard right side) can be evaluated without touching nested switches.
+        // When taken is true, original() already evaluated the right side once and stored its result in value,
+        // so never call r() a second time (which would double-count nested mutantCoverage and observed hits).
         if (f === 'right' && !taken) same = true;
         else {
-          var evalR = taken || site[5] ? r : rawR;
-          other = f === 'right' ? constant : f === 'left' ? evalR() : (f === 'or' ? !l : missing) ? evalR() : l;
-          same = site[1] ? !value === !other : is(value, other);
-          if (same === false && gFn) {
-            if (sameInGuard(value, other)) { same = true; absorbed = true; }
+          var okR = true, rVal = value;
+          if (!taken && f !== 'right' && (f === 'left' || (f === 'or' ? !l : missing))) {
+            if (site[5]) rVal = r();
+            else { try { rVal = rawR(); } catch (e) { okR = false; } }
+          }
+          if (!okR) same = false;
+          else {
+            other = f === 'right' ? constant : f === 'left' ? rVal : (f === 'or' ? !l : missing) ? rVal : l;
+            same = site[1] ? !value === !other : is(value, other);
+            if (same === false && gFn) {
+              if (sameInGuard(value, other)) { same = true; absorbed = true; }
+            }
           }
         }
       } else same = f === 'left' ? taken : missing || !!l;
@@ -572,7 +578,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         // The operands are rendered in source order; what stands between them is the operation the probe performs.
         // Each in parentheses of its own: a probe inside may begin with `void 0,`, which must stay one argument.
         const operands = group.operands.map(([start, end]) => `(${render(start, end)})`);
-        const { operator, boolean, thunk, spreadKeys, pureProps, clampMeta, setElems, regexMeta, pureMerge, guardSpan, guardBoolean, nullishSafeLoose, rawRightSpan } = group.targeted;
+        const { operator, boolean, thunk, spreadKeys, pureProps, clampMeta, setElems, regexMeta, pureMerge, guardSteps, guardBoolean, nullishSafeLoose, rawRightSpan } = group.targeted;
         // Only the edits beside a written null or undefined say on which side it stands.
         const literalSide = group.mutants.find(mutant => mutant.targeted.literalSide !== undefined)?.targeted.literalSide ?? 0;
         const kind = thunk ? 'l' : ['===', '!==', '==', '!='].includes(operator) ? 'e' : operator.length === 1 ? 'a'
@@ -590,7 +596,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         else if (clampMeta) row.push(clampMeta);
         else if (regexMeta) row.push(regexMeta);
         else if (pureMerge !== undefined) row.push(pureMerge);
-        else if (guardSpan) row.push(guardBoolean ? 1 : 0, nullishSafeLoose ? 1 : 0);
+        else if (guardSteps) row.push(guardBoolean ? 1 : 0, nullishSafeLoose ? 1 : 0);
         probed.push(row);
         let callArgs;
         let argCount = operands.length;
@@ -623,9 +629,14 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         } else {
           callArgs = operands.join(', ');
         }
-        if (guardSpan && argCount <= 3) {
+        if (guardSteps && argCount <= 3) {
           const pad = ', void 0'.repeat(3 - argCount);
-          const guardFn = `${valParam} => (${text.slice(guardSpan[0], first)}(${valParam})${text.slice(last, guardSpan[1])})`;
+          let guardExpr = `(${valParam})`;
+          for (const step of guardSteps) {
+            if (step.kind === 'not') guardExpr = `(!${guardExpr})`;
+            else guardExpr = `(${guardExpr} ${step.op} (${text.slice(step.rightSpan[0], step.rightSpan[1])}))`;
+          }
+          const guardFn = `${valParam} => ${guardExpr}`;
           const guardArg = thunk && rawRightSpan
             ? `{ g: ${guardFn}, r: () => (${text.slice(rawRightSpan[0], rawRightSpan[1])}) }`
             : guardFn;

@@ -127,13 +127,15 @@ function middleClip(text, maxLength = 68) {
   return text.slice(0, keepStart).trimEnd() + '...' + text.slice(text.length - keepEnd).trimStart();
 }
 
+const flattenLines = value => printable(value).replace(/\s*(?:\r\n|[\n\r\u2028\u2029])\s*/g, ' ').trim();
+
 function formatEditPair(original, replacement, maxLength = 68) {
   const origStr = String(original ?? '');
   const replStr = String(replacement ?? '');
   const origFirst = firstLine(origStr);
   const replFirst = firstLine(replStr);
-  const rawOrig = printable(origStr).replace(/\s+/g, ' ').trim();
-  const rawRepl = printable(replStr).replace(/\s+/g, ' ').trim();
+  const rawOrig = flattenLines(origStr);
+  const rawRepl = flattenLines(replStr);
 
   if (origFirst === replFirst && rawOrig !== rawRepl && /:\s*$/.test(rawRepl) && rawOrig.length > rawRepl.length) {
     const origFlat = compactSnippet(origStr);
