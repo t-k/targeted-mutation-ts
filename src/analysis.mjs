@@ -603,17 +603,35 @@ function analyzePlaywright(root, subjects, report, options, specification) {
       const match = Array.isArray(specification.playwright) && specification.playwright.find(entry =>
         entry.file === subject.file && entry.operator === site.operator && entry.rule === site.rule &&
         (entry.line === undefined || entry.line === site.location.line));
-      if (result.status === 'survived' && match?.witness && typeof match.requirement === 'string') {
-        const witness = {
-          content: match.witness, name: 'tmt-witness-' + randomUUID() + '.spec.ts',
-          directory: match.witnessDirectory ?? dirname(baseline.tests.find(test => test.status === 'passed').file),
-        };
-        const original = attempt({ witness });
-        const changed = attempt({ witness, trial });
-        report.diagnostics.push({
-          kind: 'SURVIVED', site: site.id, location: site.location, requirement: match.requirement, suggestedTestFile: match.witness,
-          verification: verifyWitnessRuns(baseline, original, changed),
-        });
+      if (result.status === 'survived') {
+        if (match?.witness && typeof match.requirement === 'string') {
+          const witness = {
+            content: match.witness, name: 'tmt-witness-' + randomUUID() + '.spec.ts',
+            directory: match.witnessDirectory ?? dirname(baseline.tests.find(test => test.status === 'passed').file),
+          };
+          const original = attempt({ witness });
+          const changed = attempt({ witness, trial });
+          report.diagnostics.push({
+            kind: 'SURVIVED', site: site.id, location: site.location, requirement: match.requirement, suggestedTestFile: match.witness,
+            verification: verifyWitnessRuns(baseline, original, changed),
+          });
+        } else if (!options.spec) {
+          report.diagnostics.push({
+            kind: 'SURVIVED',
+            site: site.id,
+            location: site.location,
+            rule: site.rule,
+            ...(site.original !== undefined ? { expression: site.original } : {}),
+            ...(site.equivalenceHint ? { equivalenceHint: site.equivalenceHint, equivalenceReason: site.equivalenceReason } : {}),
+            mutations: [{
+              rule: site.rule,
+              edit: site.edit,
+              replacement: site.replacement,
+              evidence: 'reexecuted',
+              ...(site.original !== undefined ? { original: site.original } : {}),
+            }],
+          });
+        }
       }
     }
   }
@@ -873,6 +891,65 @@ export function prepareAnalysis(project, files, options) {
     : rawTrials;
   const skips = leanSkips(trials, baseline, !!options.deterministic, coverage);
   return { root, report, options, attempt, baseline, traced, trace, trials, skips };
+}
+
+// Prepares focused comparison trials (boundaries, integer thresholds, variable-RHS margins, displaced thresholds,
+// and Lean-checked deterministic skips) directly from an already-recorded Playwright dual-realm baseline trace.
+export function prepareAnalysisFromTrace(project, files, options, recordedBaseline) {
+  const root = canonicalPath(project);
+  const { subjects, extraction } = collectComparisons(root, files, { ...options, mutators: undefined, runner: 'vitest' });
+  const report = {
+    schemaVersion: 1,
+    runner: options.runner ?? 'playwright',
+    extraction,
+    mutants: [],
+    diagnostics: [],
+    evaluation: 'no_sites',
+  };
+  if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
+    report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
+  }
+  const baseline = recordedBaseline.baseline;
+  report.baseline = { status: 'passed', tests: baseline.tests.length };
+  Object.defineProperty(report, baselineRunSymbol, {
+    value: { status: baseline.status, tests: baseline.tests, plain: false },
+    enumerable: false,
+  });
+  if (!subjects.length) return { report };
+
+  const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
+  const deterministicStable = recordedBaseline.deterministicStable;
+  let trace = recordedBaseline.trace ?? null;
+  report.instrumented = {
+    status: trace ? 'passed' : 'unavailable',
+    ...(deterministicStable !== undefined ? { stable: deterministicStable } : {}),
+  };
+  if (options.deterministic && deterministicStable === false) {
+    trace = null;
+  }
+
+  const rawTrials = planFocusedTrials(subjects, trace, baseline, specification, options['displace-thresholds']);
+  const trials = options.shardKeys
+    ? rawTrials.filter(trial => options.shardKeys.has(
+      `${trial.site.location.file}:${trial.site.location.start}:${trial.site.location.end}:${trial.site.rule}:${trial.site.replacement}`,
+    ))
+    : rawTrials;
+
+  const overflowSites = recordedBaseline.overflowSites ?? new Set();
+  const coverage = new Map();
+  if (trace && options.deterministic && deterministicStable) {
+    for (const trial of trials) {
+      if (overflowSites.has(trial.site.id) || !trial.observation.complete) continue;
+      const counts = new Map();
+      for (const [testKey, list] of trial.observation.observed) counts.set(testKey, list.length);
+      coverage.set(trial.site.id, counts);
+    }
+  }
+  const eligibleTrials = trials.map(trial =>
+    overflowSites.has(trial.site.id) ? { ...trial, observation: { ...trial.observation, complete: false } } : trial);
+  const skips = leanSkips(eligibleTrials, baseline, !!(options.deterministic && deterministicStable), coverage);
+  const attempt = sourceTrials(root, subjects, options);
+  return { root, report, options, attempt, baseline, traced: { status: 'passed', trace }, trace, trials, skips, subjects, specification };
 }
 
 // Runs the planned trials. `settled` answers a trial that another run already decided: it returns

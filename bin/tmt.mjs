@@ -91,15 +91,16 @@ try {
     if (runValues.runner !== undefined && !['vitest', 'playwright', 'node'].includes(runValues.runner)) throw new Error('Expected --runner vitest|playwright|node');
     if (runValues.runner === 'node' && runValues.config !== undefined) throw new Error('--config does not apply to --runner node');
     if (runValues.runner === 'node' && runValues.audit) throw new Error('--audit does not apply to --runner node');
-    if ((runValues.runner === 'playwright' || runValues.runner === 'node') && runValues['displace-thresholds']) throw new Error('--displace-thresholds requires Vitest');
+    if (runValues.runner === 'node' && runValues['displace-thresholds']) throw new Error('--displace-thresholds does not apply to --runner node');
     if (runValues.related && (runValues.runner === 'playwright' || runValues.runner === 'node')) throw new Error('--related requires Vitest');
     if (runValues.verbose && runValues['only-gaps']) throw new Error('--verbose cannot be combined with --only-gaps');
     if (runValues.mutators !== undefined && !['targeted', 'full'].includes(runValues.mutators)) throw new Error('Expected --mutators targeted|full');
-    const session = runValues.runner !== 'playwright' && runValues.runner !== 'node' && !runValues.witnesses && !runValues.audit;
+    const session = runValues.runner !== 'node' && !runValues.witnesses && !runValues.audit;
+    const vitestSession = session && runValues.runner !== 'playwright';
     if ((runValues['isolated-trials'] || runValues['verify-trials'] !== undefined) && !session) {
-      throw new Error('--isolated-trials and --verify-trials apply to Vitest sessions, which --witnesses, --audit, Playwright and Node do not use');
+      throw new Error('--isolated-trials and --verify-trials apply to Vitest and Playwright sessions, which --witnesses, --audit, and Node do not use');
     }
-    if (runValues.concurrency !== undefined && !session && !runValues.witnesses && runValues.runner !== 'node') {
+    if (runValues.concurrency !== undefined && !vitestSession && !runValues.witnesses && runValues.runner !== 'node') {
       throw new Error('--concurrency applies to Vitest sessions, --runner node, and --witnesses, not to --audit or Playwright');
     }
     if (runValues['undo-changes'] && (runValues.since === undefined || runValues.witnesses)) {

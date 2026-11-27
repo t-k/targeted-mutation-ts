@@ -41,7 +41,7 @@ const endSwaps = new Map([['find', 'findLast'], ['findLast', 'find'], ['findInde
   ['indexOf', 'lastIndexOf'], ['lastIndexOf', 'indexOf']]);
 const ignoredValue = { '&&': 'true', '||': 'false', '??': 'undefined' };
 
-export function collectMutations(text, file, { dialect, selected = () => true, shifts = false, targeted = false, excludeRules = [], typeEquivalence = null, ts = loadTypeScript() } = {}) {
+export function collectMutations(text, file, { dialect, selected = () => true, shifts = false, recordComparisons = false, targeted = false, excludeRules = [], typeEquivalence = null, ts = loadTypeScript() } = {}) {
   const excludedRuleSet = new Set((excludeRules ?? []).map(r => String(r).trim()).filter(Boolean));
   const kind = dialect === 'tsx' ? ts.ScriptKind.TSX : dialect === 'ts' ? ts.ScriptKind.TS : undefined;
   const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, kind);
@@ -198,8 +198,12 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       }
       // The focused analysis moves a comparison's right side by an integer it only knows after a recorded run:
       // another threshold, or one step tighter. One switch per comparison takes that amount at run time.
-      if (shifts && ['<', '<=', '>', '>='].includes(operator)) {
-        add('ComparisonShift', node, `${text.slice(begin(node), token.end)} ((${source(node.right)}) + ${shiftPlaceholder})`, undefined, { shift: begin(token) });
+      if ((shifts || recordComparisons) && ['<', '<=', '>', '>='].includes(operator)) {
+        const rhsExpr = shifts ? `((${source(node.right)}) + ${shiftPlaceholder})` : `(${source(node.right)})`;
+        add('ComparisonShift', node, `${text.slice(begin(node), token.end)} ${rhsExpr}`, undefined, {
+          shift: begin(token),
+          ...(recordComparisons ? { compareSpan: [begin(node.left), node.left.end, begin(node.right), node.right.end, operator] } : {}),
+        });
       }
     } else if (isLogical(node)) {
       // A different precedence would regroup an unparenthesized operand, so operands keep their own group.

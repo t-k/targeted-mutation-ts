@@ -1,8 +1,12 @@
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { analyze, analyzeNodeAsync, baselineRunSymbol, completeAnalysis, prepareAnalysis } from './analysis.mjs';
+import { dirname } from 'node:path';
+import { analyze, analyzeNodeAsync, baselineRunSymbol, completeAnalysis, prepareAnalysis, prepareAnalysisFromTrace, verdict } from './analysis.mjs';
 import { checkpointKeyForTrial, computeCampaignContext, openCheckpoint } from './checkpoint.mjs';
 import { analyzeConventional } from './conventional.mjs';
 import { suppressEnclosingDiagnostics } from './enclosing-suppression.mjs';
+import { comparisonRecordsToTrace } from './playwright-bridge.mjs';
+import { analyzePlaywrightSession } from './playwright.mjs';
 import { selectScope } from './scope.mjs';
 import { computeShardSelection } from './shard.mjs';
 import { canonicalPath, inside } from './vitest.mjs';
@@ -111,10 +115,165 @@ async function besideSession(project, files, options, run, profile, stopsSession
   return { prepared, ended, extras: listed, ...await started };
 }
 
-// Vitest (without --audit): built-in mutations run in one switched session with per-test coverage while
-// comparison tracing prepares boundaries and thresholds, and the session's verdicts answer shared edits.
-// Playwright, --audit, and Vitest setups the session cannot drive rewrite the source for each mutation instead.
-export async function analyzeOperators(project, files, options, run = { analyze, analyzeNodeAsync, prepareAnalysis, completeAnalysis, analyzeConventional }) {
+function attachPlaywrightSpecWitnesses(prepared, baseline, diagnostics, allMutants) {
+  const pwSpecs = prepared?.specification?.playwright;
+  if (!Array.isArray(pwSpecs) || !pwSpecs.length || !prepared?.attempt) return diagnostics;
+  const passedTest = baseline.tests.find(t => t.status === 'passed');
+  if (!passedTest) return diagnostics;
+
+  return diagnostics.map(gap => {
+    const mutant = allMutants.find(m => (m.site ?? m.id) === gap.site);
+    const rule = gap.rule ?? mutant?.rule ?? mutant?.mutatorName;
+    const match = pwSpecs.find(entry =>
+      entry.file === gap.location?.file &&
+      (entry.line === undefined || entry.line === gap.location?.line) &&
+      (entry.rule === rule ||
+        (entry.rule === 'jsx-disabled-drop-left/v1' && rule === 'ignored-operand/v1' && entry.operator === '||')));
+    if (!match?.witness || typeof match.requirement !== 'string') return gap;
+
+    const witness = {
+      content: match.witness,
+      name: 'tmt-witness-' + randomUUID() + '.spec.ts',
+      directory: match.witnessDirectory ?? dirname(passedTest.file),
+    };
+    const edit = gap.mutations?.[0]?.edit ?? mutant?.edit;
+    const replacement = gap.mutations?.[0]?.replacement ?? mutant?.replacement;
+    const sourceEdit = gap.mutations?.[0]?.source ?? mutant?.source;
+    const trial = {
+      site: { location: gap.location },
+      edit,
+      replacement,
+      ...(sourceEdit ? { source: sourceEdit } : {}),
+    };
+    const origRun = prepared.attempt({ witness });
+    const mutRun = prepared.attempt({ witness, trial });
+    const isWitness = t => t.file === origRun.witnessFile && (!origRun.witnessName || t.name === origRun.witnessName);
+    const checkWitness = run => {
+      const wit = run.tests?.filter(isWitness);
+      const orig = run.tests?.filter(t => !isWitness(t));
+      if (!wit?.length || orig.some(t => !['passed', 'skipped'].includes(t.status)) ||
+          verdict({ status: 'passed', tests: orig }, baseline) !== 'survived') return [];
+      return wit;
+    };
+    const passed = checkWitness(origRun);
+    const failed = checkWitness(mutRun);
+    const baselineAccepted = origRun.status === 'passed' && passed.length > 0 && passed.every(t => t.status === 'passed');
+    const matching = baselineAccepted && mutRun.status === 'failed' && failed.length === passed.length &&
+      failed.some(t => t.status === 'failed') &&
+      verdict({ status: 'failed', tests: failed }, { tests: passed }) === 'killed';
+    return {
+      ...gap,
+      requirement: match.requirement,
+      suggestedTestFile: match.witness,
+      verification: {
+        baselineWithWitness: baselineAccepted ? 'passed' : 'unconfirmed',
+        rewriteWithWitness: matching ? 'failed' : 'unconfirmed',
+      },
+    };
+  });
+}
+
+async function runPlaywrightTargetedSession(project, files, runOptions, run, profile, finalize) {
+  const prepareFromTraceFn = run.prepareAnalysisFromTrace ?? prepareAnalysisFromTrace;
+  const completeFn = run.completeAnalysis ?? completeAnalysis;
+  const sessionFn = run.analyzePlaywrightSession ?? analyzePlaywrightSession;
+
+  let prepared = null;
+  let extras = [];
+
+  const session = await sessionFn(project, files, {
+    ...runOptions,
+    mutators: profile,
+    onBaselineRecorded(baseEvent) {
+      const passedMap = new Map(baseEvent.baseline.tests.filter(t => t.status === 'passed').map(t => [t.id, t]));
+      const probePrep = prepareFromTraceFn(project, files, runOptions, {
+        baseline: baseEvent.baseline,
+        trace: [],
+        deterministicStable: baseEvent.deterministicStable,
+      });
+      const { rows, overflowSites } = comparisonRecordsToTrace(
+        baseEvent.comparisonRecords ?? [],
+        passedMap,
+        probePrep.subjects ?? [],
+      );
+      prepared = prepareFromTraceFn(project, files, runOptions, {
+        baseline: baseEvent.baseline,
+        trace: rows,
+        overflowSites,
+        deterministicStable: baseEvent.deterministicStable,
+      });
+      extras = shiftTrials(prepared);
+      return extras;
+    },
+  });
+
+  if (session.evaluation === 'unsupported_session') return null;
+  if (session.evaluation === 'baseline_error') {
+    return finalize({
+      schemaVersion: 1,
+      runner: 'playwright',
+      mutators: profile,
+      extraction: [],
+      mutants: [],
+      diagnostics: [],
+      evaluation: 'baseline_error',
+      baseline: session.baseline,
+      ...(session.selection ? { selection: session.selection } : {}),
+    });
+  }
+  if (session.evaluation === 'no_sites') {
+    return finalize({ ...session, operatorExecution: 'session' });
+  }
+
+  if (!prepared) {
+    prepared = prepareFromTraceFn(project, files, runOptions, {
+      baseline: session.baselineSnapshot ?? { status: 'passed', tests: [] },
+      trace: [],
+    });
+  }
+
+  const baseSettled = sessionVerdicts(session, extras);
+  const settled = runOptions.checkpointStore
+    ? trial => runOptions.checkpointStore.get(checkpointKeyForTrial(trial)) ?? baseSettled(trial)
+    : baseSettled;
+  const completed = prepared.trials ? completeFn(prepared, settled) : prepared.report;
+  if (runOptions.checkpointStore) {
+    for (const mutant of completed.mutants ?? []) {
+      runOptions.checkpointStore.record(checkpointKeyForTrial(mutant), mutant);
+    }
+  }
+  const focused = carryBaseline({ ...completed, mutators: profile }, completed);
+  const boundaries = new Set(focused.mutants.map(mutant => `${mutant.location.file}:${mutant.edit[0]}:${mutant.replacement}`));
+  const added = session.mutants.filter(mutant => !(mutant.operatorSwap &&
+    boundaries.has(`${mutant.location.file}:${mutant.operatorSwap.join(':')}`)));
+  const mergedMutants = [...focused.mutants, ...added.map(mutant => fromSession(mutant, profile))].sort(order);
+  const mergedDiagnostics = attachPlaywrightSpecWitnesses(
+    prepared,
+    session.baselineSnapshot ?? prepared.baseline,
+    suppressEnclosingDiagnostics([...(focused.diagnostics ?? []), ...(session.diagnostics ?? [])]),
+    mergedMutants,
+  );
+
+  return carryBaseline(finalize({
+    ...focused,
+    runner: 'playwright',
+    operatorExecution: 'session',
+    trials: session.trials,
+    baseline: focused.baseline ?? session.baseline,
+    evaluation: session.evaluation === 'incomplete' || focused.evaluation === 'incomplete' ? 'incomplete' : 'evaluated',
+    mutants: mergedMutants,
+    diagnostics: mergedDiagnostics,
+  }), focused);
+}
+
+// Vitest and Playwright (without --audit): built-in mutations and targeted rules run in one switched session
+// with per-test coverage and dual-realm comparison/probe recording, falling back to source rewrites when needed.
+export async function analyzeOperators(
+  project,
+  files,
+  options,
+  run = { analyze, analyzeNodeAsync, analyzePlaywrightSession, prepareAnalysis, prepareAnalysisFromTrace, completeAnalysis, analyzeConventional },
+) {
   const profile = options.mutators ?? 'targeted';
   const shardSelection = options.shard ? computeShardSelection(project, files, { ...options, mutators: profile }) : null;
   let checkpointStore = null;
@@ -148,7 +307,14 @@ export async function analyzeOperators(project, files, options, run = { analyze,
     const out = await runnerFn(project, files, { ...runOptions, mutators: profile });
     return carryBaseline(finalize({ ...out, mutators: profile, operatorExecution: 'source-rewrite' }), out);
   }
-  if (runOptions.runner === 'playwright' || runOptions.audit) return rewriting();
+  if (runOptions.audit) return rewriting();
+  if (runOptions.runner === 'playwright') {
+    if (run.analyzePlaywrightSession) {
+      const sessionOut = await runPlaywrightTargetedSession(project, files, runOptions, run, profile, finalize);
+      if (sessionOut) return sessionOut;
+    }
+    return rewriting();
+  }
   const { prepared, ended, stopped, extras, report: session, error } = await besideSession(project, files, runOptions, run, profile,
     report => report.evaluation === 'baseline_error' || report.extraction.some(file => file.path === 'diagnostic'));
   if (stopped) return carryBaseline(finalize({ ...ended, mutators: profile }), ended);
