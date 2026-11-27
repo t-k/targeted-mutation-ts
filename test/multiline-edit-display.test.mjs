@@ -257,3 +257,37 @@ test('Issue 2 review regression: string literals differing only by repeated spac
   assert.ok(text.includes('x === "a b" -> (x, "a b", true)'), text);
   assert.ok(text.includes('x === "a  b" || x === "a b" -> (x === "a  b" || (x === "a b", false))'), text);
 });
+
+test('Issue 2 Round 2 regression: operator change sandwiched between 100-char spaceless identifier and 100-char spaceless string remains visible across all surfaces', () => {
+  const loc = { file: 'src/long-mid.ts', line: 5, column: 3 };
+  const longId = 'L'.repeat(100);
+  const longStr = 'S'.repeat(100);
+  const original = `(longObject !== ${longId}) ===\n  "${longStr}"`;
+  const replacement = `(longObject !== ${longId}) !==\n  "${longStr}"`;
+
+  const listed = renderText({
+    runner: 'vitest',
+    evaluation: 'listed',
+    mutants: [{ location: loc, mutatorName: 'EqualityOperator', original, replacement, status: 'listed' }],
+    diagnostics: [],
+  });
+  const [lhsPart, rhsPart] = listed.split('\n')[0].split('EqualityOperator: ')[1].split(' -> ');
+  assert.notEqual(lhsPart, rhsPart, `Changed operator must remain visible, got:\n${listed}`);
+  assert.ok(lhsPart.includes('===') && rhsPart.includes('!=='), `Expected === and !== in:\n${listed}`);
+
+  const gapText = renderText({
+    runner: 'vitest',
+    evaluation: 'evaluated',
+    baseline: { status: 'passed', tests: 1 },
+    mutants: [{ location: loc, mutatorName: 'EqualityOperator', original, replacement, status: 'survived' }],
+    diagnostics: [{
+      kind: 'ASSERTION GAP',
+      location: loc,
+      rule: 'EqualityOperator',
+      expression: original,
+      mutations: [{ rule: 'EqualityOperator', original, replacement }],
+      tests: [{ file: 'test/a.test.ts', name: 't' }],
+    }],
+  });
+  assert.match(gapText, /`[^`]*===[^`]*` passes every test as `[^`]*!==[^`]*`/);
+});

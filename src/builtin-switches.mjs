@@ -337,10 +337,15 @@ function ${see}(i, l, r, r2, g) {
   return value;
   function note() {
     var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '', gFn = g && (typeof g === 'function' ? g : g.g), rawR = g && g.r;
+    function isBuiltinBoolean() {
+      return typeof scope.Boolean === 'function' && scope.Boolean.name === 'Boolean' && isNativeFn(scope.Boolean) &&
+        scope.Boolean(0) === false && scope.Boolean(1) === true;
+    }
     function sameInGuard(origLeaf, altLeaf) {
       try {
         var go = gFn(origLeaf), ga = gFn(altLeaf);
-        return site[8] ? (!go === !ga) : is(go, ga);
+        var truthOnly = site[8] === 1 || (site[8] === 2 && isBuiltinBoolean());
+        return truthOnly ? (!go === !ga) : is(go, ga);
       } catch (e) {
         return false;
       }
@@ -578,7 +583,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         // The operands are rendered in source order; what stands between them is the operation the probe performs.
         // Each in parentheses of its own: a probe inside may begin with `void 0,`, which must stay one argument.
         const operands = group.operands.map(([start, end]) => `(${render(start, end)})`);
-        const { operator, boolean, thunk, spreadKeys, pureProps, clampMeta, setElems, regexMeta, pureMerge, guardSteps, guardBoolean, nullishSafeLoose, rawRightSpan } = group.targeted;
+        const { operator, boolean, thunk, spreadKeys, pureProps, clampMeta, setElems, regexMeta, pureMerge, guardSteps, guardTruthMode, nullishSafeLoose, rawRightSpan } = group.targeted;
         // Only the edits beside a written null or undefined say on which side it stands.
         const literalSide = group.mutants.find(mutant => mutant.targeted.literalSide !== undefined)?.targeted.literalSide ?? 0;
         const kind = thunk ? 'l' : ['===', '!==', '==', '!='].includes(operator) ? 'e' : operator.length === 1 ? 'a'
@@ -596,7 +601,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         else if (clampMeta) row.push(clampMeta);
         else if (regexMeta) row.push(regexMeta);
         else if (pureMerge !== undefined) row.push(pureMerge);
-        else if (guardSteps) row.push(guardBoolean ? 1 : 0, nullishSafeLoose ? 1 : 0);
+        else if (guardSteps) row.push(guardTruthMode ?? 0, nullishSafeLoose ? 1 : 0);
         probed.push(row);
         let callArgs;
         let argCount = operands.length;

@@ -212,18 +212,25 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
 
   // Whether only the truth of the expression's value is used: as a condition, under `!`, inside a
   // single-argument global `Boolean(...)` call, or as an operand of a logical operator used that way.
-  function onlyTruthUsed(node) {
+  // Returns 1 for syntactic truthiness contexts (`if`, `while`, `do`, `for`, `?:`, `!`),
+  // 2 when truthiness comes from an unshadowed `Boolean(expr)` call (which could be monkey-patched at runtime),
+  // or 0 when the expression's value itself is used.
+  function truthContextKind(node) {
     for (let [parent, child] = up(node); ; [parent, child] = up(parent)) {
-      if (ts.isPrefixUnaryExpression(parent) && parent.operator === K.ExclamationToken) return true;
-      if ((ts.isIfStatement(parent) || ts.isWhileStatement(parent) || ts.isDoStatement(parent)) && parent.expression === child) return true;
-      if ((ts.isForStatement(parent) || ts.isConditionalExpression(parent)) && parent.condition === child) return true;
+      if (ts.isPrefixUnaryExpression(parent) && parent.operator === K.ExclamationToken) return 1;
+      if ((ts.isIfStatement(parent) || ts.isWhileStatement(parent) || ts.isDoStatement(parent)) && parent.expression === child) return 1;
+      if ((ts.isForStatement(parent) || ts.isConditionalExpression(parent)) && parent.condition === child) return 1;
       if (ts.isCallExpression(parent) && !ts.isOptionalChain(parent) &&
           parent.arguments.length === 1 && parent.arguments[0] === child) {
         const callee = strip(parent.expression);
-        if (ts.isIdentifier(callee) && callee.text === 'Boolean' && !ownBoolean()) return true;
+        if (ts.isIdentifier(callee) && callee.text === 'Boolean' && !ownBoolean()) return 2;
       }
-      if (!isLogical(parent) || operatorOf(parent) === '??') return false;
+      if (!isLogical(parent) || operatorOf(parent) === '??') return 0;
     }
+  }
+
+  function onlyTruthUsed(node) {
+    return truthContextKind(node) !== 0;
   }
 
   // A right operand that awaits or yields cannot be evaluated inside the function a probe wraps it in, and a
@@ -377,7 +384,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
   }
 
   function isShortCircuitNullishEquivalent(node, subjectNode, literalKind, form, differsFor) {
-    if (insideWith(node) || isUndefinedBoundAt(node) || !isSimplePath(subjectNode)) return false;
+    if (insideWith(node) || isUndefinedBoundAt(node) || !isSimplePath(subjectNode) || !isSafeGuardIdentifier(subjectNode)) return false;
     const targetText = source(subjectNode);
     const op = operatorOf(node);
     const pureSideEffectFreeBetween = (terms, from, to) => {
@@ -474,7 +481,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     if (!steps.some(step => step.kind === 'logical')) return null;
     return {
       guardSteps: steps,
-      guardBoolean: onlyTruthUsed(cur),
+      guardTruthMode: truthContextKind(cur),
       guardExpression: source(cur),
     };
   }
@@ -688,7 +695,12 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
           return cur.body && isNodeInside(ident, cur.body) ? 'safe' : 'unsafe';
         }
         if (cur.body && hasHoistedVarInScope(cur.body, targetName)) return 'safe';
-        if (cur.name && ts.isIdentifier(cur.name) && cur.name.text === targetName) return 'safe';
+        // Only named FunctionExpression / FunctionDeclaration bind their own name inside their body;
+        // object/class methods and accessors (`{ flag() { return flag; } }`) do NOT bind `flag` lexically.
+        if ((ts.isFunctionExpression(cur) || ts.isFunctionDeclaration(cur)) &&
+            cur.name && ts.isIdentifier(cur.name) && cur.name.text === targetName) {
+          return ts.isFunctionDeclaration(cur) && ts.isSourceFile(cur.parent) && !isModuleFile ? 'unsafe' : 'safe';
+        }
       } else if (ts.isClassLike(cur)) {
         if (cur.name && ts.isIdentifier(cur.name) && cur.name.text === targetName) return 'unsafe';
       } else if (ts.isCatchClause(cur)) {

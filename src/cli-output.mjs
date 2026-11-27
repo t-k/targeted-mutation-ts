@@ -129,6 +129,19 @@ function middleClip(text, maxLength = 68) {
 
 const flattenLines = value => printable(value).replace(/\s*(?:\r\n|[\n\r\u2028\u2029])\s*/g, ' ').trim();
 
+function windowAroundDiff(a, b, maxLength = 68) {
+  const p = commonPrefixLength(a, 0, b, 0);
+  const lead = Math.max(0, p - Math.floor((maxLength - 12) / 2));
+  const sliceOne = text => {
+    const start = Math.min(lead, Math.max(0, text.length - (maxLength - 6)));
+    const prefix = start > 0 ? '...' : '';
+    const budget = maxLength - prefix.length;
+    if (text.length - start <= budget) return prefix + text.slice(start);
+    return prefix + text.slice(start, start + budget - 3) + '...';
+  };
+  return [sliceOne(a), sliceOne(b)];
+}
+
 function formatEditPair(original, replacement, maxLength = 68) {
   const origStr = String(original ?? '');
   const replStr = String(replacement ?? '');
@@ -221,11 +234,13 @@ function formatEditPair(original, replacement, maxLength = 68) {
   ];
 
   let [shownOrig, shownRepl] = buildWithHead(cutHead);
-  if ((shownOrig.length > maxLength || shownRepl.length > maxLength) && suffixLen > 24) {
-    const keepSuffix = 14;
+  if ((shownOrig.length > maxLength || shownRepl.length > maxLength) && suffixLen > 20) {
+    const keepSuffix = 12;
     const spaceOffset = rawOrig.indexOf(' ', aEnd - suffixLen + keepSuffix);
-    if (spaceOffset !== -1 && spaceOffset < aEnd - 6) {
-      const dropTail = aEnd - spaceOffset;
+    const dropTail = (spaceOffset !== -1 && spaceOffset < aEnd - 6)
+      ? (aEnd - spaceOffset)
+      : (suffixLen - keepSuffix);
+    if (dropTail > 4) {
       const origCore = headCutSlice(rawOrig, aStart, cutHead, aEnd - dropTail);
       const replCore = headCutSlice(rawRepl, bStart, cutHead, bEnd - dropTail);
       shownOrig = `${origCore}...${rawOrig.slice(aEnd)}`;
@@ -233,7 +248,12 @@ function formatEditPair(original, replacement, maxLength = 68) {
     }
   }
 
-  return [middleClip(shownOrig, maxLength), middleClip(shownRepl, maxLength)];
+  const clippedOrig = middleClip(shownOrig, maxLength);
+  const clippedRepl = middleClip(shownRepl, maxLength);
+  if (clippedOrig === clippedRepl && shownOrig !== shownRepl) {
+    return windowAroundDiff(shownOrig, shownRepl, maxLength);
+  }
+  return [clippedOrig, clippedRepl];
 }
 
 function headCutSlice(text, wrapperStart, cutHead, end) {

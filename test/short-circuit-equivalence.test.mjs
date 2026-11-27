@@ -402,4 +402,49 @@ test('Issue 3 review regressions: intervening reassignment, undeclared identifie
 
   const ceilGap = report.diagnostics.find(d => d.location?.line === 2 && d.mutations?.[0]?.replacement === 'Math.ceil(n)');
   assert.equal(ceilGap?.kind, 'ASSERTION GAP', 'Patched Math.ceil side effect must remain ASSERTION GAP');
+
+  // 4. Round 2 regressions:
+  //    - Unbound global `db` getter (`() => db == null || typeof db !== "object"`) MUST keep `db === null` candidate!
+  //    - Object method name (`({ flag(a) { return a === 0 || flag; } })`) MUST NOT treat `flag` as lexically bound!
+  //    - Monkey-patched `globalThis.Boolean = x => x` on `Boolean(a === 0 && b)` at `(0, 0)` MUST NOT mark absorbed!
+  const globalSubjectMutants = collectMutations('export const f = () => globalDb == null || typeof globalDb !== "object";\n', 'a.ts', { targeted: true })
+    .filter(m => m.name === 'nullish-equality/v1');
+  assert.ok(
+    globalSubjectMutants.some(m => m.replacement === 'globalDb === null'),
+    `Unbound global subject must preserve globalDb === null, got ${JSON.stringify(globalSubjectMutants)}`,
+  );
+
+  const r2Src = [
+    'const obj = { flag(a) { return a === 0 || flag; } };',
+    'function boolCall(a, b) { return Boolean(a === 0 && b); }',
+    'return { obj, boolCall };',
+  ].join('\n');
+  const r2Rendered = renderBuiltinSwitches(Buffer.from(r2Src), 'r2.mjs', () => true, { targeted: true });
+  const origBool = globalThis.Boolean;
+  let methodGetterHits = 0;
+  Object.defineProperty(globalThis, 'flag', {
+    configurable: true,
+    get() { methodGetterHits++; return true; },
+  });
+  try {
+    globalThis.__stryker__ = { currentTestId: 't2' };
+    globalThis[sessionSym] = { phase: 'baseline' };
+    globalThis.Boolean = x => x;
+    const r2Fns = new Function(r2Rendered.output)();
+    assert.equal(r2Fns.obj.flag(0), true);
+    assert.equal(methodGetterHits, 0, 'Object method name must not treat global `flag` getter as local');
+    assert.equal(r2Fns.boolCall(0, 0), 0);
+
+    const methodLeftFalse = r2Rendered.mutants.find(m => m.original === 'a === 0' && m.location.line === 1 && m.replacement === '(a, 0, false)');
+    assert.equal(globalThis.__stryker__.observed[methodLeftFalse.id].tests.t2[1], 1, 'Method global getter must record differ');
+
+    const boolLeftFalse = r2Rendered.mutants.find(m => m.original === 'a === 0' && m.location.line === 2 && m.replacement === '(a, 0, false)');
+    assert.equal(globalThis.__stryker__.observed[boolLeftFalse.id].tests.t2[1], 1, 'Monkey-patched Boolean(x => x) returning 0 vs false must record differ');
+    assert.equal(globalThis.__stryker__.observed[boolLeftFalse.id].absorbed, undefined);
+  } finally {
+    delete globalThis.flag;
+    globalThis.Boolean = origBool;
+    globalThis.__stryker__ = prevStryker;
+    globalThis[sessionSym] = prevSession;
+  }
 });
