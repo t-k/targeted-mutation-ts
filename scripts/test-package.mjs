@@ -54,25 +54,31 @@ try {
   const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
   let platformManifest = null;
   if (!portable) {
-    // Unload the addon before moving or removing its directory on Windows.
-    const exports = JSON.parse(run(process.execPath, ['--eval',
-      'console.log(JSON.stringify(Object.keys(require(process.argv[1]))))', join(platformPackage, 'tmt.node')]));
-    assert.ok(exports.includes('parse') && exports.includes('locations'));
-    assert.ok(!exports.includes('syntax') && !exports.includes('standalone'));
     const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== 'path'));
     if (windows) env.PATH = join(process.env.SystemRoot, 'System32');
+    // Unload the addon before moving or removing its directory on Windows.
+    const exports = JSON.parse(run(process.execPath, ['--eval',
+      'console.log(JSON.stringify(Object.keys(require(process.argv[1]))))', join(platformPackage, 'tmt.node')], { env }));
+    assert.ok(exports.includes('parse') && exports.includes('locations'));
+    assert.ok(!exports.includes('syntax') && !exports.includes('standalone'));
     assert.equal(run(join(platformPackage, decision), [], { input: '[]', env }).trim(), '[]');
     const home = homedir();
     const repoRoot = resolve('.');
     const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pathVariants = value => {
+      const slash = value.replaceAll('\\', '/');
+      return slash === value ? [value] : [value, slash];
+    };
+    const patternFlags = windows ? 'gi' : 'g';
     // Lean's prebuilt runtime and LLVM C++/unwind libraries are compiled on GitHub Actions under <home>/.../lean4/lean4/ or lean-llvm/lean-llvm/.
-    const leanUpstream = new RegExp(`${escapeRegExp(home)}/(?:actions-runner/_work|_work|work)/(?:lean4/lean4|lean-llvm/lean-llvm)/`, 'g');
-    const homeSnippet = new RegExp(`${escapeRegExp(home)}[^\\0\\r\\n"']{0,120}`, 'g');
+    const leanUpstream = new RegExp(`(?:${pathVariants(home).map(escapeRegExp).join('|')})[\\\\/](?:actions-runner[\\\\/]_work|_work|work)[\\\\/](?:lean4[\\\\/]lean4|lean-llvm[\\\\/]lean-llvm)[\\\\/]`, patternFlags);
+    const repoPattern = new RegExp(`(?:${pathVariants(repoRoot).map(escapeRegExp).join('|')})`, windows ? 'i' : '');
+    const homeSnippet = new RegExp(`(?:${pathVariants(home).map(escapeRegExp).join('|')})[^\\0\\r\\n"']{0,120}`, patternFlags);
     for (const binary of ['tmt.node', decision]) {
-      const content = readFileSync(join(platformPackage, binary));
-      assert.equal(content.includes(repoRoot), false, `${binary} records the build repository path`);
-      const scrubbed = binary === decision ? content.toString('latin1').replace(leanUpstream, '') : content.toString('latin1');
-      const leaks = scrubbed.includes(home) ? [...scrubbed.matchAll(homeSnippet)].slice(0, 5).map(m => m[0]) : [];
+      const text = readFileSync(join(platformPackage, binary)).toString('latin1');
+      assert.equal(repoPattern.test(text), false, `${binary} records the build repository path`);
+      const scrubbed = binary === decision ? text.replace(leanUpstream, '') : text;
+      const leaks = [...scrubbed.matchAll(homeSnippet)].slice(0, 5).map(m => m[0]);
       assert.equal(leaks.length, 0, `${binary} records the build machine's home directory: ${leaks.join(', ')}`);
     }
     for (const file of ['LICENSE', 'NOTICE', 'lean/LICENSE', 'lean/LICENSES', 'lean/GPL-3.0.txt', 'lean/libuv-LICENSE.txt', 'lean/libuv-LICENSE-extra.txt']) assert.ok(readFileSync(join(platformPackage, file)).length, file);

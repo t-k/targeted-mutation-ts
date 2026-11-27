@@ -132,6 +132,7 @@ jobs:
       - name: Pack main package and test portable Windows runtime
         run: |
           node scripts/pack-runtime.mjs --only main
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           node scripts/test-package.mjs --portable
 
   windows-native:
@@ -166,7 +167,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           npm run build:lean
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          node --test test/runtime-binaries.test.mjs test/release-manifests.test.mjs test/extract.test.mjs test/positions.test.mjs test/pulse-native-limits.test.mjs test/lean.test.mjs
+          node --test test/runtime-binaries.test.mjs test/release-manifests.test.mjs test/extract.test.mjs test/positions.test.mjs test/pulse-native-limits.test.mjs test/lean.test.mjs test/margin-gaps.test.mjs
 
       - name: Pack and test the installed packages
         run: |
