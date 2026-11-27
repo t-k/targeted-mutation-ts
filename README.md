@@ -6,6 +6,8 @@
 
 **Targeted mutation testing for JavaScript and TypeScript**: `targeted-mutation` finds the tests your suite is missing. It watches the values your tests actually pass through comparisons, tries the smallest wrong implementation those values cannot tell apart from yours, and prints the test that would catch it.
 
+> Other languages: [Rust](https://github.com/t-k/targeted-mutation) · [Go](https://github.com/t-k/targeted-mutation-go) · [Swift](https://github.com/t-k/targeted-mutation-swift) · [Python](https://github.com/t-k/targeted-mutation-python)
+
 ```ts
 export const isAdult = (age: number) => age >= 18;
 // tests check isAdult(20) and isAdult(10)
