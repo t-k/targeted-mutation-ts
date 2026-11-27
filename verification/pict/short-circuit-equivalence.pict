@@ -1,0 +1,6 @@
+# Short-circuit equivalence and runtime pure-guard absorption
+Pattern: LooseNullOrTypeofNotObj, TypeofNotObjOrStrictNull, LooseNotNullAndTypeofObj, ExplicitNullOrUndefined, TwoVarPureOr, TwoVarPureAnd, ImpureCallOr, GetterPropOr, ShadowedUndefinedOr
+TestInput: DistinguishingAbsorbed, DistinguishingUnabsorbed, NonDistinguishingOnly
+Context: IfCondition, ReturnValue
+
+IF [Pattern] IN {"LooseNullOrTypeofNotObj", "TypeofNotObjOrStrictNull", "LooseNotNullAndTypeofObj", "ExplicitNullOrUndefined"} THEN [TestInput] <> "DistinguishingUnabsorbed";

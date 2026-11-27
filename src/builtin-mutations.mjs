@@ -245,7 +245,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
   function written(node) {
     const inner = strip(node);
     return ts.isNumericLiteral(inner) || ts.isBigIntLiteral(inner) || ts.isStringLiteral(inner) || ts.isNoSubstitutionTemplateLiteral(inner) ||
-      [K.TrueKeyword, K.FalseKeyword, K.NullKeyword].includes(inner.kind) || (ts.isIdentifier(inner) && inner.text === 'undefined') ||
+      [K.TrueKeyword, K.FalseKeyword, K.NullKeyword].includes(inner.kind) || (ts.isIdentifier(inner) && inner.text === 'undefined' && !isUndefinedBoundAt(inner)) ||
       (ts.isPrefixUnaryExpression(inner) && inner.operator === K.MinusToken && (ts.isNumericLiteral(inner.operand) || ts.isBigIntLiteral(inner.operand)));
   }
   const writtenFalsy = node => {
@@ -272,6 +272,11 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     return inner.kind === K.NullKeyword ? 'null' : ts.isIdentifier(inner) && inner.text === 'undefined' ? 'undefined' : undefined;
   };
 
+  const safeNullishLiteral = node => {
+    const kind = nullishLiteral(node);
+    return kind === 'undefined' && isUndefinedBoundAt(node) ? undefined : kind;
+  };
+
   function isSimplePath(node) {
     node = strip(node);
     // Restrict to bare identifiers so property getters that may return different values on
@@ -279,11 +284,59 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     return Boolean(node && ts.isIdentifier(node));
   }
 
-  function isTypeofObjectCheck(term, targetText) {
+  // Expressions guaranteed by ECMA-262 not to invoke getters, Proxy traps, functions, or ToPrimitive coercions.
+  function isPureGuardExpr(node) {
+    const inner = strip(node);
+    if (!inner) return false;
+    if (written(inner)) return true;
+    if (ts.isIdentifier(inner)) return inner.text !== 'undefined' || !isUndefinedBoundAt(inner);
+    if (ts.isTypeOfExpression(inner) || ts.isVoidExpression(inner)) return isPureGuardExpr(inner.expression);
+    if (ts.isPrefixUnaryExpression(inner) && inner.operator === K.ExclamationToken) return isPureGuardExpr(inner.operand);
+    if (ts.isBinaryExpression(inner)) {
+      const op = operatorOf(inner);
+      if (op === '===' || op === '!==' || op === '&&' || op === '||' || op === '??') {
+        return isPureGuardExpr(inner.left) && isPureGuardExpr(inner.right);
+      }
+      if (op === '==' || op === '!=') {
+        const leftNullish = safeNullishLiteral(inner.left);
+        const rightNullish = safeNullishLiteral(inner.right);
+        return (leftNullish !== undefined && isPureGuardExpr(inner.right)) ||
+          (rightNullish !== undefined && isPureGuardExpr(inner.left));
+      }
+      return false;
+    }
+    if (ts.isConditionalExpression(inner)) {
+      return isPureGuardExpr(inner.condition) && isPureGuardExpr(inner.whenTrue) && isPureGuardExpr(inner.whenFalse);
+    }
+    return false;
+  }
+
+  function isBooleanPureGuardExpr(node) {
+    const inner = strip(node);
+    if (!inner || !isPureGuardExpr(inner)) return false;
+    if (inner.kind === K.TrueKeyword || inner.kind === K.FalseKeyword) return true;
+    if (ts.isPrefixUnaryExpression(inner) && inner.operator === K.ExclamationToken) return true;
+    if (ts.isBinaryExpression(inner)) {
+      const op = operatorOf(inner);
+      if (op === '===' || op === '!==' || op === '==' || op === '!=') return true;
+      if (op === '&&' || op === '||') return isBooleanPureGuardExpr(inner.left) && isBooleanPureGuardExpr(inner.right);
+    }
+    if (ts.isConditionalExpression(inner)) {
+      return isBooleanPureGuardExpr(inner.whenTrue) && isBooleanPureGuardExpr(inner.whenFalse);
+    }
+    return false;
+  }
+
+  function isTypeofObjectTerm(term, targetText, negated) {
     term = strip(term);
+    if (ts.isPrefixUnaryExpression(term) && term.operator === K.ExclamationToken) {
+      return isTypeofObjectTerm(term.operand, targetText, !negated);
+    }
     if (!ts.isBinaryExpression(term)) return false;
     const op = operatorOf(term);
-    if (op !== '===' && op !== '==') return false;
+    const eq = op === '===' || op === '==';
+    const neq = op === '!==' || op === '!=';
+    if (negated ? !neq : !eq) return false;
     const check = (typeNode, strNode) => {
       typeNode = strip(typeNode);
       strNode = strip(strNode);
@@ -294,28 +347,113 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     return check(term.left, term.right) || check(term.right, term.left);
   }
 
-  function isGuardedTypeofObject(node, subjectNode) {
-    if (!isSimplePath(subjectNode)) return false;
-    const targetText = source(subjectNode);
-    let current = node;
-    let [parent] = up(current);
-    while (parent && isLogical(parent) && operatorOf(parent) === '&&') {
-      current = parent;
-      [parent] = up(current);
+  function isStrictNullishTerm(term, targetText, expectedOp, expectedLiteral) {
+    term = strip(term);
+    if (!ts.isBinaryExpression(term) || operatorOf(term) !== expectedOp) return false;
+    const check = (subj, lit) => isSimplePath(subj) && source(strip(subj)) === targetText && safeNullishLiteral(lit) === expectedLiteral;
+    return check(term.left, term.right) || check(term.right, term.left);
+  }
+
+  function flattenLogicalChain(node, chainOp) {
+    let top = node;
+    let [parent] = up(top);
+    while (parent && isLogical(parent) && operatorOf(parent) === chainOp) {
+      top = parent;
+      [parent] = up(top);
     }
-    if (current === node) return false;
-    let guarded = false;
-    (function scanAnd(expr) {
-      if (guarded) return;
+    if (top === node) return null;
+    const terms = [];
+    (function collectTerms(expr) {
       expr = strip(expr);
-      if (isLogical(expr) && operatorOf(expr) === '&&') {
-        scanAnd(expr.left);
-        scanAnd(expr.right);
-      } else if (expr !== node && isTypeofObjectCheck(expr, targetText)) {
-        guarded = true;
+      if (isLogical(expr) && operatorOf(expr) === chainOp && expr !== node) {
+        collectTerms(expr.left);
+        collectTerms(expr.right);
+      } else {
+        terms.push(expr);
       }
-    })(current);
-    return guarded;
+    })(top);
+    const idx = terms.indexOf(strip(node));
+    return idx === -1 ? null : { terms, idx };
+  }
+
+  function isShortCircuitNullishEquivalent(node, subjectNode, literalKind, form, differsFor) {
+    if (insideWith(node) || isUndefinedBoundAt(node) || !isSimplePath(subjectNode)) return false;
+    const targetText = source(subjectNode);
+    const op = operatorOf(node);
+    const pureBetween = (terms, from, to) => {
+      for (let k = from; k < to; k++) {
+        if (!isBooleanPureGuardExpr(terms[k])) return false;
+      }
+      return true;
+    };
+
+    const andChain = flattenLogicalChain(node, '&&');
+    if (andChain) {
+      const { terms, idx } = andChain;
+      if (literalKind === 'null' && differsFor === 'undefined') {
+        if (terms.slice(0, idx).some(t => isTypeofObjectTerm(t, targetText, false))) return true;
+        if ((op === '!==' || op === '!=') &&
+            terms.some((t, j) => j > idx && isTypeofObjectTerm(t, targetText, false) && pureBetween(terms, idx + 1, j))) {
+          return true;
+        }
+      }
+      if (form === 'loose' && op === '!==') {
+        if (terms.slice(0, idx).some(t => isStrictNullishTerm(t, targetText, '!==', differsFor))) return true;
+        if (terms.some((t, j) => j > idx && isStrictNullishTerm(t, targetText, '!==', differsFor) && pureBetween(terms, idx + 1, j))) {
+          return true;
+        }
+      }
+    }
+
+    const orChain = flattenLogicalChain(node, '||');
+    if (orChain) {
+      const { terms, idx } = orChain;
+      if (literalKind === 'null' && differsFor === 'undefined') {
+        if (terms.slice(0, idx).some(t => isTypeofNotObjectTerm(t, targetText))) return true;
+        if ((op === '===' || op === '==') &&
+            terms.some((t, j) => j > idx && isTypeofNotObjectTerm(t, targetText) && pureBetween(terms, idx + 1, j))) {
+          return true;
+        }
+      }
+      if (form === 'loose' && op === '===') {
+        if (terms.slice(0, idx).some(t => isStrictNullishTerm(t, targetText, '===', differsFor))) return true;
+        if (terms.some((t, j) => j > idx && isStrictNullishTerm(t, targetText, '===', differsFor) && pureBetween(terms, idx + 1, j))) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function isTypeofNotObjectTerm(term, targetText) {
+    return isTypeofObjectTerm(term, targetText, true);
+  }
+
+  function enclosingPureGuard(node, canAbsorb) {
+    if (!canAbsorb || insideWith(node)) return null;
+    let cur = node;
+    for (;;) {
+      const [parent, child] = up(cur);
+      if (ts.isPrefixUnaryExpression(parent) && parent.operator === K.ExclamationToken) {
+        cur = parent;
+        continue;
+      }
+      if (isLogical(parent)) {
+        const sibling = parent.left === child ? parent.right : parent.left;
+        if (isPureGuardExpr(sibling)) {
+          cur = parent;
+          continue;
+        }
+      }
+      break;
+    }
+    if (cur === node) return null;
+    return {
+      guardSpan: [begin(cur), cur.end],
+      guardBoolean: onlyTruthUsed(cur),
+      guardExpression: source(cur),
+    };
   }
 
   // An edit of one expression that a probe can stand for. `operands` are the parts the probe evaluates, in order.
@@ -325,11 +463,14 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const statement = ts.isExpressionStatement(node.parent);
     const boolean = onlyTruthUsed(node);
     const spans = operands.map(operand => [begin(operand), operand.end]);
+    const canAbsorb = ['===', '!==', '==', '!=', '+', '-', '*', '/', '%', 'max', 'min', 'floor', 'ceil', 'round', 'trunc'].includes(operator) ||
+      Boolean(shared.pureRightGuard);
+    const guardInfo = enclosingPureGuard(node, canAbsorb);
     return (rule, form, replacement, more) => {
       const { ignored, ...targetedMore } = more ?? {};
       return add(rule, node, replacement, { kind: 'observed', placement: [begin(node), node.end], statement,
         leading: !statement && begin(node) === statementStart, mutated: ` ${replacement} ` },
-      { targeted: { operator, form, boolean, left: source(operands[0]), ...shared, ...targetedMore }, operands: spans,
+      { targeted: { operator, form, boolean, left: source(operands[0]), ...(guardInfo ?? {}), ...shared, ...targetedMore }, operands: spans,
         ...(ignored === undefined ? {} : { ignored }) });
     };
   }
@@ -343,7 +484,13 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const left = source(node.left);
     const right = source(node.right);
     const boolean = onlyTruthUsed(node);
-    const edit = probed(node, operator, [node.left, node.right]);
+    const nullishSafeLoose = (operator === '==' || operator === '!=') &&
+      (safeNullishLiteral(node.left) !== undefined || safeNullishLiteral(node.right) !== undefined);
+    const pureRightGuard = isLogical(node) && isPureGuardExpr(node.right);
+    const edit = probed(node, operator, [node.left, node.right], {
+      ...(nullishSafeLoose ? { nullishSafeLoose: true } : {}),
+      ...(pureRightGuard ? { pureRightGuard: true, rawRightSpan: [begin(node.right), node.right.end] } : {}),
+    });
     if (isBinary(node) && arithmeticSwaps.has(operator)) {
       const leftKind = isBinary(strip(node.left)) ? strip(strip(node.left).right) : strip(node.left);
       // Text is joined with `+`; another operator there is a type error and not a wrong program.
@@ -358,25 +505,23 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       // Beside a written null or undefined, the strict and the loose comparison differ for the other of the two.
       if ((written[0] === undefined) === (written[1] === undefined)) return;
       const literalSide = written[0] === undefined ? 1 : 0;
-      const other = written[literalSide] === 'null' ? 'undefined' : 'null';
+      const literalKind = written[literalSide];
+      const other = literalKind === 'null' ? 'undefined' : 'null';
       const subjectNode = strip(literalSide ? node.left : node.right);
       const subject = literalSide ? left : right;
-      // In `typeof x === "object" && x !== null` (or reversed), `x` cannot be `undefined`, so
-      // relaxing `!== null` / `=== null` to loose equality is an unreachable equivalent mutant.
-      if (written[literalSide] === 'null' && isGuardedTypeofObject(node, subjectNode)) return;
       const isNullishEqv = target => Boolean(typeEquivalence?.isNullishEqualityEquivalent(begin(subjectNode), subjectNode.end, target));
       if (operator.length === 3) {
-        if (!isNullishEqv(other)) {
+        if (!isShortCircuitNullishEquivalent(node, subjectNode, literalKind, 'loose', other) && !isNullishEqv(other)) {
           edit(targetedRules.nullish, 'loose', swapToken(node, token, operator.slice(0, 2)), { literalSide, differsFor: other, subject });
         }
       } else {
         const strict = operator + '=';
-        if (!isNullishEqv(other)) {
+        if (!isShortCircuitNullishEquivalent(node, subjectNode, literalKind, 'strict', other) && !isNullishEqv(other)) {
           edit(targetedRules.nullish, 'strict', swapToken(node, token, strict), { literalSide, differsFor: other, subject });
         }
-        if (!isNullishEqv(written[literalSide])) {
+        if (!isShortCircuitNullishEquivalent(node, subjectNode, literalKind, 'other', literalKind) && !isNullishEqv(literalKind)) {
           edit(targetedRules.nullish, 'other', literalSide ? `${left} ${strict} ${other}` : `${other} ${strict} ${right}`,
-            { literalSide, differsFor: written[literalSide], subject });
+            { literalSide, differsFor: literalKind, subject });
         }
       }
     } else if (isLogical(node) && !staysInPlace(node.right)) {
@@ -448,6 +593,84 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
   function ownBoolean() {
     if (bindsBoolean === undefined) bindsBoolean = bindsIdentifier('Boolean', /\bBoolean\b/);
     return bindsBoolean;
+  }
+  let mayMentionUndefined;
+  function bindingNameContains(nameNode, target) {
+    if (!nameNode) return false;
+    if (ts.isIdentifier(nameNode)) return nameNode.text === target;
+    if (ts.isObjectBindingPattern(nameNode) || ts.isArrayBindingPattern(nameNode)) {
+      return nameNode.elements.some(el => ts.isBindingElement(el) && bindingNameContains(el.name, target));
+    }
+    return false;
+  }
+  function hasHoistedVarInScope(scopeRoot, target) {
+    let found = false;
+    (function walkVar(inner) {
+      if (found) return;
+      if (inner !== scopeRoot && ts.isFunctionLike(inner)) return;
+      if (ts.isVariableDeclarationList(inner) && (inner.flags & ts.NodeFlags.BlockScoped) === 0) {
+        if (inner.declarations.some(d => bindingNameContains(d.name, target))) {
+          found = true;
+          return;
+        }
+      }
+      ts.forEachChild(inner, walkVar);
+    })(scopeRoot);
+    return found;
+  }
+  function statementsDeclareLexical(stmts, target) {
+    for (const stmt of stmts) {
+      if (ts.isVariableStatement(stmt)) {
+        if (stmt.declarationList.declarations.some(d => bindingNameContains(d.name, target))) return true;
+      } else if ((ts.isFunctionDeclaration(stmt) || ts.isClassDeclaration(stmt) || ts.isEnumDeclaration(stmt)) &&
+          stmt.name && ts.isIdentifier(stmt.name) && stmt.name.text === target) {
+        return true;
+      } else if (ts.isImportDeclaration(stmt) && stmt.importClause && !stmt.importClause.isTypeOnly) {
+        const clause = stmt.importClause;
+        if (clause.name?.text === target) return true;
+        if (clause.namedBindings) {
+          if (ts.isNamespaceImport(clause.namedBindings) && clause.namedBindings.name.text === target) return true;
+          if (ts.isNamedImports(clause.namedBindings) &&
+              clause.namedBindings.elements.some(el => !el.isTypeOnly && el.name.text === target)) return true;
+        }
+      } else if (ts.isImportEqualsDeclaration(stmt) && !stmt.isTypeOnly && stmt.name.text === target) {
+        return true;
+      }
+    }
+    return false;
+  }
+  function isUndefinedBoundAt(node) {
+    if (mayMentionUndefined === undefined) {
+      mayMentionUndefined = /\bundefined\b/.test(text) || text.includes('\\u');
+    }
+    if (!mayMentionUndefined) return false;
+    for (let cur = node?.parent; cur; cur = cur.parent) {
+      if (ts.isFunctionLike(cur)) {
+        if (cur.name && ts.isIdentifier(cur.name) && cur.name.text === 'undefined') return true;
+        if (cur.parameters?.some(p => bindingNameContains(p.name, 'undefined'))) return true;
+        if (cur.body && hasHoistedVarInScope(cur.body, 'undefined')) return true;
+      } else if (ts.isCatchClause(cur)) {
+        if (bindingNameContains(cur.variableDeclaration?.name, 'undefined')) return true;
+      } else if (ts.isForStatement(cur) || ts.isForInStatement(cur) || ts.isForOfStatement(cur)) {
+        if (cur.initializer && ts.isVariableDeclarationList(cur.initializer) &&
+            cur.initializer.declarations.some(d => bindingNameContains(d.name, 'undefined'))) return true;
+      } else if (ts.isBlock(cur) || ts.isModuleBlock(cur)) {
+        if (statementsDeclareLexical(cur.statements, 'undefined')) return true;
+      } else if (ts.isCaseBlock(cur)) {
+        for (const clause of cur.clauses) {
+          if (statementsDeclareLexical(clause.statements, 'undefined')) return true;
+        }
+      } else if (ts.isSourceFile(cur)) {
+        if (statementsDeclareLexical(cur.statements, 'undefined') || hasHoistedVarInScope(cur, 'undefined')) return true;
+      }
+    }
+    return false;
+  }
+  function insideWith(node) {
+    for (let cur = node?.parent; cur; cur = cur.parent) {
+      if (ts.isWithStatement(cur)) return true;
+    }
+    return false;
   }
 
   function isMathCall(node, expectedName) {
