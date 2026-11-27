@@ -3629,6 +3629,13 @@ test('F184 official spec suite push: Test262 99.98%, TS compiler/conformance 98.
   for (const [file, source] of [
     ['f184-bad-num-sep-dot.ts', 'const x = 1._0;\nexport {};\n'],
     ['f184-bad-fn-param-nested-static-await.ts', 'var await = 0;\nclass C { static { (function (x = class { static { ({ await }); } }) {})(); } }\nexport {};\n'],
+    // Review Round 57 negative rejections:
+    ['r57-bad-call-override.ts', 'class C { constructor(public x: number) {} }\nfoo(override x);\n'],
+    ['r57-bad-call-override.tsx', 'class C { constructor(public x: number) {} }\nexport const v = <div />;\nfoo(override x);\n'],
+    ['r57-bad-ambient-import-dot.ts', 'declare module "m" { declare import X = X.; }\nexport const x = 1;\n'],
+    ['r57-bad-ambient-import-dot.tsx', 'declare module "m" { declare import X = X.; }\nexport const v = <div />;\n'],
+    ['r57-bad-enum-tpl-leading-zero.ts', 'enum E { A = `1${08}3` }\n'],
+    ['r57-bad-enum-esc-digit.tsx', 'enum E { \\u0030 = 2 }\nexport const v = <div />;\n'],
   ]) {
     const tm = ts.transpileModule(source, {
       fileName: file,
@@ -3638,5 +3645,18 @@ test('F184 official spec suite push: Test262 99.98%, TS compiler/conformance 98.
     assert.ok((tm.diagnostics || []).some(d => d.category === ts.DiagnosticCategory.Error), `TS must reject: ${file}`);
     const r = compile(Buffer.from(source), { file });
     assert.equal(r.code, null, `must reject invalid TS: ${file}`);
+  }
+  // Review Round 57 AST/runtime preservation regressions:
+  for (const [file, source] of [
+    ['r57-enum-esc-member.ts', 'enum E { \\u0041 = 1 }\n'],
+    ['r57-enum-merged-self-ref.ts', 'enum E { A = E.X }\nenum E { X = 4 }\n'],
+    ['r57-enum-other-str-ref.ts', 'enum F { X = "s" }\nenum E { A = F.X }\n'],
+    ['r57-braceless-if-super.ts', 'class B {} class D extends B { constructor(public x: number) { if (true) super(); } }\n'],
+    ['r57-braceless-while-super.ts', 'class B {} class D extends B { constructor(public x: number) { while (false) super(); } }\n'],
+    ['r57-declare-priv-next-field.ts', 'class C { declare #x: number\ny = 1; }\n'],
+    ['r57-ctor-tagged-tpl-nl.ts', 'class C { constructor(public x: number) { "abc"\n`tpl`; } }\n'],
+    ['r57-ctor-prologue-inc-nl.ts', 'class C { constructor(public x: number) { "abc"\n++x; } }\n'],
+  ]) {
+    sameAsTypeScript(source, file);
   }
 });
