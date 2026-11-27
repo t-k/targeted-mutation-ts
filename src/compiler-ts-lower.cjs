@@ -956,7 +956,7 @@ function isTypeOnlyNamespaceBody(bodySource) {
 function lowerNamespacesAndEnums(source, isJsx = false) {
   const allowNs = isJsx || /\bmodule[ \t]+[A-Za-z_$]/.test(source) || source.includes('// @') || source.includes('//@') || !hasTopLevelModuleSyntax(source);
   const allowComputedEnum = !isJsx && !hasTopLevelModuleSyntax(source);
-  if (!/\b(?:module|enum)\b/.test(source) && !(allowNs && /\bnamespace[ \t]+[A-Za-z_$]/.test(source)) &&
+  if (!/\b(?:module|enum)\b/.test(source) && !/\bnamespace[ \t]+[A-Za-z_$]/.test(source) &&
       !/\bimport[ \t]+[A-Za-z_$][\w$]*[ \t]*=/.test(source)) {
     return { code: source, changed: false };
   }
@@ -970,11 +970,11 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
   for (let ti = 0; ti < tokens.length - 2; ti++) {
     const tk = tokens[ti];
     if (tk.type !== 'id') continue;
-    if ((tk.text === 'module' || (tk.text === 'namespace' && allowNs)) && tokens[ti + 1].type === 'id' &&
+    if ((tk.text === 'module' || tk.text === 'namespace') && tokens[ti + 1].type === 'id' &&
         !hasNewlineBetween(source, tk.end, tokens[ti + 1].start)) {
       let k = ti + 2;
       while (tokens[k]?.text === '.' && tokens[k + 1]?.type === 'id') k += 2;
-      if (tokens[k]?.text === '{') { hasTargetConstruct = true; break; }
+      if (tokens[k]?.text === '{' && (tk.text === 'module' || allowNs || tokens[k + 1]?.text === '}')) { hasTargetConstruct = true; break; }
     } else if (tk.text === 'enum' && tokens[ti + 1].type === 'id' && tokens[ti + 2]?.text === '{') {
       hasTargetConstruct = true; break;
     } else if (tk.text === 'import' && tokens[ti + 1].type === 'id' && tokens[ti + 2]?.text === '=' &&
@@ -1024,6 +1024,7 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         em.includes('Unexpected token `let`') ||
         em.includes('Unexpected line break between arrow head and arrow') ||
         em.includes("Expected '{', got 'public'") ||
+        em.includes('Expected a string literal') ||
         em.includes('Expected ident');
       if (!relaxable) return null;
       allowTypeOnlyBlank = false;
@@ -1233,8 +1234,9 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         }
 
       // Case 2: `[export] (namespace|module) A[.B.C] { ... }`
-      if (toks[idx].type === 'id' && (toks[idx].text === 'module' || (toks[idx].text === 'namespace' && allowNs)) &&
+      if (toks[idx].type === 'id' && (toks[idx].text === 'module' || toks[idx].text === 'namespace') &&
           toks[idx + 1]?.type === 'id' && !hasNewlineBetween(src, toks[idx].end, toks[idx + 1].start)) {
+        const isNsKw = toks[idx].text === 'namespace';
         const names = [toks[idx + 1].text];
         let j = idx + 2;
         while (toks[j]?.type === 'punc' && toks[j].text === '.' && toks[j + 1]?.type === 'id') {
@@ -1247,6 +1249,7 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         const closeIdx = findMatchingBrace(toks, openIdx);
         if (closeIdx < 0) return null;
         const bodySrc = src.slice(toks[openIdx].end, toks[closeIdx].start);
+        if (isNsKw && !allowNs && bodySrc.trim() !== '') continue;
 
         if (isTypeOnlyNamespaceBody(bodySrc)) {
           if (!allowTypeOnlyBlank && bodySrc.trim() !== '') return null;
@@ -1334,6 +1337,18 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
             i = endIdx;
             continue;
           }
+        }
+        // `export * from Ident;` / `export * from "str";` inside a namespace is erased by TypeScript
+        if (kw && kw.text === '*' && toks[idx + 1]?.type === 'id' && toks[idx + 1].text === 'from' &&
+            toks[idx + 2] && (toks[idx + 2].type === 'id' || toks[idx + 2].type === 'str')) {
+          let endIdx = idx + 2;
+          if (toks[endIdx + 1]?.text === ';') endIdx++;
+          else if (toks[endIdx + 1] && toks[endIdx + 1].text !== '}' && !hasNewlineBetween(src, toks[endIdx].end, toks[endIdx + 1].start)) {
+            return null;
+          }
+          edits.push({ start: t.start, end: toks[endIdx].end, text: src.slice(t.start, toks[endIdx].end).replace(/[^\r\n]/g, ' '), isVarDecl: true });
+          i = endIdx;
+          continue;
         }
         if (!kw || kw.type !== 'id') return null;
         // Type-only exports inside namespace: strip `export ` so stripTypeScriptTypes erases them inside the IIFE.
@@ -6268,12 +6283,13 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
         }
       }
     }
-    if (edits.length === 0) return null;
-    let work = '', pos = 0;
-    for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
-    work += source.slice(pos);
-    const stripped = tryStrip(work);
-    return stripped === null ? null : stripped.replace(/ __tmt_vd__/g, '');
+    if (edits.length > 0) {
+      let work = '', pos = 0;
+      for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+      work += source.slice(pos);
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped.replace(/ __tmt_vd__/g, '');
+    }
   }
 
   // Heritage clause errors (`'implements' clause already seen`, `'extends' clause must precede 'implements'`,
@@ -6740,7 +6756,9 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
               }
               if (op >= 0 && toks[op - 1]?.text !== '?') isRetType = true;
             }
-            const isParamOrDecl = p2?.type === 'id' && p3 && (DECL_MOD.has(p3.text) || (cur.text === '?' && (p3.text === '(' || p3.text === ',')));
+            const isFnParam = p2?.type === 'id' && p3?.text === '(' &&
+              (toks[i - 4]?.type === 'id' || toks[i - 4]?.text === 'function' || toks[i - 4]?.text === '>');
+            const isParamOrDecl = p2?.type === 'id' && p3 && (DECL_MOD.has(p3.text) || isFnParam || (cur.text === '?' && (p3.text === '(' || p3.text === ',')));
             const isTypePos = isRetType || p2?.text === '?' || isParamOrDecl;
             if (!isTypePos) continue;
           }
@@ -7020,6 +7038,57 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
         const stripped = tryStrip(work);
         if (stripped !== null) return stripped;
       }
+    }
+  }
+
+  // `Expected ',', got 'string literal'`: `import { type "<A>" as A }` / `export { type "<A>" as "<B>" }`
+  if (errMsg.includes("Expected ',', got 'string literal'") && /\b(?:import|export)\b/.test(source)) {
+    const toks = tokenize(source);
+    if (toks) {
+      const edits = [];
+      for (let i = 0; i < toks.length - 3; i++) {
+        if (toks[i].type === 'id' && (toks[i].text === 'import' || toks[i].text === 'export') && toks[i + 1]?.text === '{') {
+          const cb = findMatchingBrace(toks, i + 1);
+          if (cb > i + 1) {
+            let j = i + 2;
+            while (j < cb) {
+              if (toks[j].type === 'id' && toks[j].text === 'type' && toks[j + 1]?.type === 'str') {
+                let endK = j + 1;
+                if (toks[endK + 1]?.type === 'id' && toks[endK + 1].text === 'as' &&
+                    toks[endK + 2] && (toks[endK + 2].type === 'id' || toks[endK + 2].type === 'str')) {
+                  endK += 2;
+                }
+                if (toks[endK + 1]?.text === ',') endK++;
+                edits.push({ start: toks[j].start, end: toks[endK].end, text: source.slice(toks[j].start, toks[endK].end).replace(/[^\r\n]/g, ' ') });
+                j = endK + 1;
+                continue;
+              }
+              j++;
+            }
+            i = cb;
+          }
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `Unexpected token '<eof>'. Expected yield, an identifier, [ or {` (`var a,` trailing comma at EOF)
+  if (errMsg.includes('Unexpected token `<eof>`. Expected yield, an identifier')) {
+    const toks = tokenize(source);
+    if (toks && toks.length >= 3 && toks[toks.length - 1].text === ',' &&
+        toks[0].type === 'id' && (toks[0].text === 'var' || toks[0].text === 'let' || toks[0].text === 'const') &&
+        toks[toks.length - 2].type === 'id') {
+      const last = toks[toks.length - 1];
+      const work = source.slice(0, last.start) + ';' + source.slice(last.end);
+      const stripped = tryStrip(work);
+      if (stripped !== null) return stripped;
     }
   }
 

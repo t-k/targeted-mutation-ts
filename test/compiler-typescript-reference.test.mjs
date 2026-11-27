@@ -3875,3 +3875,15 @@ test('F193 official spec suite push: TS compiler 99.19%, TS conformance 99.19%, 
     assert.ok(r.diagnostics.length > 0, file);
   }
 });
+
+test('F196 official spec suite push: AST-exact ceiling push (0 FP)', () => {
+  for (const [file, source] of [
+    ['f196-fn-param-nonnull.ts', 'function f5(a: !string) {} function f6(a: !number) {}\n'],
+    ['f196-ns-export-star.ts', 'class Bbb {} class Aaa extends Bbb {} module Bbb { export class S {} export * from Aaa; }\n'],
+    ['f196-arb-mod-ns-type.ts', 'const someValue = "v"; export { someValue as "<X>" }; import { type "<A>" as typeA } from "./m"; export { type "<A>" as "<B>" } from "./m";\n'],
+    ['f196-trailing-comma-var-eof.ts', 'var a,\n'],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    assert.notEqual(r.backend, 'typescript', `${file}: ${source}`);
+  }
+});
