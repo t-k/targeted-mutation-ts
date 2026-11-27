@@ -57,7 +57,7 @@ function tokenize(source, isJsx = false) {
   };
   while (i < n) {
     const ch = source.charCodeAt(i);
-    if (ch === 32 || ch === 9 || ch === 10 || ch === 13 || ch === 11 || ch === 12 || ch === 0xa0 || ch === 0xfeff) {
+    if (ch === 32 || ch === 9 || ch === 10 || ch === 13 || ch === 11 || ch === 12 || ch === 0xa0 || ch === 0xfeff || ch === 0x2028 || ch === 0x2029) {
       i++;
       continue;
     }
@@ -180,12 +180,15 @@ function tokenize(source, isJsx = false) {
       continue;
     }
     const text = source[i];
+    const prevTok = tokens.length > 0 ? tokens[tokens.length - 1] : null;
     tokens.push({ type: 'punc', text, start: i, end: i + 1 });
     if (text === '(') {
       parens.push(prev === 'if' || prev === 'while' || prev === 'for' || prev === 'with');
       prev = '(';
     } else if (text === ')') {
       prev = parens.pop() ? ')ctrl' : ')';
+    } else if ((text === '+' || text === '-') && prevTok && prevTok.type === 'punc' && prevTok.text === text && prevTok.end === i) {
+      prev = text + text;
     } else {
       prev = text;
     }
@@ -729,6 +732,14 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
           }
           return null;
         }
+        // Bail on forward/self reference to an uninitialized member of this enum (takes precedence over outer enums)
+        if (allMemberNames && allMemberNames.has(tk.text) && !env.has(tk.text)) return null;
+        // Local member of this enum shadows any outer enum of the same name (e.g. `enum A { X=1 } enum B { A="abc", X=A.length }`)
+        if (env.has(tk.text)) {
+          if (enumName) rwEdits.push({ start: tk.start, end: tk.end, text: `${enumName}.${tk.text}` });
+          else return null;
+          continue;
+        }
         if (allEnums && allEnums.has(tk.text)) {
           // Allow `OtherEnum.X` verbatim ONLY when `OtherEnum` is unmerged in `allEnums` (Map) and `X` is NOT a constant member
           if (enumDeclCounts && (enumDeclCounts.get(tk.text) ?? 0) > 1) return null;
@@ -739,14 +750,6 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
             continue;
           }
           return null;
-        }
-        // Bail on forward/self reference to an uninitialized member of this enum
-        if (allMemberNames && allMemberNames.has(tk.text) && !env.has(tk.text)) return null;
-        if (env.has(tk.text)) {
-          const prev = ti > 0 ? toks[ti - 1] : null;
-          if (prev && prev.text === '.') continue;
-          if (enumName) rwEdits.push({ start: tk.start, end: tk.end, text: `${enumName}.${tk.text}` });
-          else return null;
         }
       }
       let outExpr = s;

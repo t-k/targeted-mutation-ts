@@ -3699,6 +3699,8 @@ test('F187 official spec suite push: Test262 99.99%, TS compiler/conformance 98.
     ['f187-bad-paren-lhs-inner.ts', '(1 + ) = 0;\n'],
     // Review Round 58 negative rejections:
     ['r58-bad-eval-pow-and-as-lhs.ts', '"use strict"\n++eval ** 2; x as any = 1;\n'],
+    // Review Round 58 follow-up (Round 2) negative rejections:
+    ['r58r2-bad-eval-angle-as-lhs.ts', 'export {}; ++eval ** 2; function f(a){ return <number>/*\n*/a as number = 1; }\n'],
   ]) {
     const tm = ts.transpileModule(source, {
       fileName: file,
@@ -3709,10 +3711,11 @@ test('F187 official spec suite push: Test262 99.99%, TS compiler/conformance 98.
     const r = compile(Buffer.from(source), { file });
     assert.equal(r.code, null, `must reject invalid TS: ${file}`);
   }
-  // Review Round 58 unbound export rejection behind regex/template `//`:
+  // Review Round 58 unbound export rejection behind regex/template `//` and postfix `++ /`:
   for (const [file, source] of [
     ['r58-unbound-after-regex-slashes.ts', 'const r = /[//]/; export { missing };\n'],
     ['r58-unbound-after-tpl-slashes.ts', 'const s = `//`; export { missing };\n'],
+    ['r58r2-unbound-after-postinc-div.ts', 'export {}; let a = 1; a++ / 2; export { missing }; /x/.test("");\n'],
   ]) {
     const r = compile(Buffer.from(source), { file });
     assert.equal(r.code, null, `must reject unbound export: ${file}`);
@@ -3727,7 +3730,15 @@ test('F187 official spec suite push: Test262 99.99%, TS compiler/conformance 98.
     ['r58-enum-declare-merged.ts', 'declare enum A { X = 2 }\nenum A { X = 1 }\nenum B { Y = A.X, Z }\n'],
     ['r58-enum-ns-merged.ts', 'namespace A { export const X = 2; }\nenum A { X = 1 }\nenum B { Y = A.X, Z }\n'],
     ['r58-paren-lhs-strip-as.ts', 'const [a] = [1];\n(1, x as number) = 0;\n'],
+    // Review Round 58 follow-up (Round 2) AST/runtime preservation regressions:
+    ['r58r2-bound-after-postinc-div.ts', 'export {}; let a = 1; a++ / 2; export { a }; /x/.test("");\n'],
+    ['r58r2-enum-computed-shadow-outer.ts', 'enum A { X = 1 }\nenum B { A = "abc", X = A.length }\n'],
+    ['r58r2-return-angle-ls-num.ts', 'function f() { return <any>\u2028123; }\nexport { f };\n'],
+    ['r58r2-yield-angle-ps-num.ts', 'function* g() { yield <any>\u2029123; }\nexport { g };\n'],
   ]) {
-    sameAsTypeScript(source, file);
+    const r = sameAsTypeScript(source, file);
+    if (file === 'r58r2-enum-computed-shadow-outer.ts' || file === 'r58r2-bound-after-postinc-div.ts') {
+      assert.notEqual(r.backend, 'typescript', file);
+    }
   }
 });

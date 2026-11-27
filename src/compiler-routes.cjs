@@ -763,8 +763,12 @@ function verifyRuntimeExports(result, file, addon, bytes) {
   const toks = require('./compiler-ts-lower.cjs').tokenize(result.code);
   if (toks) {
     let hasLocalNonEmptyExport = false;
-    for (let i = 0; i < toks.length - 1; i++) {
-      if (toks[i].type === 'id' && toks[i].text === 'export' && toks[i - 1]?.text !== '.' && toks[i + 1].text === '{') {
+    for (let i = 0; i < toks.length; i++) {
+      if (toks[i].type === 'regex' && /\bexport\b/.test(toks[i].text)) {
+        hasLocalNonEmptyExport = true;
+        break;
+      }
+      if (toks[i].type === 'id' && toks[i].text === 'export' && toks[i - 1]?.text !== '.' && toks[i + 1]?.text === '{') {
         let close = i + 2;
         while (close < toks.length && toks[close].text !== '}') close++;
         if (close >= toks.length) { hasLocalNonEmptyExport = true; break; }
@@ -1858,7 +1862,11 @@ function compile(input, options = {}) {
                       const msg = probe.diagnostics[0]?.message ?? '';
                       if (msg) {
                         const relaxed = tsLower.stripWithSwcRelaxations(jsxLowered, msg);
-                        if (relaxed !== null && !((jsxLowered.includes('as') || jsxLowered.includes('satisfies')) && regroupingAssertion(jsxLowered, relaxed))) {
+                        const badAsRelaxJsx = relaxed !== null && (jsxLowered.includes('as') || jsxLowered.includes('satisfies')) &&
+                          (relaxed.length === jsxLowered.length
+                            ? regroupingAssertion(jsxLowered, relaxed)
+                            : /\b(?:as|satisfies)\b[^;\r\n()]*=(?![=>])/.test(jsxLowered));
+                        if (relaxed !== null && !badAsRelaxJsx) {
                           const workBuf = Buffer.from(relaxed);
                           if (hadModBeforeAmb && !isMod) {
                             const modCheck = strip(relaxed + '\nexport {};', file);
@@ -1967,7 +1975,11 @@ function compile(input, options = {}) {
                         }
                       } else if (msg) {
                         const relaxed = tsLower.stripWithSwcRelaxations(work, msg);
-                        if (relaxed !== null && !((work.includes('as') || work.includes('satisfies')) && regroupingAssertion(work, relaxed))) {
+                        const badAsRelax = relaxed !== null && (work.includes('as') || work.includes('satisfies')) &&
+                          (relaxed.length === work.length
+                            ? regroupingAssertion(work, relaxed)
+                            : /\b(?:as|satisfies)\b[^;\r\n()]*=(?![=>])/.test(work));
+                        if (relaxed !== null && !badAsRelax) {
                           const workBuf = Buffer.from(relaxed);
                           const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
                           if (hadModBeforeAmb && !isMod) {
