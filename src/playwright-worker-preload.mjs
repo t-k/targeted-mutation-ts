@@ -62,31 +62,19 @@ export async function harvestOrigins(origins, authToken = token) {
   const list = origins ?? [];
   let cooperatedCount = 0;
   for (const origin of list) {
-    const candidates = [origin];
     try {
-      const parsed = new URL(origin);
-      if (parsed.hostname === '127.0.0.1') {
-        candidates.push(`${parsed.protocol}//localhost${parsed.port ? ':' + parsed.port : ''}`);
-      } else if (parsed.hostname === 'localhost') {
-        candidates.push(`${parsed.protocol}//127.0.0.1${parsed.port ? ':' + parsed.port : ''}`);
+      const res = await fetch(`${origin}/__tmt_harvest__`, {
+        headers: { 'x-tmt-token': authToken },
+        redirect: 'error',
+        signal: AbortSignal.timeout(3_000),
+      });
+      if (res.ok && res.headers.get('x-tmt-harvested') === '1') {
+        const body = await res.json();
+        cooperatedCount++;
+        if (body?.snapshot) snapshots.push(body.snapshot);
       }
-    } catch {}
-    for (const candidateOrigin of candidates) {
-      try {
-        const res = await fetch(`${candidateOrigin}/__tmt_harvest__`, {
-          headers: { 'x-tmt-token': authToken },
-          redirect: 'error',
-          signal: AbortSignal.timeout(3_000),
-        });
-        if (res.ok && res.headers.get('x-tmt-harvested') === '1') {
-          const body = await res.json();
-          cooperatedCount++;
-          if (body?.snapshot) snapshots.push(body.snapshot);
-          break;
-        }
-      } catch {
-        // Try alternate loopback alias if connection failed, or treat as non-cooperating server.
-      }
+    } catch {
+      // Server may have redirected, exited, or be a static non-Node server.
     }
   }
   const serverCooperating = list.length > 0 && cooperatedCount === list.length;

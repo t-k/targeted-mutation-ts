@@ -3,7 +3,7 @@ import { existsSync, globSync, readdirSync, readFileSync, statSync } from 'node:
 import { isAbsolute, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { listSource } from './scope.mjs';
-import { canonicalPath, inside } from './vitest.mjs';
+import { canonicalPath, inside, resolveCopyExclusions } from './vitest.mjs';
 
 const GLOB_CHARS = /[*?[\]{]/;
 const CONFIG_JSON = 'targeted-mutation.config.json';
@@ -135,6 +135,19 @@ export function validateAndExpandInputs(project, files = [], options = {}) {
     inside(root, options.spec);
   }
 
+  let dirExclusions = null;
+  const getDirExclusions = () => {
+    if (dirExclusions !== null) return dirExclusions;
+    const rawExcludes = [
+      ...(options['copy-exclude'] ?? []),
+      ...(options['copy-exclude-gitignore'] ? gitignoredCopyExclusions(root) : []),
+    ];
+    dirExclusions = rawExcludes.length
+      ? resolveCopyExclusions(root, [...new Set(rawExcludes)], { onMissing: () => {} })
+      : [];
+    return dirExclusions;
+  };
+
   const expandedFiles = [];
   for (const entry of files) {
     if (hasGlobPattern(entry)) {
@@ -150,7 +163,7 @@ export function validateAndExpandInputs(project, files = [], options = {}) {
       }
       const targetDirOrFile = inside(root, entry);
       if (st.isDirectory()) {
-        const matched = listSource(root, [], targetDirOrFile).sort();
+        const matched = listSource(root, getDirExclusions(), targetDirOrFile).sort();
         if (!matched.length) {
           throw new Error(`No source files found in directory: ${entry}`);
         }

@@ -82,7 +82,7 @@ const harvestOriginsList = [];
 const seenHarvest = new Set();
 const servers = settings.map(server => {
   const hasExplicitUrl = server.url !== undefined && server.url !== null && String(server.url).trim() !== '';
-  const url = new URL(hasExplicitUrl ? server.url : ('http://127.0.0.1:' + server.port));
+  const url = new URL(hasExplicitUrl ? server.url : ('http://localhost:' + server.port));
   if (!loopback.has(url.hostname) || !['http:', 'https:'].includes(url.protocol)) {
     throw new Error('The managed webServer must listen on loopback');
   }
@@ -90,14 +90,21 @@ const servers = settings.map(server => {
       (process.env.TMT_ORIGINAL && server.command.includes(process.env.TMT_ORIGINAL))) {
     throw new Error('The managed webServer command must run the trial workspace');
   }
-  const portSuffix = url.port ? ':' + url.port : '';
-  for (const host of loopback) {
-    allowedOrigins.add(url.protocol + '//' + host + portSuffix);
+  let primaryOrigin = url.origin;
+  if (hasExplicitUrl) {
+    allowedOrigins.add(url.origin);
+  } else {
+    const matchingBases = [...new Set(
+      configuredBaseUrls
+        .filter(b => b.protocol === url.protocol && b.port === url.port && loopback.has(b.hostname))
+        .map(b => b.origin),
+    )];
+    if (matchingBases.length > 1) {
+      throw new Error('Playwright projects target multiple loopback hosts on webServer.port (' + server.port + '); set webServer.url explicitly');
+    }
+    primaryOrigin = matchingBases[0] ?? url.origin;
+    allowedOrigins.add(primaryOrigin);
   }
-  const matchingBase = !hasExplicitUrl
-    ? configuredBaseUrls.find(b => b.protocol === url.protocol && b.port === url.port && loopback.has(b.hostname))
-    : null;
-  const primaryOrigin = matchingBase ? matchingBase.origin : url.origin;
   if (!seenHarvest.has(primaryOrigin)) {
     seenHarvest.add(primaryOrigin);
     harvestOriginsList.push(primaryOrigin);
@@ -448,7 +455,7 @@ export async function analyzePlaywrightSession(project, files, options) {
         ...(targeted?.operator === 'idx0' ? { sequenceIndex: true } : {}),
         ...(targeted ? { effects: true } : {}),
         ...((fullDiagnostic?.kind === 'optional-chaining' && fullDiagnostic.wrapSafe) ||
-            (fullDiagnostic?.kind === 'condition' && fullDiagnostic.pureBoolean)
+            (fullDiagnostic?.kind === 'condition' && fullDiagnostic.pureBoolean && fullDiagnostic.truthMode === 1)
           ? { predictableFull: true }
           : {}),
       })),
@@ -519,7 +526,8 @@ export async function analyzePlaywrightSession(project, files, options) {
             latestProgress = event.progress.completed;
           }
         }
-        const done = Math.min(totalExpected, Math.max(doneEvents, latestProgress));
+        const provisionalCap = Math.max(0, totalExpected - 1);
+        const done = Math.min(totalExpected, Math.max(doneEvents, Math.min(latestProgress, provisionalCap)));
         if (done > lastDone && done > 0) {
           lastDone = done;
           lastReportAt = now;

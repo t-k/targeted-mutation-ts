@@ -117,22 +117,35 @@ export function copyPathIsExcluded(source, path, exclusions) {
     });
 }
 
-function linkInstalledModules(source, root, projectModules, installed, tools) {
-  const mergedDirectories = new Set(tools.map(({ name }) => dirname(name)));
-  const entries = readdirSync(projectModules, { withFileTypes: true }).flatMap(entry =>
+function collectModuleEntries(modulesDir, mergedDirectories) {
+  return readdirSync(modulesDir, { withFileTypes: true }).flatMap(entry =>
     (entry.isDirectory() && entry.name.startsWith('@') || mergedDirectories.has(entry.name))
-      ? readdirSync(resolve(projectModules, entry.name), { withFileTypes: true })
-        .map(child => ({ entry: child, name: join(entry.name, child.name) }))
-      : [{ entry, name: entry.name }]);
-  const modules = entries.map(({ entry, name }) => {
-    const original = resolve(projectModules, name);
+      ? readdirSync(resolve(modulesDir, entry.name), { withFileTypes: true })
+        .map(child => ({ entry: child, name: join(entry.name, child.name), baseDir: modulesDir }))
+      : [{ entry, name: entry.name, baseDir: modulesDir }]);
+}
+
+function linkInstalledModules(source, root, projectModules, installed, tools, ancestorModulesList = []) {
+  const mergedDirectories = new Set(tools.map(({ name }) => dirname(name)));
+  const seenNames = new Set(tools.map(({ name }) => name));
+  const rawEntries = [];
+  for (const dir of [projectModules, ...ancestorModulesList].filter(Boolean)) {
+    for (const item of collectModuleEntries(dir, mergedDirectories)) {
+      if (seenNames.has(item.name)) continue;
+      seenNames.add(item.name);
+      rawEntries.push(item);
+    }
+  }
+  const modules = rawEntries.map(({ entry, name, baseDir }) => {
+    const original = resolve(baseDir, name);
     const target = entry.isSymbolicLink() && existsSync(original) ? canonicalPath(original) : null;
     const within = target === null ? '..' : relative(source, target);
     const local = within !== '..' && !within.startsWith('..' + sep) && !isAbsolute(within) &&
       !within.split(sep).includes('node_modules');
-    return { name, target: local ? resolve(root, within) : original, local };
+    const linkType = entry.isFile() ? 'file' : 'dir';
+    return { name, target: local ? resolve(root, within) : original, local, type: linkType };
   });
-  if (!tools.length && !modules.some(module => module.local)) {
+  if (projectModules && !ancestorModulesList.length && !tools.length && !modules.some(module => module.local)) {
     symlinkSync(projectModules, installed, 'dir');
     return;
   }
@@ -309,15 +322,21 @@ function workspaceTreeChanged(before, root) {
   return false;
 }
 
-function findHoistedModules(source) {
+function findAncestorModulesList(source) {
+  const out = [];
+  const seen = new Set();
   let cursor = dirname(source);
   for (;;) {
     const candidate = resolve(cursor, 'node_modules');
     if (statSync(candidate, { throwIfNoEntry: false })?.isDirectory()) {
-      return canonicalPath(candidate);
+      const real = canonicalPath(candidate);
+      if (!seen.has(real)) {
+        seen.add(real);
+        out.push(real);
+      }
     }
     const parent = dirname(cursor);
-    if (parent === cursor) return null;
+    if (parent === cursor) return out;
     cursor = parent;
   }
 }
@@ -404,15 +423,21 @@ export function createCopy(project, {
     rebaseCopiedLinks(source, root);
     const projectModules = resolve(source, 'node_modules');
     const hasLocalModules = moduleTrees.includes(projectModules);
-    const hoistedModules = hasLocalModules ? null : findHoistedModules(source);
-    const effectiveModules = hasLocalModules ? projectModules : (hoistedModules ?? projectModules);
-    const tools = toolLinks(source, effectiveModules, Boolean(hasLocalModules || hoistedModules));
+    const ancestorModulesList = findAncestorModulesList(source);
+    const tools = toolLinks(source, projectModules, Boolean(hasLocalModules || ancestorModulesList.length));
     for (const modules of moduleTrees) {
-      linkInstalledModules(source, root, modules, resolve(root, relative(source, modules)), modules === projectModules ? tools : []);
+      linkInstalledModules(
+        source,
+        root,
+        modules,
+        resolve(root, relative(source, modules)),
+        modules === projectModules ? tools : [],
+        modules === projectModules ? ancestorModulesList : [],
+      );
     }
     if (!hasLocalModules) {
-      if (hoistedModules) {
-        linkInstalledModules(source, root, hoistedModules, resolve(root, 'node_modules'), tools);
+      if (ancestorModulesList.length) {
+        linkInstalledModules(source, root, null, resolve(root, 'node_modules'), tools, ancestorModulesList);
       } else {
         linkModules(resolve(root, 'node_modules'), tools);
       }

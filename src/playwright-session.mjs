@@ -495,6 +495,7 @@ async function runSession() {
 
   let deterministicStable;
   let deterministicCoverageByKey;
+  let replayIndexed = null;
   if (deterministic) {
     const replayPass = await executePass({
       phase: 'baseline',
@@ -502,7 +503,7 @@ async function runSession() {
       timeoutMs: baselineTimeout,
     });
     if (replayPass.status === 'passed') {
-      const replayIndexed = indexPlaywrightBaseline(replayPass.records, passedTests, [], timingByTest);
+      replayIndexed = indexPlaywrightBaseline(replayPass.records, passedTests, [], timingByTest);
       const t1 = comparisonRecordsToTrace(indexed.normalized, passedTests, []);
       const t2 = comparisonRecordsToTrace(replayIndexed.normalized, passedTests, []);
       deterministicStable = JSON.stringify(indexed.normalized.map(r => r.comparisons)) ===
@@ -564,6 +565,42 @@ async function runSession() {
     ...(deterministicCoverageByKey ? { deterministicCoverageByKey } : {}),
   });
 
+  const sumObservedByTest = (normRecords, mutantId) => {
+    const map = new Map();
+    for (const rec of normRecords) {
+      const byTest = rec.observed?.[mutantId]?.tests;
+      if (!byTest) continue;
+      for (const [testId, tuple] of Object.entries(byTest)) {
+        const cur = map.get(testId) ?? [0, 0, 0];
+        cur[0] += Number(tuple?.[0] ?? 0);
+        cur[1] += Number(tuple?.[1] ?? 0);
+        cur[2] += Number(tuple?.[2] ?? 0);
+        map.set(testId, cur);
+      }
+    }
+    return map;
+  };
+  const canPredictFullSurvivor = (mutantId, plan, seen) => {
+    if (!deterministic || !deterministicStable || !replayIndexed) return false;
+    if (plan.serverStatic || plan.staticActivation || !plan.perTestHits?.size) return false;
+    if (!seen || !seen.agreeing.size || seen.differing.size || seen.unsure.size || seen.outside || seen.outsideUnsure) return false;
+    const replayPlan = replayIndexed.planMutant(mutantId);
+    if (replayPlan.serverStatic || replayPlan.staticActivation || replayPlan.perTestHits.size !== plan.perTestHits.size) return false;
+    const obs1 = sumObservedByTest(indexed.normalized, mutantId);
+    const obs2 = sumObservedByTest(replayIndexed.normalized, mutantId);
+    if (obs1.size !== plan.perTestHits.size || obs2.size !== plan.perTestHits.size) return false;
+    for (const [testId, expectedHits] of plan.perTestHits) {
+      if (!passedTests.has(testId) || expectedHits <= 0) return false;
+      if (replayPlan.perTestHits.get(testId) !== expectedHits) return false;
+      const t1 = obs1.get(testId);
+      const t2 = obs2.get(testId);
+      if (!t1 || !t2) return false;
+      if (t1[0] !== expectedHits || t1[1] !== 0 || t1[2] !== 0) return false;
+      if (t2[0] !== expectedHits || t2[1] !== 0 || t2[2] !== 0) return false;
+    }
+    return true;
+  };
+
   let completedCount = 0;
   const pending = [];
   for (const mutant of mutants.filter(candidate => !candidate.parametric)) {
@@ -593,9 +630,7 @@ async function runSession() {
       completedCount++;
       continue;
     }
-    if (deterministic && deterministicStable && mutant.predictableFull && !plan.serverStatic && !plan.staticActivation &&
-        seen && seen.agreeing.size > 0 && seen.agreeing.size === plan.covered.size &&
-        !seen.differing.size && !seen.unsure.size && !seen.outside && !seen.outsideUnsure) {
+    if (mutant.predictableFull && canPredictFullSurvivor(id, plan, seen)) {
       record({ id, status: 'survived', evidence: 'predicted' });
       completedCount++;
       continue;

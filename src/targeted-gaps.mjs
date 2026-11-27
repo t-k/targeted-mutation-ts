@@ -67,7 +67,8 @@ function missingInput({ operator, form, boolean, left, right: rightExpr, rightTe
   }
   const takesRight = { '&&': 'truthy', '||': 'falsy', '??': 'null or undefined' }[operator];
   if (form === 'left') return `a test in which ${side} is ${{ '&&': 'falsy', '||': 'truthy', '??': 'neither null nor undefined' }[operator]}`;
-  if (operator === '??' && pureRight && rightText !== undefined) {
+  if (operator === '??' && pureRight && rightText !== undefined && rightText.trim() !== 'undefined' &&
+      !(boolean && ['false', '0', '0n', "''", '""', '``', 'null'].includes(rightText.trim()))) {
     return `a test in which ${side} is null or undefined so the fallback \`${clip(rightText)}\` is used`;
   }
   const kept = { '&&': 'true', '||': 'false', '??': 'undefined' }[operator];

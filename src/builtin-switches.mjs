@@ -96,50 +96,64 @@ ${loadedComparisons.length ? `function ${cmp}(site, op, lhs, rhs) {
     if (!hasOuter) ns.__optShort = 0;
     return val;
   }
-  var state = scope[scope.Symbol.for('targeted-mutation-ts/session')];
   var isNullish = val === null || val === void 0;
   if (hasOuter) ns.__optShort = isNullish ? 1 : 0;
   else if (isInner) ns.__optShort = 0;
-  if (state && state.phase === 'baseline') {
-    var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '';
-    var entry = seen[id] || (seen[id] = { tests: {} }), counts = entry.tests[test] || (entry.tests[test] = [0, 0, 0]);
-    if (isNullish) {
-      counts[1]++;
-      if (!entry.differ) entry.differ = [val === null ? 'null' : 'undefined'];
-    } else {
-      counts[0]++;
-      if (!entry.agree) entry.agree = [typeof val];
+  try {
+    var state = scope[scope.Symbol.for('targeted-mutation-ts/session')];
+    if (state && state.phase === 'baseline') {
+      var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '';
+      var entry = seen[id] || (seen[id] = { tests: {} }), counts = entry.tests[test] || (entry.tests[test] = [0, 0, 0]);
+      if (isNullish) {
+        counts[1]++;
+        if (!entry.differ) entry.differ = [val === null ? 'null' : 'undefined'];
+      } else {
+        counts[0]++;
+        if (!entry.agree) entry.agree = [typeof val];
+      }
     }
-  }
+  } catch (ignoreOptErr) {}
   return val;
 }
-` : ''}${cond ? `function ${cond}(tId, fId, val) {
+` : ''}${cond ? `function ${cond}(tId, fId, truthMode, val) {
   var scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
-  var state = scope[scope.Symbol.for('targeted-mutation-ts/session')];
-  if (state && state.phase === 'baseline') {
-    var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '';
-    var truthy = !!val;
-    var shown = val === null ? 'null' : typeof val === 'string' ? '"' + (val.length > 40 ? val.slice(0, 40) + '...' : val) + '"'
-      : (typeof val === 'number' || typeof val === 'boolean' || typeof val === 'undefined') ? '' + val : typeof val;
-    if (tId) {
-      var te = seen[tId] || (seen[tId] = { tests: {} }), tc = te.tests[test] || (te.tests[test] = [0, 0, 0]);
-      if (truthy) { tc[0]++; if (!te.agree) te.agree = [shown]; }
-      else { tc[1]++; if (!te.differ) te.differ = [shown]; }
+  try {
+    var state = scope[scope.Symbol.for('targeted-mutation-ts/session')];
+    if (state && state.phase === 'baseline') {
+      var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '';
+      var useTruth = truthMode === 1 || (truthMode === 2 && typeof scope.Boolean === 'function' &&
+        scope.Boolean.name === 'Boolean' && scope.Function.prototype.toString.call(scope.Boolean).indexOf('[native code]') >= 0 &&
+        scope.Boolean(0) === false && scope.Boolean(1) === true);
+      var tSame = useTruth ? !!val : val === true;
+      var fSame = useTruth ? !val : val === false;
+      var tv = typeof val, shown;
+      if (val === null) shown = 'null';
+      else if (val === void 0) shown = 'undefined';
+      else if (tv === 'number' || tv === 'boolean') shown = '' + val;
+      else if (tv === 'string') {
+        var acc = '"', si, lim = val.length < 40 ? val.length : 40;
+        for (si = 0; si < lim; si++) acc += val[si];
+        shown = acc + (val.length > 40 ? '..."' : '"');
+      } else shown = tv;
+      if (tId) {
+        var te = seen[tId] || (seen[tId] = { tests: {} }), tc = te.tests[test] || (te.tests[test] = [0, 0, 0]);
+        if (tSame) { tc[0]++; if (!te.agree) te.agree = [shown]; }
+        else { tc[1]++; if (!te.differ) te.differ = [shown]; }
+      }
+      if (fId) {
+        var fe = seen[fId] || (seen[fId] = { tests: {} }), fc = fe.tests[test] || (fe.tests[test] = [0, 0, 0]);
+        if (fSame) { fc[0]++; if (!fe.agree) fe.agree = [shown]; }
+        else { fc[1]++; if (!fe.differ) fe.differ = [shown]; }
+      }
     }
-    if (fId) {
-      var fe = seen[fId] || (seen[fId] = { tests: {} }), fc = fe.tests[test] || (fe.tests[test] = [0, 0, 0]);
-      if (!truthy) { fc[0]++; if (!fe.agree) fe.agree = [shown]; }
-      else { fc[1]++; if (!fe.differ) fe.differ = [shown]; }
-    }
-  }
+  } catch (ignoreCondErr) {}
   return val;
 }
 ` : ''}${rel ? `function ${rel}(op, a, b) {
   var ta = typeof a, tb = typeof b;
-  if ((a !== null && (ta === 'object' || ta === 'function')) || ta === 'symbol' ||
-      (b !== null && (tb === 'object' || tb === 'function')) || tb === 'symbol') {
-    throw 0;
-  }
+  var pa = a === null || a === void 0 || ta === 'number' || ta === 'string' || ta === 'boolean' || ta === 'bigint';
+  var pb = b === null || b === void 0 || tb === 'number' || tb === 'string' || tb === 'boolean' || tb === 'bigint';
+  if (!pa || !pb) throw 0;
   return op === '<' ? a < b : op === '<=' ? a <= b : op === '>' ? a > b : a >= b;
 }
 ` : ''}`;
@@ -165,6 +179,14 @@ function ${see}(i, l, r, r2, g) {
   function isNativeFn(fn) {
     try { return typeof fn === 'function' && scope.Function.prototype.toString.call(fn).indexOf('[native code]') >= 0; } catch (e) { return false; }
   }
+  var mathMethods = ${table}.m || (${table}.m = (function() {
+    var m = scope.Math;
+    if (!m || typeof m !== 'object') return { min: null, max: null };
+    var mn = safeProtoMethod(m, 'min'), mx = safeProtoMethod(m, 'max');
+    var okMin = isNativeFn(mn) && mn.name === 'min' && mn.length === 2 && mn(2, 1) === 1 && mn(-1, -2) === -2;
+    var okMax = isNativeFn(mx) && mx.name === 'max' && mx.length === 2 && mx(2, 1) === 2 && mx(-1, -2) === -1;
+    return { min: okMin ? mn : null, max: okMax ? mx : null };
+  })());
   function numMin(a, b) { return a !== a || b !== b ? NaN : (a === 0 && b === 0 ? (1 / a < 0 || 1 / b < 0 ? -0 : 0) : a < b ? a : b); }
   function numMax(a, b) { return a !== a || b !== b ? NaN : (a === 0 && b === 0 ? (1 / a > 0 || 1 / b > 0 ? 0 : -0) : a > b ? a : b); }
   function isPlainDataObj(v) {
@@ -361,9 +383,15 @@ function ${see}(i, l, r, r2, g) {
   }
   function show(v) {
     var t = typeof v;
-    return v === null ? 'null' : t === 'string' ? '"' + (v.length > 40 ? v.slice(0, 40) + '...' : v) + '"'
-      : t === 'number' ? (v === 0 && 1 / v < 0 ? '-0' : '' + v) : t === 'boolean' || t === 'undefined' ? '' + v : t === 'bigint' ? v + 'n'
-        : scope.Array.isArray(v) ? 'array of ' + v.length : t;
+    if (v === null) return 'null';
+    if (v === void 0) return 'undefined';
+    if (t === 'string') {
+      var sa = '"', si, sl = v.length < 40 ? v.length : 40;
+      for (si = 0; si < sl; si++) sa += v[si];
+      return sa + (v.length > 40 ? '..."' : '"');
+    }
+    return t === 'number' ? (v === 0 && 1 / v < 0 ? '-0' : '' + v) : t === 'boolean' ? '' + v : t === 'bigint' ? v + 'n'
+      : scope.Array.isArray(v) ? 'array of ' + v.length : t;
   }
   if (ns.activeMutant !== void 0) for (k = 0; k < edits.length; k++) if (edits[k][0] === ns.activeMutant) form = edits[k][1];
   if (form !== void 0) {
@@ -395,7 +423,8 @@ function ${see}(i, l, r, r2, g) {
       if ((op === 'max' || op === 'min') && l === scope.Math) {
         try {
           var mAlt = op === 'max' ? 'min' : 'max';
-          mathPreOk = isNativeFn(origFn) && isNativeFn(l[mAlt]);
+          var altFnPre = safeProtoMethod(l, mAlt);
+          mathPreOk = Boolean(mathMethods[op] && mathMethods[mAlt] && origFn === mathMethods[op] && altFnPre === mathMethods[mAlt]);
         } catch (error) { mathPreOk = false; }
       }
       arg1 = r();
@@ -415,6 +444,12 @@ function ${see}(i, l, r, r2, g) {
       }
       if (site[7] === 3) {
         arg2 = r2();
+        if (mathPreOk) {
+          try {
+            var mAltPost = op === 'max' ? 'min' : 'max';
+            if (safeProtoMethod(l, mAltPost) !== mathMethods[mAltPost]) mathPreOk = false;
+          } catch (error) { mathPreOk = false; }
+        }
         value = scope.Reflect.apply(origFn, l, [arg1, arg2]);
       } else {
         value = scope.Reflect.apply(origFn, l, [arg1]);
@@ -754,25 +789,33 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
           const safeOpts = [];
           for (const m of allOpts) {
             if (!m.optReceiverSpan) break;
-            if (safeOpts.length > 0 &&
-                (m.optReceiverSpan[0] !== safeOpts[0].optReceiverSpan[0] || m.optReceiverSpan[1] <= safeOpts.at(-1).optReceiverSpan[1])) {
-              break;
+            if (safeOpts.length > 0) {
+              const prev = safeOpts.at(-1).optReceiverSpan;
+              const lead = text.slice(m.optReceiverSpan[0], prev[0]);
+              if (m.optReceiverSpan[0] > prev[0] || m.optReceiverSpan[1] <= prev[1] || !/^[\s(]*$/.test(lead)) {
+                break;
+              }
             }
             safeOpts.push(m);
           }
-          if (safeOpts.length > 0 && safeOpts[0].optReceiverSpan[0] >= first && safeOpts.at(-1).optReceiverSpan[1] < last) {
+          const minOptStart = safeOpts.length ? safeOpts.at(-1).optReceiverSpan[0] : -1;
+          if (safeOpts.length > 0 && minOptStart >= first && safeOpts.at(-1).optReceiverSpan[1] < last) {
             usedOpt = true;
-            const optStart = safeOpts[0].optReceiverSpan[0];
-            const prefix = optStart > first ? render(first, optStart) : '';
+            const prefix = minOptStart > first ? render(first, minOptStart) : '';
             let acc = '';
             for (let k = 0; k < safeOpts.length; k++) {
-              const prevEnd = k === 0 ? optStart : safeOpts[k - 1].optReceiverSpan[1];
-              const seg = render(prevEnd, safeOpts[k].optReceiverSpan[1]);
-              const isInner = k > 0 ? 1 : 0;
-              const hasOuter = k < safeOpts.length - 1 ? 1 : 0;
-              acc = k === 0
-                ? `(${opt}(${JSON.stringify(safeOpts[k].id)}, (${seg}), ${isInner}, ${hasOuter}))`
-                : `(${opt}(${JSON.stringify(safeOpts[k].id)}, ${acc}${seg}, ${isInner}, ${hasOuter}))`;
+              const curSpan = safeOpts[k].optReceiverSpan;
+              const isInner = k > 0 && safeOpts[k].continuesChain ? 1 : 0;
+              const hasOuter = k < safeOpts.length - 1 && safeOpts[k + 1].continuesChain ? 1 : 0;
+              if (k === 0) {
+                const seg = render(curSpan[0], curSpan[1]);
+                acc = `(${opt}(${JSON.stringify(safeOpts[k].id)}, (${seg}), ${isInner}, ${hasOuter}))`;
+              } else {
+                const prevSpan = safeOpts[k - 1].optReceiverSpan;
+                const leftParens = text.slice(curSpan[0], prevSpan[0]);
+                const seg = render(prevSpan[1], curSpan[1]);
+                acc = `(${opt}(${JSON.stringify(safeOpts[k].id)}, ${leftParens}${acc}${seg}, ${isInner}, ${hasOuter}))`;
+              }
             }
             const suffix = render(safeOpts.at(-1).optReceiverSpan[1], last);
             inner = prefix + acc + suffix;
@@ -787,7 +830,8 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
             m.fullDiagnostic?.kind === 'condition' && m.fullDiagnostic.target === 'false' && m.start === first && m.end === last);
           if (trueCond || falseCond) {
             usedCond = true;
-            inner = `${cond}(${JSON.stringify(trueCond?.id ?? '')}, ${JSON.stringify(falseCond?.id ?? '')}, (${inner}))`;
+            const truthMode = (trueCond ?? falseCond).fullDiagnostic.truthMode ?? 0;
+            inner = `${cond}(${JSON.stringify(trueCond?.id ?? '')}, ${JSON.stringify(falseCond?.id ?? '')}, ${truthMode}, (${inner}))`;
           }
         }
         // An arrow function bound to a variable keeps the variable's name through an inner binding.

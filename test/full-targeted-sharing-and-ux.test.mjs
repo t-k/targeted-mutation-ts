@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -395,5 +395,159 @@ test('Dogfooding UX fixes: webServer.port + 127.0.0.1 baseURL, baseline stderr s
     assert.equal(fbGap?.missing, "a test in which `couponCode` is null or undefined so the fallback `''` is used");
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('Codex Round 1 regressions: Math getter/swap/await safety, TS erased method `?.()`, `with` & `eval?.()`, `(a?.b)?.c`, String.prototype.slice safety, value-context condition, local+hoisted node_modules, copy-exclude dir, and strict webServer.url', async () => {
+  // 1. `Math.min(1, 2)` baseline NEVER invokes a getter on `Math.max`, and `Math.max = Math.abs` marks `unsure` (not `agree`).
+  const mathSrc = 'export const small = (a: number, b: number) => Math.min(a, b);\n';
+  let getterHits = 0;
+  const getterEval = evalInstrumented(mathSrc, 'src/m.ts', (exports, ctx) => {
+    const realmMath = vm.runInContext('Math', ctx);
+    const origDesc = Object.getOwnPropertyDescriptor(realmMath, 'max');
+    Object.defineProperty(realmMath, 'max', {
+      configurable: true,
+      get() { getterHits++; return origDesc.value; },
+    });
+    try {
+      return exports.small(1, 2);
+    } finally {
+      Object.defineProperty(realmMath, 'max', origDesc);
+    }
+  });
+  assert.equal(getterEval.value, 1);
+  assert.equal(getterHits, 0, 'baseline Math.min must never invoke a getter on Math.max');
+  const extremeId = getterEval.rendered.mutants.find(m => m.mutatorName === 'extreme-swap/v1').id;
+  assert.deepEqual([...getterEval.ns.observed[extremeId].tests.t1], [0, 0, 1], 'getter on Math.max must mark observation unsure');
+
+  const absSwapEval = evalInstrumented(mathSrc, 'src/m.ts', (exports, ctx) => {
+    const realmMath = vm.runInContext('Math', ctx);
+    const origMax = realmMath.max;
+    realmMath.max = realmMath.abs;
+    try {
+      return exports.small(-1, -1);
+    } finally {
+      realmMath.max = origMax;
+    }
+  });
+  assert.equal(absSwapEval.value, -1);
+  assert.deepEqual([...absSwapEval.ns.observed[extremeId].tests.t1], [0, 0, 1], 'replaced Math.max = Math.abs must mark observation unsure');
+
+  // 2. `Math.min(await change(), 1)` preserves ECMA-262 callee lookup BEFORE `await change()`!
+  const asyncMathSrc = 'export async function smallAsync(change: () => Promise<number>) { return Math.min(await change(), 1); }\n';
+  const asyncRendered = renderBuiltinSwitches(Buffer.from(asyncMathSrc), 'src/am.ts', () => true, { dialect: 'ts', targeted: true });
+  assert.equal(asyncRendered.mutants.some(m => m.mutatorName === 'extreme-swap/v1'), false);
+  const asyncEval = evalInstrumented(asyncMathSrc, 'src/am.ts', async (exports, ctx) => {
+    const realmMath = vm.runInContext('Math', ctx);
+    const origMin = realmMath.min;
+    try {
+      return await exports.smallAsync(async () => {
+        realmMath.min = () => 99;
+        return 2;
+      });
+    } finally {
+      realmMath.min = origMin;
+    }
+  });
+  assert.equal(await asyncEval.value, 1, 'Math.min lookup must happen before await change() mutates Math.min');
+
+  // 3. `obj.m!?.()`, `(obj.m as any)?.()`, `(a?.b)?.c`, and `eval?.("typeof localX")`!
+  const optEdgeSrc = [
+    'export const callBang = (obj: any) => obj.m!?.();',
+    'export const callAs = (obj: any) => (obj.m as any)?.();',
+    'export const parenChain = (a: any) => (a?.b)?.c;',
+    'export function indirectEval() { const localX = 123; return eval?.("typeof localX"); }',
+  ].join('\n');
+  const optEdgeEval = evalInstrumented(optEdgeSrc, 'src/opt-edge.ts', exports => {
+    const obj = { m() { return this === obj; } };
+    return [exports.callBang(obj), exports.callAs(obj), exports.parenChain(null), exports.indirectEval()];
+  });
+  assert.deepEqual([...optEdgeEval.value], [true, true, undefined, 'undefined']);
+  const parenMutants = optEdgeEval.rendered.mutants
+    .filter(m => m.mutatorName === 'OptionalChaining' && m.location.line === 3)
+    .sort((a, b) => a.location.end - b.location.end);
+  assert.equal(parenMutants.length, 2);
+  // Both inner `a?.b` AND outer `(a?.b)?.c` WERE reached and observed nullish (`null` and `undefined`)!
+  assert.deepEqual([...optEdgeEval.ns.observed[parenMutants[0].id].tests.t1], [0, 1, 0]);
+  assert.deepEqual([...optEdgeEval.ns.observed[parenMutants[1].id].tests.t1], [0, 1, 0]);
+  // `eval?.(...)` must NOT be marked wrapSafe / fullDiagnostic!
+  const evalMutant = optEdgeEval.rendered.mutants.find(m => m.mutatorName === 'OptionalChaining' && m.location.line === 4);
+  assert.equal(evalMutant.fullDiagnostic, undefined);
+
+  // 4. `with (o) { return m?.(); }` in sloppy JS preserves `this === o`!
+  const withRendered = renderBuiltinSwitches(Buffer.from('function runWith(o) { with (o) { return m?.(); } }\n'), 'src/w.js', () => true, { targeted: true });
+  const withCtx = vm.createContext({
+    [Symbol.for('targeted-mutation-ts/session')]: { phase: 'baseline' },
+    __stryker__: { currentTestId: 't1' },
+  });
+  vm.runInContext(withRendered.output, withCtx);
+  const wObj = { m() { return this === wObj; } };
+  assert.equal(withCtx.runWith(wObj), true, 'with(o) { m?.() } must preserve WithEnvironment receiver `this === o`');
+
+  // 5. `__tmtCond` survives poisoned `String.prototype.slice` AND distinguishes value context (`return a || b`) from boolean context (`if (...)`)!
+  const condSrc = [
+    'export const retLogical = (a: any, b: any) => a || b;',
+    'export const ifStr = (s: string) => { if (s === "x") return 1; return 0; };',
+  ].join('\n');
+  const condEval = evalInstrumented(condSrc, 'src/c.ts', (exports, ctx) => {
+    const StrProto = vm.runInContext('String.prototype', ctx);
+    const origSlice = StrProto.slice;
+    StrProto.slice = () => { throw new Error('poisoned slice'); };
+    try {
+      return [exports.retLogical(3, 0), exports.ifStr('a'.repeat(60))];
+    } finally {
+      StrProto.slice = origSlice;
+    }
+  });
+  assert.deepEqual([...condEval.value], [3, 0]);
+  const retTrueMut = condEval.rendered.mutants.find(m => m.mutatorName === 'ConditionalExpression' && m.location.line === 1 && m.replacement === 'true');
+  // `retLogical(3, 0)` returned `3 !== true`, so `retLogical -> true` MUST record `differ` (`[0, 1, 0]`), NOT `agree`!
+  assert.deepEqual([...condEval.ns.observed[retTrueMut.id].tests.t1], [0, 1, 0]);
+
+  // 6. `a ?? undefined` and `if (a ?? false)` omit equivalent right-drop `ignored-operand/v1`!
+  const eqvNullishSrc = 'export const f = (a: any) => a ?? undefined;\nexport const g = (a: any) => { if (a ?? false) return 1; return 0; };\n';
+  const eqvNullishRendered = renderBuiltinSwitches(Buffer.from(eqvNullishSrc), 'src/eqv.ts', () => true, { dialect: 'ts', targeted: true });
+  const rightDrops = eqvNullishRendered.mutants.filter(m => m.mutatorName === 'ignored-operand/v1' && m.targeted?.form === 'right');
+  assert.equal(rightDrops.length, 0, 'equivalent ?? right-drops must be omitted');
+
+  // 7. Local + hoisted `node_modules` coexistence, `--copy-exclude` with directory arg, and strict `webServer.url` origin check!
+  const monoDir = mkdtempSync(join(tmpdir(), 'tmt-mono-both-'));
+  try {
+    mkdirSync(join(monoDir, 'node_modules', 'hoisted-only'), { recursive: true });
+    writeFileSync(join(monoDir, 'node_modules', 'hoisted-only', 'index.js'), 'module.exports = "hoisted";\n');
+    mkdirSync(join(monoDir, 'packages', 'app', 'node_modules', 'local-only'), { recursive: true });
+    writeFileSync(join(monoDir, 'packages', 'app', 'node_modules', 'local-only', 'index.js'), 'module.exports = "local";\n');
+    mkdirSync(join(monoDir, 'packages', 'app', 'src', 'generated'), { recursive: true });
+    writeFileSync(join(monoDir, 'packages', 'app', 'package.json'), JSON.stringify({ name: 'app' }));
+    writeFileSync(join(monoDir, 'packages', 'app', 'src', 'keep.ts'), 'export const k = 1;\n');
+    writeFileSync(join(monoDir, 'packages', 'app', 'src', 'generated', 'skip.ts'), 'export const s = 2;\n');
+
+    withCopy(join(monoDir, 'packages', 'app'), copyRoot => {
+      assert.equal(readFileSync(resolve(copyRoot, 'node_modules', 'local-only', 'index.js'), 'utf8').trim(), 'module.exports = "local";');
+      assert.equal(readFileSync(resolve(copyRoot, 'node_modules', 'hoisted-only', 'index.js'), 'utf8').trim(), 'module.exports = "hoisted";');
+    });
+
+    const expWithExclude = validateAndExpandInputs(join(monoDir, 'packages', 'app'), ['src'], { 'copy-exclude': ['src/generated'] });
+    assert.deepEqual(expWithExclude.files, ['src/keep.ts']);
+
+    // Explicit `webServer.url` on `127.0.0.1` must NOT allow `baseURL` on `[::1]`!
+    const appRoot = join(monoDir, 'packages', 'app');
+    writeFileSync(join(appRoot, 'playwright.config.mjs'), `
+      export default {
+        use: { baseURL: 'http://[::1]:3991' },
+        webServer: { command: 'node srv.mjs', url: 'http://127.0.0.1:3991' },
+      };
+    `);
+    const badWrapper = createPlaywrightConfigWrapper(appRoot, 'playwright.config.mjs');
+    const prevWs = process.env.TMT_WORKSPACE;
+    process.env.TMT_WORKSPACE = realpathSync(appRoot);
+    try {
+      await assert.rejects(() => import(badWrapper), /Playwright baseURL \(http:\/\/\[::1\]:3991\) must target a managed webServer origin \(http:\/\/127\.0\.0\.1:3991\)/);
+    } finally {
+      if (prevWs === undefined) delete process.env.TMT_WORKSPACE;
+      else process.env.TMT_WORKSPACE = prevWs;
+    }
+  } finally {
+    rmSync(monoDir, { recursive: true, force: true });
   }
 });

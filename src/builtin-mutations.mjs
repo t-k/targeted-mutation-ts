@@ -625,7 +625,11 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       const isPureRight = written(node.right);
       const more = { thunk: true, ...(isPureRight ? { pureRight: true, rightText: right } : {}) };
       edit(targetedRules.ignored, 'left', `(${left}, ${right})`, more);
-      edit(targetedRules.ignored, 'right', `(${left} ${operator} (${right}, ${ignoredValue[operator]}))`, more);
+      const eqvNullishRight = operator === '??' &&
+        (safeNullishLiteral(node.right) === 'undefined' || (boolean && writtenFalsy(node.right)));
+      if (!eqvNullishRight) {
+        edit(targetedRules.ignored, 'right', `(${left} ${operator} (${right}, ${ignoredValue[operator]}))`, more);
+      }
       // Only `??` and non-boolean `||` can emit `nullish-fallback/v1`; avoid triggering lazy type-checking for `&&`.
       const canEmitFallback = operator === '??' || (operator === '||' && !boolean);
       if (!canEmitFallback) return;
@@ -891,10 +895,6 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
           probed(node, name, [callee.expression, args[0], args[1]])(
             targetedRules.extreme, name === 'max' ? 'min' : 'max', rename(node, callee.name, name === 'max' ? 'min' : 'max'),
           );
-        } else {
-          probed(node, name, [args[0], args[1]])(
-            targetedRules.extreme, name === 'max' ? 'min' : 'max', rename(node, callee.name, name === 'max' ? 'min' : 'max'),
-          );
         }
       } else if (roundingSwaps.has(name) && args.length === 1) {
         const edit = probed(node, name, [args[0]]);
@@ -1107,11 +1107,13 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
 
   function condition(node) {
     const [parent, child] = up(node);
+    const truthMode = truthContextKind(node);
     const condExtra = target => ({
       fullDiagnostic: {
         kind: 'condition',
         target,
         expression: source(node),
+        truthMode,
         pureBoolean: isBooleanPureGuardExpr(node),
       },
     });
@@ -1181,22 +1183,48 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     }
   }
 
+  function stripTypeOnly(n) {
+    while (n && (ts.isNonNullExpression(n) || ts.isAsExpression(n) ||
+        ts.isSatisfiesExpression(n) || ts.isTypeAssertionExpression(n))) {
+      n = n.expression;
+    }
+    return n;
+  }
+
+  function stripTypeAndParens(n) {
+    while (n && (ts.isParenthesizedExpression(n) || ts.isNonNullExpression(n) ||
+        ts.isAsExpression(n) || ts.isSatisfiesExpression(n) || ts.isTypeAssertionExpression(n))) {
+      n = n.expression;
+    }
+    return n;
+  }
+
   function withoutQuestionDot(node) {
     const token = node.questionDotToken;
     const replacement = ts.isPropertyAccessExpression(node) ? '.' : '';
     let holder = node;
     while (!canHoldSwitch(holder)) holder = up(holder)[0];
     const [holderParent] = up(holder);
-    const wrapSafe = !ts.isDeleteExpression(holderParent) &&
-      (isMember(node) || (ts.isCallExpression(node) && !isMember(strip(node.expression))));
-    const extra = {
-      fullDiagnostic: {
-        kind: 'optional-chaining',
-        left: source(node.expression),
-        wrapSafe,
-      },
-      ...(wrapSafe ? { optReceiverSpan: [begin(node.expression), node.expression.end] } : {}),
-    };
+    const unwrappedExpr = stripTypeAndParens(node.expression);
+    const isDirectEvalCandidate = ts.isCallExpression(node) &&
+      ts.isIdentifier(unwrappedExpr) && unwrappedExpr.text === 'eval';
+    const isMemberCallCandidate = ts.isCallExpression(node) && isMember(unwrappedExpr);
+    const wrapSafe = !insideWith(node) && !ts.isDeleteExpression(holderParent) &&
+      !isDirectEvalCandidate && !isMemberCallCandidate &&
+      (isMember(node) || ts.isCallExpression(node));
+    const exprNoTypes = stripTypeOnly(node.expression);
+    const continuesChain = Boolean(exprNoTypes && ts.isOptionalChain(exprNoTypes));
+    const extra = wrapSafe
+      ? {
+        fullDiagnostic: {
+          kind: 'optional-chaining',
+          left: source(node.expression),
+          wrapSafe: true,
+        },
+        optReceiverSpan: [begin(node.expression), node.expression.end],
+        continuesChain,
+      }
+      : {};
     add('OptionalChaining', node, text.slice(begin(node), begin(token)) + replacement + text.slice(token.end, node.end), undefined, extra);
   }
 
