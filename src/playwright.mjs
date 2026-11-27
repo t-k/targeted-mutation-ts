@@ -8,7 +8,7 @@ import { checkpointKeyForTrial } from './checkpoint.mjs';
 import { extract } from './extract.mjs';
 import { selectScope } from './scope.mjs';
 import { candidateKey } from './shard.mjs';
-import { targetedGap } from './targeted-gaps.mjs';
+import { fullBuiltinGap, targetedGap } from './targeted-gaps.mjs';
 import { createTypeContext } from './type-equivalence.mjs';
 import { canonicalPath, inside, runnerPackage, withCopy } from './vitest.mjs';
 
@@ -70,9 +70,19 @@ const buildServerNodeOptions = raw => {
 const settings = Array.isArray(config.webServer) ? config.webServer : config.webServer ? [config.webServer] : [];
 if (!settings.length) throw new Error('Playwright analysis requires a managed webServer');
 const loopback = new Set(['localhost', '127.0.0.1', '[::1]']);
-const origins = new Set();
+const configuredBaseUrls = [];
+for (const project of config.projects?.length ? config.projects : [config]) {
+  const target = project.use?.baseURL ?? config.use?.baseURL;
+  if (target) {
+    try { configuredBaseUrls.push(new URL(target)); } catch {}
+  }
+}
+const allowedOrigins = new Set();
+const harvestOriginsList = [];
+const seenHarvest = new Set();
 const servers = settings.map(server => {
-  const url = new URL(server.url ?? ('http://localhost:' + server.port));
+  const hasExplicitUrl = server.url !== undefined && server.url !== null && String(server.url).trim() !== '';
+  const url = new URL(hasExplicitUrl ? server.url : ('http://127.0.0.1:' + server.port));
   if (!loopback.has(url.hostname) || !['http:', 'https:'].includes(url.protocol)) {
     throw new Error('The managed webServer must listen on loopback');
   }
@@ -80,7 +90,18 @@ const servers = settings.map(server => {
       (process.env.TMT_ORIGINAL && server.command.includes(process.env.TMT_ORIGINAL))) {
     throw new Error('The managed webServer command must run the trial workspace');
   }
-  origins.add(url.origin);
+  const portSuffix = url.port ? ':' + url.port : '';
+  for (const host of loopback) {
+    allowedOrigins.add(url.protocol + '//' + host + portSuffix);
+  }
+  const matchingBase = !hasExplicitUrl
+    ? configuredBaseUrls.find(b => b.protocol === url.protocol && b.port === url.port && loopback.has(b.hostname))
+    : null;
+  const primaryOrigin = matchingBase ? matchingBase.origin : url.origin;
+  if (!seenHarvest.has(primaryOrigin)) {
+    seenHarvest.add(primaryOrigin);
+    harvestOriginsList.push(primaryOrigin);
+  }
   const baseEnv = server.env ?? {};
   const mergedEnv = srvPreload ? {
     ...baseEnv,
@@ -91,16 +112,17 @@ const servers = settings.map(server => {
     ...server,
     cwd: own(server.cwd),
     reuseExistingServer: false,
+    stderr: server.stderr ?? 'pipe',
     ...(mergedEnv ? { env: mergedEnv } : {}),
   };
 });
 if (originsOut) {
-  try { writeFileSync(originsOut, JSON.stringify([...origins]), 'utf8'); } catch {}
+  try { writeFileSync(originsOut, JSON.stringify(harvestOriginsList), 'utf8'); } catch {}
 }
 for (const project of config.projects?.length ? config.projects : [config]) {
   const target = project.use?.baseURL ?? config.use?.baseURL;
-  if (target && !origins.has(new URL(target).origin)) {
-    throw new Error('Playwright baseURL must target a managed webServer origin');
+  if (target && !allowedOrigins.has(new URL(target).origin)) {
+    throw new Error('Playwright baseURL (' + target + ') must target a managed webServer origin (' + harvestOriginsList.join(', ') + ')');
   }
 }
 const browser = (project) => project.use?.browserName ?? project.use?.defaultBrowserType ?? config.use?.browserName ?? 'chromium';
@@ -371,11 +393,13 @@ export async function analyzePlaywrightSession(project, files, options) {
     }
   }
   const runnable = prepared.filter(mutant => mutant.status === undefined && inShard(mutant) && !cachedById.has(mutant.id));
+  const runnableIds = new Set(runnable.map(mutant => mutant.id));
+  const sessionRunnable = runnable.filter(mutant => !(mutant.sharedWith && runnableIds.has(mutant.sharedWith)));
   const hasComparisons = prepared.some(mutant => mutant.parametric);
   if (!mutants.length && !hasComparisons) return report;
-  if (!runnable.length && !hasComparisons) {
+  if (!sessionRunnable.length && !hasComparisons) {
     const cachedDiagnostics = [];
-    const mapped = mutants.map(({ targeted: _rule, ...mutant }) => {
+    const mapped = mutants.map(({ targeted: _rule, fullDiagnostic: _fd, ...mutant }) => {
       const cached = cachedById.get(mutant.id);
       if (cached?.diagnostic) cachedDiagnostics.push(cached.diagnostic);
       if (!cached) return mutant;
@@ -398,7 +422,8 @@ export async function analyzePlaywrightSession(project, files, options) {
     const extrasPath = resolve(temp, 'extras.json');
     const runTimeoutMs = options.timeout ? options.timeout * 1000 : 60_000;
     const baselineTimeoutMs = options['baseline-timeout'] ? options['baseline-timeout'] * 1000 : runTimeoutMs;
-    const totalRunnable = runnable.filter(mutant => !mutant.parametric).length;
+    const baseRunnableCount = sessionRunnable.filter(mutant => !mutant.parametric).length;
+    let totalExpected = baseRunnableCount;
 
     writeFileSync(manifest, JSON.stringify({
       workspace,
@@ -416,16 +441,20 @@ export async function analyzePlaywrightSession(project, files, options) {
       verifyTrials: options['verify-trials'] ?? 0,
       runTimeout: runTimeoutMs,
       baselineTimeout: baselineTimeoutMs,
-      mutants: runnable.map(({ id, parametric, targeted }) => ({
+      mutants: sessionRunnable.map(({ id, parametric, targeted, fullDiagnostic }) => ({
         id,
         ...(parametric ? { parametric } : {}),
         ...(targeted?.evidence ? { evidence: true } : {}),
         ...(targeted?.operator === 'idx0' ? { sequenceIndex: true } : {}),
         ...(targeted ? { effects: true } : {}),
+        ...((fullDiagnostic?.kind === 'optional-chaining' && fullDiagnostic.wrapSafe) ||
+            (fullDiagnostic?.kind === 'condition' && fullDiagnostic.pureBoolean)
+          ? { predictableFull: true }
+          : {}),
       })),
     }));
 
-    const limit = 90_000 + baselineTimeoutMs * (options.deterministic ? 2 : 1) + runTimeoutMs * Math.max(4, runnable.length * 2);
+    const limit = 90_000 + baselineTimeoutMs * (options.deterministic ? 2 : 1) + runTimeoutMs * Math.max(4, sessionRunnable.length * 2);
     const sessionAbort = new AbortController();
     const onAbort = () => sessionAbort.abort();
     options.signal?.addEventListener('abort', onAbort, { once: true });
@@ -433,40 +462,72 @@ export async function analyzePlaywrightSession(project, files, options) {
 
     let finished = false;
     let baselineDispatched = false;
+    let extrasReady = typeof options.onBaselineRecorded !== 'function';
     let extrasError = null;
     let lastDone = -1;
+    const progressIntervalMs = options.progressIntervalMs ?? 5_000;
+    const baselineStartedAt = Date.now();
+    let baselineDoneAt = baselineStartedAt;
+    let lastReportAt = baselineStartedAt;
 
     const pollSession = () => {
       if (finished) return;
+      const now = Date.now();
       const current = readJsonlEvents(output);
       if (!baselineDispatched) {
         const baseEvent = current.find(event => event.baseline !== undefined);
         if (baseEvent) {
           baselineDispatched = true;
-          if (baseEvent.baseline.status === 'passed' && typeof options.onBaselineRecorded === 'function') {
-            options.onProgress?.(`Baseline passed (${baseEvent.baseline.tests.length} tests). Running ${totalRunnable} mutant(s)...`);
-            Promise.resolve()
-              .then(() => options.onBaselineRecorded(baseEvent))
-              .then(list => list ?? [])
-              .then(list => {
-                if (finished || sessionAbort.signal.aborted) return;
-                writeFileSync(extrasPath + '.part', JSON.stringify(list));
-                renameSync(extrasPath + '.part', extrasPath);
-              })
-              .catch(err => {
-                if (!finished && !sessionAbort.signal.aborted) {
-                  extrasError = err;
-                  sessionAbort.abort();
-                }
-              });
+          baselineDoneAt = now;
+          lastReportAt = now;
+          if (baseEvent.baseline.status === 'passed') {
+            if (typeof options.onBaselineRecorded === 'function') {
+              Promise.resolve()
+                .then(() => options.onBaselineRecorded(baseEvent))
+                .then(list => list ?? [])
+                .then(list => {
+                  if (finished || sessionAbort.signal.aborted) return;
+                  totalExpected = baseRunnableCount + list.length;
+                  extrasReady = true;
+                  lastReportAt = Date.now();
+                  options.onProgress?.(`Baseline passed (${baseEvent.baseline.tests.length} tests). Running ${totalExpected} mutant(s)...`);
+                  writeFileSync(extrasPath + '.part', JSON.stringify(list));
+                  renameSync(extrasPath + '.part', extrasPath);
+                })
+                .catch(err => {
+                  if (!finished && !sessionAbort.signal.aborted) {
+                    extrasError = err;
+                    sessionAbort.abort();
+                  }
+                });
+            } else {
+              options.onProgress?.(`Baseline passed (${baseEvent.baseline.tests.length} tests). Running ${totalExpected} mutant(s)...`);
+            }
           }
+        } else if (options.onProgress && now - lastReportAt >= progressIntervalMs) {
+          lastReportAt = now;
+          const elapsed = Math.max(1, Math.round((now - baselineStartedAt) / 1000));
+          options.onProgress(`Running baseline tests... (${elapsed}s elapsed)`);
         }
       }
-      if (options.onProgress && baselineDispatched && totalRunnable > 0) {
-        const done = current.filter(event => event.id !== undefined).length;
+      if (options.onProgress && baselineDispatched && extrasReady && totalExpected > 0) {
+        const sessionComplete = current.some(event => event.complete === true);
+        const doneEvents = current.filter(event => event.id !== undefined || event.extra !== undefined).length;
+        let latestProgress = 0;
+        for (const event of current) {
+          if (typeof event.progress?.completed === 'number' && event.progress.completed > latestProgress) {
+            latestProgress = event.progress.completed;
+          }
+        }
+        const done = Math.min(totalExpected, Math.max(doneEvents, latestProgress));
         if (done > lastDone && done > 0) {
           lastDone = done;
-          options.onProgress(`Mutants: ${Math.min(done, totalRunnable)}/${totalRunnable} completed`);
+          lastReportAt = now;
+          options.onProgress(`Mutants: ${done}/${totalExpected} completed`);
+        } else if (!sessionComplete && now - lastReportAt >= progressIntervalMs) {
+          lastReportAt = now;
+          const elapsed = Math.max(1, Math.round((now - baselineDoneAt) / 1000));
+          options.onProgress(`Mutants: ${Math.max(0, done)}/${totalExpected} completed (${elapsed}s elapsed)`);
         }
       }
     };
@@ -530,9 +591,10 @@ export async function analyzePlaywrightSession(project, files, options) {
       const cached = cachedById.get(mutant.id);
       if (cached) {
         const { diagnostic: _diag, ...outcome } = cached;
-        return { ...mutant, ...outcome, evidence: outcome.evidence ?? 'checkpoint', _cachedDiagnostic: cached.diagnostic };
+        return { ...mutant, ...outcome, id: mutant.id, evidence: outcome.evidence ?? 'checkpoint', _cachedDiagnostic: cached.diagnostic };
       }
-      const result = results.get(mutant.id);
+      const rawResult = results.get(mutant.id) ?? (mutant.sharedWith ? results.get(mutant.sharedWith) : undefined);
+      const result = rawResult ? { ...rawResult, id: mutant.id } : undefined;
       if (result?.status === 'ignored') return { ...mutant, ...result };
       if (result) {
         return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
@@ -542,9 +604,10 @@ export async function analyzePlaywrightSession(project, files, options) {
 
     const diagnostics = [];
     for (const mutant of judged) {
-      const gap = mutant._cachedDiagnostic ?? withEffects(targetedGap(mutant, observed[mutant.id]), mutant);
+      const gap = mutant._cachedDiagnostic ??
+        withEffects(targetedGap(mutant, observed[mutant.id]) ?? fullBuiltinGap(mutant, observed[mutant.id]), mutant);
       if (gap) diagnostics.push(gap);
-      if (ckpt && !cachedById.has(mutant.id) && results.has(mutant.id)) {
+      if (ckpt && !cachedById.has(mutant.id) && (results.has(mutant.id) || (mutant.sharedWith && results.has(mutant.sharedWith)))) {
         ckpt.record(checkpointKeyForTrial(mutant), mutant, gap ?? undefined);
       }
     }
@@ -557,7 +620,7 @@ export async function analyzePlaywrightSession(project, files, options) {
       evaluation: completed ? 'evaluated' : 'incomplete',
       trials: events.find(event => event.trials)?.trials,
       extras: events.filter(event => event.extra !== undefined),
-      mutants: judged.map(({ targeted: _rule, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),
+      mutants: judged.map(({ targeted: _rule, fullDiagnostic: _fd, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),
       diagnostics,
     };
   }, { exclude: options['copy-exclude'], onProgress: options.onProgress });

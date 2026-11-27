@@ -8,7 +8,7 @@ import { canonicalPath, copyPathIsExcluded, inside, resolveCopyExclusions } from
 const sourceName = /(?<!\.d|\.test|\.spec)\.(?:[cm]?[jt]s|[jt]sx)$/;
 const runnerConfig = /^(?:vite|vitest|playwright)(?:\.[^.]+)*\.config\.[cm]?[jt]s$/;
 
-function listSource(root, exclusions, dir = root) {
+export function listSource(root, exclusions = [], dir = root) {
   const result = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.name.startsWith('.') || ['node_modules', 'build', 'dist', 'coverage'].includes(entry.name)) continue;

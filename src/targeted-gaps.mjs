@@ -25,7 +25,7 @@ const roundingDiffers = { 'floor trunc': 'negative and not a whole number (-0.5)
   'floor round': 'a number that rounds up (1.5, -1.5)', 'ceil round': 'a number that rounds down (1.4, -1.6)',
   'round trunc': 'a number that rounds away from zero (1.5, -1.6)', 'ceil floor': 'not a whole number (0.5)' };
 
-function missingInput({ operator, form, boolean, left, right: rightExpr, differsFor, subject, pureRight, rightFalsy, possibleFalsy, key, boundKind, pruned, argName }, expression, rule, replacement) {
+function missingInput({ operator, form, boolean, left, right: rightExpr, rightText, differsFor, subject, pureRight, rightFalsy, possibleFalsy, key, boundKind, pruned, argName }, expression, rule, replacement) {
   const side = '`' + clip(left) + '`';
   if (rule === rules.spreadDrop) return `a test in which \`${clip(left)}.${key}\` is missing or differs from its updated value`;
   if (rule === rules.prefixSubstring) {
@@ -67,9 +67,60 @@ function missingInput({ operator, form, boolean, left, right: rightExpr, differs
   }
   const takesRight = { '&&': 'truthy', '||': 'falsy', '??': 'null or undefined' }[operator];
   if (form === 'left') return `a test in which ${side} is ${{ '&&': 'falsy', '||': 'truthy', '??': 'neither null nor undefined' }[operator]}`;
+  if (operator === '??' && pureRight && rightText !== undefined) {
+    return `a test in which ${side} is null or undefined so the fallback \`${clip(rightText)}\` is used`;
+  }
   const kept = { '&&': 'true', '||': 'false', '??': 'undefined' }[operator];
   const right = boolean ? (operator === '&&' ? 'falsy' : 'truthy') : `not ${kept}`;
   return `a test in which ${side} is ${takesRight} and the right side is ${right}`;
+}
+
+export function fullBuiltinGap(mutant, seen) {
+  if (!mutant.fullDiagnostic || mutant.status !== 'survived' || !seen) return null;
+  const meta = mutant.fullDiagnostic;
+  const common = {
+    site: mutant.id,
+    location: mutant.location,
+    rule: mutant.mutatorName,
+    expression: mutant.original,
+    mutations: [{
+      rule: mutant.mutatorName,
+      edit: mutant.edit,
+      replacement: mutant.replacement,
+      evidence: mutant.evidence,
+      ...(mutant.original !== undefined ? { original: mutant.original } : {}),
+    }],
+  };
+  if (seen.differing?.length || seen.outside) {
+    return {
+      kind: 'ASSERTION GAP',
+      ...common,
+      tests: seen.differing ?? [],
+      ...(seen.outside ? { outsideTests: true } : {}),
+      ...(seen.differ ? { example: { operands: seen.differ } } : {}),
+    };
+  }
+  if (!seen.agreeing) return null;
+  if (meta.kind === 'optional-chaining') {
+    return {
+      kind: 'INPUT GAP',
+      ...common,
+      reachedBy: seen.agreeing,
+      missing: `a test in which \`${clip(meta.left)}\` is null or undefined`,
+      ...(seen.agree ? { observed: { operands: seen.agree } } : {}),
+    };
+  }
+  if (meta.kind === 'condition') {
+    const needed = meta.target === 'true' ? 'falsy' : 'truthy';
+    return {
+      kind: 'INPUT GAP',
+      ...common,
+      reachedBy: seen.agreeing,
+      missing: `a test in which \`${clip(meta.expression)}\` is ${needed}`,
+      ...(seen.agree ? { observed: { operands: seen.agree } } : {}),
+    };
+  }
+  return null;
 }
 
 export function targetedGap(mutant, seen) {

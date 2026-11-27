@@ -115,6 +115,82 @@ async function besideSession(project, files, options, run, profile, stopsSession
   return { prepared, ended, extras: listed, ...await started };
 }
 
+const RELATIONAL_COMPLEMENT = { '<': '>=', '<=': '>', '>': '<=', '>=': '<' };
+
+function relationalComplementDiagnostics(prepared, profile, sessionMutants, existingDiagnostics) {
+  if (profile !== 'full' || !prepared?.subjects?.length || !Array.isArray(prepared?.trace)) return [];
+  const passedTestsByIdentity = new Map(
+    (prepared.baseline?.tests ?? [])
+      .filter(test => test.status === 'passed')
+      .map(test => [JSON.stringify([test.project ?? '', test.file ?? '', test.id ?? test.name ?? '']), test]),
+  );
+  const siteBySwapKey = new Map();
+  for (const subject of prepared.subjects) {
+    for (const site of subject.sites ?? []) {
+      const comp = RELATIONAL_COMPLEMENT[site.operator];
+      if (!comp || site.unobserved) continue;
+      const opAt = (site.operatorEdit ?? site.edit)[0];
+      siteBySwapKey.set(`${subject.file}:${opAt}:${comp}`, site);
+    }
+  }
+  if (!siteBySwapKey.size) return [];
+  const rowsBySite = new Map();
+  for (const row of prepared.trace) {
+    if (typeof row?.site === 'string' && row.identity && Array.isArray(row.operands) &&
+        row.operands.length === 2 && row.operands.every(Number.isSafeInteger)) {
+      let list = rowsBySite.get(row.site);
+      if (!list) rowsBySite.set(row.site, list = []);
+      list.push(row);
+    }
+  }
+  const existingSites = new Set(existingDiagnostics.map(gap => gap.site));
+  const out = [];
+  for (const mutant of sessionMutants ?? []) {
+    if (mutant.status !== 'survived' || mutant.mutatorName !== 'EqualityOperator' || !mutant.operatorSwap || existingSites.has(mutant.id)) {
+      continue;
+    }
+    const site = siteBySwapKey.get(`${mutant.location.file}:${mutant.operatorSwap[0]}:${mutant.operatorSwap[1]}`);
+    if (!site) continue;
+    const rows = rowsBySite.get(site.id);
+    if (!rows?.length) continue;
+    const testsMap = new Map();
+    let examplePair = null;
+    for (const row of rows) {
+      const idKey = JSON.stringify([row.identity.project ?? '', row.identity.file ?? '', row.identity.id ?? row.identity.name ?? '']);
+      const matchedTest = passedTestsByIdentity.get(idKey);
+      if (!matchedTest) continue;
+      if (!examplePair) examplePair = row.operands;
+      if (!testsMap.has(idKey)) {
+        testsMap.set(idKey, {
+          ...(matchedTest.id !== undefined ? { id: matchedTest.id } : {}),
+          project: matchedTest.project,
+          file: matchedTest.file,
+          name: matchedTest.name,
+        });
+      }
+    }
+    if (!testsMap.size) continue;
+    existingSites.add(mutant.id);
+    out.push({
+      kind: 'ASSERTION GAP',
+      site: mutant.id,
+      location: mutant.location,
+      rule: mutant.mutatorName,
+      operator: site.operator,
+      tests: [...testsMap.values()],
+      ...(examplePair ? { example: { operands: [String(examplePair[0]), String(examplePair[1])] } } : {}),
+      mutations: [{
+        rule: mutant.mutatorName,
+        edit: mutant.edit,
+        replacement: mutant.replacement,
+        evidence: mutant.evidence ?? 'reexecuted',
+        ...(mutant.original !== undefined ? { original: mutant.original } : {}),
+      }],
+    });
+  }
+  return out;
+}
+
 function attachPlaywrightSpecWitnesses(prepared, diagnostics, allMutants) {
   const pwSpecs = prepared?.specification?.playwright;
   if (!Array.isArray(pwSpecs) || !pwSpecs.length || !prepared?.attempt) return { diagnostics, plainBaseline: null };
@@ -298,9 +374,11 @@ async function runPlaywrightTargetedSession(project, files, runOptions, run, pro
   const added = session.mutants.filter(mutant => !(mutant.operatorSwap &&
     boundaries.has(`${mutant.location.file}:${mutant.operatorSwap.join(':')}`)));
   const mergedMutants = [...focused.mutants, ...added.map(mutant => fromSession(mutant, profile))].sort(order);
+  const combinedDiagnostics = [...(focused.diagnostics ?? []), ...(session.diagnostics ?? [])];
+  const compDiags = relationalComplementDiagnostics(prepared, profile, session.mutants, combinedDiagnostics);
   const { diagnostics: mergedDiagnostics, plainBaseline } = attachPlaywrightSpecWitnesses(
     prepared,
-    suppressEnclosingDiagnostics([...(focused.diagnostics ?? []), ...(session.diagnostics ?? [])]),
+    suppressEnclosingDiagnostics([...combinedDiagnostics, ...compDiags]),
     mergedMutants,
   );
   if (plainBaseline?.status === 'passed') {
@@ -393,6 +471,8 @@ export async function analyzeOperators(
   const boundaries = new Set(focused.mutants.map(mutant => `${mutant.location.file}:${mutant.edit[0]}:${mutant.replacement}`));
   const added = session.mutants.filter(mutant => !(mutant.operatorSwap &&
     boundaries.has(`${mutant.location.file}:${mutant.operatorSwap.join(':')}`)));
+  const combinedDiagnostics = [...focused.diagnostics, ...(session.diagnostics ?? [])];
+  const compDiags = relationalComplementDiagnostics(prepared, profile, session.mutants, combinedDiagnostics);
   return carryBaseline(finalize({
     ...focused,
     operatorExecution: 'session',
@@ -400,6 +480,6 @@ export async function analyzeOperators(
     baseline: focused.baseline ?? session.baseline,
     evaluation: session.evaluation === 'incomplete' || focused.evaluation === 'incomplete' ? 'incomplete' : 'evaluated',
     mutants: [...focused.mutants, ...added.map(mutant => fromSession(mutant, profile))].sort(order),
-    diagnostics: suppressEnclosingDiagnostics([...focused.diagnostics, ...(session.diagnostics ?? [])]),
+    diagnostics: suppressEnclosingDiagnostics([...combinedDiagnostics, ...compDiags]),
   }), focused);
 }

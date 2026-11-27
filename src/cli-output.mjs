@@ -2,6 +2,7 @@ export const usage = `Usage: targeted-mutation <command> [options]   (alias: tmt
 
 Commands:
   analyze [PROJECT] [FILE...]   Run the project's tests against targeted source edits and report test gaps.
+                                FILE may be a file, directory, or quoted glob (e.g. 'src/**/*.ts').
   extract FILE                  Print the comparison candidates found in one source file as JSON.
   prototype PROJECT FILE        Run the original threshold experiment on one file.
 
@@ -9,7 +10,7 @@ Scope (analyze):
   --lines FILE:FROM-TO          Limit to a line range. FILE:N selects one line. Repeatable.
   --since REV                   Limit to lines added or changed since a Git revision.
   --suggest-assertions          For a survivor whose tests had the input: run the calls those tests make
-                                without pinning the result, and give the value to compare with (Vitest).
+                                without pinning the result, and give the value to compare with (Vitest only).
   --undo-changes                With --since: also put each change back as it was at REV and run the suite.
                                 A change the tests pass without is reported as UNTESTED CHANGE.
   --copy-exclude PATH           Leave a project path out of the temporary copies (warns and skips if missing). Repeatable.
@@ -54,9 +55,9 @@ Profiles (analyze):
 Runner (analyze):
   --runner vitest|playwright|node
                                 Test runner (default: vitest).
-  --config FILE                 Runner configuration file inside the project.
+  --config FILE                 Vitest or Playwright config file inside the project (e.g. playwright.config.ts).
   --test FILE                   Run only this test file or glob. Repeatable. With --related, narrows related tests.
-  --related                     Select only Vitest test files related to the target source files.
+  --related                     Select only Vitest test files related to the target source files (Vitest only).
   --timeout SECONDS             Time limit for one run of the suite (default: 60).
   --baseline-timeout SECONDS    Time limit for the baseline suite run (defaults to --timeout).
   --baseline-workers N          Vitest workers for the baseline run (default: 1 for focused trace; --concurrency for session).
@@ -308,13 +309,20 @@ function describeBaseline(baseline = {}) {
     seenFileErrorMessages.add(msg);
     lines.push(`  ERROR ${printable(entry.file)}: ${msg}`);
   }
+  const seenErrorLines = new Set(seenFileErrorMessages);
   for (const error of baseline.errors ?? []) {
     const msg = firstLine(error);
-    if (seenFileErrorMessages.has(msg)) continue;
+    if (seenErrorLines.has(msg)) continue;
+    seenErrorLines.add(msg);
     lines.push(`  ERROR ${msg}`);
   }
-  if (!baseline.failedTests?.length && !baseline.fileErrors?.length && !baseline.errors?.length && baseline.output?.trim()) {
-    lines.push(...printable(baseline.output).trim().split('\n').slice(-20).map(line => `  ${line}`));
+  if (!baseline.failedTests?.length && !baseline.fileErrors?.length && baseline.output?.trim()) {
+    const outputLines = printable(baseline.output).trim().split('\n')
+      .map(line => line.trimEnd())
+      .filter(line => line.trim() && !seenErrorLines.has(line.trim()));
+    if (outputLines.length) {
+      lines.push(...outputLines.slice(-20).map(line => `  ${line}`));
+    }
   }
   return lines;
 }
@@ -416,6 +424,7 @@ export function summarizeReport(report) {
     ? mutants.filter(mutant =>
       mutant.status === 'survived' &&
       !gapSites.has(mutant.id ?? mutant.site) &&
+      !(mutant.sharedWith && gapSites.has(mutant.sharedWith)) &&
       !String(mutant.mutatorName ?? mutant.rule ?? '').includes('/'))
       .length
     : 0;
@@ -472,6 +481,14 @@ export function renderText(report, { verbose = false, onlyGaps = false } = {}) {
   const gapSummary = otherSurvivors > 0
     ? `${plural(gaps.length, 'targeted gap')} (${plural(otherSurvivors, 'other survivor')})`
     : plural(gaps.length, 'test gap');
+  const verified = report.trials?.verified;
+  if (verified && verified.sampled > 0) {
+    const mismatchCount = verified.mismatches?.length ?? 0;
+    lines.push(`Verified ${plural(verified.sampled, 'session trial')} in isolated runs (${plural(mismatchCount, 'mismatch', 'mismatches')}).`);
+  }
+  if (isListed && mutants.some(m => (m.rule ?? m.mutatorName) === 'comparison-boundary/v1' || m.operatorSwap)) {
+    lines.push('Note: integer threshold and margin edits synthesized from runtime observations are added during analysis.');
+  }
   lines.push(`${report.runner}${size === undefined ? '' : `, ${plural(size, 'baseline test')}`}: ` +
     `${plural(mutants.length, 'edit')} (${tally}), ${gapSummary}` +
     (report.suppressed?.baseline ? `, ${report.suppressed.baseline} suppressed by baseline` : '') +

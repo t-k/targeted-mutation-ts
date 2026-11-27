@@ -564,12 +564,14 @@ async function runSession() {
     ...(deterministicCoverageByKey ? { deterministicCoverageByKey } : {}),
   });
 
+  let completedCount = 0;
   const pending = [];
   for (const mutant of mutants.filter(candidate => !candidate.parametric)) {
     const { id } = mutant;
     const plan = indexed.planMutant(id);
     if (!plan.hits && !plan.serverStatic) {
       record({ id, status: 'unreached', evidence: 'coverage' });
+      completedCount++;
       continue;
     }
     const seen = indexed.agreement.get(id);
@@ -579,6 +581,7 @@ async function runSession() {
         status: 'ignored',
         statusReason: 'No test gives the left side a number, a string or a boolean, so both operators are taken to behave alike here',
       });
+      completedCount++;
       continue;
     }
     if (mutant.sequenceIndex && seen && !seen.sequence && seen.nonSequence && !seen.threw && !seen.differing.size && !seen.outside) {
@@ -587,6 +590,14 @@ async function runSession() {
         status: 'ignored',
         statusReason: 'No test passes a sequence (array, string, or typed array) to this index expression',
       });
+      completedCount++;
+      continue;
+    }
+    if (deterministic && deterministicStable && mutant.predictableFull && !plan.serverStatic && !plan.staticActivation &&
+        seen && seen.agreeing.size > 0 && seen.agreeing.size === plan.covered.size &&
+        !seen.differing.size && !seen.unsure.size && !seen.outside && !seen.outsideUnsure) {
+      record({ id, status: 'survived', evidence: 'predicted' });
+      completedCount++;
       continue;
     }
     pending.push({ mutant, plan });
@@ -671,6 +682,7 @@ async function runSession() {
 
   const decideList = async (items, emitResult) => {
     const warmSettledMap = new Map();
+    const alreadyEmitted = new Set();
     const fallbackQueue = [];
 
     if (!isolatedTrials && serverRestarts <= MAX_SERVER_RESTARTS) {
@@ -737,8 +749,16 @@ async function runSession() {
               effects: effectsFromPlaywrightRecords(indexed.reach, trialPass.records, executedTestIds, passedTests),
             };
           }
-          warmSettledMap.set(mutant.id, { ...classified.result, ...effectsObj });
+          const settledResult = { ...classified.result, ...effectsObj };
+          warmSettledMap.set(mutant.id, settledResult);
           totals.inWorker++;
+          if (!verifyTrials) {
+            alreadyEmitted.add(mutant.id);
+            completedCount++;
+            emitResult(mutant, settledResult);
+          } else {
+            record({ progress: { completed: completedCount + warmSettledMap.size } });
+          }
         } else {
           if (classified.needsServerRestart) {
             serverRestarts++;
@@ -770,7 +790,9 @@ async function runSession() {
     const fallbackById = new Map(fallbackQueue.map(entry => [entry.mutant.id, entry]));
 
     for (const { mutant, plan } of items) {
+      if (alreadyEmitted.has(mutant.id)) continue;
       if (warmSettledMap.has(mutant.id) && !sampled.has(mutant.id)) {
+        completedCount++;
         emitResult(mutant, warmSettledMap.get(mutant.id));
         continue;
       }
@@ -783,6 +805,7 @@ async function runSession() {
           fresh: freshOutcome.status,
         });
       }
+      completedCount++;
       emitResult(mutant, freshOutcome);
     }
   };
@@ -795,8 +818,8 @@ async function runSession() {
     for (const [index, extra] of rawExtras.entries()) {
       const active = shiftSwitches.get(`${extra.file}:${extra.at}`);
       const plan = active === undefined ? null : indexed.planMutant(active);
-      if (!plan) record({ extra: index, status: 'unsupported' });
-      else if (!plan.hits && !plan.serverStatic) record({ extra: index, status: 'unreached', evidence: 'coverage' });
+      if (!plan) { record({ extra: index, status: 'unsupported' }); completedCount++; }
+      else if (!plan.hits && !plan.serverStatic) { record({ extra: index, status: 'unreached', evidence: 'coverage' }); completedCount++; }
       else extraItems.push({ mutant: { id: `extra:${index}`, index, active, shift: extra.shift }, plan });
     }
     if (extraItems.length) {

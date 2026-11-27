@@ -314,6 +314,30 @@ test('acquires and releases exclusive server lock', async ({ page }) => {
       JSON.stringify(isoClientReport.mutants),
     );
 
+    // Part D2: `--mutators full` shares trial execution across overlapping built-in/targeted mutations (`price * qty` -> `price / qty`)
+    // and attaches relational-complement / ConditionalExpression diagnostics on Playwright with 100% `--audit` verdict parity.
+    const fullSessionReport = JSON.parse(exec(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/shipping.ts', 'src/client.ts', '--runner', 'playwright', '--mutators', 'full', '--test', 'e2e/shop.spec.ts',
+    ]));
+    assert.equal(fullSessionReport.evaluation, 'evaluated');
+    assert.equal(fullSessionReport.operatorExecution, 'session');
+    const arithFullBuiltin = fullSessionReport.mutants.find(m => m.location.file === 'src/client.ts' && m.mutatorName === 'ArithmeticOperator');
+    const arithFullTargeted = fullSessionReport.mutants.find(m => m.location.file === 'src/client.ts' && m.mutatorName === 'arithmetic-swap/v1' && m.replacement === '(price / qty)');
+    assert.equal(arithFullBuiltin?.status, 'survived');
+    assert.equal(arithFullTargeted?.status, 'survived');
+    assert.ok(arithFullBuiltin?.sharedWith, 'Playwright --mutators full should share execution on overlapping arithmetic swap');
+
+    const fullAuditClient = JSON.parse(exec(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/client.ts', '--runner', 'playwright', '--mutators', 'full', '--audit', '--test', 'e2e/shop.spec.ts',
+    ]));
+    const auditMap = new Map(fullAuditClient.mutants.map(m => [`${m.location.start}:${m.location.end}:${m.rule ?? m.mutatorName}:${m.replacement}`, m.status]));
+    for (const m of fullSessionReport.mutants.filter(x => x.location.file === 'src/client.ts')) {
+      const k = `${m.location.start}:${m.location.end}:${m.rule ?? m.mutatorName}:${m.replacement}`;
+      if (auditMap.has(k)) {
+        assert.equal(m.status, auditMap.get(k), `Playwright full session vs --audit parity mismatch on ${k}`);
+      }
+    }
+
     // Part E: Failed baseline tears down `webServer` + `browserServer` cleanly with zero orphan processes.
     writeFileSync(join(root, 'e2e/failing.spec.ts'), `
 import { expect, test } from '@playwright/test';

@@ -76,7 +76,10 @@ try {
       throw new Error('--copy-exclude-gitignore cannot be combined with --no-copy-exclude-gitignore');
     }
     const loadedConfig = values['no-config'] ? null : await loadProjectConfig(project, { allowCodeConfig: !values.list });
-    const merged = mergeProjectConfig(loadedConfig?.config, values, rawFiles);
+    const merged = mergeProjectConfig(loadedConfig?.config, values, rawFiles, {
+      sourceName: loadedConfig?.source,
+      onWarning: msg => process.stderr.write(`Warning: ${msg}\n`),
+    });
     const runValues = merged.values;
     if (runValues['no-copy-exclude-gitignore']) runValues['copy-exclude-gitignore'] = false;
     if (runValues['no-type-check']) {

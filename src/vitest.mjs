@@ -309,6 +309,19 @@ function workspaceTreeChanged(before, root) {
   return false;
 }
 
+function findHoistedModules(source) {
+  let cursor = dirname(source);
+  for (;;) {
+    const candidate = resolve(cursor, 'node_modules');
+    if (statSync(candidate, { throwIfNoEntry: false })?.isDirectory()) {
+      return canonicalPath(candidate);
+    }
+    const parent = dirname(cursor);
+    if (parent === cursor) return null;
+    cursor = parent;
+  }
+}
+
 export function createCopy(project, {
   exclude = [],
   onProgress,
@@ -391,11 +404,19 @@ export function createCopy(project, {
     rebaseCopiedLinks(source, root);
     const projectModules = resolve(source, 'node_modules');
     const hasLocalModules = moduleTrees.includes(projectModules);
-    const tools = toolLinks(source, projectModules, hasLocalModules);
+    const hoistedModules = hasLocalModules ? null : findHoistedModules(source);
+    const effectiveModules = hasLocalModules ? projectModules : (hoistedModules ?? projectModules);
+    const tools = toolLinks(source, effectiveModules, Boolean(hasLocalModules || hoistedModules));
     for (const modules of moduleTrees) {
       linkInstalledModules(source, root, modules, resolve(root, relative(source, modules)), modules === projectModules ? tools : []);
     }
-    if (!hasLocalModules) linkModules(resolve(root, 'node_modules'), tools);
+    if (!hasLocalModules) {
+      if (hoistedModules) {
+        linkInstalledModules(source, root, hoistedModules, resolve(root, 'node_modules'), tools);
+      } else {
+        linkModules(resolve(root, 'node_modules'), tools);
+      }
+    }
     return { root, temp, dispose, claim, beginUse, endUse };
   } catch (error) {
     dispose();

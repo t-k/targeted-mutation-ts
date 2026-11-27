@@ -1,11 +1,11 @@
 import { createHash } from 'node:crypto';
-import { collectMutations, shiftPlaceholder } from './builtin-mutations.mjs';
+import { collectMutations, relPlaceholder, shiftPlaceholder } from './builtin-mutations.mjs';
 import { byteOffsets } from './source-text.mjs';
 
 // Runtime switches for the built-in mutation set. Expressions become `on(id) ? mutated : (cover(id), original)`;
 // blocks, case clauses and removable statements become `if (on(id)) mutated else { cover(id); original }`.
 // The helpers speak the test session's protocol: one active mutation and per-test hit counts.
-const helpers = (on, cover, shift, scope, cmp, loadedComparisons = [], fileId = '') => `
+const helpers = (on, cover, shift, scope, cmp, loadedComparisons = [], fileId = '', opt = '', cond = '', rel = '') => `
 function ${shift}() {
   var scope = ${scope};
   return (scope.__stryker__ && scope.__stryker__.shift) || 0;
@@ -90,6 +90,58 @@ ${loadedComparisons.length ? `function ${cmp}(site, op, lhs, rhs) {
   var items = ${JSON.stringify(loadedComparisons)};
   for (var i = 0; i < items.length; i++) if (loaded.indexOf(items[i]) < 0) loaded.push(items[i]);
 })();
+` : ''}${opt ? `function ${opt}(id, val, isInner, hasOuter) {
+  var scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
+  if (isInner && ns.__optShort) {
+    if (!hasOuter) ns.__optShort = 0;
+    return val;
+  }
+  var state = scope[scope.Symbol.for('targeted-mutation-ts/session')];
+  var isNullish = val === null || val === void 0;
+  if (hasOuter) ns.__optShort = isNullish ? 1 : 0;
+  else if (isInner) ns.__optShort = 0;
+  if (state && state.phase === 'baseline') {
+    var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '';
+    var entry = seen[id] || (seen[id] = { tests: {} }), counts = entry.tests[test] || (entry.tests[test] = [0, 0, 0]);
+    if (isNullish) {
+      counts[1]++;
+      if (!entry.differ) entry.differ = [val === null ? 'null' : 'undefined'];
+    } else {
+      counts[0]++;
+      if (!entry.agree) entry.agree = [typeof val];
+    }
+  }
+  return val;
+}
+` : ''}${cond ? `function ${cond}(tId, fId, val) {
+  var scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
+  var state = scope[scope.Symbol.for('targeted-mutation-ts/session')];
+  if (state && state.phase === 'baseline') {
+    var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '';
+    var truthy = !!val;
+    var shown = val === null ? 'null' : typeof val === 'string' ? '"' + (val.length > 40 ? val.slice(0, 40) + '...' : val) + '"'
+      : (typeof val === 'number' || typeof val === 'boolean' || typeof val === 'undefined') ? '' + val : typeof val;
+    if (tId) {
+      var te = seen[tId] || (seen[tId] = { tests: {} }), tc = te.tests[test] || (te.tests[test] = [0, 0, 0]);
+      if (truthy) { tc[0]++; if (!te.agree) te.agree = [shown]; }
+      else { tc[1]++; if (!te.differ) te.differ = [shown]; }
+    }
+    if (fId) {
+      var fe = seen[fId] || (seen[fId] = { tests: {} }), fc = fe.tests[test] || (fe.tests[test] = [0, 0, 0]);
+      if (!truthy) { fc[0]++; if (!fe.agree) fe.agree = [shown]; }
+      else { fc[1]++; if (!fe.differ) fe.differ = [shown]; }
+    }
+  }
+  return val;
+}
+` : ''}${rel ? `function ${rel}(op, a, b) {
+  var ta = typeof a, tb = typeof b;
+  if ((a !== null && (ta === 'object' || ta === 'function')) || ta === 'symbol' ||
+      (b !== null && (tb === 'object' || tb === 'function')) || tb === 'symbol') {
+    throw 0;
+  }
+  return op === '<' ? a < b : op === '<=' ? a <= b : op === '>' ? a > b : a >= b;
+}
 ` : ''}`;
 // The probe of the targeted rules. It takes the operands of one expression, the right one of a logical operator as a
 // function, and returns what the expression gives: with the active edit when one of the site's edits is on. While
@@ -287,6 +339,10 @@ function ${see}(i, l, r, r2, g) {
       if (typeof l !== 'string' || !plain(arg1) || !plain(arg2) || !repFn || repFn !== strMethods[f]) return null;
       try { return is(value, scope.Reflect.apply(repFn, l, [arg1, arg2])); } catch (error) { return false; }
     }
+    if ((op === 'max' || op === 'min') && kind === 'r') {
+      if (!mathPreOk || typeof arg1 !== 'number' || typeof arg2 !== 'number') return null;
+      return is(value, f === 'max' ? numMax(arg1, arg2) : numMin(arg1, arg2));
+    }
     if (op === 'every' || op === 'some') {
       if (!qPreOk) return null;
       if (qPreLen === 0) return false;
@@ -322,7 +378,7 @@ function ${see}(i, l, r, r2, g) {
   if (!state || state.phase !== 'baseline') return original();
   // An operation that throws is observed too: an edit that evaluates the same right side throws as well, and any other differs.
   // A sort in place loses the order it started from.
-  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? copy(l) : void 0, spreadBase, spreadVals, arg1, arg2, clampVals, clampBuiltins, mergeA, mergeB, mergePure = false, litFn, regexFn, regexProto, qPreOk = false, qPreLen = -1, qPreDense0 = false;
+  var value, threw = true, unsorted = op === 'sort' && scope.Array.isArray(l) ? copy(l) : void 0, spreadBase, spreadVals, arg1, arg2, clampVals, clampBuiltins, mergeA, mergeB, mergePure = false, litFn, regexFn, regexProto, qPreOk = false, qPreLen = -1, qPreDense0 = false, mathPreOk = false;
   try {
     if (kind === 'p') {
       spreadBase = { ...l };
@@ -336,6 +392,12 @@ function ${see}(i, l, r, r2, g) {
       }
     } else if (kind === 'r') {
       var origFn = l[op];
+      if ((op === 'max' || op === 'min') && l === scope.Math) {
+        try {
+          var mAlt = op === 'max' ? 'min' : 'max';
+          mathPreOk = isNativeFn(origFn) && isNativeFn(l[mAlt]);
+        } catch (error) { mathPreOk = false; }
+      }
       arg1 = r();
       if ((op === 'every' || op === 'some') && l != null && (!isProxy || !isProxy(l)) && scope.Array.isArray(l)) {
         try {
@@ -544,9 +606,13 @@ function ${see}(i, l, r, r2, g) {
       } else if (kind === 'g' && !threw && !entry[slot]) {
         entry[slot] = [show(mergeA), show(mergeB)];
       } else if (kind === 'r' && !entry[slot]) {
-        entry[slot] = threw ? [show(l)] : [show(l), show(arg1)];
+        if (op === 'max' || op === 'min') {
+          if (!threw) entry[slot] = [show(arg1), show(arg2)];
+        } else {
+          entry[slot] = threw ? [show(l)] : [show(l), show(arg1)];
+        }
       } else if (kind !== 'c' && kind !== 'p' && kind !== 'r' && kind !== 'k' && kind !== 'u' && kind !== 'g' && kind !== 'x' && !entry[slot]) entry[slot] = (logical ? !taken || threw : site[7] === 1) ? [show(l)] : [show(l), show(logical ? value : r)];
-      var type = typeof l;
+      var type = (kind === 'r' && (op === 'max' || op === 'min')) ? typeof arg1 : typeof l;
       if (type === 'number' || type === 'string' || type === 'bigint' || type === 'boolean') entry.typed = true;
     }
   }
@@ -588,21 +654,54 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   const see = unusedName(text, '__tmtSee');
   const table = unusedName(text, '__tmtSite');
   const valParam = unusedName(text, '__tmtVal');
+  const opt = unusedName(text, '__tmtOpt');
+  const cond = unusedName(text, '__tmtCond');
+  const rel = unusedName(text, '__tmtRel');
+  let usedOpt = false;
+  let usedCond = false;
+  let usedRel = false;
   const probed = [];
   const loadedComparisons = [];
   const identified = mutation => ({ ...mutation,
     id: createHash('sha256').update(JSON.stringify([file, mutation.name, mutation.start, mutation.end, mutation.replacement])).digest('hex').slice(0, 16) });
   const rawMutants = live.map(identified).map(mutant => mutant.shift === undefined ? mutant
     : { ...mutant, mutated: mutant.mutated.replace(shiftPlaceholder, `${shift}()`) });
+  // Share execution between source-equivalent built-in mutations and their targeted probe counterparts in `full`:
+  // both keep their original candidate IDs, while the targeted probe handles runtime activation and coverage for both.
+  const targetedInFile = rawMutants.filter(mutant => mutant.targeted !== undefined);
+  for (const builtin of rawMutants) {
+    if (builtin.targeted !== undefined || builtin.shift !== undefined) continue;
+    let matched = null;
+    if (builtin.name === 'ArithmeticOperator' && builtin.arithmeticSwap) {
+      matched = targetedInFile.find(t =>
+        t.name === 'arithmetic-swap/v1' && t.start === builtin.start && t.end === builtin.end &&
+        t.targeted.form === builtin.arithmeticSwap);
+    } else if (builtin.name === 'MethodExpression') {
+      matched = targetedInFile.find(t =>
+        ((t.name === 'extreme-swap/v1' && t.operands?.length === 3) || t.name === 'quantifier-swap/v1') &&
+        t.start === builtin.start && t.end === builtin.end && t.replacement === builtin.replacement);
+    } else if (builtin.name === 'Regex') {
+      matched = targetedInFile.find(t =>
+        t.name === 'regex-anchor-slack/v1' &&
+        t.targeted.regexLiteralSpan?.[0] === builtin.start &&
+        t.targeted.regexLiteralSpan?.[1] === builtin.end &&
+        t.targeted.regexLiteralReplacement === builtin.replacement);
+    }
+    if (matched) {
+      builtin.sharedWith = matched.id;
+      (matched.sharedIds ??= []).push(builtin.id);
+    }
+  }
+  const switchCandidates = rawMutants.filter(mutant => !mutant.sharedWith);
   // When built-in expression mutations sit inside an observed probe's syntax but outside its rendered
   // operands (e.g. `arr.length - 1` inside `arr[arr.length - 1]`, `-1` inside `arr.at(-1)`, literals in
   // `['a', 'b'].includes(x)`), lift their switch placement to the enclosing observed expression so no
   // live mutant is dropped when the probe renders only its operands.
-  const observedHosts = rawMutants
+  const observedHosts = switchCandidates
     .filter(mutant => mutant.kind === 'observed')
     .sort((a, b) => (b.placement[1] - b.placement[0]) - (a.placement[1] - a.placement[0]));
   const mutants = observedHosts.length
-    ? rawMutants.map(mutant => {
+    ? switchCandidates.map(mutant => {
       if (mutant.kind !== 'expression') return mutant;
       const [p0, p1] = mutant.placement;
       const host = observedHosts.find(obs =>
@@ -651,7 +750,45 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
           while (index < ordered.length && ordered[index].placement[0] < last) index++;
           inner = `${cmp}(${JSON.stringify(cmpKey)}, ${JSON.stringify(cmpOp)}, (${leftExpr}), (${rightExpr}))`;
         } else {
-          inner = render(first, last);
+          const allOpts = group.named ? [] : group.mutants.filter(m => m.name === 'OptionalChaining').sort((a, b) => a.end - b.end);
+          const safeOpts = [];
+          for (const m of allOpts) {
+            if (!m.optReceiverSpan) break;
+            if (safeOpts.length > 0 &&
+                (m.optReceiverSpan[0] !== safeOpts[0].optReceiverSpan[0] || m.optReceiverSpan[1] <= safeOpts.at(-1).optReceiverSpan[1])) {
+              break;
+            }
+            safeOpts.push(m);
+          }
+          if (safeOpts.length > 0 && safeOpts[0].optReceiverSpan[0] >= first && safeOpts.at(-1).optReceiverSpan[1] < last) {
+            usedOpt = true;
+            const optStart = safeOpts[0].optReceiverSpan[0];
+            const prefix = optStart > first ? render(first, optStart) : '';
+            let acc = '';
+            for (let k = 0; k < safeOpts.length; k++) {
+              const prevEnd = k === 0 ? optStart : safeOpts[k - 1].optReceiverSpan[1];
+              const seg = render(prevEnd, safeOpts[k].optReceiverSpan[1]);
+              const isInner = k > 0 ? 1 : 0;
+              const hasOuter = k < safeOpts.length - 1 ? 1 : 0;
+              acc = k === 0
+                ? `(${opt}(${JSON.stringify(safeOpts[k].id)}, (${seg}), ${isInner}, ${hasOuter}))`
+                : `(${opt}(${JSON.stringify(safeOpts[k].id)}, ${acc}${seg}, ${isInner}, ${hasOuter}))`;
+            }
+            const suffix = render(safeOpts.at(-1).optReceiverSpan[1], last);
+            inner = prefix + acc + suffix;
+          } else {
+            inner = render(first, last);
+          }
+        }
+        if (!group.named) {
+          const trueCond = group.mutants.find(m =>
+            m.fullDiagnostic?.kind === 'condition' && m.fullDiagnostic.target === 'true' && m.start === first && m.end === last);
+          const falseCond = group.mutants.find(m =>
+            m.fullDiagnostic?.kind === 'condition' && m.fullDiagnostic.target === 'false' && m.start === first && m.end === last);
+          if (trueCond || falseCond) {
+            usedCond = true;
+            inner = `${cond}(${JSON.stringify(trueCond?.id ?? '')}, ${JSON.stringify(falseCond?.id ?? '')}, (${inner}))`;
+          }
         }
         // An arrow function bound to a variable keeps the variable's name through an inner binding.
         // A property initializer names the function without adding a binding the function body could see.
@@ -665,20 +802,25 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         // The operands are rendered in source order; what stands between them is the operation the probe performs.
         // Each in parentheses of its own: a probe inside may begin with `void 0,`, which must stay one argument.
         const operands = group.operands.map(([start, end]) => `(${render(start, end)})`);
-        const { operator, boolean, thunk, spreadKeys, pureProps, clampMeta, setElems, regexMeta, pureMerge, guardSteps, guardTruthMode, nullishSafeLoose, rawRightSpan } = group.targeted;
+        const { operator, boolean, thunk, spreadKeys, pureProps, clampMeta, setElems, regexMeta, pureMerge, guardSteps, guardTruthMode, nullishSafeLoose, rawRightSpan, rawRightRendered } = group.targeted;
         // Only the edits beside a written null or undefined say on which side it stands.
         const literalSide = group.mutants.find(mutant => mutant.targeted.literalSide !== undefined)?.targeted.literalSide ?? 0;
         const kind = thunk ? 'l' : ['===', '!==', '==', '!='].includes(operator) ? 'e' : operator.length === 1 ? 'a'
-          : ['max', 'min', 'floor', 'ceil', 'round', 'trunc'].includes(operator) ? 'm'
+          : (['floor', 'ceil', 'round', 'trunc'].includes(operator) || (['max', 'min'].includes(operator) && operands.length === 2)) ? 'm'
             : operator === 'copyArray' || operator === 'copyObject' ? 'c'
               : operator === 'spreadUpdate' ? 'p'
                 : operator === 'clamp' ? 'k'
                   : operator === 'literalIncludes' ? 'u'
                     : operator === 'mergeSpread' ? 'g'
                       : operator === 'regexTest' ? 'x'
-                        : ['startsWith', 'endsWith', 'replace', 'replaceAll', 'every', 'some'].includes(operator) ? 'r' : 's';
-        const row = [operator, boolean ? 1 : 0, group.mutants.map(mutant => [mutant.id, mutant.targeted.form]), literalSide,
-          group.mutants.map(mutant => mutant.id), group.targeted.pureRight ? 1 : 0, kind, operands.length];
+                        : ['startsWith', 'endsWith', 'replace', 'replaceAll', 'every', 'some', 'max', 'min'].includes(operator) ? 'r' : 's';
+        const allEdits = group.mutants.flatMap(mutant => [
+          [mutant.id, mutant.targeted.form],
+          ...(mutant.sharedIds ?? []).map(sharedId => [sharedId, mutant.targeted.form]),
+        ]);
+        const allCoverIds = group.mutants.flatMap(mutant => [mutant.id, ...(mutant.sharedIds ?? [])]);
+        const row = [operator, boolean ? 1 : 0, allEdits, literalSide,
+          allCoverIds, group.targeted.pureRight ? 1 : 0, kind, operands.length];
         if (spreadKeys) row.push(spreadKeys, pureProps);
         else if (clampMeta) row.push(clampMeta);
         else if (regexMeta) row.push(regexMeta);
@@ -718,14 +860,23 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         }
         if (guardSteps && argCount <= 3) {
           const pad = ', void 0'.repeat(3 - argCount);
+          const bindRel = srcText => {
+            if (!srcText.includes(relPlaceholder)) return srcText;
+            usedRel = true;
+            return srcText.replaceAll(relPlaceholder, rel);
+          };
           let guardExpr = `(${valParam})`;
           for (const step of guardSteps) {
-            if (step.kind === 'not') guardExpr = `(!${guardExpr})`;
-            else guardExpr = `(${guardExpr} ${step.op} (${text.slice(step.rightSpan[0], step.rightSpan[1])}))`;
+            if (step.kind === 'not') {
+              guardExpr = `(!${guardExpr})`;
+            } else {
+              const rhsCode = bindRel(step.rightRendered ?? text.slice(step.rightSpan[0], step.rightSpan[1]));
+              guardExpr = `(${guardExpr} ${step.op} (${rhsCode}))`;
+            }
           }
           const guardFn = `${valParam} => ${guardExpr}`;
           const guardArg = thunk && rawRightSpan
-            ? `{ g: ${guardFn}, r: () => (${text.slice(rawRightSpan[0], rawRightSpan[1])}) }`
+            ? `{ g: ${guardFn}, r: () => (${bindRel(rawRightRendered ?? text.slice(rawRightSpan[0], rawRightSpan[1]))}) }`
             : guardFn;
           callArgs = `${callArgs}${pad}, ${guardArg}`;
         }
@@ -758,10 +909,11 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   // A file whose mutations are all ignored keeps its source.
   const rendered = mutants.length ? render(0, text.length) : text;
   const output = mutants.length
-    ? rendered + helpers(on, cover, shift, scope, cmp, loadedComparisons, options.trackLoadedFile ? file : '') + (probed.length ? probe(see, table, cover, scope, probed) : '')
+    ? rendered + helpers(on, cover, shift, scope, cmp, loadedComparisons, options.trackLoadedFile ? file : '',
+      usedOpt ? opt : '', usedCond ? cond : '', usedRel ? rel : '') + (probed.length ? probe(see, table, cover, scope, probed) : '')
     : text;
   // Ignored mutations are reported in source order with the others and get no switch.
-  const reported = [...mutants, ...found.filter(mutation => mutation.ignored !== undefined).map(identified)]
+  const reported = [...rawMutants, ...found.filter(mutation => mutation.ignored !== undefined).map(identified)]
     .sort((a, b) => a.start - b.start || b.end - a.end);
   return { output, mutants: reported.map(mutant => {
     const line = lineOf(mutant.start);
@@ -774,6 +926,8 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
       source: { edit: [bytes[mutant.placement[0]], bytes[mutant.placement[1]]], replacement: asStatementStart(mutant, text) },
       ...(mutant.operator ? { operatorSwap: [bytes[mutant.operator[0]], mutant.operator[1]] } : {}),
       ...(mutant.targeted ? { targeted: mutant.targeted } : {}),
+      ...(mutant.fullDiagnostic ? { fullDiagnostic: mutant.fullDiagnostic } : {}),
+      ...(mutant.sharedWith ? { sharedWith: mutant.sharedWith } : {}),
       ...(mutant.ignored === undefined ? {} : { status: 'ignored', statusReason: mutant.ignored }),
       // A shift switch is driven by the focused analysis and is not a mutation of its own.
       ...(mutant.shift === undefined ? {} : { parametric: { file, at: bytes[mutant.shift] } }),

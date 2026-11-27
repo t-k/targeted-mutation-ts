@@ -168,7 +168,7 @@ For an edit that survived, the session also compares what each of its tests reac
 
 `--mutators full` combines comparison boundaries and constant-RHS integer thresholds with every StrykerJS mutator without requiring any StrykerJS package: ArithmeticOperator, ArrayDeclaration, ArrowFunction, AssignmentOperator, BlockStatement, BooleanLiteral, CallExpression (removal of a call or `throw new` statement), ConditionalExpression, EqualityOperator, LogicalOperator, MethodExpression, ObjectLiteral, OptionalChaining, Regex, StringLiteral, UnaryOperator and UpdateOperator. The mutations are found in the TypeScript syntax tree and reported with the StrykerJS mutator names, the original text and the replacement. The repository's tests compare the set with the StrykerJS instrumenter's on TypeScript, TSX and JavaScript sources.
 
-With Vitest 4 and 5 (default runner) and with Playwright, the tool rewrites mutations into runtime switches and drives one switched test session with per-test coverage (`operatorExecution: "session"`). With `--audit`, `--runner node`, or when a session cannot start (another Vitest major, a custom runner, `experimental.viteModuleRunner: false`, Vitest browser mode, Vitest type checking, or a Playwright server without runtime switch activity), each mutation is a source rewrite followed by one run of the suite (`operatorExecution: "source-rewrite"`). A comparison boundary such as `>=` to `>` is reported once, with its missing input.
+With Vitest 4 and 5 (default runner) and with Playwright, the tool rewrites mutations into runtime switches and drives one switched test session with per-test coverage (`operatorExecution: "session"`). Source-equivalent built-in mutations (`ArithmeticOperator` `+`↔`-` and `*`↔`/`, `MethodExpression` `Math.min`↔`Math.max` and `every`↔`some`, and `Regex` `.test()` anchor drops) share their trial execution with the matching targeted probe while keeping both candidate IDs in the report, and surviving `OptionalChaining`, complementary safe-integer `EqualityOperator` (`>=`→`<`, `<=`→`>`, `>`→`<=`, `<`→`>=`), and `ConditionalExpression` (`true`/`false`) edits receive `INPUT GAP` or `ASSERTION GAP` diagnostics from the baseline observations. With `--audit`, `--runner node`, or when a session cannot start (another Vitest major, a custom runner, `experimental.viteModuleRunner: false`, Vitest browser mode, Vitest type checking, or a Playwright server without runtime switch activity), each mutation is a source rewrite followed by one run of the suite (`operatorExecution: "source-rewrite"`). A comparison boundary such as `>=` to `>` is reported once, with its missing input.
 
 `// Stryker disable all`, `// Stryker disable next-line EqualityOperator: reason`, `// Stryker restore all` and their other forms are read as StrykerJS reads them. A comment counts when it leads a statement or expression, so one placed directly before a closing brace has no effect. An ignored mutation is listed with the status `ignored` and its reason in `statusReason`, and gets no switch. A comparison boundary under such a comment is left out of the default `targeted` profile too, and the file's `extraction` entry counts it in `ignored`.
 
@@ -193,7 +193,30 @@ With `--audit` (or when a session falls back to `source-rewrite`), each trial la
 
 The fixture accepts a loopback port from `PORT`. The integration tests and the evidence script start their own instances of that fixture. Playwright's global timeout reserves time for orderly shutdown before the runner's process-group deadline.
 
-Playwright needs a loopback `webServer` command rooted in each trial copy. If `use.baseURL` is set, its origin must match a managed server. The tool resolves Playwright from the target workspace. Server commands and tests must exercise the copied sources, including any paths they construct dynamically. A witness can set `witnessDirectory` when the relevant project collects tests outside the directory of the first passing baseline test.
+Playwright needs a loopback `webServer` command (`url` or `port` on `localhost`, `127.0.0.1`, or `[::1]`) rooted in each trial copy. If `use.baseURL` is set, its port and protocol must match a managed loopback server. Monorepo subpackages without a local `node_modules` automatically inherit hoisted ancestor `node_modules` in trial copies. The tool resolves Playwright from the target workspace. Server commands and tests must exercise the copied sources, including any paths they construct dynamically. A witness can set `witnessDirectory` when the relevant project collects tests outside the directory of the first passing baseline test.
+
+## Project configuration
+
+Project defaults can be stored in `targeted-mutation.config.json`, `targeted-mutation.config.mjs` (default export), or the `"targetedMutation"` field of `package.json` (pass `--no-config` to ignore them; CLI flags always take precedence):
+
+```json
+{
+  "runner": "playwright",
+  "files": ["src"],
+  "tests": ["e2e/**/*.spec.ts"],
+  "projects": ["chromium"],
+  "mutators": "targeted",
+  "deterministic": true,
+  "displaceThresholds": true,
+  "copyExcludeGitignore": true,
+  "excludeRules": [],
+  "timeout": 60,
+  "baselineTimeout": 90,
+  "failOnGaps": false
+}
+```
+
+Supported keys: `runner`, `files` (files, directories, or globs), `tests`, `projects`, `mutators`, `timeout`, `baselineTimeout`, `baselineWorkers`, `concurrency`, `config` (Vitest/Playwright config path), `tsconfig`, `spec`, `baseline`, `related`, `copyExclude`, `copyExcludeGitignore`, `excludeRules`, `typeCheck`, `deterministic`, `displaceThresholds`, `isolatedTrials`, `verifyTrials`, `progress`, `failOnGaps`, `verbose`, and `onlyGaps`. Unknown keys print a warning to `stderr`.
 
 For the pending Save fixture, StrykerJS 10.1.1's command runner killed its five generated mutants with both suites. Its replacement list did not include dropping the saving operand to get `!valid`. TMT ran that source rewrite against both suites, and the added pending-request test killed it. This comparison uses the StrykerJS command runner with coverage disabled, so it does not establish a relative runtime for StrykerJS with per-test runner coverage. The [JSON evidence](../evidence/m3) records both experiments.
 

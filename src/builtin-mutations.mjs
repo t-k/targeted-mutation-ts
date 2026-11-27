@@ -21,6 +21,7 @@ for (const [name, other] of [...methods]) if (other && name !== 'setUTCDate') me
 
 // Stands for the call that reads the active shift. The renderer puts the helper's name in its place.
 export const shiftPlaceholder = '\u0000shift\u0000';
+export const relPlaceholder = '\u0000rel\u0000';
 
 // The targeted rules: edits whose behaviour on the values a test passes can be told from the operands alone, so a
 // recording run knows in which tests an edit would have gone another way. `ignored-operand` drops what one side
@@ -191,7 +192,8 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       const left = strip(node.left);
       const leftKind = isBinary(left) ? strip(left.right) : left;
       if (arithmetic.has(operator) && !isString(strip(node.right)) && !isString(leftKind)) {
-        add('ArithmeticOperator', node, swapToken(node, token, arithmetic.get(operator)));
+        const swappedOp = arithmetic.get(operator);
+        add('ArithmeticOperator', node, swapToken(node, token, swappedOp), undefined, { arithmeticSwap: swappedOp });
       }
       for (const replacement of equality.get(operator) ?? []) {
         add('EqualityOperator', node, swapToken(node, token, replacement), undefined, { operator: [begin(token), replacement] });
@@ -455,6 +457,58 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     return isTypeofObjectTerm(term, targetText, true);
   }
 
+  // Runtime-guarded pure expressions for short-circuit absorption: also allows `<`, `<=`, `>`, `>=`
+  // when rendered through `relPlaceholder`, which aborts on non-primitives so `valueOf`/`toPrimitive` never runs.
+  function isPureRuntimeGuardExpr(node) {
+    const inner = strip(node);
+    if (!inner) return false;
+    if (written(inner)) return true;
+    if (ts.isIdentifier(inner)) return isSafeGuardIdentifier(inner);
+    if (ts.isTypeOfExpression(inner) || ts.isVoidExpression(inner)) return isPureRuntimeGuardExpr(inner.expression);
+    if (ts.isPrefixUnaryExpression(inner) && inner.operator === K.ExclamationToken) return isPureRuntimeGuardExpr(inner.operand);
+    if (ts.isBinaryExpression(inner)) {
+      const op = operatorOf(inner);
+      if (op === '===' || op === '!==' || op === '&&' || op === '||' || op === '??' ||
+          op === '<' || op === '<=' || op === '>' || op === '>=') {
+        return isPureRuntimeGuardExpr(inner.left) && isPureRuntimeGuardExpr(inner.right);
+      }
+      if (op === '==' || op === '!=') {
+        const leftNullish = safeNullishLiteral(inner.left);
+        const rightNullish = safeNullishLiteral(inner.right);
+        return (leftNullish !== undefined && isPureRuntimeGuardExpr(inner.right)) ||
+          (rightNullish !== undefined && isPureRuntimeGuardExpr(inner.left));
+      }
+      return false;
+    }
+    if (ts.isConditionalExpression(inner)) {
+      return isPureRuntimeGuardExpr(inner.condition) && isPureRuntimeGuardExpr(inner.whenTrue) && isPureRuntimeGuardExpr(inner.whenFalse);
+    }
+    return false;
+  }
+
+  function renderPureRuntimeGuard(node) {
+    const inner = strip(node);
+    if (written(inner) || ts.isIdentifier(inner)) return source(inner);
+    if (ts.isTypeOfExpression(inner)) return `typeof (${renderPureRuntimeGuard(inner.expression)})`;
+    if (ts.isVoidExpression(inner)) return `void (${renderPureRuntimeGuard(inner.expression)})`;
+    if (ts.isPrefixUnaryExpression(inner) && inner.operator === K.ExclamationToken) {
+      return `!(${renderPureRuntimeGuard(inner.operand)})`;
+    }
+    if (ts.isBinaryExpression(inner)) {
+      const op = operatorOf(inner);
+      const l = renderPureRuntimeGuard(inner.left);
+      const r = renderPureRuntimeGuard(inner.right);
+      if (op === '<' || op === '<=' || op === '>' || op === '>=') {
+        return `${relPlaceholder}(${JSON.stringify(op)}, (${l}), (${r}))`;
+      }
+      return `((${l}) ${op} (${r}))`;
+    }
+    if (ts.isConditionalExpression(inner)) {
+      return `((${renderPureRuntimeGuard(inner.condition)}) ? (${renderPureRuntimeGuard(inner.whenTrue)}) : (${renderPureRuntimeGuard(inner.whenFalse)}))`;
+    }
+    return source(inner);
+  }
+
   // Build forward-only pure guard evaluation steps above `node`. When `cur` is the right-hand operand of an
   // enclosing `&&`, `||`, or `??`, reaching `node` guarantees the left-hand operand already passed without
   // short-circuiting, so `L op v === v` identically and `L` is never re-evaluated.
@@ -474,8 +528,13 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
           cur = parent;
           continue;
         }
-        if (parent.left === child && isPureGuardExpr(parent.right)) {
-          steps.push({ kind: 'logical', op: operatorOf(parent), rightSpan: [begin(parent.right), parent.right.end] });
+        if (parent.left === child && isPureRuntimeGuardExpr(parent.right)) {
+          steps.push({
+            kind: 'logical',
+            op: operatorOf(parent),
+            rightSpan: [begin(parent.right), parent.right.end],
+            rightRendered: renderPureRuntimeGuard(parent.right),
+          });
           cur = parent;
           continue;
         }
@@ -519,10 +578,14 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     const boolean = onlyTruthUsed(node);
     const nullishSafeLoose = (operator === '==' || operator === '!=') &&
       (safeNullishLiteral(node.left) !== undefined || safeNullishLiteral(node.right) !== undefined);
-    const pureRightGuard = isLogical(node) && isPureGuardExpr(node.right);
+    const pureRightGuard = isLogical(node) && isPureRuntimeGuardExpr(node.right);
     const edit = probed(node, operator, [node.left, node.right], {
       ...(nullishSafeLoose ? { nullishSafeLoose: true } : {}),
-      ...(pureRightGuard ? { pureRightGuard: true, rawRightSpan: [begin(node.right), node.right.end] } : {}),
+      ...(pureRightGuard ? {
+        pureRightGuard: true,
+        rawRightSpan: [begin(node.right), node.right.end],
+        rawRightRendered: renderPureRuntimeGuard(node.right),
+      } : {}),
     });
     if (isBinary(node) && arithmeticSwaps.has(operator)) {
       const leftKind = isBinary(strip(node.left)) ? strip(strip(node.left).right) : strip(node.left);
@@ -559,7 +622,8 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       }
     } else if (isLogical(node) && !staysInPlace(node.right)) {
       const operand = grouped;
-      const more = { thunk: true, ...(written(node.right) ? { pureRight: true } : {}) };
+      const isPureRight = written(node.right);
+      const more = { thunk: true, ...(isPureRight ? { pureRight: true, rightText: right } : {}) };
       edit(targetedRules.ignored, 'left', `(${left}, ${right})`, more);
       edit(targetedRules.ignored, 'right', `(${left} ${operator} (${right}, ${ignoredValue[operator]}))`, more);
       // Only `??` and non-boolean `||` can emit `nullish-fallback/v1`; avoid triggering lazy type-checking for `&&`.
@@ -823,7 +887,15 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
           if (mutations.length > beforeClamp) skippedMathCalls.add(inner);
           return;
         }
-        probed(node, name, [args[0], args[1]])(targetedRules.extreme, name === 'max' ? 'min' : 'max', rename(node, callee.name, name === 'max' ? 'min' : 'max'));
+        if (!staysInPlace(args[0]) && !staysInPlace(args[1])) {
+          probed(node, name, [callee.expression, args[0], args[1]])(
+            targetedRules.extreme, name === 'max' ? 'min' : 'max', rename(node, callee.name, name === 'max' ? 'min' : 'max'),
+          );
+        } else {
+          probed(node, name, [args[0], args[1]])(
+            targetedRules.extreme, name === 'max' ? 'min' : 'max', rename(node, callee.name, name === 'max' ? 'min' : 'max'),
+          );
+        }
       } else if (roundingSwaps.has(name) && args.length === 1) {
         const edit = probed(node, name, [args[0]]);
         const roundingEq = (name === 'floor' || name === 'trunc') ? classifyRoundingEquivalence(args[0], ts) : null;
@@ -894,7 +966,11 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
           const altMap = Object.fromEntries(alts);
           const edit = probed(node, 'regexTest', [args[0]], { regexMeta: { pattern, flags, alts: altMap }, argName: source(args[0]) });
           for (const [form, altPattern] of alts) {
-            edit(targetedRules.regexAnchor, form, `/${altPattern || '(?:)'}/${flags}.test(${source(args[0])})`);
+            const regexLiteralReplacement = `/${altPattern || '(?:)'}/${flags}`;
+            edit(targetedRules.regexAnchor, form, `${regexLiteralReplacement}.test(${source(args[0])})`, {
+              regexLiteralSpan: [begin(recv), recv.end],
+              regexLiteralReplacement,
+            });
           }
         }
       }
@@ -1031,16 +1107,24 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
 
   function condition(node) {
     const [parent, child] = up(node);
+    const condExtra = target => ({
+      fullDiagnostic: {
+        kind: 'condition',
+        target,
+        expression: source(node),
+        pureBoolean: isBooleanPureGuardExpr(node),
+      },
+    });
     const loopTest = (ts.isForStatement(parent) && parent.condition === child) ||
       ((ts.isWhileStatement(parent) || ts.isDoStatement(parent)) && parent.expression === child);
-    if (loopTest) add('ConditionalExpression', node, 'false');
+    if (loopTest) add('ConditionalExpression', node, 'false', undefined, condExtra('false'));
     else if (ts.isIfStatement(parent) && parent.expression === child) {
-      add('ConditionalExpression', node, 'true');
-      add('ConditionalExpression', node, 'false');
+      add('ConditionalExpression', node, 'true', undefined, condExtra('true'));
+      add('ConditionalExpression', node, 'false', undefined, condExtra('false'));
     } else if ((isBinary(node) || isLogical(node)) && booleanOperators.has(operatorOf(node))) {
       const outer = isLogical(parent) ? operatorOf(parent) : undefined;
-      if (outer !== '&&') add('ConditionalExpression', node, 'false');
-      if (outer !== '||') add('ConditionalExpression', node, 'true');
+      if (outer !== '&&') add('ConditionalExpression', node, 'false', undefined, condExtra('false'));
+      if (outer !== '||') add('ConditionalExpression', node, 'true', undefined, condExtra('true'));
     }
   }
 
@@ -1100,7 +1184,20 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
   function withoutQuestionDot(node) {
     const token = node.questionDotToken;
     const replacement = ts.isPropertyAccessExpression(node) ? '.' : '';
-    add('OptionalChaining', node, text.slice(begin(node), begin(token)) + replacement + text.slice(token.end, node.end));
+    let holder = node;
+    while (!canHoldSwitch(holder)) holder = up(holder)[0];
+    const [holderParent] = up(holder);
+    const wrapSafe = !ts.isDeleteExpression(holderParent) &&
+      (isMember(node) || (ts.isCallExpression(node) && !isMember(strip(node.expression))));
+    const extra = {
+      fullDiagnostic: {
+        kind: 'optional-chaining',
+        left: source(node.expression),
+        wrapSafe,
+      },
+      ...(wrapSafe ? { optReceiverSpan: [begin(node.expression), node.expression.end] } : {}),
+    };
+    add('OptionalChaining', node, text.slice(begin(node), begin(token)) + replacement + text.slice(token.end, node.end), undefined, extra);
   }
 
   // A declaration in a case clause is visible in the clauses after it, so such a clause cannot move into a block.

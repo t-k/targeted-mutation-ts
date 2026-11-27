@@ -898,7 +898,7 @@ export function prepareAnalysis(project, files, options) {
     ))
     : rawTrials;
   const skips = leanSkips(trials, baseline, !!options.deterministic, coverage);
-  return { root, report, options, attempt, baseline, traced, trace, trials, skips };
+  return { root, report, options, attempt, baseline, traced, trace, trials, skips, subjects };
 }
 
 // Prepares focused comparison trials (boundaries, integer thresholds, variable-RHS margins, displaced thresholds,

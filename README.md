@@ -76,22 +76,23 @@ The tool copies the project to a temporary directory and runs the project's own 
 
 ```sh
 npx targeted-mutation analyze                      # every source file in the current project (default: targeted)
-npx targeted-mutation analyze . src/cart.ts        # selected files
+npx targeted-mutation analyze . src/cart.ts        # selected files or directories (e.g. . src or . 'src/**/*.ts')
 npx targeted-mutation analyze --lines src/cart.ts:10-40
 npx targeted-mutation analyze --since origin/main  # edits on lines changed since a revision (also flags weakened tests)
 npx targeted-mutation analyze --since origin/main --undo-changes  # also: which changes do the tests pass without?
-npx targeted-mutation analyze --suggest-assertions # also: the exact value a weak assertion should compare with
+npx targeted-mutation analyze --suggest-assertions # also: the exact value a weak assertion should compare with (Vitest)
 npx targeted-mutation analyze --mutators full      # full built-in StrykerJS-compatible mutation set (no StrykerJS required)
 npx targeted-mutation analyze --list --shard 0/4   # preview candidates for CI shard 0 of 4 without running tests
 npx targeted-mutation analyze --format sarif       # emit SARIF 2.1.0 for GitHub Code Scanning (or --format jsonl)
 npx targeted-mutation analyze --write-baseline tmt-baseline.json  # save stable finding IDs
 npx targeted-mutation analyze --baseline tmt-baseline.json        # suppress already-recorded findings
 npx targeted-mutation analyze --checkpoint .tmt-checkpoint.jsonl  # resume interrupted runs safely
+npx targeted-mutation analyze --runner playwright . src           # run warm targeted E2E mutation testing on Playwright
 npx targeted-mutation analyze --runner node --test 'test/*.test.mjs' . src/app.mjs  # run directly against Node's built-in node:test runner
 npx targeted-mutation analyze --exclude-rule nullish-equality/v1 --copy-exclude-gitignore --test 'src/lib/**/*.test.ts'
 ```
 
-`tmts` is a short alias for the same command. `targeted-mutation --help` lists every option.
+`tmts` is a short alias for the same command. `targeted-mutation --help` lists every option. Project defaults (`runner`, `files`, `tests`, `projects`, `mutators`, `timeout`, `baselineTimeout`, `copyExclude`, `copyExcludeGitignore`, `excludeRules`, `deterministic`, `displaceThresholds`, `failOnGaps`, etc.) can also be placed in `targeted-mutation.config.json`, `targeted-mutation.config.mjs`, or `package.json#targetedMutation`; see [Project configuration](docs/analysis.md#project-configuration).
 
 The exit status is 0 after a completed analysis, including one that reports gaps, and 1 when the suite fails before any edit, a file cannot be parsed, or the arguments are invalid.
 
@@ -114,7 +115,7 @@ On a terminal the report is text. When the output is piped or redirected it is J
 | Option | What it edits |
 |--------|---------------|
 | (default) `--mutators targeted` | `<`, `<=`, `>`, `>=` boundaries and, on Vitest and Playwright, integer thresholds across constant-RHS comparisons plus variable-RHS margin shifts (`comparison-margin/v1`) and twenty value-aware rules: an equality that every test leaves true or false, an operand of `&&`, `\|\|` or `??` whose value never decides, `??` written as `\|\|`, `== null` written as `=== null`, another arithmetic operator, `Math.min` for `Math.max`, another rounding, the other end of a list, a numeric sort without its comparison, a call that is no longer awaited, a copy that is the original, a single dropped property in an object spread update, `startsWith`/`endsWith` relaxed to `includes`, `replace` swapped with `replaceAll`, a dropped `Math.min`/`Math.max` clamp bound, a pruned literal element in `[...].includes(x)`, swapped `{ ...a, ...b }` merge precedence, `every` swapped with `some`, dropped `^`/`$` regex anchors on `.test(s)`, and a skipped cleanup call inside `finally`. In a Vitest or Playwright session with operand recording (spanning both the managed `webServer` and browser pages on Playwright), each survivor is reported with the missing input (`INPUT GAP`) or with the tests that had the input and asserted nothing (`ASSERTION GAP`), and unreached edits are skipped. Needs no extra package. |
-| `--mutators full` | Everything in `targeted` (comparison boundaries, integer thresholds/margins, and all twenty value-aware targeted rules), plus the complete built-in mutation set: every StrykerJS mutator (arithmetic, equality, logical, conditional, boolean, string, array, object, block, arrow function, assignment, unary, update, method, optional chaining, regular expression and call removal). Needs no extra package. Runs in one switched session on Vitest 4 and 5 and on Playwright, falling back to source rewrites when a session cannot start or `--audit` is requested. |
+| `--mutators full` | Everything in `targeted` (comparison boundaries, integer thresholds/margins, and all twenty value-aware targeted rules), plus the complete built-in mutation set: every StrykerJS mutator (arithmetic, equality, logical, conditional, boolean, string, array, object, block, arrow function, assignment, unary, update, method, optional chaining, regular expression and call removal). Source-equivalent built-in and targeted mutations (`+`↔`-`, `*`↔`/`, `Math.min`↔`Math.max`, `every`↔`some`, `.test()` anchor drops, and comparison boundaries) share a single trial execution, and surviving `OptionalChaining`, relational-complement `EqualityOperator` (`>=`→`<`), and `ConditionalExpression` edits receive `INPUT GAP` / `ASSERTION GAP` diagnostics from the recorded baseline. Needs no extra package. Runs in one switched session on Vitest 4 and 5 and on Playwright, falling back to source rewrites when a session cannot start or `--audit` is requested. |
 | `--witnesses` | Value substitutions such as a neighbouring field, the first or last index, or a sort key, each confirmed by a test that tells them apart. Reports `No edit sites` when a file has no such pattern. |
 
 `// Stryker disable`, `// Stryker restore`, and `// tmt:ignore <reason>` (same-line or standalone line above) comments exclude mutations in both the `targeted` and `full` profiles, with the reason recorded on each ignored mutation.

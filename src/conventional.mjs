@@ -5,7 +5,7 @@ import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prepareBuiltinSwitches, targetedOrBoundary } from './builtin-switches.mjs';
-import { targetedGap } from './targeted-gaps.mjs';
+import { fullBuiltinGap, targetedGap } from './targeted-gaps.mjs';
 import { checkpointKeyForTrial } from './checkpoint.mjs';
 import { candidateKey } from './shard.mjs';
 import { selectScope } from './scope.mjs';
@@ -94,10 +94,12 @@ export async function analyzeConventional(project, files, options) {
     }
   }
   const runnable = prepared.filter(mutant => mutant.status === undefined && inShard(mutant) && !cachedById.has(mutant.id));
+  const runnableIds = new Set(runnable.map(mutant => mutant.id));
+  const sessionRunnable = runnable.filter(mutant => !(mutant.sharedWith && runnableIds.has(mutant.sharedWith)));
   if (!mutants.length) return report;
-  if (!runnable.length) {
+  if (!sessionRunnable.length) {
     const cachedDiagnostics = [];
-    const mapped = mutants.map(({ targeted: _rule, ...mutant }) => {
+    const mapped = mutants.map(({ targeted: _rule, fullDiagnostic: _fd, ...mutant }) => {
       const cached = cachedById.get(mutant.id);
       if (cached?.diagnostic) cachedDiagnostics.push(cached.diagnostic);
       if (!cached) return mutant;
@@ -127,10 +129,10 @@ export async function analyzeConventional(project, files, options) {
     const output = resolve(temp, 'mutation-session.jsonl');
     const runTimeoutMs = options.timeout ? options.timeout * 1000 : 60_000;
     const baselineTimeoutMs = options['baseline-timeout'] ? options['baseline-timeout'] * 1000 : runTimeoutMs;
-    const totalRunnable = runnable.filter(mutant => !mutant.parametric).length;
+    const totalRunnable = sessionRunnable.filter(mutant => !mutant.parametric).length;
     writeFileSync(manifest, JSON.stringify({
       workspace, setup, workerRunner, output, temporary: temp, awaitsExtras,
-      mutants: runnable.map(({ id, parametric, targeted }) => ({
+      mutants: sessionRunnable.map(({ id, parametric, targeted }) => ({
         id,
         ...(parametric ? { parametric } : {}),
         ...(targeted?.evidence ? { evidence: true } : {}),
@@ -148,7 +150,7 @@ export async function analyzeConventional(project, files, options) {
       files: [...new Set((options.test ?? []).map(file => inside(workspace, file)))],
       ...(options.testSpecs?.length ? { selectedSpecs: options.testSpecs.map(({ project, file }) => ({ project, file: inside(workspace, file) })) } : {}),
     }));
-    const limit = 75_000 + baselineTimeoutMs + runTimeoutMs * runnable.length;
+    const limit = 75_000 + baselineTimeoutMs + runTimeoutMs * sessionRunnable.length;
     // The focused analysis names its threshold edits once it has recorded the comparisons.
     // Guarded by `finished` so a late resolution never writes after `withCopy` deletes `temp`,
     // while a write error during a live session aborts the child and propagates to the caller.
@@ -266,9 +268,10 @@ export async function analyzeConventional(project, files, options) {
       const cached = cachedById.get(mutant.id);
       if (cached) {
         const { diagnostic: _diag, ...outcome } = cached;
-        return { ...mutant, ...outcome, evidence: outcome.evidence ?? 'checkpoint', _cachedDiagnostic: cached.diagnostic };
+        return { ...mutant, ...outcome, id: mutant.id, evidence: outcome.evidence ?? 'checkpoint', _cachedDiagnostic: cached.diagnostic };
       }
-      const result = results.get(mutant.id);
+      const rawResult = results.get(mutant.id) ?? (mutant.sharedWith ? results.get(mutant.sharedWith) : undefined);
+      const result = rawResult ? { ...rawResult, id: mutant.id } : undefined;
       // An edit the session left out was not run.
       if (result?.status === 'ignored') return { ...mutant, ...result };
       if (result) {
@@ -278,16 +281,17 @@ export async function analyzeConventional(project, files, options) {
     });
     const diagnostics = [];
     for (const mutant of judged) {
-      const gap = mutant._cachedDiagnostic ?? withEffects(targetedGap(mutant, observed[mutant.id]), mutant);
+      const gap = mutant._cachedDiagnostic ??
+        withEffects(targetedGap(mutant, observed[mutant.id]) ?? fullBuiltinGap(mutant, observed[mutant.id]), mutant);
       if (gap) diagnostics.push(gap);
-      if (ckpt && !cachedById.has(mutant.id) && results.has(mutant.id)) {
+      if (ckpt && !cachedById.has(mutant.id) && (results.has(mutant.id) || (mutant.sharedWith && results.has(mutant.sharedWith)))) {
         ckpt.record(checkpointKeyForTrial(mutant), mutant, gap ?? undefined);
       }
     }
     return {
       ...report, baseline, evaluation: completed ? 'evaluated' : 'incomplete', trials: events.find(event => event.trials)?.trials,
       ...(awaitsExtras ? { extras: events.filter(event => event.extra !== undefined) } : {}),
-      mutants: judged.map(({ targeted: _rule, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),
+      mutants: judged.map(({ targeted: _rule, fullDiagnostic: _fd, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),
       diagnostics,
     };
   }, { exclude: options['copy-exclude'], onProgress: options.onProgress, reuseCopy: options.reusableCopy });
