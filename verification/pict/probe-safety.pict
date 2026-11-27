@@ -1,0 +1,9 @@
+Operation: Arithmetic, MathFunc, SequenceIndex, StringIndexOf, CopyArray, CopyObject, Logical
+Outcome: Normal, Throws
+OperandKind: Plain, SideEffectObject, NonArrayIterable, NullishOrClass, ArrayOrPlainObj
+Context: Value, Condition
+
+IF [Operation] = "CopyArray" THEN [OperandKind] IN {"NonArrayIterable", "ArrayOrPlainObj"} AND [Outcome] = "Normal";
+IF [Operation] = "CopyObject" THEN [OperandKind] IN {"NullishOrClass", "ArrayOrPlainObj"} AND [Outcome] = "Normal";
+IF [Operation] = "StringIndexOf" THEN [OperandKind] IN {"Plain", "SideEffectObject"};
+IF [Operation] IN {"Arithmetic", "MathFunc", "SequenceIndex", "Logical"} THEN [OperandKind] IN {"Plain", "SideEffectObject"};

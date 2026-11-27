@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 476" width="960" height="476" role="img" aria-label="How targeted-mutation works">
+  <defs>
+    <style>
+      .heading { font-family: 'Virgil', 'Segoe Print', 'Bradley Hand', 'Chalkboard SE', cursive, sans-serif; font-size: 15.5px; font-weight: 700; }
+      .label { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 12px; font-weight: 700; }
+      .body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 11.5px; }
+      .small { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 10.8px; }
+      .code { font-family: ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas, monospace; font-size: 11px; }
+    </style>
+    <marker id="arrow-gray" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#64748b"/>
+    </marker>
+    <marker id="arrow-purple" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#6741d9"/>
+    </marker>
+    <marker id="arrow-teal" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#0ca678"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#2f9e44"/>
+    </marker>
+    <marker id="arrow-red" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#e03131"/>
+    </marker>
+    <marker id="arrow-orange" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M 0 1.5 L 8.5 5 L 0 8.5 z" fill="#d9480f"/>
+    </marker>
+  </defs>
+
+  <!-- Clean card background for GitHub light & dark themes -->
+  <rect x="0" y="0" width="960" height="476" rx="14" fill="#ffffff"/>
+  <rect x="1" y="1" width="958" height="474" rx="13" fill="none" stroke="#e9ecef" stroke-width="1.5"/>
+
+  <!-- Row 1: Source -> Baseline -> Optional Diff Track -->
+  <rect x="28" y="34" width="196" height="62" rx="10" fill="#f8f9fa" stroke="#adb5bd" stroke-width="1.5"/>
+  <text x="126" y="59" text-anchor="middle" class="heading" fill="#212529">Source + Tests</text>
+  <text x="126" y="79" text-anchor="middle" class="small" fill="#495057">Vitest 4/5 or Playwright</text>
+
+  <line x1="224" y1="65" x2="270" y2="65" stroke="#64748b" stroke-width="1.6" marker-end="url(#arrow-gray)"/>
+
+  <rect x="276" y="34" width="380" height="62" rx="10" fill="#e7f5ff" stroke="#1971c2" stroke-width="1.6"/>
+  <text x="466" y="58" text-anchor="middle" class="heading" fill="#1864ab">1. Baseline Run + Value Probes</text>
+  <text x="466" y="79" text-anchor="middle" class="body" fill="#1c4f7a">Records (lhs, rhs) operands &amp; per-test agreement</text>
+
+  <!-- Optional side track -->
+  <path d="M 126 34 L 126 16 L 814 16 L 814 29" fill="none" stroke="#868e96" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#arrow-gray)"/>
+  <rect x="440" y="8" width="96" height="15" rx="3" fill="#ffffff"/>
+  <text x="488" y="19" text-anchor="middle" class="small" fill="#868e96">git diff hunks</text>
+
+  <rect x="696" y="34" width="236" height="62" rx="10" fill="#f1f3f5" stroke="#868e96" stroke-width="1.4" stroke-dasharray="5 3"/>
+  <text x="814" y="54" text-anchor="middle" class="label" fill="#343a40">Optional: --undo-changes</text>
+  <text x="814" y="71" text-anchor="middle" class="small" fill="#495057">Reverts hunks &amp; AST sub-hunks</text>
+  <text x="814" y="87" text-anchor="middle" class="code" fill="#c92a2a">-&gt; UNTESTED CHANGE</text>
+
+  <!-- Arrows: Baseline -> Track A & Track B -->
+  <path d="M 380 96 L 236 134" fill="none" stroke="#6741d9" stroke-width="1.6" marker-end="url(#arrow-purple)"/>
+  <path d="M 552 96 L 616 134" fill="none" stroke="#0ca678" stroke-width="1.6" marker-end="url(#arrow-teal)"/>
+
+  <!-- Row 2: Two synthesis tracks -->
+  <rect x="28" y="140" width="404" height="84" rx="10" fill="#f3f0ff" stroke="#6741d9" stroke-width="1.6"/>
+  <text x="230" y="164" text-anchor="middle" class="heading" fill="#5f3dc4">2a. Lean 4 Solver (tmt-decide)</text>
+  <text x="230" y="185" text-anchor="middle" class="body" fill="#3b2c68">Feasible threshold &amp; margin intervals -&gt; nearest open edit</text>
+  <text x="230" y="205" text-anchor="middle" class="small" fill="#5f3dc4">--deterministic: proves zero-reexecution replay skips</text>
+
+  <rect x="456" y="140" width="476" height="84" rx="10" fill="#e6fcf5" stroke="#0ca678" stroke-width="1.6"/>
+  <text x="694" y="164" text-anchor="middle" class="heading" fill="#087f5b">2b. 20 Value-Aware Rules</text>
+  <text x="694" y="185" text-anchor="middle" class="body" fill="#125442">spread drop, startsWith-&gt;includes, replaceAll, clamp, ??/||, finally...</text>
+  <text x="694" y="205" text-anchor="middle" class="small" fill="#087f5b">Tracks "agreed" vs "differed in T" per test</text>
+
+  <!-- Arrows: Tracks -> Worker Session -->
+  <path d="M 230 224 L 356 260" fill="none" stroke="#6741d9" stroke-width="1.6" marker-end="url(#arrow-purple)"/>
+  <path d="M 694 224 L 568 260" fill="none" stroke="#0ca678" stroke-width="1.6" marker-end="url(#arrow-teal)"/>
+
+  <!-- Row 3: Switched Vitest 4/5 Workers -->
+  <rect x="210" y="264" width="540" height="60" rx="10" fill="#fff9db" stroke="#e67700" stroke-width="1.6"/>
+  <text x="480" y="289" text-anchor="middle" class="heading" fill="#d9480f">3. Switched Vitest 4 &amp; 5 Worker Session</text>
+  <text x="480" y="309" text-anchor="middle" class="body" fill="#6c4200">In-worker runtime switches + post-trial control run (auto-fallback on state leak)</text>
+
+  <!-- Arrows: Session -> 3 Outcomes -->
+  <path d="M 330 324 L 154 366" fill="none" stroke="#2f9e44" stroke-width="1.6" marker-end="url(#arrow-green)"/>
+  <rect x="196" y="335" width="66" height="16" rx="4" fill="#ffffff"/>
+  <text x="229" y="347" text-anchor="middle" class="small" fill="#2f9e44" font-weight="700">test fails</text>
+
+  <line x1="480" y1="324" x2="480" y2="365" stroke="#e03131" stroke-width="1.6" marker-end="url(#arrow-red)"/>
+  <rect x="424" y="335" width="112" height="16" rx="4" fill="#ffffff"/>
+  <text x="480" y="347" text-anchor="middle" class="small" fill="#e03131" font-weight="700">all pass + agreed</text>
+
+  <path d="M 630 324 L 806 366" fill="none" stroke="#d9480f" stroke-width="1.6" marker-end="url(#arrow-orange)"/>
+  <rect x="668" y="335" width="132" height="16" rx="4" fill="#ffffff"/>
+  <text x="734" y="347" text-anchor="middle" class="small" fill="#d9480f" font-weight="700">all pass + differed</text>
+
+  <!-- Row 4: 3 Outcomes -->
+  <rect x="28" y="370" width="252" height="82" rx="10" fill="#ebfbee" stroke="#2f9e44" stroke-width="1.6"/>
+  <text x="154" y="396" text-anchor="middle" class="heading" fill="#2b8a3e">killed</text>
+  <text x="154" y="418" text-anchor="middle" class="body" fill="#21572c">Suite already distinguishes</text>
+  <text x="154" y="435" text-anchor="middle" class="body" fill="#21572c">this edit.</text>
+
+  <rect x="304" y="370" width="352" height="82" rx="10" fill="#fff5f5" stroke="#e03131" stroke-width="1.6"/>
+  <text x="480" y="396" text-anchor="middle" class="heading" fill="#c92a2a">INPUT GAP</text>
+  <text x="480" y="416" text-anchor="middle" class="small" fill="#691b1b">Names exact missing input or boundary:</text>
+  <text x="480" y="436" text-anchor="middle" class="code" fill="#a61e4d">expect(isAdult(18)).toBe(true)</text>
+
+  <rect x="680" y="370" width="252" height="82" rx="10" fill="#fff4e6" stroke="#d9480f" stroke-width="1.6"/>
+  <text x="806" y="396" text-anchor="middle" class="heading" fill="#d9480f">ASSERTION GAP</text>
+  <text x="806" y="416" text-anchor="middle" class="small" fill="#6e2b07">Names weak test T (+ --suggest-assertions):</text>
+  <text x="806" y="436" text-anchor="middle" class="code" fill="#b53a08">expect(res.fee).toBe(600)</text>
+</svg>

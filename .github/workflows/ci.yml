@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test (${{ matrix.os }}, Node ${{ matrix.node }})
+    # Workflows start once the repository is public.
+    if: github.event.repository.visibility == 'public'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-24.04, node: 24.14.0 }
+          - { os: ubuntu-24.04, node: 22.18.0 }
+          - { os: ubuntu-24.04-arm, node: 24.14.0 }
+          - { os: macos-15, node: 24.14.0 }
+          - { os: macos-15-intel, node: 24.14.0 }
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+
+      - name: Install the pinned Lean toolchain and build the decision executable
+        uses: leanprover/lean-action@v1.7.1
+        with:
+          auto-config: false
+          build: true
+          use-github-cache: false
+          lake-package-directory: proof/lean
+
+      - run: npm ci
+
+      - run: npm test
+
+      - name: Pack and test the installed packages
+        run: |
+          npm run pack:runtime
+          npm run test:package
+
+  vitest-compat:
+    name: Vitest ${{ matrix.vitest }} compatibility (ubuntu-24.04)
+    if: github.event.repository.visibility == 'public'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        vitest: ['4.1', '5.1']
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.14.0
+          package-manager-cache: false
+
+      - name: Install the pinned Lean toolchain and build the decision executable
+        uses: leanprover/lean-action@v1.7.1
+        with:
+          auto-config: false
+          build: true
+          use-github-cache: false
+          lake-package-directory: proof/lean
+
+      - run: npm ci
+
+      - name: Install Vitest ${{ matrix.vitest }}
+        run: |
+          npm install --no-save "vitest@~${{ matrix.vitest }}.0"
+          node -e 'const v = require("vitest/package.json").version; if (!v.startsWith("${{ matrix.vitest }}.")) throw new Error(`Expected Vitest ${{ matrix.vitest }}.x, got ${v}`); console.log("Verified Vitest", v);'
+
+      - name: Build native and syntax artifacts
+        run: npm run build:native && npm run build:compiler && npm run build:typescript-syntax && npm run build:lean
+
+      - name: Run Vitest session and runner compatibility tests
+        run: |
+          node --test \
+            test/vitest-5-compat.test.mjs \
+            test/vitest-scope.test.mjs \
+            test/vitest-copy.test.mjs \
+            test/vitest-related.test.mjs \
+            test/commonjs-probe.test.mjs \
+            test/in-worker-trials.test.mjs \
+            test/standard-plan.test.mjs \
+            test/operator-analysis.test.mjs \
+            test/operator-profile.test.mjs \
+            test/targeted-run.test.mjs \
+            test/assertion-strength.test.mjs \
+            test/assertion-side-effects.test.mjs \
+            test/change-undone.test.mjs
+
+  windows-portable:
+    name: Windows portable package (windows-latest)
+    if: github.event.repository.visibility == 'public'
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.14.0
+          package-manager-cache: false
+
+      - run: npm ci
+
+      - name: Pack main package and test portable Windows runtime
+        run: |
+          node scripts/pack-runtime.mjs --only main
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node scripts/test-package.mjs --portable
+
+  windows-native:
+    name: Windows x64 native package (windows-2025)
+    if: github.event.repository.visibility == 'public'
+    runs-on: windows-2025
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v7.1.0
+        with:
+          node-version: 24.14.0
+          package-manager-cache: false
+
+      - name: Install the pinned Lean toolchain and build the decision executable
+        uses: leanprover/lean-action@v1.7.1
+        with:
+          auto-config: false
+          build: true
+          use-github-cache: false
+          lake-package-directory: proof/lean
+
+      - run: npm ci
+
+      - name: Build and exercise the local native runtime
+        run: |
+          npm run build:native
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run build:lean
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          node --test test/runtime-binaries.test.mjs test/release-manifests.test.mjs test/extract.test.mjs test/positions.test.mjs test/pulse-native-limits.test.mjs test/lean.test.mjs test/margin-gaps.test.mjs
+
+      - name: Pack and test the installed packages
+        run: |
+          npm run pack:runtime
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          npm run test:package

@@ -1,0 +1,5 @@
+InlineComment: None, SameLine, PrevLine, BlockSameLine, StrykerDisable
+BaselineMode: None, Write, ApplyMatch, ApplyMovedLine, ApplyMismatch
+Format: Text, Json, Jsonl, Sarif
+ShardMode: None, Slice, RoundRobin
+ListMode: Off, On

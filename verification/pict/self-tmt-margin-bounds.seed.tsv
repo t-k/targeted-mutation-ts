@@ -1,0 +1,7 @@
+Operator	Difference	Domain
+Ge	-2	BothSides
+Ge	2	BothSides
+Ge	-3	BothSides
+Ge	3	BothSides
+Ge	1	Nonnegative
+Le	-1	Nonpositive

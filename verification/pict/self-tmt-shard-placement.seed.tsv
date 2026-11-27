@@ -1,0 +1,6 @@
+Strategy	Items	Shards
+Slice	5	3
+RoundRobin	5	3
+Slice	0	1
+Slice	2	4
+RoundRobin	2	4

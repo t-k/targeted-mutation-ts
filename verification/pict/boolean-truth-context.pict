@@ -1,0 +1,6 @@
+Wrapper: BooleanCall, ParenBooleanCall, NewBoolean, OptionalBoolean, NestedLogicalInBoolean, PlainValue
+Arity: One, Two
+Shadowed: None, Param, LocalConst, Import
+Operator: Or, And, Nullish
+
+IF [Wrapper] = "PlainValue" THEN [Arity] = "One" AND [Shadowed] = "None";

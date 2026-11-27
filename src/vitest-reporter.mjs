@@ -1,18 +1,47 @@
-import { writeFileSync } from 'node:fs';
+import { realpathSync, writeFileSync } from 'node:fs';
 import { relative } from 'node:path';
 
 const primitive = value => ['string', 'number', 'boolean'].includes(typeof value) || value === null ? value : undefined;
+const vitestTimeoutMessage = /^(?:(?:Hook|Test) timed out in \d+ms(?: while waiting for [^\n]+)?\.\nIf this is a long-running|The (?:setup|teardown) phase of "around(?:Each|All)" hook timed out after \d+ms\.)/;
+
+function safeCanonicalPath(path) {
+  if (typeof path !== 'string' || !path) return path;
+  try {
+    const resolved = realpathSync(path);
+    if (process.platform !== 'win32') return resolved;
+    const native = realpathSync.native(resolved);
+    return !resolved.startsWith('\\\\') && native.startsWith('\\\\') ? resolved : native;
+  } catch {
+    return path;
+  }
+}
 
 export function snapshotVitestRun(root, modules, unhandled, reason) {
+  const canonicalRoot = safeCanonicalPath(root);
   const errors = [...unhandled];
+  const moduleErrors = [];
+  const fileErrors = [];
   const tests = [];
   const files = [];
   for (const module of modules) {
-    const file = relative(root, module.moduleId);
+    const file = relative(canonicalRoot, safeCanonicalPath(module.moduleId));
     files.push(file);
-    errors.push(...module.errors());
-    for (const suite of module.children.allSuites()) errors.push(...suite.errors());
-    for (const test of module.children.allTests()) {
+    const moduleTests = [...module.children.allTests()];
+    const loadErrors = module.errors();
+    const diag = module.diagnostic?.();
+    // File-level `beforeAll` / `afterAll` failures also appear in `module.errors()`, even in 0-test files,
+    // but only after collection completed (`collectDuration > 0`, `task.result.hooks`, or collected tests).
+    if (loadErrors.length && moduleTests.length === 0 && !module.task?.result?.hooks && !(diag && diag.collectDuration > 0)) {
+      moduleErrors.push(...loadErrors);
+    }
+    for (const err of loadErrors) fileErrors.push({ file, message: String(err?.message ?? err) });
+    errors.push(...loadErrors);
+    for (const suite of module.children.allSuites()) {
+      const suiteErrors = suite.errors();
+      for (const err of suiteErrors) fileErrors.push({ file, message: String(err?.message ?? err) });
+      errors.push(...suiteErrors);
+    }
+    for (const test of moduleTests) {
       const result = test.result();
       tests.push({
         id: test.id, file,
@@ -20,13 +49,32 @@ export function snapshotVitestRun(root, modules, unhandled, reason) {
         failures: result.errors?.map(error => error.message) ?? [],
         assertions: result.errors?.filter(error => error.name === 'AssertionError')
           .map(({ actual, expected, message }) => ({ actual: primitive(actual), expected: primitive(expected), message })),
-        timeout: result.errors?.some(error => /^(?:Hook|Test) timed out in \d+ms\.\nIf this is a long-running/.test(error.message ?? '')) ?? false,
+        timeout: result.errors?.some(error => vitestTimeoutMessage.test(error.message ?? '')) ?? false,
         retry: test.options.retry ?? 0, repeats: test.options.repeats ?? 0,
         concurrent: test.options.concurrent ?? false,
       });
     }
   }
-  return { tests, modules: files, errors: errors.map(error => error.message), reason };
+  const timeout = tests.some(test => test.timeout) || errors.some(error => vitestTimeoutMessage.test(error.message ?? ''));
+  return { tests, modules: files, errors: errors.map(error => error.message), moduleErrors: moduleErrors.map(error => error.message), fileErrors, timeout, reason };
+}
+
+// How long each test and each test file's collection took, for ordering later work by cost.
+export function timeVitestRun(modules) {
+  const tests = {};
+  const collection = {};
+  for (const module of modules) {
+    collection[JSON.stringify([module.project.name, module.moduleId])] = module.diagnostic()?.collectDuration ?? 0;
+    for (const test of module.children.allTests()) tests[test.id] = test.diagnostic()?.duration ?? 0;
+  }
+  return { tests, collection };
+}
+
+// A baseline report names what failed so the suite can be fixed without a second run.
+export function failedTests(run, limit = 20) {
+  return (run.tests ?? []).filter(test => test.status === 'failed').slice(0, limit).map(test => ({
+    file: test.file, name: test.name, failures: (test.failures ?? []).slice(0, 5).map(failure => String(failure).slice(0, 2000)),
+  }));
 }
 
 export default class TmtReporter {

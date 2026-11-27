@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, mkdtempSync, openSync, readFileSync, rmSync, writeSync } from 'node:fs';
 import { registerHooks } from 'node:module';
-import { resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const entry = fileURLToPath(import.meta.url);
@@ -95,8 +96,24 @@ async function runWorker(cases, instrumented) {
     return next(specifier, context);
   } });
   const { compile } = await import(compilerEntry.href);
+  const sleepBuf = new Int32Array(new SharedArrayBuffer(4));
+  const writeStderrSync = text => {
+    const buf = Buffer.from(text, 'utf8');
+    let offset = 0;
+    while (offset < buf.length) {
+      try {
+        offset += writeSync(2, buf, offset, buf.length - offset);
+      } catch (error) {
+        if (error.code === 'EAGAIN' || error.code === 'EWOULDBLOCK') {
+          Atomics.wait(sleepBuf, 0, 0, 1);
+          continue;
+        }
+        throw error;
+      }
+    }
+  };
   return cases.map(({ file, source, options }, index) => {
-    if (instrumented) writeSync(2, 'TMT_V8_CASE\t' + index + '\n');
+    if (instrumented) writeStderrSync('TMT_V8_CASE\t' + index + '\n');
     try {
       const result = compile(Buffer.from(source, 'base64'), { file, ...options });
       return { backend: result.backend, codeHash: result.code === null ? null :
@@ -109,11 +126,28 @@ async function runWorker(cases, instrumented) {
 }
 
 function worker(cases, mode) {
-  const child = spawnSync(process.execPath, ['--no-compilation-cache', entry, mode], {
-    encoding: 'utf8', input: JSON.stringify(cases), timeout: 300_000, maxBuffer: 256 * 1024 * 1024,
-  });
-  assert.equal(child.status, 0, child.error?.message ?? child.stderr);
-  return { output: JSON.parse(child.stdout), trace: child.stderr };
+  const dir = mkdtempSync(join(tmpdir(), 'tmt-v8-audit-'));
+  const tracePath = join(dir, 'trace.log');
+  const fd = openSync(tracePath, 'w');
+  let child;
+  try {
+    child = spawnSync(process.execPath, ['--no-compilation-cache', entry, mode], {
+      encoding: 'utf8',
+      input: JSON.stringify(cases),
+      stdio: ['pipe', 'pipe', fd],
+      timeout: 300_000,
+      maxBuffer: 256 * 1024 * 1024,
+    });
+  } finally {
+    closeSync(fd);
+  }
+  try {
+    const trace = readFileSync(tracePath, 'utf8');
+    assert.equal(child.status, 0, child.error?.message ?? trace);
+    return { output: JSON.parse(child.stdout), trace };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 // Compare the audit build with the ordinary build and summarize every validation event.

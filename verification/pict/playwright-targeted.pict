@@ -1,0 +1,9 @@
+Realm: ServerSSR, BrowserClient, DualSSRAndBrowser, UnreachedCode
+RuleClass: ComparisonBoundary, ConstantThreshold, VariableMargin, TargetedValueRule, ServerStaticInit
+TestBehavior: KillsMutant, DivergesWithoutAssert, AgreesAllInputs, PollutesServerState
+ExecutionMode: WarmSession, DeterministicReplay, IsolatedTrials, AuditRewrite
+
+IF [Realm] = "UnreachedCode" THEN [TestBehavior] = "AgreesAllInputs";
+IF [RuleClass] = "ServerStaticInit" THEN [Realm] = "ServerSSR";
+IF [RuleClass] IN {"ConstantThreshold", "VariableMargin"} THEN [TestBehavior] <> "DivergesWithoutAssert";
+IF [RuleClass] IN {"ConstantThreshold", "VariableMargin"} AND [ExecutionMode] = "DeterministicReplay" THEN [TestBehavior] = "AgreesAllInputs";

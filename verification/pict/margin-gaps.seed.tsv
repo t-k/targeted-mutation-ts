@@ -1,0 +1,14 @@
+Operator	Slack	RhsKind
+Ge	BothWithSlack	Varying
+Le	BothWithSlack	Varying
+Gt	BothWithSlack	Varying
+Lt	BothWithSlack	Varying
+Ge	Tight	Varying
+Ge	BelowOnly	Varying
+Ge	AboveOnly	Varying
+Ge	UnsafeDiff	Varying
+Ge	UnsafeShift	Varying
+Le	UnsafeShift	Varying
+Ge	Fraction	Varying
+Ge	Empty	Varying
+Ge	BothWithSlack	Constant

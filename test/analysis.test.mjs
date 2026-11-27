@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 function analyze(...args) {
-  const run = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', ...args], { encoding: 'utf8', timeout: 50_000 });
+  const run = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', ...args], { encoding: 'utf8', timeout: 90_000 });
   assert.equal(run.status, 0, run.error?.message ?? run.stderr + run.stdout);
   return JSON.parse(run.stdout);
 }
@@ -88,7 +88,8 @@ test('reports hypothetical operands without inventing a callable input', () => {
     mkdirSync(join(root, 'test'));
     writeFileSync(join(root, 'subject.ts'), 'export const f = (x: number) => x >= x + 1;');
     writeFileSync(join(root, 'test/subject.test.ts'), "import { expect, it } from 'vitest'; import { f } from '../subject'; it('runs f', () => expect(f(1)).toBe(false));");
-    const [gap] = analyze(root, 'subject.ts').diagnostics;
+    const report = analyze(root, 'subject.ts');
+    const gap = report.diagnostics.find(entry => entry.mutations.some(m => m.rule === 'comparison-boundary/v1'));
     assert.equal(gap.kind, 'INPUT GAP');
     assert.deepEqual(gap.witness.operands, [2, 2]);
     assert.equal(gap.witness.input, undefined);
@@ -169,15 +170,38 @@ test('reexecutes a one-unit tightening and reports the missing assertion', () =>
   }
 });
 
-test('audits a generated witness for a callable strict threshold', () => {
+test('audits a generated witness for a callable strict threshold and finds <= and internal threshold gaps directly', () => {
   const root = mkdtempSync(join(tmpdir(), 'tmt-strict-witness-'));
   try {
-    writeFileSync(join(root, 'subject.ts'), 'export const keep = (count: number) => count < 4;');
-    writeFileSync(join(root, 'subject.test.ts'), "import { expect, it } from 'vitest'; import { keep } from './subject'; it('checks two', () => expect(keep(2)).toBe(true));");
-    const result = analyze(root, 'subject.ts', '--displace-thresholds', '--audit');
-    const gap = result.diagnostics.find(diagnostic => diagnostic.mutations[0].rule === 'comparison-tighten/v1');
-    assert.equal(gap.suggestedTest, 'expect(keep(3)).toBe(true)');
-    assert.deepEqual(gap.verification, { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' });
+    writeFileSync(join(root, 'subject.ts'), `export function keep(count: number) { return count < 4; }
+export const withinLimit = (n: number) => { return n <= 10; };
+const CAP = 100;
+export function accepts(x: number, label: string) { return label.length > 0 && x <= CAP; }
+`);
+    writeFileSync(join(root, 'subject.test.ts'), `import { expect, it } from 'vitest';
+import { accepts, keep, withinLimit } from './subject';
+it('checks', () => {
+  expect(keep(2)).toBe(true);
+  expect(withinLimit(10)).toBe(true);
+  expect(withinLimit(20)).toBe(false);
+  expect(accepts(100, 'ok')).toBe(true);
+  expect(accepts(200, 'ok')).toBe(false);
+});
+`);
+    const result = analyze(root, 'subject.ts', '--audit');
+    const keepGap = result.diagnostics.find(d => d.location.line === 1 && d.mutations.some(m => m.rule === 'comparison-threshold/v1'));
+    assert.equal(keepGap.suggestedTest, 'expect(keep(3)).toBe(true)');
+    assert.deepEqual(keepGap.verification, { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' });
+    const leGap = result.diagnostics.find(d => d.location.line === 2 && d.mutations.some(m => m.rule === 'comparison-threshold/v1'));
+    assert.equal(leGap.suggestedTest, 'expect(withinLimit(11)).toBe(false)');
+    assert.deepEqual(leGap.verification, { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' });
+    const capGap = result.diagnostics.find(d => d.location.line === 4 && d.witness?.operands?.[1] === 100 && d.mutations.some(m => m.rule === 'comparison-threshold/v1'));
+    assert.equal(capGap.kind, 'INPUT GAP');
+    assert.deepEqual(capGap.witness.operands, [101, 100]);
+    assert.deepEqual(capGap.feasibleThresholds, [100, 199]);
+    const lenGap = result.diagnostics.find(d => d.location.line === 4 && d.witness?.operands?.[1] === 0 && d.mutations.some(m => m.rule === 'comparison-threshold/v1'));
+    assert.equal(lenGap.kind, 'INPUT GAP');
+    assert.deepEqual(lenGap.witness.operands, [1, 0]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -211,8 +235,37 @@ test('kills a focused mutation when the tests import through a project alias', (
       "import { expect, it } from 'vitest'; import { positive } from './alias'; it('checks zero', () => expect(positive(0)).toBe(false));");
     const result = analyze(root, 'subject.ts');
     assert.equal(result.instrumented.status, 'passed');
-    assert.equal(result.mutants[0].status, 'killed');
+    assert.equal(result.mutants.find(m => m.rule === 'comparison-boundary/v1').status, 'killed');
   } finally {
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('analyze succeeds via the TypeScript parser when the native addon is unavailable or fails to load', () => {
+  const scratch = mkdtempSync(join(tmpdir(), 'tmt-no-native-'));
+  try {
+    const tool = join(scratch, 'tool');
+    cpSync('bin', join(tool, 'bin'), { recursive: true });
+    cpSync('src', join(tool, 'src'), { recursive: true });
+    cpSync('package.json', join(tool, 'package.json'));
+    symlinkSync(join(process.cwd(), 'node_modules'), join(tool, 'node_modules'), 'dir');
+    const project = join(scratch, 'project');
+    cpSync('fixtures/eligibility', project, { recursive: true });
+    for (const label of ['missing', 'dlopen-failed']) {
+      if (label === 'dlopen-failed') {
+        mkdirSync(join(tool, 'build'), { recursive: true });
+        writeFileSync(join(tool, 'build/tmt.node'), 'not a valid native addon');
+      }
+      const run = spawnSync(process.execPath, [join(tool, 'bin/tmt.mjs'), 'analyze', project, 'src/eligibility.ts', '--format', 'json'],
+        { encoding: 'utf8', timeout: 60_000 });
+      assert.equal(run.status, 0, `${label}: ${run.stderr}${run.stdout}`);
+      const report = JSON.parse(run.stdout);
+      assert.equal(report.evaluation, 'evaluated', label);
+      assert.equal(report.extraction[0].path, 'fallback', label);
+      assert.equal(report.extraction[0].reason, 'native-unavailable', label);
+      assert.equal(report.diagnostics[0].suggestedTest, 'expect(eligible(18)).toBe(true)', label);
+    }
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
 });

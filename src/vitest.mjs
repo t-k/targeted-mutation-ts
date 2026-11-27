@@ -1,12 +1,13 @@
-import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { constants, cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, realpathSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const reporter = fileURLToPath(new URL('./vitest-reporter.mjs', import.meta.url));
 const supervisor = fileURLToPath(new URL('./runner-process.mjs', import.meta.url));
+const relatedWorker = fileURLToPath(new URL('./vitest-related-worker.mjs', import.meta.url));
 const toolDependencies = [
   { name: 'vitest', bin: 'vitest.mjs', command: 'vitest' },
   { name: '@playwright/test', bin: 'cli.js', command: 'playwright' },
@@ -23,6 +24,17 @@ export function resolveOptional(require, id) {
   }
 }
 
+export function canonicalPath(path) {
+  const resolved = realpathSync(path);
+  if (process.platform !== 'win32') return resolved;
+  try {
+    const native = realpathSync.native(resolved);
+    return !resolved.startsWith('\\\\') && native.startsWith('\\\\') ? resolved : native;
+  } catch {
+    return resolved;
+  }
+}
+
 export function runnerPackage(root, runner) {
   const name = runner === 'vitest' ? 'vitest' : '@playwright/test';
   const manifest = resolveOptional(createRequire(resolve(root, 'package.json')), name + '/package.json');
@@ -30,59 +42,114 @@ export function runnerPackage(root, runner) {
     const label = runner === 'vitest' ? 'Vitest' : 'Playwright';
     throw new Error(`Install ${label} in the project or its workspace: npm install -D ${name}`);
   }
-  return manifest;
+  return canonicalPath(manifest);
 }
 
 export function inside(root, path) {
-  const target = realpathSync(resolve(root, path));
-  const fromRoot = relative(root, target);
+  const canonicalRoot = canonicalPath(root);
+  const target = canonicalPath(resolve(canonicalRoot, path));
+  const fromRoot = relative(canonicalRoot, target);
   if (fromRoot === '..' || fromRoot.startsWith('..' + sep) || isAbsolute(fromRoot)) {
     throw new Error(`Path escapes the project: ${path}`);
   }
   return target;
 }
 
-export function resolveCopyExclusions(source, exclude = []) {
-  return exclude.map(path => {
+const normalizeExclusionKey = value => (process.platform === 'win32' ? value.toLowerCase() : value);
+
+export function resolveCopyExclusions(rawSource, exclude = [], { onMissing } = {}) {
+  const source = canonicalPath(rawSource);
+  const resolved = [];
+  const seenResolved = new Set();
+  const seenMissing = new Set();
+  const caseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
+  for (const path of exclude) {
     const candidate = resolve(source, path);
     const fromRoot = relative(source, candidate);
     if (!fromRoot || isAbsolute(path) || isAbsolute(fromRoot) || fromRoot === '..' || fromRoot.startsWith('..' + sep)) {
       throw new Error(`Copy exclusion must be inside the project: ${path}`);
     }
     const components = fromRoot.split(sep);
-    const dependency = components.indexOf('node_modules');
+    const dependency = components.findIndex(part => (caseInsensitive ? part.toLowerCase() : part) === 'node_modules');
     if (dependency === 0) throw new Error(`Copy exclusion cannot target node_modules: ${path}`);
     if (dependency > 0 && dependency !== components.length - 1) {
       throw new Error(`Copy exclusion cannot target node_modules contents: ${path}`);
     }
-    if (!existsSync(candidate)) throw new Error(`Copy exclusion does not exist: ${path}`);
-    const parent = dirname(candidate);
-    if (realpathSync(parent) !== parent) throw new Error(`Copy exclusion must not traverse a symbolic link: ${path}`);
-    return candidate;
-  });
+    let cursor = source;
+    let parentMissing = false;
+    for (let i = 0; i < components.length - 1; i++) {
+      cursor = resolve(cursor, components[i]);
+      const stat = lstatSync(cursor, { throwIfNoEntry: false });
+      if (!stat) {
+        parentMissing = true;
+        break;
+      }
+      if (stat.isSymbolicLink() || normalizeExclusionKey(canonicalPath(cursor)) !== normalizeExclusionKey(cursor)) {
+        throw new Error(`Copy exclusion must not traverse a symbolic link: ${path}`);
+      }
+      if (!stat.isDirectory()) {
+        parentMissing = true;
+        break;
+      }
+    }
+    const key = normalizeExclusionKey(candidate);
+    if (parentMissing || !lstatSync(candidate, { throwIfNoEntry: false })) {
+      if (!seenMissing.has(key)) {
+        seenMissing.add(key);
+        onMissing?.(path, candidate);
+      }
+      continue;
+    }
+    if (!seenResolved.has(key)) {
+      seenResolved.add(key);
+      resolved.push(candidate);
+    }
+  }
+  return resolved;
 }
 
 export function copyPathIsExcluded(source, path, exclusions) {
+  const normalizedPath = normalizeExclusionKey(path);
   return relative(source, path).split(sep).some(part => excluded.has(part)) ||
-    exclusions.some(exclusion => path === exclusion || path.startsWith(exclusion + sep));
+    exclusions.some(exclusion => {
+      const normalizedExclusion = normalizeExclusionKey(exclusion);
+      return normalizedPath === normalizedExclusion || normalizedPath.startsWith(normalizedExclusion + sep);
+    });
 }
 
-function linkInstalledModules(source, root, projectModules, installed, tools) {
+function collectModuleEntries(modulesDir, mergedDirectories) {
+  return readdirSync(modulesDir, { withFileTypes: true }).flatMap(entry => {
+    const fullEntry = resolve(modulesDir, entry.name);
+    const expandDir = (entry.name.startsWith('@') || mergedDirectories.has(entry.name)) &&
+      statSync(fullEntry, { throwIfNoEntry: false })?.isDirectory();
+    return expandDir
+      ? readdirSync(fullEntry, { withFileTypes: true })
+        .map(child => ({ entry: child, name: join(entry.name, child.name), baseDir: modulesDir }))
+      : [{ entry, name: entry.name, baseDir: modulesDir }];
+  });
+}
+
+function linkInstalledModules(source, root, projectModules, installed, tools, ancestorModulesList = []) {
   const mergedDirectories = new Set(tools.map(({ name }) => dirname(name)));
-  const entries = readdirSync(projectModules, { withFileTypes: true }).flatMap(entry =>
-    (entry.isDirectory() && entry.name.startsWith('@') || mergedDirectories.has(entry.name))
-      ? readdirSync(resolve(projectModules, entry.name), { withFileTypes: true })
-        .map(child => ({ entry: child, name: join(entry.name, child.name) }))
-      : [{ entry, name: entry.name }]);
-  const modules = entries.map(({ entry, name }) => {
-    const original = resolve(projectModules, name);
-    const target = entry.isSymbolicLink() && existsSync(original) ? realpathSync(original) : null;
+  const seenNames = new Set(tools.map(({ name }) => name));
+  const rawEntries = [];
+  for (const dir of [projectModules, ...ancestorModulesList].filter(Boolean)) {
+    for (const item of collectModuleEntries(dir, mergedDirectories)) {
+      if (seenNames.has(item.name)) continue;
+      seenNames.add(item.name);
+      rawEntries.push(item);
+    }
+  }
+  const modules = rawEntries.map(({ entry, name, baseDir }) => {
+    const original = resolve(baseDir, name);
+    const target = entry.isSymbolicLink() && existsSync(original) ? canonicalPath(original) : null;
     const within = target === null ? '..' : relative(source, target);
     const local = within !== '..' && !within.startsWith('..' + sep) && !isAbsolute(within) &&
       !within.split(sep).includes('node_modules');
-    return { name, target: local ? resolve(root, within) : original, local };
+    const linkType = entry.isFile() ? 'file' : 'dir';
+    return { name, target: local ? resolve(root, within) : original, local, type: linkType };
   });
-  if (!tools.length && !modules.some(module => module.local)) {
+  if (projectModules && !ancestorModulesList.length && !tools.length && !modules.some(module => module.local)) {
     symlinkSync(projectModules, installed, 'dir');
     return;
   }
@@ -127,60 +194,474 @@ function rebaseCopiedLinks(source, workspace) {
     const target = resolve(entry.parentPath, readlinkSync(path));
     let within = relative(source, target);
     const outside = value => isAbsolute(value) || value === '..' || value.startsWith('..' + sep);
-    if (outside(within) && existsSync(target)) within = relative(source, realpathSync(target));
+    if (outside(within) && existsSync(target)) within = relative(source, canonicalPath(target));
     if (outside(within)) continue;
     unlinkSync(path);
     symlinkSync(resolve(workspace, within), path);
   }
 }
 
-export function withCopy(project, action, { exclude = [] } = {}) {
-  const source = realpathSync(project);
+const activeCopies = new Set();
+let signalHandlersRegistered = false;
+
+function stopCopyProcesses(dir) {
+  try {
+    for (const entry of readdirSync(dir)) {
+      if (!entry.endsWith('.pid')) continue;
+      const pid = Number(readFileSync(resolve(dir, entry), 'utf8').trim());
+      if (!Number.isSafeInteger(pid) || pid <= 0) continue;
+      for (const sig of ['SIGTERM', 'SIGKILL']) {
+        try {
+          if (process.platform === 'win32') process.kill(pid, sig);
+          else process.kill(-pid, sig);
+        } catch {
+          // Process already exited or unreachable.
+        }
+      }
+    }
+  } catch {
+    // Best-effort process stop during shutdown.
+  }
+}
+
+function cleanupActiveCopies() {
+  for (const dir of [...activeCopies]) {
+    activeCopies.delete(dir);
+    stopCopyProcesses(dir);
+    try {
+      rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+    } catch {
+      // Best-effort cleanup during shutdown.
+    }
+  }
+}
+
+function handleSignal(signal, code) {
+  if (activeCopies.size === 0) {
+    process.off(signal, signal === 'SIGINT' ? handleSigint : handleSigterm);
+    try {
+      process.kill(process.pid, signal);
+    } catch {
+      process.exit(code);
+    }
+    return;
+  }
+  cleanupActiveCopies();
+  process.exit(code);
+}
+
+function handleSigint() {
+  handleSignal('SIGINT', 130);
+}
+
+function handleSigterm() {
+  handleSignal('SIGTERM', 143);
+}
+
+function registerActiveCopy(dir) {
+  activeCopies.add(dir);
+  if (!signalHandlersRegistered) {
+    signalHandlersRegistered = true;
+    process.on('exit', cleanupActiveCopies);
+    process.on('SIGINT', handleSigint);
+    process.on('SIGTERM', handleSigterm);
+  }
+}
+
+function unregisterActiveCopy(dir) {
+  activeCopies.delete(dir);
+  // Defer listener removal to the next turn so a signal queued during a synchronous
+  // `withCopy` call (e.g. `spawnSync`) is still delivered and exits with 130/143.
+  if (signalHandlersRegistered && activeCopies.size === 0) {
+    setImmediate(() => {
+      if (signalHandlersRegistered && activeCopies.size === 0) {
+        signalHandlersRegistered = false;
+        process.off('exit', cleanupActiveCopies);
+        process.off('SIGINT', handleSigint);
+        process.off('SIGTERM', handleSigterm);
+      }
+    }).unref?.();
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)}GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)}MB`;
+  if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)}KB`;
+  return `${bytes}B`;
+}
+
+export const DEFAULT_LARGE_COPY_BYTES = 500 * 1024 * 1024;
+export const DEFAULT_LARGE_COPY_FILES = 10_000;
+
+function snapshotWorkspaceTree(root) {
+  const entries = new Map();
+  const walk = (dir, insideNodeModules = false) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = resolve(dir, entry.name);
+      const rel = relative(root, full);
+      const st = lstatSync(full, { bigint: true });
+      const kind = st.isSymbolicLink() ? 'l' : st.isDirectory() ? 'd' : 'f';
+      entries.set(rel, kind === 'd' ? `d:${st.mode}` : `${kind}:${st.mode}:${st.size}:${st.mtimeNs}`);
+      if (kind === 'd') {
+        if (entry.name === 'node_modules') {
+          // Only inspect real (copied/synthesized) node_modules entries without following symlinks into shared installs.
+          walk(full, true);
+        } else if (!insideNodeModules || entry.name.startsWith('@') || entry.name === '.bin') {
+          walk(full, insideNodeModules);
+        }
+      }
+    }
+  };
+  walk(root);
+  return entries;
+}
+
+function workspaceTreeChanged(before, root) {
+  const after = snapshotWorkspaceTree(root);
+  if (after.size !== before.size) return true;
+  for (const [rel, sig] of before) {
+    if (after.get(rel) !== sig) return true;
+  }
+  return false;
+}
+
+function findAncestorModulesList(source) {
+  const out = [];
+  const seen = new Set();
+  let cursor = dirname(source);
+  for (;;) {
+    const candidate = resolve(cursor, 'node_modules');
+    if (statSync(candidate, { throwIfNoEntry: false })?.isDirectory()) {
+      const real = canonicalPath(candidate);
+      if (!seen.has(real)) {
+        seen.add(real);
+        out.push(real);
+      }
+    }
+    const parent = dirname(cursor);
+    if (parent === cursor) return out;
+    cursor = parent;
+  }
+}
+
+export function createCopy(project, {
+  exclude = [],
+  onProgress,
+  onLargeCopy,
+  largeCopyBytes = DEFAULT_LARGE_COPY_BYTES,
+  largeCopyFiles = DEFAULT_LARGE_COPY_FILES,
+} = {}) {
+  const source = canonicalPath(project);
   const exclusions = resolveCopyExclusions(source, exclude);
-  const temp = realpathSync(mkdtempSync(resolve(tmpdir(), 'tmt-')));
+  const temp = canonicalPath(mkdtempSync(resolve(tmpdir(), 'tmt-')));
+  registerActiveCopy(temp);
+  let removed = false;
+  let claimed = false;
+  let busy = false;
+  const dispose = () => {
+    if (removed) return;
+    removed = true;
+    busy = false;
+    unregisterActiveCopy(temp);
+    rmSync(temp, { recursive: true, force: true });
+  };
+  const claim = () => {
+    if (claimed || removed || busy) return false;
+    claimed = true;
+    return true;
+  };
+  const beginUse = () => {
+    if (claimed || removed || busy) return false;
+    busy = true;
+    return true;
+  };
+  const endUse = () => {
+    busy = false;
+  };
   try {
     const root = resolve(temp, 'project');
     const moduleTrees = [];
+    let copiedFiles = 0;
+    let copiedBytes = 0;
+    let warnedLargeCopy = false;
+    const copyStarted = Date.now();
+    let lastProgressAt = copyStarted;
+    onProgress?.('Copying project to temporary workspace...');
     cpSync(source, root, {
       recursive: true,
+      // Copy-on-write where the file system offers it (APFS, Btrfs, XFS); an ordinary copy elsewhere.
+      mode: constants.COPYFILE_FICLONE,
       filter(path) {
         if (path !== source && basename(path) === 'node_modules' && !exclusions.includes(path) &&
             !copyPathIsExcluded(source, dirname(path), exclusions) &&
             statSync(path, { throwIfNoEntry: false })?.isDirectory()) moduleTrees.push(path);
-        return !copyPathIsExcluded(source, path, exclusions);
+        const keep = !copyPathIsExcluded(source, path, exclusions);
+        if (keep && path !== source) {
+          const st = lstatSync(path, { throwIfNoEntry: false });
+          if (st?.isFile()) {
+            copiedFiles++;
+            copiedBytes += st.size;
+            if (!warnedLargeCopy && (copiedBytes >= largeCopyBytes || copiedFiles >= largeCopyFiles)) {
+              warnedLargeCopy = true;
+              const message = `Warning: Copying a large project (${formatBytes(copiedBytes)}, ${copiedFiles} files) into a temporary directory. ` +
+                'Consider passing --copy-exclude-gitignore (or setting "copyExcludeGitignore": true), excluding large directories with --copy-exclude <PATH>, or setting "copyExclude" in targeted-mutation.config.json.';
+              if (onLargeCopy) onLargeCopy({ bytes: copiedBytes, files: copiedFiles, message });
+              else process.stderr.write(message + '\n');
+            }
+            if (onProgress) {
+              const now = Date.now();
+              if (now - lastProgressAt >= 2_000) {
+                lastProgressAt = now;
+                onProgress(`Copying project (${copiedFiles} files, ${formatBytes(copiedBytes)})...`);
+              }
+            }
+          }
+        }
+        return keep;
       },
     });
+    if (onProgress && (Date.now() - copyStarted >= 500 || copiedFiles >= 1_000)) {
+      onProgress(`Copied ${copiedFiles} files (${formatBytes(copiedBytes)}).`);
+    }
     rebaseCopiedLinks(source, root);
     const projectModules = resolve(source, 'node_modules');
     const hasLocalModules = moduleTrees.includes(projectModules);
-    const tools = toolLinks(source, projectModules, hasLocalModules);
+    const ancestorModulesList = findAncestorModulesList(source);
+    const tools = toolLinks(source, projectModules, Boolean(hasLocalModules || ancestorModulesList.length));
     for (const modules of moduleTrees) {
-      linkInstalledModules(source, root, modules, resolve(root, relative(source, modules)), modules === projectModules ? tools : []);
+      linkInstalledModules(
+        source,
+        root,
+        modules,
+        resolve(root, relative(source, modules)),
+        modules === projectModules ? tools : [],
+        modules === projectModules ? ancestorModulesList : [],
+      );
     }
-    if (!hasLocalModules) linkModules(resolve(root, 'node_modules'), tools);
-    return action(root, temp);
-  } finally {
-    rmSync(temp, { recursive: true, force: true });
+    if (!hasLocalModules) {
+      if (ancestorModulesList.length) {
+        linkInstalledModules(source, root, null, resolve(root, 'node_modules'), tools, ancestorModulesList);
+      } else {
+        linkModules(resolve(root, 'node_modules'), tools);
+      }
+    }
+    return { root, temp, dispose, claim, beginUse, endUse };
+  } catch (error) {
+    dispose();
+    throw error;
   }
 }
 
-export function runVitest(root, temp, { trace, config, testFiles = [], product = false, active, probePreload, synchronousTrace, timeout = 60_000 } = {}) {
-  const vitest = resolve(dirname(runnerPackage(root, 'vitest')), 'vitest.mjs');
+export function withCopy(project, action, {
+  reuseCopy,
+  exclude = [],
+  onProgress,
+  onLargeCopy,
+  largeCopyBytes = DEFAULT_LARGE_COPY_BYTES,
+  largeCopyFiles = DEFAULT_LARGE_COPY_FILES,
+} = {}) {
+  const copy = reuseCopy?.claim?.()
+    ? reuseCopy
+    : createCopy(project, { exclude, onProgress, onLargeCopy, largeCopyBytes, largeCopyFiles });
+  let pending = false;
+  try {
+    const result = action(copy.root, copy.temp);
+    // An action that is still running keeps its copy until it settles.
+    pending = typeof result?.then === 'function';
+    return pending ? result.finally(copy.dispose) : result;
+  } finally {
+    if (!pending) copy.dispose();
+  }
+}
+
+export function vitestVersionString(manifestPath) {
+  return JSON.parse(readFileSync(manifestPath, 'utf8')).version ?? '';
+}
+
+export function vitestMajorVersion(manifestPath) {
+  return Number.parseInt(vitestVersionString(manifestPath).split('.')[0], 10);
+}
+
+function parseVitestVersion(versionOrMajor) {
+  if (typeof versionOrMajor === 'number') {
+    return { major: versionOrMajor, minor: versionOrMajor === 4 ? 1 : 0, patch: 0 };
+  }
+  const [major = NaN, minor = 0, patch = 0] = String(versionOrMajor ?? '')
+    .split('-')[0]
+    .split('.')
+    .map(part => Number.parseInt(part, 10));
+  return { major, minor, patch };
+}
+
+function hasExperimentalFsModuleCache(major, minor, patch) {
+  return major === 4 && (minor > 0 || patch >= 11);
+}
+
+export function vitestCacheCliArgs(versionOrMajor, fsModuleCacheDir) {
+  const { major, minor, patch } = parseVitestVersion(versionOrMajor);
+  if (major >= 5) {
+    return [
+      '--no-cache',
+      '--no-fsModuleCache',
+      ...(fsModuleCacheDir ? [`--fsModuleCachePath=${fsModuleCacheDir}`] : []),
+    ];
+  }
+  if (hasExperimentalFsModuleCache(major, minor, patch)) {
+    return [
+      '--no-cache',
+      '--experimental.fsModuleCache=false',
+      ...(fsModuleCacheDir ? [`--experimental.fsModuleCachePath=${fsModuleCacheDir}`] : []),
+    ];
+  }
+  return ['--no-cache'];
+}
+
+export function vitestServerCacheOptions(versionOrMajor, fsModuleCacheDir) {
+  const { major, minor, patch } = parseVitestVersion(versionOrMajor);
+  if (major >= 5) {
+    return {
+      cache: false,
+      fsModuleCache: false,
+      ...(fsModuleCacheDir ? { fsModuleCachePath: fsModuleCacheDir } : {}),
+    };
+  }
+  if (hasExperimentalFsModuleCache(major, minor, patch)) {
+    return {
+      cache: false,
+      experimental: {
+        fsModuleCache: false,
+        ...(fsModuleCacheDir ? { fsModuleCachePath: fsModuleCacheDir } : {}),
+      },
+    };
+  }
+  return { cache: false };
+}
+
+function sanitizeInlineTestConfig(major, minor, patch, testConfig, fsModuleCacheDir) {
+  if (!testConfig || typeof testConfig !== 'object') return;
+  if (major >= 5) {
+    testConfig.fsModuleCache = false;
+    if (fsModuleCacheDir) testConfig.fsModuleCachePath = fsModuleCacheDir;
+  } else if (hasExperimentalFsModuleCache(major, minor, patch)) {
+    testConfig.experimental = {
+      ...testConfig.experimental,
+      fsModuleCache: false,
+      ...(fsModuleCacheDir ? { fsModuleCachePath: fsModuleCacheDir } : {}),
+    };
+  }
+}
+
+export function vitestDisableFsCachePlugin(versionOrMajor, fsModuleCacheDir) {
+  const { major, minor, patch } = parseVitestVersion(versionOrMajor);
+  return {
+    name: 'tmt:disable-fs-module-cache',
+    enforce: 'post',
+    config(userConfig) {
+      if (!userConfig || typeof userConfig !== 'object') return;
+      sanitizeInlineTestConfig(major, minor, patch, userConfig.test, fsModuleCacheDir);
+      if (Array.isArray(userConfig.test?.projects)) {
+        for (const entry of userConfig.test.projects) {
+          if (entry && typeof entry === 'object') {
+            sanitizeInlineTestConfig(major, minor, patch, entry.test, fsModuleCacheDir);
+          }
+        }
+      }
+    },
+  };
+}
+
+export function disableProjectFsModuleCache(versionOrMajor, projectConfig, vitestInstance) {
+  const { major, minor, patch } = parseVitestVersion(versionOrMajor);
+  if (projectConfig) {
+    if (major >= 5) projectConfig.fsModuleCache = false;
+    else if (hasExperimentalFsModuleCache(major, minor, patch) && projectConfig.experimental) {
+      projectConfig.experimental.fsModuleCache = false;
+    }
+  }
+  if (vitestInstance?._fsCache) vitestInstance._fsCache.getMemoryCachePath = () => null;
+  if (vitestInstance?.cache?._modules) vitestInstance.cache._modules.getMemoryCachePath = () => null;
+}
+
+export function invalidateVitestSessionModules(instance, files = []) {
+  for (const file of files) {
+    if (file) instance?.invalidateFile?.(file.replaceAll('\\', '/'));
+  }
+  instance?.vite?.moduleGraph?.invalidateAll?.();
+  for (const environment of Object.values(instance?.vite?.environments ?? {})) {
+    environment?.moduleGraph?.invalidateAll?.();
+  }
+  for (const project of instance?.projects ?? []) {
+    project.vite?.moduleGraph?.invalidateAll?.();
+    for (const environment of Object.values(project.vite?.environments ?? {})) {
+      environment?.moduleGraph?.invalidateAll?.();
+    }
+  }
+}
+
+export function resolveVitestRunnerEntry(vitestManifestPath) {
+  const version = vitestVersionString(vitestManifestPath);
+  const vitestRequire = createRequire(vitestManifestPath);
+  const resolved = version.startsWith('4.')
+    ? vitestRequire.resolve('@vitest/runner')
+    : vitestRequire.resolve('vitest/internal/browser');
+  return pathToFileURL(canonicalPath(resolved)).href;
+}
+
+export function classifyVitestSessionSupport(version, projectConfigs = [], { allowGlobalSetup = true, rootGlobalSetup } = {}) {
+  if (typeof version !== 'string' || !/^[45]\./.test(version)) {
+    return { supported: false, supportsIds: false, reason: `The Vitest session requires Vitest 4 or 5, found ${version}` };
+  }
+  const supportsIds = !version.startsWith('4.0.');
+  if (!allowGlobalSetup && (rootGlobalSetup?.length || projectConfigs.some(config => config?.globalSetup?.length))) {
+    return {
+      supported: false,
+      supportsIds,
+      reason: 'Warm Vitest session does not support globalSetup',
+    };
+  }
+  for (const config of projectConfigs) {
+    if (config?.browser?.enabled || config?.typecheck?.enabled || config?.runner ||
+        config?.experimental?.viteModuleRunner === false) {
+      return {
+        supported: false,
+        supportsIds,
+        reason: 'The Vitest session requires the default Vitest runner with the Vite module runner and without browser mode or type checking',
+      };
+    }
+  }
+  return { supported: true, supportsIds, reason: null };
+}
+
+// How one Vitest run is started, shared by the blocking and the concurrent form.
+function vitestCommand(root, temp, { trace, config, testFiles = [], testProjects = [], product = false, active, probePreload, synchronousTrace, timeout = 60_000, workers = 1 } = {}) {
+  const manifestPath = runnerPackage(root, 'vitest');
+  const vitest = resolve(dirname(manifestPath), 'vitest.mjs');
+  const vitestVersion = vitestVersionString(manifestPath);
   const testsToRun = [...new Set(testFiles.map(file => inside(root, file)))];
+  const cliTestsToRun = testsToRun.map(file => relative(root, file).replaceAll('\\', '/'));
+  const projectArgs = [...new Set(testProjects.filter(Boolean))].flatMap(name => ['--project', name]);
   const configuration = config === undefined ? [] : ['--config', inside(root, config)];
   const report = resolve(temp, 'vitest.json');
   rmSync(report, { force: true });
   const cache = resolve(temp, 'vite-cache');
+  const fsModuleCacheDir = resolve(temp, 'vitest-fs-cache');
   mkdirSync(cache, { recursive: true });
-  const result = spawnSync(process.execPath, [
+  const workerArgs = workers > 1
+    ? [`--maxWorkers=${workers}`, '--maxConcurrency=1']
+    : ['--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism'];
+  const cacheArgs = vitestCacheCliArgs(vitestVersion, fsModuleCacheDir);
+  return { report, testsToRun, product, timeout, args: [
     supervisor, resolve(temp, 'vitest.pid'), String(timeout),
-    vitest, 'run', '--maxWorkers=1', '--maxConcurrency=1', '--no-file-parallelism', '--no-cache',
-    ...configuration, ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]),
-    ...testsToRun,
-  ], {
+    vitest, 'run', ...workerArgs, ...cacheArgs,
+    ...configuration, ...projectArgs, ...(product ? ['--reporter', reporter] : ['--reporter=json', '--outputFile', report]),
+    ...cliTestsToRun,
+  ], options: {
     cwd: root,
     env: {
-      ...process.env, CI: 'true', VITE_CACHE_DIR: cache, TMT_WORKSPACE: root, TMT_REPORT: report,
+      ...process.env, CI: 'true', VITE_CACHE_DIR: cache,
+      VITEST_FS_MODULE_CACHE: 'false', VITEST_FS_MODULE_CACHE_PATH: fsModuleCacheDir,
+      TMT_WORKSPACE: root, TMT_REPORT: report,
       TMT_TRACE: trace ?? '', TMT_ACTIVE_SITE: active ?? '', TMT_TRACE_SYNC: synchronousTrace ? '1' : '',
       ...(probePreload ? { NODE_OPTIONS: [process.env.NODE_OPTIONS, '--require=' + JSON.stringify(probePreload)]
         .filter(Boolean).join(' ') } : {}),
@@ -188,8 +669,13 @@ export function runVitest(root, temp, { trace, config, testFiles = [], product =
     encoding: 'utf8',
     timeout: timeout + 5000,
     maxBuffer: 4 * 1024 * 1024,
-  });
-  if (result.status === 124 || result.error?.code === 'ETIMEDOUT') return { status: 'timeout', output: result.stderr ?? '' };
+  } };
+}
+
+function vitestOutcome(root, { report, testsToRun, product, timeout = 60_000 }, result) {
+  if (result.status === 124 || result.error?.code === 'ETIMEDOUT') {
+    return { status: 'timeout', statusReason: `Vitest timed out after ${Math.round(timeout / 1000)}s`, output: result.stderr ?? '' };
+  }
   if (result.error || !existsSync(report)) {
     return { status: 'error', output: result.error?.message ?? (result.stderr + result.stdout) };
   }
@@ -201,17 +687,28 @@ export function runVitest(root, temp, { trace, config, testFiles = [], product =
       const missing = [...expected].filter(file => !actual.has(file));
       const unexpected = [...actual].filter(file => !expected.has(file));
       if (missing.length || unexpected.length) {
-        return { status: 'error', output: `Vitest test selection mismatch (missing: ${missing.join(', ') || 'none'}; unexpected: ${unexpected.join(', ') || 'none'})`,
-          errors: data.errors };
+        const detail = `${result.stderr ?? ''}${result.stdout ?? ''}`.trim();
+        return { status: 'error', output: `Vitest test selection mismatch (missing: ${missing.join(', ') || 'none'}; unexpected: ${unexpected.join(', ') || 'none'})${detail ? '\n' + detail : ''}`,
+          files: data.modules ?? [], errors: data.errors, fileErrors: data.fileErrors ?? [] };
       }
     }
     const failed = data.tests.filter(test => test.status === 'failed');
     const complete = data.reason === 'passed' || data.reason === 'failed';
-    const status = failed.some(test => test.timeout) ? 'timeout'
+    const isTimeout = Boolean(data.timeout || failed.some(test => test.timeout));
+    const status = isTimeout ? 'timeout'
       : !complete || data.errors.length ? 'error'
         : result.status === 1 && failed.length ? 'failed'
           : result.status === 0 && data.tests.some(test => test.status === 'passed') && !failed.length ? 'passed' : 'error';
-    return { status, tests: data.tests, errors: data.errors, output: result.stderr + result.stdout };
+    return {
+      status,
+      ...(isTimeout ? { statusReason: 'Vitest test timeout' } : {}),
+      tests: data.tests,
+      files: data.modules ?? [],
+      errors: data.errors,
+      moduleErrors: data.moduleErrors ?? [],
+      fileErrors: data.fileErrors ?? [],
+      output: result.stderr + result.stdout,
+    };
   }
   const tests = data.testResults.flatMap(file => file.assertionResults.map(assertion => ({
     file: relative(root, file.name),
@@ -225,4 +722,122 @@ export function runVitest(root, temp, { trace, config, testFiles = [], product =
       data.testResults.every(file => file.status !== 'failed' || file.assertionResults.some(test => test.status === 'failed'))
       ? 'failed' : 'error';
   return { status, tests, output: result.stderr + result.stdout };
+}
+
+export async function resolveRelatedVitestSpecs(project, targetFiles = [], { config, copyExclude = [], timeout = 60_000, onProgress, onLargeCopy, copy } = {}) {
+  const root = canonicalPath(project);
+  const relTargets = [...new Set(targetFiles.map(file => relative(root, inside(root, file))))];
+  if (!relTargets.length) return { tests: [], specs: [] };
+  // Validate Vitest availability up front before copying.
+  runnerPackage(root, 'vitest');
+  const resolveInWorkspace = async (workspace, temp) => {
+    onProgress?.('Resolving related Vitest test files...');
+    const cache = resolve(temp, 'vite-cache');
+    mkdirSync(cache, { recursive: true });
+    const manifestPath = resolve(temp, 'related-request.json');
+    const outputPath = resolve(temp, 'related-output.json');
+    const pidPath = resolve(temp, 'related.pid');
+    writeFileSync(manifestPath, JSON.stringify({
+      workspace,
+      config,
+      targets: relTargets,
+      output: outputPath,
+    }), 'utf8');
+    const maxBuffer = 4 * 1024 * 1024;
+    let run;
+    try {
+      run = await new Promise(settle => {
+        const child = spawn(process.execPath, [
+          supervisor, pidPath, String(timeout),
+          relatedWorker, manifestPath,
+        ], {
+          cwd: workspace,
+          env: {
+            ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test', VITE_CACHE_DIR: cache,
+            VITEST_FS_MODULE_CACHE: 'false', VITEST_FS_MODULE_CACHE_PATH: resolve(temp, 'vitest-fs-cache'),
+          },
+          stdio: ['ignore', 'pipe', 'pipe'],
+        });
+        const out = { stdout: '', stderr: '' };
+        for (const stream of ['stdout', 'stderr']) {
+          child[stream].setEncoding('utf8');
+          child[stream].on('data', chunk => { if (out[stream].length < maxBuffer) out[stream] += chunk; });
+        }
+        const killTimer = setTimeout(() => {
+          try { child.kill('SIGKILL'); } catch { /* ignore */ }
+        }, timeout + 5_000);
+        killTimer.unref?.();
+        let failure;
+        child.once('error', error => { failure = error; });
+        child.once('close', (status, signal) => {
+          clearTimeout(killTimer);
+          settle({
+            status,
+            signal,
+            ...out,
+            error: failure ?? (signal && status === null ? Object.assign(new Error('Vitest related discovery did not finish in time'), { code: 'ETIMEDOUT' }) : undefined),
+          });
+        });
+      });
+    } finally {
+      // Remove the finished worker PID file so a reused copy's signal handler never targets a recycled PID.
+      rmSync(pidPath, { force: true });
+    }
+    if (run.status === 124 || run.error?.code === 'ETIMEDOUT') {
+      throw new Error(`Vitest related test discovery timed out after ${Math.round(timeout / 1000)}s. Try increasing --timeout or specifying --test <FILE>.`);
+    }
+    if (run.status !== 0 || !existsSync(outputPath)) {
+      const detail = (run.stderr || run.stdout || run.error?.message || '').trim();
+      throw new Error(detail || 'Failed to resolve related Vitest tests');
+    }
+    const { specs = [] } = JSON.parse(readFileSync(outputPath, 'utf8'));
+    const tests = [...new Set(specs.map(spec => spec.file))].sort();
+    if (!tests.length) {
+      const shown = targetFiles.slice(0, 5).join(', ') + (targetFiles.length > 5 ? `, ... (${targetFiles.length} files)` : '');
+      throw new Error(`No Vitest test files are related to ${shown}. Specify test files explicitly with --test <FILE>.`);
+    }
+    return { tests, specs };
+  };
+  if (copy?.beginUse?.()) {
+    try {
+      const before = snapshotWorkspaceTree(copy.root);
+      const result = await resolveInWorkspace(copy.root, copy.temp);
+      if (workspaceTreeChanged(before, copy.root)) {
+        // Vitest config or plugins modified the workspace during discovery; discard so analysis gets a clean copy.
+        copy.dispose();
+      }
+      return result;
+    } finally {
+      copy.endUse();
+    }
+  }
+  return withCopy(root, resolveInWorkspace, { exclude: copyExclude, onProgress, onLargeCopy });
+}
+
+export async function resolveRelatedVitestTests(project, targetFiles = [], options = {}) {
+  const { tests } = await resolveRelatedVitestSpecs(project, targetFiles, options);
+  return tests;
+}
+
+export function runVitest(root, temp, settings) {
+  const command = vitestCommand(root, temp, settings);
+  return vitestOutcome(root, command, spawnSync(process.execPath, command.args, command.options));
+}
+
+// The same run without blocking, so several project copies can run their suites side by side.
+export async function runVitestAsync(root, temp, settings) {
+  const command = vitestCommand(root, temp, settings);
+  const result = await new Promise(settle => {
+    const child = spawn(process.execPath, command.args, { ...command.options, stdio: ['ignore', 'pipe', 'pipe'] });
+    const output = { stdout: '', stderr: '' };
+    for (const stream of ['stdout', 'stderr']) {
+      child[stream].setEncoding('utf8');
+      child[stream].on('data', chunk => { if (output[stream].length < command.options.maxBuffer) output[stream] += chunk; });
+    }
+    let failure;
+    child.once('error', error => { failure = error; });
+    child.once('close', (status, signal) => settle({ status, signal, ...output,
+      error: failure ?? (signal && status === null ? Object.assign(new Error('Vitest did not finish in time'), { code: 'ETIMEDOUT' }) : undefined) }));
+  });
+  return vitestOutcome(root, command, result);
 }

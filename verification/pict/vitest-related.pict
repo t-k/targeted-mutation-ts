@@ -1,0 +1,5 @@
+Runner: Vitest, Playwright
+RelatedFlag: Off, Cli, Config
+TestFlag: Off, Cli, Config
+TargetScope: ExplicitMatched, ExplicitUnmatched, EmptyScope
+ListMode: Off, On

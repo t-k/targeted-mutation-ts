@@ -3,12 +3,12 @@ import { isUtf8 } from 'node:buffer';
 import { closeSync, mkdtempSync, openSync, readSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { relative, resolve, sep } from 'node:path';
-import { copyPathIsExcluded, inside, resolveCopyExclusions } from './vitest.mjs';
+import { canonicalPath, copyPathIsExcluded, inside, resolveCopyExclusions } from './vitest.mjs';
 
 const sourceName = /(?<!\.d|\.test|\.spec)\.(?:[cm]?[jt]s|[jt]sx)$/;
 const runnerConfig = /^(?:vite|vitest|playwright)(?:\.[^.]+)*\.config\.[cm]?[jt]s$/;
 
-function listSource(root, exclusions, dir = root) {
+export function listSource(root, exclusions = [], dir = root) {
   const result = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.name.startsWith('.') || ['node_modules', 'build', 'dist', 'coverage'].includes(entry.name)) continue;
@@ -149,7 +149,8 @@ function changedRanges(root, revision, files) {
   return ranges;
 }
 
-export function selectScope(root, files, { lines = [], since, 'copy-exclude': copyExclude } = {}) {
+export function selectScope(rawRoot, files, { lines = [], since, 'copy-exclude': copyExclude } = {}) {
+  const root = canonicalPath(rawRoot);
   const exclusions = resolveCopyExclusions(root, copyExclude);
   function sourceFile(file) {
     const path = inside(root, file);
@@ -161,7 +162,8 @@ export function selectScope(root, files, { lines = [], since, 'copy-exclude': co
 
   const ranges = new Map();
   for (const entry of lines) {
-    const match = /^(.*):(\d+)-(\d+)$/.exec(entry);
+    const match = /^(.*):(\d+)(?:-(\d+))?$/.exec(entry);
+    if (match) match[3] ??= match[2];
     if (!match || !Number.isSafeInteger(+match[2]) || !Number.isSafeInteger(+match[3]) || +match[2] < 1 || +match[2] > +match[3]) {
       throw new Error('Expected --lines FILE:FROM-TO');
     }
@@ -173,6 +175,7 @@ export function selectScope(root, files, { lines = [], since, 'copy-exclude': co
   const paths = [...new Set(selection.map(sourceFile))].sort().filter(file => !lines.length || ranges.has(file));
   let tracked;
   let patches;
+  let discovered;
   if (since !== undefined) {
     let revision;
     try {
@@ -183,8 +186,14 @@ export function selectScope(root, files, { lines = [], since, 'copy-exclude': co
     tracked = new Set(git(root, ['ls-files', '-z']).split('\0').map(fromGitPath));
     const changedPaths = new Set(git(root, ['diff', '--name-only', '-z', '--relative', '--no-ext-diff', '--no-renames', revision, '--']).split('\0').map(fromGitPath));
     patches = changedRanges(root, revision, paths.filter(file => tracked.has(file) && changedPaths.has(file)));
+    // A new file counts as changed. A file Git ignores (generated code, build output) is not new work, so
+    // discovery leaves it out; naming it on the command line still selects it.
+    if (!files.length && !lines.length) {
+      const added = new Set(git(root, ['ls-files', '--others', '--exclude-standard', '-z']).split('\0').map(fromGitPath));
+      discovered = file => tracked.has(file) || added.has(file);
+    }
   }
-  return paths.map(file => {
+  return paths.filter(file => !discovered || discovered(file)).map(file => {
     const changed = tracked?.has(file) ? patches.get(file) ?? [] : undefined;
     return { file, selected: line =>
       (!changed || changed.some(([a, b]) => a <= line && line <= b)) &&

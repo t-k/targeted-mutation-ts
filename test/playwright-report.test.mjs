@@ -59,3 +59,24 @@ test('the logical operator retains its own byte position in a multiline disabled
   assert.equal(site.edit[0], source.indexOf('saving'));
   assert.deepEqual(site.operatorEdit, [source.indexOf('||'), source.indexOf('||') + 2]);
 });
+
+test('selected Playwright test files are passed as patterns that match only their paths', async () => {
+  const { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { testFilters } = await import('../src/playwright.mjs');
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'tmt-playwright-filter-')));
+  try {
+    mkdirSync(join(root, 'e2e'));
+    for (const name of ['save.spec.ts', 'a+b (copy).spec.ts']) writeFileSync(join(root, 'e2e', name), '');
+    const filters = testFilters(root, ['e2e/save.spec.ts', './e2e/save.spec.ts', 'e2e/a+b (copy).spec.ts']);
+    assert.deepEqual(filters, ['e2e/save\\.spec\\.ts', 'e2e/a\\+b \\(copy\\)\\.spec\\.ts']);
+    assert.ok(new RegExp(filters[0]).test(join(root, 'e2e/save.spec.ts')));
+    assert.ok(!new RegExp(filters[0]).test(join(root, 'e2e/savexspec.ts')));
+    assert.ok(new RegExp(filters[1]).test('e2e/a+b (copy).spec.ts'));
+    assert.deepEqual(testFilters(root), []);
+    assert.throws(() => testFilters(root, ['../outside.spec.ts']), /escapes the project|ENOENT/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

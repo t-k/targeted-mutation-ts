@@ -1,0 +1,11 @@
+Outcome	Structure	Inventory
+Passed	Flat	MatchesBaseline
+FailedAssertion	Flat	MatchesBaseline
+ModuleLoadError	Flat	MatchesBaseline
+Timeout	Flat	MatchesBaseline
+FailedAssertion	NestedDescribe	MatchesBaseline
+Passed	DuplicateNames	MatchesBaseline
+Passed	SkippedAndTodo	MatchesBaseline
+Passed	Flat	MissingTest
+Passed	Flat	ExtraTest
+HookError	NestedDescribe	MatchesBaseline

@@ -1,0 +1,10 @@
+Use	Arguments	Function	Place	TestNamed
+WeakMatcher	Scalars	Subject	TestBody	Yes
+NegatedMatcher	Scalars	SubjectAlias	TestBody	Yes
+Unused	Collection	Subject	TestBody	Yes
+Bound	Scalars	Subject	TestBody	Yes
+PinningMatcher	Scalars	Subject	TestBody	Yes
+WeakMatcher	Scalars	Subject	TestBody	No
+WeakMatcher	Variable	Subject	TestBody	Yes
+WeakMatcher	Scalars	OtherModule	TestBody	Yes
+WeakMatcher	Scalars	Subject	Loop	Yes

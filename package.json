@@ -1,13 +1,35 @@
 {
-  "name": "targeted-mutation-ts",
-  "version": "0.1.0",
+  "name": "targeted-mutation",
+  "version": "0.9.0",
+  "description": "Find the tests a JavaScript or TypeScript suite is missing by trying small, targeted source edits against it.",
+  "keywords": [
+    "mutation-testing",
+    "testing",
+    "test-quality",
+    "typescript",
+    "javascript",
+    "vitest",
+    "playwright",
+    "boundary-value"
+  ],
+  "license": "Apache-2.0",
+  "author": "Tatsuo Kaniwa",
+  "homepage": "https://github.com/t-k/targeted-mutation-ts#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/t-k/targeted-mutation-ts.git"
+  },
+  "bugs": {
+    "url": "https://github.com/t-k/targeted-mutation-ts/issues"
+  },
   "private": true,
   "type": "module",
   "bin": {
-    "tmt-ts": "bin/tmt.mjs"
+    "targeted-mutation": "bin/tmt.mjs",
+    "tmts": "bin/tmt.mjs"
   },
   "engines": {
-    "node": ">=24.11.0"
+    "node": "^22.18.0 || >=24.11.0"
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
@@ -27,10 +49,11 @@
     "test:native-profile": "node --test test/native-profile.integration.mjs",
     "test:package": "node scripts/test-package.mjs",
     "build:compiler": "node scripts/build-compiler.mjs",
-    "verify:compiler": "sh scripts/verify-compiler.sh"
+    "verify:compiler": "sh scripts/verify-compiler.sh",
+    "publish:packages": "node scripts/publish-packages.mjs"
   },
   "dependencies": {
-    "typescript": "6.0.3"
+    "typescript": ">=5.9.3 <7"
   },
   "devDependencies": {
     "@playwright/test": "1.65.1",
@@ -43,11 +66,10 @@
   "files": [
     "bin/",
     "src/",
-    "build/tmt.node",
-    "build/tmt-decide",
     "build/typescript-syntax/",
-    "README.md",
     "docs/",
-    "evidence/"
+    "README.md",
+    "LICENSE",
+    "NOTICE"
   ]
 }

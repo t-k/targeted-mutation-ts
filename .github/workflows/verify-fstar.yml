@@ -9,11 +9,13 @@ permissions:
 jobs:
   verify-fstar:
     name: F* proofs and generated C
+    # Workflows start once the repository is public.
+    if: github.event.repository.visibility == 'public'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/checkout@v6.0.2
         with:
           fetch-depth: 2
           persist-credentials: false
@@ -35,7 +37,7 @@ jobs:
             echo 'relevant=false' >> "$GITHUB_OUTPUT"
           fi
 
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      - uses: actions/setup-node@v7.1.0
         if: steps.changes.outputs.relevant == 'true'
         with:
           node-version: 24.14.0

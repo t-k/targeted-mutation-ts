@@ -1,0 +1,13 @@
+Change	Code	Position	FinalLineEnd	OtherChange
+Replace	Tokens	Middle	Present	None
+AddLines	Tokens	FileEnd	Missing	None
+RemoveLines	Tokens	FileEnd	Missing	Code
+RemoveLines	Tokens	FileStart	Present	None
+Replace	CommentOnly	Middle	Present	Code
+Replace	Tokens	FileEnd	Missing	Comment
+AddLines	CommentOnly	FileStart	Present	Comment
+RemoveLines	SpacingOnly	Middle	Missing	Comment
+AddLines	SpacingOnly	FileEnd	Present	Code
+RemoveLines	CommentOnly	FileEnd	Missing	None
+Replace	SpacingOnly	FileStart	Missing	Code
+AddLines	SpacingOnly	Middle	Present	None

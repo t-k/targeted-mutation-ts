@@ -1,0 +1,15 @@
+Runner	RelatedFlag	TestFlag	TargetScope	ListMode
+Vitest	Off	Off	ExplicitMatched	Off
+Vitest	Cli	Off	ExplicitMatched	Off
+Vitest	Cli	Off	ExplicitUnmatched	Off
+Vitest	Cli	Off	EmptyScope	Off
+Vitest	Cli	Cli	ExplicitMatched	Off
+Vitest	Config	Cli	ExplicitMatched	Off
+Vitest	Cli	Config	ExplicitMatched	Off
+Vitest	Config	Off	ExplicitMatched	Off
+Playwright	Cli	Off	ExplicitMatched	Off
+Vitest	Cli	Off	ExplicitMatched	On
+Playwright	Off	Cli	ExplicitUnmatched	On
+Playwright	Off	Config	EmptyScope	On
+Playwright	Config	Config	ExplicitUnmatched	On
+Vitest	Config	Cli	EmptyScope	Off

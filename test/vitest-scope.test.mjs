@@ -113,3 +113,38 @@ test('detects an extra collected module even when it registers no tests', () => 
   assert.equal(result.status, 1);
   assert.match(result.stdout, /Vitest test selection mismatch.*unexpected: test\/default-1\.test\.ts\.extra\.test\.ts/);
 }));
+
+test('warns once and continues when --copy-exclude names a missing path', () => fixture('Default', 'Exclude', root => {
+  const result = run(root, ['--copy-exclude', 'dist', '--copy-exclude', './dist', '--copy-exclude', 'asset', '--test', 'test/default-1.test.ts']);
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.baseline.tests, 1);
+  assert.equal(report.mutants[0].status, 'killed');
+  const warnings = result.stderr.match(/Warning: Copy exclusion does not exist, skipping: .+/g) ?? [];
+  assert.deepEqual(warnings, ['Warning: Copy exclusion does not exist, skipping: dist']);
+}));
+
+test('warns on missing config copyExclude in --list mode and rejects missing symlink traversal', () => fixture('Default', 'Keep', root => {
+  writeFileSync(join(root, 'targeted-mutation.config.json'), JSON.stringify({ copyExclude: ['dist', 'test-results'] }));
+  const listed = run(root, ['--list']);
+  assert.equal(listed.status, 0, listed.stderr + listed.stdout);
+  assert.ok(Array.isArray(JSON.parse(listed.stdout).mutants));
+  const listWarnings = listed.stderr.match(/Warning: Copy exclusion does not exist, skipping: .+/g) ?? [];
+  assert.deepEqual(listWarnings, [
+    'Warning: Copy exclusion does not exist, skipping: dist',
+    'Warning: Copy exclusion does not exist, skipping: test-results',
+  ]);
+  assert.deepEqual(JSON.parse(listed.stdout).selection.copyExclude, []);
+
+  const controlChars = run(root, ['--list', '--copy-exclude', 'bad\nline\x1b[31m']);
+  assert.equal(controlChars.status, 0, controlChars.stderr + controlChars.stdout);
+  assert.deepEqual(
+    controlChars.stderr.trim().split(/\r?\n/),
+    ['Warning: Copy exclusion does not exist, skipping: "bad\\nline\\u001b[31m"'],
+  );
+
+  symlinkSync('asset', join(root, 'linked'), 'dir');
+  const throughLink = run(root, ['--list', '--copy-exclude', 'linked/missing']);
+  assert.equal(throughLink.status, 1);
+  assert.match(throughLink.stderr, /Copy exclusion must not traverse a symbolic link/);
+}));

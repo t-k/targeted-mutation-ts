@@ -50,8 +50,8 @@ function analyzeProject({ commonjs = false, throwOperand = false, audit = false 
     const report = JSON.parse(run.stdout);
     assert.deepEqual(report.baseline, { status: 'passed', tests: 2 });
     assert.deepEqual(report.instrumented, { status: 'passed', stable: true });
-    assert.equal(report.mutants.length, 1);
-    const [trial] = report.mutants;
+    const trial = report.mutants.find(mutant => mutant.rule === 'comparison-boundary/v1');
+    assert.ok(trial);
     assert.equal(trial.status, 'survived');
     return trial;
   } finally {

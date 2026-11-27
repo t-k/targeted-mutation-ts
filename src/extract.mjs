@@ -1,16 +1,24 @@
 import { isUtf8 } from 'node:buffer';
-import { existsSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { types } from 'node:util';
 import { isMainThread } from 'node:worker_threads';
+import { binaryPath } from './runtime-binaries.mjs';
 import { invalidEncoding, normalize, optionsFor } from './source-text.mjs';
 
 export { byteOffsets, sourceDialect } from './source-text.mjs';
 
 const load = createRequire(import.meta.url);
-const nativePath = new URL('../build/tmt.node', import.meta.url);
-const native = existsSync(nativePath) ? load('../build/tmt.node') : null;
+const nativePath = binaryPath('tmt.node');
+let native = null;
+let nativeLoadError = null;
+if (nativePath) {
+  try {
+    native = load(nativePath);
+  } catch (error) {
+    nativeLoadError = error;
+  }
+}
 const operators = ['', '<', '<=', '>', '>='];
 const reasons = ['', 'outside-l1', 'source-limit', 'depth-limit', 'candidate-limit', 'duplicate-lexical'];
 export const rule = 'comparison-boundary/v1';
@@ -75,7 +83,10 @@ export function extractFallback(input, options = {}) {
 }
 
 export function extract(input, options = {}) {
-  if (!native && options.requireNative) throw new Error('Run npm run build:native to build the extractor');
+  if (!native && options.requireNative) throw new Error(`The native extractor is not available for ${process.platform} ${process.arch}. ` +
+      (nativeLoadError ? `Loading ${nativePath} failed (${nativeLoadError.code ?? nativeLoadError.message}). ` : '') +
+      'Prebuilt binaries cover Windows x64 and macOS and Linux (glibc) on arm64 and x64. Check that optional dependencies were installed. ' +
+      'In a source checkout, run npm run build:native to build the extractor.');
   const { dialect, mode } = optionsFor(options);
   let reason = 'native-unavailable';
   let metrics;

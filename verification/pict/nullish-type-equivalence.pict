@@ -1,0 +1,7 @@
+Rule: FallbackNullish, FallbackOr, EqualityStrictNull, EqualityStrictUndefined, EqualityLooseNull
+LeftType: StringNull, BooleanNull, BigIntNull, NumberNull, ObjectNull, StringUndefined, BooleanNullUndefined, AnyType, UnknownType, NonEmptyLiteralNull
+RightSide: EmptyString, Zero, ZeroN, FalseLit, NaNLit, NonFalsyLit, NullOrUndefinedLit
+StrictNullChecks: On, Off
+
+IF [Rule] IN {"EqualityStrictNull", "EqualityStrictUndefined", "EqualityLooseNull"} THEN [RightSide] = "NullOrUndefinedLit";
+IF [Rule] IN {"FallbackNullish", "FallbackOr"} THEN [RightSide] <> "NullOrUndefinedLit";

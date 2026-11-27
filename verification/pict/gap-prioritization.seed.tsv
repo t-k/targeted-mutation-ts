@@ -1,0 +1,11 @@
+ArgShape	RoundingPair	MutantOutcome
+LengthProp	FloorToTrunc	Survived
+NonNegDivPositiveLiteral	FloorToTrunc	Survived
+NonNegDivVar	FloorToTrunc	Survived
+SignedVar	FloorToTrunc	Survived
+NegativeLiteral	FloorToTrunc	Survived
+MathMaxNonNeg	FloorToTrunc	Survived
+LengthProp	FloorToCeil	Survived
+SignedVar	FloorToTrunc	TimeoutHitLimit
+SignedVar	FloorToTrunc	TimeoutWallClock
+SignedVar	FloorToTrunc	TimeoutWorkerHung

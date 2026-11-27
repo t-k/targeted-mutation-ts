@@ -1,0 +1,9 @@
+Files	First	Second
+One	Killed	None
+One	Survived	None
+One	Stuck	None
+One	Open	None
+Two	Survived	Killed
+Two	Survived	Missing
+Two	Timeout	Survived
+Two	Survived	Survived

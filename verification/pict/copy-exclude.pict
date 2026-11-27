@@ -1,0 +1,9 @@
+PathKind: Direct, Nested, NestedNodeModules, SymlinkTarget, DanglingSymlink, Escape, RootNodeModules, NodeModulesContent
+ParentState: RealDir, MissingDir, SymlinkDir, BrokenSymlinkDir, RegularFile
+TargetExistence: Exists, Missing
+Duplicate: Unique, Repeated
+
+IF [PathKind] IN {"Direct", "SymlinkTarget", "DanglingSymlink", "Escape", "RootNodeModules"} THEN [ParentState] = "RealDir";
+IF [PathKind] IN {"SymlinkTarget", "DanglingSymlink"} THEN [TargetExistence] = "Exists";
+IF [ParentState] IN {"MissingDir", "BrokenSymlinkDir", "RegularFile"} THEN [TargetExistence] = "Missing";
+IF [PathKind] = "NodeModulesContent" THEN [ParentState] = "RealDir";

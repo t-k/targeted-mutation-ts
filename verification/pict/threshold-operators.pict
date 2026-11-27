@@ -1,0 +1,7 @@
+Operator: Ge, Le, Gt, Lt
+Observations: BelowOnly, AboveOnly, BothWithGap, Tight, Empty, Invalid
+RhsKind: Literal, NamedConst, Varying
+Callable: ArrowExpr, ArrowBlock, FunctionDecl, Internal
+
+IF [RhsKind] = "Varying" THEN [Callable] = "Internal";
+IF [Observations] IN {"Empty", "Invalid"} THEN [RhsKind] = "Literal";

@@ -1,0 +1,3 @@
+Strategy: Slice, RoundRobin
+Items: 0, 1, 2, 3, 5, 10
+Shards: 1, 2, 3, 4

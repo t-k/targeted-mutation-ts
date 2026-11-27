@@ -1,0 +1,8 @@
+Verbosity: Default, Verbose, OnlyGaps
+GapKind: None, ComparisonAssertionGap, ExpressionAssertionGap, InputGap
+EditShape: SingleLine, MultilineSameFirstLine, OperatorSwap
+FailOnGaps: Off, On
+Evaluation: Evaluated, BaselineError, Incomplete, Listed
+
+IF [Evaluation] = "BaselineError" THEN [GapKind] = "None";
+IF [Evaluation] = "Listed" THEN [GapKind] = "None" AND [FailOnGaps] = "Off";

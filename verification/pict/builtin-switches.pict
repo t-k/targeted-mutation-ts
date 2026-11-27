@@ -1,0 +1,3 @@
+Placement: Expression, Chain, Block, Case, Statement
+Position: Nested, StatementStart, AfterUnterminatedLine
+Dialect: Js, Ts, Tsx

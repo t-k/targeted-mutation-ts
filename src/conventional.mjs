@@ -1,53 +1,21 @@
-import { isUtf8 } from 'node:buffer';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { copyFileSync, existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { closeSync, copyFileSync, existsSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
-import { byteOffsets } from './extract.mjs';
-import { collectComparisons } from './analysis.mjs';
+import { fileURLToPath } from 'node:url';
+import { prepareBuiltinSwitches, targetedOrBoundary } from './builtin-switches.mjs';
+import { fullBuiltinGap, targetedGap } from './targeted-gaps.mjs';
+import { checkpointKeyForTrial } from './checkpoint.mjs';
+import { candidateKey } from './shard.mjs';
 import { selectScope } from './scope.mjs';
-import { inside, resolveOptional, runnerPackage, withCopy } from './vitest.mjs';
+import { createTypeContext } from './type-equivalence.mjs';
+import { canonicalPath, inside, runnerPackage, withCopy } from './vitest.mjs';
 
-const logger = { debug() {}, info() {}, warn() {}, isDebugEnabled: () => false };
 const supervisor = fileURLToPath(new URL('./runner-process.mjs', import.meta.url));
 const session = fileURLToPath(new URL('./standard-session.mjs', import.meta.url));
 const setupSource = new URL('./standard-setup.mjs', import.meta.url);
 const runnerSource = new URL('./standard-runner.mjs', import.meta.url);
-const compatibilityPackage = '@stryker-mutator/instrumenter';
-const compatibilityVersion = '10.1.1';
-const toolRequire = createRequire(import.meta.url);
-
-function compatibilityEntry(root) {
-  const id = compatibilityPackage + '/package.json';
-  const projectRequire = root === undefined ? null : createRequire(resolve(root, 'package.json'));
-  const projectManifest = projectRequire && resolveOptional(projectRequire, id);
-  const manifest = projectManifest ?? resolveOptional(toolRequire, id);
-  const version = manifest && JSON.parse(readFileSync(manifest, 'utf8')).version;
-  if (version !== compatibilityVersion) {
-    const found = version ? ` (found ${version})` : '';
-    throw new Error(`Standard and all profiles require ${compatibilityPackage}@${compatibilityVersion}${found}. Install it in the project or its workspace.`);
-  }
-  return (projectManifest ? projectRequire : toolRequire).resolve(compatibilityPackage);
-}
-
-function lineOffsets(text) {
-  const starts = [0];
-  for (const newline of text.matchAll(/\r\n|[\n\r\u2028\u2029]/g)) starts.push(newline.index + newline[0].length);
-  return starts;
-}
-
-function mutationRanges(starts, selected) {
-  const ranges = [];
-  for (let line = 0; line < starts.length; line++) {
-    if (!selected(line + 1)) continue;
-    const previous = ranges.at(-1);
-    if (previous?.end.line === line) previous.end.line++;
-    else ranges.push({ start: { line, column: 0 }, end: { line: line + 1, column: 0 } });
-  }
-  return ranges.length === 1 && ranges[0].start.line === 0 && ranges[0].end.line === starts.length ? true : ranges;
-}
 
 function readEvents(path) {
   if (!existsSync(path)) return [];
@@ -55,72 +23,98 @@ function readEvents(path) {
   return input.split('\n').slice(0, -1).filter(Boolean).map(line => JSON.parse(line));
 }
 
-export async function prepareConventional(subjects, print, entry = compatibilityEntry()) {
-  const inputs = new Map();
-  const sources = [];
-  for (const { file, input, selected } of subjects) {
-    if (!isUtf8(input)) throw new Error(`Invalid UTF-8 in ${file}`);
-    const content = input.toString();
-    const starts = lineOffsets(content);
-    const mutate = mutationRanges(starts, selected);
-    if (Array.isArray(mutate) && mutate.length === 0) continue;
-    inputs.set(file, { input, starts, bytes: byteOffsets(content) });
-    sources.push({ name: file, content, mutate });
-  }
-
-  const printSource = print ? source => print(source, inputs.get(source.originFileName)) : undefined;
-  const { Instrumenter } = await import(pathToFileURL(entry).href);
-  const instrumented = await new Instrumenter(logger, undefined, printSource).instrument(sources, {
-    excludedMutations: [], ignorers: [], plugins: null,
-  });
-  const mutants = instrumented.mutants.map(mutant => {
-    const { input, starts, bytes } = inputs.get(mutant.fileName);
-    const { start, end } = mutant.location;
-    const edit = [bytes[starts[start.line] + start.column], bytes[starts[end.line] + end.column]];
-    if (edit.some(offset => offset === undefined) || edit[0] > edit[1]) {
-      throw new Error(`Invalid mutation span in ${mutant.fileName}`);
-    }
-    return {
-      id: mutant.id, mutatorName: mutant.mutatorName,
-      location: { file: mutant.fileName, line: start.line + 1, column: start.column + 1, start: edit[0], end: edit[1] },
-      edit, original: input.subarray(...edit).toString(), replacement: mutant.replacement,
-      ...(mutant.status === 'Ignored' ? { status: 'ignored', statusReason: mutant.statusReason } : {}),
+// The session runs beside its caller, which may block while it waits for other runs.
+function superviseSession(workspace, temp, manifest, limit, signal) {
+  const log = resolve(temp, 'mutation-session.stderr');
+  const descriptor = openSync(log, 'w');
+  return new Promise(settle => {
+    const child = spawn(process.execPath, [supervisor, resolve(temp, 'mutation-session.pid'), String(limit), session, manifest], {
+      cwd: workspace, stdio: ['ignore', 'ignore', descriptor], timeout: limit + 5_000, signal,
+      env: {
+        ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test',
+        VITE_CACHE_DIR: resolve(temp, 'vite-cache'),
+        VITEST_FS_MODULE_CACHE: 'false',
+        VITEST_FS_MODULE_CACHE_PATH: resolve(temp, 'vitest-fs-cache'),
+      },
+    });
+    const finish = result => {
+      closeSync(descriptor);
+      settle({ ...result, stderr: readFileSync(log, 'utf8').slice(0, 4 * 1024 * 1024) });
     };
+    let failure;
+    child.once('error', error => { failure = error; });
+    child.once('close', (status, stopped) => finish({ status, signal: stopped, error: failure }));
   });
-  return { sources: instrumented.files.map(({ name, content }) => ({ file: name, output: content })), mutants };
 }
 
 export async function analyzeConventional(project, files, options) {
-  const root = realpathSync(project);
-  const combined = options.mutators === 'all';
-  const entry = compatibilityEntry(root);
+  const root = canonicalPath(project);
+  const profile = options.mutators ?? 'targeted';
   const prefix = '.tmt-session-' + randomUUID();
-  const runtime = prefix + '-focus.mjs';
   const targets = selectScope(root, files, options).map(subject => ({
     ...subject, input: readFileSync(inside(root, subject.file)),
   }));
   const originals = new Map(targets.map(({ file, input }) => [file, input]));
-  const preparedFocused = [];
-  const comparison = combined ? collectComparisons(root, files, options) : null;
-  const byFile = new Map(comparison?.subjects.map(({ file, sites }) => [file, sites]));
-  const focus = combined ? await import('./focused-switch.mjs') : null;
-  const require = combined ? createRequire(entry) : null;
-  const babel = require && { types: require('@babel/core').types, generate: require('@babel/generator').generate };
-  const { sources, mutants } = await prepareConventional(targets, focus &&
-    ((source, { starts, bytes }) => focus.printWithFocusedSwitches(
-      source, starts, bytes, byFile.get(source.originFileName) ?? [], runtime, preparedFocused, babel,
-    )), entry);
+  const awaitsExtras = options.extras !== undefined;
+  const typeContext = options['type-check']
+    ? createTypeContext(root, targets.map(t => t.file), {
+      tsconfig: options.tsconfig,
+      onWarning: options.onTypeCheckWarning,
+      silent: options['type-check'] === 'auto',
+    })
+    : null;
+  const { sources, mutants: prepared } = prepareBuiltinSwitches(targets, {
+    dialect: options.dialect,
+    shifts: awaitsExtras,
+    excludeRules: options['exclude-rule'],
+    typeContext,
+    targeted: true,
+    ...(profile === 'targeted' ? { keep: targetedOrBoundary } : {}),
+  });
   const report = {
-    schemaVersion: 1, runner: 'vitest', mutators: options.mutators,
-    extraction: comparison?.extraction ?? [], mutants: [], diagnostics: [], evaluation: 'no_sites',
+    schemaVersion: 1, runner: 'vitest', mutators: profile,
+    extraction: [], mutants: [], diagnostics: [], evaluation: 'no_sites',
     selection: { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] },
   };
-  const runnable = mutants.filter(mutant => mutant.status === undefined);
-  const focused = focus?.eligibleFocusedSites(runnable, preparedFocused) ?? [];
-  if (!mutants.length && !focused.length) return report;
-  if (!runnable.length && !focused.length) return { ...report, evaluation: 'evaluated', mutants };
+  // Shift switches belong to the session and not to the report.
+  const shardKeys = options.shardKeys;
+  const inShard = mutant => !shardKeys || mutant.parametric || shardKeys.has(candidateKey({
+    location: mutant.location,
+    rule: profile === 'full' ? mutant.mutatorName : mutant.mutatorName,
+    replacement: mutant.replacement,
+  }));
+  const mutants = prepared.filter(mutant => !mutant.parametric && inShard(mutant));
+  const ckpt = options.checkpointStore;
+  const cachedById = new Map();
+  if (ckpt) {
+    for (const mutant of mutants) {
+      if (mutant.status !== undefined) continue;
+      const hit = ckpt.get(checkpointKeyForTrial(mutant));
+      if (hit) cachedById.set(mutant.id, hit);
+    }
+  }
+  const runnable = prepared.filter(mutant => mutant.status === undefined && inShard(mutant) && !cachedById.has(mutant.id));
+  const runnableIds = new Set(runnable.map(mutant => mutant.id));
+  const sessionRunnable = runnable.filter(mutant => !(mutant.sharedWith && runnableIds.has(mutant.sharedWith)));
+  if (!mutants.length) return report;
+  if (!sessionRunnable.length) {
+    const cachedDiagnostics = [];
+    const mapped = mutants.map(({ targeted: _rule, fullDiagnostic: _fd, ...mutant }) => {
+      const cached = cachedById.get(mutant.id);
+      if (cached?.diagnostic) cachedDiagnostics.push(cached.diagnostic);
+      if (!cached) return mutant;
+      const { diagnostic: _diag, ...outcome } = cached;
+      return { ...mutant, ...outcome, evidence: outcome.evidence ?? 'checkpoint' };
+    });
+    return {
+      ...report,
+      evaluation: 'evaluated',
+      mutants: mapped,
+      diagnostics: cachedDiagnostics,
+    };
+  }
 
-  return withCopy(root, (workspace, temp) => {
+  return withCopy(root, async (workspace, temp) => {
     runnerPackage(workspace, 'vitest');
     for (const { file, output } of sources) {
       const path = inside(workspace, file);
@@ -131,21 +125,116 @@ export async function analyzeConventional(project, files, options) {
     const workerRunner = resolve(workspace, prefix + '-runner.mjs');
     copyFileSync(setupSource, setup);
     copyFileSync(runnerSource, workerRunner);
-    if (preparedFocused.length) copyFileSync(new URL('./focused-switch-runtime.mjs', import.meta.url), resolve(workspace, runtime));
     const manifest = resolve(temp, 'mutation-session.json');
     const output = resolve(temp, 'mutation-session.jsonl');
+    const runTimeoutMs = options.timeout ? options.timeout * 1000 : 60_000;
+    const baselineTimeoutMs = options['baseline-timeout'] ? options['baseline-timeout'] * 1000 : runTimeoutMs;
+    const totalRunnable = sessionRunnable.filter(mutant => !mutant.parametric).length;
     writeFileSync(manifest, JSON.stringify({
-      workspace, setup, workerRunner, output, temporary: temp, mutants: runnable.map(({ id }) => ({ id })),
-      focused: focused.map(({ id }) => ({ id })),
-      replay: options.deterministic ? focus.comparisonReplays(runnable, focused, originals) : [],
+      workspace, setup, workerRunner, output, temporary: temp, awaitsExtras,
+      mutants: sessionRunnable.map(({ id, parametric, targeted }) => ({
+        id,
+        ...(parametric ? { parametric } : {}),
+        ...(targeted?.evidence ? { evidence: true } : {}),
+        ...(targeted?.operator === 'idx0' ? { sequenceIndex: true } : {}),
+        ...(targeted ? { effects: true } : {}),
+      })),
+      isolatedTrials: options['isolated-trials'] === true,
+      concurrency: options.concurrency ?? Math.max(1, availableParallelism() - 1),
+      verifyTrials: options['verify-trials'] ?? 0,
+      runTimeout: runTimeoutMs,
+      baselineTimeout: baselineTimeoutMs,
+      ...(options['baseline-workers'] !== undefined ? { baselineWorkers: options['baseline-workers'] } : {}),
+      ...(options.progressIntervalMs !== undefined ? { progressIntervalMs: options.progressIntervalMs } : {}),
       config: options.config === undefined ? undefined : inside(workspace, options.config),
       files: [...new Set((options.test ?? []).map(file => inside(workspace, file)))],
+      ...(options.testSpecs?.length ? { selectedSpecs: options.testSpecs.map(({ project, file }) => ({ project, file: inside(workspace, file) })) } : {}),
     }));
-    const limit = 75_000 + 60_000 * (runnable.length + focused.length);
-    const run = spawnSync(process.execPath, [supervisor, resolve(temp, 'mutation-session.pid'), String(limit), session, manifest], {
-      cwd: workspace, encoding: 'utf8', timeout: limit + 5_000, maxBuffer: 4 * 1024 * 1024,
-      env: { ...process.env, CI: 'true', VITEST: '1', NODE_ENV: 'test' },
-    });
+    const limit = 75_000 + baselineTimeoutMs + runTimeoutMs * sessionRunnable.length;
+    // The focused analysis names its threshold edits once it has recorded the comparisons.
+    // Guarded by `finished` so a late resolution never writes after `withCopy` deletes `temp`,
+    // while a write error during a live session aborts the child and propagates to the caller.
+    const extras = resolve(temp, 'extras.json');
+    const sessionAbort = new AbortController();
+    const onAbort = () => sessionAbort.abort();
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    if (options.signal?.aborted) sessionAbort.abort();
+    let finished = false;
+    let extrasError = null;
+    if (awaitsExtras) {
+      Promise.resolve(options.extras).then(list => list ?? [], () => []).then(list => {
+        if (finished || sessionAbort.signal.aborted) return;
+        try {
+          writeFileSync(extras + '.part', JSON.stringify(list));
+          renameSync(extras + '.part', extras);
+        } catch (writeError) {
+          if (!finished && !sessionAbort.signal.aborted) {
+            extrasError = writeError;
+            sessionAbort.abort();
+          }
+        }
+      });
+    }
+    let progressTimer = null;
+    if (options.onProgress) {
+      const progressIntervalMs = options.progressIntervalMs ?? 5_000;
+      const pollIntervalMs = Math.min(1_000, Math.max(50, Math.floor(progressIntervalMs / 2)));
+      const baselineStartedAt = Date.now();
+      let baselineDoneAt = baselineStartedAt;
+      let lastReportAt = baselineStartedAt;
+      options.onProgress('Running baseline tests...');
+      let baselineReported = false;
+      let lastDone = -1;
+      const pollProgress = () => {
+        const now = Date.now();
+        const current = readEvents(output);
+        if (!baselineReported) {
+          const base = current.find(event => event.baseline)?.baseline;
+          if (base?.status === 'passed') {
+            baselineReported = true;
+            baselineDoneAt = now;
+            lastReportAt = now;
+            options.onProgress(`Baseline passed (${base.tests} tests). Running ${totalRunnable} mutant(s)...`);
+          } else if (now - lastReportAt >= progressIntervalMs) {
+            lastReportAt = now;
+            const elapsed = Math.max(1, Math.round((now - baselineStartedAt) / 1000));
+            options.onProgress(`Running baseline tests... (${elapsed}s elapsed)`);
+          }
+        }
+        if (baselineReported && totalRunnable > 0) {
+          const sessionComplete = current.some(event => event.complete === true);
+          const recordedDone = current.filter(event => event.id !== undefined).length;
+          let latestProgress = 0;
+          for (const event of current) {
+            if (typeof event.progress?.completed === 'number' && event.progress.completed > latestProgress) {
+              latestProgress = event.progress.completed;
+            }
+          }
+          const provisionalCap = Math.max(0, totalRunnable - 1);
+          const done = Math.min(totalRunnable, Math.max(recordedDone, Math.min(latestProgress, provisionalCap)));
+          if (done > lastDone && done > 0) {
+            lastDone = done;
+            lastReportAt = now;
+            options.onProgress(`Mutants: ${done}/${totalRunnable} completed`);
+          } else if (!sessionComplete && now - lastReportAt >= progressIntervalMs) {
+            lastReportAt = now;
+            const elapsed = Math.max(1, Math.round((now - baselineDoneAt) / 1000));
+            options.onProgress(`Mutants: ${Math.max(0, done)}/${totalRunnable} completed (${elapsed}s elapsed)`);
+          }
+        }
+      };
+      progressTimer = setInterval(pollProgress, pollIntervalMs);
+      progressTimer.unref?.();
+    }
+    let run;
+    try {
+      run = await superviseSession(workspace, temp, manifest, limit, sessionAbort.signal);
+    } finally {
+      if (progressTimer) clearInterval(progressTimer);
+      finished = true;
+      options.signal?.removeEventListener('abort', onAbort);
+    }
+    if (extrasError) throw extrasError;
     const events = readEvents(output);
     const error = events.findLast(event => event.error)?.error ?? run.error?.message ??
       (run.stderr?.trim() || `Vitest session stopped (exit ${run.status ?? run.signal})`);
@@ -153,16 +242,57 @@ export async function analyzeConventional(project, files, options) {
     if (baseline.status !== 'passed') return { ...report, evaluation: 'baseline_error', baseline };
     const results = new Map(events.filter(event => event.id !== undefined).map(event => [event.id, event]));
     const completed = run.status === 0 && events.at(-1)?.complete === true;
-    const trace = events.find(event => event.focusedTrace)?.focusedTrace;
-    const targeted = focused.map(entry => focus.focusedResult(entry, trace, results, originals)).filter(Boolean);
-    return {
-      ...report, baseline, evaluation: completed ? 'evaluated' : 'incomplete',
-      mutants: [...mutants.map(mutant => {
-        const result = results.get(mutant.id);
-        if (result) return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
-        return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Mutation session ended early' };
-      }), ...targeted.map(entry => entry.mutant)],
-      diagnostics: targeted.flatMap(entry => entry.diagnosis ? [entry.diagnosis] : []),
+    const observed = events.find(event => event.observed)?.observed ?? {};
+    // The expressions behind the switches an edit's tests newly reach or no longer reach, without the edit's own.
+    const places = new Map(prepared.map(mutant => [mutant.id, mutant]));
+    const expressionsOf = (entries, own, plain) => {
+      const seen = new Map();
+      for (const { id, test } of entries) {
+        const { location, original } = places.get(id) ?? {};
+        if (!location || (location.file === own.file && own.start === location.start && location.end === own.end)) continue;
+        // An edit without a probe is plain text: what stands inside it is evaluated without a switch to show it.
+        if (plain && location.file === own.file && own.start <= location.start && location.end <= own.end) continue;
+        seen.set(`${test}:${location.file}:${location.start}:${location.end}`, { ...(test === undefined ? {} : { test }),
+          location: { file: location.file, line: location.line, column: location.column }, expression: original });
+      }
+      return [...seen.values()].slice(0, 3);
     };
-  }, { exclude: options['copy-exclude'] });
+    const withEffects = (gap, mutant) => {
+      if (!gap || !mutant.effects) return gap;
+      const plain = mutant.targeted?.operator === 'await' || mutant.targeted?.operator === 'cleanup';
+      const nowRuns = expressionsOf(mutant.effects.now, mutant.location, plain);
+      const noLongerRuns = expressionsOf(mutant.effects.gone, mutant.location, plain);
+      return nowRuns.length || noLongerRuns.length ? { ...gap, effects: { nowRuns, noLongerRuns } } : gap;
+    };
+    const judged = mutants.map(mutant => {
+      const cached = cachedById.get(mutant.id);
+      if (cached) {
+        const { diagnostic: _diag, ...outcome } = cached;
+        return { ...mutant, ...outcome, id: mutant.id, evidence: outcome.evidence ?? 'checkpoint', _cachedDiagnostic: cached.diagnostic };
+      }
+      const rawResult = results.get(mutant.id) ?? (mutant.sharedWith ? results.get(mutant.sharedWith) : undefined);
+      const result = rawResult ? { ...rawResult, id: mutant.id } : undefined;
+      // An edit the session left out was not run.
+      if (result?.status === 'ignored') return { ...mutant, ...result };
+      if (result) {
+        return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
+      }
+      return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Mutation session ended early' };
+    });
+    const diagnostics = [];
+    for (const mutant of judged) {
+      const gap = mutant._cachedDiagnostic ??
+        withEffects(targetedGap(mutant, observed[mutant.id]) ?? fullBuiltinGap(mutant, observed[mutant.id]), mutant);
+      if (gap) diagnostics.push(gap);
+      if (ckpt && !cachedById.has(mutant.id) && (results.has(mutant.id) || (mutant.sharedWith && results.has(mutant.sharedWith)))) {
+        ckpt.record(checkpointKeyForTrial(mutant), mutant, gap ?? undefined);
+      }
+    }
+    return {
+      ...report, baseline, evaluation: completed ? 'evaluated' : 'incomplete', trials: events.find(event => event.trials)?.trials,
+      ...(awaitsExtras ? { extras: events.filter(event => event.extra !== undefined) } : {}),
+      mutants: judged.map(({ targeted: _rule, fullDiagnostic: _fd, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),
+      diagnostics,
+    };
+  }, { exclude: options['copy-exclude'], onProgress: options.onProgress, reuseCopy: options.reusableCopy });
 }

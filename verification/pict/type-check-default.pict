@@ -1,0 +1,4 @@
+CliFlag: None, TypeCheck, NoTypeCheck, Tsconfig
+ConfigTypeCheck: Unset, True, False
+TsconfigState: Strict, NonStrict, Missing
+NullishSite: Present, Absent

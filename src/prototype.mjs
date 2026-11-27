@@ -11,41 +11,55 @@ function readThresholdSites(ts, source, file, operators) {
     return { error: ts.flattenDiagnosticMessageText(tree.parseDiagnostics[0].messageText, '\n') };
   }
   const sites = [];
+  const extractBody = fn => {
+    if (!fn.body) return null;
+    if (!ts.isBlock(fn.body)) return fn.body;
+    const [only] = fn.body.statements;
+    return fn.body.statements.length === 1 && ts.isReturnStatement(only) ? only.expression : null;
+  };
+  const inspectFunction = (nameNode, fn) => {
+    if (!ts.isIdentifier(nameNode) || fn.asteriskToken ||
+        fn.modifiers?.some(modifier => ![ts.SyntaxKind.ExportKeyword].includes(modifier.kind)) ||
+        fn.parameters.length !== 1) return;
+
+    const parameter = fn.parameters[0];
+    const comparison = extractBody(fn);
+    if (!ts.isIdentifier(parameter.name) || parameter.initializer || parameter.dotDotDotToken ||
+        !comparison || !ts.isBinaryExpression(comparison) || !ts.isIdentifier(comparison.left) ||
+        comparison.left.text !== parameter.name.text) return;
+    const operator = comparison.operatorToken.getText(tree);
+    if (!operators.has(operator)) return;
+
+    const literal = comparison.right;
+    const numeric = ts.isNumericLiteral(literal)
+      ? literal : ts.isPrefixUnaryExpression(literal) && literal.operator === ts.SyntaxKind.MinusToken &&
+        ts.isNumericLiteral(literal.operand) ? literal.operand : undefined;
+    if (!numeric) return;
+    const value = Number(numeric.text);
+    const threshold = numeric === literal ? value : -value;
+    if (!Number.isSafeInteger(threshold)) return;
+    sites.push({
+      operator,
+      functionName: nameNode.getText(tree),
+      threshold,
+      operand: comparison.left.getText(tree),
+      from: comparison.getStart(tree),
+      to: comparison.end,
+      literalFrom: literal.getStart(tree),
+      literalTo: literal.end,
+    });
+  };
   for (const statement of tree.statements) {
-    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const) ||
-        !statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    if (!statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    if (ts.isFunctionDeclaration(statement) && statement.name) {
+      inspectFunction(statement.name, statement);
+      continue;
+    }
+    if (!ts.isVariableStatement(statement) || !(statement.declarationList.flags & ts.NodeFlags.Const)) continue;
 
     for (const declaration of statement.declarationList.declarations) {
       const arrow = declaration.initializer;
-      if (!ts.isIdentifier(declaration.name) || !arrow || !ts.isArrowFunction(arrow) ||
-          arrow.modifiers?.length || arrow.parameters.length !== 1) continue;
-
-      const parameter = arrow.parameters[0];
-      const comparison = arrow.body;
-      if (!ts.isIdentifier(parameter.name) || parameter.initializer || parameter.dotDotDotToken ||
-          !ts.isBinaryExpression(comparison) || !ts.isIdentifier(comparison.left) ||
-          comparison.left.text !== parameter.name.text) continue;
-      const operator = comparison.operatorToken.getText(tree);
-      if (!operators.has(operator)) continue;
-
-      const literal = comparison.right;
-      const numeric = ts.isNumericLiteral(literal)
-        ? literal : ts.isPrefixUnaryExpression(literal) && literal.operator === ts.SyntaxKind.MinusToken &&
-          ts.isNumericLiteral(literal.operand) ? literal.operand : undefined;
-      if (!numeric) continue;
-      const value = Number(numeric.text);
-      const threshold = numeric === literal ? value : -value;
-      if (!Number.isSafeInteger(threshold)) continue;
-      sites.push({
-        operator,
-        functionName: declaration.name.getText(tree),
-        threshold,
-        operand: comparison.left.getText(tree),
-        from: comparison.getStart(tree),
-        to: comparison.end,
-        literalFrom: literal.getStart(tree),
-        literalTo: literal.end,
-      });
+      if (arrow && ts.isArrowFunction(arrow)) inspectFunction(declaration.name, arrow);
     }
   }
   return { sites };

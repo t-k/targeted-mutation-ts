@@ -1,0 +1,8 @@
+Mutators: Default, Targeted, Full, RemovedProfile
+Runner: Vitest, Playwright
+NativeAddon: Present, Absent
+Mode: Normal, Audit, Witnesses, UndoChanges, SuggestAssertions
+
+IF [Mode] = "Witnesses" THEN [Runner] = "Vitest" AND [Mutators] = "Default";
+IF [Mode] = "SuggestAssertions" THEN [Runner] = "Vitest";
+IF [Mutators] = "RemovedProfile" THEN [Mode] = "Normal";

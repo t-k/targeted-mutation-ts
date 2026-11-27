@@ -1,13 +1,28 @@
+import { realpathSync } from 'node:fs';
 import { createRequire } from 'node:module';
-import { relative } from 'node:path';
-import { getCurrentTest } from 'vitest/suite';
+import { relative, resolve } from 'node:path';
+import * as vitestApi from 'vitest';
+
+function safeCanonicalPath(path) {
+  if (typeof path !== 'string' || !path) return path;
+  try {
+    const resolved = realpathSync(path);
+    if (process.platform !== 'win32') return resolved;
+    const native = realpathSync.native(resolved);
+    return !resolved.startsWith('\\\\') && native.startsWith('\\\\') ? resolved : native;
+  } catch {
+    return path;
+  }
+}
 
 const trace = process.env.TMT_TRACE;
 // Use the native module cache even when Vite evaluates or resets this module.
 const writer = trace && createRequire(import.meta.url)('./trace-buffer.mjs').workerTraceWriter(
   trace, (test, finish) => test.context.onTestFinished(finish), process.env.TMT_TRACE_SYNC === '1');
 const active = process.env.TMT_ACTIVE_SITE;
-const workspace = process.env.TMT_WORKSPACE;
+const workspace = safeCanonicalPath(process.env.TMT_WORKSPACE);
+const getCurrentTest = vitestApi.TestRunner?.getCurrentTest ??
+  createRequire(workspace ? resolve(workspace, 'package.json') : import.meta.url)('vitest/suite').getCurrentTest;
 const isSafeInteger = Number.isSafeInteger;
 
 export function loaded(ids) {
@@ -16,7 +31,7 @@ export function loaded(ids) {
 
 function testIdentity(test) {
   return test ? {
-    id: test.id, project: test.file.projectName ?? '', file: relative(workspace, test.file.filepath),
+    id: test.id, project: test.file.projectName ?? '', file: relative(workspace, safeCanonicalPath(test.file.filepath)),
   } : null;
 }
 

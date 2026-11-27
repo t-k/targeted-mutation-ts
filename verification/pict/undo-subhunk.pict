@@ -1,0 +1,6 @@
+Kind: AndTerm, OrTerm, ObjectProp, ObjectShorthand
+Position: First, Middle, Last
+MultiChange: TwoAdded, SingleAdded
+TrailingComma: Yes, No
+
+IF [Kind] IN {"AndTerm", "OrTerm"} THEN [TrailingComma] = "No";

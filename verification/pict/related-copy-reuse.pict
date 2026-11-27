@@ -1,0 +1,4 @@
+RelatedMode: Off, On
+ConsumerPath: Conventional, Audit, NoSites, DisjointTestError
+SelectedCount: Small, Large
+SignalInterrupt: None, Sigterm

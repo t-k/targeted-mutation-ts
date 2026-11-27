@@ -1,0 +1,3 @@
+Family: StrictEquality, LooseEquality, Logical, Nullish, Additive, Multiplicative
+Operands: Identifiers, StringLiteral, NonAscii
+Dialect: Ts, Tsx, Js

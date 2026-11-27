@@ -1,0 +1,6 @@
+Feature: ArithmeticOverlap, ExtremeSwapOrder, QuantifierOverlap, RegexAnchorOverlap, OptionalChainingDiag, RelationalComplementDiag, ConditionalConstantDiag
+TestOutcome: KillsMutant, AgreesAllInputs, DivergesWithoutAssert
+Deterministic: Off, On
+SideEffect: Pure, Impure
+
+IF [Feature] = "RelationalComplementDiag" THEN [TestOutcome] <> "AgreesAllInputs";

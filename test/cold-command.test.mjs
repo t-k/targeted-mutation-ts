@@ -27,7 +27,8 @@ for (const [command, addon, input] of scenarios) {
         if (command === 'Analyze') return false;
         return module !== command.toLowerCase();
       });
-      blocked.push('typescript-extraction', 'typescript-grammar', 'typescript-bindings');
+      const allowsFallback = addon === 'Broken' && input === 'Valid' && (command === 'Extract' || command === 'Analyze');
+      if (!allowsFallback) blocked.push('typescript-extraction', 'typescript-grammar', 'typescript-bindings');
       writeFileSync(hook, `import { registerHooks } from 'node:module';
 registerHooks({ resolve(specifier, context, next) {
   if (${JSON.stringify(blocked)}.some(name => specifier.endsWith('/' + name + '.mjs'))) {
@@ -42,15 +43,17 @@ registerHooks({ resolve(specifier, context, next) {
       }[command];
       if (input === 'Invalid') args.push(command === 'Analyze' ? '--runner=invalid' : '--unrecognized');
       const run = spawnSync(process.execPath, ['--import', hook, 'bin/tmt.mjs', ...args], { cwd: root, encoding: 'utf8', timeout: 15_000 });
-      const fail = input === 'Invalid' || addon === 'Broken' && command === 'Extract';
+      const fail = input === 'Invalid';
       assert.equal(run.status, fail ? 1 : 0, run.error?.message ?? run.stderr);
       assert.doesNotMatch(run.stderr, /Unexpected module during command dispatch|^Error:/m);
       if (input === 'Invalid') assert.match(run.stderr, /Unknown option|Expected --runner/);
       else if (command === 'Help') assert.match(run.stdout, /^Usage:/);
       else if (!fail) {
         const result = JSON.parse(run.stdout);
-        if (command === 'Extract') assert.equal(result.candidates[0].operator, '<');
-        else if (command === 'Analyze') assert.equal(result.evaluation, 'no_sites');
+        if (command === 'Extract') {
+          assert.equal(result.candidates[0].operator, '<');
+          if (addon === 'Broken') assert.equal(result.reason, 'native-unavailable');
+        } else if (command === 'Analyze') assert.equal(result.evaluation, 'no_sites');
         else assert.deepEqual(result, { diagnostics: [] });
       }
     } finally {

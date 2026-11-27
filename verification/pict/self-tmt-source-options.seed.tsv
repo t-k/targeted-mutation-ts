@@ -1,0 +1,9 @@
+File	Dialect	Mode
+Js	Default	Default
+TsxBackup	Default	Default
+Tsx	Ts	Script
+Js	Tsx	Module
+Js	Invalid	Script
+Tsx	Default	Invalid
+Js	Empty	Default
+Tsx	Default	Empty

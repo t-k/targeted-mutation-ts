@@ -1,0 +1,4 @@
+LeftType: NumberUndef, StringUndef, BoolUndef, BigIntUndef, StringNumberUndef, AnyOrUnknown
+RightSide: Zero, EmptyString, FalseLit, ZeroN, NaNLit, NonFalsyPure, ImpureCall
+TypeCheck: On, Off
+Operator: Nullish, LogicalOr

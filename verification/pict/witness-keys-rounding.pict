@@ -1,0 +1,4 @@
+Rule: TemplateKey, JoinKey, FloorMulDiv, TruncMulDiv, BigIntMulDiv
+SeedKind: RoundOrSingle, AlreadyDistinguished, UnsafeInput
+ParamCount: Two, Three
+DivisorOrSep: Small, Large

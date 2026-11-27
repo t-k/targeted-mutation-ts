@@ -1,0 +1,6 @@
+RelatedFlag: Off, On
+TestFlag: Off, ExactMatch, GlobSubset, Disjoint
+BaselineTimeout: Default, Custom
+BaselineWorkers: Default, Parallel
+
+IF [RelatedFlag] = "Off" THEN [TestFlag] <> "Disjoint";

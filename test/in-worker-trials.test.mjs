@@ -1,0 +1,186 @@
+import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import test from 'node:test';
+
+function temporaryProject(files, action) {
+  const root = mkdtempSync(join(tmpdir(), 'tmt-in-worker-test-'));
+  try {
+    for (const [name, content] of Object.entries(files)) {
+      mkdirSync(join(root, name, '..'), { recursive: true });
+      writeFileSync(join(root, name), content);
+    }
+    // A project with its own node_modules has to provide Vitest itself.
+    if (existsSync(join(root, 'node_modules'))) symlinkSync(resolve('node_modules/vitest'), join(root, 'node_modules/vitest'), 'dir');
+    return action(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function analyze(root, ...args) {
+  const run = spawnSync(process.execPath, ['bin/tmt.mjs', 'analyze', root, ...args, '--format', 'json'],
+    { encoding: 'utf8', timeout: 240_000, maxBuffer: 64 * 1024 * 1024 });
+  assert.ok(run.stdout, run.stderr);
+  return JSON.parse(run.stdout);
+}
+
+const verdicts = report => new Map(report.mutants.map(mutant => [`${mutant.location.file}:${mutant.edit}:${mutant.replacement}`, mutant]));
+const find = (report, file, original, replacement) => report.mutants.find(mutant =>
+  mutant.location.file === file && mutant.original === original && mutant.replacement === replacement);
+
+// One suite with the ways a test can disturb the worker it runs in. The functions that leave state behind come last,
+// so the earlier ones are decided inside the worker before the first control run fails.
+const hazards = {
+  'vitest.config.mjs': 'export default { test: { testTimeout: 300 } };',
+  'node_modules/counter-dep/package.json': '{ "name": "counter-dep", "type": "module", "main": "index.js" }',
+  'node_modules/counter-dep/index.js': 'let issued = 0;\nexport const next = () => ++issued;\n',
+  'subject.ts': `export const price = (n: number, member: boolean) => member && n >= 10 ? n - 1 : n;
+export function sign(n: number) { return n > 0 ? 'pos' : 'neg'; }
+export function grade(n: number) { return n > 5 ? 'big' : 'small'; }
+export function spin(n: number) { let i = 0; while (i < n) i++; return i; }
+export async function wait(n: number) { if (n > 7) return 'done'; return new Promise(() => {}); }
+export function unused(n: number) { return n + 1; }
+// Evaluated while the module loads, so its mutations run every test of a file, including the ones that leave state behind.
+export const TABLE = [1, 2, 3].map(n => n * 2);
+export function remember(n: number) { (globalThis as any).__seen = n > 3 ? 'big' : 'small'; return n; }
+export function recall() { return (globalThis as any).__seen ?? 'none'; }
+`,
+  'ticket.ts': `import { next } from 'counter-dep';
+export function ticket(n: number) { return n > 1 ? next() : 0; }
+`,
+  'a.test.ts': `import { expect, it, vi } from 'vitest';
+import { TABLE, grade, price, recall, remember, sign, spin, wait } from './subject';
+it('recall before remember', () => expect(recall()).toBe('none'));
+it('price plain', () => expect(price(10, false)).toBe(10));
+it('price member', () => expect(price(10, true)).toBe(9));
+it('table', () => expect(TABLE).toEqual([2, 4, 6]));
+it('sign with fake timers', () => { vi.useFakeTimers(); expect(sign(1)).toBe('pos'); vi.useRealTimers(); });
+it('sign after a real timer', async () => { await new Promise(resolve => setTimeout(resolve, 1)); expect(sign(-1)).toBe('neg'); });
+it('late check', () => { void Promise.resolve().then(() => { if (grade(7) !== 'big') throw new Error('late'); }); });
+it('spin', () => expect(spin(3)).toBe(3));
+it('wait', async () => expect(await wait(8)).toBe('done'));
+it('remember', () => { expect(remember(5)).toBe(5); expect(recall()).toBe('big'); });
+`,
+  'b.test.ts': `import { expect, it } from 'vitest';
+import { price } from './subject';
+it('price small member', () => expect(price(3, true)).toBe(3));
+it('price large member', () => expect(price(20, true)).toBe(19));
+`,
+  // The tests are registered from a list the source builds while it loads, so a mutation can change which tests exist.
+  'names.ts': `export const NAMES = ['a', 'b', 'cc'].filter(name => name.length < 2);
+`,
+  'names.test.ts': `import { expect, it } from 'vitest';
+import { NAMES } from './names';
+for (const name of NAMES) it('case ' + name, () => expect(name.length).toBe(1));
+`,
+  'ticket.test.ts': `import { expect, it } from 'vitest';
+import { ticket } from './ticket';
+it('first ticket', () => expect(ticket(2)).toBe(1));
+`,
+};
+
+test('mutations decided inside a worker get the verdict of a fresh Vitest run each', () => temporaryProject(hazards, root => {
+  const subjects = ['subject.ts', 'ticket.ts', 'names.ts'];
+  const shared = analyze(root, ...subjects, '--mutators', 'full', '--concurrency', '2', '--verify-trials', '6');
+  const fresh = analyze(root, ...subjects, '--mutators', 'full', '--isolated-trials');
+  assert.equal(shared.evaluation, 'evaluated');
+  assert.equal(fresh.evaluation, 'evaluated');
+  const expected = verdicts(fresh);
+  assert.equal(shared.mutants.length, fresh.mutants.length);
+  for (const [key, mutant] of verdicts(shared)) {
+    assert.equal(mutant.status, expected.get(key).status, `full ${key}`);
+    if (mutant.status === 'killed') assert.ok(mutant.tests.length > 0, `full ${key}`);
+  }
+  assert.equal(fresh.trials.inWorker, 0);
+  // The sampled worker verdicts agree with their fresh runs, and each mutation a worker left open says why.
+  assert.deepEqual(shared.trials.verified, { sampled: 6, mismatches: [] });
+  const reasons = new Set(shared.mutants.map(mutant => mutant.fallback).filter(Boolean));
+  // After a control run differs, the test file starts again in a new worker, so only that mutation is left open.
+  for (const reason of ['control-differs', 'unhandled-error', 'tests-changed']) assert.ok(reasons.has(reason), [...reasons].join());
+  assert.ok(shared.trials.inWorker >= 20, JSON.stringify(shared.trials));
+  // The suite leaves a global and a counter in a dependency behind. Those mutations need the fresh runs.
+  assert.ok(shared.trials.isolated >= 2, JSON.stringify(shared.trials));
+  assert.ok(shared.trials.workers >= 1 && shared.trials.workers <= 2, JSON.stringify(shared.trials));
+  const status = (file, original, replacement) => find(shared, file, original, replacement)?.status;
+  const boundary = (file, op, replacement) => shared.mutants.find(m => m.location.file === file && m.rule === 'comparison-boundary/v1' && m.operator === op && m.replacement === replacement)?.status;
+  assert.equal(boundary('subject.ts', '>=', '>'), 'killed');
+  assert.equal(status('subject.ts', 'n * 2', 'n / 2'), 'killed');
+  assert.equal(boundary('subject.ts', '>', '>='), 'survived');
+  assert.equal(status('subject.ts', 'n > 5', 'n <= 5'), 'killed');
+  assert.equal(find(shared, 'subject.ts', 'n > 5', 'n <= 5').killedBy, 'unhandled-error');
+  // An endless loop that keeps passing the mutation stops at the hit limit. A promise that never settles stops at the test timeout.
+  assert.equal(status('subject.ts', 'i++', 'i--'), 'timeout');
+  assert.equal(status('subject.ts', 'n > 7', 'false'), 'timeout');
+  assert.equal(status('subject.ts', 'n + 1', 'n - 1'), 'unreached');
+  assert.equal(status('subject.ts', "(globalThis as any).__seen ?? 'none'", "(globalThis as any).__seen && 'none'"), 'killed');
+  assert.equal(boundary('ticket.ts', '>', '>='), 'survived');
+  assert.equal(status('ticket.ts', 'n > 1', 'n <= 1'), 'killed');
+  // The test file where the mutation is cheapest kills it, and the other file is not asked.
+  assert.equal(find(shared, 'subject.ts', 'n >= 10', 'n < 10').tests.length, 1);
+}));
+
+test('a mutation that never returns is a timeout and the others are still decided', () => temporaryProject({
+  'subject.ts': `export function drain() { let n = 0; const forward = true; while (n < 3) n += forward ? 1 : 0; return n; }
+export function after(n: number) { return n > 2 ? 'many' : 'few'; }
+`,
+  'subject.test.ts': `import { expect, it } from 'vitest';
+import { after, drain } from './subject';
+it('drains', () => expect(drain()).toBe(3));
+it('counts', () => { expect(after(3)).toBe('many'); expect(after(2)).toBe('few'); });
+`,
+  // The mutation sets a global that makes the next run of the same test spin, which is the control run.
+  'trap.ts': `export function guarded() { while ((globalThis as any).__trap) {} return 1; }
+export function mark(n: number) { if (n > 5) (globalThis as any).__trap = true; return n; }
+`,
+  'trap.test.ts': `import { expect, it } from 'vitest';
+import { guarded, mark } from './trap';
+it('guards then marks', () => { expect(guarded()).toBe(1); expect(mark(1)).toBe(1); });
+`,
+}, root => {
+  const trapped = analyze(root, 'trap.ts', '--mutators', 'full');
+  assert.equal(trapped.evaluation, 'evaluated');
+  // The trial itself finished and passed. Only the control run hung, so a fresh run decides: the mutation survives.
+  assert.equal(find(trapped, 'trap.ts', 'n > 5', 'true').status, 'survived');
+  assert.ok(trapped.trials.isolated >= 1, JSON.stringify(trapped.trials));
+  assert.ok(trapped.mutants.every(mutant => ['killed', 'survived', 'unreached'].includes(mutant.status)), JSON.stringify(trapped.mutants.map(mutant => mutant.status)));
+  const report = analyze(root, 'subject.ts', '--mutators', 'full');
+  assert.equal(report.evaluation, 'evaluated');
+  const stuck = find(report, 'subject.ts', 'true', 'false');
+  assert.deepEqual([stuck.status, stuck.statusReason], ['timeout', 'The worker stopped answering']);
+  assert.equal(report.mutants.find(m => m.rule === 'comparison-boundary/v1' && m.operator === '<').status, 'killed');
+  assert.equal(report.mutants.find(m => m.rule === 'comparison-boundary/v1' && m.operator === '>').status, 'killed');
+  assert.equal(find(report, 'subject.ts', 'n > 2', 'n <= 2').status, 'killed');
+  assert.ok(report.mutants.every(mutant => mutant.status !== 'unevaluated'));
+}));
+
+test('a disable comment keeps its mutations out of every profile and reports them as ignored', () => temporaryProject({
+  'subject.ts': `export function fee(amount: number) {
+  // Stryker disable next-line all: rounding is display only
+  if (amount >= 100) return 0;
+  return amount > 50 ? 5 : 10;
+}
+`,
+  'subject.test.ts': `import { expect, it } from 'vitest';
+import { fee } from './subject';
+it('fees', () => { expect(fee(100)).toBe(0); expect(fee(60)).toBe(5); expect(fee(10)).toBe(10); });
+`,
+}, root => {
+  const full = analyze(root, 'subject.ts', '--mutators', 'full');
+  assert.equal(full.evaluation, 'evaluated');
+  const ignored = full.mutants.filter(mutant => mutant.status === 'ignored');
+  assert.ok(ignored.length >= 4, JSON.stringify(full.mutants.map(mutant => mutant.status)));
+  assert.ok(ignored.every(mutant => mutant.location.line === 3 && mutant.statusReason === 'rounding is display only'));
+  // Line 4 is still mutated, and the boundary on line 3 is not edited by the focused part either.
+  assert.ok(full.mutants.some(mutant => mutant.location.line === 4 && mutant.status === 'killed'));
+  assert.ok(full.mutants.every(mutant => mutant.location.line !== 3 || mutant.status === 'ignored'));
+  const targeted = analyze(root, 'subject.ts');
+  assert.ok(targeted.mutants.filter(mutant => mutant.location.line === 3).every(mutant => mutant.status === 'ignored' && mutant.statusReason === 'rounding is display only'));
+  assert.ok(targeted.mutants.some(mutant => mutant.location.line === 4 && mutant.rule === 'comparison-boundary/v1' && mutant.status === 'survived'));
+  assert.equal(targeted.extraction[0].ignored, 1);
+  const rewritten = analyze(root, 'subject.ts', '--mutators', 'full', '--isolated-trials');
+  assert.deepEqual(rewritten.mutants.map(mutant => [mutant.location.start, mutant.replacement, mutant.status]),
+    full.mutants.map(mutant => [mutant.location.start, mutant.replacement, mutant.status]));
+}));

@@ -1,0 +1,5 @@
+Operator: Lt, Le, Gt, Ge
+Slack: BothWithSlack, BelowOnly, AboveOnly, Tight, Empty, UnsafeDiff, UnsafeShift, Fraction
+RhsKind: Varying, Constant
+
+IF [Slack] IN {"Empty", "UnsafeDiff", "UnsafeShift", "Fraction"} THEN [RhsKind] = "Varying";

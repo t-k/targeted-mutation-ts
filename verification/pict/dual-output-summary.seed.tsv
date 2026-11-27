@@ -1,0 +1,7 @@
+StdoutFormat	JsonOut	SarifOut	Profile	GapCount	OtherSurvivors
+Text	None	None	Targeted	Zero	Zero
+Text	File	None	Targeted	One	Zero
+Text	None	File	Full	Zero	Many
+Text	File	File	Full	One	One
+Json	File	File	Full	Many	Many
+Sarif	File	None	Targeted	Many	Zero
