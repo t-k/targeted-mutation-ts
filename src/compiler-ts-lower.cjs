@@ -1264,6 +1264,12 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         const innerParam = shadowsSelf ? `${innerName}_1` : innerName;
         const loweredInner = lowerNamespaceBody(bodySrc, innerParam);
         if (loweredInner === null) return null;
+        if (loweredInner !== bodySrc && isTypeOnlyNamespaceBody(loweredInner)) {
+          const blank = isLabeled ? ';' : src.slice(t.start, toks[closeIdx].end).replace(/[^\r\n]/g, ' ');
+          edits.push({ start: t.start, end: toks[closeIdx].end, text: blank });
+          i = closeIdx;
+          continue;
+        }
 
         // Wrap from innermost to outermost
         let innerCode = loweredInner;
@@ -1299,7 +1305,9 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
           if (cb > idx && toks[cb + 1]?.text !== 'from') {
             let endIdx = cb;
             if (toks[endIdx + 1]?.text === ';') endIdx++;
-            edits.push({ start: t.start, end: toks[endIdx].end, text: src.slice(t.start, toks[endIdx].end).replace(/[^\r\n]/g, ' '), isVarDecl: true });
+            const stmt = src.slice(t.start, toks[endIdx].end);
+            try { stripTypeScriptTypes(stmt); } catch { return null; }
+            edits.push({ start: t.start, end: toks[endIdx].end, text: stmt.replace(/[^\r\n]/g, ' '), isVarDecl: true });
             i = endIdx;
             continue;
           }
@@ -1543,11 +1551,9 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
               const rPrev = ri > 0 ? toks[ri - 1] : null;
               const rNext = toks[ri + 1];
               if (rPrev && (rPrev.text === '.' || rPrev.text === 'interface' || rPrev.text === 'type')) continue;
-              // Property key / class field / parameter property / label (`foo: ...`) is not a variable reference
-              // (exclude ternary `?` and expression operators so `cond ?\n foo : 1` is still treated as a reference)
+              // Property key / class field / parameter property (`foo: ...`) is not a variable reference
               if (rNext && rNext.text === ':' && rPrev &&
-                  (rPrev.text === '{' || rPrev.text === ',' || rPrev.text === ';' || rPrev.text === '(' ||
-                   (hasNewlineBetween(src, rPrev.end, rt.start) && !['?', '=', '=>', '&&', '||', '??', '+', '-', '*', '/', '%', '!', '~', 'return', 'throw', 'await', 'yield', 'case', 'typeof', 'void'].includes(rPrev.text)) ||
+                  (rPrev.text === '{' || rPrev.text === ',' || rPrev.text === ';' || rPrev.text === '(' || rPrev.text === '}' ||
                    (rPrev.type === 'id' && /^(?:public|private|protected|readonly|override|static|abstract|declare|accessor)$/.test(rPrev.text)))) continue;
               // Duplicate `export var x = ...` in the same namespace is not a bare variable reference
               if (rPrev && (rPrev.text === 'var' || rPrev.text === 'let' || rPrev.text === 'const') && toks[ri - 2]?.text === 'export') continue;
@@ -1573,11 +1579,15 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
           continue;
         }
         // `export import x = require("...");` inside an internal namespace/module is erased by TypeScript
+        // (bail if `x` is referenced later in the namespace so TS rewrites it to `${parentNs}.x`)
         if (kw.text === 'import' && toks[idx + 1]?.type === 'id' &&
             toks[idx + 2]?.text === '=' && toks[idx + 3]?.text === 'require' && toks[idx + 4]?.text === '(' &&
             toks[idx + 5]?.type === 'str' && toks[idx + 6]?.text === ')') {
+          const aliasName = toks[idx + 1].text;
           let endIdx = idx + 6;
           if (toks[endIdx + 1]?.text === ';') endIdx++;
+          const rest = src.slice(0, t.start) + src.slice(toks[endIdx].end);
+          if (new RegExp(`(?<![\\w$.])${aliasName}(?![\\w$])`).test(rest)) return null;
           edits.push({ start: t.start, end: toks[endIdx].end, text: src.slice(t.start, toks[endIdx].end).replace(/[^\r\n]/g, ' '), isVarDecl: true });
           i = endIdx;
           continue;
@@ -1631,9 +1641,11 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
           continue;
         }
       }
-      // Inside an internal namespace/module, `import x = require("...");` and `import ... from "...";` are erased by TypeScript
+      // Inside an internal namespace/module, `import x = require("...");` and static `import ... from "...";` are erased by TypeScript
       if (parentNs && !isExport && toks[idx].text === 'import') {
-        if (toks[idx + 1]?.type === 'id' &&
+        const afterImp = toks[idx + 1];
+        if (!afterImp || afterImp.text === '(' || afterImp.text === '.') continue;
+        if (afterImp.type === 'id' &&
             toks[idx + 2]?.text === '=' && toks[idx + 3]?.text === 'require' && toks[idx + 4]?.text === '(' &&
             toks[idx + 5]?.type === 'str' && toks[idx + 6]?.text === ')') {
           let endIdx = idx + 6;
@@ -1642,15 +1654,26 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
           i = endIdx;
           continue;
         }
-        // `import * as X from "...";` / `import X from "...";` / `import { ... } from "...";`
-        let k = idx + 1;
-        while (k < toks.length && toks[k].text !== 'from' && toks[k].text !== ';' && toks[k].text !== '=') k++;
-        if (toks[k]?.text === 'from' && toks[k + 1]?.type === 'str') {
-          let endIdx = k + 1;
-          if (toks[endIdx + 1]?.text === ';') endIdx++;
-          edits.push({ start: t.start, end: toks[endIdx].end, text: src.slice(t.start, toks[endIdx].end).replace(/[^\r\n]/g, ' '), isVarDecl: true });
-          i = endIdx;
-          continue;
+        // Static `import * as X from "...";` / `import X from "...";` / `import { ... } from "...";`
+        if (afterImp.text === '*' || afterImp.text === '{' || afterImp.type === 'id') {
+          let k = idx + 1, dBr = 0;
+          while (k < toks.length) {
+            const tk = toks[k];
+            if (tk.text === '{') { dBr++; k++; continue; }
+            if (tk.text === '}') { if (dBr === 0) break; dBr--; k++; continue; }
+            if (dBr === 0 && (tk.text === ';' || tk.text === '=')) break;
+            if (dBr === 0 && tk.type === 'id' && tk.text === 'from' && toks[k - 1]?.text !== '.') break;
+            k++;
+          }
+          if (toks[k]?.text === 'from' && toks[k - 1]?.text !== '.' && toks[k + 1]?.type === 'str') {
+            let endIdx = k + 1;
+            if (toks[endIdx + 1]?.text === ';') endIdx++;
+            const stmt = src.slice(t.start, toks[endIdx].end);
+            try { stripTypeScriptTypes(stmt); } catch { return null; }
+            edits.push({ start: t.start, end: toks[endIdx].end, text: stmt.replace(/[^\r\n]/g, ' '), isVarDecl: true });
+            i = endIdx;
+            continue;
+          }
         }
       }
       // Non-exported `import a = X.Y;` (top-level or inside a namespace) -> `var a = X.Y;`
@@ -6464,7 +6487,25 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     if (toks) {
       const edits = [];
       const TP_MODS = new Set(['public', 'private', 'protected', 'readonly', 'static', 'abstract', 'in', 'out']);
-      for (let i = 1; i < toks.length - 1; i++) {
+      // Track class body brace depths so `in a = 0` / `out b = 0` is ONLY stripped inside a `class { ... }` body
+      const classBodyDepths = new Set();
+      let braceDepth = 0, pendingClassBrace = false;
+      for (let i = 0; i < toks.length - 1; i++) {
+        if (toks[i].type === 'id' && toks[i].text === 'class' && toks[i - 1]?.text !== '.') {
+          pendingClassBrace = true;
+          continue;
+        }
+        if (toks[i].text === '{') {
+          braceDepth++;
+          if (pendingClassBrace) { classBodyDepths.add(braceDepth); pendingClassBrace = false; }
+          continue;
+        }
+        if (toks[i].text === '}') {
+          classBodyDepths.delete(braceDepth);
+          if (braceDepth > 0) braceDepth--;
+          continue;
+        }
+        if (i === 0) continue;
         if (toks[i].type === 'id' && TP_MODS.has(toks[i].text) &&
             (toks[i - 1].text === '<' || toks[i - 1].text === ',' || toks[i - 1].text === 'const')) {
           let k = i;
@@ -6474,7 +6515,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
             edits.push({ start: toks[i].start, end: toks[k].start, text: source.slice(toks[i].start, toks[k].start).replace(/[^\r\n]/g, ' ') });
             i = k;
           }
-        } else if (toks[i].type === 'id' && (toks[i].text === 'in' || toks[i].text === 'out') &&
+        } else if (classBodyDepths.has(braceDepth) && toks[i].type === 'id' && (toks[i].text === 'in' || toks[i].text === 'out') &&
             (toks[i - 1].text === '{' || toks[i - 1].text === ';' || hasNewlineBetween(source, toks[i - 1].end, toks[i].start)) &&
             toks[i + 1]?.type === 'id' && !hasNewlineBetween(source, toks[i].end, toks[i + 1].start) &&
             (toks[i + 2]?.text === '=' || toks[i + 2]?.text === ':' || toks[i + 2]?.text === ';' || toks[i + 2]?.text === '?' || toks[i + 2]?.text === '!')) {
@@ -6607,14 +6648,16 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
           const cp = findMatchingParen(toks, i + 1);
           if (cp > i + 1) {
             let endIdx = cp;
-            // Also consume optional JSDoc return type `: RetType` after `function(...)`
+            // Also consume optional JSDoc return type `: RetType` after `function(...)` (stop at `{`, `;`, `,`, `=`, `)`, or newline)
             if (toks[cp + 1]?.text === ':') {
               let r = cp + 2, dP = 0, dB = 0, dBr = 0, dA = 0;
               while (r < toks.length) {
                 const rt = toks[r].text;
+                if (dP === 0 && dB === 0 && dBr === 0 && dA === 0 && r > cp + 2 && hasNewlineBetween(source, toks[r - 1].end, toks[r].start)) break;
                 if (rt === '(') dP++; else if (rt === ')') { if (dP === 0) break; dP--; }
                 else if (rt === '[') dB++; else if (rt === ']') { if (dB === 0) break; dB--; }
-                else if (rt === '{') dBr++; else if (rt === '}') { if (dBr === 0) break; dBr--; }
+                else if (rt === '{') { if (dP === 0 && dB === 0 && dBr === 0 && dA === 0) break; dBr++; }
+                else if (rt === '}') { if (dBr === 0) break; dBr--; }
                 else if (rt === '<') dA++; else if (rt === '>') { if (dA === 0) break; dA--; }
                 else if (dP === 0 && dB === 0 && dBr === 0 && dA === 0 && (rt === ',' || rt === ';' || rt === '=')) break;
                 r++;
@@ -6657,7 +6700,10 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
           edits.push({ start: cur.start, end: cur.end, text: 'any' });
         } else if (cur.text === '?' && prev.text === ':' &&
             (next.text === ';' || next.text === ',' || next.text === ')' || next.text === '}' || next.text === '=')) {
-          edits.push({ start: cur.start, end: cur.end, text: 'any' });
+          const p2 = toks[i - 2], p3 = toks[i - 3];
+          if (p2?.text === '?' || (p3?.type === 'id' && DECL_MOD.has(p3.text))) {
+            edits.push({ start: cur.start, end: cur.end, text: 'any' });
+          }
         } else if (cur.text === '*' && prev.text === '<' && (next.text === '>' || next.text === ',')) {
           edits.push({ start: cur.start, end: cur.end, text: 'any' });
         }

@@ -3831,4 +3831,34 @@ test('F193 official spec suite push: TS compiler 99.19%, TS conformance 99.19%, 
     const r = sameAsTypeScript(source, file);
     if (!file.includes('param-prop-shadow')) assert.notEqual(r.backend, 'typescript', `${file}: ${source}`);
   }
+  // Round 60 review regressions (gpt-6.1-terra + gpt-6.2-sol): runtime parity & syntax-error preservation
+  const runGlobal = code => {
+    const g = { result: 0 };
+    new Function('globalThis', code)(g);
+    return g.result;
+  };
+  for (const [file, source, expectedResult] of [
+    ['r60-jsdoc-fn-ret-newline.ts', 'let x: function(number): string\nglobalThis.result++;\n', 1],
+    ['r60-jsdoc-fn-ret-body.ts', 'function f(): function(number): string { globalThis.result++; } f();\n', 1],
+    ['r60-variance-binary-in.ts', 'class C { in a; }\nconst k = { a: 1 }; const z = "a"\nin k;\nglobalThis.result = z;\n', true],
+    ['r60-ns-ternary-new-newline.ts', 'namespace N { export var x = Object; globalThis.result = typeof (true ? new\n x : 0); }\n', 'object'],
+    ['r60-ns-empty-export-uninst.ts', 'namespace N { export {}; }\nglobalThis.result = typeof N;\n', 'undefined'],
+    ['r60-ns-import-only-uninst.ts', 'namespace N { import { x } from "a"; }\nglobalThis.result = typeof N;\n', 'undefined'],
+    ['r60-ns-export-import-req-ref.ts', 'namespace N { export import x = require("a"); export const y = x; }\nglobalThis.result = N.y;\n', undefined],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    assert.equal(runGlobal(r.code), expectedResult, file);
+  }
+  // Dynamic `import(...)` inside a namespace must not swallow following statements up to a later `from`
+  sameAsTypeScript('namespace N { import("data:text/javascript,")\n globalThis.result++\n globalThis.from\n "unused"; }\n', 'r60-ns-dynamic-import.ts');
+  // Syntax errors must report diagnostics (code === null)
+  for (const [file, source] of [
+    ['r60-ns-bad-export-list.ts', 'namespace N { export { x as }; }\n'],
+    ['r60-ns-bad-import-list.ts', 'namespace N { import { x as } from "a"; }\n'],
+    ['r60-jsdoc-bad-ternary-q.ts', 'let z: ? = 2; const a = true ? 1 : ?;\n'],
+  ]) {
+    const r = compile(source, { file, target: 'esnext', module: 'preserve' });
+    assert.equal(r.code, null, file);
+    assert.ok(r.diagnostics.length > 0, file);
+  }
 });
