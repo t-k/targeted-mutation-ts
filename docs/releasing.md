@@ -1,6 +1,6 @@
 # Releasing
 
-A release publishes five npm packages at the same version: `targeted-mutation` and one `@targeted-mutation/tmt-<os>-<cpu>` package for each of `darwin-arm64`, `darwin-x64`, `linux-arm64` and `linux-x64`. The main package lists the platform packages as optional dependencies, so npm installs the one that matches the machine.
+A release publishes six npm packages at the same version: `targeted-mutation` and one `@targeted-mutation/tmt-<os>-<cpu>` package for each of `darwin-arm64`, `darwin-x64`, `linux-arm64`, `linux-x64`, and `win32-x64`. The main package lists the platform packages as optional dependencies, so npm installs the one that matches the machine.
 
 The `Release` workflow builds each platform package on a runner of that platform, installs and tests the packages, and publishes the platform packages before the main package. A re-run skips versions that are already on the registry. Workflows run only while the repository is public.
 
@@ -22,11 +22,15 @@ npm configures trusted publishing per package, and a package must exist before i
 
 Do this once, right after the first release.
 
-1. For each of the five packages, open Settings on npmjs.com, add a trusted publisher of type GitHub Actions, and enter the repository owner and name, the workflow file `release.yml` and the environment `npm`. If the form offers a choice of permissions, allow publishing directly with `npm publish`.
+1. For each of the six packages, open Settings on npmjs.com, add a trusted publisher of type GitHub Actions, and enter the repository owner and name, the workflow file `release.yml` and the environment `npm`. If the form offers a choice of permissions, allow publishing directly with `npm publish`.
 2. Delete the `NPM_TOKEN` environment secret and revoke the token on npmjs.com.
 3. In each package's settings, require two-factor authentication and disallow tokens.
 
 With the secret gone, the publish step writes no token and npm authenticates through OIDC. This needs npm 11.5.1 or later, which the workflow's Node.js release includes; the step prints the npm version. A new trusted publisher configuration must be used by a successful publish soon after it is created, so plan the second release (a patch release is enough) within that window.
+
+## First release of a new platform package
+
+If the release uses trusted publishing and the platform package is new to npm, download its tested tarball from the release workflow and publish it once using an npm account with publish access to the scope. Configure trusted publishing for the new package as described above, then re-run the publish job. It skips the platform versions already in the registry and publishes the main package after all five platform packages are available.
 
 ## Later releases
 
@@ -40,7 +44,7 @@ If a run fails part-way, fix the cause and re-run it. Published platform package
 ```sh
 npm run pack:runtime          # build/packages/*.tgz for this machine
 npm run test:package          # install both archives in an empty project and run every profile
-node scripts/publish-packages.mjs build/packages --dry-run   # needs all five archives
+node scripts/publish-packages.mjs build/packages --dry-run   # needs all six archives
 ```
 
 ## Workflow dependencies

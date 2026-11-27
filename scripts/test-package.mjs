@@ -1,61 +1,84 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { decisionBinaryName } from '../src/runtime-binaries.mjs';
 
 const { version } = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
 const target = `${process.platform}-${process.arch}`;
+const platformName = `@targeted-mutation/tmt-${target}`;
+const decision = decisionBinaryName();
+const windows = process.platform === 'win32';
 const cliArgs = process.argv.slice(2);
 const portable = cliArgs.includes('--portable');
 const positionals = cliArgs.filter(arg => arg !== '--portable');
 const tarball = resolve(positionals[0] ?? `build/packages/targeted-mutation-${version}.tgz`);
 const platformTarball = portable ? null : resolve(positionals[1] ?? `build/packages/targeted-mutation-tmt-${target}-${version}.tgz`);
 const fixture = resolve('fixtures/eligibility');
-const cwd = mkdtempSync(join(tmpdir(), 'tmt-pack-test-'));
-const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+const cwd = mkdtempSync(join(tmpdir(), 'tmt pack test-'));
+const npm = windows ? 'npm.cmd' : 'npm';
 const combinations = readFileSync(new URL('../verification/pict/runtime-dependencies.tsv', import.meta.url), 'utf8')
   .trim().split(/\r?\n/).slice(1).map(row => row.split('\t'));
 
-function run(command, args) {
-  const shell = process.platform === 'win32' && command.endsWith('.cmd');
-  const result = spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 240_000, shell });
+function invoke(command, args, options) {
+  const shell = windows && command.endsWith('.cmd');
+  return spawnSync(command, args, { cwd, encoding: 'utf8', timeout: 240_000, shell, ...options });
+}
+
+function run(command, args, options) {
+  const result = invoke(command, args, options);
   assert.equal(result.status, 0, result.error?.message ?? result.stderr + result.stdout);
   return result.stdout;
 }
 
 try {
   cpSync(fixture, join(cwd, 'fixture'), { recursive: true });
-  writeFileSync(join(cwd, 'package.json'), '{"name":"tmt-pack-test","version":"1.0.0","private":true}');
+  cpSync(tarball, join(cwd, 'main-runtime.tgz'));
+  const project = { name: 'tmt-pack-test', version: '1.0.0', private: true };
+  if (!portable) {
+    cpSync(platformTarball, join(cwd, 'native-runtime.tgz'));
+    // Point npm at the staged archive while leaving the native dependency transitive.
+    project.overrides = { [platformName]: 'file:./native-runtime.tgz' };
+  }
+  writeFileSync(join(cwd, 'package.json'), JSON.stringify(project));
+  const platformPackage = join(cwd, 'node_modules', platformName);
   const install = (...packages) => {
     run(npm, ['install', ...packages, '--no-audit', '--no-fund']);
     if (portable && existsSync(platformPackage)) rmSync(platformPackage, { recursive: true, force: true });
   };
   // The syntax projection is generated from this compiler release. Other releases use the full compiler.
-  if (portable) run(npm, ['install', tarball, 'typescript@6.0.3', '--no-audit', '--no-fund', '--omit=optional']);
-  else install(tarball, platformTarball, 'typescript@6.0.3');
+  run(npm, ['install', './main-runtime.tgz', 'typescript@6.0.3', '--no-audit', '--no-fund', ...(portable ? ['--omit=optional'] : [])]);
   const installed = join(cwd, 'node_modules/targeted-mutation');
-  const platformPackage = join(cwd, `node_modules/@targeted-mutation/tmt-${target}`);
   const manifest = JSON.parse(readFileSync(join(installed, 'package.json'), 'utf8'));
   let platformManifest = null;
   if (!portable) {
-    const load = createRequire(import.meta.url);
-    const addon = load(join(platformPackage, 'tmt.node'));
-    assert.equal(addon.syntax, undefined);
-    assert.equal(addon.standalone, undefined);
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== 'path'));
+    if (windows) env.PATH = join(process.env.SystemRoot, 'System32');
+    // Unload the addon before moving or removing its directory on Windows.
+    const exports = JSON.parse(run(process.execPath, ['--eval',
+      'console.log(JSON.stringify(Object.keys(require(process.argv[1]))))', join(platformPackage, 'tmt.node')], { env }));
+    assert.ok(exports.includes('parse') && exports.includes('locations'));
+    assert.ok(!exports.includes('syntax') && !exports.includes('standalone'));
+    assert.equal(run(join(platformPackage, decision), [], { input: '[]', env }).trim(), '[]');
     const home = homedir();
     const repoRoot = resolve('.');
     const escapeRegExp = value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pathVariants = value => {
+      const slash = value.replaceAll('\\', '/');
+      return slash === value ? [value] : [value, slash];
+    };
+    const patternFlags = windows ? 'gi' : 'g';
     // Lean's prebuilt runtime and LLVM C++/unwind libraries are compiled on GitHub Actions under <home>/.../lean4/lean4/ or lean-llvm/lean-llvm/.
-    const leanUpstream = new RegExp(`${escapeRegExp(home)}/(?:actions-runner/_work|_work|work)/(?:lean4/lean4|lean-llvm/lean-llvm)/`, 'g');
-    const homeSnippet = new RegExp(`${escapeRegExp(home)}[^\\0\\r\\n"']{0,120}`, 'g');
-    for (const binary of ['tmt.node', 'tmt-decide']) {
-      const content = readFileSync(join(platformPackage, binary));
-      assert.equal(content.includes(repoRoot), false, `${binary} records the build repository path`);
-      const scrubbed = binary === 'tmt-decide' ? content.toString('latin1').replace(leanUpstream, '') : content.toString('latin1');
-      const leaks = scrubbed.includes(home) ? [...scrubbed.matchAll(homeSnippet)].slice(0, 5).map(m => m[0]) : [];
+    const leanUpstream = new RegExp(`(?:${pathVariants(home).map(escapeRegExp).join('|')})[\\\\/](?:actions-runner[\\\\/]_work|_work|work)[\\\\/](?:lean4[\\\\/]lean4|lean-llvm[\\\\/]lean-llvm)[\\\\/]`, patternFlags);
+    const repoPattern = new RegExp(`(?:${pathVariants(repoRoot).map(escapeRegExp).join('|')})`, windows ? 'i' : '');
+    const homeSnippet = new RegExp(`(?:${pathVariants(home).map(escapeRegExp).join('|')})[^\\0\\r\\n"']{0,120}`, patternFlags);
+    for (const binary of ['tmt.node', decision]) {
+      const text = readFileSync(join(platformPackage, binary)).toString('latin1');
+      assert.equal(repoPattern.test(text), false, `${binary} records the build repository path`);
+      const scrubbed = binary === decision ? text.replace(leanUpstream, '') : text;
+      const leaks = [...scrubbed.matchAll(homeSnippet)].slice(0, 5).map(m => m[0]);
       assert.equal(leaks.length, 0, `${binary} records the build machine's home directory: ${leaks.join(', ')}`);
     }
     for (const file of ['LICENSE', 'NOTICE', 'lean/LICENSE', 'lean/LICENSES', 'lean/GPL-3.0.txt', 'lean/libuv-LICENSE.txt', 'lean/libuv-LICENSE-extra.txt']) assert.ok(readFileSync(join(platformPackage, file)).length, file);
@@ -66,10 +89,10 @@ try {
   assert.equal(manifest.private, undefined);
   assert.equal(manifest.license, 'Apache-2.0');
   assert.match(readFileSync(join(installed, 'LICENSE'), 'utf8'), /Apache License/);
-  for (const absent of ['build/tmt.node', 'build/tmt-decide', 'evidence']) assert.equal(existsSync(join(installed, absent)), false, absent);
-  const binSuffix = process.platform === 'win32' ? '.cmd' : '';
+  for (const absent of ['build/tmt.node', 'build/tmt-decide', 'build/tmt-decide.exe', 'evidence']) assert.equal(existsSync(join(installed, absent)), false, absent);
+  const binSuffix = windows ? '.cmd' : '';
   for (const command of ['targeted-mutation', 'tmts']) {
-    assert.equal(run(join(cwd, 'node_modules/.bin', `${command}${binSuffix}`), ['--version']).trim(), version);
+    assert.equal(run(join('node_modules/.bin', `${command}${binSuffix}`), ['--version']).trim(), version);
   }
   assert.equal(existsSync(join(installed, 'build/typescript-cache')), false);
   const syntax = join(installed, 'build/typescript-syntax');
@@ -80,10 +103,13 @@ try {
   // The lockfile also lists the other platforms' optional packages, which npm does not install here.
   const expectedInstalled = portable
     ? ['node_modules/targeted-mutation', 'node_modules/typescript']
-    : [`node_modules/@targeted-mutation/tmt-${target}`, 'node_modules/targeted-mutation', 'node_modules/typescript'];
+    : [`node_modules/${platformName}`, 'node_modules/targeted-mutation', 'node_modules/typescript'];
   assert.deepEqual(Object.keys(lock.packages).filter(path => path.startsWith('node_modules/') && existsSync(join(cwd, path))).sort(),
     expectedInstalled);
   if (!portable) {
+    const nativeDependency = lock.packages[`node_modules/${platformName}`];
+    assert.equal(nativeDependency.optional, true);
+    assert.equal(nativeDependency.version, version);
     assert.deepEqual(platformManifest.os, [process.platform]);
     assert.deepEqual(platformManifest.cpu, [process.arch]);
     if (process.platform === 'linux') assert.deepEqual(platformManifest.libc, ['glibc']);
@@ -169,7 +195,7 @@ registerHooks({ load(url, context, next) {
       assert.equal(report.extraction[0].path, nativeState === 'Present' ? 'fast' : 'fallback');
       assert.equal(report.mutants[0].status, 'survived');
       assert.equal(report.mutants[0].audit.status, 'agreed');
-      if (nativeState === 'Present') assert.equal(report.mutants[0].evidence, 'predicted');
+      assert.equal(report.mutants[0].evidence, nativeState === 'Present' ? 'predicted' : 'reexecuted');
     } else if (profile === 'Witnesses') {
       assert.ok(report.diagnostics.some(gap => gap.rule === 'first-to-last-index/v1' && gap.verification.status === 'confirmed'));
     } else {
@@ -189,10 +215,8 @@ registerHooks({ load(url, context, next) {
     writeFileSync(join(mismatch, 'package.json'), JSON.stringify({
       name: 'tmt-platform-mismatch', version: '1.0.0', os: platformManifest.os, cpu: [wrongArch],
     }));
-    const packed = spawnSync(npm, ['pack', '--ignore-scripts', '--json'], { cwd: mismatch, encoding: 'utf8', timeout: 240_000 });
-    assert.equal(packed.status, 0, packed.error?.message ?? packed.stderr);
-    const [{ filename }] = JSON.parse(packed.stdout);
-    const denied = spawnSync(npm, ['install', join(mismatch, filename), '--no-audit', '--no-fund'], { cwd, encoding: 'utf8', timeout: 240_000 });
+    const [{ filename }] = JSON.parse(run(npm, ['pack', '--ignore-scripts', '--json'], { cwd: mismatch }));
+    const denied = invoke(npm, ['install', `file:${relative(cwd, join(mismatch, filename))}`, '--no-audit', '--no-fund']);
     assert.notEqual(denied.status, 0);
     assert.match(denied.stderr, /EBADPLATFORM/);
     // Without a platform package both extraction and analysis fall back seamlessly to TypeScript.

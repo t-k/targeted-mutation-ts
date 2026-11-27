@@ -12,6 +12,25 @@ const { values } = parseArgs({ options: {
 const root = fileURLToPath(new URL('..', import.meta.url));
 const output = resolve(root, values.output ?? 'build/tmt.node');
 const outputDirectory = dirname(output);
+const macOS = process.platform === 'darwin';
+const windows = process.platform === 'win32';
+
+function windowsNodeSdk() {
+  const { TMT_NODE_INCLUDE, TMT_NODE_LIB, npm_config_node_gyp } = process.env;
+  if (TMT_NODE_INCLUDE || TMT_NODE_LIB) return [TMT_NODE_INCLUDE, TMT_NODE_LIB];
+  if (!npm_config_node_gyp) {
+    throw new Error('Run npm run build:native or set TMT_NODE_INCLUDE and TMT_NODE_LIB to the Windows Node SDK paths');
+  }
+  const cache = resolve(root, 'build/node-sdk');
+  const fetched = spawnSync(process.execPath, [npm_config_node_gyp, 'install', '--ensure', '--devdir', cache],
+    { cwd: root, stdio: 'inherit', timeout: 120_000 });
+  if (fetched.error) throw fetched.error;
+  if (fetched.status !== 0) throw new Error('Could not install the Windows Node SDK');
+  const version = resolve(cache, process.versions.node);
+  return [resolve(version, 'include/node'), resolve(version, 'x64/node.lib')];
+}
+
+if (windows && process.arch !== 'x64') throw new Error('The native Windows build requires x64 Node.js');
 const candidates = [
   process.env.TMT_NODE_INCLUDE,
   resolve(dirname(process.execPath), '../include/node'),
@@ -19,11 +38,14 @@ const candidates = [
   '/usr/local/include/node',
   '/usr/include/node',
 ].filter(Boolean);
-const headers = candidates.find(path => existsSync(resolve(path, 'node_api.h')));
-if (!headers) throw new Error('Set TMT_NODE_INCLUDE to the directory containing node_api.h');
+const [headers, nodeLibrary] = windows ? windowsNodeSdk() : [candidates.find(path => existsSync(resolve(path, 'node_api.h')))];
+if (!headers || !existsSync(resolve(headers, 'node_api.h'))) {
+  throw new Error('Set TMT_NODE_INCLUDE to the directory containing node_api.h');
+}
+if (windows && (!nodeLibrary || !existsSync(nodeLibrary))) {
+  throw new Error('Set TMT_NODE_LIB to the path of the x64 Node import library (node.lib)');
+}
 mkdirSync(outputDirectory, { recursive: true });
-
-const macOS = process.platform === 'darwin';
 
 function nativeOptimizationFlags(compiler) {
   if (!macOS && process.platform !== 'linux') return [];
@@ -43,10 +65,11 @@ function nativeOptimizationFlags(compiler) {
   return flags;
 }
 
-const compiler = process.env.CC ?? (macOS ? '/usr/bin/clang' : 'cc');
+const compiler = process.env.CC ?? (macOS ? '/usr/bin/clang' : windows ? 'clang.exe' : 'cc');
 
 const args = [
-  '-std=c11', '-O3', '-Wall', '-Wextra', '-Werror', '-Wno-parentheses', '-fPIC',
+  '-std=c11', '-O3', '-Wall', '-Wextra', '-Werror', '-Wno-parentheses',
+  ...(windows ? [] : ['-fPIC']),
   ...nativeOptimizationFlags(compiler),
   // Compiler-recorded source paths would otherwise carry the build directory into the published binary.
   `-ffile-prefix-map=${outputDirectory}=build`, `-ffile-prefix-map=${root}=./`,
@@ -54,9 +77,11 @@ const args = [
     `-mmacosx-version-min=${process.env.MACOSX_DEPLOYMENT_TARGET ?? '11.0'}`,
     '-bundle', '-undefined', 'dynamic_lookup', '-Wl,-dead_strip',
     '-Wl,-exported_symbol,_napi_register_module_v1', '-Wl,-exported_symbol,_node_api_module_get_api_version_v1',
+  ] : windows ? [
+    '--target=x86_64-pc-windows-msvc', '-shared', '-Wl,/Brepro', resolve(nodeLibrary),
   ] : ['-shared', '-Wl,--exclude-libs,ALL']),
   ...(values['low-only'] ? ['-DTMT_LOW_ONLY'] : []),
-  '-I', headers, '-I', 'native/generated', '-I', 'native/runtime',
+  '-I', resolve(headers), '-I', 'native/generated', '-I', 'native/runtime',
   'native/addon.c', 'native/parser.c', 'native/positions.c',
 ];
 

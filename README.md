@@ -68,7 +68,7 @@ Requirements:
 
 - Node.js 22.18 or later in the 22 line, or 24.11 or later.
 - [Vitest](https://vitest.dev/), [Playwright](https://playwright.dev/), or Node's built-in `node:test` runner (`--runner node`, requires no extra test runner package). Releases are tested with Vitest 4 and 5, Playwright 1.65, and `node:test` on Node 22 and 24.
-- Any platform supported by Node.js, including macOS, Linux (glibc and musl/Alpine), and Windows. On macOS (arm64, x64) and Linux with glibc (arm64, x64), npm installs the matching prebuilt binary package automatically as an accelerator for extraction and Lean-checked replay. On other platforms, `analyze` and `extract` fall back automatically to the bundled TypeScript parser and JavaScript threshold evaluator.
+- Any platform supported by Node.js, including macOS, Linux (glibc and musl/Alpine), and Windows. On macOS (arm64, x64), Linux with glibc (arm64, x64), and Windows (x64), npm installs the matching prebuilt binary package automatically as an accelerator for extraction and Lean-checked replay. On other platforms, `analyze` and `extract` fall back automatically to the bundled TypeScript parser and JavaScript threshold evaluator.
 
 The tool copies the project to a temporary directory and runs the project's own test code and configuration there. Run it only on code you trust, as you would run the test suite.
 

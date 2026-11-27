@@ -3,6 +3,7 @@ import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, re
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { decisionBinaryName } from '../src/runtime-binaries.mjs';
 import { mainManifest, platformManifest } from './release-manifests.mjs';
 
 const { values } = parseArgs({ options: { only: { type: 'string' } } });
@@ -54,7 +55,7 @@ function packMain() {
 
 // The Lean toolchain ships the licenses of the libraries linked into the decision executable.
 function leanLicenses(target) {
-  const elan = resolve(homedir(), '.elan/bin/lake');
+  const elan = resolve(homedir(), '.elan/bin', process.platform === 'win32' ? 'lake.exe' : 'lake');
   const lake = process.env.LAKE ?? (existsSync(elan) ? elan : 'lake');
   const prefix = run(lake, ['env', 'lean', '--print-prefix'], { cwd: resolve('proof/lean') }).trim();
   mkdirSync(target, { recursive: true });
@@ -66,14 +67,18 @@ function leanLicenses(target) {
 function packPlatform() {
   staged(staging => {
     const manifest = platformManifest(root, process.platform, process.arch);
-    const built = spawnSync(process.execPath, ['scripts/build-native.mjs', '--pgo', '--output', join(staging, 'tmt.node')],
+    const windows = process.platform === 'win32';
+    const profile = windows ? [] : ['--pgo'];
+    const built = spawnSync(process.execPath, ['scripts/build-native.mjs', ...profile, '--output', join(staging, 'tmt.node')],
       { stdio: ['ignore', 2, 2] });
     if (built.status !== 0) throw new Error('The native extractor build failed');
-    if (!existsSync('build/tmt-decide')) throw new Error('Run npm run build:lean before packing the platform package');
-    const decide = join(staging, 'tmt-decide');
-    copyFileSync('build/tmt-decide', decide);
-    chmodSync(decide, 0o755);
-    const stripped = spawnSync('strip', [decide], { encoding: 'utf8' });
+    const filename = decisionBinaryName();
+    const decisionBuild = join('build', filename);
+    if (!existsSync(decisionBuild)) throw new Error('Run npm run build:lean before packing the platform package');
+    const decide = join(staging, filename);
+    copyFileSync(decisionBuild, decide);
+    if (!windows) chmodSync(decide, 0o755);
+    const stripped = spawnSync(windows ? 'llvm-strip' : 'strip', [decide], { encoding: 'utf8' });
     if (stripped.status !== 0) console.warn(`strip was not applied: ${stripped.error?.message ?? stripped.stderr}`);
     const answer = run(decide, [], { input: '[]', timeout: 15_000 });
     if (answer.trim() !== '[]') throw new Error(`The packed decision executable answered ${answer}`);

@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
+import { decisionBinaryName } from '../src/runtime-binaries.mjs';
+
+const decision = `build/${decisionBinaryName()}`;
 
 test('Lean only skips matching, complete, deterministic safe-integer observations with equal outcomes', () => {
   const rows = readFileSync(new URL('../verification/pict/m2-lean.tsv', import.meta.url), 'utf8').trim().split(/\r?\n/).slice(1);
@@ -20,7 +23,7 @@ test('Lean only skips matching, complete, deterministic safe-integer observation
   const valid = thresholds[0];
   const invalid = [1.5, 9007199254740992, '19', null].map(geLiteral => ({ ...valid, replacement: { geLiteral } }));
   requests.push(...thresholds, ...invalid, { ...valid, original: '<' });
-  const result = spawnSync('build/tmt-decide', [], { encoding: 'utf8', input: JSON.stringify(requests) });
+  const result = spawnSync(decision, [], { encoding: 'utf8', input: JSON.stringify(requests) });
   assert.equal(result.status, 0, result.error?.message ?? result.stderr);
   const decisions = JSON.parse(result.stdout);
   const expected = [...rows.map(row => row === 'Match\tYes\tEqual\tYes'), false, false];
@@ -34,7 +37,7 @@ test('Lean accepts a true condition only for safe uniformly true observations', 
     { ...candidate, observations: [[0, 1], [1, 1]] },
     { ...candidate, observations: [[0, 1]], complete: false },
   ];
-  const result = spawnSync('build/tmt-decide', [], { encoding: 'utf8', input: JSON.stringify(requests) });
+  const result = spawnSync(decision, [], { encoding: 'utf8', input: JSON.stringify(requests) });
   assert.equal(result.status, 0, result.stderr);
   assert.deepEqual(JSON.parse(result.stdout), [true, false, false]);
 });
@@ -76,7 +79,7 @@ test('Lean boundary summaries agree exactly with full replay observations', asyn
   ]), [false, false, false, false]);
 });
 
-const decide = (input, ...args) => spawnSync('build/tmt-decide', args, { encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 });
+const decide = (input, ...args) => spawnSync(decision, args, { encoding: 'utf8', input, maxBuffer: 64 * 1024 * 1024 });
 const gapRequest = { threshold: 18, min: 0, max: 100, observations: [10, 20] };
 const gapAnswer = { interval: [11, 20], alternate: 17, witness: 17, expected: false, mutant: true };
 
@@ -150,6 +153,6 @@ test('a large batch is read in one pass', () => {
 });
 
 test('the decision executable links no Lean library beyond the runtime', () => {
-  assert.ok(readFileSync('build/tmt-decide').length < 16 * 1024 * 1024);
+  assert.ok(readFileSync(decision).length < 16 * 1024 * 1024);
   assert.doesNotMatch(readFileSync('proof/lean/Main.lean', 'utf8'), /^import /m);
 });
