@@ -1,0 +1,7 @@
+# CLI project-root and source-file positional argument combinations
+FirstArg: Omitted, DotDir, SubDir, ExistingFileInCwd, ExistingFileOutsideCwd, GlobPattern, MissingTsFile, MissingDir
+ExtraFiles: None, OneFile
+Mode: List, AnalyzeJson
+ConfigFile: None, Present
+
+IF [FirstArg] = "Omitted" THEN [ExtraFiles] = "None";
