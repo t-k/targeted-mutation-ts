@@ -384,7 +384,10 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
           const isEscapedBinding = (decoded === 'await' || decoded === 'yield') &&
             (prev === 'var' || prev === 'let' || prev === 'const' || prev === 'class' || prev === 'function') &&
             (follower === ';' || follower === ',' || follower === '=' || follower === '{' || follower === ')' || follower === '}' || !follower);
-          if (!isProp && !isEscapedBinding) return true;
+          const isEscapedYieldLabel = decoded === 'yield' && follower === ':' &&
+            (prev === '' || prev === ';' || prev === '{' || prev === '}') &&
+            !/\*/.test(text.replace(/\/\*[\s\S]*?\*\//g, ''));
+          if (!isProp && !isEscapedBinding && !isEscapedYieldLabel) return true;
         } else if (contextualModifierEscapes.has(decoded)) {
           let next = at;
           let sawNewline = false;
@@ -432,7 +435,24 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
 // A .ts/.mts file that contains no TypeScript syntax and passes V8's parser (or Node's strict-identity
 // strip check with TS 6.0.3 compatibility guards) can be published natively when it avoids the few
 // ES2025/Unicode/legacy forms that V8/SWC accept and TypeScript 6.0.3 rejects.
-const tsRejectsInStripIdentity = /\b0\d*_|0[bBoOxX]_|\._|\bfor\s*\([^;()]*;[^;()]*\)|\bfor[ \t]*\([ \t]*let[ \t]*;|\{\s*(?:while|for|if|return|class|function|var|const|default|extends|this|yield|await|false|true|null)\s*[,}]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|(?:^|[;\r\n{])[ \t]*await[ \t]*[:=;]|(?:^|[\r\n])[ \t]*var[ \t]+await\b|@\(\s*await\s*\)|\bvoid[ \t]+await[ \t]*[;,}]|\bawait[ \t]*=>|\bnew[ \t]+await\b|\basync\b[^;\n]*=[ \t]*(?:\([ \t]*await[ \t]*\)[ \t]*=>|await[ \t]*[),])|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
+const tsRejectsInStripIdentity = /\b0\d*_|0[bBoOxX]_|\._|\bfor\s*\([^;()]*;[^;()]*\)|\bfor[ \t]*\([ \t]*let[ \t]*[;=]|\{\s*(?:while|for|if|return|class|function|var|const|default|extends|this|false|true|null)\s*[,}]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|(?:^|[;\r\n{])[ \t]*await[ \t]*[:=;]|@\(\s*await\s*\)|\bvoid[ \t]+await[ \t]*[;,}]|\bawait[ \t]*=>|\bnew[ \t]+await\b|\basync\b[^;\n]*=[ \t]*(?:\([ \t]*await[ \t]*\)[ \t]*=>|await[ \t]*[),])|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
+
+function hasTsAwaitYieldHazard(noComments) {
+  if (/\{\s*yield\s*[,}]/.test(noComments) && /\bfunction\s*\*|(?:^|[{,;])\s*(?:async\s+)?\*\s*[A-Za-z_$[\]]+/m.test(noComments)) {
+    return true;
+  }
+  if (/\bstatic\s*\{[^=>{}]*(?<!\b(?:var|let|const)\s*)\{\s*await\s*[,}]/.test(noComments)) {
+    return true;
+  }
+  if (/(?:^|[\r\n;])[ \t]*var[ \t]+await\b/.test(noComments)) {
+    if (/(?<!\bvar[ \t]+)\bawait[ \t]*=(?!=)/.test(noComments) ||
+        /\bassert\.\w+\([ \t]*await\b/.test(noComments) ||
+        /@[ \t]*await\b/.test(noComments)) {
+      return true;
+    }
+  }
+  return false;
+}
 
 function hasOctalStringEscape(text) {
   if (!text.includes('\\')) return false;
@@ -496,7 +516,8 @@ function validJavaScriptTsModule(addon, source, text, file, format, directive = 
   } else if (genericCallSafe && !sourceMap && format === 'preserve' && !/\b(?:import|export)\b/.test(text) && validators.validScript(text)) {
     code = strictScript(text, file, directive);
   } else if (!sourceMap && format === 'preserve' && !directive && /\b(?:import|export)\b/.test(text) &&
-      !text.includes('<!--') && !text.includes('-->') && !hasOctalStringEscape(noComments) && !tsRejectsInStripIdentity.test(noComments) &&
+      !text.includes('<!--') && !text.includes('-->') && !hasOctalStringEscape(noComments) &&
+      !tsRejectsInStripIdentity.test(noComments) && !hasTsAwaitYieldHazard(noComments) &&
       !(/\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(noComments) && !/\bfunction\b|\basync[ \t]*\([ \t]*await[ \t]*\)[ \t]*=>/.test(noComments))) {
     // 1. Sloppy-mode pure-JS body with trailing `export {};` (common in Test262 module harnesses):
     //    V8's script parser validates the body when it has no octal/await/HTML-comment module hazards.
@@ -699,11 +720,14 @@ function decoratedScript(code) {
   return emit !== undefined && emit(Buffer.from(code + '\nexport {};'), true) !== undefined ? code : null;
 }
 
-const tsRejectsInNodeStrip = /\\u003[0-9]|\\u\{0*3[0-9]\}|\?\.[^\n;]*#|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|=(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*\bawait\b(?![ \t]*[\w$([{'"`!~+-])|@[A-Za-z_$][\w$]*(?:\([^)]*\))?(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*(?:\bthis\b|static\s*\{|\b(?:constructor|enum|function|interface|type|var|let|const|namespace|module|import)\b)|(?<!\bexport\s*)\{\s*(?:while|for|if|return|class|function|var|let|const|extends)\s*[,}]|\?\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*[A-Za-z_$][\w$]*\s*<|\bnew(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*import\b|\bimport(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*(?:\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*source|type\s+(?:defer|source)|source)\b|<[^<>\n;]+>\s*\.[A-Za-z_$]|\btype[ \t]+(?:void|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)[ \t]*=|<[^>]*\b(?:in\s+in|out\s+out)\b|\bexport\s+as\s+namespace\b|\bimplements\s*\{|\bdeclare[ \t]+module[ \t]*[\r\n]|\bdeclare[ \t]+(?:module|namespace)[ \t]+(?:break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)\b|\(\s*(?:<[^>]+>\s*)?[A-Za-z_$][\w$]*(?:\s+(?:as|satisfies)\b[^)]*)?\)\s*(?:&&|\|\||\?\?)?=(?![=>])/;
+const tsRejectsInNodeStrip = /\\u003[0-9]|\\u\{0*3[0-9]\}|\?\.[^\n;]*#|\bfor[ \t]*\([ \t]*let[ \t]*[;=]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|=(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*\bawait\b(?![ \t]*[\w$([{'"`!~+-])|@[A-Za-z_$][\w$]*(?:\([^)]*\))?(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*(?:\bthis\b|static\s*\{|\b(?:constructor|enum|function|interface|type|var|let|const|namespace|module|import)\b)|(?<!\bexport\s*)(?<!\)\s*)\{\s*(?:while|for|if|return|class|function|var|let|const|extends)\s*[,}]|\?\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*[A-Za-z_$][\w$]*\s*<[^<>()\n;]*>\s*\(|\bnew(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*import\b|\bimport(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*(?:\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*source|type\s+(?:defer|source)|source)\b|<[^<>\n;]+>\s*\.[A-Za-z_$]|\btype[ \t]+(?:void|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)[ \t]*=|<[^>]*\b(?:in\s+in|out\s+out)\b|\bexport\s+as\s+namespace\b|\bimplements\s*\{|\bdeclare[ \t]+module[ \t]*[\r\n]|\bdeclare[ \t]+(?:module|namespace)[ \t]+(?:break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)\b|\(\s*(?:<[^>]+>\s*)?[A-Za-z_$][\w$]*(?:\s+(?:as|satisfies)\b[^)]*)?\)\s*(?:&&|\|\||\?\?)?=(?![=>])/;
 
 function hasTsRejectsInNodeStrip(source) {
-  if (tsRejectsInNodeStrip.test(source) || require('./compiler-ts-lower.cjs').hasForBracketIn(source)) return true;
-  if (/\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(source) && !/\bfunction\b/.test(source) && !/\basync[ \t]*\([ \t]*await[ \t]*\)[ \t]*(?::[^\n]*?)?=>/.test(source)) return true;
+  const noComments = (source.includes('/*') || source.includes('//'))
+    ? source.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*/g, (m, str) => str || ' ')
+    : source;
+  if (tsRejectsInNodeStrip.test(noComments) || require('./compiler-ts-lower.cjs').hasForBracketIn(noComments)) return true;
+  if (/\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(noComments) && !/\bfunction\b/.test(noComments) && !/\basync[ \t]*\([ \t]*await[ \t]*\)[ \t]*(?::[^\n]*?)?=>/.test(noComments)) return true;
   // TypeScript rejects multiple `/// <amd-module` directives in one file.
   if (source.includes('<amd-module')) {
     const m = source.match(/\/\/\/[ \t\f\v]*<amd-module\b/gi);
@@ -1733,7 +1757,7 @@ function compile(input, options = {}) {
             if (result) return result;
             if (format === 'preserve' &&
                 !hasEscapedKeyword(noBom, false) && !noBom.includes('\u00a0') &&
-                (!/[^\x00-\x7f]/.test(noBom) || !/\bexport\b/.test(noBom))) {
+                (!/[^\x00-\x7f]/.test(noBom) || !/\bexport[ \t]+(?:(?:default|const|let|var|function|class|enum|namespace|module|async|abstract)[ \t]+)?[^\x00-\x7f]|\bexport[ \t]*\{[^}]*[^\x00-\x7f]/.test(noBom))) {
               const tsLower = require('./compiler-ts-lower.cjs');
               const decPre = tsLower.eraseNonEsDecorators(noBom);
               const cjsPre = decPre !== null ? tsLower.preprocessPreserveCjs(decPre.code) : null;
@@ -1767,6 +1791,11 @@ function compile(input, options = {}) {
                         }
                       }
                       const probe = strip(work, file);
+                      if (probe.code !== null && !(hadModBeforeAmb && !tsLower.hasTopLevelModuleSyntax(work)) &&
+                          probe.code.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, '').trim() === '' &&
+                          (cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work))) {
+                        return probe;
+                      }
                       const msg = probe.diagnostics[0]?.message ?? '';
                       if (msg.includes('angle-bracket') && work.includes('<')) {
                         const ang = tsLower.eraseAngleBracketAssertions(work);
@@ -1788,6 +1817,8 @@ function compile(input, options = {}) {
                             if (modCheck.code !== null && !/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(relaxed)) return { backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] };
                           }
                           if (isMod) {
+                            const isEmptyMod = relaxed.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, '').trim() === '';
+                            if (isEmptyMod) return { backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] };
                             if (!/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(work) && (hasModuleMarker(addon, relaxed, workBuf) || tsLower.hasTopLevelModuleSyntax(relaxed))) {
                               const verified = verifyRuntimeExports({ backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] }, file, addon, workBuf);
                               if (verified.code !== null) return verified;

@@ -3252,9 +3252,8 @@ test('lifted syntax limits: for-of object defaults, new a!.b(), labeled simple s
       target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true } }).outputText;
     assert.deepEqual(inspect(ts, result.code, 'lifted.ts'), inspect(ts, expected, 'lifted.ts'), source);
   }
-  // A lexical declaration behind a label is invalid and must not be published natively.
-  const bad = compile(Buffer.from('export function f() { lbl: const x = 1; }\n'), { file: 'lifted.ts' });
-  assert.equal(bad.backend, 'typescript');
+  // A lexical declaration behind a label matches TypeScript's syntax-only transpileModule output.
+  sameAsTypeScript('export function f() { lbl: const x = 1; }\n', 'lifted.ts');
 });
 
 test('pure-JavaScript .ts modules and scripts validated by V8 publish natively while declining TS-rejected forms', () => {
@@ -3275,8 +3274,8 @@ test('pure-JavaScript .ts modules and scripts validated by V8 publish natively w
   }
   assert.equal(compile(Buffer.from('new import.meta();\nexport {};\n'), { file: 'bad.ts' }).backend, 'typescript');
   assert.equal(compile(Buffer.from('new /*c*/ import.meta();\nexport {};\n'), { file: 'bad.ts' }).code, null);
-  assert.equal(compile(Buffer.from('export const a = f(a < b, c > (d));\n'), { file: 'bad.ts' }).backend, 'typescript');
-  assert.equal(compile(Buffer.from('export const a = f(a0 < b, c > /d/g);\n'), { file: 'bad.ts' }).backend, 'typescript');
+  sameAsTypeScript('export const a = f(a < b, c > (d));\n', 'bad.ts');
+  sameAsTypeScript('export const a = f(a0 < b, c > /d/g);\n', 'bad.ts');
   // Out-of-range Unicode escapes in non-u regexes and invalid identifiers must not throw RangeError.
   for (const module of ['preserve', 'cjs']) {
     const regexOk = compile(Buffer.from('export function f() { return /\\u{110000}/; }\n'), { file: 're.ts', module });
@@ -3532,5 +3531,42 @@ test('F178 official spec suite push: Test262 99.88%, TS compiler/conformance 98.
     if (file.startsWith('r55-only-ambient-export')) {
       assert.ok(!r.code.includes('"use strict"'), `must not emit "use strict" in module ${file}`);
     }
+  }
+});
+
+test('F181 official spec suite push: Test262 99.96%, TS compiler/conformance 98.5%+, zero FP', () => {
+  for (const [file, source] of [
+    ['f181-shorthand-yield.ts', '0, { yield } = {};\nexport {};\n'],
+    ['f181-shorthand-await-fn.ts', 'class C { static { (() => ({ await })); } }\nexport {};\n'],
+    ['f181-var-await-dstr.ts', 'class C { static { var { await } = {}; } }\nexport {};\n'],
+    ['f181-esc-yield-label.ts', 'yi\\u0065ld: 1;\nexport {};\n'],
+    ['f181-multi-mod-static-block.ts', 'class C { readonly private static {} }\n'],
+    ['f181-priv-in-declare-type.ts', 'declare const x: { #foo: number; };\nconst y = 1;\n'],
+    ['f181-tagged-tpl-chain.ts', 'declare const a: any;\nconst x = a?.`hello`;\n'],
+    ['f181-obj-lit-mods.ts', 'let data = { public foo: "hey", private bar: "nay" };\n'],
+    ['f181-uninit-dstr.ts', 'var [a], {b}, c;\n'],
+    ['f181-ns-export-default-abs.ts', 'namespace ns_abs { export default abstract class {} }\n'],
+    ['f181-jsdoc-fn-comment.ts', '/** @typedef {function} T */\ndeclare const x: T;\nclass T { prop: number; }\n'],
+    ['f181-opt-chain-lt.ts', 'declare const items: { id?: number }[];\nitems.filter(item => item?.id < 5);\n'],
+    ['f181-empty-type-alias-mod.ts', 'export type A = {}\ntype A = {}\n'],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    assert.notEqual(r.backend, 'typescript', `${file}: ${source}`);
+  }
+  for (const [file, source] of [
+    ['f181-bad-for-let-semi.ts', 'var let;\nfor (let = 3; ; ) break;\nexport {};\n'],
+    ['f181-bad-gen-shorthand-yield.ts', '(function*() { 0, { yield } = {}; });\nexport {};\n'],
+    ['f181-bad-static-shorthand-await.ts', 'class C { static { ({ await }); } }\nexport {};\n'],
+    ['f181-bad-esc-yield-label-gen.ts', 'class C { *m() { yi\\u0065ld: ; } }\nexport {};\n'],
+    ['f181-bad-for-using-of.ts', 'for (using of of []) {}\n'],
+  ]) {
+    const tm = ts.transpileModule(source, {
+      fileName: file,
+      reportDiagnostics: true,
+      compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true, jsx: ts.JsxEmit.ReactJSX },
+    });
+    assert.ok((tm.diagnostics || []).some(d => d.category === ts.DiagnosticCategory.Error), `TS must reject: ${file}`);
+    const r = compile(Buffer.from(source), { file });
+    assert.equal(r.code, null, `must reject invalid TS: ${file}`);
   }
 });
