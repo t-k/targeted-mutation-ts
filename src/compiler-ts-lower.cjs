@@ -1993,13 +1993,17 @@ function eraseAngleBracketAssertions(source) {
     const prev = i > 0 ? toks[i - 1] : null;
     if (prev && !EXPR_PREFIX.has(prev.text)) continue;
     if (prev && prev.text === 'of') {
-      // Only treat `of` as an expression prefix inside a `for (...)` header (not `let of = 0; of < 1 > +2`).
-      let dP = 0, pIdx = -1;
+      // Only treat `of` as an expression prefix inside a `for (... of ...)` header (not `for (; of < 1 > +2;)` or `obj.of < 1 > +2`).
+      let dP = 0, pIdx = -1, sawSemi = false;
       for (let b = i - 2; b >= 0; b--) {
         if (toks[b].text === ')') dP++;
         else if (toks[b].text === '(') { if (dP === 0) { pIdx = b; break; } dP--; }
+        else if (dP === 0 && toks[b].text === ';') sawSemi = true;
       }
-      const isForOf = pIdx > 0 && (toks[pIdx - 1].text === 'for' || (pIdx > 1 && toks[pIdx - 1].text === 'await' && toks[pIdx - 2].text === 'for'));
+      const beforeOf = i >= 2 ? toks[i - 2] : null;
+      const isForOf = !sawSemi && pIdx > 0 && beforeOf &&
+        beforeOf.text !== '(' && beforeOf.text !== ';' && beforeOf.text !== '.' &&
+        (toks[pIdx - 1].text === 'for' || (pIdx > 1 && toks[pIdx - 1].text === 'await' && toks[pIdx - 2].text === 'for'));
       if (!isForOf) continue;
     }
     // Scan one or more chained balanced `< ... >` (e.g. `<any><any>{}`).
@@ -3939,8 +3943,11 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
         if (t.type !== 'id' || toks[i - 1]?.text === '.' || hasNewlineBetween(source, t.end, next.start)) continue;
         if (MOD_LEFT.has(t.text) && next.type === 'id' && MOD_RIGHT.has(next.text)) {
           edits.push({ start: t.start, end: t.end, text: ' '.repeat(t.end - t.start) });
-        } else if (t.text === 'declare' && next.type === 'id' && (next.text === 'get' || next.text === 'set') && toks[i + 2] &&
-            !hasNewlineBetween(source, next.end, toks[i + 2].start)) {
+        } else if (t.text === 'declare' && next.type === 'id' && (next.text === 'get' || next.text === 'set') &&
+            toks[i + 2] && !hasNewlineBetween(source, next.end, toks[i + 2].start) &&
+            ((toks[i + 2].type === 'id' && toks[i + 3]?.text === '(') ||
+             (toks[i + 2].text === '#' && toks[i + 3]?.type === 'id' && toks[i + 4]?.text === '(') ||
+             ((toks[i + 2].type === 'str' || toks[i + 2].type === 'num') && toks[i + 3]?.text === '('))) {
           edits.push({ start: t.start, end: t.end, text: '       ' });
         }
       }
@@ -6536,11 +6543,20 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
           }
         }
         if ((cur.text === '!' || cur.text === '?') &&
-            (prev.text === ':' || prev.text === 'is' || prev.text === 'as' || prev.text === '<' || prev.text === '|') &&
+            (prev.text === ':' || prev.text === 'is' || prev.text === 'as' || prev.text === '<' || (cur.text === '?' && prev.text === '|')) &&
             next.type === 'id') {
           if (cur.text === '!' && prev.text === ':') {
             const p2 = toks[i - 2], p3 = toks[i - 3];
-            const isTypePos = p2?.text === ')' || p2?.text === '?' ||
+            let isRetType = false;
+            if (p2?.text === ')' && (toks[i + 2]?.text === '{' || toks[i + 2]?.text === '=>' || toks[i + 2]?.text === ';')) {
+              let dP = 0, op = -1;
+              for (let b = i - 2; b >= 0; b--) {
+                if (toks[b].text === ')') dP++;
+                else if (toks[b].text === '(') { if (--dP === 0) { op = b; break; } }
+              }
+              if (op >= 0 && toks[op - 1]?.text !== '?') isRetType = true;
+            }
+            const isTypePos = isRetType || p2?.text === '?' ||
               (p3?.type === 'id' && DECL_MOD.has(p3.text));
             if (!isTypePos) continue;
           }
@@ -6767,7 +6783,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
           if (dB === 0) {
             // Rewrite ONLY malformed named-tuple markers token-by-token so other syntax errors inside `[ ... ]` are preserved!
             const closeB = k - 1;
-            let nP = 0, nB = 0, nBr = 0, nA = 0;
+            let nP = 0, nB = 0, nBr = 0, nA = 0, elemHasLabel = false, elemStart = i + 4;
             for (let j = i + 4; j < closeB; j++) {
               const tj = toks[j];
               if (tj.text === '(') { nP++; continue; }
@@ -6779,22 +6795,26 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
               if (tj.text === '<') { nA++; continue; }
               if (tj.text === '>') { if (nA > 0) nA--; continue; }
               if (nP !== 0 || nB !== 0 || nBr !== 0 || nA !== 0) continue;
+              if (tj.text === ',') { elemHasLabel = false; elemStart = j + 1; continue; }
+              if (tj.text === ':' && j > elemStart) elemHasLabel = true;
               // `...label?: T` -> `...label: T`
               if (tj.text === '...' && toks[j + 1]?.type === 'id' && toks[j + 2]?.text === '?' && toks[j + 3]?.text === ':') {
                 edits.push({ start: toks[j + 2].start, end: toks[j + 2].end, text: ' ' });
+                elemHasLabel = true;
                 j += 3;
                 continue;
               }
               // `label: ...T` -> `...label: T`
-              if (tj.type === 'id' && (j === i + 4 || toks[j - 1].text === ',') &&
+              if (tj.type === 'id' && j === elemStart &&
                   toks[j + 1]?.text === ':' && toks[j + 2]?.text === '...') {
                 edits.push({ start: tj.start, end: tj.start, text: '...' });
                 edits.push({ start: toks[j + 2].start, end: toks[j + 2].end, text: '   ' });
+                elemHasLabel = true;
                 j += 2;
                 continue;
               }
-              // `label: T?` followed by `,` or `]` -> `label: T`
-              if (tj.text === '?' && (toks[j + 1]?.text === ',' || j + 1 === closeB)) {
+              // `label: T?` followed by `,` or `]` -> `label: T` (only when this element has a label and a non-empty type before `?`)
+              if (tj.text === '?' && elemHasLabel && toks[j - 1]?.text !== ':' && (toks[j + 1]?.text === ',' || j + 1 === closeB)) {
                 edits.push({ start: tj.start, end: tj.end, text: ' ' });
               }
             }

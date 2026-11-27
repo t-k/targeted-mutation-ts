@@ -3783,26 +3783,37 @@ test('F190 official spec suite push: ALL 3 suites >= 99.0% (Test262 99.99%, TS c
   };
   for (const [file, source, expectedOut] of [
     ['r59-of-comparison.ts', 'let of = 0; console.log(of < 1 > +2); for (const x of <number[]>[1]) {}', [[false]]],
+    ['r59-for-semi-of.ts', 'let of = 0; for (; of < 1 > +2;) { console.log("bad"); break; } for (const x of <number[]>[1]) console.log(x);', [[1]]],
     ['r59-jsdoc-obj-bang.ts', 'let y: !number; const x = { a: !undefined }; console.log(x.a);', [[true]]],
     ['r59-jsdoc-ternary-bang.ts', 'const number = 1; const q: !number = 1; console.log(false ? 0 : !number);', [[false]]],
+    ['r59-jsdoc-paren-ternary-bang.ts', 'const number = 1; const q: !number = 1; console.log(false ? (0) : !number, 1 | !undefined);', [[false, 1]]],
     ['r59-labeled-ns-in-if.ts', 'if (false) label: namespace N { console.log(1); }', []],
     ['r59-labeled-mod-in-while.ts', 'while (false) label: module M { console.log(1); }', []],
     ['r59-class-mod-string.ts', 'class C { public private readonly f() {} } console.log("public readonly");', [['public readonly']]],
-    ['r59-override-declare-get.ts', 'class C { override declare get x() { return 1; } } console.log(new C().x);', [[1]]],
+    ['r59-override-declare-get.ts', 'class A { declare get: number; } class B { override declare get x() { return 1; } } console.log(Object.hasOwn(new A(), "get"), new B().x);', [[false, 1]]],
   ]) {
     const r = sameAsTypeScript(source, file);
     assert.deepEqual(runJs(r.code), expectedOut, file);
   }
-  // Named tuple syntax errors in other elements or string literals must still report diagnostics (code === null)
+  // Named tuple syntax errors in other elements, bare `?`, or string literals must still report diagnostics (code === null)
   for (const [file, source] of [
     ['r59-named-tuple-broken.ts', 'export type Opt = [element: string?, broken: =];\n'],
     ['r59-named-tuple-str-broken.ts', 'export type Opt = [x: "?,", broken: =];\n'],
+    ['r59-named-tuple-bare-q.ts', 'export type T = [element: string?, ?];\n'],
   ]) {
     const r = compile(source, { file, target: 'esnext', module: 'preserve' });
     assert.equal(r.code, null, file);
     assert.ok(r.diagnostics.length > 0, file);
   }
-  // `/* static prototype */` in a comment must not bypass V8 duplicate-binding validation
-  const dupMod = compile('export /* static prototype */ let x: number;\nexport let x: number;\n', { file: 'r59-static-proto-comment.ts', target: 'esnext', module: 'preserve' });
-  assert.equal(dupMod.backend, 'typescript');
+  // `static prototype` in comments or regexes after blocks must not bypass V8 duplicate-binding validation,
+  // while a real `static /* gap */ prototype` class member still compiles natively.
+  for (const [file, source] of [
+    ['r59-static-proto-comment.ts', 'export /* static prototype */ let x: number;\nexport let x: number;\n'],
+    ['r59-static-proto-regex.ts', 'export let x: number; if (true) {} /static prototype/; export let x: number;\n'],
+  ]) {
+    const dupMod = compile(source, { file, target: 'esnext', module: 'preserve' });
+    assert.equal(dupMod.backend, 'typescript', file);
+  }
+  const gapProto = sameAsTypeScript('export class C { static /* gap */ prototype: number; }\n', 'r59-static-proto-gap.ts');
+  assert.notEqual(gapProto.backend, 'typescript');
 });

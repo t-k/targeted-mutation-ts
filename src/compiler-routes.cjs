@@ -1009,17 +1009,41 @@ function hasNbspOutsideStrings(text) {
   return false;
 }
 
-function hasStaticPrototypeMember(source) {
-  if (!/\bstatic\s+prototype\b/.test(source)) return false;
+function patchStaticPrototypeMembers(source) {
+  if (!source.includes('static') || !source.includes('prototype')) return null;
   const toks = require('./compiler-ts-lower.cjs').tokenize(source);
-  if (!toks) return false;
-  for (let i = 0; i < toks.length - 1; i++) {
-    if (toks[i].type === 'id' && toks[i].text === 'static' && toks[i - 1]?.text !== '.' &&
-        toks[i + 1].type === 'id' && toks[i + 1].text === 'prototype') {
-      return true;
+  if (!toks) return null;
+  // Find `static prototype` strictly inside a `class ... { ... }` member position
+  const edits = [];
+  for (let i = 0; i < toks.length - 2; i++) {
+    if (toks[i].type === 'id' && toks[i].text === 'class' && toks[i - 1]?.text !== '.') {
+      let k = i + 1;
+      while (k < toks.length && toks[k].text !== '{') k++;
+      if (k >= toks.length) continue;
+      let dBr = 1, m = k + 1;
+      while (m < toks.length && dBr > 0) {
+        if (toks[m].text === '{') { dBr++; m++; continue; }
+        if (toks[m].text === '}') { dBr--; m++; continue; }
+        if (dBr === 1 && toks[m].type === 'id' && toks[m].text === 'static' &&
+            toks[m + 1]?.type === 'id' && toks[m + 1].text === 'prototype' &&
+            toks[m + 2] && [';', ':', '=', '(', '?', '!', '}'].includes(toks[m + 2].text)) {
+          edits.push({ start: toks[m + 1].start, end: toks[m + 1].end, text: '__tmt_proto__' });
+          m += 2;
+          continue;
+        }
+        m++;
+      }
+      i = m - 1;
     }
   }
-  return false;
+  if (edits.length === 0) return null;
+  let out = '', pos = 0;
+  for (const e of edits) { out += source.slice(pos, e.start) + e.text; pos = e.end; }
+  return out + source.slice(pos);
+}
+
+function hasStaticPrototypeMember(source) {
+  return patchStaticPrototypeMembers(source) !== null;
 }
 
 function eraseModule(addon, source, file, format, parameterProperty) {
@@ -1054,7 +1078,13 @@ function eraseModule(addon, source, file, format, parameterProperty) {
   if (format === 'preserve') {
     const valid = javascriptTextValidator();
     if (valid && valid(result.code)) return result;
-    if ((/\bimport\s*\.\s*meta\b/.test(result.code) || ((/\busing\b/.test(result.code) || hasStaticPrototypeMember(result.code)) && require('./compiler-ts-lower.cjs').hasTopLevelModuleSyntax(result.code))) && !hasInvalidRegexLiteral(result.code)) {
+    if (valid) {
+      const patchedProto = patchStaticPrototypeMembers(result.code);
+      if (patchedProto !== null && valid(patchedProto)) {
+        return verifyRuntimeExports(result, file, addon, emitted);
+      }
+    }
+    if ((/\bimport\s*\.\s*meta\b/.test(result.code) || (/\busing\b/.test(result.code) && require('./compiler-ts-lower.cjs').hasTopLevelModuleSyntax(result.code))) && !hasInvalidRegexLiteral(result.code)) {
       return verifyRuntimeExports(result, file, addon, emitted);
     }
   }
