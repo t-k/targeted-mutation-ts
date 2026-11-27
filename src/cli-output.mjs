@@ -42,14 +42,14 @@ Profiles (analyze):
   --checkpoint [FILE]           Record and resume completed mutant outcomes via a JSONL checkpoint file.
   --deterministic               Declare a deterministic suite so recorded comparisons can decide a trial.
   --audit                       Re-run predicted trials against the rewritten source.
-  --displace-thresholds         Also try displaced thresholds (Vitest only).
+  --displace-thresholds         Also try displaced thresholds (Vitest and Playwright).
   --concurrency N               Vitest workers that share the mutations (default: CPU count minus one).
                                 With --runner node: concurrent mutant processes (default: up to 4).
                                 With --witnesses: suite runs side by side (default: up to 8).
-  --verify-trials N             Run N of the mutations decided inside workers again in fresh Vitest runs and
-                                report any verdict that differs.
-  --isolated-trials             Start a fresh Vitest run for every mutation instead of switching mutations
-                                inside a running worker. Slower; for suites that leave state behind.
+  --verify-trials N             Run N of the mutations decided inside sessions again in fresh runs and
+                                report any verdict that differs (Vitest and Playwright).
+  --isolated-trials             Start a fresh run for every mutation instead of switching mutations
+                                inside a warm session (Vitest and Playwright). Slower; for stateful suites.
 
 Runner (analyze):
   --runner vitest|playwright|node

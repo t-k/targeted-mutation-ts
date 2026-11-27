@@ -1,25 +1,47 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { inside, runnerPackage } from './vitest.mjs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { prepareBuiltinSwitches, targetedOrBoundary } from './builtin-switches.mjs';
+import { checkpointKeyForTrial } from './checkpoint.mjs';
+import { extract } from './extract.mjs';
+import { selectScope } from './scope.mjs';
+import { candidateKey } from './shard.mjs';
+import { targetedGap } from './targeted-gaps.mjs';
+import { createTypeContext } from './type-equivalence.mjs';
+import { canonicalPath, inside, runnerPackage, withCopy } from './vitest.mjs';
 
 const supervisor = fileURLToPath(new URL('./runner-process.mjs', import.meta.url));
+const sessionEntry = fileURLToPath(new URL('./playwright-session.mjs', import.meta.url));
+const serverPreloadUrl = pathToFileURL(fileURLToPath(new URL('./playwright-server-preload.mjs', import.meta.url))).href;
+const workerPreloadUrl = pathToFileURL(fileURLToPath(new URL('./playwright-worker-preload.mjs', import.meta.url))).href;
 const defaultConfigs = ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs'].map(ext => 'playwright.config.' + ext);
 
-function configuration(root, name) {
+export function createPlaywrightConfigWrapper(root, name, {
+  injectServerPreload = false,
+  originsFile = '',
+  bridgeEnv = null,
+} = {}) {
   const selected = name ?? defaultConfigs.find(file => existsSync(resolve(root, file)));
   if (!selected) throw new Error('Playwright runs require a project configuration file');
   const original = inside(root, selected);
   const wrapper = resolve(dirname(original), `.tmt-playwright-${randomUUID()}.config.mts`);
+  const serializedBridgeEnv = JSON.stringify(bridgeEnv ?? {});
+  const serializedServerPreload = JSON.stringify(injectServerPreload ? serverPreloadUrl : '');
+  const serializedWorkerPreload = JSON.stringify(injectServerPreload ? workerPreloadUrl : '');
+  const serializedOriginsFile = JSON.stringify(originsFile ?? '');
   writeFileSync(wrapper, `import imported from ${JSON.stringify('./' + basename(original))};
-import { realpathSync } from 'node:fs';
+import { realpathSync, writeFileSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 const config = imported.default ?? imported;
 const root = process.env.TMT_WORKSPACE;
 const configDirectory = dirname(fileURLToPath(import.meta.url));
+const bridgeEnv = ${serializedBridgeEnv};
+const srvPreload = ${serializedServerPreload};
+const wrkPreload = ${serializedWorkerPreload};
+const originsOut = ${serializedOriginsFile};
 const own = directory => {
   const raw = realpathSync(resolve(configDirectory, directory ?? '.'));
   let resolved = raw;
@@ -35,6 +57,16 @@ const own = directory => {
   }
   return resolved;
 };
+const buildServerNodeOptions = raw => {
+  let base = String(raw ?? '');
+  if (wrkPreload) {
+    base = base.replaceAll('--import=' + wrkPreload, '').replaceAll('--import ' + wrkPreload, '').trim();
+  }
+  if (srvPreload && !base.includes(srvPreload)) {
+    base = (base ? base + ' ' : '') + '--import ' + srvPreload;
+  }
+  return base;
+};
 const settings = Array.isArray(config.webServer) ? config.webServer : config.webServer ? [config.webServer] : [];
 if (!settings.length) throw new Error('Playwright analysis requires a managed webServer');
 const loopback = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -49,8 +81,22 @@ const servers = settings.map(server => {
     throw new Error('The managed webServer command must run the trial workspace');
   }
   origins.add(url.origin);
-  return { ...server, cwd: own(server.cwd), reuseExistingServer: false };
+  const baseEnv = server.env ?? {};
+  const mergedEnv = srvPreload ? {
+    ...baseEnv,
+    ...bridgeEnv,
+    NODE_OPTIONS: buildServerNodeOptions(baseEnv.NODE_OPTIONS ?? process.env.NODE_OPTIONS),
+  } : undefined;
+  return {
+    ...server,
+    cwd: own(server.cwd),
+    reuseExistingServer: false,
+    ...(mergedEnv ? { env: mergedEnv } : {}),
+  };
 });
+if (originsOut) {
+  try { writeFileSync(originsOut, JSON.stringify([...origins]), 'utf8'); } catch {}
+}
 for (const project of config.projects?.length ? config.projects : [config]) {
   const target = project.use?.baseURL ?? config.use?.baseURL;
   if (target && !origins.has(new URL(target).origin)) {
@@ -120,9 +166,9 @@ export function classifyPlaywright(report, exitCode, workspace) {
 export const testFilters = (root, tests = []) => [...new Set(tests.map(file => relative(root, inside(root, file))))]
   .map(file => file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
-export function runPlaywright(root, temp, { config, projects = [], tests = [], timeout = 60_000, original } = {}) {
+export function runPlaywright(root, temp, { config, projects = [], tests = [], timeout = 60_000, original, wrapperOptions, extraEnv } = {}) {
   const bin = resolve(dirname(runnerPackage(root, 'playwright')), 'cli.js');
-  const wrapper = configuration(root, config);
+  const wrapper = createPlaywrightConfigWrapper(root, config, wrapperOptions);
   const report = resolve(temp, 'playwright.json');
   const pid = resolve(temp, 'playwright.pid');
   const server = resolve(temp, 'server.pid');
@@ -137,6 +183,7 @@ export function runPlaywright(root, temp, { config, projects = [], tests = [], t
     env: {
       ...process.env, CI: 'true', PLAYWRIGHT_JSON_OUTPUT_FILE: report, TMT_RUN_ID: attempt, TMT_SERVER_PID_FILE: server,
       TMT_WORKSPACE: root, TMT_ORIGINAL: original ?? '',
+      ...(extraEnv ?? {}),
     },
   });
   const output = child.error?.message ?? child.stderr + child.stdout;
@@ -152,4 +199,366 @@ export function runPlaywright(root, temp, { config, projects = [], tests = [], t
   } catch (error) {
     return { status: 'error', ...metadata, output: output + '\n' + error.message };
   }
+}
+
+function readJsonlEvents(path) {
+  if (!existsSync(path)) return [];
+  const input = readFileSync(path, 'utf8');
+  const completeLines = input.endsWith('\n') ? input.split('\n').slice(0, -1) : input.split('\n').slice(0, -1);
+  return completeLines.filter(Boolean).map(line => JSON.parse(line));
+}
+
+function supervisePlaywrightSession(workspace, temp, manifest, limit, signal) {
+  const log = resolve(temp, 'playwright-session.stderr');
+  const descriptor = openSync(log, 'w');
+  return new Promise(settle => {
+    const child = spawn(process.execPath, [supervisor, resolve(temp, 'playwright-session.pid'), String(limit), sessionEntry, manifest], {
+      cwd: workspace,
+      stdio: ['ignore', 'ignore', descriptor],
+      timeout: limit + 5_000,
+      signal,
+      env: { ...process.env, CI: 'true' },
+    });
+    const finish = result => {
+      closeSync(descriptor);
+      settle({ ...result, stderr: readFileSync(log, 'utf8').slice(0, 4 * 1024 * 1024) });
+    };
+    let failure;
+    child.once('error', error => { failure = error; });
+    child.once('close', (status, stopped) => finish({ status, signal: stopped, error: failure }));
+  });
+}
+
+export function readPidStartSignature(pid) {
+  if (process.platform === 'win32' || !Number.isInteger(pid) || pid <= 1) return null;
+  try {
+    const res = spawnSync('/bin/ps', ['-o', 'lstart=', '-p', String(pid)], { encoding: 'utf8', timeout: 1500 });
+    if (res.status !== 0) return null;
+    const sig = String(res.stdout ?? '').trim();
+    return sig || null;
+  } catch {
+    return null;
+  }
+}
+
+export function terminateRecordedPids(pidsFile, { readStartSignature = readPidStartSignature } = {}) {
+  if (!pidsFile || !existsSync(pidsFile)) return;
+  let lines = [];
+  try {
+    lines = readFileSync(pidsFile, 'utf8').trim().split('\n').filter(Boolean);
+  } catch {
+    return;
+  }
+  const pidEntries = new Map();
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (Number.isInteger(parsed?.pid) && parsed.pid > 1 && parsed.pid !== process.pid) {
+        const lstart = typeof parsed.lstart === 'string' && parsed.lstart.trim() ? parsed.lstart.trim() : null;
+        if (!pidEntries.has(parsed.pid) || lstart) {
+          pidEntries.set(parsed.pid, lstart);
+        }
+      }
+    } catch {}
+  }
+  const matchesIdentity = (pid, expectedLstart) => {
+    if (!expectedLstart || process.platform === 'win32') return true;
+    const current = readStartSignature(pid);
+    return Boolean(current && current === expectedLstart);
+  };
+  const signalPid = (pid, sig) => {
+    if (process.platform !== 'win32') {
+      try { process.kill(-pid, sig); } catch {}
+    }
+    try { process.kill(pid, sig); } catch {}
+  };
+  const alive = [];
+  for (const [pid, expectedLstart] of pidEntries) {
+    try {
+      process.kill(pid, 0);
+      if (!matchesIdentity(pid, expectedLstart)) continue;
+      signalPid(pid, 'SIGTERM');
+      alive.push([pid, expectedLstart]);
+    } catch {}
+  }
+  if (!alive.length) return;
+  const deadline = Date.now() + 300;
+  while (Date.now() < deadline) {
+    if (alive.every(([pid]) => { try { process.kill(pid, 0); return false; } catch { return true; } })) return;
+  }
+  for (const [pid, expectedLstart] of alive) {
+    try {
+      process.kill(pid, 0);
+      if (!matchesIdentity(pid, expectedLstart)) continue;
+      signalPid(pid, 'SIGKILL');
+    } catch {}
+  }
+}
+
+// Runs a switched Playwright E2E session: instruments sources once with pure-JS switches + comparison probes,
+// starts webServer + browserServer once, collects dual-realm baseline observations, plans threshold/margin shifts,
+// and decides reached mutants with post-trial control checks and automatic isolated fallback.
+export async function analyzePlaywrightSession(project, files, options) {
+  const root = canonicalPath(project);
+  const profile = options.mutators ?? 'targeted';
+  const targets = selectScope(root, files, options).map(subject => ({
+    ...subject,
+    input: readFileSync(inside(root, subject.file)),
+  }));
+  const extraction = [];
+  for (const { file, input } of targets) {
+    const ext = extract(input, { file, mode: options.mode, dialect: options.dialect });
+    extraction.push({ file, path: ext.path, reason: ext.reason, diagnostics: ext.diagnostics, ...(ext.fallback === undefined ? {} : { fallback: ext.fallback }) });
+  }
+  if (extraction.some(item => item.path === 'diagnostic')) {
+    return {
+      schemaVersion: 1,
+      runner: 'playwright',
+      mutators: profile,
+      extraction,
+      mutants: [],
+      diagnostics: [],
+      evaluation: 'no_sites',
+    };
+  }
+  const originals = new Map(targets.map(({ file, input }) => [file, input]));
+  const typeContext = options['type-check']
+    ? createTypeContext(root, targets.map(t => t.file), {
+      tsconfig: options.tsconfig,
+      onWarning: options.onTypeCheckWarning,
+      silent: options['type-check'] === 'auto',
+    })
+    : null;
+
+  const { sources, mutants: prepared } = prepareBuiltinSwitches(targets, {
+    dialect: options.dialect,
+    shifts: true,
+    recordComparisons: true,
+    trackLoadedFile: true,
+    excludeRules: options['exclude-rule'],
+    typeContext,
+    targeted: true,
+    ...(profile === 'targeted' ? { keep: targetedOrBoundary } : {}),
+  });
+
+  const report = {
+    schemaVersion: 1,
+    runner: 'playwright',
+    mutators: profile,
+    extraction,
+    mutants: [],
+    diagnostics: [],
+    evaluation: 'no_sites',
+    ...(options.config !== undefined || options.test?.length || options['copy-exclude']?.length ? {
+      selection: { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] },
+    } : {}),
+  };
+
+  const shardKeys = options.shardKeys;
+  const inShard = mutant => !shardKeys || mutant.parametric || shardKeys.has(candidateKey({
+    location: mutant.location,
+    rule: mutant.mutatorName,
+    replacement: mutant.replacement,
+  }));
+  const mutants = prepared.filter(mutant => !mutant.parametric && inShard(mutant));
+  const ckpt = options.checkpointStore;
+  const cachedById = new Map();
+  if (ckpt) {
+    for (const mutant of mutants) {
+      if (mutant.status !== undefined) continue;
+      const hit = ckpt.get(checkpointKeyForTrial(mutant));
+      if (hit) cachedById.set(mutant.id, hit);
+    }
+  }
+  const runnable = prepared.filter(mutant => mutant.status === undefined && inShard(mutant) && !cachedById.has(mutant.id));
+  const hasComparisons = prepared.some(mutant => mutant.parametric);
+  if (!mutants.length && !hasComparisons) return report;
+  if (!runnable.length && !hasComparisons) {
+    const cachedDiagnostics = [];
+    const mapped = mutants.map(({ targeted: _rule, ...mutant }) => {
+      const cached = cachedById.get(mutant.id);
+      if (cached?.diagnostic) cachedDiagnostics.push(cached.diagnostic);
+      if (!cached) return mutant;
+      const { diagnostic: _diag, ...outcome } = cached;
+      return { ...mutant, ...outcome, evidence: outcome.evidence ?? 'checkpoint' };
+    });
+    return { ...report, evaluation: 'evaluated', mutants: mapped, diagnostics: cachedDiagnostics };
+  }
+
+  return withCopy(root, async (workspace, temp) => {
+    runnerPackage(workspace, 'playwright');
+    for (const { file, output } of sources) {
+      const path = inside(workspace, file);
+      if (!readFileSync(path).equals(originals.get(file))) throw new Error(`Source changed during analysis: ${file}`);
+      writeFileSync(path, output);
+    }
+    const manifest = resolve(temp, 'playwright-session.json');
+    const output = resolve(temp, 'playwright-session.jsonl');
+    const pidsFile = resolve(temp, 'pw-pids.jsonl');
+    const extrasPath = resolve(temp, 'extras.json');
+    const runTimeoutMs = options.timeout ? options.timeout * 1000 : 60_000;
+    const baselineTimeoutMs = options['baseline-timeout'] ? options['baseline-timeout'] * 1000 : runTimeoutMs;
+    const totalRunnable = runnable.filter(mutant => !mutant.parametric).length;
+
+    writeFileSync(manifest, JSON.stringify({
+      workspace,
+      originalRoot: root,
+      config: options.config,
+      projects: options.project ?? [],
+      tests: options.test ?? [],
+      subjectFiles: sources.map(s => s.file),
+      pidsFile,
+      output,
+      temporary: temp,
+      awaitsExtras: typeof options.onBaselineRecorded === 'function',
+      deterministic: Boolean(options.deterministic),
+      isolatedTrials: options['isolated-trials'] === true,
+      verifyTrials: options['verify-trials'] ?? 0,
+      runTimeout: runTimeoutMs,
+      baselineTimeout: baselineTimeoutMs,
+      mutants: runnable.map(({ id, parametric, targeted }) => ({
+        id,
+        ...(parametric ? { parametric } : {}),
+        ...(targeted?.evidence ? { evidence: true } : {}),
+        ...(targeted?.operator === 'idx0' ? { sequenceIndex: true } : {}),
+        ...(targeted ? { effects: true } : {}),
+      })),
+    }));
+
+    const limit = 90_000 + baselineTimeoutMs * (options.deterministic ? 2 : 1) + runTimeoutMs * Math.max(4, runnable.length * 2);
+    const sessionAbort = new AbortController();
+    const onAbort = () => sessionAbort.abort();
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    if (options.signal?.aborted) sessionAbort.abort();
+
+    let finished = false;
+    let baselineDispatched = false;
+    let extrasError = null;
+    let lastDone = -1;
+
+    const pollSession = () => {
+      if (finished) return;
+      const current = readJsonlEvents(output);
+      if (!baselineDispatched) {
+        const baseEvent = current.find(event => event.baseline !== undefined);
+        if (baseEvent) {
+          baselineDispatched = true;
+          if (baseEvent.baseline.status === 'passed' && typeof options.onBaselineRecorded === 'function') {
+            options.onProgress?.(`Baseline passed (${baseEvent.baseline.tests.length} tests). Running ${totalRunnable} mutant(s)...`);
+            Promise.resolve()
+              .then(() => options.onBaselineRecorded(baseEvent))
+              .then(list => list ?? [])
+              .then(list => {
+                if (finished || sessionAbort.signal.aborted) return;
+                writeFileSync(extrasPath + '.part', JSON.stringify(list));
+                renameSync(extrasPath + '.part', extrasPath);
+              })
+              .catch(err => {
+                if (!finished && !sessionAbort.signal.aborted) {
+                  extrasError = err;
+                  sessionAbort.abort();
+                }
+              });
+          }
+        }
+      }
+      if (options.onProgress && baselineDispatched && totalRunnable > 0) {
+        const done = current.filter(event => event.id !== undefined).length;
+        if (done > lastDone && done > 0) {
+          lastDone = done;
+          options.onProgress(`Mutants: ${Math.min(done, totalRunnable)}/${totalRunnable} completed`);
+        }
+      }
+    };
+
+    const pollTimer = setInterval(pollSession, 40);
+    pollTimer.unref?.();
+    options.onProgress?.('Running baseline tests...');
+
+    let run;
+    try {
+      run = await supervisePlaywrightSession(workspace, temp, manifest, limit, sessionAbort.signal);
+    } finally {
+      clearInterval(pollTimer);
+      finished = true;
+      options.signal?.removeEventListener('abort', onAbort);
+      terminateRecordedPids(pidsFile);
+    }
+    if (extrasError) throw extrasError;
+
+    const events = readJsonlEvents(output);
+    const unsupported = events.find(event => event.unsupportedSession)?.unsupportedSession;
+    if (unsupported) {
+      return { ...report, evaluation: 'unsupported_session', unsupportedReason: unsupported };
+    }
+
+    const error = events.findLast(event => event.error)?.error ?? run.error?.message ??
+      (run.stderr?.trim() || `Playwright session stopped (exit ${run.status ?? run.signal})`);
+    const baseEvent = events.find(event => event.baseline !== undefined);
+    const baseline = baseEvent?.baseline ?? { status: 'error', output: error, errors: [error] };
+    if (baseline.status !== 'passed') {
+      return { ...report, evaluation: 'baseline_error', baseline };
+    }
+
+    const results = new Map(events.filter(event => event.id !== undefined).map(event => [event.id, event]));
+    const completed = run.status === 0 && events.at(-1)?.complete === true;
+    const observed = events.find(event => event.observed)?.observed ?? {};
+    const places = new Map(prepared.map(mutant => [mutant.id, mutant]));
+    const expressionsOf = (entries, own, plain) => {
+      const seen = new Map();
+      for (const { id, test } of entries ?? []) {
+        const { location, original } = places.get(id) ?? {};
+        if (!location || (location.file === own.file && own.start === location.start && location.end === own.end)) continue;
+        if (plain && location.file === own.file && own.start <= location.start && location.end <= own.end) continue;
+        seen.set(`${test}:${location.file}:${location.start}:${location.end}`, {
+          ...(test === undefined ? {} : { test }),
+          location: { file: location.file, line: location.line, column: location.column },
+          expression: original,
+        });
+      }
+      return [...seen.values()].slice(0, 3);
+    };
+    const withEffects = (gap, mutant) => {
+      if (!gap || !mutant.effects) return gap;
+      const plain = mutant.targeted?.operator === 'await' || mutant.targeted?.operator === 'cleanup';
+      const nowRuns = expressionsOf(mutant.effects.now, mutant.location, plain);
+      const noLongerRuns = expressionsOf(mutant.effects.gone, mutant.location, plain);
+      return nowRuns.length || noLongerRuns.length ? { ...gap, effects: { nowRuns, noLongerRuns } } : gap;
+    };
+
+    const judged = mutants.map(mutant => {
+      const cached = cachedById.get(mutant.id);
+      if (cached) {
+        const { diagnostic: _diag, ...outcome } = cached;
+        return { ...mutant, ...outcome, evidence: outcome.evidence ?? 'checkpoint', _cachedDiagnostic: cached.diagnostic };
+      }
+      const result = results.get(mutant.id);
+      if (result?.status === 'ignored') return { ...mutant, ...result };
+      if (result) {
+        return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
+      }
+      return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Playwright session ended early' };
+    });
+
+    const diagnostics = [];
+    for (const mutant of judged) {
+      const gap = mutant._cachedDiagnostic ?? withEffects(targetedGap(mutant, observed[mutant.id]), mutant);
+      if (gap) diagnostics.push(gap);
+      if (ckpt && !cachedById.has(mutant.id) && results.has(mutant.id)) {
+        ckpt.record(checkpointKeyForTrial(mutant), mutant, gap ?? undefined);
+      }
+    }
+
+    return {
+      ...report,
+      baseline: { status: 'passed', tests: baseline.tests.length },
+      baselineSnapshot: baseline,
+      baselineEvent: baseEvent,
+      evaluation: completed ? 'evaluated' : 'incomplete',
+      trials: events.find(event => event.trials)?.trials,
+      extras: events.filter(event => event.extra !== undefined),
+      mutants: judged.map(({ targeted: _rule, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),
+      diagnostics,
+    };
+  }, { exclude: options['copy-exclude'], onProgress: options.onProgress });
 }

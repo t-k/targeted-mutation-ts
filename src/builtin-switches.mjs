@@ -5,7 +5,7 @@ import { byteOffsets } from './source-text.mjs';
 // Runtime switches for the built-in mutation set. Expressions become `on(id) ? mutated : (cover(id), original)`;
 // blocks, case clauses and removable statements become `if (on(id)) mutated else { cover(id); original }`.
 // The helpers speak the test session's protocol: one active mutation and per-test hit counts.
-const helpers = (on, cover, shift, scope) => `
+const helpers = (on, cover, shift, scope, cmp, loadedComparisons = [], fileId = '') => `
 function ${shift}() {
   var scope = ${scope};
   return (scope.__stryker__ && scope.__stryker__.shift) || 0;
@@ -22,7 +22,75 @@ function ${cover}() {
   var counts = ns.currentTestId ? (coverage.perTest[ns.currentTestId] || (coverage.perTest[ns.currentTestId] = {})) : coverage.static;
   for (var i = 0; i < arguments.length; i++) counts[arguments[i]] = (counts[arguments[i]] || 0) + 1;
 }
-`;
+(function() {
+  var scope = ${scope}, ns = scope.__stryker__;
+  if (!ns) {
+    ns = {};
+    try { scope.Object.defineProperty(scope, '__stryker__', { value: ns, enumerable: false, writable: true, configurable: true }); }
+    catch (e) { scope.__stryker__ = ns; }
+  }
+  if (${JSON.stringify(Boolean(fileId))}) {
+    var lf = ns.loadedFiles || (ns.loadedFiles = []);
+    var fid = ${JSON.stringify(fileId)};
+    if (lf.indexOf(fid) < 0) lf.push(fid);
+  }
+})();
+${loadedComparisons.length ? `function ${cmp}(site, op, lhs, rhs) {
+  var scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
+  var state = scope[scope.Symbol.for('targeted-mutation-ts/session')];
+  var rec = state && (state.phase === 'baseline' || state.phase === 'boot');
+  var safe = rec && typeof lhs === 'number' && typeof rhs === 'number' && lhs % 1 === 0 && rhs % 1 === 0 &&
+    lhs >= -9007199254740991 && lhs <= 9007199254740991 && rhs >= -9007199254740991 && rhs <= 9007199254740991;
+  function diffCmp(a1, b1, a2, b2) {
+    var r1 = ((a1 % 4) + 4) % 4, q1 = (a1 - r1) / 4;
+    var s1 = ((b1 % 4) + 4) % 4, p1 = (b1 - s1) / 4;
+    var dq1 = q1 - p1, dr1 = r1 - s1;
+    if (dr1 < 0) { dq1 -= 1; dr1 += 4; }
+    var r2 = ((a2 % 4) + 4) % 4, q2 = (a2 - r2) / 4;
+    var s2 = ((b2 % 4) + 4) % 4, p2 = (b2 - s2) / 4;
+    var dq2 = q2 - p2, dr2 = r2 - s2;
+    if (dr2 < 0) { dq2 -= 1; dr2 += 4; }
+    return dq1 < dq2 ? -1 : dq1 > dq2 ? 1 : dr1 < dr2 ? -1 : dr1 > dr2 ? 1 : 0;
+  }
+  var result, threw = true;
+  try {
+    result = op === '<' ? lhs < rhs : op === '<=' ? lhs <= rhs : op === '>' ? lhs > rhs : lhs >= rhs;
+    threw = false;
+    return result;
+  } finally {
+    if (rec) {
+      try {
+        var map = ns.comparisons || (ns.comparisons = {});
+        var test = state.phase === 'boot' ? '' : (ns.currentTestId || '');
+        var byTest = map[site] || (map[site] = {});
+        var slot = byTest[test] || (byTest[test] = { rows: [], overflow: false, invalid: false });
+        if (threw || !safe) {
+          slot.invalid = true;
+        } else if (slot.rows.length < 1024) {
+          slot.rows.push([lhs, rhs, result]);
+        } else {
+          slot.overflow = true;
+          var ex = slot.extrema || (slot.extrema = {});
+          if (slot.rows.length > 0 && rhs !== slot.rows[0][1] && !ex.altRhs) ex.altRhs = [lhs, rhs, result];
+          if (result) {
+            if (!ex.minTrue || diffCmp(lhs, rhs, ex.minTrue[0], ex.minTrue[1]) < 0) ex.minTrue = [lhs, rhs, true];
+            if (!ex.maxTrue || diffCmp(lhs, rhs, ex.maxTrue[0], ex.maxTrue[1]) > 0) ex.maxTrue = [lhs, rhs, true];
+          } else {
+            if (!ex.minFalse || diffCmp(lhs, rhs, ex.minFalse[0], ex.minFalse[1]) < 0) ex.minFalse = [lhs, rhs, false];
+            if (!ex.maxFalse || diffCmp(lhs, rhs, ex.maxFalse[0], ex.maxFalse[1]) > 0) ex.maxFalse = [lhs, rhs, false];
+          }
+        }
+      } catch (ignoreRecErr) {}
+    }
+  }
+}
+(function() {
+  var scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
+  var loaded = ns.loadedComparisons || (ns.loadedComparisons = []);
+  var items = ${JSON.stringify(loadedComparisons)};
+  for (var i = 0; i < items.length; i++) if (loaded.indexOf(items[i]) < 0) loaded.push(items[i]);
+})();
+` : ''}`;
 // The probe of the targeted rules. It takes the operands of one expression, the right one of a logical operator as a
 // function, and returns what the expression gives: with the active edit when one of the site's edits is on. While
 // the baseline is recorded it also notes, for every edit of the site and per test, whether the edit would have
@@ -516,10 +584,12 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   const on = unusedName(text, '__tmtOn');
   const cover = unusedName(text, '__tmtCover');
   const shift = unusedName(text, '__tmtShift');
+  const cmp = unusedName(text, '__tmtCmp');
   const see = unusedName(text, '__tmtSee');
   const table = unusedName(text, '__tmtSite');
   const valParam = unusedName(text, '__tmtVal');
   const probed = [];
+  const loadedComparisons = [];
   const identified = mutation => ({ ...mutation,
     id: createHash('sha256').update(JSON.stringify([file, mutation.name, mutation.start, mutation.end, mutation.replacement])).digest('hex').slice(0, 16) });
   const rawMutants = live.map(identified).map(mutant => mutant.shift === undefined ? mutant
@@ -570,7 +640,19 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
       out += text.slice(from, first);
       const ids = group.mutants.map(mutant => JSON.stringify(mutant.id));
       if (group.kind === 'expression') {
-        const inner = render(first, last);
+        const cmpMutant = group.mutants.find(mutant => mutant.compareSpan !== undefined);
+        let inner;
+        if (cmpMutant && first === cmpMutant.compareSpan[0] && last === cmpMutant.compareSpan[3]) {
+          const [l0, l1, r0, r1, cmpOp] = cmpMutant.compareSpan;
+          const cmpKey = `${file}:${bytes[cmpMutant.shift]}`;
+          loadedComparisons.push(cmpKey);
+          const leftExpr = render(l0, l1);
+          const rightExpr = render(r0, r1);
+          while (index < ordered.length && ordered[index].placement[0] < last) index++;
+          inner = `${cmp}(${JSON.stringify(cmpKey)}, ${JSON.stringify(cmpOp)}, (${leftExpr}), (${rightExpr}))`;
+        } else {
+          inner = render(first, last);
+        }
         // An arrow function bound to a variable keeps the variable's name through an inner binding.
         // A property initializer names the function without adding a binding the function body could see.
         const keepName = body => group.named ? `({ ${group.named}: ${body} }).${group.named}` : body;
@@ -675,7 +757,9 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   const scope = /\bglobalThis\b/.test(text) ? "(0, eval)('this')" : 'globalThis';
   // A file whose mutations are all ignored keeps its source.
   const rendered = mutants.length ? render(0, text.length) : text;
-  const output = mutants.length ? rendered + helpers(on, cover, shift, scope) + (probed.length ? probe(see, table, cover, scope, probed) : '') : text;
+  const output = mutants.length
+    ? rendered + helpers(on, cover, shift, scope, cmp, loadedComparisons, options.trackLoadedFile ? file : '') + (probed.length ? probe(see, table, cover, scope, probed) : '')
+    : text;
   // Ignored mutations are reported in source order with the others and get no switch.
   const reported = [...mutants, ...found.filter(mutation => mutation.ignored !== undefined).map(identified)]
     .sort((a, b) => a.start - b.start || b.end - a.end);

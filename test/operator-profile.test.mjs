@@ -74,14 +74,25 @@ test('a failed baseline or an unparsed file stops the session and is reported al
   }
 });
 
-test('Playwright, --audit, and sessions that cannot start fall back to one source rewrite per edit', async () => {
+test('--audit and sessions that cannot start fall back to one source rewrite per edit', async () => {
   const rewritten = { ...focusedReport, mutators: 'targeted' };
-  for (const direct of [{ runner: 'playwright' }, { audit: true }]) {
-    const run = runners(rewritten, sessionReport);
-    const report = await analyzeOperators('.', [], { ...options, ...direct }, run);
-    assert.deepEqual(run.calls, [['analyze', 'targeted']]);
-    assert.equal(report.operatorExecution, 'source-rewrite');
-  }
+  const auditRun = runners(rewritten, sessionReport);
+  const auditReport = await analyzeOperators('.', [], { ...options, audit: true }, auditRun);
+  assert.deepEqual(auditRun.calls, [['analyze', 'targeted']]);
+  assert.equal(auditReport.operatorExecution, 'source-rewrite');
+
+  // A Playwright session that reports `unsupported_session` falls back cleanly to `source-rewrite`.
+  const pwFallbackCalls = [];
+  const pwReport = await analyzeOperators('.', [], { ...options, runner: 'playwright' }, {
+    analyze: (_p, _f, received) => { pwFallbackCalls.push(['analyze', received.mutators]); return rewritten; },
+    analyzePlaywrightSession: async () => { pwFallbackCalls.push(['pw-session']); return { evaluation: 'unsupported_session' }; },
+    prepareAnalysis: () => ({ report: focusedReport }),
+    completeAnalysis: () => focusedReport,
+    analyzeConventional: async () => sessionReport,
+  });
+  assert.deepEqual(pwFallbackCalls, [['pw-session'], ['analyze', 'targeted']]);
+  assert.equal(pwReport.operatorExecution, 'source-rewrite');
+
   const unsupported = runners(received => received.mutators === 'targeted' ? rewritten : focusedReport,
     { ...sessionReport, evaluation: 'baseline_error', baseline: { status: 'error', output: 'The Vitest session requires Vitest 4, found 3.2.4' } });
   const fallback = await analyzeOperators('.', [], options, unsupported);

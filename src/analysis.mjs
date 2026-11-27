@@ -178,8 +178,16 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
 // and `attempt({ trial })` one edit, each in a fresh copy of the project.
 export function sourceTrials(root, subjects, options) {
   const runner = options.runner === 'playwright'
-    ? (workspace, temp) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root,
-      tests: options.test, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) })
+    ? (workspace, temp, settings) => {
+      const effectiveTimeout = settings?.isBaseline ? (options['baseline-timeout'] ?? options.timeout) : options.timeout;
+      return runPlaywright(workspace, temp, {
+        config: options.config,
+        projects: options.project,
+        original: root,
+        tests: options.test,
+        ...(effectiveTimeout ? { timeout: effectiveTimeout * 1000 } : {}),
+      });
+    }
     : options.runner === 'node'
       ? (workspace, temp, settings) => runNodeTest(workspace, temp, {
         testFiles: options.test,
@@ -575,7 +583,7 @@ function analyzePlaywright(root, subjects, report, options, specification) {
   }
 
   report.evaluation = 'evaluated';
-  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false });
+  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false, configurable: true });
   report.instrumented = { status: 'unavailable', reason: 'browser-observations-unavailable' };
   for (const subject of subjects) {
     for (const site of subject.sites) {
@@ -603,17 +611,35 @@ function analyzePlaywright(root, subjects, report, options, specification) {
       const match = Array.isArray(specification.playwright) && specification.playwright.find(entry =>
         entry.file === subject.file && entry.operator === site.operator && entry.rule === site.rule &&
         (entry.line === undefined || entry.line === site.location.line));
-      if (result.status === 'survived' && match?.witness && typeof match.requirement === 'string') {
-        const witness = {
-          content: match.witness, name: 'tmt-witness-' + randomUUID() + '.spec.ts',
-          directory: match.witnessDirectory ?? dirname(baseline.tests.find(test => test.status === 'passed').file),
-        };
-        const original = attempt({ witness });
-        const changed = attempt({ witness, trial });
-        report.diagnostics.push({
-          kind: 'SURVIVED', site: site.id, location: site.location, requirement: match.requirement, suggestedTestFile: match.witness,
-          verification: verifyWitnessRuns(baseline, original, changed),
-        });
+      if (result.status === 'survived') {
+        if (match?.witness && typeof match.requirement === 'string') {
+          const witness = {
+            content: match.witness, name: 'tmt-witness-' + randomUUID() + '.spec.ts',
+            directory: match.witnessDirectory ?? dirname(baseline.tests.find(test => test.status === 'passed').file),
+          };
+          const original = attempt({ witness });
+          const changed = attempt({ witness, trial });
+          report.diagnostics.push({
+            kind: 'SURVIVED', site: site.id, location: site.location, requirement: match.requirement, suggestedTestFile: match.witness,
+            verification: verifyWitnessRuns(baseline, original, changed),
+          });
+        } else if (!options.spec) {
+          report.diagnostics.push({
+            kind: 'SURVIVED',
+            site: site.id,
+            location: site.location,
+            rule: site.rule,
+            ...(site.original !== undefined ? { expression: site.original } : {}),
+            ...(site.equivalenceHint ? { equivalenceHint: site.equivalenceHint, equivalenceReason: site.equivalenceReason } : {}),
+            mutations: [{
+              rule: site.rule,
+              edit: site.edit,
+              replacement: site.replacement,
+              evidence: 'reexecuted',
+              ...(site.original !== undefined ? { original: site.original } : {}),
+            }],
+          });
+        }
       }
     }
   }
@@ -712,7 +738,7 @@ function analyzeNode(root, subjects, report, options) {
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
   report.evaluation = 'evaluated';
-  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false });
+  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false, configurable: true });
   const entries = collectNodeSites(subjects, options);
   options.onProgress?.(`Baseline passed (${baseline.tests.length} tests). Running ${entries.length} mutant(s)...`);
   let done = 0;
@@ -756,7 +782,7 @@ export async function analyzeNodeAsync(project, files, options) {
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
   report.evaluation = 'evaluated';
-  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false });
+  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false, configurable: true });
 
   const entries = collectNodeSites(subjects, options);
   const concurrency = options.concurrency ?? Math.max(1, Math.min(4, availableParallelism() - 1));
@@ -849,7 +875,7 @@ export function prepareAnalysis(project, files, options) {
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
   if (plainBaseline) {
-    Object.defineProperty(report, baselineRunSymbol, { value: { status: plainBaseline.status, tests: plainBaseline.tests, plain: true }, enumerable: false });
+    Object.defineProperty(report, baselineRunSymbol, { value: { status: plainBaseline.status, tests: plainBaseline.tests, plain: true }, enumerable: false, configurable: true });
   }
 
   const traced = recorded?.status === 'passed' ? recorded : attempt({ tracing: true });
@@ -875,10 +901,93 @@ export function prepareAnalysis(project, files, options) {
   return { root, report, options, attempt, baseline, traced, trace, trials, skips };
 }
 
+// Prepares focused comparison trials (boundaries, integer thresholds, variable-RHS margins, displaced thresholds,
+// and Lean-checked deterministic skips) directly from an already-recorded Playwright dual-realm baseline trace.
+export function prepareAnalysisFromTrace(project, files, options, recordedBaseline) {
+  const root = canonicalPath(project);
+  const { subjects, extraction } = collectComparisons(root, files, { ...options, mutators: undefined, runner: 'vitest' });
+  const report = {
+    schemaVersion: 1,
+    runner: options.runner ?? 'playwright',
+    extraction,
+    mutants: [],
+    diagnostics: [],
+    evaluation: 'no_sites',
+  };
+  if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
+    report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
+  }
+  const baseline = recordedBaseline.baseline;
+  report.baseline = { status: 'passed', tests: baseline.tests.length };
+  Object.defineProperty(report, baselineRunSymbol, {
+    value: { status: baseline.status, tests: baseline.tests, plain: false },
+    enumerable: false,
+    configurable: true,
+  });
+  const allScopedSubjects = selectScope(root, files, options).map(({ file }) => {
+    const input = readFileSync(inside(root, file));
+    return { file, input, digest: sha(input), sites: [] };
+  });
+  const attempt = sourceTrials(root, allScopedSubjects, options);
+  if (!subjects.length) return { report, attempt, specification: options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {} };
+
+  const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
+  const deterministicStable = recordedBaseline.deterministicStable;
+  let trace = recordedBaseline.trace ?? null;
+  report.instrumented = {
+    status: trace ? 'passed' : 'unavailable',
+    ...(deterministicStable !== undefined ? { stable: deterministicStable } : {}),
+  };
+  if (options.deterministic && deterministicStable === false) {
+    trace = null;
+  }
+
+  const rawTrials = planFocusedTrials(subjects, trace, baseline, specification, options['displace-thresholds']);
+  const trials = options.shardKeys
+    ? rawTrials.filter(trial => options.shardKeys.has(
+      `${trial.site.location.file}:${trial.site.location.start}:${trial.site.location.end}:${trial.site.rule}:${trial.site.replacement}`,
+    ))
+    : rawTrials;
+
+  const overflowSites = recordedBaseline.overflowSites ?? new Set();
+  const serverStaticKeys = new Set(recordedBaseline.serverStaticComparisonKeys ?? []);
+  const serverStaticSites = new Set();
+  for (const subject of subjects) {
+    for (const site of subject.sites) {
+      const at = (site.operatorEdit ?? site.edit)[0];
+      if (serverStaticKeys.has(`${subject.file}:${at}`)) serverStaticSites.add(site.id);
+    }
+  }
+  const coverage = new Map();
+  if (trace && options.deterministic && deterministicStable) {
+    const byKey = recordedBaseline.deterministicCoverageByKey ?? {};
+    for (const subject of subjects) {
+      for (const site of subject.sites) {
+        if (overflowSites.has(site.id) || serverStaticSites.has(site.id)) continue;
+        const at = (site.operatorEdit ?? site.edit)[0];
+        const rawCounts = byKey[`${subject.file}:${at}`];
+        if (!rawCounts || typeof rawCounts !== 'object') continue;
+        const counts = new Map();
+        for (const [testKey, hits] of Object.entries(rawCounts)) {
+          if (hits > 0) counts.set(testKey, Number(hits));
+        }
+        coverage.set(site.id, counts);
+      }
+    }
+  }
+  const eligibleTrials = trials.map(trial =>
+    (overflowSites.has(trial.site.id) || serverStaticSites.has(trial.site.id))
+      ? { ...trial, observation: { ...trial.observation, complete: false } }
+      : trial);
+  const skips = leanSkips(eligibleTrials, baseline, !!(options.deterministic && deterministicStable), coverage);
+  return { root, report, options, attempt, baseline, traced: { status: 'passed', trace }, trace, trials, skips, subjects, specification, serverStaticSites };
+}
+
 // Runs the planned trials. `settled` answers a trial that another run already decided: it returns
 // { status, tests } for the same edit, or nothing when this analysis has to run the edit itself.
-export function completeAnalysis({ root, report, options, attempt, baseline, traced, trace, trials, skips }, settled = () => undefined) {
+export function completeAnalysis({ root, report, options, attempt, baseline, traced, trace, trials, skips, serverStaticSites }, settled = () => undefined) {
   report.evaluation = 'evaluated';
+  let plainFallbackBaseline = null;
 
   for (const [index, trial] of trials.entries()) {
     const predicted = skips.has(index);
@@ -892,7 +1001,21 @@ export function completeAnalysis({ root, report, options, attempt, baseline, tra
     if (!predicted || options.audit) {
       const known = options.audit ? undefined : settled(trial);
       const source = known ? null : attempt({ trial });
-      const actual = known ? known.status : verdict(source, baseline);
+      let referenceBaseline = baseline;
+      if (!known && report.runner === 'playwright' && report[baselineRunSymbol]?.plain === false) {
+        if (!plainFallbackBaseline) {
+          plainFallbackBaseline = attempt({ isBaseline: true });
+          if (plainFallbackBaseline?.status === 'passed') {
+            Object.defineProperty(report, baselineRunSymbol, {
+              value: { status: plainFallbackBaseline.status, tests: plainFallbackBaseline.tests, plain: true },
+              enumerable: false,
+              configurable: true,
+            });
+          }
+        }
+        if (plainFallbackBaseline?.status === 'passed') referenceBaseline = plainFallbackBaseline;
+      }
+      const actual = known ? known.status : verdict(source, referenceBaseline);
       if (!predicted) {
         result.status = actual;
         const reason = known?.statusReason ?? source?.statusReason;
@@ -909,7 +1032,7 @@ export function completeAnalysis({ root, report, options, attempt, baseline, tra
     }
 
     // Operator edits are never traced, so reach is unknown and a surviving run stands as survived.
-    if (result.status === 'survived' && !site.unobserved &&
+    if (result.status === 'survived' && !site.unobserved && !serverStaticSites?.has(site.id) &&
         (report.instrumented.stable === false || trial.observation.rows.length === 0)) {
       result.sourceVerdict = 'survived';
       result.status = report.instrumented.stable === false ? 'unstable'
