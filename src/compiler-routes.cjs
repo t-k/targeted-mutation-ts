@@ -435,7 +435,7 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
 // A .ts/.mts file that contains no TypeScript syntax and passes V8's parser (or Node's strict-identity
 // strip check with TS 6.0.3 compatibility guards) can be published natively when it avoids the few
 // ES2025/Unicode/legacy forms that V8/SWC accept and TypeScript 6.0.3 rejects.
-const tsRejectsInStripIdentity = /\b0\d*_|0[bBoOxX]_|\._|\bfor\s*\([^;()]*;[^;()]*\)|\bfor\s*\(\s*let\s*[;=]|\{\s*(?:while|for|if|return|class|function|var|const|default|extends|this|false|true|null)\s*[,}]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|(?:^|[;\r\n{])[ \t]*await[ \t]*[:=;]|@\(\s*await\s*\)|\bvoid[ \t]+await[ \t]*[;,}]|\bawait[ \t]*=>|\bnew[ \t]+await\b|\basync\b[^;\n]*=[ \t]*(?:\([ \t]*await[ \t]*\)[ \t]*=>|await[ \t]*[),])|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
+const tsRejectsInStripIdentity = /\b0\d*_|0[bBoOxX]_|\d\._|(?<![A-Za-z0-9_$])\._\d|\bfor\s*\([^;()]*;[^;()]*\)|\bfor\s*\(\s*let\s*[;=]|\{\s*(?:while|for|if|return|class|function|var|const|default|extends|this|false|true|null)\s*[,}]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|(?:^|[;\r\n{])[ \t]*await[ \t]*[:=;]|@\(\s*await\s*\)|\bvoid[ \t]+await[ \t]*[;,}]|\bawait[ \t]*=>|\bnew[ \t]+await\b|\basync\b[^;\n]*=[ \t]*(?:\([ \t]*await[ \t]*\)[ \t]*=>|await[ \t]*[),])|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
 
 function hasTsAwaitYieldHazard(noComments) {
   const hasYieldShorthand = /\{\s*yield\s*[,}]/.test(noComments);
@@ -449,15 +449,36 @@ function hasTsAwaitYieldHazard(noComments) {
   // Walk tokens tracking enclosing scopes ('block' | 'static' | 'fn' | 'async-fn').
   // A 'static' block resets the enclosing function boundary (e.g. `function f() { class C { static { ({ await }); } } }`).
   const scopeStack = [];
+  const parenScopes = []; // per-`(` boolean: true if this `(` pushed a function-parameter scope onto scopeStack
   let pendingScope = null; // 'static' | 'fn' | 'async-fn' | null
+  let pendingFnParams = null; // 'fn' | 'async-fn' | null
   for (let i = 0; i < toks.length; i++) {
     const t = toks[i];
     const prev = i > 0 ? toks[i - 1] : null;
     const next = toks[i + 1];
     if (t.type === 'id' && t.text === 'static' && next?.text === '{') {
       pendingScope = 'static';
+      pendingFnParams = null;
     } else if (t.type === 'id' && t.text === 'function' && prev?.text !== '.') {
-      pendingScope = (prev?.text === 'async') ? 'async-fn' : 'fn';
+      const fnKind = (prev?.text === 'async') ? 'async-fn' : 'fn';
+      pendingScope = fnKind;
+      pendingFnParams = fnKind;
+    } else if (t.text === '(' && pendingFnParams !== null) {
+      scopeStack.push(pendingFnParams);
+      parenScopes.push(pendingFnParams);
+      pendingFnParams = null;
+      continue;
+    } else if (t.text === '(' && !(prev && (prev.type === 'id' || prev.text === ']') &&
+        !['if', 'for', 'while', 'switch', 'with', 'catch', 'function'].includes(prev.text))) {
+      parenScopes.push(null);
+      continue;
+    } else if (t.text === ')') {
+      const ps = parenScopes.pop();
+      if (ps) {
+        scopeStack.pop();
+        pendingScope = ps;
+      }
+      continue;
     } else if (t.text === '=>') {
       // Arrow function: treat concise arrow `=> expr` as a non-async fn scope for its immediate expression
       let isAsync = false;
@@ -495,10 +516,13 @@ function hasTsAwaitYieldHazard(noComments) {
         // Parameters of a non-async method/constructor can reference `await`!
         if (!isAsyncMethod) { i = k - 1; pendingScope = 'fn'; continue; }
         pendingScope = 'async-fn';
+      } else {
+        parenScopes.push(null);
       }
     } else if (t.text === '{') {
       scopeStack.push(pendingScope || 'block');
       pendingScope = null;
+      pendingFnParams = null;
       continue;
     } else if (t.text === '}') {
       scopeStack.pop();
@@ -828,7 +852,8 @@ function sloppyStrictScript(source, file, directive = false) {
   const trivia = /(?:\s+|\/\/[^\r\n\u2028\u2029]*|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*/y;
   trivia.lastIndex = hashbang;
   trivia.exec(source);
-  if (!directive && source.slice(0, trivia.lastIndex).includes('///') && !/\/\/\/[ \t]*<reference\b/i.test(source.slice(0, trivia.lastIndex))) return null;
+  const leadTrivia = source.slice(0, trivia.lastIndex);
+  if (!directive && /(?:^|[\r\n\u2028\u2029])[ \t]*\/\/\/[ \t\f\v]*</.test(leadTrivia) && !/\/\/\/[ \t]*<reference\b/i.test(leadTrivia)) return null;
   const first = source[trivia.lastIndex];
   const strict = isUseStrictDirective(source, trivia.lastIndex);
   if ((first === '"' || first === "'") && !strict) return null;
@@ -935,8 +960,32 @@ function eraseLoweredModule(addon, source, file, format, directive = false) {
   return verifyRuntimeExports({ ...result, code, backend: 'pulse+node-strip' }, file, addon);
 }
 
+function hasNbspOutsideStrings(text) {
+  if (!text.includes('\u00a0')) return false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '\u00a0') return true;
+    if (c === '"' || c === "'" || c === '`') {
+      const q = c;
+      i++;
+      while (i < text.length && text[i] !== q) {
+        if (text[i] === '\\') i += 2;
+        else i++;
+      }
+    } else if (c === '/' && text[i + 1] === '/') {
+      i += 2;
+      while (i < text.length && text[i] !== '\n' && text[i] !== '\r') i++;
+    } else if (c === '/' && text[i + 1] === '*') {
+      const end = text.indexOf('*/', i + 2);
+      if (end < 0) return true;
+      i = end + 1;
+    }
+  }
+  return false;
+}
+
 function eraseModule(addon, source, file, format, parameterProperty) {
-  if (hasEscapedKeyword(source, false) || source.includes('\u00a0') || hasTsRejectsInNodeStrip(source) || /(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(source)) return null;
+  if (hasEscapedKeyword(source, false) || hasNbspOutsideStrings(source) || hasTsRejectsInNodeStrip(source) || /(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(source)) return null;
   const work = normalizeAmbientModules(source);
   const transformAllowed = () => !/\benum\b|\bnamespace\b(?![ \t]*:)/.test(work);
   const directTransform = parameterProperty && transformAllowed();
@@ -1757,10 +1806,17 @@ function compile(input, options = {}) {
                   const dupAmbientConst = !unmaskedWork.includes('@filename') &&
                     /\bdeclare[ \t]+(?:const|let|var|enum|class|function)[ \t]+([A-Za-z_$][\w$]*)\b[\s\S]*\b(?:const|let|var|enum|class|function)[ \t]+\1\b/.test(unmaskedWork);
                   let jsxLowered = dupAmbientConst ? null : require('./compiler-jsx-lower.cjs').lowerJsxToAutomatic(unmaskedWork);
+                  if (jsxLowered === null && !dupAmbientConst && ambPre !== cjsPre.code && !/<[A-Za-z_$/]/.test(unmaskedWork)) {
+                    jsxLowered = unmaskedWork;
+                  }
                   if (jsxLowered !== null) {
                     if (/\b(?:module|namespace|enum)\b/.test(jsxLowered)) {
                       const nsPost = tsLower.lowerNamespacesAndEnums(jsxLowered);
                       if (nsPost !== null) jsxLowered = nsPost.code;
+                    }
+                    if (/\bconstructor\s*\(/.test(jsxLowered) && /\b(?:public|private|protected|readonly|override)\b/.test(jsxLowered)) {
+                      const ppPost = tsLower.lowerParameterProperties(jsxLowered);
+                      if (ppPost !== null) jsxLowered = ppPost.code;
                     }
                     if (!hasEscapedKeyword(jsxLowered, false) && !hasTsRejectsInNodeStrip(jsxLowered)) {
                       const hadModBeforeAmb = ambPre !== cjsPre.code && tsLower.hasTopLevelModuleSyntax(cjsPre.code);
@@ -1832,10 +1888,10 @@ function compile(input, options = {}) {
             const extMod = directive || hasTsDirectiveComment || noBom.includes('declare module') || noBom.includes('declare global') || /\bexport[ \t]+(?:default|declare)\b/.test(noBom);
             let result = (!triedOrigMod && extMod && !/[^\x00-\x7f]/.test(noBom) && /\b(?:import|export)\b/.test(noBom))
               ? eraseModule(addon, noBom, file, format, property) : null;
-            if (!result && !triedOrigMod && !noBom.includes('\u00a0') && format === 'preserve') result = eraseScript(addon, noBom, Buffer.from(noBom), file, directive);
+            if (!result && !triedOrigMod && !hasNbspOutsideStrings(noBom) && format === 'preserve') result = eraseScript(addon, noBom, Buffer.from(noBom), file, directive, true);
             if (result) return result;
             if (format === 'preserve' &&
-                !hasEscapedKeyword(noBom, false) && !noBom.includes('\u00a0') &&
+                !hasEscapedKeyword(noBom, false) && !hasNbspOutsideStrings(noBom) &&
                 (!/[^\x00-\x7f]/.test(noBom) || !/\bexport[ \t]+(?:(?:default|const|let|var|function|class|enum|namespace|module|async|abstract)[ \t]+)?[^\x00-\x7f]|\bexport[ \t]*\{[^}]*[^\x00-\x7f]/.test(noBom))) {
               const tsLower = require('./compiler-ts-lower.cjs');
               const decPre = tsLower.eraseNonEsDecorators(noBom);
@@ -1896,7 +1952,7 @@ function compile(input, options = {}) {
                             if (modCheck.code !== null && !/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(relaxed)) return { backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] };
                           }
                           if (isMod) {
-                            const isEmptyMod = relaxed.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, '').trim() === '';
+                            const isEmptyMod = relaxed.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, '').replace(/[;\s]+/g, '') === '';
                             if (isEmptyMod) return { backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] };
                             if (!/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(work) && (hasModuleMarker(addon, relaxed, workBuf) || tsLower.hasTopLevelModuleSyntax(relaxed))) {
                               const verified = verifyRuntimeExports({ backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] }, file, addon, workBuf);

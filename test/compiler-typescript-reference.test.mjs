@@ -3590,3 +3590,53 @@ test('F181 official spec suite push: Test262 99.96%, TS compiler/conformance 98.
     if (file === 'r56-mul-and-shorthand-yield.ts') assert.notEqual(r.backend, 'typescript');
   }
 });
+
+test('F184 official spec suite push: Test262 99.98%, TS compiler/conformance 98.7%+, zero FP', () => {
+  for (const [file, source] of [
+    ['f184-dec-member-underscore.ts', 'let ns = { _() {}, \\u{6F}() {} };\n@ns._\n@ns.\\u{6F} class C {}\nexport {};\n'],
+    ['f184-static-fn-param-await.ts', 'var await = 0;\nclass C { static { (function (x = await) { return await; })(); } }\nexport {};\n'],
+    ['f184-static-esc-arguments.ts', 'class C { static { (class { [argument\\u0073]() {} }); } }\nexport {};\n'],
+    ['f184-tsx-param-prop.tsx', 'class Box { constructor(public x: number) {} }\nexport const v = <div />;\n'],
+    ['f184-tsx-ambient-only.tsx', 'declare module JSX { interface Element {} }\nexport const x = 1;\n'],
+    ['f184-param-prop-prologue.ts', 'class C { constructor(private a: string) { "ngInject"; } }\n'],
+    ['f184-param-prop-super-mid.ts', 'class B {} class D extends B { constructor(public x: number) { console.log(1); super(); console.log(2); } }\n'],
+    ['f184-override-param-prop.ts', 'class B { p!: string; } class C extends B { constructor(override p: string) { super(); } m(override q: string) {} }\n'],
+    ['f184-enum-bigint.ts', 'enum E { 0n = 0 }\n'],
+    ['f184-enum-tpl-const.ts', 'enum T { a = `1`, b = `1${"2"}3`, c = `1` - `1` }\n'],
+    ['f184-ctor-empty-typeargs.ts', 'class C { constructor<>() {} constructor < >() {} }\n'],
+    ['f184-obj-lit-q-bang.ts', 'const a = 1; const o = { a!, foo?() {} };\n'],
+    ['f184-export-declare-class-impl.ts', 'export declare class C { static f() {} };\n'],
+    ['f184-mapped-get-set.ts', 'type T = { get [K in "a"](): string };\n'],
+    ['f184-override-mods.ts', 'class B { p = 1; } class D extends B { override declare p: number; readonly override q: number; }\n'],
+    ['f184-jsdoc-nullable.ts', 'function f(a: ?string, b: number!, c: Array.<string>) { return a; }\n'],
+    ['f184-for-using-of.ts', 'for (using of = null;;) break;\n'],
+    ['f184-strict-multi-kw.ts', '"use strict";\nvar [public] = [1]; var [[private]] = [[2]];\n'],
+    ['f184-import-star-await.ts', 'import * as await from "./m";\nexport { await as x };\n'],
+    ['f184-leading-multi-slash.ts', 'interface A { x: number }\n////////\ndeclare const a: A;\nconsole.log(a);\n'],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    assert.notEqual(r.backend, 'typescript', `${file}: ${source}`);
+  }
+  // AST-exactness guards (must match TS even if falling back)
+  for (const [file, source] of [
+    ['f184-enum-const-fold.ts', 'const d = "d";\nenum E { D = d }\n'],
+    ['f184-enum-forward-ref.ts', 'enum E1 { X = Y, Y = E1.Z }\nenum E1 { Z = 4 }\n'],
+    ['f184-enum-self-ref.ts', 'enum E { A = A, D = 1 + D }\n'],
+  ]) {
+    sameAsTypeScript(source, file);
+  }
+  // Negative rejections: TS errors must NOT compile natively
+  for (const [file, source] of [
+    ['f184-bad-num-sep-dot.ts', 'const x = 1._0;\nexport {};\n'],
+    ['f184-bad-fn-param-nested-static-await.ts', 'var await = 0;\nclass C { static { (function (x = class { static { ({ await }); } }) {})(); } }\nexport {};\n'],
+  ]) {
+    const tm = ts.transpileModule(source, {
+      fileName: file,
+      reportDiagnostics: true,
+      compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true, jsx: ts.JsxEmit.ReactJSX },
+    });
+    assert.ok((tm.diagnostics || []).some(d => d.category === ts.DiagnosticCategory.Error), `TS must reject: ${file}`);
+    const r = compile(Buffer.from(source), { file });
+    assert.equal(r.code, null, `must reject invalid TS: ${file}`);
+  }
+});
