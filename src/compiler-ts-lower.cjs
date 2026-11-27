@@ -667,6 +667,7 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
       return null;
     }
     if (toks[pos].type === 'id' && allEnums instanceof Map && allEnums.has(toks[pos].text) &&
+        !env.has(toks[pos].text) && !(allMemberNames && allMemberNames.has(toks[pos].text)) &&
         ((toks[pos + 1]?.text === '.' && toks[pos + 2]?.type === 'id') ||
          (toks[pos + 1]?.text === '[' && toks[pos + 2]?.type === 'str' && toks[pos + 3]?.text === ']'))) {
       const otherName = toks[pos].text;
@@ -1016,9 +1017,10 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
       for (let ei = 0; ei < toks.length - 2; ei++) {
         if (toks[ei].text === '{') { ed++; continue; }
         if (toks[ei].text === '}') { if (ed > 0) ed--; continue; }
-        if (ed === 0 && toks[ei].type === 'id' && toks[ei].text === 'enum' &&
-            toks[ei - 1]?.text !== '.' && toks[ei - 1]?.text !== 'declare' &&
-            toks[ei + 1]?.type === 'id' && toks[ei + 2]?.text === '{') {
+        if (ed === 0 && toks[ei].type === 'id' &&
+            (toks[ei].text === 'enum' || toks[ei].text === 'namespace' || toks[ei].text === 'module') &&
+            toks[ei - 1]?.text !== '.' &&
+            toks[ei + 1]?.type === 'id' && (toks[ei + 2]?.text === '{' || toks[ei + 2]?.text === '.')) {
           const en = toks[ei + 1].text;
           enumDeclCounts.set(en, (enumDeclCounts.get(en) ?? 0) + 1);
         }
@@ -1889,28 +1891,34 @@ function eraseAngleBracketAssertions(source) {
     }
     if (chainCount === 0 || k >= toks.length) continue;
     const after = toks[k];
+    // True ONLY when `return`/`yield` has NO newline before `<T>` (so it is NOT ASI-terminated)
+    // AND there IS a newline between `<T>` and the operand (so erasing `<T>` alone would introduce ASI).
+    const isAsiKwBefore = prev && (prev.text === 'return' || prev.text === 'yield') &&
+      !hasNewlineBetween(source, prev.end, toks[i].start) &&
+      hasNewlineBetween(source, toks[i].start, after.start);
+    const isAsiTerminatedBefore = prev && (prev.text === 'return' || prev.text === 'yield') &&
+      hasNewlineBetween(source, prev.end, toks[i].start);
     // Handle `<T>{ ... }`:
-    // - After `=>` or at statement start (`!prev`, `;`, `{`, `}`), wrap `{ ... }` in `({ ... })` so it stays an object literal expression.
-    // - After expression prefixes (`=`, `(`, `[`, `,`, `:`, `?`, `return`, `throw`), simply erase `<T>`.
+    // - After `=>`, at statement start (`!prev`, `;`, `{`, `}`), or after ASI-terminated `return\n` / `yield\n`, wrap `{ ... }` in `({ ... })` so it stays an object literal expression.
+    // - After expression prefixes (`=`, `(`, `[`, `,`, `:`, `?`, `...`, `return`, `throw`), simply erase `<T>`.
     if (after.text === '{') {
       const closeBr = findMatchingBrace(toks, k);
       if (closeBr > k) {
-        const isAsiKw = prev && (prev.text === 'return' || prev.text === 'yield') && hasNewlineBetween(source, prev.end, after.start);
-        const needsParens = !prev || prev.text === '=>' || prev.text === ';' || prev.text === '{' || prev.text === '}' || isAsiKw;
+        const needsParens = !prev || prev.text === '=>' || prev.text === ';' || prev.text === '{' || prev.text === '}' || isAsiKwBefore || isAsiTerminatedBefore;
         if (needsParens || EXPR_OBJ_PREFIX.has(prev.text)) {
-          const startOff = toks[i].start;
-          const endOff = toks[k - 1].end;
-          const blank = source.slice(startOff, endOff).replace(/[^\r\n]/g, ' ');
-          edits.push({ start: startOff, end: endOff, text: blank });
-          if (isAsiKw) {
+          if (isAsiKwBefore) {
             // Keep `(` on the same line as `return`/`yield` to prevent ASI (`return;\n({});`)
             edits.push({ start: prev.end, end: after.start, text: ' (' });
             edits.push({ start: toks[closeBr].end, end: toks[closeBr].end, text: ')' });
-            // Remove the inner `<T>` edit since `prev.end..after.start` covers it
-            edits.splice(edits.length - 3, 1);
-          } else if (needsParens) {
-            edits.push({ start: after.start, end: after.start, text: '(' });
-            edits.push({ start: toks[closeBr].end, end: toks[closeBr].end, text: ')' });
+          } else {
+            const startOff = toks[i].start;
+            const endOff = toks[k - 1].end;
+            const blank = source.slice(startOff, endOff).replace(/[^\r\n]/g, ' ');
+            edits.push({ start: startOff, end: endOff, text: blank });
+            if (needsParens) {
+              edits.push({ start: after.start, end: after.start, text: '(' });
+              edits.push({ start: toks[closeBr].end, end: toks[closeBr].end, text: ')' });
+            }
           }
           i = k - 1;
         }
@@ -1921,10 +1929,14 @@ function eraseAngleBracketAssertions(source) {
     if (after.text === '(') {
       const closeP = findMatchingParen(toks, k);
       if (closeP > k && toks[closeP + 1]?.text !== '=>' && toks[closeP + 1]?.text !== ':' && toks[closeP + 1]?.text !== '{') {
-        const startOff = toks[i].start;
-        const endOff = toks[k - 1].end;
-        const blank = source.slice(startOff, endOff).replace(/[^\r\n]/g, ' ');
-        edits.push({ start: startOff, end: endOff, text: blank });
+        if (isAsiKwBefore) {
+          edits.push({ start: prev.end, end: after.start, text: ' ' });
+        } else {
+          const startOff = toks[i].start;
+          const endOff = toks[k - 1].end;
+          const blank = source.slice(startOff, endOff).replace(/[^\r\n]/g, ' ');
+          edits.push({ start: startOff, end: endOff, text: blank });
+        }
         i = k - 1;
       }
       continue;
@@ -1932,10 +1944,14 @@ function eraseAngleBracketAssertions(source) {
     if (after.text === '=>' || after.text === ';' || after.text === ',' || after.text === ')') continue;
     if (after.type === 'id' || after.type === 'num' || after.type === 'str' || after.type === 'tpl' || after.type === 'regex' || after.text === '[' ||
         after.text === '!' || after.text === '~' || after.text === '+' || after.text === '-') {
-      const startOff = toks[i].start;
-      const endOff = toks[k - 1].end;
-      const blank = source.slice(startOff, endOff).replace(/[^\r\n]/g, ' ');
-      edits.push({ start: startOff, end: endOff, text: blank });
+      if (isAsiKwBefore) {
+        edits.push({ start: prev.end, end: after.start, text: ' ' });
+      } else {
+        const startOff = toks[i].start;
+        const endOff = toks[k - 1].end;
+        const blank = source.slice(startOff, endOff).replace(/[^\r\n]/g, ' ');
+        edits.push({ start: startOff, end: endOff, text: blank });
+      }
       i = k - 1;
     }
   }
@@ -6392,11 +6408,12 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
           let work = '', pos = 0;
           for (const e of eaEdits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
           work += source.slice(pos);
-          let stripped = tryStrip(work);
-          if (stripped !== null) {
+          // Validate directly with stripTypeScriptTypes (no recursive LHS relaxation that could hide e.g. `x as any = 1;`)
+          try {
+            let stripped = stripTypeScriptTypes(work);
             for (const [ph, orig] of eaSaved) stripped = stripped.replace(ph, orig);
             return stripped;
-          }
+          } catch {}
         }
       }
     }
@@ -6410,9 +6427,13 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
             const cp = findMatchingParen(toks, i);
             if (cp > i + 1 && toks[cp + 1]?.text === '=' && toks[cp + 2]?.text !== '=') {
               const inner = source.slice(toks[i].start, toks[cp].end);
-              try { stripTypeScriptTypes(`(${inner});`); } catch { continue; }
+              let strippedInner;
+              try {
+                const s = stripTypeScriptTypes(`(${inner});`);
+                strippedInner = s.slice(1, s.lastIndexOf(')'));
+              } catch { continue; }
               const ph = `__tmt_plhs_${pSaved.length}__`;
-              pSaved.push([ph, inner]);
+              pSaved.push([ph, strippedInner]);
               pEdits.push({ start: toks[i].start, end: toks[cp].end, text: ph });
               i = cp;
             }

@@ -3697,6 +3697,8 @@ test('F187 official spec suite push: Test262 99.99%, TS compiler/conformance 98.
   for (const [file, source] of [
     ['f187-bad-export-trailing-tok.ts', 'export { a } foo;\n'],
     ['f187-bad-paren-lhs-inner.ts', '(1 + ) = 0;\n'],
+    // Review Round 58 negative rejections:
+    ['r58-bad-eval-pow-and-as-lhs.ts', '"use strict"\n++eval ** 2; x as any = 1;\n'],
   ]) {
     const tm = ts.transpileModule(source, {
       fileName: file,
@@ -3706,5 +3708,26 @@ test('F187 official spec suite push: Test262 99.99%, TS compiler/conformance 98.
     assert.ok((tm.diagnostics || []).some(d => d.category === ts.DiagnosticCategory.Error), `TS must reject: ${file}`);
     const r = compile(Buffer.from(source), { file });
     assert.equal(r.code, null, `must reject invalid TS: ${file}`);
+  }
+  // Review Round 58 unbound export rejection behind regex/template `//`:
+  for (const [file, source] of [
+    ['r58-unbound-after-regex-slashes.ts', 'const r = /[//]/; export { missing };\n'],
+    ['r58-unbound-after-tpl-slashes.ts', 'const s = `//`; export { missing };\n'],
+  ]) {
+    const r = compile(Buffer.from(source), { file });
+    assert.equal(r.code, null, `must reject unbound export: ${file}`);
+  }
+  // Review Round 58 AST/runtime preservation regressions:
+  for (const [file, source] of [
+    ['r58-return-nl-before-angle-obj.ts', 'function f() { return\n<any>{ a: 1, b: 2 }; }\nexport { f };\n'],
+    ['r58-yield-nl-before-angle-obj.ts', 'function* g() { yield\n<any>{ a: 1, b: 2 }; }\nexport { g };\n'],
+    ['r58-return-angle-nl-num.ts', 'function f() { return <any>\n123; }\nexport { f };\n'],
+    ['r58-yield-angle-nl-paren.ts', 'function* g() { yield <any>\n(123); }\nexport { g };\n'],
+    ['r58-enum-shadowed-bracket.ts', 'enum A { X = 1 }\nenum B { A = 4, X = A["X"] }\n'],
+    ['r58-enum-declare-merged.ts', 'declare enum A { X = 2 }\nenum A { X = 1 }\nenum B { Y = A.X, Z }\n'],
+    ['r58-enum-ns-merged.ts', 'namespace A { export const X = 2; }\nenum A { X = 1 }\nenum B { Y = A.X, Z }\n'],
+    ['r58-paren-lhs-strip-as.ts', 'const [a] = [1];\n(1, x as number) = 0;\n'],
+  ]) {
+    sameAsTypeScript(source, file);
   }
 });

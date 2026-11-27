@@ -759,14 +759,24 @@ function verifyRuntimeExports(result, file, addon, bytes) {
   if (!/\bexport(?:\s|\/\*[^]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*\{/.test(result.code)) return result;
   // Skip Pulse's unboundExport check when every `export { ... }` is either empty (`export {}`) or a
   // re-export (`export { ... } from "..."`), since neither can reference an unbound local binding.
-  const noComments = (result.code.includes('/*') || result.code.includes('//'))
-    ? result.code.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*/g, (m, str) => str || ' ')
-    : result.code;
-  let hasLocalNonEmptyExport = false;
-  for (const m of noComments.matchAll(/\bexport\s*\{([^}]*)\}\s*(from\b)?/g)) {
-    if (m[1].trim() !== '' && !m[2]) { hasLocalNonEmptyExport = true; break; }
+  // Use the regex/template-aware tokenizer so `//` inside regexes or templates is never treated as a comment.
+  const toks = require('./compiler-ts-lower.cjs').tokenize(result.code);
+  if (toks) {
+    let hasLocalNonEmptyExport = false;
+    for (let i = 0; i < toks.length - 1; i++) {
+      if (toks[i].type === 'id' && toks[i].text === 'export' && toks[i - 1]?.text !== '.' && toks[i + 1].text === '{') {
+        let close = i + 2;
+        while (close < toks.length && toks[close].text !== '}') close++;
+        if (close >= toks.length) { hasLocalNonEmptyExport = true; break; }
+        if (close > i + 2 && toks[close + 1]?.text !== 'from') {
+          hasLocalNonEmptyExport = true;
+          break;
+        }
+        i = close;
+      }
+    }
+    if (!hasLocalNonEmptyExport) return result;
   }
-  if (!hasLocalNonEmptyExport) return result;
   const checker = addon ?? loadModuleAddon();
   if (!checker?.unboundExport?.(bytes ?? Buffer.from(result.code))) return result;
   return fail(result.backend, [...result.diagnostics, {
@@ -1848,7 +1858,7 @@ function compile(input, options = {}) {
                       const msg = probe.diagnostics[0]?.message ?? '';
                       if (msg) {
                         const relaxed = tsLower.stripWithSwcRelaxations(jsxLowered, msg);
-                        if (relaxed !== null) {
+                        if (relaxed !== null && !((jsxLowered.includes('as') || jsxLowered.includes('satisfies')) && regroupingAssertion(jsxLowered, relaxed))) {
                           const workBuf = Buffer.from(relaxed);
                           if (hadModBeforeAmb && !isMod) {
                             const modCheck = strip(relaxed + '\nexport {};', file);
@@ -1957,7 +1967,7 @@ function compile(input, options = {}) {
                         }
                       } else if (msg) {
                         const relaxed = tsLower.stripWithSwcRelaxations(work, msg);
-                        if (relaxed !== null) {
+                        if (relaxed !== null && !((work.includes('as') || work.includes('satisfies')) && regroupingAssertion(work, relaxed))) {
                           const workBuf = Buffer.from(relaxed);
                           const isMod = cjsPre.hasCjsModule || tsLower.hasTopLevelModuleSyntax(work);
                           if (hadModBeforeAmb && !isMod) {
