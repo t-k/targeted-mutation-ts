@@ -1280,7 +1280,7 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
               if (d !== 0) continue;
               if (origToks[oi].type === 'id' && origToks[oi].text === 'export') {
                 const n1 = origToks[oi + 1];
-                if (n1?.text === 'import') { origInstantiates = true; break; }
+                if (n1?.text === 'import' || n1?.text === '*') { origInstantiates = true; break; }
                 if (n1?.text === '{' && origToks[oi + 2]?.text !== '}') { origInstantiates = true; break; }
               }
             }
@@ -1341,11 +1341,12 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         // `export * from Ident;` / `export * from "str";` inside a namespace is erased by TypeScript
         if (kw && kw.text === '*' && toks[idx + 1]?.type === 'id' && toks[idx + 1].text === 'from' &&
             toks[idx + 2] && (toks[idx + 2].type === 'id' || toks[idx + 2].type === 'str')) {
+          if (toks[idx + 2].type === 'id') {
+            try { stripTypeScriptTypes(`(${toks[idx + 2].text});`); } catch { return null; }
+          }
           let endIdx = idx + 2;
           if (toks[endIdx + 1]?.text === ';') endIdx++;
-          else if (toks[endIdx + 1] && toks[endIdx + 1].text !== '}' && !hasNewlineBetween(src, toks[endIdx].end, toks[endIdx + 1].start)) {
-            return null;
-          }
+          else if (toks[endIdx + 1] && toks[endIdx + 1].text !== '}') return null;
           edits.push({ start: t.start, end: toks[endIdx].end, text: src.slice(t.start, toks[endIdx].end).replace(/[^\r\n]/g, ' '), isVarDecl: true });
           i = endIdx;
           continue;
@@ -6757,7 +6758,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
               if (op >= 0 && toks[op - 1]?.text !== '?') isRetType = true;
             }
             const isFnParam = p2?.type === 'id' && p3?.text === '(' &&
-              (toks[i - 4]?.type === 'id' || toks[i - 4]?.text === 'function' || toks[i - 4]?.text === '>');
+              (toks[i - 4]?.text === 'function' || (toks[i - 4]?.type === 'id' && toks[i - 5]?.text === 'function'));
             const isParamOrDecl = p2?.type === 'id' && p3 && (DECL_MOD.has(p3.text) || isFnParam || (cur.text === '?' && (p3.text === '(' || p3.text === ',')));
             const isTypePos = isRetType || p2?.text === '?' || isParamOrDecl;
             if (!isTypePos) continue;
@@ -7053,12 +7054,16 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
             let j = i + 2;
             while (j < cb) {
               if (toks[j].type === 'id' && toks[j].text === 'type' && toks[j + 1]?.type === 'str') {
+                // Must start a specifier (right after `{` or `,`)
+                if (j !== i + 2 && toks[j - 1].text !== ',') return null;
                 let endK = j + 1;
-                if (toks[endK + 1]?.type === 'id' && toks[endK + 1].text === 'as' &&
-                    toks[endK + 2] && (toks[endK + 2].type === 'id' || toks[endK + 2].type === 'str')) {
+                if (toks[endK + 1]?.type === 'id' && toks[endK + 1].text === 'as') {
+                  if (!toks[endK + 2] || (toks[endK + 2].type !== 'id' && toks[endK + 2].type !== 'str')) return null;
                   endK += 2;
                 }
-                if (toks[endK + 1]?.text === ',') endK++;
+                const afterSpec = toks[endK + 1];
+                if (endK + 1 !== cb && afterSpec?.text !== ',') return null;
+                if (afterSpec?.text === ',') endK++;
                 edits.push({ start: toks[j].start, end: toks[endK].end, text: source.slice(toks[j].start, toks[endK].end).replace(/[^\r\n]/g, ' ') });
                 j = endK + 1;
                 continue;

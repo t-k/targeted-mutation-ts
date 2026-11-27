@@ -3886,4 +3886,30 @@ test('F196 official spec suite push: AST-exact ceiling push (0 FP)', () => {
     const r = sameAsTypeScript(source, file);
     assert.notEqual(r.backend, 'typescript', `${file}: ${source}`);
   }
+  // Round 61 review regressions (gpt-6.1-terra + gpt-6.2-sol)
+  const runG = code => {
+    const g = { hits: 0, out: null };
+    new Function('globalThis', code)(g);
+    return g;
+  };
+  for (const [file, source, check] of [
+    ['r61-ns-export-star-id-inst.ts', 'module N { export * from X; }\nglobalThis.out = typeof N;\n', g => assert.equal(g.out, 'object')],
+    ['r61-ns-export-star-str-inst.ts', 'module N { export * from "m"; }\nglobalThis.out = typeof N;\n', g => assert.equal(g.out, 'object')],
+    ['r61-ns-export-star-computed.ts', 'globalThis.hits = 0;\nmodule N { export * from foo\n[globalThis.hits++]; }\n', g => assert.equal(g.hits, 0)],
+    ['r61-bodyless-obj-method-nonnull.ts', 'const o = { m(a: !x) ; }; globalThis.out = Object.keys(o).length;\n', g => assert.equal(g.out, 0)],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    check(runG(r.code));
+  }
+  for (const [file, source] of [
+    ['r61-ns-export-star-return.ts', 'module N { export * from return; }\n'],
+    ['r61-arb-missing-comma-1.ts', 'export { type "x" type "y" } from "x";\n'],
+    ['r61-arb-missing-comma-2.ts', 'export { type "x" x } from "m";\n'],
+    ['r61-arb-missing-as-target.ts', 'export { type "x" as } from "x";\n'],
+    ['r61-arb-dup-type.ts', 'import { type type "x" as y } from "m";\n'],
+  ]) {
+    const r = compile(source, { file, target: 'esnext', module: 'preserve' });
+    assert.equal(r.code, null, file);
+    assert.ok(r.diagnostics.length > 0, file);
+  }
 });
