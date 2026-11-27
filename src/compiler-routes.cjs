@@ -2057,9 +2057,11 @@ function compile(input, options = {}) {
     } else if (wellFormed && slashes === 2 && typed && !jsxFile && mode === 'transform') {
       const addon = loadModuleAddon();
       if (addon) {
-        const text = typeof stableInput === 'string' ? stableInput : source.toString();
+        const rawText = typeof stableInput === 'string' ? stableInput : source.toString();
+        const text = rawText.charCodeAt(0) === 0xFEFF && !rawText.startsWith('\uFEFF#!') ? rawText.slice(1) : rawText;
+        const textBuf = text === rawText ? source : Buffer.from(text);
         if (!/\/\/\/[ \t\f\v]*</.test(source.latin1Slice())) {
-          const plainJs = validJavaScriptTsModule(addon, source, text, file, format, false, false);
+          const plainJs = validJavaScriptTsModule(addon, textBuf, text, file, format, false, false);
           if (plainJs) return plainJs;
         }
         // Leading triple-slash comments like `/// <amd-dependency .../>`, `/// <amd-module .../>` (in preserve mode),
@@ -2067,7 +2069,7 @@ function compile(input, options = {}) {
         if ((format === 'preserve' || !/\/\/\/[ \t\f\v]*<amd-module\b/i.test(text)) &&
             !/\/\/\/[ \t\f\v]*<reference\b(?![ \t]+(?:path|types|lib|no-default-lib)[ \t]*=(?:"[^"\r\n]*"|'[^'\r\n]*')(?:[ \t]+[a-z-]+[ \t]*=(?:"[^"\r\n]*"|'[^'\r\n]*'))*[ \t]*\/>)/.test(text)) {
           let result = /\b(?:import|export)\b/.test(text) ? eraseModule(addon, text, file, format, false) : null;
-          if (!result && format === 'preserve') result = eraseScript(addon, text, source, file, true, true);
+          if (!result && format === 'preserve') result = eraseScript(addon, text, textBuf, file, true, true);
           if (result) return result;
           if (format === 'preserve' && !hasEscapedKeyword(text, false) && /\b(?:namespace|module|enum|require|export|constructor)\b/.test(text)) {
             const tsLower = require('./compiler-ts-lower.cjs');

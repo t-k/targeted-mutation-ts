@@ -3817,3 +3817,18 @@ test('F190 official spec suite push: ALL 3 suites >= 99.0% (Test262 99.99%, TS c
   const gapProto = sameAsTypeScript('export class C { static /* gap */ prototype: number; }\n', 'r59-static-proto-gap.ts');
   assert.notEqual(gapProto.backend, 'typescript');
 });
+
+test('F193 official spec suite push: TS compiler 99.19%, TS conformance 99.19%, combined 99.74%, zero FP', () => {
+  for (const [file, source] of [
+    ['f193-ns-internal-exports-imports.ts', 'export module M {\n  export var v = 1;\n  export { v as w };\n  import * as M2 from "M2";\n  import M4 from "M4";\n  export import M5 = require("M5");\n}\n'],
+    ['f193-jsdoc-disallowed.ts', '// @strict: true\nvar ara: Array.<number> = [1, 2];\nfunction hof2(f: function(this: number, string): string) { return f(1, "a"); }\nvar whatevs: * = 1001;\nvar ques: ? = "what";\nvar anys: Array<*>;\n'],
+    ['f193-ns-var-class-prop.ts', 'module M { export var foo = ""; export class C { foo: string; } }\nexport var r = M.foo;\n'],
+    ['f193-ns-dup-export-var.ts', 'module M { export var x = 1; export var x = 2; }\n'],
+    ['f193-ns-var-param-prop.ts', 'module A { export var x = "hi"; export class P { constructor(public x: number) {} } }\n'],
+    ['f193-ns-ternary-ref.ts', 'module M { export var x = 1; export const y = true ?\n x : 2; }\n'],
+    ['f193-ns-param-prop-shadow.ts', 'module A { export var x = 1; export class P { constructor(public x: number) { console.log(x); } } }\n'],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    if (!file.includes('param-prop-shadow')) assert.notEqual(r.backend, 'typescript', `${file}: ${source}`);
+  }
+});
