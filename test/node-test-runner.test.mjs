@@ -234,7 +234,7 @@ describe('isAdult', () => {
     writeFileSync(join(dir, 'src/math.mjs'), 'for (;;) {}\nexport function isAdult(age) { return age >= 18; }\n');
     const timeoutRun = runNodeTest(dir, dir, { testFiles: ['test/math.test.mjs'], timeout: 1_500 });
     assert.equal(timeoutRun.status, 'timeout');
-    assert.match(timeoutRun.statusReason, /Node test runner timed out/);
+    assert.match(timeoutRun.statusReason, /Node test (?:runner timed out|timeout)/);
     assert.equal(verdict(timeoutRun, passRun), 'timeout');
   } finally {
     rmSync(dir, { recursive: true, force: true });

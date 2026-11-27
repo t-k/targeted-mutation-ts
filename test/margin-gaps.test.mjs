@@ -63,12 +63,12 @@ function oracleMargin(pairs, operator = '>=') {
   };
 }
 
-const rows = readFileSync(new URL('../verification/pict/margin-gaps.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1)
+const rows = readFileSync(new URL('../verification/pict/margin-gaps.tsv', import.meta.url), 'utf8').trim().split(/\r?\n/).slice(1)
   .map(line => line.split('\t'));
 const opSymbols = { Lt: '<', Le: '<=', Gt: '>', Ge: '>=' };
 
 test('the margin-gaps PICT table has every required seed', () => {
-  const seeds = readFileSync(new URL('../verification/pict/margin-gaps.seed.tsv', import.meta.url), 'utf8').trim().split('\n').slice(1);
+  const seeds = readFileSync(new URL('../verification/pict/margin-gaps.seed.tsv', import.meta.url), 'utf8').trim().split(/\r?\n/).slice(1);
   const table = new Set(rows.map(row => row.join('\t')));
   for (const seed of seeds) assert.ok(table.has(seed), seed);
 });
