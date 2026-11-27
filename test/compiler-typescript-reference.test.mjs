@@ -3897,16 +3897,21 @@ test('F196 official spec suite push: AST-exact ceiling push (0 FP)', () => {
     ['r61-ns-export-star-str-inst.ts', 'module N { export * from "m"; }\nglobalThis.out = typeof N;\n', g => assert.equal(g.out, 'object')],
     ['r61-ns-export-star-computed.ts', 'globalThis.hits = 0;\nmodule N { export * from foo\n[globalThis.hits++]; }\n', g => assert.equal(g.hits, 0)],
     ['r61-bodyless-obj-method-nonnull.ts', 'const o = { m(a: !x) ; }; globalThis.out = Object.keys(o).length;\n', g => assert.equal(g.out, 0)],
+    ['r61-bodyless-obj-fn-nonnull.ts', 'const o = { function(a: !T); }; globalThis.out = Object.keys(o).length;\n', g => assert.equal(g.out, 0)],
+    ['r61-bodyless-obj-opt-nonnull.ts', 'const o = { m(a?: !T); }; globalThis.out = Object.keys(o).length;\n', g => assert.equal(g.out, 0)],
   ]) {
     const r = sameAsTypeScript(source, file);
     check(runG(r.code));
   }
   for (const [file, source] of [
     ['r61-ns-export-star-return.ts', 'module N { export * from return; }\n'],
+    ['r61-ns-export-star-await.ts', 'module N { export * from await; }\n'],
+    ['r61-ns-export-star-bad-str.ts', 'module N { export * from "\\xZ"; }\n'],
     ['r61-arb-missing-comma-1.ts', 'export { type "x" type "y" } from "x";\n'],
     ['r61-arb-missing-comma-2.ts', 'export { type "x" x } from "m";\n'],
     ['r61-arb-missing-as-target.ts', 'export { type "x" as } from "x";\n'],
     ['r61-arb-dup-type.ts', 'import { type type "x" as y } from "m";\n'],
+    ['r61-arb-bad-str-alias.ts', 'export { type "x" as "\\xZ" } from "m";\n'],
   ]) {
     const r = compile(source, { file, target: 'esnext', module: 'preserve' });
     assert.equal(r.code, null, file);

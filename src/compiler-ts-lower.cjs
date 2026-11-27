@@ -1342,7 +1342,10 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         if (kw && kw.text === '*' && toks[idx + 1]?.type === 'id' && toks[idx + 1].text === 'from' &&
             toks[idx + 2] && (toks[idx + 2].type === 'id' || toks[idx + 2].type === 'str')) {
           if (toks[idx + 2].type === 'id') {
-            try { stripTypeScriptTypes(`(${toks[idx + 2].text});`); } catch { return null; }
+            if (toks[idx + 2].text === 'await') return null;
+            try { stripTypeScriptTypes(`export default ${toks[idx + 2].text};`); } catch { return null; }
+          } else {
+            try { stripTypeScriptTypes(`export * from ${toks[idx + 2].text};`); } catch { return null; }
           }
           let endIdx = idx + 2;
           if (toks[endIdx + 1]?.text === ';') endIdx++;
@@ -6757,10 +6760,17 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
               }
               if (op >= 0 && toks[op - 1]?.text !== '?') isRetType = true;
             }
-            const isFnParam = p2?.type === 'id' && p3?.text === '(' &&
-              (toks[i - 4]?.text === 'function' || (toks[i - 4]?.type === 'id' && toks[i - 5]?.text === 'function'));
-            const isParamOrDecl = p2?.type === 'id' && p3 && (DECL_MOD.has(p3.text) || isFnParam || (cur.text === '?' && (p3.text === '(' || p3.text === ',')));
-            const isTypePos = isRetType || p2?.text === '?' || isParamOrDecl;
+            let isBodylessMethod = false;
+            if (p3?.text === '(' || (p2?.text === '?' && toks[i - 4]?.text === '(')) {
+              const openP = p3?.text === '(' ? i - 3 : i - 4;
+              const cp = findMatchingParen(toks, openP);
+              if (cp > openP && toks[cp + 1]?.text === ';') isBodylessMethod = true;
+            }
+            const isFnParam = !isBodylessMethod && p2?.type === 'id' && p3?.text === '(' &&
+              ((toks[i - 4]?.text === 'function' && toks[i - 5]?.text !== '{' && toks[i - 5]?.text !== ',') ||
+               (toks[i - 4]?.type === 'id' && toks[i - 5]?.text === 'function'));
+            const isParamOrDecl = !isBodylessMethod && p2?.type === 'id' && p3 && (DECL_MOD.has(p3.text) || isFnParam || (cur.text === '?' && (p3.text === '(' || p3.text === ',')));
+            const isTypePos = !isBodylessMethod && (isRetType || p2?.text === '?' || isParamOrDecl);
             if (!isTypePos) continue;
           }
           edits.push({ start: cur.start, end: cur.end, text: ' ' });
@@ -7056,9 +7066,13 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
               if (toks[j].type === 'id' && toks[j].text === 'type' && toks[j + 1]?.type === 'str') {
                 // Must start a specifier (right after `{` or `,`)
                 if (j !== i + 2 && toks[j - 1].text !== ',') return null;
+                try { stripTypeScriptTypes(`(${toks[j + 1].text});`); } catch { return null; }
                 let endK = j + 1;
                 if (toks[endK + 1]?.type === 'id' && toks[endK + 1].text === 'as') {
                   if (!toks[endK + 2] || (toks[endK + 2].type !== 'id' && toks[endK + 2].type !== 'str')) return null;
+                  if (toks[endK + 2].type === 'str') {
+                    try { stripTypeScriptTypes(`(${toks[endK + 2].text});`); } catch { return null; }
+                  }
                   endK += 2;
                 }
                 const afterSpec = toks[endK + 1];
