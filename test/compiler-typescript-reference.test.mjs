@@ -3676,3 +3676,35 @@ test('F184 official spec suite push: Test262 99.98%, TS compiler/conformance 98.
     sameAsTypeScript(source, file);
   }
 });
+
+test('F187 official spec suite push: Test262 99.99%, TS compiler/conformance 98.8%+, zero FP', () => {
+  for (const [file, source] of [
+    ['f187-unpaired-surrogate-reexport.ts', 'export { "\\uD83D" } from "./m.js";\nexport {};\n'],
+    ['f187-unpaired-surrogate-as-reexport.ts', 'export { "☿" as "\\uD83D" } from "./m.js";\nexport {};\n'],
+    ['f187-strict-import-public-req.ts', '"use strict"\nimport public = require("1");\n'],
+    ['f187-strict-empty-mod-public.ts', '"use strict"\nmodule public {}\nmodule private.public.foo {}\n'],
+    ['f187-unary-strict-eval.ts', '"use strict"\n++eval;\n--arguments;\neval++;\n'],
+    ['f187-paren-comma-lhs.ts', 'var x;\n(1, x) = 0;\n'],
+    ['f187-spread-angle-assert.ts', 'let o = { ...<object>{} };\n'],
+    ['f187-return-nl-angle-obj.ts', 'function f() { return <any>\n{}; }\n'],
+    ['f187-enum-cross-ref-const.ts', 'const enum A { Zero, One }\nconst enum B { X = A.One }\n'],
+    ['f187-using-module.ts', 'using d1 = { [Symbol.dispose]() {} };\nexport {};\n'],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    assert.notEqual(r.backend, 'typescript', `${file}: ${source}`);
+  }
+  // Negative rejections:
+  for (const [file, source] of [
+    ['f187-bad-export-trailing-tok.ts', 'export { a } foo;\n'],
+    ['f187-bad-paren-lhs-inner.ts', '(1 + ) = 0;\n'],
+  ]) {
+    const tm = ts.transpileModule(source, {
+      fileName: file,
+      reportDiagnostics: true,
+      compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.Preserve, verbatimModuleSyntax: true, jsx: ts.JsxEmit.ReactJSX },
+    });
+    assert.ok((tm.diagnostics || []).some(d => d.category === ts.DiagnosticCategory.Error), `TS must reject: ${file}`);
+    const r = compile(Buffer.from(source), { file });
+    assert.equal(r.code, null, `must reject invalid TS: ${file}`);
+  }
+});

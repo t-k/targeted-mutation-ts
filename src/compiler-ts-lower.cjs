@@ -666,6 +666,24 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
       }
       return null;
     }
+    if (toks[pos].type === 'id' && allEnums instanceof Map && allEnums.has(toks[pos].text) &&
+        ((toks[pos + 1]?.text === '.' && toks[pos + 2]?.type === 'id') ||
+         (toks[pos + 1]?.text === '[' && toks[pos + 2]?.type === 'str' && toks[pos + 3]?.text === ']'))) {
+      const otherName = toks[pos].text;
+      const otherEnv = allEnums.get(otherName);
+      const isOtherMerged = enumDeclCounts && (enumDeclCounts.get(otherName) ?? 0) > 1;
+      if (otherEnv && !isOtherMerged) {
+        const k = toks[pos + 1].text === '.' ? toks[pos + 2].text : decodeSimpleStringToken(toks[pos + 2]);
+        if (k !== null && otherEnv.has(k)) {
+          const prev = otherEnv.get(k);
+          if (prev.kind === 'num') {
+            pos += toks[pos + 1].text === '.' ? 3 : 4;
+            return prev.value;
+          }
+        }
+      }
+      return null;
+    }
     if (toks[pos].type === 'id' && env.has(toks[pos].text)) {
       const prev = env.get(toks[pos++].text);
       return prev.kind === 'num' ? prev.value : null;
@@ -1167,7 +1185,7 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         const bodySrc = src.slice(toks[openIdx].end, toks[closeIdx].start);
 
         if (isTypeOnlyNamespaceBody(bodySrc)) {
-          if (!allowTypeOnlyBlank) return null;
+          if (!allowTypeOnlyBlank && bodySrc.trim() !== '') return null;
           const blank = src.slice(t.start, toks[closeIdx].end).replace(/[^\r\n]/g, ' ');
           edits.push({ start: t.start, end: toks[closeIdx].end, text: blank });
           i = closeIdx;
@@ -1840,8 +1858,8 @@ function eraseAngleBracketAssertions(source) {
   if (!source.includes('<')) return null;
   const toks = tokenize(source);
   if (!toks) return null;
-  const EXPR_PREFIX = new Set(['=', '(', '[', ',', ':', '?', ';', '{', '}', '=>', 'return', 'throw', 'await', 'yield', 'typeof', 'void', 'delete', '!', '~', '+', '-', '*', '/', '%', '&', '|', '^']);
-  const EXPR_OBJ_PREFIX = new Set(['=', '(', '[', ',', ':', '?', 'return', 'throw', 'await', 'yield']);
+  const EXPR_PREFIX = new Set(['=', '(', '[', ',', ':', '?', ';', '{', '}', '=>', '...', 'return', 'throw', 'await', 'yield', 'typeof', 'void', 'delete', '!', '~', '+', '-', '*', '/', '%', '&', '|', '^']);
+  const EXPR_OBJ_PREFIX = new Set(['=', '(', '[', ',', ':', '?', '...', 'return', 'throw', 'await', 'yield']);
   const edits = [];
   for (let i = 0; i < toks.length; i++) {
     if (toks[i].type !== 'punc' || toks[i].text !== '<') continue;
@@ -1877,13 +1895,20 @@ function eraseAngleBracketAssertions(source) {
     if (after.text === '{') {
       const closeBr = findMatchingBrace(toks, k);
       if (closeBr > k) {
-        const needsParens = !prev || prev.text === '=>' || prev.text === ';' || prev.text === '{' || prev.text === '}';
+        const isAsiKw = prev && (prev.text === 'return' || prev.text === 'yield') && hasNewlineBetween(source, prev.end, after.start);
+        const needsParens = !prev || prev.text === '=>' || prev.text === ';' || prev.text === '{' || prev.text === '}' || isAsiKw;
         if (needsParens || EXPR_OBJ_PREFIX.has(prev.text)) {
           const startOff = toks[i].start;
           const endOff = toks[k - 1].end;
           const blank = source.slice(startOff, endOff).replace(/[^\r\n]/g, ' ');
           edits.push({ start: startOff, end: endOff, text: blank });
-          if (needsParens) {
+          if (isAsiKw) {
+            // Keep `(` on the same line as `return`/`yield` to prevent ASI (`return;\n({});`)
+            edits.push({ start: prev.end, end: after.start, text: ' (' });
+            edits.push({ start: toks[closeBr].end, end: toks[closeBr].end, text: ')' });
+            // Remove the inner `<T>` edit since `prev.end..after.start` covers it
+            edits.splice(edits.length - 3, 1);
+          } else if (needsParens) {
             edits.push({ start: after.start, end: after.start, text: '(' });
             edits.push({ start: toks[closeBr].end, end: toks[closeBr].end, text: ')' });
           }
@@ -6341,6 +6366,68 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
         work += source.slice(pos);
         const stripped = tryStrip(work);
         if (stripped !== null) return stripped;
+      }
+    }
+  }
+
+  // `The left-hand side of an assignment expression`: `++eval`/`arguments--` and parenthesized LHS `(1, x) = 0;`
+  if (errMsg.includes('The left-hand side of an assignment expression')) {
+    if ((source.includes('eval') || source.includes('arguments')) && !source.includes('__tmt_ea_')) {
+      const toks = tokenize(source);
+      if (toks) {
+        const eaEdits = [];
+        const eaSaved = [];
+        for (let i = 0; i < toks.length; i++) {
+          const t = toks[i];
+          if (t.type !== 'id' || (t.text !== 'eval' && t.text !== 'arguments') || toks[i - 1]?.text === '.') continue;
+          const prevInc = i >= 2 && (toks[i - 1].text === '+' || toks[i - 1].text === '-') && toks[i - 2].text === toks[i - 1].text && toks[i - 2].end === toks[i - 1].start;
+          const nextInc = i + 2 < toks.length && (toks[i + 1].text === '+' || toks[i + 1].text === '-') && toks[i + 2].text === toks[i + 1].text && toks[i + 1].end === toks[i + 2].start;
+          if (prevInc || nextInc) {
+            const ph = `__tmt_ea_${eaSaved.length}__`;
+            eaSaved.push([ph, t.text]);
+            eaEdits.push({ start: t.start, end: t.end, text: ph });
+          }
+        }
+        if (eaEdits.length > 0) {
+          let work = '', pos = 0;
+          for (const e of eaEdits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+          work += source.slice(pos);
+          let stripped = tryStrip(work);
+          if (stripped !== null) {
+            for (const [ph, orig] of eaSaved) stripped = stripped.replace(ph, orig);
+            return stripped;
+          }
+        }
+      }
+    }
+    if (!source.includes('__tmt_plhs_')) {
+      const toks = tokenize(source);
+      if (toks) {
+        const pEdits = [];
+        const pSaved = [];
+        for (let i = 0; i < toks.length - 3; i++) {
+          if (toks[i].text === '(' && (i === 0 || toks[i - 1].text === ';' || toks[i - 1].text === '{' || toks[i - 1].text === '}' || toks[i - 1].text === ',' || hasNewlineBetween(source, toks[i - 1].end, toks[i].start))) {
+            const cp = findMatchingParen(toks, i);
+            if (cp > i + 1 && toks[cp + 1]?.text === '=' && toks[cp + 2]?.text !== '=') {
+              const inner = source.slice(toks[i].start, toks[cp].end);
+              try { stripTypeScriptTypes(`(${inner});`); } catch { continue; }
+              const ph = `__tmt_plhs_${pSaved.length}__`;
+              pSaved.push([ph, inner]);
+              pEdits.push({ start: toks[i].start, end: toks[cp].end, text: ph });
+              i = cp;
+            }
+          }
+        }
+        if (pEdits.length > 0) {
+          let work = '', pos = 0;
+          for (const e of pEdits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+          work += source.slice(pos);
+          let stripped = tryStrip(work);
+          if (stripped !== null) {
+            for (const [ph, orig] of pSaved) stripped = stripped.replace(ph, () => orig);
+            return stripped;
+          }
+        }
       }
     }
   }

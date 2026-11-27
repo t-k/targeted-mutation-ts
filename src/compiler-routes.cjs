@@ -435,7 +435,7 @@ function hasEscapedKeyword(text, checkGenericCall = true) {
 // A .ts/.mts file that contains no TypeScript syntax and passes V8's parser (or Node's strict-identity
 // strip check with TS 6.0.3 compatibility guards) can be published natively when it avoids the few
 // ES2025/Unicode/legacy forms that V8/SWC accept and TypeScript 6.0.3 rejects.
-const tsRejectsInStripIdentity = /\b0\d*_|0[bBoOxX]_|\d\._|(?<![A-Za-z0-9_$])\._\d|\bfor\s*\([^;()]*;[^;()]*\)|\bfor\s*\(\s*let\s*[;=]|\{\s*(?:while|for|if|return|class|function|var|const|default|extends|this|false|true|null)\s*[,}]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|(?:^|[;\r\n{])[ \t]*await[ \t]*[:=;]|@\(\s*await\s*\)|\bvoid[ \t]+await[ \t]*[;,}]|\bawait[ \t]*=>|\bnew[ \t]+await\b|\basync\b[^;\n]*=[ \t]*(?:\([ \t]*await[ \t]*\)[ \t]*=>|await[ \t]*[),])|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
+const tsRejectsInStripIdentity = /\b0\d*_|0[bBoOxX]_|\d\._|(?<![A-Za-z0-9_$])\._\d|\bfor\s*\([^;()]*;[^;()]*\)|\bfor\s*\(\s*let\s*[;=]|\{\s*(?:while|for|if|return|class|function|var|const|default|extends|this|false|true|null)\s*[,}]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|(?:^|[;\r\n{])[ \t]*await[ \t]*[:=;]|@\(\s*await\s*\)|\bvoid[ \t]+await[ \t]*[;,}]|\bawait[ \t]*=>|\bnew[ \t]+await\b|\basync\b[^;\n]*=[ \t]*(?:\([ \t]*await[ \t]*\)[ \t]*=>|await[ \t]*[),])|\basync[ \t]*[\r\n]+[ \t]*[A-Za-z_$][\w$]*\s*\(|\bvar\s+this\b|#\s|<!--|-->|\bexport\s*\{[^}]*\}[ \t]*(?![ \t]|[\r\n;]|$|\/\/|\/\*|from\b)|\bimplements\s*\{/;
 
 function hasTsAwaitYieldHazard(noComments) {
   const hasYieldShorthand = /\{\s*yield\s*[,}]/.test(noComments);
@@ -628,7 +628,7 @@ function validJavaScriptTsModule(addon, source, text, file, format, directive = 
     if (genericCallSafe && trail !== null && !/\b(?:import|export|await)\b|\b0[0-9]|\\[1-7]|\\0[0-9]/.test(trail[1]) && validators.validScript(trail[1])) {
       code = text;
     } else if (!/[\u2028\u2029]/.test(text) && !hasDuplicateTopLevelLexical(text) &&
-        !(/[^\x00-\x7f]/.test(text) && /\bexport\s*\{\s*[^}\s]/.test(text)) &&
+        !(/[^\x00-\x7f]/.test(text) && /\bexport\s*\{\s*[^}\s][^}]*\}(?!\s*from\b)/.test(text)) &&
         !/\bconstructor\s*\([^)]*\b(?:public|private|protected|readonly)\b/.test(text) &&
         (text.includes('export {};') || text.includes('---*/') || !hasInvalidRegexLiteral(text))) {
       // 2. Pure-JS module that passes Node's stripTypeScriptTypes verbatim (identity output) while
@@ -757,6 +757,16 @@ function strip(source, file) {
 
 function verifyRuntimeExports(result, file, addon, bytes) {
   if (!/\bexport(?:\s|\/\*[^]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*\{/.test(result.code)) return result;
+  // Skip Pulse's unboundExport check when every `export { ... }` is either empty (`export {}`) or a
+  // re-export (`export { ... } from "..."`), since neither can reference an unbound local binding.
+  const noComments = (result.code.includes('/*') || result.code.includes('//'))
+    ? result.code.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*/g, (m, str) => str || ' ')
+    : result.code;
+  let hasLocalNonEmptyExport = false;
+  for (const m of noComments.matchAll(/\bexport\s*\{([^}]*)\}\s*(from\b)?/g)) {
+    if (m[1].trim() !== '' && !m[2]) { hasLocalNonEmptyExport = true; break; }
+  }
+  if (!hasLocalNonEmptyExport) return result;
   const checker = addon ?? loadModuleAddon();
   if (!checker?.unboundExport?.(bytes ?? Buffer.from(result.code))) return result;
   return fail(result.backend, [...result.diagnostics, {
@@ -783,6 +793,7 @@ function isUseStrictDirective(source, at) {
   nextTrivia.exec(source);
   const next = source[nextTrivia.lastIndex];
   if (next === undefined) return true;
+  if ((next === '+' || next === '-') && source[nextTrivia.lastIndex + 1] === next) return true;
   if ('[(`+-/.?&|*^=<>,'.includes(next)) return false;
   if (/^(?:in|instanceof)\b/.test(source.slice(nextTrivia.lastIndex, nextTrivia.lastIndex + 12))) return false;
   return true;
@@ -1016,7 +1027,9 @@ function eraseModule(addon, source, file, format, parameterProperty) {
   if (format === 'preserve') {
     const valid = javascriptTextValidator();
     if (valid && valid(result.code)) return result;
-    if (/\bimport\s*\.\s*meta\b/.test(result.code) && !hasInvalidRegexLiteral(result.code)) return result;
+    if ((/\bimport\s*\.\s*meta\b/.test(result.code) || (/\busing\b/.test(result.code) && require('./compiler-ts-lower.cjs').hasTopLevelModuleSyntax(result.code))) && !hasInvalidRegexLiteral(result.code)) {
+      return verifyRuntimeExports(result, file, addon, emitted);
+    }
   }
   return null;
 }
@@ -1954,7 +1967,7 @@ function compile(input, options = {}) {
                           if (isMod) {
                             const isEmptyMod = relaxed.replace(/\/\*[\s\S]*?\*\/|\/\/[^\r\n]*/g, '').replace(/[;\s]+/g, '') === '';
                             if (isEmptyMod) return { backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] };
-                            if (!/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(work) && (hasModuleMarker(addon, relaxed, workBuf) || tsLower.hasTopLevelModuleSyntax(relaxed))) {
+                            if (!/(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(work) && (cjsPre.hasCjsModule || hasModuleMarker(addon, relaxed, workBuf) || tsLower.hasTopLevelModuleSyntax(relaxed))) {
                               const verified = verifyRuntimeExports({ backend: 'node-strip', code: relaxed, sourceMap: null, diagnostics: [] }, file, addon, workBuf);
                               if (verified.code !== null) return verified;
                             }
