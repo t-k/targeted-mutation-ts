@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0
+
+- Add prebuilt Windows x64 native runtime support (`@targeted-mutation/tmt-win32-x64`) shipping both the native parser addon (`tmt.node`) and the Lean 4 decision executable (`tmt-decide.exe`), installed automatically as an optional dependency on Windows x64 Node.js while preserving the portable TypeScript/JavaScript fallback on other Windows architectures and `--omit=optional` installs.
+- Build and verify the Windows x64 native package in CI (`windows-2025`) and the `Release` workflow, including transitive optional-dependency installation checks, clean-`PATH` (`System32`) binary smoke checks, and Windows path-leak checks.
+
 ## 0.7.0
 
 - Add native `node:test` runner support (`--runner node`, also configurable via `"runner": "node"` in `targeted-mutation.config.json`):
