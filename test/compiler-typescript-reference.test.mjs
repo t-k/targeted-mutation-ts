@@ -3742,3 +3742,37 @@ test('F187 official spec suite push: Test262 99.99%, TS compiler/conformance 98.
     }
   }
 });
+
+test('F190 official spec suite push: ALL 3 suites >= 99.0% (Test262 99.99%, TS compiler 99.02%, TS conformance 99.00%), zero FP', () => {
+  for (const [file, source] of [
+    ['f190-for-of-angle-assert.ts', 'for (const x of <number[]>[1, 2]) { console.log(x); }\n'],
+    ['f190-ctor-param-dec-prop.ts', 'declare function Dec(t: any, k: any, i: any): any;\nclass C { constructor(@Dec public x: number) {} }\n'],
+    ['f190-ctor-field-named-ctor.ts', 'class Foo { constructor(public constructor: string) {} }\n'],
+    ['f190-uninit-dstr-mixed.ts', 'var [a], {b}, c, d;\nvar [a4] = [undefined], {b4} = { b4: null };\n'],
+    ['f190-cjs-import-type-elision.ts', 'interface I {}\nexport = I;\nimport type J = require("./a");\n'],
+    ['f190-invalid-nonnull-as.ts', 'const a = 1 as any!;\nconst b: number! = 1;\nconst c = 1 as !any;\n'],
+    ['f190-override-ctor-and-declare.ts', 'class B { p = 1; } class D extends B { override declare p: number; override readonly q: number; override constructor() { super(); } }\n'],
+    ['f190-variance-dup-mods.ts', 'type T20<public T> = T;\ntype T21<in out in T> = T;\ntype T23<out in T> = T;\nconst x = 1;\n'],
+    ['f190-jsdoc-wildcard-prop.ts', 'declare var dec: any;\nclass X { @dec() a?: string?; @dec() c?: *; }\n'],
+    ['f190-ns-internal-import-req.ts', 'export module M { import foo = require("./a"); var a = foo.x; }\n'],
+    ['f190-static-prototype-mod.ts', 'export class C { static prototype: number; }\n'],
+    ['f190-default-val-fn-type.ts', 'type F = ({ a = 0 }: { a?: number }) => void;\nvar x: (a: number = 1) => number;\n'],
+    ['f190-ambient-break-return.ts', 'declare module M { break; continue; return; }\n'],
+    ['f190-ambient-dup-export.ts', 'declare module A { export export var x; export export function f(); }\n'],
+    ['f190-ns-fn-obj-return-type.ts', 'module M { export function f(a: any): number | { new <T>(x: T): T; } { return 1; } }\n'],
+    ['f190-ns-exported-var-and-type.ts', '// @strict: true\nexport namespace T { export type K = "a"; export const K = { A: "a" as K }; }\n'],
+    ['f190-labeled-decl-erasure.ts', 'label: enum E {}\nlabel: interface I {}\nlabel: type T = {}\nlabel: module M {}\n'],
+    ['f190-named-tuple-errors.ts', 'export type Opt = [element: string?];\nexport type Rest = [first: string, rest: ...string[]];\n'],
+    ['f190-private-incompatible-mods.ts', 'class A { public #a = 1; declare #b: number; public get #c() { return 1; } declare get #d(); }\n'],
+    ['f190-enum-self-ref.ts', 'enum E { A = A, B = E.B, C = E["C"], D = 1 + D }\n'],
+    ['f190-enum-cross-prop.ts', 'enum Foo { a = 2, b = 3, x = a.b } enum Bar { a = (1).valueOf(), b = Foo.a, c = Foo.a.valueOf(), d = Foo.a.a }\n'],
+    ['f190-enum-in-module-this.ts', 'enum Top { A = this }\nmodule M { enum InM { B = this } }\n'],
+    ['f190-asi-public-private.ts', 'public\nclass A { public s() {} }\nclass B { public\nprivate f() {} }\n'],
+    ['f190-arrow-line-break.ts', 'var f1 = ()\n => {};\nvar f2 = (a: number): number\n => a;\nmodule m { export enum E { c = (()\n => 10)() } }\n'],
+    ['f190-import-class-mods.ts', 'module x { interface c {} }\nexport public import a = x.c;\nexport private import b = x.c;\n'],
+    ['f190-decl-internal-aliases.ts', 'module m { export class c {} } module m2 { export import x = m.c; export var d = new x(); }\n'],
+  ]) {
+    const r = sameAsTypeScript(source, file);
+    assert.notEqual(r.backend, 'typescript', `${file}: ${source}`);
+  }
+});

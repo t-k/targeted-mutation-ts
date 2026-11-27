@@ -474,8 +474,8 @@
     "diagnostics": []
   },
   "certification/parameter-property-constructor/lf/first.ts": {
-    "backend": "typescript",
-    "codeSha256": "1ca180a0ac8aa7a9d9700324f4e30def028cb3f0fbc2d12659e101668668f76f",
+    "backend": "node-strip",
+    "codeSha256": "94a11e674b522a56854c7c0cb378d20b92f9eede8e4bfb7455efff53132d671e",
     "diagnostics": []
   },
   "certification/parameter-property-constructor/lf/after-import.ts": {
@@ -484,13 +484,13 @@
     "diagnostics": []
   },
   "certification/parameter-property-constructor/lf/after-erased.ts": {
-    "backend": "typescript",
-    "codeSha256": "1ca180a0ac8aa7a9d9700324f4e30def028cb3f0fbc2d12659e101668668f76f",
+    "backend": "node-strip",
+    "codeSha256": "9a6709824defb6c0e93d866d273cef8ba086fec00919e2ec63209c7bdb748d71",
     "diagnostics": []
   },
   "certification/parameter-property-constructor/crlf/first.ts": {
-    "backend": "typescript",
-    "codeSha256": "1ca180a0ac8aa7a9d9700324f4e30def028cb3f0fbc2d12659e101668668f76f",
+    "backend": "node-strip",
+    "codeSha256": "48d4da9abb80a6d4488013b4220b7cbe0fb545b7b994cc5dee5733abba8f9026",
     "diagnostics": []
   },
   "certification/parameter-property-constructor/crlf/after-import.ts": {
@@ -499,8 +499,8 @@
     "diagnostics": []
   },
   "certification/parameter-property-constructor/crlf/after-erased.ts": {
-    "backend": "typescript",
-    "codeSha256": "1ca180a0ac8aa7a9d9700324f4e30def028cb3f0fbc2d12659e101668668f76f",
+    "backend": "node-strip",
+    "codeSha256": "917da67b25a112810a53f8cd3f2e2599af00690410b63e4b21f092522fee461a",
     "diagnostics": []
   },
   "certification/local-overload/lf/first.ts": {
@@ -1446,33 +1446,33 @@
     "diagnostics": []
   },
   "certification/parameter-property-constructor/lf/first.tsx": {
-    "backend": "typescript",
-    "codeSha256": "bf8cda56a99d6acf5234d830d4916290a06d70d9e0a587d297bfb2a58247144a",
+    "backend": "node-strip",
+    "codeSha256": "97d2937cc3622d8b3b7c04f2c4d8832386c2a30a166d4cc4090d06dd436a16ca",
     "diagnostics": []
   },
   "certification/parameter-property-constructor/lf/after-import.tsx": {
-    "backend": "typescript",
-    "codeSha256": "f9a84637b3616a6647810bc3ca81fbd2ef63ae826f0763add09e158f0cb9b066",
+    "backend": "node-strip",
+    "codeSha256": "f749094c938fc6d32a7f474da8ba41f1fd74f0f9e35ac5117e6e8b3b1c072907",
     "diagnostics": []
   },
   "certification/parameter-property-constructor/lf/after-erased.tsx": {
-    "backend": "typescript",
-    "codeSha256": "bf8cda56a99d6acf5234d830d4916290a06d70d9e0a587d297bfb2a58247144a",
+    "backend": "node-strip",
+    "codeSha256": "70f4c9c15eae6d57db4dbecff4717f52c093f3de06fab8b3d6fb875177811675",
     "diagnostics": []
   },
   "certification/parameter-property-constructor/crlf/first.tsx": {
-    "backend": "typescript",
-    "codeSha256": "bf8cda56a99d6acf5234d830d4916290a06d70d9e0a587d297bfb2a58247144a",
+    "backend": "node-strip",
+    "codeSha256": "914895cd0542e65a00326f88785b1774144706fdf2279ca408be433afb64f4ae",
     "diagnostics": []
   },
   "certification/parameter-property-constructor/crlf/after-import.tsx": {
-    "backend": "typescript",
-    "codeSha256": "f9a84637b3616a6647810bc3ca81fbd2ef63ae826f0763add09e158f0cb9b066",
+    "backend": "node-strip",
+    "codeSha256": "6d68b358fcb2b5ff84ff37e45fc17d87b62098c83ea7f6d59517f6566e5ee855",
     "diagnostics": []
   },
   "certification/parameter-property-constructor/crlf/after-erased.tsx": {
-    "backend": "typescript",
-    "codeSha256": "bf8cda56a99d6acf5234d830d4916290a06d70d9e0a587d297bfb2a58247144a",
+    "backend": "node-strip",
+    "codeSha256": "743f2863e791757eb48a95b4688cae97ff976e67da5aa65ca9dd26c78bb3649d",
     "diagnostics": []
   },
   "certification/local-overload/lf/first.tsx": {

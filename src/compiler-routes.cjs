@@ -1041,7 +1041,7 @@ function eraseModule(addon, source, file, format, parameterProperty) {
   if (format === 'preserve') {
     const valid = javascriptTextValidator();
     if (valid && valid(result.code)) return result;
-    if ((/\bimport\s*\.\s*meta\b/.test(result.code) || (/\busing\b/.test(result.code) && require('./compiler-ts-lower.cjs').hasTopLevelModuleSyntax(result.code))) && !hasInvalidRegexLiteral(result.code)) {
+    if ((/\bimport\s*\.\s*meta\b/.test(result.code) || ((/\busing\b/.test(result.code) || /\bstatic\s+prototype\b/.test(result.code)) && require('./compiler-ts-lower.cjs').hasTopLevelModuleSyntax(result.code))) && !hasInvalidRegexLiteral(result.code)) {
       return verifyRuntimeExports(result, file, addon, emitted);
     }
   }
@@ -1916,7 +1916,7 @@ function compile(input, options = {}) {
             const triedOrigMod = !directive && (property || annotated === true || addon.moduleMarker(source, true));
             const noBom = text.charCodeAt(0) === 0xFEFF && !text.startsWith('\uFEFF#!') ? text.slice(1) : text;
             const hasTsDirectiveComment = noBom.includes('// @') || noBom.includes('//@');
-            const extMod = directive || hasTsDirectiveComment || noBom.includes('declare module') || noBom.includes('declare global') || /\bexport[ \t]+(?:default|declare)\b/.test(noBom);
+            const extMod = directive || hasTsDirectiveComment || noBom.includes('declare module') || noBom.includes('declare global') || /\bexport[ \t]+(?:default|declare)\b/.test(noBom) || /\bstatic\s+prototype\b/.test(noBom);
             let result = (!triedOrigMod && extMod && !/[^\x00-\x7f]/.test(noBom) && /\b(?:import|export)\b/.test(noBom))
               ? eraseModule(addon, noBom, file, format, property) : null;
             if (!result && !triedOrigMod && !hasNbspOutsideStrings(noBom) && format === 'preserve') result = eraseScript(addon, noBom, Buffer.from(noBom), file, directive, true);
@@ -1951,9 +1951,12 @@ function compile(input, options = {}) {
                           ? eraseModule(addon, work, file, format, property)
                           : (!hadModBeforeAmb ? eraseScript(addon, work, workBuf, file, workDir, true) : null);
                         if (loweredRes) return loweredRes;
-                        if (cjsPre.hasCjsModule && !tsLower.hasTopLevelModuleSyntax(work)) {
+                        if (cjsPre.hasCjsModule) {
                           const stripped = strip(work, file);
-                          if (stripped.code !== null) return stripped;
+                          if (stripped.code !== null && !hasModuleMarker(addon, stripped.code)) {
+                            const verified = verifyRuntimeExports(stripped, file, addon);
+                            if (verified.code !== null) return verified;
+                          }
                         }
                       }
                       const probe = strip(work, file);
