@@ -504,11 +504,15 @@ test('Codex Round 1 regressions: Math getter/swap/await safety, TS erased method
   // `retLogical(3, 0)` returned `3 !== true`, so `retLogical -> true` MUST record `differ` (`[0, 1, 0]`), NOT `agree`!
   assert.deepEqual([...condEval.ns.observed[retTrueMut.id].tests.t1], [0, 1, 0]);
 
-  // 6. `a ?? undefined` and `if (a ?? false)` omit equivalent right-drop `ignored-operand/v1`!
+  // 6. `a ?? undefined` and `if (a ?? false)` avoid misleading "so the fallback `undefined`/`false` is used" wording!
   const eqvNullishSrc = 'export const f = (a: any) => a ?? undefined;\nexport const g = (a: any) => { if (a ?? false) return 1; return 0; };\n';
   const eqvNullishRendered = renderBuiltinSwitches(Buffer.from(eqvNullishSrc), 'src/eqv.ts', () => true, { dialect: 'ts', targeted: true });
   const rightDrops = eqvNullishRendered.mutants.filter(m => m.mutatorName === 'ignored-operand/v1' && m.targeted?.form === 'right');
-  assert.equal(rightDrops.length, 0, 'equivalent ?? right-drops must be omitted');
+  assert.equal(rightDrops.length, 2);
+  const undefGap = targetedGap({ ...rightDrops[0], status: 'survived', evidence: 'reexecuted' }, { agreeing: 1, differing: [], unsure: [], agree: ['1'] });
+  const falsyCondGap = targetedGap({ ...rightDrops[1], status: 'survived', evidence: 'reexecuted' }, { agreeing: 1, differing: [], unsure: [], agree: ['1'] });
+  assert.doesNotMatch(undefGap?.missing ?? '', /so the fallback/);
+  assert.doesNotMatch(falsyCondGap?.missing ?? '', /so the fallback/);
 
   // 7. Local + hoisted `node_modules` coexistence, `--copy-exclude` with directory arg, and strict `webServer.url` origin check!
   const monoDir = mkdtempSync(join(tmpdir(), 'tmt-mono-both-'));

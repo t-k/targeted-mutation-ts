@@ -625,11 +625,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       const isPureRight = written(node.right);
       const more = { thunk: true, ...(isPureRight ? { pureRight: true, rightText: right } : {}) };
       edit(targetedRules.ignored, 'left', `(${left}, ${right})`, more);
-      const eqvNullishRight = operator === '??' &&
-        (safeNullishLiteral(node.right) === 'undefined' || (truthContextKind(node) === 1 && writtenFalsy(node.right)));
-      if (!eqvNullishRight) {
-        edit(targetedRules.ignored, 'right', `(${left} ${operator} (${right}, ${ignoredValue[operator]}))`, more);
-      }
+      edit(targetedRules.ignored, 'right', `(${left} ${operator} (${right}, ${ignoredValue[operator]}))`, more);
       // Only `??` and non-boolean `||` can emit `nullish-fallback/v1`; avoid triggering lazy type-checking for `&&`.
       const canEmitFallback = operator === '??' || (operator === '||' && !boolean);
       if (!canEmitFallback) return;

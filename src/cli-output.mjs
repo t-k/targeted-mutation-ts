@@ -316,10 +316,13 @@ function describeBaseline(baseline = {}) {
     seenErrorLines.add(msg);
     lines.push(`  ERROR ${msg}`);
   }
-  if (!baseline.failedTests?.length && !baseline.fileErrors?.length && baseline.output?.trim()) {
+  const hasOpaqueWebServerError = Boolean(baseline.errors?.length) &&
+    baseline.errors.every(error => /config\.webServer/i.test(firstLine(error)));
+  if (!baseline.failedTests?.length && !baseline.fileErrors?.length &&
+      (!baseline.errors?.length || hasOpaqueWebServerError) && baseline.output?.trim()) {
     const outputLines = printable(baseline.output).trim().split('\n')
       .map(line => line.trimEnd())
-      .filter(line => line.trim() && !seenErrorLines.has(line.trim()));
+      .filter(line => !hasOpaqueWebServerError || (line.trim() && !seenErrorLines.has(line.trim())));
     if (outputLines.length) {
       lines.push(...outputLines.slice(-20).map(line => `  ${line}`));
     }
