@@ -37,12 +37,65 @@ try {
     ...auditFlags, '-isystem', headers, 'native/compiler/validate-js.cc'];
   const checked = spawnSync(cpp, [...validatorSources, '-c', '-o', validator], { cwd: root, encoding: 'utf8' });
   if (values['audit-v8'] && checked.status !== 0) throw new Error(checked.stderr || checked.error?.message);
-  const moduleFlags = checked.status === 0 ? ['-DTMT_V8_VALIDATOR', ...auditFlags, validator] : [];
+  const fastStripObj = resolve(scratch, 'fast-strip.o');
+  const fastStripArgs = ['-std=c11', '-O3', ...cpuFlags, '-fPIC', '-fvisibility=hidden',
+    '-Wall', '-Wextra', '-Werror', '-I', 'native/runtime',
+    ...(values['scalar-scans'] ? ['-DTMT_SCALAR_SCANS'] : []),
+    '-c', 'native/compiler/fast-strip.c', '-o', fastStripObj];
+  const fastStripBuilt = spawnSync(compiler, fastStripArgs, { cwd: root, encoding: 'utf8' });
+  if (fastStripBuilt.status !== 0) throw new Error(fastStripBuilt.stderr || fastStripBuilt.error?.message);
+  const moduleFlags = checked.status === 0 ? ['-DTMT_V8_VALIDATOR', ...auditFlags, fastStripObj, validator] : [];
   const binaries = ['compiler.node', 'compiler-module.node'];
   const javascript = 'compiler-js.node';
   if (checked.status === 0) {
-    const built = spawnSync(cpp, [...validatorSources, ...shared, '-DTMT_JAVASCRIPT_ADDON',
-      '-o', resolve(scratch, javascript)], { cwd: root, encoding: 'utf8' });
+    const fastStripLto = resolve(scratch, 'fast-strip-lto.o');
+    const fsLto = spawnSync(compiler, ['-flto', ...fastStripArgs.slice(0, -1), fastStripLto], { cwd: root, encoding: 'utf8' });
+    const fsObjForJs = fsLto.status === 0 ? fastStripLto : fastStripObj;
+    const jsPgoArgs = [];
+    if (usePgo && !values['audit-v8']) {
+      const jsProfRaw = resolve(scratch, 'js.profraw');
+      const jsProfData = resolve(scratch, 'js.profdata');
+      const jsInstOut = resolve(scratch, 'compiler-js-inst.node');
+      const fsInstObj = resolve(scratch, 'fast-strip-inst.o');
+      const fsInst = spawnSync(compiler, [...fastStripArgs.slice(0, -1), fsInstObj, '-fprofile-instr-generate=' + jsProfRaw], { cwd: root, encoding: 'utf8' });
+      if (fsInst.status === 0) {
+        const jsInstBuilt = spawnSync(cpp, [...validatorSources, ...shared, '-DTMT_JAVASCRIPT_ADDON',
+          '-I', 'native/compiler', '-fprofile-instr-generate=' + jsProfRaw, fsInstObj, '-o', jsInstOut], { cwd: root, encoding: 'utf8' });
+        if (jsInstBuilt.status === 0) {
+          const jsTrain = `
+            const fs = require('fs');
+            const addon = { exports: {} };
+            process.dlopen(addon, ${JSON.stringify(jsInstOut)});
+            const fast = addon.exports.emitFastModule;
+            if (fast && fs.existsSync('build/fable/corpora/as-mts.json')) {
+              const rows = JSON.parse(fs.readFileSync('build/fable/corpora/as-mts.json', 'utf8'));
+              for (let i = 0; i < rows.length; i++) {
+                const s = Buffer.from(rows[i].source, 'base64').toString('utf8');
+                if (typeof fast(s) === 'string') {
+                  for (let k = 0; k < 4; k++) fast(s);
+                }
+              }
+            }
+          `;
+          const trained = spawnSync(process.execPath, ['-e', jsTrain], { cwd: root, encoding: 'utf8' });
+          const profTool = macOS ? 'xcrun' : 'llvm-profdata';
+          const profCmd = macOS ? ['llvm-profdata', 'merge', '-output=' + jsProfData, jsProfRaw] : ['merge', '-output=' + jsProfData, jsProfRaw];
+          if (trained.status === 0 && existsSync(jsProfRaw) && spawnSync(profTool, profCmd, { cwd: root, encoding: 'utf8' }).status === 0) {
+            const fsPgoObj = resolve(scratch, 'fast-strip-pgo.o');
+            const fsPgo = spawnSync(compiler, ['-flto', ...fastStripArgs.slice(0, -1), fsPgoObj,
+              '-fprofile-instr-use=' + jsProfData, '-Wno-profile-instr-out-of-date', '-Wno-profile-instr-unprofiled'], { cwd: root, encoding: 'utf8' });
+            if (fsPgo.status === 0) {
+              jsPgoArgs.push('-fprofile-instr-use=' + jsProfData, '-Wno-profile-instr-out-of-date', '-Wno-profile-instr-unprofiled');
+            }
+          }
+        }
+      }
+    }
+    const finalFsObj = jsPgoArgs.length ? resolve(scratch, 'fast-strip-pgo.o') : fsObjForJs;
+    const jsArgs = [...validatorSources, ...shared, '-DTMT_JAVASCRIPT_ADDON',
+      '-I', 'native/compiler', ...jsPgoArgs, finalFsObj, '-o', resolve(scratch, javascript)];
+    const builtLto = spawnSync(cpp, ['-flto', ...jsArgs], { cwd: root, encoding: 'utf8' });
+    const built = builtLto.status === 0 ? builtLto : spawnSync(cpp, jsArgs, { cwd: root, encoding: 'utf8' });
     if (built.status !== 0) throw new Error(built.stderr || built.error?.message);
     binaries.push(javascript);
   }

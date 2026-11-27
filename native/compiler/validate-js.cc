@@ -5,6 +5,10 @@
 
 #ifdef TMT_JAVASCRIPT_ADDON
 #include <node.h>
+#include <vector>
+extern "C" {
+#include "fast-strip.h"
+}
 #endif
 
 #include <cstdint>
@@ -224,6 +228,72 @@ static void emit_javascript(const v8::FunctionCallbackInfo<v8::Value>& args)
   if (valid_script(isolate, code)) args.GetReturnValue().Set(code);
 }
 
+#ifndef TMT_AUDIT_V8
+/*
+ * Direct V8 fast-path for default-option ASCII `.mts` modules: runs single-pass zero-alloc
+ * `tmt_fast_strip_module`, creates the V8 string ONCE (or reuses the input string when unedited),
+ * validates it with V8 `CompileModule`, and returns it directly with zero N-API overhead.
+ */
+static void emit_fast_module(const v8::FunctionCallbackInfo<v8::Value>& args)
+{
+  if (args.Length() != 1) return;
+  v8::Isolate *isolate = args.GetIsolate();
+  static thread_local std::vector<uint8_t> in_buf;
+  static thread_local std::vector<char> out_buf;
+  constexpr size_t limit = 1048576;
+
+  const uint8_t *text = nullptr;
+  size_t size = 0;
+  v8::Local<v8::String> input_str;
+  bool from_str = false;
+
+  if (args[0]->IsString()) {
+    input_str = args[0].As<v8::String>();
+    if (!input_str->IsOneByte()) return;
+    size = static_cast<size_t>(input_str->Length());
+    if (!size || size > limit) return;
+    if (in_buf.size() < size) in_buf.resize(size < 65536 ? 65536 : size);
+    input_str->WriteOneByteV2(isolate, 0, static_cast<uint32_t>(size), in_buf.data(), 0);
+    if (ascii_prefix(in_buf.data(), size) != size) return;
+    text = in_buf.data();
+    from_str = true;
+  } else if (args[0]->IsUint8Array()) {
+    const auto view = args[0].As<v8::Uint8Array>();
+    const auto buffer = view->Buffer();
+    size = view->ByteLength();
+    if (!size || size > limit || buffer->IsSharedArrayBuffer()) return;
+    text = static_cast<const uint8_t *>(buffer->Data()) + view->ByteOffset();
+    if (ascii_prefix(text, size) != size) return;
+  } else {
+    return;
+  }
+
+  /* Decline hashbangs and leading triple-slash directives to the full compiler. */
+  if (text[0] == '#') return;
+  bool certain = true;
+  const size_t first_at = trivia_end(text, size, 0, &certain);
+  if (!certain || first_at >= size) return;
+  if (first_at >= 3 && contains(text, first_at, "///")) return;
+
+  if (out_buf.size() < size + 16) out_buf.resize(size + 16 < 65536 ? 65536 : size + 16);
+  size_t out_len = 0;
+  bool edited = false;
+  char *out = tmt_fast_strip_module(text, static_cast<uint32_t>(size),
+                                    static_cast<uint32_t>(first_at), true,
+                                    out_buf.data(), &out_len, &edited);
+  if (!out) return;
+
+  v8::Local<v8::String> result;
+  if (!edited && from_str && out_len == size) {
+    result = input_str;
+  } else if (!v8::String::NewFromOneByte(isolate, reinterpret_cast<const uint8_t *>(out),
+                                         v8::NewStringType::kNormal, static_cast<int>(out_len)).ToLocal(&result)) {
+    return;
+  }
+  if (valid_module(isolate, result, "ts")) args.GetReturnValue().Set(result);
+}
+#endif
+
 NODE_MODULE_INIT()
 {
   v8::Local<v8::Function> validate;
@@ -238,6 +308,12 @@ NODE_MODULE_INIT()
   if (!v8::Function::New(context, emit_javascript).ToLocal(&emit)) return;
   exports->Set(context, v8::String::NewFromUtf8Literal(context->GetIsolate(), "emitJavaScript"), emit)
     .FromMaybe(false);
+#ifndef TMT_AUDIT_V8
+  v8::Local<v8::Function> fast_mod;
+  if (!v8::Function::New(context, emit_fast_module).ToLocal(&fast_mod)) return;
+  exports->Set(context, v8::String::NewFromUtf8Literal(context->GetIsolate(), "emitFastModule"), fast_mod)
+    .FromMaybe(false);
+#endif
 }
 #else
 #ifdef TMT_AUDIT_V8
@@ -267,4 +343,19 @@ extern "C" bool tmt_valid_javascript_module(const char *code, size_t length)
 #endif
   return valid_module(isolate, text, phase);
 }
+
+#ifndef TMT_AUDIT_V8
+extern "C" bool tmt_valid_javascript_module_latin1(const char *code, size_t length)
+{
+  auto *isolate = v8::Isolate::GetCurrent();
+  if (!isolate || length > INT_MAX) return false;
+  v8::HandleScope handles(isolate);
+  v8::Local<v8::String> text;
+  if (!v8::String::NewFromOneByte(isolate, reinterpret_cast<const uint8_t *>(code),
+                                  v8::NewStringType::kNormal, static_cast<int>(length)).ToLocal(&text)) {
+    return false;
+  }
+  return valid_module(isolate, text, nullptr);
+}
+#endif
 #endif

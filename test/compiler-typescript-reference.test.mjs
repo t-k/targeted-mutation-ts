@@ -4202,3 +4202,122 @@ test('R64 workspace reuse, single-pass string ingress, multi-file .mts, and pars
     assert.equal(rJsV.code, jsRegV);
   }
 });
+
+test('R66 fast-strip.c / emitFastModule soundness and edge-case regression coverage', () => {
+  // 1. Classes, abstract/default classes, declare class, heritage expressions, index signatures
+  const clsSrc = [
+    'export declare class Ambient<T> { static readonly tag: string; constructor(x: T); #priv: number; }',
+    'export default abstract class Base<T> extends Object implements Iterable<T> {',
+    '  public readonly items: T[] = [];',
+    '  [k: string]: unknown;',
+    '  abstract run(x: T): void;',
+    '  override toString(): string { return ""; }',
+    '}',
+    'export const Mixin = class<U> extends Base<U> { run(x: U): void { void x; } };',
+  ].join('\n') + '\n';
+  for (const inp of [clsSrc, Buffer.from(clsSrc)]) {
+    const r = compile(inp, { file: 'r66-class.mts' });
+    assert.equal(r.backend, 'pulse');
+    assert.ok(typeof r.code === 'string');
+    assert.ok(!r.code.includes('abstract'));
+    assert.ok(!r.code.includes('implements'));
+    assert.ok(!r.code.includes('readonly'));
+  }
+
+  // 2. Generic calls, generic arrows, as const, {} as Foo, 0 < x comparisons, yield <any>\n(1)
+  const exprSrc = [
+    'export const id = <T extends number>(x: T): T => x;',
+    'export const a = id<number>(1);',
+    'export const b = {} as const;',
+    'export const c = (0 < 1) ? ([1] as const) : ([] as readonly number[]);',
+    'export const d = f(1 < 2, 3 > (4));',
+  ].join('\n') + '\n';
+  const rExpr = compile(exprSrc, { file: 'r66-expr.mts' });
+  assert.equal(rExpr.backend, 'pulse');
+  assert.ok(!rExpr.code.includes('<number>'));
+  assert.ok(!rExpr.code.includes('as const'));
+  assert.ok(rExpr.code.includes('0 < 1'));
+  assert.ok(rExpr.code.includes('f(1 < 2, 3 > (4))'));
+
+  // 3. Export/import type forms, inline type specifiers, export default interface, overloads
+  const modSrc = [
+    'import { type Foo, bar } from "./dep.js";',
+    'export type * as NS from "./ns.js" with { type: "json" };',
+    'export default interface DefaultIface { [Symbol.dispose](): void; }',
+    'export function over(x: number): number;',
+    'export function over(x: string): string;',
+    'export function over(x: number | string): number | string { return x; }',
+    'export { type Foo, bar };',
+  ].join('\n') + '\n';
+  const rMod = compile(modSrc, { file: 'r66-mod.mts' });
+  assert.equal(rMod.backend, 'pulse');
+  assert.ok(!rMod.code.includes('DefaultIface'));
+  assert.ok(!rMod.code.includes('type Foo'));
+  assert.ok(rMod.code.includes('bar'));
+
+  // 4. Soundness: invalid TS in erased types MUST fail (fpOnTsErr == 0)
+  for (const bad of [
+    'export type Bad1 = number | () => void;\n',
+    'export type Bad2 = number | new () => object;\n',
+    'import type defer * as ns from "./a.js";\nexport const x = 1;\n',
+    'export type Bad3 = { a: ( };\nexport const x = 1;\n',
+    'export type BadNum1 = 0x;\nexport const z = 1;\n',
+    'export type BadNum2 = 1.2.3;\nexport const z = 1;\n',
+    'export type BadStr = "\\xZZ";\nexport const z = 1;\n',
+    'export const badPred = 1 as a is b;\n',
+    'export type BadPredAlias = a is b;\nexport const z = 1;\n',
+    'export type BadComma = { , };\nexport const x = 1;\n',
+    'export type BadReadonly = { +readonly x: number };\nexport const x = 1;\n',
+    'export type BadParamKw = (class: number) => void;\nexport const x = 1;\n',
+  ]) {
+    for (const sourceMap of [false, true]) {
+      for (const inp of [bad, Buffer.from(bad)]) {
+        const rBad = compile(inp, { file: 'r66-bad.mts', sourceMap });
+        assert.equal(rBad.code, null, `must reject invalid TS (sourceMap=${sourceMap}): ${bad}`);
+        assert.ok(rBad.diagnostics.length > 0);
+      }
+    }
+  }
+
+  // Valid mapped type with +readonly / -readonly and valid `this` param in function type
+  const goodMapped = 'export type RO<T> = { +readonly [K in keyof T]-?: T[K] };\nexport type Fn = (this: object, x: number) => void;\nexport const ok = 1;\n';
+  const rMapped = compile(goodMapped, { file: 'r66-mapped.mts' });
+  assert.equal(rMapped.backend, 'pulse');
+  assert.ok(rMapped.code.includes('export const ok = 1;'));
+
+  // 5. `static readonly` / `static public` class field/method modifiers must not inject `;` that splits `static` from member
+  const staticCls = 'export class C { static readonly x = 1; static public m(): number { return 2; } }\n';
+  const rStatic = compile(staticCls, { file: 'r66-static.mts' });
+  assert.equal(rStatic.backend, 'pulse');
+  assert.match(rStatic.code, /static\s+x\s*=\s*1;/);
+  assert.match(rStatic.code, /static\s+m\(\)\s*\{/);
+
+  // 6. Valid type predicate in function return position is still accepted
+  const goodPred = 'export function isStr(x: unknown): x is string { return typeof x === "string"; }\n';
+  const rGoodPred = compile(goodPred, { file: 'r66-pred.mts' });
+  assert.equal(rGoodPred.backend, 'pulse');
+  assert.ok(!rGoodPred.code.includes('is string'));
+
+  // 7. Regex after `if (...)`, multiline `f<T>\n(1)`, ASI before `[foo]` after `type T = number`, and deep parens
+  const reAfterIf = 'export let y = 0; if (true) /a!b/.test("a b") && (y = 1);\n';
+  const rRe = compile(reAfterIf, { file: 'r66-re.mts' });
+  assert.equal(rRe.backend, 'pulse');
+  assert.ok(rRe.code.includes('/a!b/'), `must not erase ! inside regex after if (...): ${rRe.code}`);
+
+  const multiGeneric = 'const f = (x: number) => x + 1; const T = 0; export const x = f<T>\n(1);\n';
+  const rMultiG = compile(multiGeneric, { file: 'r66-mg.mts' });
+  assert.equal(rMultiG.backend, 'pulse');
+  assert.ok(!rMultiG.code.includes('<T>'), `must erase multiline generic call f<T>\\n(1): ${rMultiG.code}`);
+
+  const asiBracket = 'export const a = 1; type T = number\n[foo];\n';
+  const rAsi = compile(asiBracket, { file: 'r66-asi.mts' });
+  assert.equal(rAsi.backend, 'pulse');
+  assert.ok(rAsi.code.includes('[foo]'), `must keep [foo] after ASI newline: ${rAsi.code}`);
+
+  const deepParens = 'export const x = ' + '(a + '.repeat(800) + '0' + ')'.repeat(800) + ';\n';
+  const t0 = performance.now();
+  const rDeep = compile(deepParens, { file: 'r66-deep.mts' });
+  assert.equal(rDeep.backend, 'pulse');
+  assert.ok(typeof rDeep.code === 'string');
+  assert.ok(performance.now() - t0 < 100, 'deeply nested parens must remain linear');
+});

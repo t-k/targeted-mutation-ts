@@ -1657,6 +1657,11 @@ static char *workspace_out_buf(reusable_workspace *rws, size_t needed) {
   return grown;
 }
 
+char *tmt_workspace_out_buf(void *ws, size_t needed) {
+  reusable_workspace *r = ws;
+  return r ? workspace_out_buf(r, needed) : NULL;
+}
+
 static bool module_after_prelude_ws(void *ws, uint8_t *source, uint32_t size, uint32_t at, bool first, bool validate) {
   reusable_workspace *rws = ws;
   module_workspace stack_memory;
@@ -1699,10 +1704,18 @@ bool tmt_audit_javascript_module(const char *code, size_t length, const char *ph
 #define validate_emission(code, length, phase) tmt_audit_javascript_module(code, length, phase)
 #else
 bool tmt_valid_javascript_module(const char *code, size_t length);
+bool tmt_valid_javascript_module_latin1(const char *code, size_t length);
 #define validate_emission(code, length, phase) tmt_valid_javascript_module(code, length)
 #endif
 bool tmt_valid_module_source(const char *source, size_t size) {
   return validate_emission(source, size, "javascript");
+}
+bool tmt_valid_module_source_latin1(const char *source, size_t size) {
+#ifdef TMT_AUDIT_V8
+  return validate_emission(source, size, "javascript");
+#else
+  return tmt_valid_javascript_module_latin1(source, size);
+#endif
 }
 
 /*

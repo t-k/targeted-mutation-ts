@@ -17,6 +17,8 @@ function nativeAddon(name) {
 
 let pulse;
 let v8;
+let fastEmit;
+let fastEmitLoaded = false;
 
 const tsx = 1;
 const esm = 2;
@@ -94,6 +96,16 @@ function compile(input, options) {
         if (code !== undefined) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
       }
     } else if (kind >= 0) {
+      if (kind === esm) {
+        if (!fastEmitLoaded) {
+          fastEmit = (v8 ??= nativeAddon('compiler-js.node')).emitFastModule;
+          fastEmitLoaded = true;
+        }
+        if (fastEmit !== undefined) {
+          const code = fastEmit(input);
+          if (code !== undefined) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
+        }
+      }
       const source = Buffer.isBuffer(input) || typeof input === 'string' ? input : null;
       const emit = source === null ? undefined : (pulse ??= nativeAddon('compiler-module.node')).emitTypeScript;
       if (emit !== undefined) {

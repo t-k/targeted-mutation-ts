@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "Custard.h"
+#include "fast-strip.h"
 #include "lowering.h"
 #include "source-map.h"
 
@@ -837,6 +838,32 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     if (output) goto publish;
   }
   if (!jsx || !memchr(source, '<', size)) {
+#if defined(TMT_V8_VALIDATOR) && !defined(TMT_AUDIT_V8)
+    /* Single-pass zero-allocation ASCII TS type-eraser + V8 CompileModule certification for mapped .mts modules
+     * (unmapped .mts modules already tried `emitFastModule` via the direct V8 entry in `compiler-js.node`). */
+    if ((flags & emit_mapped) && esm && !jsx && input_ascii && directive == TMT_TRIPLE_SLASH_ABSENT && source[0] != 0x23 && state && state->workspace) {
+      char *fs_buf = tmt_workspace_out_buf(state->workspace, size + 16);
+      if (fs_buf) {
+        bool fs_edited = false;
+        size_t fs_len = 0;
+        char *fs_out = tmt_fast_strip_module(source, width, known_first, esm, fs_buf, &fs_len, &fs_edited);
+        if (fs_out && (!(flags & emit_mapped) || fs_len >= size) && tmt_valid_module_source_latin1(fs_out, fs_len)) {
+          output = fs_out;
+          length = fs_len;
+          output_owned = false;
+          if ((flags & emit_mapped) && fs_len != size) {
+            runs.items = malloc(sizeof(tmt_run));
+            if (runs.items) {
+              runs.items[0] = (tmt_run){ .out = 0, .src = 0, .length = width };
+              runs.count = 1;
+              runs.capacity = 1;
+            }
+          }
+          goto publish;
+        }
+      }
+    }
+#endif
 #ifdef TMT_V8_VALIDATOR
     /* A large pure-JS ESM module without `<` (no generic calls `f<T>(1)` or HTML comments),
      * escapes, or TS-only import/optional-private forms, and with a verified top-level module
