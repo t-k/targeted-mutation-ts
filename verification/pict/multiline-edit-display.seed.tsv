@@ -1,0 +1,10 @@
+RuleShape	LineCount	Surface
+IgnoredRight	FourLinesLong	ListCandidate
+IgnoredRight	FourLinesLong	EvaluatedMutant
+IgnoredRight	FourLinesLong	AssertionGap
+IgnoredLeft	FourLinesLong	ListCandidate
+NullishFallback	FourLinesLong	InputGap
+EqualityConstant	FourLinesLong	ListCandidate
+SwitchEmptyCase	TwoLinesShort	EvaluatedMutant
+ArrowStub	TwoLinesShort	EvaluatedMutant
+SingleLineShort	SingleLine	InputGap

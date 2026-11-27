@@ -94,7 +94,10 @@ export function targetedGap(mutant, seen) {
     return { kind: 'ASSERTION GAP', ...common, tests: seen.differing, ...(seen.outside ? { outsideTests: true } : {}),
       ...(seen.differ ? { example: { operands: seen.differ } } : {}) };
   }
-  const missing = missingInput(mutant.targeted, mutant.original, mutant.mutatorName, mutant.replacement);
+  const baseMissing = missingInput(mutant.targeted, mutant.original, mutant.mutatorName, mutant.replacement);
+  const missing = seen.absorbed && mutant.targeted.guardExpression
+    ? `${baseMissing} and decides \`${clip(mutant.targeted.guardExpression)}\``
+    : baseMissing;
   // Where the recording could not work the edit out (a search callback, an object among the operands), the
   // tests may have the input already and only lack the assertion.
   if (seen.unsure?.length || seen.outsideUnsure) {

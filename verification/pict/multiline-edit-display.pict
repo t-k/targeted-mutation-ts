@@ -1,0 +1,9 @@
+# Multiline and long expression edit snippet formatting across CLI surfaces
+RuleShape: IgnoredRight, IgnoredLeft, NullishFallback, EqualityConstant, LogicalSwap, SwitchEmptyCase, ArrowStub, SingleLineShort
+LineCount: SingleLine, TwoLinesShort, FourLinesLong
+Surface: ListCandidate, EvaluatedMutant, AssertionGap, InputGap
+
+IF [RuleShape] = "SingleLineShort" THEN [LineCount] = "SingleLine";
+IF [RuleShape] = "SwitchEmptyCase" THEN [LineCount] <> "SingleLine";
+IF [RuleShape] = "SwitchEmptyCase" THEN [Surface] IN {"ListCandidate", "EvaluatedMutant"};
+IF [RuleShape] = "ArrowStub" THEN [Surface] IN {"ListCandidate", "EvaluatedMutant"};

@@ -92,23 +92,183 @@ const compactSnippet = (value, maxLength = 48) => {
   const flat = printable(value).replace(/\s+/g, ' ').trim();
   return flat.length > maxLength ? flat.slice(0, maxLength - 3) + '...' : flat;
 };
+const STUB_REPLACEMENTS = new Set(['() => undefined', '{}', '[]', '""', "''", '``', 'true', 'false']);
+
+function countLeadingChar(text, ch) {
+  let i = 0;
+  while (i < text.length && text[i] === ch) i++;
+  return i;
+}
+
+function countTrailingChar(text, ch) {
+  let i = 0;
+  while (i < text.length && text[text.length - 1 - i] === ch) i++;
+  return i;
+}
+
+function commonPrefixLength(a, aOffset, b, bOffset) {
+  const limit = Math.min(a.length - aOffset, b.length - bOffset);
+  let i = 0;
+  while (i < limit && a[aOffset + i] === b[bOffset + i]) i++;
+  return i;
+}
+
+function commonSuffixLength(a, aMin, aEnd, b, bMin, bEnd) {
+  const limit = Math.min(aEnd - aMin, bEnd - bMin);
+  let i = 0;
+  while (i < limit && a[aEnd - 1 - i] === b[bEnd - 1 - i]) i++;
+  return i;
+}
+
+function middleClip(text, maxLength = 68) {
+  if (text.length <= maxLength) return text;
+  const keepEnd = Math.max(12, Math.floor((maxLength - 3) * 0.45));
+  const keepStart = Math.max(12, maxLength - 3 - keepEnd);
+  return text.slice(0, keepStart).trimEnd() + '...' + text.slice(text.length - keepEnd).trimStart();
+}
+
+const flattenLines = value => printable(value).replace(/\s*(?:\r\n|[\n\r\u2028\u2029])\s*/g, ' ').trim();
+
+function windowAroundDiff(a, b, maxLength = 68) {
+  const p = commonPrefixLength(a, 0, b, 0);
+  const lead = Math.max(0, p - Math.floor((maxLength - 12) / 2));
+  const sliceOne = text => {
+    const start = Math.min(lead, Math.max(0, text.length - (maxLength - 6)));
+    const prefix = start > 0 ? '...' : '';
+    const budget = maxLength - prefix.length;
+    if (text.length - start <= budget) return prefix + text.slice(start);
+    return prefix + text.slice(start, start + budget - 3) + '...';
+  };
+  return [sliceOne(a), sliceOne(b)];
+}
+
+function formatEditPair(original, replacement, maxLength = 68) {
+  const origStr = String(original ?? '');
+  const replStr = String(replacement ?? '');
+  const origFirst = firstLine(origStr);
+  const replFirst = firstLine(replStr);
+  const rawOrig = flattenLines(origStr);
+  const rawRepl = flattenLines(replStr);
+
+  if (origFirst === replFirst && rawOrig !== rawRepl && /:\s*$/.test(rawRepl) && rawOrig.length > rawRepl.length) {
+    const origFlat = compactSnippet(origStr);
+    const shownRepl = `${compactSnippet(replStr, 40)} (empty)`;
+    if (origFlat !== shownRepl) return [origFlat, shownRepl];
+  }
+
+  const multiline = origStr.includes('\n') || replStr.includes('\n');
+  if (multiline && origFirst !== replFirst && STUB_REPLACEMENTS.has(rawRepl)) {
+    return [origFirst, replFirst];
+  }
+
+  if (rawOrig === rawRepl) return [origFirst, replFirst];
+  if (rawOrig.length <= maxLength && rawRepl.length <= maxLength) {
+    return [rawOrig, rawRepl];
+  }
+
+  let aStart = 0;
+  let bStart = 0;
+  let prefixLen = commonPrefixLength(rawOrig, 0, rawRepl, 0);
+  const openOrig = countLeadingChar(rawOrig, '(');
+  const openRepl = countLeadingChar(rawRepl, '(');
+  if (openRepl > openOrig) {
+    const extra = openRepl - openOrig;
+    const shifted = commonPrefixLength(rawOrig, 0, rawRepl, extra);
+    if (shifted > prefixLen) {
+      bStart = extra;
+      prefixLen = shifted;
+    }
+  } else if (openOrig > openRepl) {
+    const extra = openOrig - openRepl;
+    const shifted = commonPrefixLength(rawOrig, extra, rawRepl, 0);
+    if (shifted > prefixLen) {
+      aStart = extra;
+      prefixLen = shifted;
+    }
+  }
+
+  let cutHead = 0;
+  if (prefixLen > 20) {
+    const target = Math.max(8, prefixLen - 16);
+    const beforeSpace = rawOrig.lastIndexOf(' ', aStart + target);
+    if (beforeSpace > aStart + 6) {
+      cutHead = beforeSpace + 1 - aStart;
+    } else {
+      const afterSpace = rawOrig.indexOf(' ', aStart + target);
+      if (afterSpace !== -1 && afterSpace < aStart + prefixLen - 4) {
+        cutHead = afterSpace + 1 - aStart;
+      } else {
+        cutHead = prefixLen - 12;
+      }
+    }
+  }
+
+  let aEnd = rawOrig.length;
+  let bEnd = rawRepl.length;
+  let suffixLen = commonSuffixLength(rawOrig, aStart + prefixLen, aEnd, rawRepl, bStart + prefixLen, bEnd);
+  const closeOrig = countTrailingChar(rawOrig, ')');
+  const closeRepl = countTrailingChar(rawRepl, ')');
+  if (closeRepl > closeOrig) {
+    const extra = closeRepl - closeOrig;
+    if (bEnd - extra >= bStart + prefixLen) {
+      const shifted = commonSuffixLength(rawOrig, aStart + prefixLen, aEnd, rawRepl, bStart + prefixLen, bEnd - extra);
+      if (shifted > suffixLen) {
+        bEnd -= extra;
+        suffixLen = shifted;
+      }
+    }
+  } else if (closeOrig > closeRepl) {
+    const extra = closeOrig - closeRepl;
+    if (aEnd - extra >= aStart + prefixLen) {
+      const shifted = commonSuffixLength(rawOrig, aStart + prefixLen, aEnd - extra, rawRepl, bStart + prefixLen, bEnd);
+      if (shifted > suffixLen) {
+        aEnd -= extra;
+        suffixLen = shifted;
+      }
+    }
+  }
+
+  const buildWithHead = headCut => [
+    headCut > 0 ? `${rawOrig.slice(0, aStart)}...${rawOrig.slice(aStart + headCut)}` : rawOrig,
+    headCut > 0 ? `${rawRepl.slice(0, bStart)}...${rawRepl.slice(bStart + headCut)}` : rawRepl,
+  ];
+
+  let [shownOrig, shownRepl] = buildWithHead(cutHead);
+  if ((shownOrig.length > maxLength || shownRepl.length > maxLength) && suffixLen > 20) {
+    const keepSuffix = 12;
+    const spaceOffset = rawOrig.indexOf(' ', aEnd - suffixLen + keepSuffix);
+    const dropTail = (spaceOffset !== -1 && spaceOffset < aEnd - 6)
+      ? (aEnd - spaceOffset)
+      : (suffixLen - keepSuffix);
+    if (dropTail > 4) {
+      const origCore = headCutSlice(rawOrig, aStart, cutHead, aEnd - dropTail);
+      const replCore = headCutSlice(rawRepl, bStart, cutHead, bEnd - dropTail);
+      shownOrig = `${origCore}...${rawOrig.slice(aEnd)}`;
+      shownRepl = `${replCore}...${rawRepl.slice(bEnd)}`;
+    }
+  }
+
+  const clippedOrig = middleClip(shownOrig, maxLength);
+  const clippedRepl = middleClip(shownRepl, maxLength);
+  if (clippedOrig === clippedRepl && shownOrig !== shownRepl) {
+    return windowAroundDiff(shownOrig, shownRepl, maxLength);
+  }
+  return [clippedOrig, clippedRepl];
+}
+
+function headCutSlice(text, wrapperStart, cutHead, end) {
+  if (cutHead > 0) return `${text.slice(0, wrapperStart)}...${text.slice(wrapperStart + cutHead, end)}`;
+  return text.slice(0, end);
+}
+
 const at = location => location ? `${printable(location.file)}:${location.line}:${location.column}` : '(unknown location)';
 
 function describeEdit(mutant) {
   const name = mutant.mutatorName ?? mutant.rule ?? 'edit';
   if (mutant.since !== undefined) return `${name}: ${mutant.together ? 'the changes of the file together' : firstLine(mutant.original) || '(removed lines)'} as it was at ${printable(mutant.since.slice(0, 12))}`;
   if (mutant.original !== undefined) {
-    const origFirst = firstLine(mutant.original);
-    const replFirst = firstLine(mutant.replacement);
-    if (origFirst === replFirst && mutant.original !== mutant.replacement) {
-      const rawOrig = printable(mutant.original).replace(/\s+/g, ' ').trim();
-      const rawRepl = printable(mutant.replacement).replace(/\s+/g, ' ').trim();
-      const isEmptyClause = /:\s*$/.test(rawRepl) && rawOrig.length > rawRepl.length;
-      const origFlat = compactSnippet(mutant.original);
-      const shownRepl = isEmptyClause ? `${compactSnippet(mutant.replacement, 40)} (empty)` : compactSnippet(mutant.replacement);
-      if (origFlat !== shownRepl) return `${name}: ${origFlat} -> ${shownRepl}`;
-    }
-    return `${name}: ${origFirst} -> ${replFirst}`;
+    const [shownOrig, shownRepl] = formatEditPair(mutant.original, mutant.replacement);
+    return `${name}: ${shownOrig} -> ${shownRepl}`;
   }
   const operator = String(mutant.replacement).trim();
   if (mutant.operator !== undefined && /^[<>=!&|?+*\/%-]+$/.test(operator)) return `${name}: ${printable(mutant.operator)} -> ${operator}`;
@@ -182,7 +342,10 @@ function describeGap(gap) {
   }
   if (gap.expression !== undefined) {
     const edit = gap.mutations?.[0]?.replacement;
-    lines.push(`  \`${firstLine(gap.expression)}\` passes every test as \`${firstLine(edit)}\`` +
+    const [shownExpr, shownEdit] = edit !== undefined
+      ? formatEditPair(gap.expression, edit)
+      : [firstLine(gap.expression), ''];
+    lines.push(`  \`${shownExpr}\` passes every test as \`${shownEdit}\`` +
       (gap.reachedBy === undefined ? '' : ` (${gap.reachedBy} ${gap.reachedBy === 1 ? 'test reaches' : 'tests reach'} it)`));
     if (gap.advice) lines.push(`  ${printable(gap.advice)}`);
     else if (gap.missing && gap.uncertain) {
@@ -193,11 +356,15 @@ function describeGap(gap) {
     const edit = gap.mutations?.[0];
     if (edit) {
       const replacement = String(edit.replacement ?? '').trim();
-      const detail = gap.operator !== undefined && /^[<>=!&|?+*\/%-]+$/.test(replacement)
-        ? `\`${printable(gap.operator)} -> ${printable(replacement)}\``
-        : edit.original !== undefined
-          ? `\`${firstLine(edit.original)}\` -> \`${firstLine(edit.replacement)}\``
-          : `replace with \`${firstLine(edit.replacement)}\``;
+      let detail;
+      if (gap.operator !== undefined && /^[<>=!&|?+*\/%-]+$/.test(replacement)) {
+        detail = `\`${printable(gap.operator)} -> ${printable(replacement)}\``;
+      } else if (edit.original !== undefined) {
+        const [shownOrig, shownRepl] = formatEditPair(edit.original, edit.replacement);
+        detail = `\`${shownOrig}\` -> \`${shownRepl}\``;
+      } else {
+        detail = `replace with \`${firstLine(edit.replacement)}\``;
+      }
       lines.push(`  edit ${detail} survived`);
     }
     if (gap.advice) lines.push(`  ${printable(gap.advice)}`);

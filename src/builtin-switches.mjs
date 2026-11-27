@@ -31,7 +31,7 @@ const probe = (see, table, cover, scope, rows) => `
 function ${table}(i) {
   return (${table}.rows || (${table}.rows = ${JSON.stringify(rows)}))[i];
 }
-function ${see}(i, l, r, r2) {
+function ${see}(i, l, r, r2, g) {
   var site = ${table}(i), op = site[0], edits = site[2], kind = site[6], scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
   var utilTypes = ${table}.u !== void 0 ? ${table}.u : (${table}.u = typeof scope.process === 'object' && scope.process && typeof scope.process.getBuiltinModule === 'function' ? scope.process.getBuiltinModule('node:util').types : null);
   var isProxy = utilTypes ? utilTypes.isProxy : null;
@@ -336,9 +336,22 @@ function ${see}(i, l, r, r2) {
   note();
   return value;
   function note() {
-    var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '';
+    var seen = ns.observed || (ns.observed = {}), test = ns.currentTestId || '', gFn = g && (typeof g === 'function' ? g : g.g), rawR = g && g.r;
+    function isBuiltinBoolean() {
+      return typeof scope.Boolean === 'function' && scope.Boolean.name === 'Boolean' && isNativeFn(scope.Boolean) &&
+        scope.Boolean(0) === false && scope.Boolean(1) === true;
+    }
+    function sameInGuard(origLeaf, altLeaf) {
+      try {
+        var go = gFn(origLeaf), ga = gFn(altLeaf);
+        var truthOnly = site[8] === 1 || (site[8] === 2 && isBuiltinBoolean());
+        return truthOnly ? (!go === !ga) : is(go, ga);
+      } catch (e) {
+        return false;
+      }
+    }
     for (k = 0; k < edits.length; k++) {
-      var f = edits[k][1], same, other, spreadIdx, spreadKey, spreadHad;
+      var f = edits[k][1], same, other, altVal, absorbed = false, spreadIdx, spreadKey, spreadHad;
       if (threw) same = logical ? (f !== 'nullish' || missing) : null;
       else if (kind === 'c') same = null;
       else if (kind === 'p') {
@@ -390,17 +403,37 @@ function ${see}(i, l, r, r2) {
           var iso = isolatedRegexTest(site[8].alts[f], site[8].flags, arg1);
           same = iso === null ? null : is(value, iso);
         }
-      } else if (kind === 'e') same = value === edited(f);
-      else if (!logical) same = alike(f, value);
-      else if (site[5] || f === 'right') {
-        // A written right side can be evaluated to compare; the constant of an ignored right side needs no evaluation.
+      } else if (kind === 'e') {
+        altVal = edited(f);
+        same = value === altVal;
+        if (same === false && gFn && (op === '===' || op === '!==' || site[9] || (plain(l) && plain(r)))) {
+          if (sameInGuard(value, altVal)) { same = true; absorbed = true; }
+        }
+      } else if (!logical) {
+        same = alike(f, value);
+      } else if (site[5] || f === 'right' || rawR) {
+        // A written right side (or switch-free pure guard right side) can be evaluated without touching nested switches.
+        // When taken is true, original() already evaluated the right side once and stored its result in value,
+        // so never call r() a second time (which would double-count nested mutantCoverage and observed hits).
         if (f === 'right' && !taken) same = true;
         else {
-          other = f === 'right' ? constant : f === 'left' ? r() : (f === 'or' ? !l : missing) ? r() : l;
-          same = site[1] ? !value === !other : is(value, other);
+          var okR = true, rVal = value;
+          if (!taken && f !== 'right' && (f === 'left' || (f === 'or' ? !l : missing))) {
+            if (site[5]) rVal = r();
+            else { try { rVal = rawR(); } catch (e) { okR = false; } }
+          }
+          if (!okR) same = false;
+          else {
+            other = f === 'right' ? constant : f === 'left' ? rVal : (f === 'or' ? !l : missing) ? rVal : l;
+            same = site[1] ? !value === !other : is(value, other);
+            if (same === false && gFn) {
+              if (sameInGuard(value, other)) { same = true; absorbed = true; }
+            }
+          }
         }
       } else same = f === 'left' ? taken : missing || !!l;
       var entry = seen[edits[k][0]] || (seen[edits[k][0]] = { tests: {} }), counts = entry.tests[test] || (entry.tests[test] = [0, 0, 0]);
+      if (absorbed) entry.absorbed = true;
       if (kind === 'c' && !threw) {
         if (op === 'copyArray') {
           try { if (scope.Array.isArray(l)) entry.realCopy = true; else entry.nonArray = true; } catch (error) { /* leave unclassified */ }
@@ -485,6 +518,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   const shift = unusedName(text, '__tmtShift');
   const see = unusedName(text, '__tmtSee');
   const table = unusedName(text, '__tmtSite');
+  const valParam = unusedName(text, '__tmtVal');
   const probed = [];
   const identified = mutation => ({ ...mutation,
     id: createHash('sha256').update(JSON.stringify([file, mutation.name, mutation.start, mutation.end, mutation.replacement])).digest('hex').slice(0, 16) });
@@ -549,7 +583,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         // The operands are rendered in source order; what stands between them is the operation the probe performs.
         // Each in parentheses of its own: a probe inside may begin with `void 0,`, which must stay one argument.
         const operands = group.operands.map(([start, end]) => `(${render(start, end)})`);
-        const { operator, boolean, thunk, spreadKeys, pureProps, clampMeta, setElems, regexMeta, pureMerge } = group.targeted;
+        const { operator, boolean, thunk, spreadKeys, pureProps, clampMeta, setElems, regexMeta, pureMerge, guardSteps, guardTruthMode, nullishSafeLoose, rawRightSpan } = group.targeted;
         // Only the edits beside a written null or undefined say on which side it stands.
         const literalSide = group.mutants.find(mutant => mutant.targeted.literalSide !== undefined)?.targeted.literalSide ?? 0;
         const kind = thunk ? 'l' : ['===', '!==', '==', '!='].includes(operator) ? 'e' : operator.length === 1 ? 'a'
@@ -567,29 +601,51 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
         else if (clampMeta) row.push(clampMeta);
         else if (regexMeta) row.push(regexMeta);
         else if (pureMerge !== undefined) row.push(pureMerge);
+        else if (guardSteps) row.push(guardTruthMode ?? 0, nullishSafeLoose ? 1 : 0);
         probed.push(row);
         let callArgs;
+        let argCount = operands.length;
         if (thunk) {
           operands[1] = `() => ${operands[1]}`;
           callArgs = operands.join(', ');
+          argCount = 2;
         } else if (kind === 'p') {
           callArgs = `${operands[0]}, [${operands.slice(1).map(opExpr => `() => ${opExpr}`).join(', ')}]`;
+          argCount = 2;
         } else if (kind === 'k') {
           callArgs = `[${operands.map(opExpr => `() => ${opExpr}`).join(', ')}]`;
+          argCount = 1;
         } else if (kind === 'u') {
           callArgs = `[${setElems.join(', ')}], () => ${operands[0]}`;
+          argCount = 2;
         } else if (kind === 'g') {
           callArgs = `() => ${operands[0]}, () => ${operands[1]}`;
+          argCount = 2;
         } else if (kind === 'x') {
           const litEntries = [`orig: () => /${regexMeta.pattern || '(?:)'}/${regexMeta.flags}`];
           for (const [fKey, altPat] of Object.entries(regexMeta.alts)) {
             litEntries.push(`${fKey}: () => /${altPat || '(?:)'}/${regexMeta.flags}`);
           }
           callArgs = `{ ${litEntries.join(', ')} }, () => ${operands[0]}`;
+          argCount = 2;
         } else if (kind === 'r') {
           callArgs = `${operands[0]}, ${operands.slice(1).map(opExpr => `() => ${opExpr}`).join(', ')}`;
+          argCount = operands.length;
         } else {
           callArgs = operands.join(', ');
+        }
+        if (guardSteps && argCount <= 3) {
+          const pad = ', void 0'.repeat(3 - argCount);
+          let guardExpr = `(${valParam})`;
+          for (const step of guardSteps) {
+            if (step.kind === 'not') guardExpr = `(!${guardExpr})`;
+            else guardExpr = `(${guardExpr} ${step.op} (${text.slice(step.rightSpan[0], step.rightSpan[1])}))`;
+          }
+          const guardFn = `${valParam} => ${guardExpr}`;
+          const guardArg = thunk && rawRightSpan
+            ? `{ g: ${guardFn}, r: () => (${text.slice(rawRightSpan[0], rawRightSpan[1])}) }`
+            : guardFn;
+          callArgs = `${callArgs}${pad}, ${guardArg}`;
         }
         const call = `${see}(${probed.length - 1}, ${callArgs})`;
         // Nothing inside the expression is left to render: an index the probe works out itself has no switch.
