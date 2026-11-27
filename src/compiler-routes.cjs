@@ -2040,7 +2040,7 @@ function compile(input, options = {}, declinedNative = false) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
             const property = annotated?.parameterProperty === true;
             // Original fast paths first: strict eraseModule/eraseScript -> highByteNames (pulse) -> validJavaScriptTsModule (javascript)
-            const strictMod = !directive && (property || annotated === true || addon.moduleMarker(source, true));
+            const strictMod = !directive && (property || annotated === true || (!(alreadyDeclined && format === 'esm') && addon.moduleMarker(source, true)));
             if (!directive) {
               const origResult = strictMod
                 ? eraseModule(addon, text, file, format, property)
@@ -2051,12 +2051,13 @@ function compile(input, options = {}, declinedNative = false) {
               // Names outside ASCII: the certified parser reads a copy in which they are spelled in ASCII. The
               // copy also serves where the parser read the source but the emitter declined it for such a byte
               // (a namespace body is searched byte by byte).
-              if (source.length <= 1048576) {
+              if (source.length <= 1048576 && /[^\x00-\x7f]/.test(text)) {
                 const named = highByteNames(addon, source, text, file, format);
                 if (named) return named;
               }
             }
-            if (!property) {
+            if (!property && !(alreadyDeclined && format === 'esm' &&
+                /\b(?:interface|declare|namespace|readonly|abstract|implements|override|accessor)\b|\b(?:import|export)[ \t]+type\b/.test(text))) {
               const plainJs = validJavaScriptTsModule(addon, source, text, file, format, directive, false);
               if (plainJs) return plainJs;
             }

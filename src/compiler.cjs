@@ -94,8 +94,7 @@ function compile(input, options) {
         if (code !== undefined) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
       }
     } else if (kind >= 0) {
-      const source = Buffer.isBuffer(input) ? input :
-        typeof input === 'string' && input.isWellFormed() ? input : null;
+      const source = Buffer.isBuffer(input) || typeof input === 'string' ? input : null;
       const emit = source === null ? undefined : (pulse ??= nativeAddon('compiler-module.node')).emitTypeScript;
       if (emit !== undefined) {
         const code = emit(source, kind | flags);

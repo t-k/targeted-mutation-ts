@@ -132,9 +132,17 @@ static uint8_t *copy_type_only_trivia(TmtPulseMemory_tape input, bool esm, size_
   return code;
 }
 
-static uint8_t *type_only_module(uint8_t *source, uint32_t size, bool esm, size_t *length) {
+typedef struct {
+  uint8_t *utf8_buf;
+  size_t utf8_cap;
+  void *workspace;
+} addon_state;
+
+static uint8_t *type_only_module(void *ws, uint8_t *source, uint32_t size, bool esm, size_t *length) {
   /* Only entries that the parser has written are read, so the table is not cleared. */
-  TmtPulseMemory_binding_name bindings[binding_capacity];
+  TmtPulseMemory_binding_name *bindings = ws ? (TmtPulseMemory_binding_name *)tmt_workspace_bindings(ws) : NULL;
+  TmtPulseMemory_binding_name stack_bindings[binding_capacity];
+  if (!bindings) bindings = stack_bindings;
   TmtGrammar_candidate output;
   uint8_t mark;
   const TmtPulseMemory_tape input = {
@@ -162,7 +170,7 @@ static napi_value erase_type_module(napi_env env, napi_callback_info info) {
   if (argc != 2) goto error;
   NAPI(napi_get_buffer_info(env, args[0], &source, &size));
   NAPI(napi_get_value_bool(env, args[1], &esm));
-  if (size <= source_limit) output = type_only_module(source, (uint32_t)size, esm, &length);
+  if (size <= source_limit) output = type_only_module(NULL, source, (uint32_t)size, esm, &length);
   if (output) {
     NAPI(napi_create_string_utf8(env, (char *)output, length, &result));
     free(output);
@@ -410,12 +418,14 @@ static napi_value module_marker(napi_env env, napi_callback_info info) {
   napi_value args[2], result;
   size_t argc = 2, size;
   bool validate;
-  void *source;
+  void *source, *raw_state = NULL;
   NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
   if (argc != 2) goto error;
   NAPI(napi_get_buffer_info(env, args[0], &source, &size));
   NAPI(napi_get_value_bool(env, args[1], &validate));
-  const bool accepted = size && size <= source_limit && tmt_module_marker(source, (uint32_t)size, validate);
+  napi_get_instance_data(env, &raw_state);
+  addon_state *state = raw_state;
+  const bool accepted = size && size <= source_limit && tmt_module_marker_ws(state ? state->workspace : NULL, source, (uint32_t)size, validate);
   NAPI(napi_get_boolean(env, accepted, &result));
   return result;
 error:
@@ -484,11 +494,13 @@ error:
 static napi_value unbound_export(napi_env env, napi_callback_info info) {
   napi_value arg, result;
   size_t argc = 1, size;
-  void *source;
+  void *source, *raw_state = NULL;
   NAPI(napi_get_cb_info(env, info, &argc, &arg, NULL, NULL));
   if (argc != 1) goto error;
   NAPI(napi_get_buffer_info(env, arg, &source, &size));
-  const bool accepted = size && size <= source_limit && tmt_unbound_export(source, (uint32_t)size);
+  napi_get_instance_data(env, &raw_state);
+  addon_state *state = raw_state;
+  const bool accepted = size && size <= source_limit && tmt_unbound_export_ws(state ? state->workspace : NULL, source, (uint32_t)size);
   NAPI(napi_get_boolean(env, accepted, &result));
   return result;
 error:
@@ -632,20 +644,98 @@ static TMT_MAP_COLD napi_status create_mapped_result(napi_env env, const uint8_t
   return status;
 }
 
-typedef struct {
-  uint8_t *utf8_buf;
-  size_t utf8_cap;
-} addon_state;
-
 static void finalize_addon_state(napi_env env, void *data, void *hint) {
   (void)env;
   (void)hint;
   addon_state *state = data;
   if (state) {
     free(state->utf8_buf);
+    tmt_workspace_free(state->workspace);
     free(state);
   }
 }
+
+#ifdef TMT_V8_VALIDATOR
+/*
+ * Multi-file TypeScript harness inputs (`// @filename: ...`) often declare the same top-level name
+ * in separate virtual files, which causes single-module binding checks to decline. When every
+ * `@filename:` chunk independently erases as a length-preserving projection and the combined output
+ * retains a module marker, concatenate the erased chunks directly.
+ */
+static char *emit_multifile_mts(void *ws, uint8_t *source, uint32_t width, size_t *length) {
+  if (!contains(source, width, "@filename:", true)) return NULL;
+  enum { max_chunks = 64 };
+  uint32_t starts[max_chunks + 1];
+  unsigned count = 0;
+  starts[count++] = 0;
+  for (uint32_t at = 0; at + 12 < width; ) {
+    uint32_t p = at;
+    while (p < width && (source[p] == ' ' || source[p] == '\t')) p++;
+    if (p + 12 < width && source[p] == '/' && source[p + 1] == '/') {
+      uint32_t q = p + 2;
+      while (q < width && (source[q] == ' ' || source[q] == '\t')) q++;
+      if (q + 10 <= width && source[q] == '@' &&
+          (source[q + 1] | 0x20) == 'f' && (source[q + 2] | 0x20) == 'i' &&
+          (source[q + 3] | 0x20) == 'l' && (source[q + 4] | 0x20) == 'e' &&
+          (source[q + 5] | 0x20) == 'n' && (source[q + 6] | 0x20) == 'a' &&
+          (source[q + 7] | 0x20) == 'm' && (source[q + 8] | 0x20) == 'e' &&
+          source[q + 9] == ':') {
+        if (at > starts[count - 1]) {
+          if (count >= max_chunks) return NULL;
+          starts[count++] = at;
+        }
+      }
+    }
+    const uint8_t *nl = memchr(source + at, '\n', width - at);
+    if (!nl) break;
+    at = (uint32_t)(nl - source) + 1;
+  }
+  if (count < 2) return NULL;
+  starts[count] = width;
+  char *out = malloc(width);
+  if (!out) return NULL;
+  memcpy(out, source, width);
+  bool has_prev_runtime = false;
+  for (unsigned i = 0; i < count; i++) {
+    const uint32_t s = starts[i], e = starts[i + 1], clen_in = e - s;
+    const TmtPulseMemory_tape chunk_tape = { .source = source + s, .size = clen_in };
+    const TmtPulseParser_cursor chunk_start = TmtPulseCompiler_runtime_source_start(chunk_tape);
+    if (chunk_start.ok && chunk_start.at == clen_in) continue; /* Trivia-only prelude chunk (e.g. // @declaration: true) */
+    size_t clen_out = 0;
+    bool c_checked = false, c_complete = false, c_script = false, c_owned = true;
+    tmt_parameter_route c_prop = TMT_PARAMETER_NONE;
+    char *piece = tmt_emit_annotated_module_ws(ws, source + s, clen_in, TMT_ENUMS_ABSENT, false, true,
+      &clen_out, &c_checked, &c_complete, &c_script, &c_prop, NULL, &c_owned);
+    if (piece && c_complete) {
+      if (clen_out == clen_in) {
+        if (piece != (char *)(source + s)) memcpy(out + s, piece, clen_in);
+        if (c_owned) free(piece);
+        has_prev_runtime = true;
+        continue;
+      }
+      if (c_script && clen_out == clen_in + 14 && !memcmp(piece, "\"use strict\";\n", 14)) {
+        memcpy(out + s, piece + 14, clen_in);
+        if (c_owned) free(piece);
+        has_prev_runtime = true;
+        continue;
+      }
+    }
+    if (c_owned) free(piece);
+    if (!c_checked && c_prop == TMT_PARAMETER_NONE &&
+        tmt_blank_type_only_chunk_ws(ws, source + s, clen_in, out + s, has_prev_runtime)) {
+      continue;
+    }
+    free(out);
+    return NULL;
+  }
+  if (!tmt_module_marker_ws(ws, (uint8_t *)out, width, false) || !tmt_valid_module_source(out, width)) {
+    free(out);
+    return NULL;
+  }
+  *length = width;
+  return out;
+}
+#endif
 
 /*
  * The default-option TypeScript route in one call. The steps and their order mirror compile() in
@@ -659,6 +749,7 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
   uint32_t flags;
   void *bytes = NULL;
   char *output = NULL;
+  bool output_owned = true;
   bool complete_decline = false;
   NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
   if (argc != 2) goto error;
@@ -668,46 +759,64 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
   uint8_t *source = NULL;
   tmt_run_log runs = { 0 };
   const bool jsx = flags & emit_tsx, esm = flags & emit_esm, classic = flags & emit_classic;
+  void *raw_state = NULL;
+  NAPI(napi_get_instance_data(env, &raw_state));
+  addon_state *state = raw_state;
+  bool input_ascii = false;
   if (arg_type == napi_string) {
-    void *raw_state = NULL;
-    NAPI(napi_get_instance_data(env, &raw_state));
-    addon_state *state = raw_state;
     if (!state) goto decline;
-    NAPI(napi_get_value_string_utf8(env, args[0], NULL, 0, &size));
-    if (!size || size > source_limit) goto decline;
-    if (size + 1 > state->utf8_cap) {
-      size_t next_cap = size + 1;
-      if (next_cap < 65536) next_cap = 65536;
-      uint8_t *grown = realloc(state->utf8_buf, next_cap);
-      if (!grown) goto error;
-      state->utf8_buf = grown;
-      state->utf8_cap = next_cap;
+    if (state->utf8_cap == 0) {
+      state->utf8_buf = malloc(65536);
+      if (!state->utf8_buf) goto error;
+      state->utf8_cap = 65536;
     }
+    /* Single-pass UTF-8 read for strings fitting in the reusable buffer (<64 KiB covers >99% of files).
+     * A 4-byte UTF-8 sequence that does not fit may stop up to 4 bytes before cap, so re-query whenever size + 4 >= cap. */
     NAPI(napi_get_value_string_utf8(env, args[0], (char *)state->utf8_buf, state->utf8_cap, &size));
+    if (size + 4 >= state->utf8_cap) {
+      NAPI(napi_get_value_string_utf8(env, args[0], NULL, 0, &size));
+      if (!size || size > source_limit) goto decline;
+      if (size + 1 > state->utf8_cap) {
+        size_t next_cap = size + 1;
+        uint8_t *grown = realloc(state->utf8_buf, next_cap);
+        if (!grown) goto error;
+        state->utf8_buf = grown;
+        state->utf8_cap = next_cap;
+      }
+      NAPI(napi_get_value_string_utf8(env, args[0], (char *)state->utf8_buf, state->utf8_cap, &size));
+    } else if (!size) {
+      goto decline;
+    }
     /* Lone surrogates are converted to U+FFFD (EF BF BD) by N-API; decline so JS checks isWellFormed(). */
-    if (contains(state->utf8_buf, size, "\xef\xbf\xbd", false)) goto decline;
+    input_ascii = ascii_text((const char *)state->utf8_buf, size);
+    if (!input_ascii && contains(state->utf8_buf, size, "\xef\xbf\xbd", false)) goto decline;
     source = state->utf8_buf;
   } else {
     NAPI(napi_get_buffer_info(env, args[0], &bytes, &size));
     source = bytes;
-    if (!size || size > source_limit || !unshared_buffer(env, args[0]) || !valid_utf8(source, size)) goto decline;
+    if (!size || size > source_limit || !unshared_buffer(env, args[0])) goto decline;
+    const size_t lead_ascii = ascii_prefix(source, size);
+    input_ascii = lead_ascii == size;
+    if (!input_ascii && !valid_utf8(source + lead_ascii, size - lead_ascii)) goto decline;
   }
   const uint32_t width = (uint32_t)size;
   /*
    * The restricted grammars start at an export after trivia. An import cannot use them, and a leading
    * triple-slash directive keeps them out as well. The module routes keep the directive as the comment it is.
    */
-  const tmt_triple_slash_kind directive = source[0] != 'i' && tmt_leading_triple_slash(source, width) ?
+  const uint8_t b0 = source[0];
+  const bool maybe_trivia = !((b0 >= 'a' && b0 <= 'z') || (b0 >= 'A' && b0 <= 'Z') || b0 == '_' || b0 == '$');
+  const tmt_triple_slash_kind directive = maybe_trivia && tmt_leading_triple_slash(source, width) ?
     tmt_triple_slash(source, width) : TMT_TRIPLE_SLASH_ABSENT;
   if (directive == TMT_TRIPLE_SLASH_OTHER) goto decline;
-  const bool restricted = source[0] != 'i' && directive == TMT_TRIPLE_SLASH_ABSENT;
+  const bool restricted = source[0] == 'e' && directive == TMT_TRIPLE_SLASH_ABSENT;
   if (restricted && !jsx) {
     uint8_t *planned;
     bool failed;
     if (direct_plan(source, size, &planned, &failed)) {
       const char *code = planned ? (char *)planned : (char *)source;
       const napi_status created = flags & emit_mapped ? create_mapped_result(env, source, size, code, size, NULL, &result) :
-        create_source_string(env, code, size, &result);
+        input_ascii ? napi_create_string_latin1(env, code, size, &result) : create_source_string(env, code, size, &result);
       free(planned);
       NAPI(created);
       return result;
@@ -717,7 +826,7 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
   }
   const bool runtime = jsx && jsx_pragma_supported(source, width, classic) && !contains(source, size, "_tmt", false);
   bool complete;
-  if (restricted && (!jsx || runtime)) {
+  if (restricted && (jsx ? runtime : contains(source, size, "enum", false))) {
     output = tmt_lower_runtime(source, width, jsx, true, classic, false, &length, &complete, flags & emit_mapped ? &runs : NULL);
     if (output) goto publish;
   }
@@ -727,27 +836,37 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
      * escapes, or TS-only import/optional-private forms, and with a verified top-level module
      * marker (so `export {};` is never needed), can be validated directly by V8. */
     if (esm && !jsx && size >= 65536 && directive == TMT_TRIPLE_SLASH_ABSENT &&
-        source[0] != 0x23 && ascii_text((const char *)source, size) &&
+        source[0] != 0x23 && input_ascii &&
         !memchr(source, '<', size) &&
         !contains(source, size, "\\u", false) && !contains(source, size, "import", false) &&
         !contains(source, size, "?.", false) && !contains(source, size, "for", false) &&
-        tmt_module_marker(source, width, false) &&
+        tmt_module_marker_ws(state ? state->workspace : NULL, source, width, false) &&
         tmt_valid_module_source((const char *)source, size)) {
       const napi_status created = flags & emit_mapped
         ? create_mapped_result(env, source, size, (const char *)source, size, NULL, &result)
-        : create_source_string(env, (const char *)source, size, &result);
+        : napi_create_string_latin1(env, (const char *)source, size, &result);
       NAPI(created);
       return result;
     }
 #endif
-    output = (char *)type_only_module(source, width, esm, &length);
-    if (output) goto publish;
     bool checked, script;
     tmt_parameter_route property;
-    output = tmt_emit_annotated_module(source, width,
+    output = tmt_emit_annotated_module_ws(state ? state->workspace : NULL, source, width,
       !jsx ? TMT_ENUMS_UNKNOWN : runtime ? TMT_ENUMS_PRESENT : TMT_ENUMS_ABSENT, esm, !esm && !jsx,
-      &length, &checked, &complete, &script, &property, flags & emit_mapped ? &runs : NULL);
+      &length, &checked, &complete, &script, &property, flags & emit_mapped ? &runs : NULL, &output_owned);
     if (output && complete && !script) goto publish;
+    if (!output && !checked && property == TMT_PARAMETER_NONE) {
+      output_owned = true;
+      output = (char *)type_only_module(state ? state->workspace : NULL, source, width, esm, &length);
+      if (output) goto publish;
+#ifdef TMT_V8_VALIDATOR
+      if (esm && !jsx && directive == TMT_TRIPLE_SLASH_ABSENT && source[0] != 0xef && source[0] != 0x23) {
+        output_owned = true;
+        output = emit_multifile_mts(state ? state->workspace : NULL, source, width, &length);
+        if (output) goto publish;
+      }
+#endif
+    }
     /* Scripts, partial projections and compatibility hints continue in JavaScript. */
     if (!jsx && directive == TMT_TRIPLE_SLASH_ABSENT && !output && !checked && property == TMT_PARAMETER_NONE &&
         source[0] != 0x23 && source[0] != 0xef) {
@@ -756,26 +875,27 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     goto decline;
   }
   if (runtime && !spells_helper_letter(source, size)) {
+    output_owned = true;
     output = tmt_lower_runtime(source, width, true, true, classic, true, &length, &complete, flags & emit_mapped ? &runs : NULL);
     if (output && complete) goto publish;
   }
 decline:
-  free(output);
+  if (output_owned) free(output);
   free(runs.items);
   NAPI(complete_decline ? napi_get_null(env, &result) : napi_get_undefined(env, &result));
   return result;
 publish:
   {
     const napi_status created = flags & emit_mapped ? create_mapped_result(env, source, size, output, length, &runs, &result) :
-      create_source_string(env, output, length, &result);
-    free(output);
+      input_ascii ? napi_create_string_latin1(env, output, length, &result) : create_source_string(env, output, length, &result);
+    if (output_owned) free(output);
     free(runs.items);
     output = NULL;
     NAPI(created);
   }
   return result;
 error:
-  free(output);
+  if (output_owned) free(output);
   free(runs.items);
   napi_throw_error(env, NULL, "Native TypeScript emission arguments or allocation failed");
   return NULL;
@@ -944,7 +1064,9 @@ static napi_value init(napi_env env, napi_value exports) {
 #ifndef TMT_DIRECT
   addon_state *state = calloc(1, sizeof(*state));
   if (!state) goto error;
-  if (napi_set_instance_data(env, state, finalize_addon_state, NULL) != napi_ok) {
+  state->workspace = tmt_workspace_alloc();
+  if (!state->workspace || napi_set_instance_data(env, state, finalize_addon_state, NULL) != napi_ok) {
+    tmt_workspace_free(state->workspace);
     free(state);
     goto error;
   }

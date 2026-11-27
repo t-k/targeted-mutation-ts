@@ -4074,3 +4074,120 @@ test('R63 native fast-path, >=64KiB .mts boundary, inherited options, and multil
   const addon = createRequire(import.meta.url)('../build/compiler-module.node');
   assert.equal(addon.emitTypeScript('export const s = "\ud800";\n', 0), undefined);
 });
+
+test('R64 workspace reuse, single-pass string ingress, multi-file .mts, and parser fast-paths', () => {
+  // 1. Multi-file @filename: .mts with trivia prelude, type-only .d.ts chunk, and script chunk
+  const multiOk = [
+    '// @declaration: true',
+    '// @filename: types.d.ts',
+    'export interface Foo { a: number; }',
+    '// @filename: helper.ts',
+    'const h: number = 1;',
+    '// @filename: main.ts',
+    'export const x: number = h;',
+    '',
+  ].join('\n');
+  for (const sourceMap of [false, true]) {
+    const r = compile(multiOk, { file: 'r64-multi.mts', sourceMap });
+    assert.equal(r.backend, 'pulse', `sourceMap=${sourceMap}`);
+    assert.ok(typeof r.code === 'string');
+    assert.ok(r.code.includes('export const x'));
+    assert.ok(!r.code.includes('interface Foo'));
+    if (sourceMap) assert.ok(r.sourceMap && typeof r.sourceMap.mappings === 'string');
+  }
+
+  // 2. Multi-file .mts must decline syntax errors, unbound exports, duplicate top-level bindings,
+  // cross-chunk ASI-breaking expressions, and must actually erase type-only chunks
+  const multiBadSyntax = '// @filename: a.ts\nexport const x = 1;\n// @filename: b.ts\nexport const = ;\n';
+  assert.equal(compile(multiBadSyntax, { file: 'r64-bad.mts' }).code, null);
+  const multiUnbound = '// @filename: a.ts\nexport const x = 1;\n// @filename: b.ts\nexport { doesNotExist };\n';
+  assert.equal(compile(multiUnbound, { file: 'r64-unbound.mts' }).code, null);
+  const multiAsiBreak = '// @filename: a.ts\nexport const a = foo\n// @filename: b.ts\n[...xs];\nexport const b = 2;\n';
+  assert.equal(compile(multiAsiBreak, { file: 'r64-asi.mts' }).code, null);
+  const multiDupExport = '// @filename: a.ts\nexport const x: number = 1;\n// @filename: b.ts\nexport const x: number = 2;\n';
+  assert.notEqual(compile(multiDupExport, { file: 'r64-dup.mts' }).backend, 'pulse');
+  const multiTypeOnlyChunk = '// @filename: t.ts\nexport type T = number;\n// @filename: a.ts\nconst a: T = 1;\nexport { a };\n';
+  const rMultiTo = compile(multiTypeOnlyChunk, { file: 'r64-mto.mts' });
+  assert.equal(rMultiTo.backend, 'pulse');
+  assert.ok(!rMultiTo.code.includes('export type'));
+  // Erasing a type-only chunk between `export const out = [10,20]` and `[0];` must preserve statement boundary
+  const multiAsiTypeChunk = [
+    '// @filename: a.ts',
+    'export const out = [10,20]',
+    '// @filename: t.ts',
+    'export type Type = { x?: { [Enum.A]: 0 } };',
+    '// @filename: b.ts',
+    '[0];',
+    "import { type Type } from 'data:text/javascript,export{}';",
+    'export const b = 2;',
+    '',
+  ].join('\n');
+  for (const sourceMap of [false, true]) {
+    const rAsi = compile(multiAsiTypeChunk, { file: 'r64-asi-type.mts', sourceMap });
+    assert.ok(typeof rAsi.code === 'string');
+    assert.ok(!rAsi.code.includes('export type'));
+    assert.ok(rAsi.code.includes(';'), `statement separator preserved (sourceMap=${sourceMap})`);
+  }
+
+  // 2b. Single-pass UTF-8 string boundary at 65532..65535 with 2/3/4-byte UTF-8 characters must never truncate
+  // Run each case in a fresh Node process so the initial 64 KiB buffer boundary is exercised every time.
+  const { execFileSync } = createRequire(import.meta.url)('node:child_process');
+  for (const [ch, pad] of [['é', 65534], ['日', 65533], ['😀', 65532], ['😀', 65534]]) {
+    const script = `
+      const assert = require('node:assert/strict');
+      const { compile } = require('./src/compiler.cjs');
+      const prefix = 'export {};\\n// ';
+      const src = prefix + 'a'.repeat(${pad} - prefix.length) + ${JSON.stringify(ch)} + '\\nexport const kept = 1;\\n';
+      for (const sourceMap of [false, true]) {
+        const rStr = compile(src, { file: 'r64-utf8-bound.mts', sourceMap });
+        const rBuf = compile(Buffer.from(src), { file: 'r64-utf8-bound.mts', sourceMap });
+        assert.equal(rStr.backend, 'pulse');
+        assert.equal(rStr.code, rBuf.code);
+        assert.ok(rStr.code.includes('export const kept = 1;'));
+        if (sourceMap) assert.equal(rStr.sourceMap.mappings, rBuf.sourceMap.mappings);
+      }
+    `;
+    execFileSync(process.execPath, ['-e', script], { cwd: new URL('..', import.meta.url) });
+  }
+
+  // 3. all_trivia deferral preserves type_only_module compaction while keeping declare class on pulse
+  const rTypeOnly = compile('export type T = number;\n', { file: 'r64-to.mts' });
+  assert.equal(rTypeOnly.backend, 'pulse');
+  assert.equal(rTypeOnly.code, 'export {};\n');
+  const rDeclClass = compile('export declare class E<T> { static readonly v: string; }\n', { file: 'r64-dc.ts' });
+  assert.equal(rDeclClass.backend, 'pulse');
+
+  // 4. Single-pass string ingress: <64KiB, >64KiB, UTF-8, and lone surrogate rejection
+  const smallStr = compile('export const a: number = 1;\n', { file: 'r64-small.mts' });
+  assert.equal(smallStr.backend, 'pulse');
+  assert.equal(smallStr.code, 'export const a         = 1;\n');
+  const bigStrSrc = 'export const a: number = 1;\n' + '// ' + 'x'.repeat(70000) + '\nexport const b: string = "ok";\n';
+  const bigStr = compile(bigStrSrc, { file: 'r64-big.mts' });
+  assert.equal(bigStr.backend, 'pulse');
+  assert.ok(bigStr.code.includes('export const b         = "ok";'));
+  const utf8Str = compile('export const msg: string = "日本語テスト";\n', { file: 'r64-utf8.mts' });
+  assert.equal(utf8Str.backend, 'pulse');
+  assert.ok(utf8Str.code.includes('"日本語テスト"'));
+  const loneSurrogate = compile('export const bad = "\ud800";\n', { file: 'r64-bad-surr.mts' });
+  assert.equal(loneSurrogate.code, null);
+  assert.equal(loneSurrogate.diagnostics[0]?.code, 'INVALID_ENCODING');
+
+  // 5. Workspace reuse across alternating small (<4KiB) and large (>=4KiB) edited/unedited files
+  const unedited = 'export const pure = 42;\n';
+  const edited = 'export const typed: number = 42;\n';
+  const largeEdited = 'export const head: number = 1;\n' + Array.from({ length: 400 }, (_, j) => `const v${j} = ${j};\n`).join('') + 'export const tail: string = "z";\n';
+  for (let i = 0; i < 3; i++) {
+    assert.equal(compile(unedited, { file: 'r64-u.mts' }).code, unedited);
+    assert.equal(compile(edited, { file: 'r64-e.mts' }).code, 'export const typed         = 42;\n');
+    const lr = compile(largeEdited, { file: 'r64-l.mts' });
+    assert.equal(lr.backend, 'pulse');
+    assert.ok(lr.code.includes('export const tail         = "z";'));
+  }
+
+  // 6. TmtPulseParser_word EOF boundary (keywords within last 8 bytes)
+  for (const eofSrc of ['export {}', 'const a=1;export{}', 'export default 1']) {
+    const r = compile(eofSrc, { file: 'r64-eof.mts' });
+    assert.equal(r.backend, 'pulse');
+    assert.equal(r.code, eofSrc);
+  }
+});

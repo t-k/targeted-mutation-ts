@@ -1620,20 +1620,64 @@ static uint32_t find_marker(TmtPulseMemory_tape input, uint32_t at, bool jsx) {
   return input.size;
 }
 
-static bool module_after_prelude(uint8_t *source, uint32_t size, uint32_t at, bool first, bool validate) {
+typedef struct {
   module_workspace memory;
-  fresh_workspace(&memory);
-  const TmtPulseMemory_tape input = with_workspace(source, size, &memory);
+  TmtGrammar_candidate *records;
+  uint8_t *marks;
+  uint32_t capacity;
+  char *out_buf;
+  size_t out_cap;
+} reusable_workspace;
+
+void *tmt_workspace_alloc(void) {
+  return calloc(1, sizeof(reusable_workspace));
+}
+
+void tmt_workspace_free(void *ws) {
+  reusable_workspace *r = ws;
+  if (!r) return;
+  free(r->records);
+  free(r->marks);
+  free(r->out_buf);
+  free(r);
+}
+
+void *tmt_workspace_bindings(void *ws) {
+  reusable_workspace *r = ws;
+  return r ? (void *)r->memory.bindings : NULL;
+}
+
+static char *workspace_out_buf(reusable_workspace *rws, size_t needed) {
+  if (needed <= rws->out_cap) return rws->out_buf;
+  size_t next = needed < 65536 ? 65536 : needed;
+  char *grown = realloc(rws->out_buf, next);
+  if (!grown) return NULL;
+  rws->out_buf = grown;
+  rws->out_cap = next;
+  return grown;
+}
+
+static bool module_after_prelude_ws(void *ws, uint8_t *source, uint32_t size, uint32_t at, bool first, bool validate) {
+  reusable_workspace *rws = ws;
+  module_workspace stack_memory;
+  module_workspace *memory = rws ? &rws->memory : &stack_memory;
+  if (!rws) fresh_workspace(memory);
+  else memset(memory->marks, 0, sizeof(memory->marks));
+  const TmtPulseMemory_tape input = with_workspace(source, size, memory);
   return (!validate || TmtPulseCompiler_supported_module(input, false)) && (first || find_marker(input, at, false) < input.size);
 }
 
-bool tmt_module_marker(uint8_t *source, uint32_t size, bool validate) {
+bool tmt_module_marker_ws(void *ws, uint8_t *source, uint32_t size, bool validate) {
   const TmtPulseMemory_tape input = { .source = source, .size = size };
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok || first.at == size) return false;
   const bool initial = TmtPulseCompiler_runtime_module_marker(input, first.at);
   if (initial && !validate) return true;
-  return module_after_prelude(source, size, first.at, initial, validate);
+  return module_after_prelude_ws(ws, source, size, first.at, initial, validate);
+}
+
+bool tmt_module_marker(uint8_t *source, uint32_t size, bool validate) {
+  return tmt_module_marker_ws(NULL, source, size, validate);
 }
 
 #ifdef TMT_V8_VALIDATOR
@@ -1726,6 +1770,7 @@ enum {
 
 typedef struct {
   bool remove_statement;
+  bool retained_module;
   /* The parser kept TypeScript-only syntax, or a name whose runtime binding only V8 can decide. */
   bool uncertified;
   bool runtime_enums;
@@ -2146,15 +2191,17 @@ static bool enum_record(uint32_t kind) {
     kind == import_require || kind == import_alias;
 }
 
-static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char **output, bool allow_properties,
-  projection_facts *facts)
+static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, uint32_t start_at, char **output, bool allow_properties,
+  projection_facts *facts, reusable_workspace *rws, bool *out_owned)
 {
   char *code = NULL;
+  bool owned = false;
   uint32_t previous = 0;
-  uint32_t prelude = TmtPulseCompiler_runtime_source_start(input).at;
+  uint32_t prelude = start_at;
   bool retained_module_statement = false;
   *facts = (projection_facts){0};
   *output = NULL;
+  if (out_owned) *out_owned = false;
   for (uint32_t index = 0; index < records; index++) {
     const TmtGrammar_candidate event = input.output[index];
     if (event.original == uncertified_syntax) facts->uncertified = true;
@@ -2233,7 +2280,13 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
       }
     }
     if (!code) {
-      code = malloc((size_t)input.size + sizeof(esm_marker));
+      if (rws) {
+        code = workspace_out_buf(rws, (size_t)input.size + sizeof(esm_marker));
+        owned = false;
+      } else {
+        code = malloc((size_t)input.size + sizeof(esm_marker));
+        owned = true;
+      }
       if (!code) return false;
       memcpy(code, input.source, input.size);
     }
@@ -2253,10 +2306,12 @@ static bool blank_type_records(TmtPulseMemory_tape input, uint32_t records, char
     }
     previous = span.last;
   }
+  facts->retained_module = retained_module_statement;
   *output = code;
+  if (out_owned) *out_owned = owned;
   return true;
 decline:
-  free(code);
+  if (owned) free(code);
   return false;
 }
 
@@ -3290,14 +3345,35 @@ static bool retained_module_marker(TmtPulseMemory_tape input, uint32_t at, uint3
   return false;
 }
 
-static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, uint32_t marker, tmt_enum_hint enums, bool esm, bool module,
-  size_t *length, bool *complete, tmt_run_log *runs)
+static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t records, uint32_t start_at, uint32_t marker, tmt_enum_hint enums, bool esm, bool module,
+  size_t *length, bool *complete, tmt_run_log *runs, reusable_workspace *rws, bool *owned, bool *all_trivia)
 {
   char *code = NULL;
+  bool code_owned = false;
+  if (owned) *owned = true;
+  if (all_trivia) *all_trivia = false;
   projection_facts facts;
-  if (!blank_type_records(input, records, &code, true, &facts)) goto enum_only;
+  if (!blank_type_records(input, records, start_at, &code, true, &facts, owned ? rws : NULL, &code_owned)) goto enum_only;
   TmtPulseMemory_tape projected = input;
   if (code) projected.source = (uint8_t *)code;
+  /* A module whose statements were all erased to trivia belongs to type_only_module (which compacts
+   * type-only modules instead of leaving blanked spaces). Check only when no runtime module statement was kept. */
+  if (all_trivia && module && code && facts.remove_statement && !facts.retained_module &&
+      !facts.runtime_enums && !facts.local_enums && !facts.properties) {
+    const TmtPulseParser_cursor rest = TmtPulseCompiler_runtime_source_start(projected);
+    if (rest.ok && rest.at == input.size) {
+      TmtGrammar_candidate tom_out;
+      uint8_t tom_mark = 0;
+      const TmtPulseMemory_tape tom_in = {
+        .source = input.source, .size = input.size, .output = &tom_out, .bindings = input.bindings, .marks = &tom_mark,
+      };
+      if (TmtPulseCompiler_type_only_module(tom_in).status == 0) {
+        *all_trivia = true;
+        if (code_owned) free(code);
+        return NULL;
+      }
+    }
+  }
   if (module) audit_projection_guard(projected, records, "ts");
   *length = input.size;
   const bool needs_module_marker = code && esm && facts.remove_statement && !retained_module_marker(projected, marker, records);
@@ -3308,25 +3384,31 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
     /* One pass inserts the property statements and lowers the enums between them. */
     char *lowered = emit_parameter_properties(input, code, records, facts.properties, facts.runtime_enums, module, length, runs);
     if (!lowered) goto enum_only;
-    free(code);
+    if (code_owned) free(code);
     code = lowered;
+    code_owned = true;
     unlowered_enum = false;
-  } else if (enums != TMT_ENUMS_ABSENT) {
+  } else if (enums != TMT_ENUMS_ABSENT && (facts.runtime_enums || facts.local_enums)) {
     /* A committed enum record implies the word, so an unknown hint needs no scan here. */
     char *lowered = lower_recorded_enums(projected, input.source, module, records, module && !esm, length, runs);
     if (lowered) {
-      free(code);
+      if (code_owned) free(code);
       code = lowered;
+      code_owned = true;
       unlowered_enum = false;
     }
   }
   /* JavaScript reserves enum, so a module that keeps a declaration can never validate. */
   if (unlowered_enum && module) goto enum_only;
   if (*length > 1048576) goto enum_only;
-  if (needs_module_marker && !tmt_module_marker((uint8_t *)code, (uint32_t)*length, false)) {
-    char *with_marker = realloc(code, *length + sizeof(esm_marker));
-    if (!with_marker) goto enum_only;
-    code = with_marker;
+  if (needs_module_marker && !tmt_module_marker_ws(rws, (uint8_t *)code, (uint32_t)*length, false)) {
+    if (code_owned) {
+      char *with_marker = realloc(code, *length + sizeof(esm_marker));
+      if (!with_marker) goto enum_only;
+      code = with_marker;
+    } else if (!rws || *length + sizeof(esm_marker) > rws->out_cap) {
+      goto enum_only;
+    }
     /* The marker follows a projection of the whole source unless a lowering already logged its copies. */
     if (runs && !runs->count && *length == input.size) log_run(runs, 0, 0, input.size);
     memcpy(code + *length, esm_marker, sizeof(esm_marker) - 1);
@@ -3335,19 +3417,27 @@ static char *erase_annotation_records(TmtPulseMemory_tape input, uint32_t record
   const bool certified = !facts.uncertified;
   if (module && !publishable(certified, code ? code : (const char *)input.source, *length, "ts")) goto enum_only;
   if (!code) {
+    if (owned) {
+      *owned = false;
+      *complete = true;
+      return (char *)input.source;
+    }
     code = malloc(*length);
     if (!code) return NULL;
     memcpy(code, input.source, *length);
+    code_owned = true;
   }
+  if (owned) *owned = code_owned;
   *complete = true;
   return code;
 enum_only:
-  free(code);
+  if (code_owned) free(code);
   if (runs) runs->failed = true;
   /*
    * This text still holds its types and goes on to another eraser, which decides by the words import and export
    * whether it is a module. A require call or module.exports written here would hide that, so they are not.
    */
+  if (owned) *owned = true;
   return enums != TMT_ENUMS_ABSENT ? lower_recorded_enums(input, input.source, module, records, false, length, NULL) : NULL;
 }
 #endif
@@ -3437,25 +3527,52 @@ uint32_t *tmt_legacy_decorator_records(uint8_t *source, uint32_t size, unsigned 
 #endif
 }
 
-char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint enums, bool esm, bool allow_script,
-  size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property, tmt_run_log *runs)
+#ifdef TMT_V8_VALIDATOR
+static bool has_word_bytes(const uint8_t *text, uint32_t size, const char *needle, uint32_t width) {
+  for (uint32_t at = 0; size >= width && size - at >= width; at++) {
+    const uint8_t *found = memchr(text + at, needle[0], size - at - width + 1);
+    if (!found) return false;
+    at = (uint32_t)(found - text);
+    if (!memcmp(text + at, needle, width)) return true;
+  }
+  return false;
+}
+#endif
+
+char *tmt_emit_annotated_module_ws(void *ws, uint8_t *source, uint32_t size, tmt_enum_hint enums, bool esm, bool allow_script,
+  size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property, tmt_run_log *runs, bool *owned)
 {
   *checked = false;
   *complete = false;
   *script = false;
+  if (owned) *owned = true;
   if (runs) {
     runs->count = 0;
     runs->failed = false;
   }
   *property = TMT_PARAMETER_NONE;
 #ifdef TMT_V8_VALIDATOR
-  module_workspace memory;
-  fresh_workspace(&memory);
-  TmtPulseMemory_tape input = with_workspace(source, size, &memory);
+  reusable_workspace *rws = ws;
+  module_workspace stack_memory;
+  module_workspace *memory = rws ? &rws->memory : &stack_memory;
+  if (!rws) fresh_workspace(memory);
+  else if (size < 4096) memset(memory->marks, 0, sizeof(memory->marks));
+  TmtPulseMemory_tape input = with_workspace(source, size, memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok) return NULL;
-  const uint32_t marker = find_marker(input, first.at, false);
-  const bool module = marker < size;
+  uint32_t marker = size;
+  bool deferred_marker = false;
+  if (module_marker_at(input, first.at, false)) {
+    marker = first.at;
+  } else if (!allow_script) {
+    /* For module-only calls (.mts / esm), avoid the O(N) find_marker pre-parse by checking
+     * whether import/export even appear, then parsing once and reading the module marker from records. */
+    if (!has_word_bytes(source, size, "import", 6) && !has_word_bytes(source, size, "export", 6)) return NULL;
+    deferred_marker = true;
+  } else {
+    marker = find_marker(input, first.at, false);
+  }
+  bool module = deferred_marker || marker < size;
   /* A script is read as strict code and published with the directive, so its enums are lowered like a module's. */
   if (!module && (!allow_script || first.at == size)) return NULL;
   if (!module && (source[first.at] == '"' || source[first.at] == '\'')) {
@@ -3473,15 +3590,33 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   if (size >= 4096) {
     input.capacity = size / 8 + 1;
     if (input.capacity > 16384) input.capacity = 16384;
-    records = malloc(input.capacity * sizeof(*records));
-    marks = calloc(input.capacity, sizeof(*marks));
-    if (!records || !marks) {
-      free(records);
-      free(marks);
-      return NULL;
+    if (rws) {
+      if (input.capacity > rws->capacity) {
+        TmtGrammar_candidate *nr = realloc(rws->records, input.capacity * sizeof(*nr));
+        uint8_t *nm = realloc(rws->marks, input.capacity * sizeof(*nm));
+        if (!nr || !nm) {
+          if (nr) rws->records = nr;
+          if (nm) rws->marks = nm;
+          return NULL;
+        }
+        rws->records = nr;
+        rws->marks = nm;
+        rws->capacity = input.capacity;
+      }
+      memset(rws->marks, 0, input.capacity);
+      input.output = rws->records;
+      input.marks = rws->marks;
+    } else {
+      records = malloc(input.capacity * sizeof(*records));
+      marks = calloc(input.capacity, sizeof(*marks));
+      if (!records || !marks) {
+        free(records);
+        free(marks);
+        return NULL;
+      }
+      input.output = records;
+      input.marks = marks;
     }
-    input.output = records;
-    input.marks = marks;
   }
   input.capture_types = true;
   input.count_only = false;
@@ -3490,20 +3625,37 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   input.count_only = true;
   char *code = NULL;
   if (parsed.status == 0 && parsed.count <= input.capacity) {
-    *checked = module;
-    code = erase_annotation_records(input, parsed.count, marker, enums, esm, module, length, complete, runs);
-    *script = !module && *complete;
-    if (!code && module) {
+    if (deferred_marker) {
       for (uint32_t index = 0; index < parsed.count; index++) {
-        const TmtGrammar_candidate entry = input.output[index];
-        if (entry.original != parameter_property) continue;
-        const TmtGrammar_span parameter = { entry.left.first, entry.right.last };
-        const TmtGrammar_candidate *constructor = property_constructor(input, parsed.count, parameter);
-        if (!constructor || constructor->original == parameter_derived_constructor) {
-          *property = TMT_PARAMETER_REFERENCE;
+        const uint8_t kind = input.output[index].original;
+        if (kind == runtime_module_statement || kind == export_assignment) {
+          marker = input.output[index].left.first;
           break;
         }
-        *property = TMT_PARAMETER_NODE;
+      }
+      if (marker == size) {
+        marker = find_marker(input, first.at, false);
+        module = marker < size;
+      }
+    }
+    if (module || allow_script) {
+      bool all_trivia = false;
+      code = erase_annotation_records(input, parsed.count, first.at, marker, enums, esm, module, length, complete, runs, rws, owned,
+        owned ? &all_trivia : NULL);
+      *checked = module && !all_trivia;
+      *script = !module && *complete;
+      if (!code && module && !all_trivia) {
+        for (uint32_t index = 0; index < parsed.count; index++) {
+          const TmtGrammar_candidate entry = input.output[index];
+          if (entry.original != parameter_property) continue;
+          const TmtGrammar_span parameter = { entry.left.first, entry.right.last };
+          const TmtGrammar_candidate *constructor = property_constructor(input, parsed.count, parameter);
+          if (!constructor || constructor->original == parameter_derived_constructor) {
+            *property = TMT_PARAMETER_REFERENCE;
+            break;
+          }
+          *property = TMT_PARAMETER_NODE;
+        }
       }
     }
   }
@@ -3511,6 +3663,7 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
   free(marks);
   return code;
 #else
+  (void)ws;
   (void)source;
   (void)size;
   (void)enums;
@@ -3522,12 +3675,62 @@ char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint en
 #endif
 }
 
-bool tmt_unbound_export(uint8_t *source, uint32_t size) {
-  module_workspace memory;
-  fresh_workspace(&memory);
-  TmtPulseMemory_tape input = with_workspace(source, size, &memory);
+char *tmt_emit_annotated_module(uint8_t *source, uint32_t size, tmt_enum_hint enums, bool esm, bool allow_script,
+  size_t *length, bool *checked, bool *complete, bool *script, tmt_parameter_route *property, tmt_run_log *runs)
+{
+  return tmt_emit_annotated_module_ws(NULL, source, size, enums, esm, allow_script,
+    length, checked, complete, script, property, runs, NULL);
+}
+
+bool tmt_unbound_export_ws(void *ws, uint8_t *source, uint32_t size) {
+  reusable_workspace *rws = ws;
+  module_workspace stack_memory;
+  module_workspace *memory = rws ? &rws->memory : &stack_memory;
+  if (!rws) fresh_workspace(memory);
+  else memset(memory->marks, 0, sizeof(memory->marks));
+  TmtPulseMemory_tape input = with_workspace(source, size, memory);
   input.capture_jsx = true;
   return TmtPulseCompiler_unbound_runtime_export(input);
+}
+
+bool tmt_unbound_export(uint8_t *source, uint32_t size) {
+  return tmt_unbound_export_ws(NULL, source, size);
+}
+
+bool tmt_blank_type_only_chunk_ws(void *ws, uint8_t *source, uint32_t size, char *out, bool separate) {
+#ifdef TMT_V8_VALIDATOR
+  reusable_workspace *rws = ws;
+  module_workspace stack_memory;
+  module_workspace *memory = rws ? &rws->memory : &stack_memory;
+  if (!rws) fresh_workspace(memory);
+  else memset(memory->marks, 0, sizeof(memory->marks));
+  TmtPulseMemory_tape input = with_workspace(source, size, memory);
+  input.capture_jsx = true;
+  input.count_only = false;
+  const TmtPulseParser_parser_state parsed = TmtPulseCompiler_type_only_module(input);
+  if (parsed.status != 0 || parsed.count > input.capacity) return false;
+  uint32_t previous = 0;
+  for (uint32_t index = 0; index < parsed.count; index++) {
+    const TmtGrammar_span span = input.output[index].left;
+    if (input.output[index].original != 6 || span.first < previous || span.first >= span.last || span.last > size) {
+      return false;
+    }
+    if (!blank_lines((uint8_t *)out + span.first, source + span.first, span.last - span.first, true)) return false;
+    previous = span.last;
+  }
+  const TmtPulseMemory_tape erased = { .source = (uint8_t *)out, .size = size };
+  const TmtPulseParser_cursor rest = TmtPulseCompiler_runtime_source_start(erased);
+  if (!rest.ok || rest.at != size) return false;
+  if (separate && parsed.count > 0) out[input.output[0].left.first] = ';';
+  return true;
+#else
+  (void)ws;
+  (void)source;
+  (void)size;
+  (void)out;
+  (void)separate;
+  return false;
+#endif
 }
 
 bool tmt_plain_script(uint8_t *source, uint32_t size) {
@@ -3958,7 +4161,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   if (input.capture_types) {
     char *masked;
     projection_facts facts;
-    if (blank_type_records(input, records, &masked, false, &facts)) {
+    if (blank_type_records(input, records, TmtPulseCompiler_runtime_source_start(input).at, &masked, false, &facts, NULL, NULL)) {
       TmtPulseMemory_tape projected = input;
       if (masked) projected.source = (uint8_t *)masked;
       {

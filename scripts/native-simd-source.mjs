@@ -109,6 +109,84 @@ export function simdSource(root, original, scratch, scalar) {
       }
     }
   }
+  // Optional module-sequence-first dispatch in `TmtPulseParser_parse_attempt`:
+  // For modules (`module_mode == true`), try `module_sequence` first instead of running `parse_state`
+  // + `clear_marks` on every multi-statement module. Falls back to `parse_state` if `module_sequence` declines.
+  const paStart = source.indexOf('\nTmtPulseParser_parse_attempt(');
+  if (paStart >= 0) {
+    const paEnd = source.indexOf('\n}\n', paStart);
+    if (paEnd >= 0) {
+      const paBody = source.slice(paStart, paEnd);
+      if (createHash('sha256').update(paBody).digest('hex') === 'c524a1dcb14c782c0fe43c38d87ea27df0518476be22cd65769873d372cc489a') {
+        const oldCond = '  if (module_mode || initial.status != 0U)\n    value4 = false;';
+        const newCond = '  if (initial.status != 0U)\n    value4 = false;\n  else if (module_mode)\n    value4 = true;';
+        if (paBody.includes(oldCond)) {
+          source = source.slice(0, paStart) + paBody.replace(oldCond, newCond) + source.slice(paEnd);
+        }
+      }
+    }
+  }
+  // Optional single-load big-endian word reader in `TmtPulseParser_word`.
+  const wordStart = source.indexOf('\nTmtPulseParser_word(');
+  if (wordStart >= 0) {
+    const wordEnd = source.indexOf('\n}\n', wordStart);
+    if (wordEnd >= 0) {
+      const wordBody = source.slice(wordStart, wordEnd);
+      if (createHash('sha256').update(wordBody).digest('hex') === '7a5c458c4fb779ea880d192e12f1ce4e9b3be0a15f7ed5b5ad12b883a6e1811d') {
+        const anchor = '  TmtPulseMemory_tape input = input0;\n';
+        const at = wordBody.indexOf(anchor);
+        if (at >= 0) {
+          const fast = `#if defined(__BYTE_ORDER__) && __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+  if (fuel0 <= 8U && at0 < input0.size && input0.size - at0 >= 8U) {
+    if (fuel0 == 0U) return value0;
+    uint64_t raw;
+    memcpy(&raw, input0.source + at0, 8U);
+    raw = __builtin_bswap64(raw);
+    if (fuel0 == 8U) return raw;
+    return (value0 << (fuel0 * 8U)) | (raw >> ((8U - fuel0) * 8U));
+  }
+#endif
+`;
+          source = source.slice(0, wordStart + at) + fast + source.slice(wordStart + at);
+        }
+      }
+    }
+  }
+  // Optional memcmp fast-path in `TmtPulseParser_same_bytes`.
+  const sbStart = source.indexOf('\nTmtPulseParser_same_bytes(');
+  if (sbStart >= 0) {
+    const sbEnd = source.indexOf('\n}\n', sbStart);
+    if (sbEnd >= 0) {
+      const sbBody = source.slice(sbStart, sbEnd);
+      if (createHash('sha256').update(sbBody).digest('hex') === '2e43bafb1161ba7c9f95800c5ef683625179ab70d3167896efe95ac6a992e75d') {
+        const anchor = '  TmtPulseMemory_tape input = input0;\n';
+        const at = sbBody.indexOf(anchor);
+        if (at >= 0) {
+          const fast = `  if (left0 <= input0.size && right0 <= input0.size &&
+      input0.size - left0 >= length0 && input0.size - right0 >= length0) {
+    return length0 == 0U || memcmp(input0.source + left0, input0.source + right0, length0) == 0;
+  }
+`;
+          source = source.slice(0, sbStart + at) + fast + source.slice(sbStart + at);
+        }
+      }
+    }
+  }
+  // Optional memset fast-path in `TmtPulseMemory_clear_marks`.
+  const cmStart = source.indexOf('\nvoid TmtPulseMemory_clear_marks(');
+  if (cmStart >= 0) {
+    const cmEnd = source.indexOf('\n}\n', cmStart);
+    if (cmEnd >= 0) {
+      const cmBody = source.slice(cmStart, cmEnd);
+      if (createHash('sha256').update(cmBody).digest('hex') === '06c00e16e4b63b211892b3969fdfa671929f5cfbfb266a661da8929ecef4bf21') {
+        const oldLine = '  Pulse_Lib_Array_zeroize((size_t)input.capacity, input.marks);';
+        const newLine = '  if (input.capacity) memset(input.marks, 0, (size_t)input.capacity);';
+        if (cmBody.includes(oldLine)) {
+          source = source.slice(0, cmStart) + cmBody.replace(oldLine, newLine) + source.slice(cmEnd);
+        }
+      }
+    }
+  }
   const output = resolve(scratch, 'Custard.simd.c');
   const header = simd + '#include "tmt_simd_scan.h"\n#endif\n';
   writeFileSync(output, source.replace(include, include + header));
